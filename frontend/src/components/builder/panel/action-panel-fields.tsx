@@ -2,8 +2,6 @@
 
 import React, { useEffect, useState } from "react"
 import { Code } from "@/client"
-import { useWorkflow } from "@/providers/workflow"
-import { useWorkspace } from "@/providers/workspace"
 import { Tag } from "emblor"
 import {
   BracesIcon,
@@ -47,7 +45,8 @@ import {
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { CodeEditor } from "@/components/editor/codemirror/code-editor"
-import { YamlStyledEditor } from "@/components/editor/codemirror/yaml-editor"
+import { YamlStyledEditor, YamlStyledEditorRef } from "@/components/editor/codemirror/yaml-editor"
+import { useYamlEditorContext } from "@/components/editor/yaml-editor-context"
 import { DynamicCustomEditor } from "@/components/editor/dynamic"
 import { ExpressionInput } from "@/components/editor/expression-input"
 import { FieldTypeTab, PolyField } from "@/components/polymorphic-field"
@@ -105,26 +104,36 @@ export function YamlField({
   fieldName: string
   description?: string
 }) {
-  const { workspace } = useWorkspace()
-  const { workflow } = useWorkflow()
   const methods = useFormContext()
+  const yamlEditorRef = React.useRef<YamlStyledEditorRef>(null)
+  const { registerEditor, unregisterEditor } = useYamlEditorContext()
+
+  // Register this editor with the context
+  React.useEffect(() => {
+    const editorId = `yaml-field-${fieldName}`
+    const commitFn = () => yamlEditorRef.current?.commitToForm()
+
+    registerEditor(editorId, commitFn)
+
+    return () => {
+      unregisterEditor(editorId)
+    }
+  }, [fieldName, registerEditor, unregisterEditor])
+
   return (
     <FormField
       name={`inputs.${fieldName}`}
       control={methods.control}
-      render={({ field }) => (
+      render={() => (
         <FormItem>
           <FormLabelComponent label={label} description={description} />
           {/* Place form message above because it's not visible otherwise */}
           <FormMessage className="whitespace-pre-line" />
           <FormControl>
-            <DynamicCustomEditor
-              className="w-full"
-              value={field.value}
-              onChange={field.onChange}
-              defaultLanguage="yaml-extended"
-              workspaceId={workspace?.id}
-              workflowId={workflow?.id}
+            <YamlStyledEditor
+              ref={yamlEditorRef}
+              name={`inputs.${fieldName}`}
+              control={methods.control}
             />
           </FormControl>
         </FormItem>

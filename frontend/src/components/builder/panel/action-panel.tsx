@@ -107,6 +107,7 @@ import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { actionTypeToLabel } from "@/components/registry/icons"
 import { ValidationErrorView } from "@/components/validation-errors"
+import { YamlEditorProvider, useYamlEditorContext } from "@/components/editor/yaml-editor-context"
 
 // These are YAML strings
 const actionFormSchema = z.object({
@@ -227,7 +228,7 @@ export interface ActionPanelRef extends ImperativePanelHandle {
   isOpen: () => boolean
 }
 
-export function ActionPanel({
+function ActionPanelContent({
   actionId,
   workflowId,
 }: {
@@ -243,6 +244,7 @@ export function ActionPanel({
     workflowId
   )
   const { actionPanelRef } = useWorkflowBuilder()
+  const { commitAllEditors } = useYamlEditorContext()
   const { registryAction, registryActionIsLoading, registryActionError } =
     useGetRegistryAction(action?.type)
   const { for_each, run_if, retry_policy, ...options } =
@@ -315,6 +317,9 @@ export function ActionPanel({
 
       setSaveState(SaveState.SAVING)
       setValidationResults([])
+
+      // Commit all YAML editors before saving
+      commitAllEditors()
 
       try {
         // Determine inputs value based on current mode
@@ -395,6 +400,7 @@ export function ActionPanel({
       setValidationResults,
       inputMode,
       rawInputsYaml,
+      commitAllEditors,
     ]
   )
 
@@ -431,21 +437,25 @@ export function ActionPanel({
   )
 
   const onPanelBlur = useCallback(() => {
+    // Commit all YAML editors before form submission
+    commitAllEditors()
     methods.handleSubmit(onSubmit)()
-  }, [methods, onSubmit])
+  }, [methods, onSubmit, commitAllEditors])
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Save with Cmd+S (Mac) or Ctrl+S (Windows/Linux)
       if ((e.metaKey || e.ctrlKey) && e.key === "s") {
         e.preventDefault()
+        // Commit all YAML editors before form submission
+        commitAllEditors()
         methods.handleSubmit(onSubmit)()
       }
     }
 
     document.addEventListener("keydown", handleKeyDown)
     return () => document.removeEventListener("keydown", handleKeyDown)
-  }, [methods, onSubmit, action])
+  }, [methods, onSubmit, action, commitAllEditors])
 
   // Handle mode switching with YAML preservation
   const handleModeChange = useCallback(
@@ -1319,6 +1329,20 @@ export function ActionPanel({
         </FormProvider>
       </Tabs>
     </div>
+  )
+}
+
+export function ActionPanel({
+  actionId,
+  workflowId,
+}: {
+  actionId: string
+  workflowId: string
+}) {
+  return (
+    <YamlEditorProvider>
+      <ActionPanelContent actionId={actionId} workflowId={workflowId} />
+    </YamlEditorProvider>
   )
 }
 function SaveStateIcon({ saveState }: { saveState: SaveState }) {

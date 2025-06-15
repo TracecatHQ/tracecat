@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useMemo, useState } from "react"
+import React, { useCallback, useMemo, useRef, useState } from "react"
 import { useWorkflow } from "@/providers/workflow"
 import { useWorkspace } from "@/providers/workspace"
 import {
@@ -25,7 +25,7 @@ import {
   type ViewUpdate,
 } from "@codemirror/view"
 import CodeMirror from "@uiw/react-codemirror"
-import { AlertTriangle, Code } from "lucide-react"
+import { AlertTriangle, Check, Code } from "lucide-react"
 import { Control, FieldValues, useController } from "react-hook-form"
 import YAML from "yaml"
 
@@ -51,13 +51,25 @@ import {
 const stripNewline = (value: string) => {
   return value.endsWith("\n") ? value.slice(0, -1) : value
 }
-export function YamlStyledEditor({
-  name,
-  control,
-}: {
-  name: string
-  control: Control<FieldValues>
-}) {
+
+enum SaveState {
+  IDLE = "idle",
+  UNSAVED = "unsaved",
+  SAVED = "saved",
+  ERROR = "error",
+}
+
+export interface YamlStyledEditorRef {
+  commitToForm: () => void
+}
+
+export const YamlStyledEditor = React.forwardRef<
+  YamlStyledEditorRef,
+  {
+    name: string
+    control: Control<FieldValues>
+  }
+>(({ name, control }, ref) => {
   const { field, fieldState } = useController<FieldValues>({
     name: name,
     control,
@@ -65,7 +77,10 @@ export function YamlStyledEditor({
   const { workspaceId } = useWorkspace()
   const { workflowId, workflow } = useWorkflow()
   const [hasErrors, setHasErrors] = useState(false)
+  const [saveState, setSaveState] = useState<SaveState>(SaveState.IDLE)
+  const [validationErrors, setValidationErrors] = useState<string[]>([])
   const actions = workflow?.actions || []
+  const editorRef = useRef<EditorView | null>(null)
 
   const textValue = React.useMemo(
     () => stripNewline(field.value ? YAML.stringify(field.value) : ""),
@@ -73,32 +88,76 @@ export function YamlStyledEditor({
   )
   // Internal editor value - always a string representation of the YAML
   const [buffer, setBuffer] = useState(textValue)
-  console.log("buffer", JSON.stringify(buffer), buffer.endsWith("\n"))
 
   // Sync external changes into the buffer
-  React.useEffect(() => setBuffer(textValue), [textValue])
+  React.useEffect(() => {
+    setBuffer(textValue)
+    setSaveState(SaveState.IDLE)
+  }, [textValue])
 
+  // Track if buffer differs from saved value
+  React.useEffect(() => {
+    if (buffer !== textValue && saveState !== SaveState.UNSAVED) {
+      setSaveState(SaveState.UNSAVED)
+    }
+  }, [buffer, textValue, saveState])
+
+  // Commit valid YAML to RHF (only when explicitly triggered)
+  const commitToForm = useCallback(() => {
+    try {
+      const obj = YAML.parse(buffer)
+      field.onChange(obj) // Push valid object to RHF
+      setValidationErrors([])
+      setHasErrors(false)
+      return true
+    } catch (err) {
+      // Invalid YAML – don't update RHF, keep last valid value
+      console.warn("YAML parse error on commit:", err)
+      setValidationErrors([err instanceof Error ? err.message : "Invalid YAML"])
+      return false
+    }
+  }, [buffer, field])
+
+  // Save function that commits to RHF and updates save state
+  const handleSave = useCallback(() => {
+    const success = commitToForm()
+    if (success) {
+      setSaveState(SaveState.SAVED)
+      // Reset to idle after brief delay
+      setTimeout(() => setSaveState(SaveState.IDLE), 2000)
+    } else {
+      setSaveState(SaveState.ERROR)
+    }
+  }, [commitToForm])
+
+  // Debounced validation for visual feedback
+  const validateYaml = useCallback((text: string) => {
+    try {
+      YAML.parse(text)
+      setValidationErrors([])
+      return true
+    } catch (err) {
+      setValidationErrors([err instanceof Error ? err.message : "Invalid YAML"])
+      return false
+    }
+  }, [])
+
+  // Handle text changes - only update buffer, not RHF
   const handleChange = React.useCallback(
     (newText: string) => {
       newText = stripNewline(newText)
       setBuffer(newText)
-
-      try {
-        const obj = YAML.parse(newText)
-        field.onChange(obj) // ✅ push valid object to RHF
-      } catch (err) {
-        // Invalid JSON – keep RHF value unchanged and surface an error
-        console.warn("error", err)
-        field.onChange(field.value) // noop
-      }
+      // Validate for visual feedback only - no longer push to RHF here
+      validateYaml(newText)
     },
-    [field]
+    [validateYaml]
   )
   const extensions = useMemo(() => {
     const errorMonitorPlugin = ViewPlugin.fromClass(
       class {
         constructor(view: EditorView) {
           this.checkForErrors(view)
+          editorRef.current = view
         }
 
         update(update: ViewUpdate) {
@@ -121,6 +180,22 @@ export function YamlStyledEditor({
       }
     )
 
+    // Custom blur handler that commits YAML to form
+    const yamlBlurHandler = () => {
+      return (event: FocusEvent, view: EditorView): boolean => {
+        // Call the original blur handler for template pills
+        const originalResult = createBlurHandler()(event, view)
+
+        // Commit to form on blur if there are unsaved changes
+        if (saveState === SaveState.UNSAVED) {
+          commitToForm()
+          setSaveState(SaveState.IDLE)
+        }
+
+        return originalResult
+      }
+    }
+
     return [
       keymap.of([
         {
@@ -130,6 +205,30 @@ export function YamlStyledEditor({
         {
           key: "ArrowRight",
           run: enhancedCursorRight,
+        },
+        // Add Cmd+S / Ctrl+S for save
+        {
+          key: "Mod-s",
+          run: () => {
+            handleSave()
+            return true
+          },
+          preventDefault: true,
+        },
+        // Add Cmd+Enter / Ctrl+Enter for explicit commit
+        {
+          key: "Mod-Enter",
+          run: () => {
+            const success = commitToForm()
+            if (success) {
+              setSaveState(SaveState.SAVED)
+              setTimeout(() => setSaveState(SaveState.IDLE), 2000)
+            } else {
+              setSaveState(SaveState.ERROR)
+            }
+            return true
+          },
+          preventDefault: true,
         },
         ...closeBracketsKeymap,
         ...standardKeymap,
@@ -163,20 +262,25 @@ export function YamlStyledEditor({
 
       EditorView.domEventHandlers({
         mousedown: createPillClickHandler(),
-        blur: createBlurHandler(),
+        blur: yamlBlurHandler(),
       }),
 
       templatePillTheme,
       yamlEditorTheme,
     ]
-  }, [workspaceId, workflowId])
+  }, [workspaceId, workflowId, handleSave, saveState, commitToForm])
+
+  // Expose commitToForm method via ref
+  React.useImperativeHandle(ref, () => ({
+    commitToForm,
+  }), [commitToForm])
 
   return (
     <div className="relative">
       <div className="no-scrollbar max-h-[800px] overflow-auto rounded-md border shadow-sm">
         {fieldState.error && (
           <p className="mt-1 text-sm text-red-500">
-            {fieldState.error.message ?? "Invalid JSON"}
+            {fieldState.error.message ?? "Invalid YAML"}
           </p>
         )}
         <CodeMirror
@@ -223,7 +327,32 @@ export function YamlStyledEditor({
       </div>
 
       <div className="absolute bottom-2 right-2 z-10 flex items-center gap-2">
-        {hasErrors && (
+        {/* Save state indicator */}
+        {saveState === SaveState.UNSAVED && (
+          <div className="flex items-center gap-1 rounded-md bg-yellow-100 px-2 py-1 text-xs text-yellow-800">
+            <span>Unsaved</span>
+            <span className="text-[10px] text-yellow-600">
+              {typeof navigator !== "undefined" && /Mac|iPod|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}+S
+            </span>
+          </div>
+        )}
+        {saveState === SaveState.SAVED && (
+          <div className="flex items-center gap-1 rounded-md bg-green-100 px-2 py-1 text-xs text-green-800">
+            <Check className="size-3" />
+            <span>Saved</span>
+          </div>
+        )}
+        {saveState === SaveState.ERROR && (
+          <div
+            className="flex items-center gap-1 rounded-md bg-destructive/10 px-2 py-1 text-xs text-destructive"
+            title={validationErrors.join("\n")}
+          >
+            <AlertTriangle className="size-3" />
+            <span>Error</span>
+          </div>
+        )}
+        {/* Existing syntax error indicator */}
+        {hasErrors && saveState !== SaveState.ERROR && (
           <div
             className="flex items-center gap-1 rounded-md bg-destructive/10 px-2 py-1 text-xs text-destructive"
             title="YAML syntax error"
@@ -248,7 +377,9 @@ export function YamlStyledEditor({
       </div>
     </div>
   )
-}
+})
+
+YamlStyledEditor.displayName = "YamlStyledEditor"
 
 // Custom YAML linter with enhanced error reporting
 function customYamlLinter(view: EditorView): Diagnostic[] {

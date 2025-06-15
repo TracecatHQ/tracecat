@@ -16,12 +16,10 @@ import {
   Completion,
   CompletionContext,
   CompletionResult,
-  snippet,
   startCompletion,
 } from "@codemirror/autocomplete"
 import { cursorCharLeft, cursorCharRight } from "@codemirror/commands"
 import {
-  EditorSelection,
   EditorState,
   StateEffect,
   StateField,
