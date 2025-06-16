@@ -157,7 +157,6 @@ export const YamlStyledEditor = React.forwardRef<
     }
   }, [])
 
-
   // Debounced validation for visual feedback to reduce re-renders during typing
   const validateYaml = useCallback((text: string) => {
     try {
@@ -173,17 +172,20 @@ export const YamlStyledEditor = React.forwardRef<
   // Debounced validation ref to avoid excessive validation during typing
   const validationTimeoutRef = useRef<NodeJS.Timeout>()
 
-  const debouncedValidateYaml = useCallback((text: string) => {
-    // Clear previous timeout
-    if (validationTimeoutRef.current) {
-      clearTimeout(validationTimeoutRef.current)
-    }
+  const debouncedValidateYaml = useCallback(
+    (text: string) => {
+      // Clear previous timeout
+      if (validationTimeoutRef.current) {
+        clearTimeout(validationTimeoutRef.current)
+      }
 
-    // Set new timeout for validation
-    validationTimeoutRef.current = setTimeout(() => {
-      validateYaml(text)
-    }, 300) // 300ms delay to reduce validation frequency
-  }, [validateYaml])
+      // Set new timeout for validation
+      validationTimeoutRef.current = setTimeout(() => {
+        validateYaml(text)
+      }, 300) // 300ms delay to reduce validation frequency
+    },
+    [validateYaml]
+  )
 
   // Handle text changes - only update buffer, not RHF
   const handleChange = React.useCallback(
@@ -335,9 +337,13 @@ export const YamlStyledEditor = React.forwardRef<
   }, [extensions, saveKeymap])
 
   // Expose commitToForm method via ref
-  React.useImperativeHandle(ref, () => ({
-    commitToForm,
-  }), [commitToForm])
+  React.useImperativeHandle(
+    ref,
+    () => ({
+      commitToForm,
+    }),
+    [commitToForm]
+  )
 
   return (
     <div className="relative">
@@ -396,7 +402,11 @@ export const YamlStyledEditor = React.forwardRef<
           <div className="flex items-center gap-1 rounded-md bg-yellow-100 px-2 py-1 text-xs text-yellow-800">
             <span>Unsaved</span>
             <span className="text-[10px] text-yellow-600">
-              {typeof navigator !== "undefined" && /Mac|iPod|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}+S
+              {typeof navigator !== "undefined" &&
+              /Mac|iPod|iPhone|iPad/.test(navigator.userAgent)
+                ? "⌘"
+                : "Ctrl"}
+              +S
             </span>
           </div>
         )}
