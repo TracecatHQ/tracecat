@@ -1,6 +1,6 @@
 "use client"
 
-import React, { createContext, useContext, useCallback, useRef } from "react"
+import React, { createContext, useCallback, useContext, useRef } from "react"
 
 export interface YamlEditorCommitFunction {
   (): void
@@ -17,17 +17,26 @@ const YamlEditorContext = createContext<YamlEditorContextType | null>(null)
 export function useYamlEditorContext() {
   const context = useContext(YamlEditorContext)
   if (!context) {
-    throw new Error("useYamlEditorContext must be used within a YamlEditorProvider")
+    throw new Error(
+      "useYamlEditorContext must be used within a YamlEditorProvider"
+    )
   }
   return context
 }
 
-export function YamlEditorProvider({ children }: { children: React.ReactNode }) {
+export function YamlEditorProvider({
+  children,
+}: {
+  children: React.ReactNode
+}) {
   const editorsRef = useRef<Map<string, YamlEditorCommitFunction>>(new Map())
 
-  const registerEditor = useCallback((id: string, commitFn: YamlEditorCommitFunction) => {
-    editorsRef.current.set(id, commitFn)
-  }, [])
+  const registerEditor = useCallback(
+    (id: string, commitFn: YamlEditorCommitFunction) => {
+      editorsRef.current.set(id, commitFn)
+    },
+    []
+  )
 
   const unregisterEditor = useCallback((id: string) => {
     editorsRef.current.delete(id)

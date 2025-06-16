@@ -3,9 +3,12 @@
  */
 
 import React from "react"
-import { useForm, FormProvider, Control, FieldValues } from "react-hook-form"
+import { Control, FieldValues, FormProvider, useForm } from "react-hook-form"
 
-import { YamlStyledEditor, YamlStyledEditorRef } from "@/components/editor/codemirror/yaml-editor"
+import {
+  YamlStyledEditor,
+  YamlStyledEditorRef,
+} from "@/components/editor/codemirror/yaml-editor"
 
 // Mock CodeMirror components
 jest.mock("@uiw/react-codemirror", () => {
@@ -74,7 +77,10 @@ jest.mock("@/providers/workspace", () => ({
 }))
 
 jest.mock("@/providers/workflow", () => ({
-  useWorkflow: () => ({ workflowId: "test-workflow", workflow: { actions: [] } }),
+  useWorkflow: () => ({
+    workflowId: "test-workflow",
+    workflow: { actions: [] },
+  }),
 }))
 
 // Mock common editor utilities
@@ -93,7 +99,6 @@ jest.mock("@/components/editor/codemirror/common", () => ({
   enhancedCursorRight: () => false,
   templatePillTheme: [],
 }))
-
 
 describe("YamlStyledEditor Implementation", () => {
   beforeEach(() => {
@@ -144,10 +149,7 @@ describe("YamlStyledEditor Implementation", () => {
 
       return (
         <FormProvider {...methods}>
-          <YamlStyledEditor
-            name="testField"
-            control={methods.control}
-          />
+          <YamlStyledEditor name="testField" control={methods.control} />
         </FormProvider>
       )
     }

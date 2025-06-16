@@ -53,8 +53,8 @@ export function JsonStyledEditor({
   setValue,
   debounceMs = 300,
 }: {
-  value: any // Current value - can be string or object
-  setValue: (value: any) => void // Can accept string or parsed object
+  value: unknown // Current value - can be string or object
+  setValue: (value: unknown) => void // Can accept string or parsed object
   debounceMs?: number // Optional debounce delay, defaults to 300ms
 }) {
   const { workspaceId } = useWorkspace()
