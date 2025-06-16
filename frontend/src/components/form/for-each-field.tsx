@@ -52,7 +52,7 @@ export function ForEachField({
                           field.onChange(newExpressions)
                         }}
                       >
-                        <Trash2 className="h-4 w-4" />
+                        <Trash2 className="size-4" />
                       </Button>
                     </div>
                   ))
@@ -68,7 +68,7 @@ export function ForEachField({
                   field.onChange(newExpressions)
                 }}
               >
-                <Plus className="mr-2 h-4 w-4" />
+                <Plus className="mr-2 size-4" />
                 Add Expression
               </Button>
             </div>
