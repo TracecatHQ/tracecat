@@ -1,15 +1,14 @@
-"""Pydantic AI agents with tool calling.
-
-Every agent is given a default set of tools:
--
-
-"""
+"""Pydantic AI agents with tool calling."""
 
 import inspect
 import textwrap
+import tempfile
+from pathlib import Path
+import base64
 from typing import Any, Union, Annotated, Self
 from pydantic import BaseModel
 from pydantic_core import to_jsonable_python
+from tracecat_registry.integrations.agents.parsers import try_parse_json
 from pydantic_ai.agent import AgentRunResult
 from typing_extensions import Doc
 from timeit import timeit
@@ -453,7 +452,7 @@ async def collect_secrets_for_filters(
 
 
 class AgentOutput(BaseModel):
-    output: str
+    output: Any
     message_history: list[ModelMessage]
     duration: float
     usage: Usage | None = None
@@ -475,6 +474,12 @@ async def agent(
         list[str] | str,
         Doc("Actions (e.g. 'tools.slack.post_message') to include in the agent."),
     ],
+    files: Annotated[
+        dict[str, str] | None,
+        Doc(
+            "Files to include in the agent's temporary directory environment. Keys are file paths and values are base64-encoded file contents."
+        ),
+    ] = None,
     fixed_arguments: Annotated[
         dict[str, dict[str, Any]] | None,
         Doc(
@@ -511,30 +516,36 @@ async def agent(
 
     agent = await builder.with_action_filters(*actions).build()
 
-    start_time = timeit()
-    # Use async version since this function is already async
-    try:
-        message_nodes = []
-        async with agent.iter(user_prompt=user_prompt) as run:
-            async for node in run:
-                message_nodes.append(to_jsonable_python(node))
-            result = run.result
-            if not isinstance(result, AgentRunResult):
-                raise ValueError("No output returned from agent run.")
-    except Exception as e:
-        raise AgentRunError(
-            exc_cls=type(e),
-            exc_msg=str(e),
-            message_history=message_nodes,
+    with tempfile.TemporaryDirectory() as temp_dir:
+        if files:
+            for path, content in files.items():
+                file_path = Path(temp_dir) / path
+                file_path.write_bytes(base64.b64decode(content))
+
+        start_time = timeit()
+        # Use async version since this function is already async
+        try:
+            message_nodes = []
+            async with agent.iter(user_prompt=user_prompt) as run:
+                async for node in run:
+                    message_nodes.append(to_jsonable_python(node))
+                result = run.result
+                if not isinstance(result, AgentRunResult):
+                    raise ValueError("No output returned from agent run.")
+        except Exception as e:
+            raise AgentRunError(
+                exc_cls=type(e),
+                exc_msg=str(e),
+                message_history=message_nodes,
+            )
+        end_time = timeit()
+
+        output = AgentOutput(
+            output=try_parse_json(result.output),
+            message_history=result.all_messages(),
+            duration=end_time - start_time,
         )
-    end_time = timeit()
+        if include_usage:
+            output.usage = result.usage()
 
-    output = AgentOutput(
-        output=result.output,
-        message_history=result.all_messages(),
-        duration=end_time - start_time,
-    )
-    if include_usage:
-        output.usage = result.usage()
-
-    return output.model_dump(mode="json", exclude_unset=True)
+    return output.model_dump()
