@@ -48,6 +48,12 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import {
   FormControl,
   FormDescription,
   FormField,
@@ -100,6 +106,10 @@ import {
 import { CopyButton } from "@/components/copy-button"
 import { DynamicCustomEditor } from "@/components/editor/dynamic"
 import { ExpressionInput } from "@/components/editor/expression-input"
+import {
+  useYamlEditorContext,
+  YamlEditorProvider,
+} from "@/components/editor/yaml-editor-context"
 import { ForEachField } from "@/components/form/for-each-field"
 import { getIcon } from "@/components/icons"
 import { JSONSchemaTable } from "@/components/jsonschema-table"
@@ -107,7 +117,6 @@ import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { actionTypeToLabel } from "@/components/registry/icons"
 import { ValidationErrorView } from "@/components/validation-errors"
-import { YamlEditorProvider, useYamlEditorContext } from "@/components/editor/yaml-editor-context"
 
 // These are YAML strings
 const actionFormSchema = z.object({
@@ -186,19 +195,44 @@ const reconstructYamlFromForm = (
   formChanges: Record<string, unknown>
 ) => {
   try {
-    // Parse original to get structure
-    const original = parseYaml(originalYaml) || {}
+    // Parse the original YAML to retain ordering information.
+    // We treat this purely as an object map and rebuild a brand-new object
+    // that:
+    // 1. Contains *only* the keys present in formChanges (ensures removed
+    //    optional fields are actually deleted).
+    // 2. Preserves the ordering of existing keys as much as possible by
+    //    iterating over the original first, then appending new keys.
 
-    // Apply only the changed fields
-    const updated = { ...original, ...formChanges }
+    const original = (parseYaml(originalYaml) || {}) as Record<string, unknown>
 
-    // Use YAML.stringify with options to preserve style
+    // Start with an empty object so keys that were removed in the form are
+    // NOT carried over from the original.
+    const updated: Record<string, unknown> = {}
+
+    // First, iterate over the original keys to preserve ordering where the
+    // key still exists in formChanges.
+    Object.keys(original).forEach((key) => {
+      if (key in formChanges) {
+        updated[key] = formChanges[key]
+      }
+      // If the key is *not* in formChanges we deliberately omit it so that it
+      // is removed in the final YAML output.
+    })
+
+    // Next, append any brand-new keys that were not present in the original
+    // YAML but are now introduced via the form.
+    Object.keys(formChanges).forEach((key) => {
+      if (!(key in original)) {
+        updated[key] = formChanges[key]
+      }
+    })
+
     return YAML.stringify(updated, {
       indent: 2,
       lineWidth: -1, // Don't wrap lines
     })
   } catch (error) {
-    // Fallback to clean YAML if original is unparseable
+    // Fallback to clean YAML if original is unparseable.
     return YAML.stringify(formChanges)
   }
 }
@@ -273,10 +307,40 @@ function ActionPanelContent({
   const [activeTab, setActiveTab] = useState<ActionPanelTabs>("inputs")
   const [open, setOpen] = useState(false)
   const [inputMode, setInputMode] = useState<InputMode>("form")
+  const [visibleOptionalFields, setVisibleOptionalFields] = useState<
+    Set<string>
+  >(new Set())
 
   // Raw YAML state for preserving original formatting
   const [rawInputsYaml, setRawInputsYaml] = useState(() => action?.inputs || "")
   const [yamlFeatures, setYamlFeatures] = useState<string[]>([])
+
+  const required = (registryAction?.interface?.expects?.required ||
+    []) as string[]
+  const { requiredFields, optionalFields } = useMemo(() => {
+    if (!registryAction?.interface?.expects?.properties) {
+      return { requiredFields: [], optionalFields: [] }
+    }
+
+    const allFields = Object.entries(
+      registryAction.interface.expects.properties
+    )
+    const requiredFieldEntries = allFields.filter(([fieldName]) =>
+      required.includes(fieldName)
+    )
+    const optionalFieldEntries = allFields.filter(
+      ([fieldName]) => !required.includes(fieldName)
+    )
+
+    // Sort each group alphabetically
+    requiredFieldEntries.sort(([a], [b]) => a.localeCompare(b))
+    optionalFieldEntries.sort(([a], [b]) => a.localeCompare(b))
+
+    return {
+      requiredFields: requiredFieldEntries,
+      optionalFields: optionalFieldEntries,
+    }
+  }, [registryAction, required])
 
   useEffect(() => {
     setActiveTab("inputs")
@@ -285,7 +349,31 @@ function ActionPanelContent({
     // Update raw YAML when action changes
     setRawInputsYaml(action?.inputs || "")
     setYamlFeatures(detectYamlFeatures(action?.inputs || ""))
-  }, [actionId, action?.inputs])
+
+    // Initialize visible optional fields from existing form data
+    if (action?.inputs && optionalFields.length > 0) {
+      try {
+        const existingInputs = parseYaml(action.inputs) || {}
+        const fieldsWithValues = new Set<string>()
+
+        optionalFields.forEach(([fieldName]) => {
+          if (existingInputs[fieldName] !== undefined) {
+            fieldsWithValues.add(fieldName)
+          }
+        })
+
+        setVisibleOptionalFields(fieldsWithValues)
+      } catch (error) {
+        console.warn(
+          "Failed to parse existing inputs for optional field detection:",
+          error
+        )
+        setVisibleOptionalFields(new Set())
+      }
+    } else {
+      setVisibleOptionalFields(new Set())
+    }
+  }, [actionId, action?.inputs, optionalFields])
 
   // Set up the ref methods
   useEffect(() => {
@@ -438,8 +526,10 @@ function ActionPanelContent({
 
   const onPanelBlur = useCallback(() => {
     // Commit all YAML editors before form submission
-    commitAllEditors()
-    methods.handleSubmit(onSubmit)()
+    if (methods.formState.isDirty) {
+      commitAllEditors()
+      methods.handleSubmit(onSubmit)()
+    }
   }, [methods, onSubmit, commitAllEditors])
 
   useEffect(() => {
@@ -482,29 +572,6 @@ function ActionPanelContent({
     },
     [inputMode, methods, action?.inputs, rawInputsYaml]
   )
-
-  const required = (registryAction?.interface?.expects?.required ||
-    []) as string[]
-  const expectedParams = useMemo(() => {
-    return (
-      registryAction
-        ? {
-            ...registryAction.interface.expects,
-            properties: Object.fromEntries(
-              Object.entries(
-                registryAction?.interface.expects.properties || {}
-              ).sort(([aKey, _aVal], [bKey, _bVal]) => {
-                const aRequired = required.includes(aKey)
-                const bRequired = required.includes(bKey)
-                if (aRequired && !bRequired) return -1
-                if (!aRequired && bRequired) return 1
-                return aKey.localeCompare(bKey)
-              })
-            ),
-          }
-        : {}
-    ) as TracecatJsonSchema
-  }, [registryAction])
 
   if (actionIsLoading || registryActionIsLoading) {
     return <CenteredSpinner />
@@ -1064,36 +1131,147 @@ function ActionPanelContent({
                               }}
                             />
                           )}
-                          {inputMode === "form" &&
-                            /* Form Mode - Individual form fields */
-                            Object.entries(
-                              expectedParams?.properties ?? {}
-                            ).map(([fieldName, fieldDefn]) => {
-                              const label = fieldName
-                                .replaceAll("_", " ")
-                                .replace(/^\w/, (c) => c.toUpperCase())
-                              if (!isTracecatJsonSchema(fieldDefn)) {
+                          {inputMode === "form" && (
+                            <>
+                              {/* Required fields - always shown */}
+                              {requiredFields.map(([fieldName, fieldDefn]) => {
+                                const label = fieldName
+                                  .replaceAll("_", " ")
+                                  .replace(/^\w/, (c) => c.toUpperCase())
+                                if (!isTracecatJsonSchema(fieldDefn)) {
+                                  return (
+                                    <YamlField
+                                      key={fieldName}
+                                      label={label}
+                                      fieldName={fieldName}
+                                    />
+                                  )
+                                }
+
                                 return (
-                                  <YamlField
+                                  <PolymorphicField
                                     key={fieldName}
                                     label={label}
                                     fieldName={fieldName}
+                                    fieldDefn={fieldDefn}
+                                    workspaceId={workspaceId}
+                                    workflowId={workflowId}
                                   />
                                 )
-                              }
+                              })}
 
-                              // Use the new PolymorphicField for all fields
-                              return (
-                                <PolymorphicField
-                                  key={fieldName}
-                                  label={label}
-                                  fieldName={fieldName}
-                                  fieldDefn={fieldDefn}
-                                  workspaceId={workspaceId}
-                                  workflowId={workflowId}
-                                />
-                              )
-                            })}
+                              {/* Optional fields - only shown if in visibleOptionalFields */}
+                              {optionalFields
+                                .filter(([fieldName]) =>
+                                  visibleOptionalFields.has(fieldName)
+                                )
+                                .map(([fieldName, fieldDefn]) => {
+                                  const label = fieldName
+                                    .replaceAll("_", " ")
+                                    .replace(/^\w/, (c) => c.toUpperCase())
+                                  if (!isTracecatJsonSchema(fieldDefn)) {
+                                    return (
+                                      <YamlField
+                                        key={fieldName}
+                                        label={label}
+                                        fieldName={fieldName}
+                                      />
+                                    )
+                                  }
+
+                                  return (
+                                    <PolymorphicField
+                                      key={fieldName}
+                                      label={label}
+                                      fieldName={fieldName}
+                                      fieldDefn={fieldDefn}
+                                      workspaceId={workspaceId}
+                                      workflowId={workflowId}
+                                    />
+                                  )
+                                })}
+
+                              {/* Add optional fields dropdown */}
+                              {optionalFields.length > 0 && (
+                                <div className="mt-4">
+                                  <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="w-full"
+                                      >
+                                        <Plus className="mr-2 size-4" />
+                                        Optional fields
+                                      </Button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent
+                                      align="start"
+                                      className="max-w-96"
+                                    >
+                                      {optionalFields.map(
+                                        ([fieldName, fieldDefn]) => {
+                                          const label = fieldName
+                                            .replaceAll("_", " ")
+                                            .replace(/^\w/, (c) =>
+                                              c.toUpperCase()
+                                            )
+                                          const isVisible =
+                                            visibleOptionalFields.has(fieldName)
+                                          const description =
+                                            isTracecatJsonSchema(fieldDefn)
+                                              ? fieldDefn.description
+                                              : null
+                                          return (
+                                            <DropdownMenuCheckboxItem
+                                              key={fieldName}
+                                              checked={isVisible}
+                                              onCheckedChange={(checked) => {
+                                                const newSet = new Set(
+                                                  visibleOptionalFields
+                                                )
+                                                if (checked) {
+                                                  newSet.add(fieldName)
+                                                } else {
+                                                  newSet.delete(fieldName)
+                                                  // Remove field from form state when hiding
+                                                  const currentInputs =
+                                                    methods.getValues("inputs")
+                                                  const {
+                                                    [fieldName]: _removed,
+                                                    ...remainingInputs
+                                                  } = currentInputs
+                                                  methods.setValue(
+                                                    "inputs",
+                                                    remainingInputs
+                                                  )
+                                                  methods.unregister(
+                                                    `inputs.${fieldName}`
+                                                  )
+                                                }
+                                                setVisibleOptionalFields(newSet)
+                                              }}
+                                            >
+                                              <div className="flex flex-col gap-1">
+                                                <span className="font-medium">
+                                                  {label}
+                                                </span>
+                                                {description && (
+                                                  <span className="text-xs text-muted-foreground">
+                                                    {description}
+                                                  </span>
+                                                )}
+                                              </div>
+                                            </DropdownMenuCheckboxItem>
+                                          )
+                                        }
+                                      )}
+                                    </DropdownMenuContent>
+                                  </DropdownMenu>
+                                </div>
+                              )}
+                            </>
+                          )}
                         </div>
                       </AccordionContent>
                     </AccordionItem>
