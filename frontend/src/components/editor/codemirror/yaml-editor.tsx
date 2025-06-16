@@ -33,13 +33,16 @@ import {
   createActionCompletion,
   createAtKeyCompletion,
   createBlurHandler,
+  createEnvCompletion,
   createExitEditModeKeyHandler,
   createExpressionNodeHover,
   createFunctionCompletion,
   createMentionCompletion,
   createPillClickHandler,
   createPillDeleteKeymap,
+  createSecretsCompletion,
   createTemplatePillPlugin,
+  createVarCompletion,
   editingRangeField,
   EDITOR_STYLE,
   enhancedCursorLeft,
@@ -68,8 +71,9 @@ export const YamlStyledEditor = React.forwardRef<
   {
     name: string
     control: Control<FieldValues>
+    forEachExpressions?: string | string[] | null | undefined
   }
->(({ name, control }, ref) => {
+>(({ name, control, forEachExpressions }, ref) => {
   const { field, fieldState } = useController<FieldValues>({
     name: name,
     control,
@@ -81,6 +85,8 @@ export const YamlStyledEditor = React.forwardRef<
   const [validationErrors, setValidationErrors] = useState<string[]>([])
   const actions = workflow?.actions || []
   const editorRef = useRef<EditorView | null>(null)
+
+  console.log("forEachExpressions", forEachExpressions)
 
   const textValue = React.useMemo(
     () => stripNewline(field.value ? YAML.stringify(field.value) : ""),
@@ -279,7 +285,6 @@ export const YamlStyledEditor = React.forwardRef<
       lintGutter(),
       history(),
       indentUnit.of("  "),
-      EditorView.lineWrapping,
       yaml(),
       linter(customYamlLinter),
 
@@ -290,6 +295,9 @@ export const YamlStyledEditor = React.forwardRef<
           createMentionCompletion(),
           createFunctionCompletion(workspaceId),
           createActionCompletion(Object.values(actions).map((a) => a)),
+          createSecretsCompletion(workspaceId),
+          createEnvCompletion(),
+          createVarCompletion(forEachExpressions),
         ],
       }),
 
@@ -501,6 +509,16 @@ function customYamlLinter(view: EditorView): Diagnostic[] {
 }
 
 const yamlEditorTheme = EditorView.theme({
+  ".cm-content": {
+    whiteSpace: "nowrap !important",
+    overflowX: "auto",
+  },
+  ".cm-line": {
+    whiteSpace: "nowrap !important",
+  },
+  ".cm-scroller": {
+    overflowX: "auto",
+  },
   ".cm-diagnostic-error": {
     borderBottom: "2px wavy #ef4444",
   },

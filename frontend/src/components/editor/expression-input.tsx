@@ -30,6 +30,7 @@ import {
 } from "@codemirror/view"
 import CodeMirror from "@uiw/react-codemirror"
 import { AlertTriangle } from "lucide-react"
+import { useFormContext } from "react-hook-form"
 
 import { cn } from "@/lib/utils"
 import {
@@ -43,7 +44,9 @@ import {
   createPillClickHandler,
   createTemplatePillPlugin,
   createTemplateRegex,
+  createVarCompletion,
   editingRangeField,
+  EDITOR_STYLE,
   enhancedCursorLeft,
   enhancedCursorRight,
   templatePillTheme,
@@ -93,9 +96,9 @@ export interface ExpressionInputProps {
   placeholder?: string
   className?: string
   disabled?: boolean
-  variant?: "default" | "flat"
   showTypeWarnings?: boolean
   onTypeConversion?: (originalValue: unknown, convertedValue: string) => void
+  defaultHeight?: "input" | "text-area"
 }
 
 export function ExpressionInput({
@@ -104,19 +107,23 @@ export function ExpressionInput({
   placeholder: placeholderText = "Enter expression...",
   className,
   disabled = false,
-  variant = "default",
   showTypeWarnings = true,
   onTypeConversion,
+  defaultHeight = "input",
 }: ExpressionInputProps) {
   const { workspaceId } = useWorkspace()
   const { workflow } = useWorkflow()
-  const [editorView, setEditorView] = useState<EditorView | null>(null)
+  const methods = useFormContext()
   const [typeConversionWarning, setTypeConversionWarning] = useState<{
     originalType: string
     originalValue: unknown
     convertedValue: string
   } | null>(null)
   const actions = workflow?.actions || []
+  const forEach = useMemo(
+    () => methods.watch("control_flow.for_each"),
+    [methods]
+  )
 
   // Safe value conversion with error handling
   const safeValue = useMemo(() => {
@@ -195,9 +202,6 @@ export function ExpressionInput({
       EditorState.allowMultipleSelections.of(true),
       indentUnit.of("  "),
 
-      // Multi-line configuration
-      EditorView.lineWrapping,
-
       // Linting
       linter(expressionLinter),
 
@@ -228,6 +232,7 @@ export function ExpressionInput({
           createMentionCompletion(),
           createFunctionCompletion(workspaceId),
           createActionCompletion(Object.values(actions).map((a) => a)),
+          createVarCompletion(forEach),
         ],
       }),
 
@@ -255,13 +260,19 @@ export function ExpressionInput({
         },
         ".cm-content": {
           padding: "8px 12px",
-          minHeight: "36px",
           lineHeight: "20px",
+          // text-xs
+          fontSize: "12px",
           caretColor: "hsl(var(--foreground))",
+          ...(defaultHeight === "text-area" && {
+            minHeight: "240px",
+          }),
         },
         ".cm-scroller": {
           fontFamily: "inherit",
-          minHeight: "36px",
+          ...(defaultHeight === "text-area" && {
+            minHeight: "240px",
+          }),
         },
         ".cm-focused": {
           outline: "2px solid transparent",
@@ -270,8 +281,6 @@ export function ExpressionInput({
           boxShadow: "0 0 0 2px hsl(var(--ring))",
         },
         ".cm-editor": {
-          borderRadius: "calc(var(--radius) - 2px)",
-          border: "1px solid hsl(var(--border))",
           backgroundColor: "hsl(var(--background))",
           color: "hsl(var(--foreground))",
           fontSize: "14px",
@@ -304,7 +313,7 @@ export function ExpressionInput({
         },
       }),
     ]
-  }, [workspaceId, actions, placeholderText])
+  }, [workspaceId, actions, placeholderText, forEach, defaultHeight])
 
   const handleChange = useCallback(
     (val: string, viewUpdate: ViewUpdate) => {
@@ -317,30 +326,15 @@ export function ExpressionInput({
 
   return (
     <div className={cn("relative", className)}>
-      <div className="no-scrollbar max-h-[800px] overflow-auto rounded-md border">
+      <div className="no-scrollbar max-h-[800px] overflow-auto rounded-md border-[0.5px] border-border">
         <CodeMirror
           value={safeValue}
           height="auto"
           extensions={extensions}
           onChange={handleChange}
           editable={!disabled}
-          onCreateEditor={(view) => setEditorView(view)}
           basicSetup={false} // We're handling setup manually
-          className={cn(
-            "rounded-md text-xs focus-visible:outline-none",
-            "[&_.cm-editor]:rounded-md [&_.cm-editor]:border-0 [&_.cm-focused]:outline-none",
-            "[&_.cm-scroller]:rounded-md",
-            "[&_.cm-tooltip]:rounded-md",
-            "[&_.cm-tooltip-autocomplete]:rounded-sm [&_.cm-tooltip-autocomplete]:p-0.5",
-            "[&_.cm-tooltip-autocomplete>ul]:rounded-sm",
-            "[&_.cm-tooltip-autocomplete>ul>li]:flex",
-            "[&_.cm-tooltip-autocomplete>ul>li]:min-h-5",
-            "[&_.cm-tooltip-autocomplete>ul>li]:items-center",
-            "[&_.cm-tooltip-autocomplete>ul>li]:rounded-sm",
-            "[&_.cm-tooltip-autocomplete>ul>li[aria-selected=true]]:bg-sky-200/50",
-            "[&_.cm-tooltip-autocomplete>ul>li[aria-selected=true]]:text-accent-foreground",
-            "[&_.cm-tooltip-autocomplete>ul>li]:py-2.5"
-          )}
+          className={EDITOR_STYLE}
         />
       </div>
 

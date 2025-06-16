@@ -11,6 +11,8 @@ import {
   editorListFunctions,
   editorValidateExpression,
   ExpressionValidationResponse,
+  SecretReadMinimal,
+  secretsListSecrets,
 } from "@/client"
 import {
   Completion,
@@ -37,7 +39,7 @@ import {
 } from "@codemirror/view"
 import {
   AtSignIcon,
-  CircleIcon,
+  BracesIcon,
   DollarSignIcon,
   FunctionSquareIcon,
   KeyIcon,
@@ -48,6 +50,42 @@ import { createRoot } from "react-dom/client"
 export function createTemplateRegex() {
   // Match template expressions with named capture groups, equivalent to Python's TEMPLATE_STRING
   return /\$\{\{(\s*(.+?)\s*)\}\}/g
+}
+
+/**
+ * Parse variable names from for_each expressions
+ * Extracts variable names from expressions like "${{ for var.item in collection }}"
+ */
+export function parseVariablesFromForEach(
+  forEachExpressions: string | string[] | null | undefined
+): Set<string> {
+  const variables = new Set<string>()
+
+  if (!forEachExpressions) {
+    return variables
+  }
+
+  // Convert to array for uniform processing
+  const expressions = Array.isArray(forEachExpressions)
+    ? forEachExpressions
+    : [forEachExpressions]
+
+  // Regex to match for loop expressions like "${{ for var.variable_name in collection }}"
+  const forLoopRegex = /\$\{\{\s*for\s+var\.(\w+)\s+in\s+.+?\s*\}\}/g
+
+  for (const expression of expressions) {
+    if (typeof expression === "string" && expression.trim()) {
+      let match
+      while ((match = forLoopRegex.exec(expression)) !== null) {
+        const variableName = match[1]
+        if (variableName) {
+          variables.add(variableName)
+        }
+      }
+    }
+  }
+
+  return variables
 }
 
 const commonIconStyle = {
@@ -63,7 +101,7 @@ export const CONTEXT_ICONS = {
   FN: () => <FunctionSquareIcon {...commonIconStyle} />,
   ENV: () => <DollarSignIcon {...commonIconStyle} />,
   SECRETS: () => <KeyIcon {...commonIconStyle} />,
-  var: () => <CircleIcon {...commonIconStyle} />,
+  var: () => <BracesIcon {...commonIconStyle} />,
 } as const
 
 export type ContextType = keyof typeof CONTEXT_ICONS
@@ -108,9 +146,10 @@ export interface TemplateExpressionValidation {
   }>
 }
 
-// Caches for functions and actions
+// Caches for functions, actions, and secrets
 export const functionCache = new Map<string, EditorFunctionRead[]>()
 export const actionCache = new Map<string, ActionRead[]>()
+export const secretsCache = new Map<string, SecretReadMinimal[]>()
 
 export async function fetchFunctions(
   workspaceId: string
@@ -1107,9 +1146,13 @@ export function createMentionCompletion(): (
             return
           }
 
-          // For ACTIONS and FN, automatically add a dot to enable immediate property/function completion
+          // For contexts that have properties, automatically add a dot to enable immediate property/function completion
           const needsDot =
-            suggestion.label === "ACTIONS" || suggestion.label === "FN"
+            suggestion.label === "ACTIONS" ||
+            suggestion.label === "FN" ||
+            suggestion.label === "SECRETS" ||
+            suggestion.label === "ENV" ||
+            suggestion.label === "var"
           const labelWithDot = needsDot
             ? `${suggestion.label}.`
             : suggestion.label
@@ -1266,6 +1309,327 @@ export function createActionCompletion(actions: ActionRead[]) {
     } catch (error) {
       console.warn("Failed to get action completions:", error)
       return null
+    }
+  }
+}
+
+export async function fetchSecrets(
+  workspaceId: string
+): Promise<SecretReadMinimal[]> {
+  if (secretsCache.has(workspaceId)) {
+    return secretsCache.get(workspaceId)!
+  }
+
+  try {
+    // Import the secrets function from the client
+    const secrets = await secretsListSecrets({
+      workspaceId,
+      type: ["custom"],
+    })
+    secretsCache.set(workspaceId, secrets)
+    return secrets
+  } catch (error) {
+    console.warn("Failed to fetch secrets:", error)
+    return []
+  }
+}
+
+export function createSecretsCompletion(workspaceId: string) {
+  return async (
+    context: CompletionContext
+  ): Promise<CompletionResult | null> => {
+    // Try to match secret key pattern first (SECRETS.secret_name.key)
+    const secretKeyWord = context.matchBefore(/SECRETS\.\w+\.\w*/)
+    if (secretKeyWord) {
+      try {
+        const secrets = await fetchSecrets(workspaceId)
+        const text = context.state.doc.sliceString(
+          secretKeyWord.from,
+          secretKeyWord.to
+        )
+
+        // Extract secret name and partial key from the text
+        const match = text.match(/^SECRETS\.(\w+)\.(\w*)$/)
+        if (!match) return null
+
+        const [, secretName, partialKey] = match
+
+        // Find the specific secret
+        const secret = secrets.find((s) => s.name === secretName)
+        if (!secret || !secret.keys) return null
+
+        // Filter keys based on partial input
+        const filteredKeys = secret.keys.filter((key) =>
+          key.toLowerCase().startsWith(partialKey.toLowerCase())
+        )
+
+        if (filteredKeys.length === 0) return null
+
+        // Calculate the position to insert from (after the last dot)
+        const lastDotIndex = text.lastIndexOf(".")
+        const keyStartPosition = secretKeyWord.from + lastDotIndex + 1
+
+        return {
+          from: keyStartPosition,
+          options: filteredKeys.map((key) => ({
+            label: key,
+            detail: "secret key",
+            info: `Secret key: ${secretName}.${key}`,
+            apply: (
+              view: EditorView,
+              completion: Completion,
+              from: number,
+              to: number
+            ) => {
+              view.dispatch({
+                changes: { from, to, insert: key },
+                selection: { anchor: from + key.length },
+              })
+            },
+          })),
+        }
+      } catch (error) {
+        console.warn("Failed to get secret key completions:", error)
+        return null
+      }
+    }
+
+    // Fall back to secret name completion (SECRETS.secret_name)
+    const secretWord = context.matchBefore(/SECRETS\.\w*/)
+    if (!secretWord) return null
+
+    try {
+      const secrets = await fetchSecrets(workspaceId)
+      const text = context.state.doc.sliceString(secretWord.from, secretWord.to)
+      const partialSecret = text.replace(/^SECRETS\./, "")
+
+      const filteredSecrets = secrets.filter((secret) =>
+        secret.name.toLowerCase().startsWith(partialSecret.toLowerCase())
+      )
+
+      return {
+        from: secretWord.from + 8,
+        options: filteredSecrets.map((secret) => {
+          const hasKeys = secret.keys && secret.keys.length > 0
+          return {
+            label: secret.name,
+            detail: "secret",
+            info: `Secret: ${secret.name}${secret.description ? ` - ${secret.description}` : ""}\nKeys: ${secret.keys?.join(", ") || "none"}`,
+            apply: (
+              view: EditorView,
+              completion: Completion,
+              from: number,
+              to: number
+            ) => {
+              // Add dot for secrets that have keys to trigger key completion
+              const insertText = hasKeys ? `${secret.name}.` : secret.name
+
+              view.dispatch({
+                changes: { from, to, insert: insertText },
+                selection: { anchor: from + insertText.length },
+              })
+
+              // Trigger key completion for secrets with keys
+              if (hasKeys) {
+                startCompletion(view)
+              }
+            },
+          }
+        }),
+      }
+    } catch (error) {
+      console.warn("Failed to get secrets completions:", error)
+      return null
+    }
+  }
+}
+
+export function createEnvCompletion() {
+  return async (
+    context: CompletionContext
+  ): Promise<CompletionResult | null> => {
+    // Try to match nested workflow properties first (ENV.workflow.property)
+    const workflowPropWord = context.matchBefore(/ENV\.workflow\.\w*/)
+    if (workflowPropWord) {
+      const workflowProperties = [
+        {
+          label: "start_time",
+          detail: "Workflow start time",
+          info: "ISO timestamp when the workflow execution started",
+        },
+        {
+          label: "dispatch_type",
+          detail: "Dispatch type",
+          info: "How the workflow was triggered (e.g., 'manual', 'webhook')",
+        },
+        {
+          label: "execution_id",
+          detail: "Execution ID",
+          info: "Unique identifier for this workflow execution",
+        },
+        {
+          label: "run_id",
+          detail: "Run ID",
+          info: "Unique identifier for this workflow run",
+        },
+        {
+          label: "trigger_type",
+          detail: "Trigger type",
+          info: "Type of trigger that initiated this workflow",
+        },
+      ]
+
+      const text = context.state.doc.sliceString(
+        workflowPropWord.from,
+        workflowPropWord.to
+      )
+      const partialProp = text.replace(/^ENV\.workflow\./, "")
+
+      const filteredProps = workflowProperties.filter((prop) =>
+        prop.label.toLowerCase().startsWith(partialProp.toLowerCase())
+      )
+
+      return {
+        from: workflowPropWord.from + 13, // "ENV.workflow.".length
+        options: filteredProps.map((prop) => ({
+          label: prop.label,
+          detail: prop.detail,
+          info: prop.info,
+          apply: (
+            view: EditorView,
+            completion: Completion,
+            from: number,
+            to: number
+          ) => {
+            view.dispatch({
+              changes: { from, to, insert: prop.label },
+              selection: { anchor: from + prop.label.length },
+            })
+          },
+        })),
+      }
+    }
+
+    // Fall back to top-level ENV properties
+    const envWord = context.matchBefore(/ENV\.\w*/)
+    if (!envWord) return null
+
+    // Based on DSLEnvironment from workflow.py, provide common environment variables
+    const envSuggestions = [
+      {
+        label: "workflow",
+        detail: "Workflow metadata",
+        info: "Contains workflow execution metadata (start_time, dispatch_type, execution_id, run_id, trigger_type)",
+        hasChildren: true,
+      },
+      {
+        label: "environment",
+        detail: "Target environment",
+        info: "The current workflow environment (e.g., 'default', 'production')",
+        hasChildren: false,
+      },
+      {
+        label: "registry_version",
+        detail: "Registry version",
+        info: "The registry version used for this workflow",
+        hasChildren: false,
+      },
+    ]
+
+    const text = context.state.doc.sliceString(envWord.from, envWord.to)
+    const partialEnv = text.replace(/^ENV\./, "")
+
+    const filteredSuggestions = envSuggestions.filter((suggestion) =>
+      suggestion.label.toLowerCase().startsWith(partialEnv.toLowerCase())
+    )
+
+    return {
+      from: envWord.from + 4,
+      options: filteredSuggestions.map((suggestion) => ({
+        label: suggestion.label,
+        detail: suggestion.detail,
+        info: suggestion.info,
+        apply: (
+          view: EditorView,
+          completion: Completion,
+          from: number,
+          to: number
+        ) => {
+          // Add dot for properties that have children to trigger nested completion
+          const insertText = suggestion.hasChildren
+            ? `${suggestion.label}.`
+            : suggestion.label
+
+          view.dispatch({
+            changes: { from, to, insert: insertText },
+            selection: { anchor: from + insertText.length },
+          })
+
+          // Trigger completion for nested properties
+          if (suggestion.hasChildren) {
+            startCompletion(view)
+          }
+        },
+      })),
+    }
+  }
+}
+
+export function createVarCompletion(
+  forEachExpressions?: string | string[] | null | undefined
+) {
+  return async (
+    context: CompletionContext
+  ): Promise<CompletionResult | null> => {
+    const varWord = context.matchBefore(/var\.\w*/)
+    if (!varWord) return null
+
+    // Parse variables from the current form's for_each expressions
+    const parsedVariables = parseVariablesFromForEach(forEachExpressions)
+
+    // Add common variable patterns as fallback if no parsed variables
+    const fallbackVariables = new Set<string>([
+      "item",
+      "index",
+      "key",
+      "value",
+      "element",
+      "entry",
+      "record",
+      "data",
+    ])
+
+    // Use parsed variables if available, otherwise fall back to common patterns
+    const variables =
+      parsedVariables.size > 0 ? parsedVariables : fallbackVariables
+
+    const text = context.state.doc.sliceString(varWord.from, varWord.to)
+    const partialVar = text.replace(/^var\./, "")
+
+    const filteredVars = Array.from(variables).filter((varName) =>
+      varName.toLowerCase().startsWith(partialVar.toLowerCase())
+    )
+
+    return {
+      from: varWord.from + 4,
+      options: filteredVars.map((varName) => ({
+        label: varName,
+        detail: parsedVariables.has(varName) ? "loop variable" : "variable",
+        info: parsedVariables.has(varName)
+          ? `Loop variable from for_each: ${varName}`
+          : `Common loop variable: ${varName}`,
+        apply: (
+          view: EditorView,
+          completion: Completion,
+          from: number,
+          to: number
+        ) => {
+          view.dispatch({
+            changes: { from, to, insert: varName },
+            selection: { anchor: from + varName.length },
+          })
+        },
+      })),
     }
   }
 }
@@ -1501,7 +1865,7 @@ export const templatePillTheme = EditorView.theme({
 })
 
 export const EDITOR_STYLE = `
-  rounded-md border border-input text-xs focus-visible:outline-none
+  rounded-md text-xs focus-visible:outline-none
   [&_.cm-editor]:rounded-md
   [&_.cm-editor]:border-0
   [&_.cm-focused]:outline-none
@@ -1517,7 +1881,6 @@ export const EDITOR_STYLE = `
   [&_.cm-tooltip-autocomplete]:border-input
   [&_.cm-tooltip-autocomplete]:p-0.5
   [&_.cm-tooltip-autocomplete]:shadow-md
-  [&_.cm-tooltip-autocomplete]:bg-background
   [&_.cm-tooltip-autocomplete>ul]:rounded-sm
   [&_.cm-tooltip-autocomplete>ul>li]:flex
   [&_.cm-tooltip-autocomplete>ul>li]:min-h-5

@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useEffect, useState } from "react"
+import React, { useEffect, useMemo, useState } from "react"
 import { Code } from "@/client"
 import { Tag } from "emblor"
 import {
@@ -124,6 +124,11 @@ export function YamlField({
     }
   }, [fieldName, registerEditor, unregisterEditor])
 
+  const forEach = useMemo(
+    () => methods.watch("control_flow.for_each"),
+    [methods]
+  )
+
   return (
     <FormField
       name={`inputs.${fieldName}`}
@@ -138,6 +143,7 @@ export function YamlField({
               ref={yamlEditorRef}
               name={`inputs.${fieldName}`}
               control={methods.control}
+              forEachExpressions={forEach}
             />
           </FormControl>
         </FormItem>
@@ -600,6 +606,10 @@ export function ControlledYamlField({
   description?: string
 }) {
   const methods = useFormContext()
+  const forEach = useMemo(
+    () => methods.watch("control_flow.for_each"),
+    [methods]
+  )
   return (
     <Controller
       name={fieldName}
@@ -611,6 +621,7 @@ export function ControlledYamlField({
           <YamlStyledEditor
             name={`inputs.${fieldName}`}
             control={methods.control}
+            forEachExpressions={forEach}
           />
         </FormItem>
       )}
@@ -682,7 +693,7 @@ export function PolymorphicField({
   if (components.length === 0) {
     // Fallback to YAML if no components defined
     return (
-      <YamlField
+      <ControlledYamlField
         label={label}
         fieldName={fieldName}
         description={formattedDescription}
@@ -694,6 +705,25 @@ export function PolymorphicField({
     const componentId = components[0].component_id
     switch (componentId) {
       case "text":
+        return (
+          <Controller
+            name={fieldName}
+            control={methods.control}
+            render={({ field }) => (
+              <FormItem>
+                <FormLabelComponent
+                  label={label}
+                  description={formattedDescription}
+                />
+                <FormMessage className="whitespace-pre-line" />
+                <ExpressionInput
+                  value={field.value}
+                  onChange={field.onChange}
+                />
+              </FormItem>
+            )}
+          />
+        )
       case "text-area":
         return (
           <Controller
@@ -709,6 +739,7 @@ export function PolymorphicField({
                 <ExpressionInput
                   value={field.value}
                   onChange={field.onChange}
+                  defaultHeight="text-area"
                 />
               </FormItem>
             )}
@@ -1138,17 +1169,6 @@ function ComponentContent({
           readOnly={false}
         />
       )
-    case "json":
-    case "yaml":
-    // return (
-    //   <YamlStyledEditor
-    //     name={`inputs.${fieldName}`}
-    //     control={methods.control}
-    //   />
-    // )
-    // return (
-    //   <JsonStyledEditor value={field.value || ""} setValue={field.onChange} />
-    // )
     case "action-type":
       return <div>Action Type</div>
     case "workflow-alias":

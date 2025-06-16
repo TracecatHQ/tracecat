@@ -132,7 +132,6 @@ export function JsonStyledEditor({
       history(),
       EditorState.allowMultipleSelections.of(true),
       indentUnit.of("  "),
-      EditorView.lineWrapping,
 
       json(),
       linter(jsonParseLinter()),
