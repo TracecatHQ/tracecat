@@ -46,7 +46,8 @@ import { createRoot } from "react-dom/client"
 
 // Template expression utilities
 export function createTemplateRegex() {
-  return /\$\{\{\s*([^}]*?)\s*\}\}/g
+  // Match template expressions with named capture groups, equivalent to Python's TEMPLATE_STRING
+  return /\$\{\{(\s*(.+?)\s*)\}\}/g
 }
 
 const commonIconStyle = {
@@ -203,6 +204,12 @@ export function findTemplateAt(
   while ((match = regex.exec(content)) !== null) {
     const from = match.index
     const to = from + match[0].length
+    console.log({
+      from,
+      to,
+      match,
+      pos,
+    })
 
     // Safety check: Skip if match contains line breaks
     if (match[0].includes("\n")) {
@@ -1136,7 +1143,7 @@ export function createActionCompletion(actions: ActionRead[]) {
 // Click handler for template pills
 export function createPillClickHandler() {
   return (event: MouseEvent, view: EditorView): boolean => {
-    const pos = view.posAtCoords(event)
+    const pos = view.posAtCoords({ x: event.clientX, y: event.clientY })
     if (!pos) return false
 
     const clickedTemplateRange = findTemplateAt(view.state, pos)
