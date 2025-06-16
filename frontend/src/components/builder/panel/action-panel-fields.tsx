@@ -45,10 +45,14 @@ import {
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { CodeEditor } from "@/components/editor/codemirror/code-editor"
-import { YamlStyledEditor, YamlStyledEditorRef } from "@/components/editor/codemirror/yaml-editor"
-import { useYamlEditorContext } from "@/components/editor/yaml-editor-context"
+import { createTemplateRegex } from "@/components/editor/codemirror/common"
+import {
+  YamlStyledEditor,
+  YamlStyledEditorRef,
+} from "@/components/editor/codemirror/yaml-editor"
 import { DynamicCustomEditor } from "@/components/editor/dynamic"
 import { ExpressionInput } from "@/components/editor/expression-input"
+import { useYamlEditorContext } from "@/components/editor/yaml-editor-context"
 import { FieldTypeTab, PolyField } from "@/components/polymorphic-field"
 import { CustomTagInput } from "@/components/tags-input"
 
@@ -587,6 +591,32 @@ export function ExpressionField({
 }
 
 /**
+ * Check if a value contains a template expression pattern
+ *
+ * Template expressions use the syntax ${{ ... }} and can contain:
+ * - Action references: ${{ ACTIONS.step_name.result }}
+ * - Function calls: ${{ FN.add(1, 2) }}
+ * - Input references: ${{ inputs.field_name }}
+ * - Secret references: ${{ SECRETS.secret_name.key }}
+ * - Mixed content: "Hello ${{ inputs.name }}"
+ *
+ * This function is critical for field rendering logic because:
+ * - Boolean fields normally render as checkboxes
+ * - But if they contain expressions, they must render as text/expression inputs
+ * - Same principle applies to other typed fields (numbers, selects, etc.)
+ *
+ * @param value - The field value to check
+ * @returns true if the value contains template expression syntax
+ */
+function isExpression(value: unknown): boolean {
+  if (typeof value !== "string") {
+    return false
+  }
+  const regex = createTemplateRegex()
+  return regex.test(value)
+}
+
+/**
  * PolymorphicField renders a field with multiple possible input types (components),
  * always including an "expression" component as the last option.
  * This ensures users can always select an expression input, regardless of the schema.
@@ -610,6 +640,10 @@ export function PolymorphicField({
   const methods = useFormContext()
   const { description } = fieldDefn
   const [activeFieldType, setActiveFieldType] = useState<string>()
+
+  // Watch the current field value to check if it's an expression
+  const currentValue = methods.watch(`inputs.${fieldName}`)
+  const isCurrentValueExpression = isExpression(currentValue)
 
   // Get all available components for this field
   const components = getTracecatComponents(fieldDefn)
@@ -681,8 +715,33 @@ export function PolymorphicField({
   /**
    * Determine the active component to render based on the current activeFieldType.
    * If no matching component is found, fallback to the first component in allComponents.
+   *
+   * IMPORTANT: If the current field value is an expression, force the active type to "expression"
+   * regardless of the schema type. This prevents boolean fields from rendering as checkboxes
+   * when they contain expressions.
    */
-  const currentActiveType = activeFieldType || fieldTypes[0]?.value
+  let currentActiveType = activeFieldType || fieldTypes[0]?.value
+
+  // Override the active type if the current value is an expression
+  if (isCurrentValueExpression && currentActiveType !== "expression") {
+    currentActiveType = "expression"
+    // Update the active field type state to reflect this change
+    if (activeFieldType !== "expression") {
+      setActiveFieldType("expression")
+    }
+  }
+
+  // Handle field type changes
+  const handleFieldTypeChange = (newFieldType: string) => {
+    setActiveFieldType(newFieldType)
+
+    // If switching from expression to a native type, and the current value is an expression,
+    // we should clear the field value to avoid conflicts
+    if (newFieldType !== "expression" && isCurrentValueExpression) {
+      // Clear the value when switching away from expression to prevent type conflicts
+      methods.setValue(`inputs.${fieldName}`, "")
+    }
+  }
 
   // Find the active component by component_id
   const activeComponent: TracecatEditorComponent | undefined =
@@ -728,8 +787,8 @@ export function PolymorphicField({
           <FormControl>
             <PolyField
               fieldTypes={fieldTypes}
-              activeFieldType={activeFieldType}
-              onFieldTypeChange={setActiveFieldType}
+              activeFieldType={currentActiveType}
+              onFieldTypeChange={handleFieldTypeChange}
               value={field.value}
               onChange={field.onChange}
             >
