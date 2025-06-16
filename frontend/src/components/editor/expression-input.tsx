@@ -117,21 +117,8 @@ export function ExpressionInput({
       EditorState.allowMultipleSelections.of(true),
       indentUnit.of("  "),
 
-      // Single-line configuration
+      // Multi-line configuration
       EditorView.lineWrapping,
-      EditorState.transactionFilter.of((tr) => {
-        if (tr.newDoc.lines > 1) {
-          const singleLineText = tr.newDoc.toString().replace(/\n/g, " ")
-          return {
-            changes: {
-              from: 0,
-              to: tr.startState.doc.length,
-              insert: singleLineText,
-            },
-          }
-        }
-        return tr
-      }),
 
       // Linting
       linter(expressionLinter),
@@ -145,10 +132,6 @@ export function ExpressionInput({
         {
           key: "ArrowRight",
           run: enhancedCursorRight,
-        },
-        {
-          key: "Enter",
-          run: () => true, // Prevent newlines
         },
         ...closeBracketsKeymap,
         ...standardKeymap,
@@ -198,6 +181,10 @@ export function ExpressionInput({
           lineHeight: "20px",
           caretColor: "hsl(var(--foreground))",
         },
+        ".cm-scroller": {
+          fontFamily: "inherit",
+          minHeight: "36px",
+        },
         ".cm-focused": {
           outline: "2px solid transparent",
           outlineOffset: "2px",
@@ -223,9 +210,6 @@ export function ExpressionInput({
         "&.cm-disabled .cm-content": {
           color: "hsl(var(--muted-foreground))",
         },
-        ".cm-scroller": {
-          fontFamily: "inherit",
-        },
         ".cm-placeholder": {
           color: "hsl(var(--muted-foreground))",
           fontStyle: "normal",
@@ -246,13 +230,7 @@ export function ExpressionInput({
 
   const handleChange = useCallback(
     (val: string, viewUpdate: ViewUpdate) => {
-      // Ensure single line
-      const singleLineValue = val.replace(/\n/g, " ")
-      if (singleLineValue !== val) {
-        onChange?.(singleLineValue)
-      } else {
-        onChange?.(val)
-      }
+      onChange?.(val)
     },
     [onChange]
   )
