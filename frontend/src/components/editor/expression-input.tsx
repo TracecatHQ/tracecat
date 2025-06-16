@@ -5,7 +5,6 @@
  * template expression pill functionality backed by CodeMirror
  */
 import React, { useCallback, useMemo, useState } from "react"
-import { AlertTriangle } from "lucide-react"
 import { useWorkflow } from "@/providers/workflow"
 import { useWorkspace } from "@/providers/workspace"
 import {
@@ -30,13 +29,14 @@ import {
   type ViewUpdate,
 } from "@codemirror/view"
 import CodeMirror from "@uiw/react-codemirror"
+import { AlertTriangle } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import {
   createActionCompletion,
   createAtKeyCompletion,
   createBlurHandler,
-  createEscapeKeyHandler,
+  createExitEditModeKeyHandler,
   createExpressionNodeHover,
   createFunctionCompletion,
   createMentionCompletion,
@@ -173,7 +173,10 @@ export function ExpressionInput({
 
       return convertedValue
     } catch (error) {
-      console.error("ExpressionInput: Failed to convert value to string:", error)
+      console.error(
+        "ExpressionInput: Failed to convert value to string:",
+        error
+      )
       setTypeConversionWarning({
         originalType: typeof value,
         originalValue: value,
@@ -199,6 +202,7 @@ export function ExpressionInput({
       linter(expressionLinter),
 
       // Keymaps
+      createExitEditModeKeyHandler(),
       keymap.of([
         {
           key: "ArrowLeft",
@@ -215,7 +219,6 @@ export function ExpressionInput({
         indentWithTab,
       ]),
       createAtKeyCompletion(),
-      createEscapeKeyHandler(),
 
       // Features
       bracketMatching(),
@@ -350,7 +353,8 @@ export function ExpressionInput({
               Data type converted
             </div>
             <div className="mt-1 text-amber-700">
-              Received {typeConversionWarning.originalType} value, automatically converted to string for editing.
+              Received {typeConversionWarning.originalType} value, automatically
+              converted to string for editing.
             </div>
             {(typeConversionWarning.originalType === "object" ||
               typeConversionWarning.originalType === "boolean" ||
@@ -359,9 +363,12 @@ export function ExpressionInput({
                 <div className="font-medium">Original value:</div>
                 <div className="mt-1 max-w-md overflow-auto rounded bg-amber-100 p-1 font-mono">
                   {typeConversionWarning.originalType === "object"
-                    ? JSON.stringify(typeConversionWarning.originalValue, null, 2)
-                    : String(typeConversionWarning.originalValue)
-                  }
+                    ? JSON.stringify(
+                        typeConversionWarning.originalValue,
+                        null,
+                        2
+                      )
+                    : String(typeConversionWarning.originalValue)}
                 </div>
               </div>
             )}

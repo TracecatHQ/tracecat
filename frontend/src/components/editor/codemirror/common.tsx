@@ -236,11 +236,18 @@ export function enhancedCursorLeft(view: EditorView): boolean {
         class: "cm-template-pill cm-template-editing",
       })
 
+      // Position cursor at the end of the content, accounting for hidden braces
+      const contentEnd = templateAtPos.to - 3
+      const content = view.state.doc
+        .sliceString(templateAtPos.from + 3, templateAtPos.to - 3)
+        .trim()
+      const actualContentEnd = templateAtPos.from + 3 + content.length
+
       view.dispatch({
         effects: setEditingRange.of(
           editingMark.range(templateAtPos.from, templateAtPos.to)
         ),
-        selection: { anchor: templateAtPos.to - 3 },
+        selection: { anchor: Math.min(actualContentEnd, contentEnd) },
       })
       return true
     }
@@ -268,11 +275,23 @@ export function enhancedCursorRight(view: EditorView): boolean {
         class: "cm-template-pill cm-template-editing",
       })
 
+      // Position cursor at the start of the content, accounting for hidden braces
+      const contentStart = templateAtPos.from + 3
+      const content = view.state.doc.sliceString(
+        templateAtPos.from + 3,
+        templateAtPos.to - 3
+      )
+      const firstNonWhitespace = content.search(/\S/)
+      const actualContentStart =
+        firstNonWhitespace >= 0
+          ? contentStart + firstNonWhitespace
+          : contentStart
+
       view.dispatch({
         effects: setEditingRange.of(
           editingMark.range(templateAtPos.from, templateAtPos.to)
         ),
-        selection: { anchor: templateAtPos.from + 3 },
+        selection: { anchor: actualContentStart },
       })
       return true
     }
@@ -303,7 +322,7 @@ export function deleteWholePill(view: EditorView, backward: boolean): boolean {
     const atRightEdge = pos === pill.to
 
     if ((backward && atRightEdge) || (!backward && atLeftEdge)) {
-      // Delete the entire pill
+      // Delete the entire pill regardless of error state
       view.dispatch({
         changes: { from: pill.from, to: pill.to, insert: "" },
         selection: { anchor: pill.from },
@@ -329,6 +348,25 @@ export function createPillDeleteKeymap() {
       run: (view: EditorView): boolean => deleteWholePill(view, false),
     },
   ])
+}
+
+/**
+ * Invisible widget used to hide template expression braces during editing.
+ * Renders with zero width but maintains cursor positioning.
+ */
+class InvisibleWidget extends WidgetType {
+  toDOM(): HTMLElement {
+    const span = document.createElement("span")
+    span.style.width = "0"
+    span.style.height = "1em" // maintain line height for cursor
+    span.style.overflow = "hidden"
+    span.style.display = "inline-block"
+    return span
+  }
+
+  ignoreEvent(): boolean {
+    return true
+  }
 }
 
 // Widget for displaying pill content
@@ -492,6 +530,24 @@ export class TemplatePillPluginView {
   buildDecorations(view: EditorView): DecorationSet {
     const widgets: Range<Decoration>[] = []
     const editingRange = view.state.field(editingRangeField)
+
+    // Hide braces when in edit mode
+    if (editingRange) {
+      // opening '${{'
+      widgets.push(
+        Decoration.replace({
+          widget: new InvisibleWidget(),
+          inclusive: false,
+        }).range(editingRange.from, editingRange.from + 3)
+      )
+      // closing '}}'
+      widgets.push(
+        Decoration.replace({
+          widget: new InvisibleWidget(),
+          inclusive: false,
+        }).range(editingRange.to - 3, editingRange.to)
+      )
+    }
 
     // This method needs to be implemented differently for JSON vs single-line input
     // We'll provide a default implementation that can be overridden
@@ -971,7 +1027,7 @@ export function createAtKeyCompletion() {
 }
 
 // Custom keymap for Escape key to exit editing mode
-export function createEscapeKeyHandler() {
+export function createExitEditModeKeyHandler() {
   return keymap.of([
     {
       key: "Escape",
@@ -1236,13 +1292,19 @@ export function createPillClickHandler() {
 
       const innerStart = clickedTemplateRange.from + 3
       const innerEnd = clickedTemplateRange.to - 3
-      const clickPos = Math.max(innerStart, Math.min(innerEnd, pos))
+      // Ensure click position is within the content area, accounting for hidden braces
+      const content = view.state.doc.sliceString(innerStart, innerEnd)
+      const contentLength = content.length
+      const adjustedPos = Math.max(
+        innerStart,
+        Math.min(innerEnd, pos, innerStart + contentLength)
+      )
 
       view.dispatch({
         effects: setEditingRange.of(
           editingMark.range(clickedTemplateRange.from, clickedTemplateRange.to)
         ),
-        selection: { anchor: clickPos },
+        selection: { anchor: adjustedPos },
       })
       return true
     }

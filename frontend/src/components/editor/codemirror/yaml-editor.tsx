@@ -25,18 +25,15 @@ import {
   type ViewUpdate,
 } from "@codemirror/view"
 import CodeMirror from "@uiw/react-codemirror"
-import { AlertTriangle, Check, Code } from "lucide-react"
+import { AlertTriangle, Check } from "lucide-react"
 import { Control, FieldValues, useController } from "react-hook-form"
 import YAML from "yaml"
-
-import { cn } from "@/lib/utils"
-import { Button } from "@/components/ui/button"
 
 import {
   createActionCompletion,
   createAtKeyCompletion,
   createBlurHandler,
-  createEscapeKeyHandler,
+  createExitEditModeKeyHandler,
   createExpressionNodeHover,
   createFunctionCompletion,
   createMentionCompletion,
@@ -47,6 +44,7 @@ import {
   EDITOR_STYLE,
   enhancedCursorLeft,
   enhancedCursorRight,
+  setEditingRange,
   templatePillTheme,
 } from "./common"
 
@@ -254,6 +252,18 @@ export const YamlStyledEditor = React.forwardRef<
         key: "ArrowRight",
         run: enhancedCursorRight,
       },
+      {
+        key: "Enter",
+        run: (view: EditorView): boolean => {
+          const currentEditingRange = view.state.field(editingRangeField)
+          if (currentEditingRange) {
+            // Clear editing state on Enter key
+            view.dispatch({ effects: setEditingRange.of(null) })
+            return true
+          }
+          return false
+        },
+      },
       ...closeBracketsKeymap,
       ...standardKeymap,
       ...historyKeymap,
@@ -265,7 +275,7 @@ export const YamlStyledEditor = React.forwardRef<
       createPillDeleteKeymap(), // This must be first to ensure that the delete key is handled before the core keymap
       coreKeymap,
       createAtKeyCompletion(),
-      createEscapeKeyHandler(),
+      createExitEditModeKeyHandler(),
       lintGutter(),
       history(),
       indentUnit.of("  "),
@@ -424,19 +434,6 @@ export const YamlStyledEditor = React.forwardRef<
             <span>Syntax error</span>
           </div>
         )}
-        <Button
-          size="sm"
-          variant="secondary"
-          onClick={() => {
-            console.log("formatYaml")
-          }}
-          className="h-8 px-2 shadow-md transition-shadow hover:shadow-lg"
-          title="Format YAML"
-          disabled={hasErrors}
-        >
-          <Code className="mr-1 size-3" />
-          Format
-        </Button>
       </div>
     </div>
   )

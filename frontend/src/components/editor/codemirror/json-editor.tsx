@@ -36,7 +36,7 @@ import {
   createActionCompletion,
   createAtKeyCompletion,
   createBlurHandler,
-  createEscapeKeyHandler,
+  createExitEditModeKeyHandler,
   createExpressionNodeHover,
   createFunctionCompletion,
   createMentionCompletion,
@@ -138,6 +138,7 @@ export function JsonStyledEditor({
       linter(jsonParseLinter()),
       linter(customJsonLinter),
 
+      createExitEditModeKeyHandler(),
       keymap.of([
         {
           key: "ArrowLeft",
@@ -154,7 +155,6 @@ export function JsonStyledEditor({
         indentWithTab,
       ]),
       createAtKeyCompletion(),
-      createEscapeKeyHandler(),
 
       bracketMatching(),
       closeBrackets(),
