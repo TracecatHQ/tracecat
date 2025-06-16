@@ -326,7 +326,7 @@ export function ExpressionInput({
 
   return (
     <div className={cn("relative", className)}>
-      <div className="no-scrollbar max-h-[800px] overflow-auto rounded-md border-[0.5px] border-border">
+      <div className="no-scrollbar max-h-[800px] overflow-auto rounded-md border-[0.5px] border-border shadow-sm">
         <CodeMirror
           value={safeValue}
           height="auto"
