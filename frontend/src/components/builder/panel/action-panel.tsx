@@ -1160,7 +1160,7 @@ function ActionPanelContent({
                                   <PolymorphicField
                                     key={fieldName}
                                     label={label}
-                                    fieldName={fieldName}
+                                    fieldName={`inputs.${fieldName}`}
                                     fieldDefn={fieldDefn}
                                     workspaceId={workspaceId}
                                     workflowId={workflowId}

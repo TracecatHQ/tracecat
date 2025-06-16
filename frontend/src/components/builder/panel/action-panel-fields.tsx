@@ -590,6 +590,34 @@ export function ExpressionField({
   )
 }
 
+export function ControlledYamlField({
+  label,
+  fieldName,
+  description,
+}: {
+  label: string
+  fieldName: string
+  description?: string
+}) {
+  const methods = useFormContext()
+  return (
+    <Controller
+      name={fieldName}
+      control={methods.control}
+      render={() => (
+        <FormItem>
+          <FormLabelComponent label={label} description={description} />
+          <FormMessage className="whitespace-pre-line" />
+          <YamlStyledEditor
+            name={`inputs.${fieldName}`}
+            control={methods.control}
+          />
+        </FormItem>
+      )}
+    />
+  )
+}
+
 /**
  * Check if a value contains a template expression pattern
  *
@@ -779,26 +807,17 @@ export function PolymorphicField({
     componentToRender.component_id === "json"
   ) {
     return (
-      <Controller
-        name={`inputs.${fieldName}`}
-        control={methods.control}
-        render={({ field }) => (
-          <FormItem>
-            <FormLabelComponent label={label} description={description} />
-            <FormMessage className="whitespace-pre-line" />
-            <YamlStyledEditor
-              name={`inputs.${fieldName}`}
-              control={methods.control}
-            />
-          </FormItem>
-        )}
+      <ControlledYamlField
+        label={label}
+        fieldName={fieldName}
+        description={description}
       />
     )
   }
 
   return (
     <FormField
-      name={`inputs.${fieldName}`}
+      name={fieldName}
       control={methods.control}
       render={({ field }) => (
         <FormItem>
