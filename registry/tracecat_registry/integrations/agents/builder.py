@@ -1,7 +1,8 @@
 """Pydantic AI agents with tool calling.
 
-We use agent-wide dynamic tool preparation (deny-all by default):
-https://ai.pydantic.dev/tools/#prepare-tools
+Every agent is given a default set of tools:
+-
+
 """
 
 import inspect
@@ -43,12 +44,15 @@ from tracecat.types.exceptions import RegistryError
 from tracecat_registry.integrations.agents.exceptions import AgentRunError
 
 
-def generate_google_style_docstring(description: str | None, model_cls: type) -> str:
+def generate_google_style_docstring(
+    description: str | None, model_cls: type, fixed_args: set[str] | None = None
+) -> str:
     """Generate a Google-style docstring from a description and Pydantic model.
 
     Args:
         description: The base description for the function
         model_cls: The Pydantic model class containing parameter information
+        fixed_args: Set of argument names that are fixed and should be excluded
 
     Returns:
         A properly formatted Google-style docstring with Args section
@@ -61,12 +65,17 @@ def generate_google_style_docstring(description: str | None, model_cls: type) ->
 
     # Extract parameter descriptions from the model's JSON schema
     param_lines = []
+    fixed_args = fixed_args or set()
 
     if hasattr(model_cls, "model_json_schema"):
         schema = model_cls.model_json_schema()
         properties = schema.get("properties", {})
 
         for prop_name, prop_info in properties.items():
+            # Skip fixed arguments
+            if prop_name in fixed_args:
+                continue
+
             # Get description from schema, fall back to a placeholder if missing
             prop_desc = prop_info.get("description", f"Parameter {prop_name}")
             param_lines.append(f"{prop_name}: {prop_desc}")
@@ -174,20 +183,26 @@ def _extract_action_metadata(bound_action) -> tuple[str, type]:
 
 
 def _create_function_signature(
-    model_cls: type,
+    model_cls: type, fixed_args: set[str] | None = None
 ) -> tuple[inspect.Signature, dict[str, Any]]:
     """Create function signature and annotations from a Pydantic model.
 
     Args:
         model_cls: The Pydantic model class
+        fixed_args: Set of argument names that are fixed and should be excluded
 
     Returns:
         Tuple of (signature, annotations)
     """
     sig_params = []
     annotations = {}
+    fixed_args = fixed_args or set()
 
     for field_name, field_info in model_cls.model_fields.items():
+        # Skip fixed arguments
+        if field_name in fixed_args:
+            continue
+
         # Use the Pydantic field's annotation directly
         annotation = field_info.annotation
 
@@ -241,11 +256,14 @@ def _generate_tool_function_name(namespace: str, name: str, *, sep: str = "__") 
     return f"{namespace}{sep}{name}".replace(".", sep)
 
 
-async def create_tool_from_registry(action_name: str) -> Tool:
+async def create_tool_from_registry(
+    action_name: str, fixed_args: dict[str, Any] | None = None
+) -> Tool:
     """Create a Pydantic AI Tool directly from the registry.
 
     Args:
         action_name: Full action name (e.g., "core.http_request")
+        fixed_args: Fixed arguments to curry into the tool function
 
     Returns:
         A configured Pydantic AI Tool
@@ -258,9 +276,14 @@ async def create_tool_from_registry(action_name: str) -> Tool:
         reg_action = await service.get_action(action_name)
         bound_action = service.get_bound(reg_action, mode="execution")
 
-    # Create wrapper function that calls the action
+    fixed_args = fixed_args or {}
+    fixed_arg_names = set(fixed_args.keys())
+
+    # Create wrapper function that calls the action with fixed args merged
     async def tool_func(**kwargs) -> Any:
-        return await call_tracecat_action(action_name, kwargs)
+        # Merge fixed arguments with runtime arguments
+        merged_args = {**fixed_args, **kwargs}
+        return await call_tracecat_action(action_name, merged_args)
 
     # Set function name
     tool_func.__name__ = _generate_tool_function_name(
@@ -274,13 +297,15 @@ async def create_tool_from_registry(action_name: str) -> Tool:
     if not description:
         raise ValueError(f"Action '{action_name}' has no description")
 
-    # Create function signature and annotations
-    signature, annotations = _create_function_signature(model_cls)
+    # Create function signature and annotations, excluding fixed args
+    signature, annotations = _create_function_signature(model_cls, fixed_arg_names)
     tool_func.__signature__ = signature
     tool_func.__annotations__ = annotations
 
-    # Generate Google-style docstring
-    tool_func.__doc__ = generate_google_style_docstring(description, model_cls)
+    # Generate Google-style docstring, excluding fixed args
+    tool_func.__doc__ = generate_google_style_docstring(
+        description, model_cls, fixed_arg_names
+    )
 
     # Create tool with enforced documentation standards
     return Tool(
@@ -301,6 +326,7 @@ class TracecatAgentBuilder:
         model_settings: dict[str, Any] | None = None,
         retries: int = 3,
         deps_type: type[Any] | None = None,
+        fixed_arguments: dict[str, dict[str, Any]] | None = None,
     ):
         self.model_name = model_name
         self.model_provider = model_provider
@@ -310,6 +336,7 @@ class TracecatAgentBuilder:
         self.model_settings = model_settings
         self.retries = retries
         self.deps_type = deps_type
+        self.fixed_arguments = fixed_arguments or {}
         self.tools: list[Tool] = []
         self.namespace_filters: list[str] = []
         self.action_filters: list[str] = []
@@ -358,7 +385,10 @@ class TracecatAgentBuilder:
                     action_secrets = await service.fetch_all_action_secrets(reg_action)
                     self.collected_secrets.update(action_secrets)
 
-                tool = await create_tool_from_registry(action_name)
+                # Get fixed arguments for this action
+                action_fixed_args = self.fixed_arguments.get(action_name, {})
+
+                tool = await create_tool_from_registry(action_name, action_fixed_args)
                 self.tools.append(tool)
             except RegistryError:
                 failed_actions.append(action_name)
@@ -445,6 +475,13 @@ async def agent(
         list[str] | str,
         Doc("Actions (e.g. 'tools.slack.post_message') to include in the agent."),
     ],
+    fixed_arguments: Annotated[
+        dict[str, dict[str, Any]] | None,
+        Doc(
+            "Fixed action arguments: keys are action names, values are keyword arguments. "
+            "E.g. {'tools.slack.post_message': {'channel_id': 'C123456789', 'text': 'Hello, world!'}}"
+        ),
+    ] = None,
     instructions: Annotated[str | None, Doc("Instructions for the agent.")] = None,
     output_type: Annotated[
         str | dict[str, Any] | None, Doc("Output type for the agent.")
@@ -466,6 +503,7 @@ async def agent(
         output_type=output_type,
         model_settings=model_settings,
         retries=retries,
+        fixed_arguments=fixed_arguments,
     )
 
     if isinstance(actions, str):
