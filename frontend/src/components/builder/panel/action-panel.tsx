@@ -2,7 +2,7 @@
 
 import "react18-json-view/src/style.css"
 
-import React, { useCallback, useEffect, useMemo, useState } from "react"
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link"
 import { ActionUpdate, ApiError, ValidationResult } from "@/client"
 import { useWorkflowBuilder } from "@/providers/builder"
@@ -272,12 +272,18 @@ function ActionPanelContent({
     useGetRegistryAction(action?.type)
   const { for_each, run_if, retry_policy, ...options } =
     action?.control_flow ?? {}
+
+  const actionInputsObj = useMemo(
+    () => parseYaml(action?.inputs) ?? {},
+    [action?.inputs]
+  )
+
   const methods = useForm<ActionFormSchema>({
     resolver: zodResolver(actionFormSchema),
     values: {
       title: action?.title,
       description: action?.description,
-      inputs: parseYaml(action?.inputs) ?? {},
+      inputs: actionInputsObj,
       control_flow: {
         for_each: for_each || undefined,
         run_if: stringifyYaml(run_if),
@@ -296,15 +302,13 @@ function ActionPanelContent({
   const [activeTab, setActiveTab] = useState<ActionPanelTabs>("inputs")
   const [open, setOpen] = useState(false)
   const [inputMode, setInputMode] = useState<InputMode>("form")
-  const [visibleOptionalFields, setVisibleOptionalFields] = useState<
-    Set<string>
-  >(new Set())
 
   // Raw YAML state for preserving original formatting
   const [rawInputsYaml, setRawInputsYaml] = useState(() => action?.inputs || "")
 
   const required = (registryAction?.interface?.expects?.required ||
     []) as string[]
+  // Managing required/optional fields
   const { requiredFields, optionalFields } = useMemo(() => {
     if (!registryAction?.interface?.expects?.properties) {
       return { requiredFields: [], optionalFields: [] }
@@ -330,37 +334,54 @@ function ActionPanelContent({
     }
   }, [registryAction, required])
 
+  // Track manually shown/hidden fields separately from fields with values
+  const [manuallyVisibleFields, setManuallyVisibleFields] = useState<
+    Set<string>
+  >(new Set())
+  const [manuallyHiddenFields, setManuallyHiddenFields] = useState<Set<string>>(
+    new Set()
+  )
+
+  // Compute visible optional fields: fields with values OR manually shown, MINUS manually hidden
+  const visibleOptionalFields = useMemo(() => {
+    const fieldsWithValues = new Set<string>()
+
+    // Add fields that have values in the current inputs
+    if (optionalFields.length > 0 && actionInputsObj) {
+      optionalFields.forEach(([fieldName]) => {
+        if (actionInputsObj[fieldName] !== undefined) {
+          fieldsWithValues.add(fieldName)
+        }
+      })
+    }
+
+    // Combine: (fields with values + manually shown) - manually hidden
+    const visible = new Set([...fieldsWithValues, ...manuallyVisibleFields])
+    manuallyHiddenFields.forEach((field) => visible.delete(field))
+
+    return visible
+  }, [
+    optionalFields,
+    actionInputsObj,
+    manuallyVisibleFields,
+    manuallyHiddenFields,
+  ])
+
+  // Reset manual visibility when action changes
+  const prevActionIdRef = useRef(actionId)
+  if (prevActionIdRef.current !== actionId) {
+    prevActionIdRef.current = actionId
+    setManuallyVisibleFields(new Set())
+    setManuallyHiddenFields(new Set())
+  }
+
   useEffect(() => {
     setActiveTab("inputs")
     setSaveState(SaveState.IDLE)
     setValidationResults([])
     // Update raw YAML when action changes
     setRawInputsYaml(action?.inputs || "")
-
-    // Initialize visible optional fields from existing form data
-    if (action?.inputs && optionalFields.length > 0) {
-      try {
-        const existingInputs = parseYaml(action.inputs) || {}
-        const fieldsWithValues = new Set<string>()
-
-        optionalFields.forEach(([fieldName]) => {
-          if (existingInputs[fieldName] !== undefined) {
-            fieldsWithValues.add(fieldName)
-          }
-        })
-
-        setVisibleOptionalFields(fieldsWithValues)
-      } catch (error) {
-        console.warn(
-          "Failed to parse existing inputs for optional field detection:",
-          error
-        )
-        setVisibleOptionalFields(new Set())
-      }
-    } else {
-      setVisibleOptionalFields(new Set())
-    }
-  }, [actionId, action?.inputs, optionalFields])
+  }, [actionId, action?.inputs])
 
   // Set up the ref methods
   useEffect(() => {
@@ -1214,13 +1235,42 @@ function ActionPanelContent({
                                               key={fieldName}
                                               checked={isVisible}
                                               onCheckedChange={(checked) => {
-                                                const newSet = new Set(
-                                                  visibleOptionalFields
-                                                )
                                                 if (checked) {
-                                                  newSet.add(fieldName)
+                                                  // Show the field
+                                                  setManuallyVisibleFields(
+                                                    (prev) =>
+                                                      new Set([
+                                                        ...prev,
+                                                        fieldName,
+                                                      ])
+                                                  )
+                                                  setManuallyHiddenFields(
+                                                    (prev) => {
+                                                      const newSet = new Set(
+                                                        prev
+                                                      )
+                                                      newSet.delete(fieldName)
+                                                      return newSet
+                                                    }
+                                                  )
                                                 } else {
-                                                  newSet.delete(fieldName)
+                                                  // Hide the field
+                                                  setManuallyHiddenFields(
+                                                    (prev) =>
+                                                      new Set([
+                                                        ...prev,
+                                                        fieldName,
+                                                      ])
+                                                  )
+                                                  setManuallyVisibleFields(
+                                                    (prev) => {
+                                                      const newSet = new Set(
+                                                        prev
+                                                      )
+                                                      newSet.delete(fieldName)
+                                                      return newSet
+                                                    }
+                                                  )
                                                   // Remove field from form state when hiding
                                                   const currentInputs =
                                                     methods.getValues("inputs")
@@ -1236,7 +1286,6 @@ function ActionPanelContent({
                                                     `inputs.${fieldName}`
                                                   )
                                                 }
-                                                setVisibleOptionalFields(newSet)
                                               }}
                                             >
                                               <div className="flex flex-col gap-1">

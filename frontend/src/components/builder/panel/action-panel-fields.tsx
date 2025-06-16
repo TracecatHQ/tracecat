@@ -658,6 +658,26 @@ export function PolymorphicField({
       />
     )
   }
+  // If there is only one component and it is a text or text-area, we should render an expression field
+  if (
+    components.length === 1 &&
+    (components[0].component_id === "text" ||
+      components[0].component_id === "text-area")
+  ) {
+    return (
+      <Controller
+        name={`inputs.${fieldName}`}
+        control={methods.control}
+        render={({ field }) => (
+          <FormItem>
+            <FormLabelComponent label={label} description={description} />
+            <FormMessage className="whitespace-pre-line" />
+            <ExpressionInput value={field.value} onChange={field.onChange} />
+          </FormItem>
+        )}
+      />
+    )
+  }
 
   /**
    * Build the list of field types for the polymorphic field selector,
