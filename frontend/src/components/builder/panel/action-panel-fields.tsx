@@ -668,6 +668,9 @@ export function PolymorphicField({
   const methods = useFormContext()
   const { description } = fieldDefn
   const [activeFieldType, setActiveFieldType] = useState<string>()
+  const formattedDescription = description?.endsWith(".")
+    ? description
+    : `${description}.`
 
   // Watch the current field value to check if it's an expression
   const currentValue = methods.watch(`inputs.${fieldName}`)
@@ -682,7 +685,7 @@ export function PolymorphicField({
       <YamlField
         label={label}
         fieldName={fieldName}
-        description={description}
+        description={formattedDescription}
       />
     )
   }
@@ -698,7 +701,10 @@ export function PolymorphicField({
             control={methods.control}
             render={({ field }) => (
               <FormItem>
-                <FormLabelComponent label={label} description={description} />
+                <FormLabelComponent
+                  label={label}
+                  description={formattedDescription}
+                />
                 <FormMessage className="whitespace-pre-line" />
                 <ExpressionInput
                   value={field.value}
@@ -714,7 +720,7 @@ export function PolymorphicField({
           <ControlledYamlField
             label={label}
             fieldName={fieldName}
-            description={description}
+            description={formattedDescription}
           />
         )
     }

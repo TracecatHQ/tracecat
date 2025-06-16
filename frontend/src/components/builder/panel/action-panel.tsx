@@ -1294,7 +1294,9 @@ function ActionPanelContent({
                                                 </span>
                                                 {description && (
                                                   <span className="text-xs text-muted-foreground">
-                                                    {description}
+                                                    {description.endsWith(".")
+                                                      ? description
+                                                      : `${description}.`}
                                                   </span>
                                                 )}
                                               </div>
