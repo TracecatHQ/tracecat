@@ -1729,7 +1729,7 @@ export const templatePillTheme = EditorView.theme({
     fontWeight: "bold",
   },
   ".cm-template-editing": {
-    padding: "0 !important",
+    padding: "0 0.2em !important",
     border: "1px solid rgba(59, 130, 246, 0.8)",
     backgroundColor: "rgba(59, 130, 246, 0.1)",
     outline: "none",
