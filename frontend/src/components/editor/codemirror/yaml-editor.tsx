@@ -102,11 +102,35 @@ export const YamlStyledEditor = React.forwardRef<
     }
   }, [buffer, textValue, saveState])
 
+  // Create stable refs for commitToForm to avoid extension recreation
+  const bufferRef = useRef(buffer)
+  const fieldRef = useRef(field)
+  const saveStateRef = useRef(saveState)
+  const setSaveStateRef = useRef(setSaveState)
+
+  // Update refs when values change
+  React.useEffect(() => {
+    bufferRef.current = buffer
+  }, [buffer])
+
+  React.useEffect(() => {
+    fieldRef.current = field
+  }, [field])
+
+  React.useEffect(() => {
+    saveStateRef.current = saveState
+  }, [saveState])
+
+  React.useEffect(() => {
+    setSaveStateRef.current = setSaveState
+  }, [setSaveState])
+
   // Commit valid YAML to RHF (only when explicitly triggered)
+  // Using refs to make this function stable and avoid extension recreation
   const commitToForm = useCallback(() => {
     try {
-      const obj = YAML.parse(buffer)
-      field.onChange(obj) // Push valid object to RHF
+      const obj = YAML.parse(bufferRef.current)
+      fieldRef.current.onChange(obj) // Push valid object to RHF
       setValidationErrors([])
       setHasErrors(false)
       return true
@@ -116,21 +140,25 @@ export const YamlStyledEditor = React.forwardRef<
       setValidationErrors([err instanceof Error ? err.message : "Invalid YAML"])
       return false
     }
-  }, [buffer, field])
+  }, []) // No dependencies - stable function
 
-  // Save function that commits to RHF and updates save state
-  const handleSave = useCallback(() => {
-    const success = commitToForm()
-    if (success) {
-      setSaveState(SaveState.SAVED)
-      // Reset to idle after brief delay
-      setTimeout(() => setSaveState(SaveState.IDLE), 2000)
-    } else {
-      setSaveState(SaveState.ERROR)
-    }
+  // Create ref for commitToForm so it can be used in keybindings
+  const commitToFormRef = useRef(commitToForm)
+  React.useEffect(() => {
+    commitToFormRef.current = commitToForm
   }, [commitToForm])
 
-  // Debounced validation for visual feedback
+  // Cleanup validation timeout on unmount
+  React.useEffect(() => {
+    return () => {
+      if (validationTimeoutRef.current) {
+        clearTimeout(validationTimeoutRef.current)
+      }
+    }
+  }, [])
+
+
+  // Debounced validation for visual feedback to reduce re-renders during typing
   const validateYaml = useCallback((text: string) => {
     try {
       YAML.parse(text)
@@ -142,16 +170,48 @@ export const YamlStyledEditor = React.forwardRef<
     }
   }, [])
 
+  // Debounced validation ref to avoid excessive validation during typing
+  const validationTimeoutRef = useRef<NodeJS.Timeout>()
+
+  const debouncedValidateYaml = useCallback((text: string) => {
+    // Clear previous timeout
+    if (validationTimeoutRef.current) {
+      clearTimeout(validationTimeoutRef.current)
+    }
+
+    // Set new timeout for validation
+    validationTimeoutRef.current = setTimeout(() => {
+      validateYaml(text)
+    }, 300) // 300ms delay to reduce validation frequency
+  }, [validateYaml])
+
   // Handle text changes - only update buffer, not RHF
   const handleChange = React.useCallback(
     (newText: string) => {
       newText = stripNewline(newText)
       setBuffer(newText)
-      // Validate for visual feedback only - no longer push to RHF here
-      validateYaml(newText)
+      // Use debounced validation to reduce re-renders during typing
+      debouncedValidateYaml(newText)
     },
-    [validateYaml]
+    [debouncedValidateYaml]
   )
+
+  // Custom blur handler that commits YAML to form (stable function using refs)
+  const yamlBlurHandler = useCallback(() => {
+    return (event: FocusEvent, view: EditorView): boolean => {
+      // Call the original blur handler for template pills
+      const originalResult = createBlurHandler()(event, view)
+
+      // Commit to form on blur if there are unsaved changes
+      if (saveStateRef.current === SaveState.UNSAVED) {
+        commitToFormRef.current()
+        setSaveStateRef.current(SaveState.IDLE)
+      }
+
+      return originalResult
+    }
+  }, []) // No dependencies - stable function
+
   const extensions = useMemo(() => {
     const errorMonitorPlugin = ViewPlugin.fromClass(
       class {
@@ -180,62 +240,25 @@ export const YamlStyledEditor = React.forwardRef<
       }
     )
 
-    // Custom blur handler that commits YAML to form
-    const yamlBlurHandler = () => {
-      return (event: FocusEvent, view: EditorView): boolean => {
-        // Call the original blur handler for template pills
-        const originalResult = createBlurHandler()(event, view)
-
-        // Commit to form on blur if there are unsaved changes
-        if (saveState === SaveState.UNSAVED) {
-          commitToForm()
-          setSaveState(SaveState.IDLE)
-        }
-
-        return originalResult
-      }
-    }
+    // Core navigation and editing keybindings (stable)
+    const coreKeymap = keymap.of([
+      {
+        key: "ArrowLeft",
+        run: enhancedCursorLeft,
+      },
+      {
+        key: "ArrowRight",
+        run: enhancedCursorRight,
+      },
+      ...closeBracketsKeymap,
+      ...standardKeymap,
+      ...historyKeymap,
+      ...completionKeymap,
+      indentWithTab,
+    ])
 
     return [
-      keymap.of([
-        {
-          key: "ArrowLeft",
-          run: enhancedCursorLeft,
-        },
-        {
-          key: "ArrowRight",
-          run: enhancedCursorRight,
-        },
-        // Add Cmd+S / Ctrl+S for save
-        {
-          key: "Mod-s",
-          run: () => {
-            handleSave()
-            return true
-          },
-          preventDefault: true,
-        },
-        // Add Cmd+Enter / Ctrl+Enter for explicit commit
-        {
-          key: "Mod-Enter",
-          run: () => {
-            const success = commitToForm()
-            if (success) {
-              setSaveState(SaveState.SAVED)
-              setTimeout(() => setSaveState(SaveState.IDLE), 2000)
-            } else {
-              setSaveState(SaveState.ERROR)
-            }
-            return true
-          },
-          preventDefault: true,
-        },
-        ...closeBracketsKeymap,
-        ...standardKeymap,
-        ...historyKeymap,
-        ...completionKeymap,
-        indentWithTab,
-      ]),
+      coreKeymap,
       createAtKeyCompletion(),
       createEscapeKeyHandler(),
       lintGutter(),
@@ -268,7 +291,48 @@ export const YamlStyledEditor = React.forwardRef<
       templatePillTheme,
       yamlEditorTheme,
     ]
-  }, [workspaceId, workflowId, handleSave, saveState, commitToForm])
+  }, [workspaceId, actions, yamlBlurHandler]) // Only stable dependencies
+
+  // Save-related keybindings (separate from core extensions to avoid recreation)
+  const saveKeymap = useMemo(() => {
+    return keymap.of([
+      // Add Cmd+S / Ctrl+S for save
+      {
+        key: "Mod-s",
+        run: () => {
+          const success = commitToFormRef.current()
+          if (success) {
+            setSaveStateRef.current(SaveState.SAVED)
+            setTimeout(() => setSaveStateRef.current(SaveState.IDLE), 2000)
+          } else {
+            setSaveStateRef.current(SaveState.ERROR)
+          }
+          return true
+        },
+        preventDefault: true,
+      },
+      // Add Cmd+Enter / Ctrl+Enter for explicit commit
+      {
+        key: "Mod-Enter",
+        run: () => {
+          const success = commitToFormRef.current()
+          if (success) {
+            setSaveStateRef.current(SaveState.SAVED)
+            setTimeout(() => setSaveStateRef.current(SaveState.IDLE), 2000)
+          } else {
+            setSaveStateRef.current(SaveState.ERROR)
+          }
+          return true
+        },
+        preventDefault: true,
+      },
+    ])
+  }, []) // Stable - uses refs
+
+  // Combine all extensions
+  const allExtensions = useMemo(() => {
+    return [...extensions, saveKeymap]
+  }, [extensions, saveKeymap])
 
   // Expose commitToForm method via ref
   React.useImperativeHandle(ref, () => ({
@@ -286,7 +350,7 @@ export const YamlStyledEditor = React.forwardRef<
         <CodeMirror
           value={buffer}
           height="auto"
-          extensions={extensions}
+          extensions={allExtensions}
           onChange={handleChange}
           theme="light"
           basicSetup={{

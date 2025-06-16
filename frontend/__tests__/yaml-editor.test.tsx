@@ -94,16 +94,6 @@ jest.mock("@/components/editor/codemirror/common", () => ({
   templatePillTheme: [],
 }))
 
-// Test wrapper component
-function TestWrapper({ children }: { children: React.ReactNode }) {
-  const methods = useForm({
-    defaultValues: {
-      testField: { key: "value" },
-    },
-  })
-
-  return <FormProvider {...methods}>{children}</FormProvider>
-}
 
 describe("YamlStyledEditor Implementation", () => {
   beforeEach(() => {
