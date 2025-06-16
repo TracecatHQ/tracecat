@@ -41,6 +41,7 @@ import {
   createFunctionCompletion,
   createMentionCompletion,
   createPillClickHandler,
+  createPillDeleteKeymap,
   createTemplatePillPlugin,
   editingRangeField,
   EDITOR_STYLE,
@@ -261,6 +262,7 @@ export const YamlStyledEditor = React.forwardRef<
     ])
 
     return [
+      createPillDeleteKeymap(), // This must be first to ensure that the delete key is handled before the core keymap
       coreKeymap,
       createAtKeyCompletion(),
       createEscapeKeyHandler(),

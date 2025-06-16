@@ -281,6 +281,56 @@ export function enhancedCursorRight(view: EditorView): boolean {
   return cursorCharRight(view)
 }
 
+/**
+ * Delete the entire template pill when cursor is at either edge and not in edit mode
+ */
+export function deleteWholePill(view: EditorView, backward: boolean): boolean {
+  const editingRange = view.state.field(editingRangeField)
+
+  // Don't interfere with deletion while in edit mode
+  if (editingRange) {
+    return false
+  }
+
+  const pos = view.state.selection.main.head
+  const pill = backward
+    ? findTemplateAt(view.state, pos - 1) // Backspace → check char before cursor
+    : findTemplateAt(view.state, pos) // Delete → check char after cursor
+
+  if (pill) {
+    // Check if cursor is at the edge of the pill
+    const atLeftEdge = pos === pill.from
+    const atRightEdge = pos === pill.to
+
+    if ((backward && atRightEdge) || (!backward && atLeftEdge)) {
+      // Delete the entire pill
+      view.dispatch({
+        changes: { from: pill.from, to: pill.to, insert: "" },
+        selection: { anchor: pill.from },
+      })
+      return true
+    }
+  }
+
+  return false
+}
+
+/**
+ * Create keymap for atomic pill deletion
+ */
+export function createPillDeleteKeymap() {
+  return keymap.of([
+    {
+      key: "Backspace",
+      run: (view: EditorView): boolean => deleteWholePill(view, true),
+    },
+    {
+      key: "Delete",
+      run: (view: EditorView): boolean => deleteWholePill(view, false),
+    },
+  ])
+}
+
 // Widget for displaying pill content
 export class InnerContentWidget extends WidgetType {
   constructor(
