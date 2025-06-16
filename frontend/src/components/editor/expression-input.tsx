@@ -5,6 +5,7 @@
  * template expression pill functionality backed by CodeMirror
  */
 import React, { useCallback, useMemo, useState } from "react"
+import { AlertTriangle } from "lucide-react"
 import { useWorkflow } from "@/providers/workflow"
 import { useWorkspace } from "@/providers/workspace"
 import {
@@ -87,12 +88,14 @@ function expressionLinter(view: EditorView): Diagnostic[] {
 }
 
 export interface ExpressionInputProps {
-  value?: string
+  value?: string | unknown
   onChange?: (value: string) => void
   placeholder?: string
   className?: string
   disabled?: boolean
   variant?: "default" | "flat"
+  showTypeWarnings?: boolean
+  onTypeConversion?: (originalValue: unknown, convertedValue: string) => void
 }
 
 export function ExpressionInput({
@@ -102,11 +105,83 @@ export function ExpressionInput({
   className,
   disabled = false,
   variant = "default",
+  showTypeWarnings = true,
+  onTypeConversion,
 }: ExpressionInputProps) {
   const { workspaceId } = useWorkspace()
   const { workflow } = useWorkflow()
   const [editorView, setEditorView] = useState<EditorView | null>(null)
+  const [typeConversionWarning, setTypeConversionWarning] = useState<{
+    originalType: string
+    originalValue: unknown
+    convertedValue: string
+  } | null>(null)
   const actions = workflow?.actions || []
+
+  // Safe value conversion with error handling
+  const safeValue = useMemo(() => {
+    try {
+      // Reset warning state
+      setTypeConversionWarning(null)
+
+      // Handle null/undefined
+      if (value == null) {
+        return ""
+      }
+
+      // Handle string values directly
+      if (typeof value === "string") {
+        return value
+      }
+
+      // Handle non-string values with conversion
+      let convertedValue: string
+      const originalType = typeof value
+
+      if (typeof value === "number" || typeof value === "boolean") {
+        convertedValue = String(value)
+      } else if (typeof value === "object") {
+        // Try to stringify as JSON with formatting
+        try {
+          convertedValue = JSON.stringify(value, null, 2)
+        } catch (jsonError) {
+          // Fallback for objects that can't be JSON stringified
+          convertedValue = String(value)
+        }
+      } else {
+        // Fallback for other types
+        convertedValue = String(value)
+      }
+
+      // Set type conversion warning
+      if (showTypeWarnings && originalType !== "string") {
+        setTypeConversionWarning({
+          originalType,
+          originalValue: value,
+          convertedValue,
+        })
+
+        // Call optional callback
+        onTypeConversion?.(value, convertedValue)
+
+        // Log warning for development
+        console.warn(
+          `ExpressionInput: Non-string value of type "${originalType}" was converted to string:`,
+          { original: value, converted: convertedValue }
+        )
+      }
+
+      return convertedValue
+    } catch (error) {
+      console.error("ExpressionInput: Failed to convert value to string:", error)
+      setTypeConversionWarning({
+        originalType: typeof value,
+        originalValue: value,
+        convertedValue: "[Conversion Error]",
+      })
+      return "[Conversion Error]"
+    }
+  }, [value, showTypeWarnings, onTypeConversion])
 
   const extensions = useMemo(() => {
     const templatePillPluginInstance = createTemplatePillPlugin(workspaceId)
@@ -241,7 +316,7 @@ export function ExpressionInput({
     <div className={cn("relative", className)}>
       <div className="no-scrollbar max-h-[800px] overflow-auto rounded-md border">
         <CodeMirror
-          value={value}
+          value={safeValue}
           height="auto"
           extensions={extensions}
           onChange={handleChange}
@@ -265,6 +340,34 @@ export function ExpressionInput({
           )}
         />
       </div>
+
+      {/* Type conversion warning */}
+      {typeConversionWarning && (
+        <div className="mt-2 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600" />
+          <div className="flex-1">
+            <div className="font-medium text-amber-800">
+              Data type converted
+            </div>
+            <div className="mt-1 text-amber-700">
+              Received {typeConversionWarning.originalType} value, automatically converted to string for editing.
+            </div>
+            {(typeConversionWarning.originalType === "object" ||
+              typeConversionWarning.originalType === "boolean" ||
+              typeConversionWarning.originalType === "number") && (
+              <div className="mt-2 text-xs text-amber-600">
+                <div className="font-medium">Original value:</div>
+                <div className="mt-1 max-w-md overflow-auto rounded bg-amber-100 p-1 font-mono">
+                  {typeConversionWarning.originalType === "object"
+                    ? JSON.stringify(typeConversionWarning.originalValue, null, 2)
+                    : String(typeConversionWarning.originalValue)
+                  }
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
