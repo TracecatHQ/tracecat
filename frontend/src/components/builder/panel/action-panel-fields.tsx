@@ -687,24 +687,37 @@ export function PolymorphicField({
     )
   }
   // If there is only one component and it is a text or text-area, we should render an expression field
-  if (
-    components.length === 1 &&
-    (components[0].component_id === "text" ||
-      components[0].component_id === "text-area")
-  ) {
-    return (
-      <Controller
-        name={`inputs.${fieldName}`}
-        control={methods.control}
-        render={({ field }) => (
-          <FormItem>
-            <FormLabelComponent label={label} description={description} />
-            <FormMessage className="whitespace-pre-line" />
-            <ExpressionInput value={field.value} onChange={field.onChange} />
-          </FormItem>
-        )}
-      />
-    )
+  if (components.length === 1) {
+    const componentId = components[0].component_id
+    switch (componentId) {
+      case "text":
+      case "text-area":
+        return (
+          <Controller
+            name={fieldName}
+            control={methods.control}
+            render={({ field }) => (
+              <FormItem>
+                <FormLabelComponent label={label} description={description} />
+                <FormMessage className="whitespace-pre-line" />
+                <ExpressionInput
+                  value={field.value}
+                  onChange={field.onChange}
+                />
+              </FormItem>
+            )}
+          />
+        )
+      case "json":
+      case "yaml":
+        return (
+          <ControlledYamlField
+            label={label}
+            fieldName={fieldName}
+            description={description}
+          />
+        )
+    }
   }
 
   /**
