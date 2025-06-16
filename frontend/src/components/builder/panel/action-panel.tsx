@@ -4,7 +4,12 @@ import "react18-json-view/src/style.css"
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link"
-import { ActionUpdate, ApiError, ValidationResult } from "@/client"
+import {
+  $JoinStrategy,
+  ActionUpdate,
+  ApiError,
+  ValidationResult,
+} from "@/client"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
 import { useWorkspace } from "@/providers/workspace"
@@ -130,28 +135,32 @@ const actionFormSchema = z.object({
     .optional(),
   // AI-TODO: Add validation for the inputs
   inputs: z.record(z.string(), z.unknown()),
-  control_flow: z.object({
-    for_each: z
-      .union([
-        z.string().max(1000, "For each must be less than 1000 characters"),
-        z.array(
-          z.string().max(1000, "For each must be less than 1000 characters")
-        ),
-      ])
-      .optional(),
-    run_if: z
-      .string()
-      .max(1000, "Run if must be less than 1000 characters")
-      .optional(),
-    retry_policy: z
-      .string()
-      .max(1000, "Retry policy must be less than 1000 characters")
-      .optional(),
-    options: z
-      .string()
-      .max(1000, "Options must be less than 1000 characters")
-      .optional(),
-  }),
+  for_each: z
+    .union([
+      z.string().max(1000, "For each must be less than 1000 characters"),
+      z.array(
+        z.string().max(1000, "For each must be less than 1000 characters")
+      ),
+    ])
+    .optional(),
+  run_if: z
+    .string()
+    .max(1000, "Run if must be less than 1000 characters")
+    .optional(),
+  // Retry policy fields
+  max_attempts: z.number().int().min(0).optional(),
+  timeout: z.number().int().min(1).optional(),
+  retry_until: z
+    .string()
+    .max(1000, "Retry until must be less than 1000 characters")
+    .optional(),
+  // Control flow options fields
+  start_delay: z.number().min(0).optional(),
+  join_strategy: z.enum($JoinStrategy.enum).optional(),
+  wait_until: z
+    .string()
+    .max(1000, "Wait until must be less than 1000 characters")
+    .optional(),
   is_interactive: z.boolean().default(false),
   interaction: z
     .discriminatedUnion("type", [
@@ -167,14 +176,6 @@ const actionFormSchema = z.object({
     .optional(),
 })
 type ActionFormSchema = z.infer<typeof actionFormSchema>
-
-const isControlFlowOption = (key: string) => {
-  return [
-    "control_flow.wait_until",
-    "control_flow.join_strategy",
-    "control_flow.start_delay",
-  ].includes(key)
-}
 
 enum SaveState {
   IDLE = "idle",
@@ -270,8 +271,7 @@ function ActionPanelContent({
   const { commitAllEditors } = useYamlEditorContext()
   const { registryAction, registryActionIsLoading, registryActionError } =
     useGetRegistryAction(action?.type)
-  const { for_each, run_if, retry_policy, ...options } =
-    action?.control_flow ?? {}
+  const actionControlFlow = action?.control_flow ?? {}
 
   const actionInputsObj = useMemo(
     () => parseYaml(action?.inputs) ?? {},
@@ -284,12 +284,14 @@ function ActionPanelContent({
       title: action?.title,
       description: action?.description,
       inputs: actionInputsObj,
-      control_flow: {
-        for_each: for_each || undefined,
-        run_if: stringifyYaml(run_if),
-        retry_policy: stringifyYaml(retry_policy),
-        options: stringifyYaml(options),
-      },
+      for_each: actionControlFlow?.for_each || undefined,
+      run_if: actionControlFlow?.run_if || undefined,
+      max_attempts: actionControlFlow?.retry_policy?.max_attempts,
+      timeout: actionControlFlow?.retry_policy?.timeout,
+      retry_until: actionControlFlow?.retry_policy?.retry_until || undefined,
+      start_delay: actionControlFlow?.start_delay,
+      join_strategy: actionControlFlow?.join_strategy,
+      wait_until: actionControlFlow?.wait_until || undefined,
       is_interactive: action?.is_interactive ?? false,
       interaction: action?.interaction ?? undefined,
     },
@@ -437,10 +439,16 @@ function ActionPanelContent({
           description: values.description,
           inputs: inputsYaml, // Use preserved/raw YAML
           control_flow: {
-            ...parseYaml(values.control_flow.options), // Miscellaneous options
-            for_each: values.control_flow.for_each,
-            run_if: parseYaml(values.control_flow.run_if),
-            retry_policy: parseYaml(values.control_flow.retry_policy),
+            for_each: values.for_each,
+            run_if: values.run_if,
+            retry_policy: {
+              max_attempts: values.max_attempts,
+              timeout: values.timeout,
+              retry_until: values.retry_until,
+            },
+            start_delay: values.start_delay,
+            join_strategy: values.join_strategy,
+            wait_until: values.wait_until,
           },
           is_interactive: values.is_interactive,
           interaction: values.interaction,
@@ -461,9 +469,7 @@ function ActionPanelContent({
             console.error("Validation errors", valErrs)
             valErrs.forEach(({ loc, msg }) => {
               let key: string = loc.slice(1).join(".")
-              if (isControlFlowOption(key)) {
-                key = "control_flow.options"
-              }
+              // Skip the old combined field mapping since we now have individual fields
               // Combine errors if they have the same key
               if (errors[key]) {
                 errors[key].message += `\n${msg}`
@@ -1345,7 +1351,7 @@ function ActionPanelContent({
                         </span>
                       </div>
                       <FormField
-                        name="control_flow.run_if"
+                        name="run_if"
                         control={methods.control}
                         render={({ field }) => (
                           <FormItem>
@@ -1390,7 +1396,7 @@ function ActionPanelContent({
                       </div>
                       <ForEachField
                         label="For each"
-                        fieldName="control_flow.for_each"
+                        fieldName="for_each"
                         description="Define one or more loop expressions for the action to iterate over."
                       />
                     </div>
@@ -1420,25 +1426,82 @@ function ActionPanelContent({
                           Define additional control flow options for the action.
                         </span>
                       </div>
-                      <FormField
-                        name="control_flow.options"
-                        control={methods.control}
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormControl>
-                              <DynamicCustomEditor
-                                className="h-24 w-full"
-                                defaultLanguage="yaml-extended"
-                                value={field.value}
-                                onChange={field.onChange}
-                                workspaceId={workspaceId}
-                                workflowId={workflowId}
-                              />
-                            </FormControl>
-                            <FormMessage className="whitespace-pre-line" />
-                          </FormItem>
-                        )}
-                      />
+                      <div className="space-y-4">
+                        <FormField
+                          name="start_delay"
+                          control={methods.control}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className="text-xs">
+                                Start delay (seconds)
+                              </FormLabel>
+                              <FormControl>
+                                <Input
+                                  type="number"
+                                  value={field.value || ""}
+                                  onChange={(e) =>
+                                    field.onChange(
+                                      e.target.value
+                                        ? parseFloat(e.target.value)
+                                        : undefined
+                                    )
+                                  }
+                                  placeholder="0.0"
+                                  className="text-xs"
+                                />
+                              </FormControl>
+                              <FormMessage className="whitespace-pre-line" />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          name="join_strategy"
+                          control={methods.control}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className="text-xs">
+                                Join strategy
+                              </FormLabel>
+                              <FormControl>
+                                <Select
+                                  value={field.value || "all"}
+                                  onValueChange={field.onChange}
+                                >
+                                  <SelectTrigger className="text-xs">
+                                    <SelectValue placeholder="Select strategy..." />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="all">All</SelectItem>
+                                    <SelectItem value="any">Any</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </FormControl>
+                              <FormMessage className="whitespace-pre-line" />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          name="wait_until"
+                          control={methods.control}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className="text-xs">
+                                Wait until
+                              </FormLabel>
+                              <FormControl>
+                                <Input
+                                  type="text"
+                                  value={field.value || ""}
+                                  onChange={field.onChange}
+                                  placeholder="tomorrow at 3pm"
+                                  className="text-xs"
+                                />
+                              </FormControl>
+                              <FormMessage className="whitespace-pre-line" />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
                     </div>
                   </div>
                 </TabsContent>
@@ -1471,18 +1534,72 @@ function ActionPanelContent({
                         </span>
                       </div>
                       <FormField
-                        name="control_flow.retry_policy"
+                        name="max_attempts"
                         control={methods.control}
                         render={({ field }) => (
                           <FormItem>
+                            <FormLabel className="text-xs">
+                              Max attempts
+                            </FormLabel>
                             <FormControl>
-                              <DynamicCustomEditor
-                                className="h-24 w-full"
-                                defaultLanguage="yaml-extended"
-                                value={field.value}
+                              <Input
+                                type="number"
+                                value={field.value || ""}
+                                onChange={(e) =>
+                                  field.onChange(
+                                    e.target.value
+                                      ? parseInt(e.target.value)
+                                      : undefined
+                                  )
+                                }
+                                placeholder="1"
+                                className="text-xs"
+                              />
+                            </FormControl>
+                            <FormMessage className="whitespace-pre-line" />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        name="timeout"
+                        control={methods.control}
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel className="text-xs">
+                              Timeout (seconds)
+                            </FormLabel>
+                            <FormControl>
+                              <Input
+                                type="number"
+                                value={field.value || ""}
+                                onChange={(e) =>
+                                  field.onChange(
+                                    e.target.value
+                                      ? parseInt(e.target.value)
+                                      : undefined
+                                  )
+                                }
+                                placeholder="300"
+                                className="text-xs"
+                              />
+                            </FormControl>
+                            <FormMessage className="whitespace-pre-line" />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        name="retry_until"
+                        control={methods.control}
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel className="text-xs">
+                              Retry until
+                            </FormLabel>
+                            <FormControl>
+                              <ExpressionInput
+                                value={field.value || ""}
                                 onChange={field.onChange}
-                                workspaceId={workspaceId}
-                                workflowId={workflowId}
+                                placeholder="Enter expression..."
                               />
                             </FormControl>
                             <FormMessage className="whitespace-pre-line" />

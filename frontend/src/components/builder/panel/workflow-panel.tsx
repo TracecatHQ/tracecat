@@ -63,21 +63,18 @@ const workflowUpdateFormSchema = z.object({
     .string()
     .max(100, { message: "Alias cannot exceed 100 characters" })
     .nullish(),
-  config: z
+  // Config fields
+  environment: z
     .string()
-    .max(10000, { message: "Config cannot exceed 10000 characters" })
-    .transform((val, ctx) => {
-      try {
-        return YAML.parse(val) || {}
-      } catch (error) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message:
-            "Invalid YAML format. Please check workflow definition for errors.",
-        })
-        return z.NEVER
-      }
-    }),
+    .max(100, { message: "Environment cannot exceed 100 characters" })
+    .optional(),
+  timeout: z
+    .number()
+    .min(1, { message: "Timeout must be at least 1 second" })
+    .max(1209600, {
+      message: "Timeout cannot exceed 14 days (1209600 seconds)",
+    })
+    .optional(),
   static_inputs: z
     .string()
     .max(1000, { message: "Static inputs cannot exceed 10000 characters" })
@@ -145,11 +142,8 @@ export function WorkflowPanel({
       title: workflow.title || "",
       description: workflow.description || "",
       alias: workflow.alias,
-      config: isEmptyObjectOrNullish(workflow.config)
-        ? YAML.stringify({
-            environment: null,
-          })
-        : YAML.stringify(workflow.config),
+      environment: workflow.config?.environment || "default",
+      timeout: workflow.config?.timeout || 300,
       static_inputs: isEmptyObjectOrNullish(workflow.static_inputs)
         ? ""
         : YAML.stringify(workflow.static_inputs),
@@ -167,7 +161,18 @@ export function WorkflowPanel({
     async (values: WorkflowUpdateForm) => {
       console.log("Saving changes...", values)
       try {
-        await updateWorkflow(values)
+        const updateData = {
+          ...values,
+          config: {
+            environment: values.environment,
+            timeout: values.timeout,
+          },
+        }
+        // Remove the individual fields that are now part of config
+        delete updateData.environment
+        delete updateData.timeout
+
+        await updateWorkflow(updateData)
       } catch (error) {
         if (error instanceof ApiError) {
           const apiError = error as TracecatApiError
@@ -200,6 +205,7 @@ export function WorkflowPanel({
   const onPanelBlur = useCallback(async () => {
     // Save whenever focus changes, regardless of where it's going
     const values = methods.getValues()
+
     // Parse values through zod schema first
     const result = await workflowUpdateFormSchema.safeParseAsync(values)
     if (!result.success) {
@@ -512,21 +518,48 @@ export function WorkflowPanel({
                             </span>
                           </div>
                           <FormField
-                            name="config"
+                            name="environment"
                             control={methods.control}
                             render={({ field }) => (
                               <FormItem>
-                                <FormMessage />
+                                <FormLabel className="text-xs">
+                                  Environment
+                                </FormLabel>
                                 <FormControl>
-                                  <DynamicCustomEditor
-                                    className="h-48 w-full"
-                                    defaultLanguage="yaml-extended"
-                                    value={field.value}
-                                    onChange={field.onChange}
-                                    workspaceId={workspaceId}
-                                    workflowId={workflowId}
+                                  <Input
+                                    className="text-xs"
+                                    placeholder="default"
+                                    {...field}
                                   />
                                 </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                          <FormField
+                            name="timeout"
+                            control={methods.control}
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel className="text-xs">
+                                  Timeout (seconds)
+                                </FormLabel>
+                                <FormControl>
+                                  <Input
+                                    type="number"
+                                    className="text-xs"
+                                    placeholder="300"
+                                    value={field.value || ""}
+                                    onChange={(e) =>
+                                      field.onChange(
+                                        e.target.value
+                                          ? parseInt(e.target.value)
+                                          : undefined
+                                      )
+                                    }
+                                  />
+                                </FormControl>
+                                <FormMessage />
                               </FormItem>
                             )}
                           />

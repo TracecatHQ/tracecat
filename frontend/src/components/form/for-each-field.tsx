@@ -22,7 +22,7 @@ export function ForEachField({
   const { control } = useFormContext()
   return (
     <FormField
-      name="control_flow.for_each"
+      name="for_each"
       control={control}
       render={({ field }) => (
         <FormItem>

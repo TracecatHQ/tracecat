@@ -124,10 +124,7 @@ export function YamlField({
     }
   }, [fieldName, registerEditor, unregisterEditor])
 
-  const forEach = useMemo(
-    () => methods.watch("control_flow.for_each"),
-    [methods]
-  )
+  const forEach = useMemo(() => methods.watch("for_each"), [methods])
 
   return (
     <FormField
@@ -606,10 +603,7 @@ export function ControlledYamlField({
   description?: string
 }) {
   const methods = useFormContext()
-  const forEach = useMemo(
-    () => methods.watch("control_flow.for_each"),
-    [methods]
-  )
+  const forEach = useMemo(() => methods.watch("for_each"), [methods])
   return (
     <Controller
       name={fieldName}

@@ -120,10 +120,7 @@ export function ExpressionInput({
     convertedValue: string
   } | null>(null)
   const actions = workflow?.actions || []
-  const forEach = useMemo(
-    () => methods.watch("control_flow.for_each"),
-    [methods]
-  )
+  const forEach = useMemo(() => methods.watch("for_each"), [methods])
 
   // Safe value conversion with error handling
   const safeValue = useMemo(() => {
