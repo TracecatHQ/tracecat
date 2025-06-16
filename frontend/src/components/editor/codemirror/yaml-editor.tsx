@@ -43,6 +43,7 @@ import {
   createPillClickHandler,
   createTemplatePillPlugin,
   editingRangeField,
+  EDITOR_STYLE,
   enhancedCursorLeft,
   enhancedCursorRight,
   templatePillTheme,
@@ -75,7 +76,7 @@ export const YamlStyledEditor = React.forwardRef<
     control,
   })
   const { workspaceId } = useWorkspace()
-  const { workflowId, workflow } = useWorkflow()
+  const { workflow } = useWorkflow()
   const [hasErrors, setHasErrors] = useState(false)
   const [saveState, setSaveState] = useState<SaveState>(SaveState.IDLE)
   const [validationErrors, setValidationErrors] = useState<string[]>([])
@@ -378,21 +379,7 @@ export const YamlStyledEditor = React.forwardRef<
             lintKeymap: true,
             defaultKeymap: false,
           }}
-          className={cn(
-            "rounded-md text-xs focus-visible:outline-none",
-            "[&_.cm-editor]:rounded-md [&_.cm-editor]:border-0 [&_.cm-focused]:outline-none",
-            "[&_.cm-scroller]:rounded-md",
-            "[&_.cm-tooltip]:rounded-md",
-            "[&_.cm-tooltip-autocomplete]:rounded-sm [&_.cm-tooltip-autocomplete]:p-0.5",
-            "[&_.cm-tooltip-autocomplete>ul]:rounded-sm",
-            "[&_.cm-tooltip-autocomplete>ul>li]:flex",
-            "[&_.cm-tooltip-autocomplete>ul>li]:min-h-5",
-            "[&_.cm-tooltip-autocomplete>ul>li]:items-center",
-            "[&_.cm-tooltip-autocomplete>ul>li]:rounded-sm",
-            "[&_.cm-tooltip-autocomplete>ul>li[aria-selected=true]]:bg-sky-200/50",
-            "[&_.cm-tooltip-autocomplete>ul>li[aria-selected=true]]:text-accent-foreground",
-            "[&_.cm-tooltip-autocomplete>ul>li]:py-2.5"
-          )}
+          className={EDITOR_STYLE}
         />
       </div>
 

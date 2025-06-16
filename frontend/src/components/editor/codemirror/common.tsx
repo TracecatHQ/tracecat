@@ -204,12 +204,6 @@ export function findTemplateAt(
   while ((match = regex.exec(content)) !== null) {
     const from = match.index
     const to = from + match[0].length
-    console.log({
-      from,
-      to,
-      match,
-      pos,
-    })
 
     // Safety check: Skip if match contains line breaks
     if (match[0].includes("\n")) {
@@ -620,7 +614,8 @@ async function createNodeTooltipForPosition(
     })
 
     // Create tooltip based on token type
-    const tooltipContent = createNodeTooltipContent(
+    console.log({ targetToken, expression })
+    const tooltipContent = await createNodeTooltipContent(
       targetToken,
       expression,
       workspaceId
@@ -645,11 +640,11 @@ async function createNodeTooltipForPosition(
 }
 
 // Create tooltip content for a specific token/node
-function createNodeTooltipContent(
+async function createNodeTooltipContent(
   token: { type: string; value: string; start: number; end: number },
   fullExpression: string,
   workspaceId: string
-): HTMLElement | null {
+): Promise<HTMLElement | null> {
   const container = document.createElement("div")
   container.className = "cm-expression-node-tooltip"
 
@@ -663,15 +658,15 @@ function createNodeTooltipContent(
   const tokenValue = token.value
 
   // Add type-specific information based on value patterns
-  if (tokenValue.includes("ACTIONS.")) {
+  if (fullExpression.startsWith("ACTIONS.")) {
     addActionTooltipInfo(container, tokenValue, workspaceId)
-  } else if (tokenValue.includes("FN.")) {
-    addFunctionTooltipInfo(container, tokenValue, workspaceId)
-  } else if (tokenValue.includes("SECRETS.")) {
+  } else if (fullExpression.startsWith("FN.")) {
+    await addFunctionTooltipInfo(container, tokenValue, workspaceId)
+  } else if (fullExpression.startsWith("SECRETS.")) {
     addSecretTooltipInfo(container, tokenValue)
-  } else if (tokenValue.includes("ENV.")) {
+  } else if (fullExpression.startsWith("ENV.")) {
     addEnvTooltipInfo(container, tokenValue)
-  } else if (tokenValue.includes("TRIGGER")) {
+  } else if (fullExpression.startsWith("TRIGGER")) {
     addTriggerTooltipInfo(container, tokenValue)
   } else if (
     token.type === "ACTIONS" ||
@@ -684,7 +679,7 @@ function createNodeTooltipContent(
     if (token.type === "ACTIONS") {
       addActionTooltipInfo(container, tokenValue, workspaceId)
     } else if (token.type === "FN") {
-      addFunctionTooltipInfo(container, tokenValue, workspaceId)
+      await addFunctionTooltipInfo(container, tokenValue, workspaceId)
     } else if (token.type === "SECRETS") {
       addSecretTooltipInfo(container, tokenValue)
     } else if (token.type === "ENV") {
@@ -740,49 +735,44 @@ function addActionTooltipInfo(
   container.appendChild(info)
 }
 
-function addFunctionTooltipInfo(
+async function addFunctionTooltipInfo(
   container: HTMLElement,
-  value: string,
+  fnName: string,
   workspaceId: string
 ) {
   const info = document.createElement("div")
   info.className = "cm-tooltip-function-info"
-
-  // Enhanced regex to capture function calls with parameters
-  const match = value.match(/FN\.(\w+)(?:\((.*)\))?/)
-  if (match) {
-    const [, functionName, params] = match
-    info.innerHTML = `
-      <div class="function-name">Function: <strong>${functionName}</strong></div>
-      ${params ? `<div class="function-params">Parameters: <code>${params}</code></div>` : ""}
-      <div class="function-desc">Built-in function for data processing</div>
-    `
-
-    // Try to get cached function info
-    const cachedFunctions = functionCache.get(workspaceId)
-    if (cachedFunctions) {
-      const func = cachedFunctions.find((f) => f.name === functionName)
-      if (func) {
-        const description = document.createElement("div")
-        description.className = "function-description"
-        description.textContent = func.description || "No description available"
-        info.appendChild(description)
-      }
+  // Try to get cached function info
+  const functions = await fetchFunctions(workspaceId)
+  if (functions) {
+    const func = functions.find((f) => f.name === fnName)
+    if (func) {
+      const root = createRoot(info)
+      root.render(<FunctionTooltip fn={func} />)
     }
   } else {
     // Fallback for partial matches or just "FN"
-    const cleanValue = value.replace(/^FN\.?/, "")
-    if (cleanValue) {
-      info.innerHTML = `
-        <div class="function-name">Function reference: <strong>${cleanValue}</strong></div>
-        <div class="function-desc">Built-in function for data processing</div>
-      `
-    } else {
-      info.innerHTML = `
-        <div class="function-name">Function namespace</div>
-        <div class="function-desc">Used to call built-in functions for data processing</div>
-      `
-    }
+    const cleanValue = fnName.replace(/^FN\.?/, "")
+    const root = createRoot(info)
+    root.render(
+      cleanValue ? (
+        <div>
+          <div className="function-name">
+            Function reference: <strong>{cleanValue}</strong>
+          </div>
+          <div className="function-desc">
+            Built-in function for data processing
+          </div>
+        </div>
+      ) : (
+        <div>
+          <div className="function-name">Function namespace</div>
+          <div className="function-desc">
+            Used to call built-in functions for data processing
+          </div>
+        </div>
+      )
+    )
   }
 
   container.appendChild(info)
@@ -1053,7 +1043,34 @@ export function createMentionCompletion(): (
     }
   }
 }
-
+function FunctionTooltip({ fn }: { fn: EditorFunctionRead }) {
+  // Function signature
+  const params = fn.parameters
+    .map((p) => `${p.name}: ${p.type || "any"}`)
+    .join(", ")
+  const signature = `${fn.name}(${params}) → ${fn.return_type || "unknown"}`
+  return (
+    <div className="max-w-[400px] overflow-hidden p-0 text-xs">
+      <div className="border-b px-3 py-2 font-mono font-semibold text-[#24292f]">
+        {fn.name}
+      </div>
+      <div className="border-b px-3 py-2 font-mono text-[11px] text-[#656d76]">
+        {signature}
+      </div>
+      <div className="p-3 text-xs leading-6 text-[#24292f]">
+        {fn.description || "No description available"}
+      </div>
+      {/*parameters*/}
+      <div className="px-3 py-2 font-mono text-[11px] text-[#656d76]">
+        Parameters: {params}
+      </div>
+      {/*return type*/}
+      <div className="px-3 py-2 font-mono text-[11px] text-[#656d76]">
+        Returns: {fn.return_type || "unknown"}
+      </div>
+    </div>
+  )
+}
 export function createFunctionCompletion(workspaceId: string) {
   return async (
     context: CompletionContext
@@ -1075,6 +1092,13 @@ export function createFunctionCompletion(workspaceId: string) {
         options: filteredFunctions.map((fn) => ({
           label: fn.name,
           detail: fn.return_type || "unknown",
+          info: () => {
+            const container = document.createElement("div")
+            container.className = "cm-function-info-tooltip"
+            const root = createRoot(container)
+            root.render(<FunctionTooltip fn={fn} />)
+            return container
+          },
           apply: (
             view: EditorView,
             completion: Completion,
@@ -1256,23 +1280,23 @@ export const templatePillTheme = EditorView.theme({
     color: "#ef4444 !important",
     fontWeight: "600",
   },
-  // Expression node tooltip styles
   ".cm-expression-node-tooltip": {
-    backgroundColor: "#1f2937",
-    color: "#f9fafb",
-    border: "1px solid #374151",
+    backgroundColor: "hsl(var(--popover))",
+    color: "hsl(var(--popover-foreground))",
+    border: "0.5px solid hsl(var(--border))",
     borderRadius: "6px",
     padding: "8px 12px",
     fontSize: "12px",
     maxWidth: "300px",
-    boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1)",
+    boxShadow:
+      "0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)",
     fontFamily: "ui-sans-serif, system-ui, sans-serif",
   },
   ".cm-expression-node-tooltip .cm-tooltip-header": {
     fontWeight: "600",
     marginBottom: "6px",
-    color: "#e5e7eb",
-    borderBottom: "1px solid #374151",
+    color: "hsl(var(--foreground))",
+    borderBottom: "1px solid hsl(var(--border))",
     paddingBottom: "4px",
     fontFamily: "ui-monospace, monospace",
   },
@@ -1292,7 +1316,7 @@ export const templatePillTheme = EditorView.theme({
     fontStyle: "italic",
   },
   ".cm-tooltip-function-info": {
-    color: "#c4b5fd",
+    color: "#9ca3af",
   },
   ".cm-tooltip-function-info .function-name": {
     marginBottom: "2px",
@@ -1363,3 +1387,32 @@ export const templatePillTheme = EditorView.theme({
     fontSize: "11px",
   },
 })
+
+export const EDITOR_STYLE = `
+  rounded-md border border-input text-xs focus-visible:outline-none
+  [&_.cm-editor]:rounded-md
+  [&_.cm-editor]:border-0
+  [&_.cm-focused]:outline-none
+  [&_.cm-focused]:ring-2
+  [&_.cm-focused]:ring-ring
+  [&_.cm-focused]:ring-offset-2
+  [&_.cm-scroller]:rounded-md
+  [&_.cm-tooltip]:rounded-md
+  [&_.cm-tooltip]:border
+  [&_.cm-tooltip]:border-border
+  [&_.cm-tooltip-autocomplete]:rounded-sm
+  [&_.cm-tooltip-autocomplete]:border
+  [&_.cm-tooltip-autocomplete]:border-input
+  [&_.cm-tooltip-autocomplete]:p-0.5
+  [&_.cm-tooltip-autocomplete]:shadow-md
+  [&_.cm-tooltip-autocomplete]:bg-background
+  [&_.cm-tooltip-autocomplete>ul]:rounded-sm
+  [&_.cm-tooltip-autocomplete>ul>li]:flex
+  [&_.cm-tooltip-autocomplete>ul>li]:min-h-5
+  [&_.cm-tooltip-autocomplete>ul>li]:items-center
+  [&_.cm-tooltip-autocomplete>ul>li]:rounded-sm
+  [&_.cm-tooltip-autocomplete>ul>li[aria-selected=true]]:bg-sky-200/50
+  [&_.cm-tooltip-autocomplete>ul>li[aria-selected=true]]:text-accent-foreground
+  [&_.cm-tooltip-autocomplete>ul>li]:py-2.5
+  [&_.cm-function-info-tooltip]:shadow-md
+`
