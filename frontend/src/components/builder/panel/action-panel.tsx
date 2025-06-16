@@ -103,10 +103,14 @@ import {
   YamlField,
 } from "@/components/builder/panel/action-panel-fields"
 import {
-  ControlFlowOptionsTooltip,
   ForEachTooltip,
-  RetryPolicyTooltip,
+  JoinStrategyTooltip,
+  MaxAttemptsTooltip,
+  RetryUntilTooltip,
   RunIfTooltip,
+  StartDelayTooltip,
+  TimeoutTooltip,
+  WaitUntilTooltip,
 } from "@/components/builder/panel/action-panel-tooltips"
 import { CopyButton } from "@/components/copy-button"
 import { DynamicCustomEditor } from "@/components/editor/dynamic"
@@ -240,11 +244,7 @@ const reconstructYamlFromForm = (
 
 type InputMode = "form" | "yaml"
 
-export type ActionPanelTabs =
-  | "inputs"
-  | "control-flow"
-  | "retry-policy"
-  | "template-inputs"
+export type ActionPanelTabs = "inputs" | "control-flow" | "template-inputs"
 export interface ActionPanelRef extends ImperativePanelHandle {
   setActiveTab: (tab: ActionPanelTabs) => void
   getActiveTab: () => ActionPanelTabs
@@ -726,14 +726,7 @@ function ActionPanelContent({
                     value="control-flow"
                   >
                     <SplitIcon className="mr-2 size-4" />
-                    <span>If-condition / Loops</span>
-                  </TabsTrigger>
-                  <TabsTrigger
-                    className="flex h-full min-w-24 items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
-                    value="retry-policy"
-                  >
-                    <RotateCcwIcon className="mr-2 size-4" />
-                    <span>Retries</span>
+                    <span>Control flow</span>
                   </TabsTrigger>
                   {registryAction.is_template && (
                     <TabsTrigger
@@ -1405,35 +1398,26 @@ function ActionPanelContent({
                       <FormLabel className="flex items-center gap-2 text-xs font-medium">
                         <span>Options</span>
                       </FormLabel>
-                      <div className="mb-2 flex items-center">
-                        <HoverCard openDelay={100} closeDelay={100}>
-                          <HoverCardTrigger
-                            asChild
-                            className="hover:border-none"
-                          >
-                            <InfoIcon className="mr-1 size-3 stroke-muted-foreground" />
-                          </HoverCardTrigger>
-                          <HoverCardContent
-                            className="w-auto max-w-[500px] p-3 font-mono text-xs tracking-tight"
-                            side="left"
-                            sideOffset={20}
-                          >
-                            <ControlFlowOptionsTooltip />
-                          </HoverCardContent>
-                        </HoverCard>
-
-                        <span className="text-xs text-muted-foreground">
-                          Define additional control flow options for the action.
-                        </span>
-                      </div>
                       <div className="space-y-4">
                         <FormField
                           name="start_delay"
                           control={methods.control}
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel className="text-xs">
-                                Start delay (seconds)
+                              <FormLabel className="flex items-center gap-2 text-xs">
+                                <span>Start delay (seconds)</span>
+                                <HoverCard openDelay={100} closeDelay={100}>
+                                  <HoverCardTrigger asChild>
+                                    <InfoIcon className="size-3 stroke-muted-foreground" />
+                                  </HoverCardTrigger>
+                                  <HoverCardContent
+                                    className="w-auto max-w-[500px] p-3 font-mono text-xs tracking-tight"
+                                    side="left"
+                                    sideOffset={20}
+                                  >
+                                    <StartDelayTooltip />
+                                  </HoverCardContent>
+                                </HoverCard>
                               </FormLabel>
                               <FormControl>
                                 <Input
@@ -1459,8 +1443,20 @@ function ActionPanelContent({
                           control={methods.control}
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel className="text-xs">
-                                Join strategy
+                              <FormLabel className="flex items-center gap-2 text-xs">
+                                <span>Join strategy</span>
+                                <HoverCard openDelay={100} closeDelay={100}>
+                                  <HoverCardTrigger asChild>
+                                    <InfoIcon className="size-3 stroke-muted-foreground" />
+                                  </HoverCardTrigger>
+                                  <HoverCardContent
+                                    className="w-auto max-w-[500px] p-3 font-mono text-xs tracking-tight"
+                                    side="left"
+                                    sideOffset={20}
+                                  >
+                                    <JoinStrategyTooltip />
+                                  </HoverCardContent>
+                                </HoverCard>
                               </FormLabel>
                               <FormControl>
                                 <Select
@@ -1485,8 +1481,20 @@ function ActionPanelContent({
                           control={methods.control}
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel className="text-xs">
-                                Wait until
+                              <FormLabel className="flex items-center gap-2 text-xs">
+                                <span>Wait until</span>
+                                <HoverCard openDelay={100} closeDelay={100}>
+                                  <HoverCardTrigger asChild>
+                                    <InfoIcon className="size-3 stroke-muted-foreground" />
+                                  </HoverCardTrigger>
+                                  <HoverCardContent
+                                    className="w-auto max-w-[500px] p-3 font-mono text-xs tracking-tight"
+                                    side="left"
+                                    sideOffset={20}
+                                  >
+                                    <WaitUntilTooltip />
+                                  </HoverCardContent>
+                                </HoverCard>
                               </FormLabel>
                               <FormControl>
                                 <Input
@@ -1503,109 +1511,122 @@ function ActionPanelContent({
                         />
                       </div>
                     </div>
-                  </div>
-                </TabsContent>
-                <TabsContent value="retry-policy">
-                  <div className="mt-6 space-y-8 px-4">
                     {/* Retry Policy */}
                     <div className="flex flex-col space-y-2">
                       <FormLabel className="flex items-center gap-2 text-xs font-medium">
                         <span>Retry policy</span>
                       </FormLabel>
-                      <div className="mb-2 flex items-center">
-                        <HoverCard openDelay={100} closeDelay={100}>
-                          <HoverCardTrigger
-                            asChild
-                            className="hover:border-none"
-                          >
-                            <InfoIcon className="mr-1 size-3 stroke-muted-foreground" />
-                          </HoverCardTrigger>
-                          <HoverCardContent
-                            className="w-auto max-w-[500px] p-3 font-mono text-xs tracking-tight"
-                            side="left"
-                            sideOffset={20}
-                          >
-                            <RetryPolicyTooltip />
-                          </HoverCardContent>
-                        </HoverCard>
-
-                        <span className="text-xs text-muted-foreground">
-                          Define the retry policy for the action.
-                        </span>
+                      <div className="space-y-4">
+                        <FormField
+                          name="max_attempts"
+                          control={methods.control}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className="flex items-center gap-2 text-xs">
+                                <span>Max attempts</span>
+                                <HoverCard openDelay={100} closeDelay={100}>
+                                  <HoverCardTrigger asChild>
+                                    <InfoIcon className="size-3 stroke-muted-foreground" />
+                                  </HoverCardTrigger>
+                                  <HoverCardContent
+                                    className="w-auto max-w-[500px] p-3 font-mono text-xs tracking-tight"
+                                    side="left"
+                                    sideOffset={20}
+                                  >
+                                    <MaxAttemptsTooltip />
+                                  </HoverCardContent>
+                                </HoverCard>
+                              </FormLabel>
+                              <FormControl>
+                                <Input
+                                  type="number"
+                                  value={field.value || ""}
+                                  onChange={(e) =>
+                                    field.onChange(
+                                      e.target.value
+                                        ? parseInt(e.target.value)
+                                        : undefined
+                                    )
+                                  }
+                                  placeholder="1"
+                                  className="text-xs"
+                                />
+                              </FormControl>
+                              <FormMessage className="whitespace-pre-line" />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          name="timeout"
+                          control={methods.control}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className="flex items-center gap-2 text-xs">
+                                <span>Timeout (seconds)</span>
+                                <HoverCard openDelay={100} closeDelay={100}>
+                                  <HoverCardTrigger asChild>
+                                    <InfoIcon className="size-3 stroke-muted-foreground" />
+                                  </HoverCardTrigger>
+                                  <HoverCardContent
+                                    className="w-auto max-w-[500px] p-3 font-mono text-xs tracking-tight"
+                                    side="left"
+                                    sideOffset={20}
+                                  >
+                                    <TimeoutTooltip />
+                                  </HoverCardContent>
+                                </HoverCard>
+                              </FormLabel>
+                              <FormControl>
+                                <Input
+                                  type="number"
+                                  value={field.value || ""}
+                                  onChange={(e) =>
+                                    field.onChange(
+                                      e.target.value
+                                        ? parseInt(e.target.value)
+                                        : undefined
+                                    )
+                                  }
+                                  placeholder="300"
+                                  className="text-xs"
+                                />
+                              </FormControl>
+                              <FormMessage className="whitespace-pre-line" />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          name="retry_until"
+                          control={methods.control}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className="flex items-center gap-2 text-xs">
+                                <span>Retry until</span>
+                                <HoverCard openDelay={100} closeDelay={100}>
+                                  <HoverCardTrigger asChild>
+                                    <InfoIcon className="size-3 stroke-muted-foreground" />
+                                  </HoverCardTrigger>
+                                  <HoverCardContent
+                                    className="w-auto max-w-[500px] p-3 font-mono text-xs tracking-tight"
+                                    side="left"
+                                    sideOffset={20}
+                                  >
+                                    <RetryUntilTooltip />
+                                  </HoverCardContent>
+                                </HoverCard>
+                              </FormLabel>
+                              <FormControl>
+                                <ExpressionInput
+                                  value={field.value || ""}
+                                  onChange={field.onChange}
+                                  placeholder="Enter expression..."
+                                />
+                              </FormControl>
+                              <FormMessage className="whitespace-pre-line" />
+                            </FormItem>
+                          )}
+                        />
                       </div>
-                      <FormField
-                        name="max_attempts"
-                        control={methods.control}
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel className="text-xs">
-                              Max attempts
-                            </FormLabel>
-                            <FormControl>
-                              <Input
-                                type="number"
-                                value={field.value || ""}
-                                onChange={(e) =>
-                                  field.onChange(
-                                    e.target.value
-                                      ? parseInt(e.target.value)
-                                      : undefined
-                                  )
-                                }
-                                placeholder="1"
-                                className="text-xs"
-                              />
-                            </FormControl>
-                            <FormMessage className="whitespace-pre-line" />
-                          </FormItem>
-                        )}
-                      />
-                      <FormField
-                        name="timeout"
-                        control={methods.control}
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel className="text-xs">
-                              Timeout (seconds)
-                            </FormLabel>
-                            <FormControl>
-                              <Input
-                                type="number"
-                                value={field.value || ""}
-                                onChange={(e) =>
-                                  field.onChange(
-                                    e.target.value
-                                      ? parseInt(e.target.value)
-                                      : undefined
-                                  )
-                                }
-                                placeholder="300"
-                                className="text-xs"
-                              />
-                            </FormControl>
-                            <FormMessage className="whitespace-pre-line" />
-                          </FormItem>
-                        )}
-                      />
-                      <FormField
-                        name="retry_until"
-                        control={methods.control}
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel className="text-xs">
-                              Retry until
-                            </FormLabel>
-                            <FormControl>
-                              <ExpressionInput
-                                value={field.value || ""}
-                                onChange={field.onChange}
-                                placeholder="Enter expression..."
-                              />
-                            </FormControl>
-                            <FormMessage className="whitespace-pre-line" />
-                          </FormItem>
-                        )}
-                      />
                     </div>
                   </div>
                 </TabsContent>

@@ -107,10 +107,10 @@ export function ForEachTooltip() {
   )
 }
 
-export function RetryPolicyTooltip() {
+export function MaxAttemptsTooltip() {
   return (
-    <div className="w-full space-y-4">
-      <div className="flex w-full items-center justify-between text-muted-foreground ">
+    <div className="w-full space-y-3">
+      <div className="flex w-full items-center justify-between text-muted-foreground">
         <div className="flex items-center gap-2">
           <span className="font-mono text-sm font-semibold">max_attempts</span>
           <span className="text-xs font-normal text-muted-foreground/80">
@@ -130,7 +130,17 @@ export function RetryPolicyTooltip() {
           action will be retried indefinitely.
         </div>
       </div>
-      <div className="flex w-full items-center justify-between text-muted-foreground ">
+      <div className="rounded-md border bg-muted-foreground/10 p-2">
+        <pre className="text-xs text-foreground/70">max_attempts: 5</pre>
+      </div>
+    </div>
+  )
+}
+
+export function TimeoutTooltip() {
+  return (
+    <div className="w-full space-y-3">
+      <div className="flex w-full items-center justify-between text-muted-foreground">
         <div className="flex items-center gap-2">
           <span className="font-mono text-sm font-semibold">timeout</span>
           <span className="text-xs font-normal text-muted-foreground/80">
@@ -147,7 +157,20 @@ export function RetryPolicyTooltip() {
         </div>
         <div>Defaults to 300s (5 minutes).</div>
       </div>
-      <div className="flex w-full items-center justify-between text-muted-foreground ">
+      <div className="rounded-md border bg-muted-foreground/10 p-2">
+        <pre className="text-xs text-foreground/70">
+          timeout: 300{" "}
+          <span className="text-xs text-muted-foreground"># 5 minutes</span>
+        </pre>
+      </div>
+    </div>
+  )
+}
+
+export function RetryUntilTooltip() {
+  return (
+    <div className="w-full space-y-3">
+      <div className="flex w-full items-center justify-between text-muted-foreground">
         <div className="flex items-center gap-2">
           <span className="font-mono text-sm font-semibold">retry_until</span>
           <span className="text-xs font-normal text-muted-foreground/80">
@@ -163,34 +186,22 @@ export function RetryPolicyTooltip() {
           the regular retry policy will apply.
         </div>
       </div>
-      <div className="w-full items-center text-start">
-        <span>Example inputs: </span>
-      </div>
-      <div className="flex w-full flex-col space-y-2 text-muted-foreground">
-        <div className="rounded-md border bg-muted-foreground/10 p-2">
-          <pre className="whitespace-pre-wrap break-words text-xs text-foreground/70">
-            <p>max_attempts: 5</p>
-            <p>
-              timeout: 300{" "}
-              <span className="text-xs text-muted-foreground"># 5 minutes</span>
-            </p>
-            <p>
-              retry_until: ${`{{ ACTIONS.this_action.result == "success" }}`}{" "}
-              <span className="text-xs text-muted-foreground">
-                # wait until the result is `success`
-              </span>
-            </p>
-          </pre>
-        </div>
+      <div className="rounded-md border bg-muted-foreground/10 p-2">
+        <pre className="text-xs text-foreground/70">
+          retry_until: ${`{{ ACTIONS.this_action.result == "success" }}`}{" "}
+          <span className="text-xs text-muted-foreground">
+            # wait until the result is `success`
+          </span>
+        </pre>
       </div>
     </div>
   )
 }
 
-export function ControlFlowOptionsTooltip() {
+export function StartDelayTooltip() {
   return (
-    <div className="w-full space-y-4">
-      <div className="flex w-full items-center justify-between text-muted-foreground ">
+    <div className="w-full space-y-3">
+      <div className="flex w-full items-center justify-between text-muted-foreground">
         <div className="flex items-center gap-2">
           <span className="font-mono text-sm font-semibold">start_delay</span>
           <span className="text-xs font-normal text-muted-foreground/80">
@@ -203,7 +214,17 @@ export function ControlFlowOptionsTooltip() {
         <div>Specifies the delay (in seconds) before starting the action.</div>
         <div>Defaults to 0.0 seconds.</div>
       </div>
-      <div className="flex w-full items-center justify-between text-muted-foreground ">
+      <div className="rounded-md border bg-muted-foreground/10 p-2">
+        <pre className="text-xs text-foreground/70">start_delay: 5.5</pre>
+      </div>
+    </div>
+  )
+}
+
+export function JoinStrategyTooltip() {
+  return (
+    <div className="w-full space-y-3">
+      <div className="flex w-full items-center justify-between text-muted-foreground">
         <div className="flex items-center gap-2">
           <span className="font-mono text-sm font-semibold">join_strategy</span>
           <span className="text-xs font-normal text-muted-foreground/80">
@@ -222,7 +243,17 @@ export function ControlFlowOptionsTooltip() {
         </div>
         <div>Defaults to `all`.</div>
       </div>
-      <div className="flex w-full items-center justify-between text-muted-foreground ">
+      <div className="rounded-md border bg-muted-foreground/10 p-2">
+        <pre className="text-xs text-foreground/70">join_strategy: all</pre>
+      </div>
+    </div>
+  )
+}
+
+export function WaitUntilTooltip() {
+  return (
+    <div className="w-full space-y-3">
+      <div className="flex w-full items-center justify-between text-muted-foreground">
         <div className="flex items-center gap-2">
           <span className="font-mono text-sm font-semibold">wait_until</span>
           <span className="text-xs font-normal text-muted-foreground/80">
@@ -260,28 +291,21 @@ export function ControlFlowOptionsTooltip() {
           <ExternalLinkIcon className="size-3" />
         </a>
       </div>
-      <div className="w-full items-center text-start">
-        <span>Example inputs: </span>
-      </div>
-      <div className="flex w-full flex-col space-y-2 text-muted-foreground">
-        <div className="rounded-md border bg-muted-foreground/10 p-2">
-          <pre className="whitespace-pre-wrap break-words text-xs text-foreground/70">
-            <span className="text-xs text-muted-foreground">
-              # Run at 3pm the next day
-            </span>
-            <p>wait_until: tomorrow at 3pm</p>
-            {"\n"}
-            <span className="text-xs text-muted-foreground">
-              # Run 2 hours after the action is scheduled
-            </span>
-            <p>wait_until: in 2 hours</p>
-            {"\n"}
-            <span className="text-xs text-muted-foreground">
-              # Run at 3:30pm on March 21st, 2026
-            </span>
-            <p>wait_until: &quot;2026-03-21 15:30:00&quot;</p>
-          </pre>
-        </div>
+      <div className="rounded-md border bg-muted-foreground/10 p-2">
+        <pre className="text-xs text-foreground/70">
+          <span className="text-xs text-muted-foreground">
+            # Run at 3pm the next day
+          </span>
+          {"\n"}wait_until: tomorrow at 3pm{"\n"}
+          <span className="text-xs text-muted-foreground">
+            # Run 2 hours after the action is scheduled
+          </span>
+          {"\n"}wait_until: in 2 hours{"\n"}
+          <span className="text-xs text-muted-foreground">
+            # Run at 3:30pm on March 21st, 2026
+          </span>
+          {"\n"}wait_until: &quot;2026-03-21 15:30:00&quot;
+        </pre>
       </div>
     </div>
   )
