@@ -187,7 +187,7 @@ export function RetryUntilTooltip() {
         </div>
       </div>
       <div className="rounded-md border bg-muted-foreground/10 p-2">
-        <pre className="text-xs text-foreground/70">
+        <pre className="whitespace-pre-wrap text-xs text-foreground/70">
           retry_until: ${`{{ ACTIONS.this_action.result == "success" }}`}{" "}
           <span className="text-xs text-muted-foreground">
             # wait until the result is `success`

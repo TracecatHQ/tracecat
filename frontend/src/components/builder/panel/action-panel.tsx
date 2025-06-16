@@ -112,6 +112,7 @@ import {
   TimeoutTooltip,
   WaitUntilTooltip,
 } from "@/components/builder/panel/action-panel-tooltips"
+import { ControlFlowField } from "@/components/builder/panel/control-flow-fields"
 import { CopyButton } from "@/components/copy-button"
 import { DynamicCustomEditor } from "@/components/editor/dynamic"
 import { ExpressionInput } from "@/components/editor/expression-input"
@@ -1317,32 +1318,11 @@ function ActionPanelContent({
                 <TabsContent value="control-flow">
                   <div className="mt-6 space-y-8 px-4">
                     {/* Run if */}
-                    <div className="flex flex-col space-y-2">
-                      <FormLabel className="flex items-center gap-2 text-xs font-medium">
-                        <span>Run if</span>
-                      </FormLabel>
-                      <div className="mb-2 flex items-center">
-                        <HoverCard openDelay={100} closeDelay={100}>
-                          <HoverCardTrigger
-                            asChild
-                            className="hover:border-none"
-                          >
-                            <InfoIcon className="mr-1 size-3 stroke-muted-foreground" />
-                          </HoverCardTrigger>
-                          <HoverCardContent
-                            className="w-auto max-w-[500px] p-3 font-mono text-xs tracking-tight"
-                            side="left"
-                            sideOffset={20}
-                          >
-                            <RunIfTooltip />
-                          </HoverCardContent>
-                        </HoverCard>
-
-                        <span className="text-xs text-muted-foreground">
-                          Define a conditional expression that determines if the
-                          action executes.
-                        </span>
-                      </div>
+                    <ControlFlowField
+                      label="Run if"
+                      description="Define a conditional expression that determines if the action executes."
+                      tooltip={<RunIfTooltip />}
+                    >
                       <FormField
                         name="run_if"
                         control={methods.control}
@@ -1359,275 +1339,202 @@ function ActionPanelContent({
                           </FormItem>
                         )}
                       />
-                    </div>
-                    {/* Loop */}
-                    <div className="flex flex-col space-y-2">
-                      <FormLabel className="flex items-center gap-2 text-xs font-medium">
-                        <span>For loops</span>
-                      </FormLabel>
-                      <div className="mb-2 flex items-center">
-                        <HoverCard openDelay={100} closeDelay={100}>
-                          <HoverCardTrigger
-                            asChild
-                            className="hover:border-none"
-                          >
-                            <InfoIcon className="mr-1 size-3 stroke-muted-foreground" />
-                          </HoverCardTrigger>
-                          <HoverCardContent
-                            className="w-auto max-w-[500px] p-3 font-mono text-xs tracking-tight"
-                            side="left"
-                            sideOffset={20}
-                          >
-                            <ForEachTooltip />
-                          </HoverCardContent>
-                        </HoverCard>
+                    </ControlFlowField>
 
-                        <span className="text-xs text-muted-foreground">
-                          Define one or more loop expressions for the action to
-                          iterate over.
-                        </span>
-                      </div>
+                    {/* Loop */}
+                    <ControlFlowField
+                      label="For each"
+                      description="Define one or more loop expressions for the action to iterate over."
+                      tooltip={<ForEachTooltip />}
+                    >
                       <ForEachField
                         label="For each"
                         fieldName="for_each"
                         description="Define one or more loop expressions for the action to iterate over."
                       />
-                    </div>
+                    </ControlFlowField>
                     {/* Other options */}
-                    <div className="flex flex-col space-y-2">
-                      <FormLabel className="flex items-center gap-2 text-xs font-medium">
-                        <span>Options</span>
-                      </FormLabel>
-                      <div className="space-y-4">
-                        <FormField
-                          name="start_delay"
-                          control={methods.control}
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel className="flex items-center gap-2 text-xs">
-                                <span>Start delay (seconds)</span>
-                                <HoverCard openDelay={100} closeDelay={100}>
-                                  <HoverCardTrigger asChild>
-                                    <InfoIcon className="size-3 stroke-muted-foreground" />
-                                  </HoverCardTrigger>
-                                  <HoverCardContent
-                                    className="w-auto max-w-[500px] p-3 font-mono text-xs tracking-tight"
-                                    side="left"
-                                    sideOffset={20}
-                                  >
-                                    <StartDelayTooltip />
-                                  </HoverCardContent>
-                                </HoverCard>
-                              </FormLabel>
-                              <FormControl>
-                                <Input
-                                  type="number"
-                                  value={field.value || ""}
-                                  onChange={(e) =>
-                                    field.onChange(
-                                      e.target.value
-                                        ? parseFloat(e.target.value)
-                                        : undefined
-                                    )
-                                  }
-                                  placeholder="0.0"
-                                  className="text-xs"
-                                />
-                              </FormControl>
-                              <FormMessage className="whitespace-pre-line" />
-                            </FormItem>
-                          )}
-                        />
-                        <FormField
-                          name="join_strategy"
-                          control={methods.control}
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel className="flex items-center gap-2 text-xs">
-                                <span>Join strategy</span>
-                                <HoverCard openDelay={100} closeDelay={100}>
-                                  <HoverCardTrigger asChild>
-                                    <InfoIcon className="size-3 stroke-muted-foreground" />
-                                  </HoverCardTrigger>
-                                  <HoverCardContent
-                                    className="w-auto max-w-[500px] p-3 font-mono text-xs tracking-tight"
-                                    side="left"
-                                    sideOffset={20}
-                                  >
-                                    <JoinStrategyTooltip />
-                                  </HoverCardContent>
-                                </HoverCard>
-                              </FormLabel>
-                              <FormControl>
-                                <Select
-                                  value={field.value || "all"}
-                                  onValueChange={field.onChange}
-                                >
-                                  <SelectTrigger className="text-xs">
-                                    <SelectValue placeholder="Select strategy..." />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="all">All</SelectItem>
-                                    <SelectItem value="any">Any</SelectItem>
-                                  </SelectContent>
-                                </Select>
-                              </FormControl>
-                              <FormMessage className="whitespace-pre-line" />
-                            </FormItem>
-                          )}
-                        />
-                        <FormField
-                          name="wait_until"
-                          control={methods.control}
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel className="flex items-center gap-2 text-xs">
-                                <span>Wait until</span>
-                                <HoverCard openDelay={100} closeDelay={100}>
-                                  <HoverCardTrigger asChild>
-                                    <InfoIcon className="size-3 stroke-muted-foreground" />
-                                  </HoverCardTrigger>
-                                  <HoverCardContent
-                                    className="w-auto max-w-[500px] p-3 font-mono text-xs tracking-tight"
-                                    side="left"
-                                    sideOffset={20}
-                                  >
-                                    <WaitUntilTooltip />
-                                  </HoverCardContent>
-                                </HoverCard>
-                              </FormLabel>
-                              <FormControl>
-                                <Input
-                                  type="text"
-                                  value={field.value || ""}
-                                  onChange={field.onChange}
-                                  placeholder="tomorrow at 3pm"
-                                  className="text-xs"
-                                />
-                              </FormControl>
-                              <FormMessage className="whitespace-pre-line" />
-                            </FormItem>
-                          )}
-                        />
-                      </div>
-                    </div>
-                    {/* Retry Policy */}
-                    <div className="flex flex-col space-y-2">
-                      <FormLabel className="flex items-center gap-2 text-xs font-medium">
-                        <span>Retry policy</span>
-                      </FormLabel>
-                      <div className="space-y-4">
-                        <FormField
-                          name="max_attempts"
-                          control={methods.control}
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel className="flex items-center gap-2 text-xs">
-                                <span>Max attempts</span>
-                                <HoverCard openDelay={100} closeDelay={100}>
-                                  <HoverCardTrigger asChild>
-                                    <InfoIcon className="size-3 stroke-muted-foreground" />
-                                  </HoverCardTrigger>
-                                  <HoverCardContent
-                                    className="w-auto max-w-[500px] p-3 font-mono text-xs tracking-tight"
-                                    side="left"
-                                    sideOffset={20}
-                                  >
-                                    <MaxAttemptsTooltip />
-                                  </HoverCardContent>
-                                </HoverCard>
-                              </FormLabel>
-                              <FormControl>
-                                <Input
-                                  type="number"
-                                  value={field.value || ""}
-                                  onChange={(e) =>
-                                    field.onChange(
-                                      e.target.value
-                                        ? parseInt(e.target.value)
-                                        : undefined
-                                    )
-                                  }
-                                  placeholder="1"
-                                  className="text-xs"
-                                />
-                              </FormControl>
-                              <FormMessage className="whitespace-pre-line" />
-                            </FormItem>
-                          )}
-                        />
-                        <FormField
-                          name="timeout"
-                          control={methods.control}
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel className="flex items-center gap-2 text-xs">
-                                <span>Timeout (seconds)</span>
-                                <HoverCard openDelay={100} closeDelay={100}>
-                                  <HoverCardTrigger asChild>
-                                    <InfoIcon className="size-3 stroke-muted-foreground" />
-                                  </HoverCardTrigger>
-                                  <HoverCardContent
-                                    className="w-auto max-w-[500px] p-3 font-mono text-xs tracking-tight"
-                                    side="left"
-                                    sideOffset={20}
-                                  >
-                                    <TimeoutTooltip />
-                                  </HoverCardContent>
-                                </HoverCard>
-                              </FormLabel>
-                              <FormControl>
-                                <Input
-                                  type="number"
-                                  value={field.value || ""}
-                                  onChange={(e) =>
-                                    field.onChange(
-                                      e.target.value
-                                        ? parseInt(e.target.value)
-                                        : undefined
-                                    )
-                                  }
-                                  placeholder="300"
-                                  className="text-xs"
-                                />
-                              </FormControl>
-                              <FormMessage className="whitespace-pre-line" />
-                            </FormItem>
-                          )}
-                        />
-                        <FormField
-                          name="retry_until"
-                          control={methods.control}
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel className="flex items-center gap-2 text-xs">
-                                <span>Retry until</span>
-                                <HoverCard openDelay={100} closeDelay={100}>
-                                  <HoverCardTrigger asChild>
-                                    <InfoIcon className="size-3 stroke-muted-foreground" />
-                                  </HoverCardTrigger>
-                                  <HoverCardContent
-                                    className="w-auto max-w-[500px] p-3 font-mono text-xs tracking-tight"
-                                    side="left"
-                                    sideOffset={20}
-                                  >
-                                    <RetryUntilTooltip />
-                                  </HoverCardContent>
-                                </HoverCard>
-                              </FormLabel>
-                              <FormControl>
-                                <ExpressionInput
-                                  value={field.value || ""}
-                                  onChange={field.onChange}
-                                  placeholder="Enter expression..."
-                                />
-                              </FormControl>
-                              <FormMessage className="whitespace-pre-line" />
-                            </FormItem>
-                          )}
-                        />
-                      </div>
-                    </div>
+
+                    <ControlFlowField
+                      label="Start delay"
+                      description="Define a delay before the action starts."
+                      tooltip={<StartDelayTooltip />}
+                    >
+                      <FormField
+                        name="start_delay"
+                        control={methods.control}
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormMessage className="whitespace-pre-line" />
+                            <FormControl>
+                              <Input
+                                type="number"
+                                value={field.value || ""}
+                                onChange={(e) =>
+                                  field.onChange(
+                                    e.target.value
+                                      ? parseFloat(e.target.value)
+                                      : undefined
+                                  )
+                                }
+                                placeholder="0.0"
+                                className="text-xs"
+                              />
+                            </FormControl>
+                          </FormItem>
+                        )}
+                      />
+                    </ControlFlowField>
+
+                    {/* Max attempts */}
+                    <ControlFlowField
+                      label="Max attempts"
+                      description="Define the maximum number of retry attempts for the action."
+                      tooltip={<MaxAttemptsTooltip />}
+                    >
+                      <FormField
+                        name="max_attempts"
+                        control={methods.control}
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormMessage className="whitespace-pre-line" />
+                            <FormControl>
+                              <Input
+                                type="number"
+                                value={field.value || ""}
+                                onChange={(e) =>
+                                  field.onChange(
+                                    e.target.value
+                                      ? parseInt(e.target.value)
+                                      : undefined
+                                  )
+                                }
+                                placeholder="1"
+                                className="text-xs"
+                              />
+                            </FormControl>
+                          </FormItem>
+                        )}
+                      />
+                    </ControlFlowField>
+
+                    {/* Timeout */}
+                    <ControlFlowField
+                      label="Timeout"
+                      description="Define the timeout in seconds for the action."
+                      tooltip={<TimeoutTooltip />}
+                    >
+                      <FormField
+                        name="timeout"
+                        control={methods.control}
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormMessage className="whitespace-pre-line" />
+                            <FormControl>
+                              <Input
+                                type="number"
+                                value={field.value || ""}
+                                onChange={(e) =>
+                                  field.onChange(
+                                    e.target.value
+                                      ? parseInt(e.target.value)
+                                      : undefined
+                                  )
+                                }
+                                placeholder="300"
+                                className="text-xs"
+                              />
+                            </FormControl>
+                          </FormItem>
+                        )}
+                      />
+                    </ControlFlowField>
+
+                    {/* Retry until */}
+                    <ControlFlowField
+                      label="Retry until"
+                      description="Define a conditional expression that determines when to stop retrying."
+                      tooltip={<RetryUntilTooltip />}
+                    >
+                      <FormField
+                        name="retry_until"
+                        control={methods.control}
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormMessage className="whitespace-pre-line" />
+                            <FormControl>
+                              <ExpressionInput
+                                value={field.value || ""}
+                                onChange={field.onChange}
+                                placeholder="Enter expression..."
+                              />
+                            </FormControl>
+                          </FormItem>
+                        )}
+                      />
+                    </ControlFlowField>
+
+                    {/* Join strategy */}
+                    <ControlFlowField
+                      label="Join strategy"
+                      description="Define how to handle results when the action runs in parallel."
+                      tooltip={<JoinStrategyTooltip />}
+                    >
+                      <FormField
+                        name="join_strategy"
+                        control={methods.control}
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormMessage className="whitespace-pre-line" />
+                            <FormControl>
+                              <Select
+                                value={field.value || ""}
+                                onValueChange={field.onChange}
+                              >
+                                <SelectTrigger className="text-xs">
+                                  <SelectValue
+                                    placeholder="Select strategy..."
+                                    className="text-xs"
+                                  />
+                                </SelectTrigger>
+                                <SelectContent className="w-full text-xs">
+                                  <SelectItem value="inner" className="text-xs">
+                                    Inner
+                                  </SelectItem>
+                                  <SelectItem value="outer" className="text-xs">
+                                    Outer
+                                  </SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </FormControl>
+                          </FormItem>
+                        )}
+                      />
+                    </ControlFlowField>
+
+                    {/* Wait until */}
+                    <ControlFlowField
+                      label="Wait until"
+                      description="Define a conditional expression that determines when the action can proceed."
+                      tooltip={<WaitUntilTooltip />}
+                    >
+                      <FormField
+                        name="wait_until"
+                        control={methods.control}
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormMessage className="whitespace-pre-line" />
+                            <FormControl>
+                              <ExpressionInput
+                                value={field.value || ""}
+                                onChange={field.onChange}
+                                placeholder="Enter expression..."
+                              />
+                            </FormControl>
+                          </FormItem>
+                        )}
+                      />
+                    </ControlFlowField>
                   </div>
                 </TabsContent>
                 {/* Template */}
