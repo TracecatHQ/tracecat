@@ -34,7 +34,7 @@ from tracecat.config import (
 from tracecat.types.exceptions import TracecatException
 from tracecat_registry import RegistrySecret, registry, secrets
 
-RequestMethods = Literal["GET", "POST", "PUT", "PATCH", "DELETE"]
+RequestMethods = Literal["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
 JSONObjectOrArray = dict[str, Any] | list[Any]
 
 
