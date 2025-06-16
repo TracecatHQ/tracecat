@@ -237,17 +237,6 @@ const reconstructYamlFromForm = (
   }
 }
 
-// Helper function to detect YAML features that might be lost in form mode
-const detectYamlFeatures = (yamlStr: string) => {
-  const features = []
-  if (yamlStr.includes("#")) features.push("comments")
-  if (yamlStr.includes("&") || yamlStr.includes("*"))
-    features.push("anchors/references")
-  if (yamlStr.includes("|-") || yamlStr.includes("|+"))
-    features.push("multi-line strings")
-  return features
-}
-
 type InputMode = "form" | "yaml"
 
 export type ActionPanelTabs =
@@ -313,7 +302,6 @@ function ActionPanelContent({
 
   // Raw YAML state for preserving original formatting
   const [rawInputsYaml, setRawInputsYaml] = useState(() => action?.inputs || "")
-  const [yamlFeatures, setYamlFeatures] = useState<string[]>([])
 
   const required = (registryAction?.interface?.expects?.required ||
     []) as string[]
@@ -348,7 +336,6 @@ function ActionPanelContent({
     setValidationResults([])
     // Update raw YAML when action changes
     setRawInputsYaml(action?.inputs || "")
-    setYamlFeatures(detectYamlFeatures(action?.inputs || ""))
 
     // Initialize visible optional fields from existing form data
     if (action?.inputs && optionalFields.length > 0) {
