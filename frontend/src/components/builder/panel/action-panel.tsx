@@ -1141,8 +1141,6 @@ function ActionPanelContent({
                                     label={label}
                                     fieldName={fullFieldName}
                                     fieldDefn={fieldDefn}
-                                    workspaceId={workspaceId}
-                                    workflowId={workflowId}
                                   />
                                 )
                               })}
@@ -1174,8 +1172,6 @@ function ActionPanelContent({
                                       label={label}
                                       fieldName={fullFieldName}
                                       fieldDefn={fieldDefn}
-                                      workspaceId={workspaceId}
-                                      workflowId={workflowId}
                                     />
                                   )
                                 })}

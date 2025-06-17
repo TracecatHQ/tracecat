@@ -9,7 +9,6 @@ import {
   CodeIcon,
   ListIcon,
   LucideIcon,
-  PlusCircleIcon,
   TypeIcon,
   WorkflowIcon,
 } from "lucide-react"
@@ -181,12 +180,7 @@ export function PolymorphicField({
   label,
   fieldName,
   fieldDefn,
-  workspaceId,
-  workflowId,
-}: FormComponentProps & {
-  workspaceId?: string
-  workflowId?: string
-}) {
+}: FormComponentProps) {
   const methods = useFormContext()
   const { description } = fieldDefn
   const formattedDescription = description?.endsWith(".")
