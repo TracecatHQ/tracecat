@@ -1137,6 +1137,7 @@ function ActionPanelContent({
                             <>
                               {/* Required fields - always shown */}
                               {requiredFields.map(([fieldName, fieldDefn]) => {
+                                const fullFieldName = `inputs.${fieldName}`
                                 const label = fieldName
                                   .replaceAll("_", " ")
                                   .replace(/^\w/, (c) => c.toUpperCase())
@@ -1146,7 +1147,7 @@ function ActionPanelContent({
                                     <ControlledYamlField
                                       key={fieldName}
                                       label={label}
-                                      fieldName={fieldName}
+                                      fieldName={fullFieldName}
                                       type="unknown"
                                     />
                                   )
@@ -1156,7 +1157,7 @@ function ActionPanelContent({
                                   <PolymorphicField
                                     key={fieldName}
                                     label={label}
-                                    fieldName={`inputs.${fieldName}`}
+                                    fieldName={fullFieldName}
                                     fieldDefn={fieldDefn}
                                     workspaceId={workspaceId}
                                     workflowId={workflowId}
@@ -1170,6 +1171,7 @@ function ActionPanelContent({
                                   visibleOptionalFields.has(fieldName)
                                 )
                                 .map(([fieldName, fieldDefn]) => {
+                                  const fullFieldName = `inputs.${fieldName}`
                                   const label = fieldName
                                     .replaceAll("_", " ")
                                     .replace(/^\w/, (c) => c.toUpperCase())
@@ -1179,7 +1181,7 @@ function ActionPanelContent({
                                       <ControlledYamlField
                                         key={fieldName}
                                         label={label}
-                                        fieldName={fieldName}
+                                        fieldName={fullFieldName}
                                         type="unknown"
                                       />
                                     )
@@ -1189,7 +1191,7 @@ function ActionPanelContent({
                                     <PolymorphicField
                                       key={fieldName}
                                       label={label}
-                                      fieldName={fieldName}
+                                      fieldName={fullFieldName}
                                       fieldDefn={fieldDefn}
                                       workspaceId={workspaceId}
                                       workflowId={workflowId}

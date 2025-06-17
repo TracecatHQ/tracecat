@@ -129,7 +129,7 @@ export function ControlledYamlField({
           />
           <FormMessage className="whitespace-pre-line" />
           <YamlStyledEditor
-            name={`inputs.${fieldName}`}
+            name={fieldName}
             control={methods.control}
             forEachExpressions={forEach}
           />
@@ -194,7 +194,7 @@ export function PolymorphicField({
     : `${description}.`
 
   // Watch the current field value to check if it's an expression
-  const currentValue = methods.watch(`inputs.${fieldName}`)
+  const currentValue = methods.watch(fieldName)
   const isCurrentValueExpression = isExpression(currentValue)
 
   // Extract the type information
@@ -355,7 +355,7 @@ export function PolymorphicField({
     // we should clear the field value to avoid conflicts
     if (newFieldType !== "expression" && isCurrentValueExpression) {
       // Clear the value when switching away from expression to prevent type conflicts
-      methods.setValue(`inputs.${fieldName}`, "")
+      methods.setValue(fieldName, "")
     }
   }
 
