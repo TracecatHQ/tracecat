@@ -13,7 +13,7 @@ from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatSettingsError
 
 GIT_SSH_URL_REGEX = re.compile(
-    r"^git\+ssh://git@(?P<host>[^/]+)/(?P<org>[^/]+)/(?P<repo>[^/@]+?)(?:\.git)?(?:@(?P<ref>[^/]+))?$"
+    r"^git\+ssh://git@(?P<host>[^:/]+)(?:\:(?P<port>[^/]+))?/(?P<org>[^/]+)/(?P<repo>[^/@]+?)(?:\.git)?(?:@(?P<ref>[^/]+))?$"
 )
 """Git SSH URL with git user and optional ref."""
 
@@ -23,10 +23,11 @@ class GitUrl:
     host: str
     org: str
     repo: str
+    port: int = 22
     ref: str | None = None
 
     def to_url(self) -> str:
-        base = f"git+ssh://git@{self.host}/{self.org}/{self.repo}.git"
+        base = f"git+ssh://git@{self.host}:{self.port}/{self.org}/{self.repo}.git"
         return f"{base}@{self.ref}" if self.ref else base
 
 
@@ -75,6 +76,7 @@ def parse_git_url(url: str, *, allowed_domains: set[str] | None = None) -> GitUr
 
     if match := GIT_SSH_URL_REGEX.match(url):
         host = match.group("host")
+        port = int(match.group("port")) or 22
         org = match.group("org")
         repo = match.group("repo")
         ref = match.group("ref")
@@ -91,7 +93,7 @@ def parse_git_url(url: str, *, allowed_domains: set[str] | None = None) -> GitUr
                 f"Domain {host} not in allowed domains. Must be configured in `git_allowed_domains` organization setting."
             )
 
-        return GitUrl(host=host, org=org, repo=repo, ref=ref)
+        return GitUrl(host=host, org=org, repo=repo, port=port, ref=ref)
 
     raise ValueError(f"Unsupported URL format: {url}. Must be a valid Git SSH URL.")
 
