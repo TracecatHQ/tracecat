@@ -84,8 +84,8 @@ class Float(Component):
     """Render field as float input"""
 
     component_id: Literal[ComponentID.FLOAT] = ComponentID.FLOAT
-    min_val: float = 0.0
-    max_val: float = 100.0
+    min_val: float | None = None
+    max_val: float | None = None
     step: float = 0.1
 
 
