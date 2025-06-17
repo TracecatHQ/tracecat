@@ -308,6 +308,9 @@ export function ExpressionInput({
           width: "0.6em",
           height: "0.6em",
         },
+        ".cm-line": {
+          padding: "0px",
+        },
       }),
     ]
   }, [workspaceId, actions, placeholderText, forEach, defaultHeight])
