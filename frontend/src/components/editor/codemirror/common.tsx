@@ -15,12 +15,21 @@ import {
   secretsListSecrets,
 } from "@/client"
 import {
+  autocompletion,
+  closeBracketsKeymap,
   Completion,
   CompletionContext,
+  completionKeymap,
   CompletionResult,
   startCompletion,
 } from "@codemirror/autocomplete"
-import { cursorCharLeft, cursorCharRight } from "@codemirror/commands"
+import {
+  cursorCharLeft,
+  cursorCharRight,
+  historyKeymap,
+  indentWithTab,
+  standardKeymap,
+} from "@codemirror/commands"
 import {
   EditorState,
   StateEffect,
@@ -32,6 +41,7 @@ import {
   DecorationSet,
   EditorView,
   hoverTooltip,
+  KeyBinding,
   keymap,
   ViewPlugin,
   WidgetType,
@@ -1728,6 +1738,58 @@ export function createBlurHandler() {
     }
     return false
   }
+}
+
+export function createCoreKeymap(...extraKeymaps: KeyBinding[]) {
+  return keymap.of([
+    {
+      key: "ArrowLeft",
+      run: enhancedCursorLeft,
+    },
+    {
+      key: "ArrowRight",
+      run: enhancedCursorRight,
+    },
+    {
+      key: "Enter",
+      run: (view: EditorView): boolean => {
+        const currentEditingRange = view.state.field(editingRangeField)
+        if (currentEditingRange) {
+          // Clear editing state on Enter key
+          view.dispatch({ effects: setEditingRange.of(null) })
+          return true
+        }
+        return false
+      },
+    },
+    ...closeBracketsKeymap,
+    ...standardKeymap,
+    ...historyKeymap,
+    ...completionKeymap,
+    indentWithTab,
+    ...extraKeymaps,
+  ])
+}
+
+export function createAutocomplete({
+  workspaceId,
+  actions,
+  forEach,
+}: {
+  workspaceId: string
+  actions: Record<string, ActionRead>
+  forEach: string | string[] | null | undefined
+}) {
+  return autocompletion({
+    override: [
+      createMentionCompletion(),
+      createFunctionCompletion(workspaceId),
+      createActionCompletion(Object.values(actions).map((a) => a)),
+      createVarCompletion(forEach),
+      createSecretsCompletion(workspaceId),
+      createEnvCompletion(),
+    ],
+  })
 }
 
 // Common theme for template pills

@@ -1,20 +1,11 @@
 "use client"
 
 import React, { useCallback, useMemo, useRef, useState } from "react"
+import { ActionRead } from "@/client"
 import { useWorkflow } from "@/providers/workflow"
 import { useWorkspace } from "@/providers/workspace"
-import {
-  autocompletion,
-  closeBrackets,
-  closeBracketsKeymap,
-  completionKeymap,
-} from "@codemirror/autocomplete"
-import {
-  history,
-  historyKeymap,
-  indentWithTab,
-  standardKeymap,
-} from "@codemirror/commands"
+import { autocompletion, closeBrackets } from "@codemirror/autocomplete"
+import { history } from "@codemirror/commands"
 import { yaml } from "@codemirror/lang-yaml"
 import {
   bracketMatching,
@@ -43,7 +34,9 @@ import { cn } from "@/lib/utils"
 import {
   createActionCompletion,
   createAtKeyCompletion,
+  createAutocomplete,
   createBlurHandler,
+  createCoreKeymap,
   createEnvCompletion,
   createExitEditModeKeyHandler,
   createExpressionNodeHover,
@@ -56,9 +49,6 @@ import {
   createVarCompletion,
   editingRangeField,
   EDITOR_STYLE,
-  enhancedCursorLeft,
-  enhancedCursorRight,
-  setEditingRange,
   templatePillTheme,
 } from "./common"
 
@@ -94,7 +84,7 @@ export const YamlStyledEditor = React.forwardRef<
   const [hasErrors, setHasErrors] = useState(false)
   const [saveState, setSaveState] = useState<SaveState>(SaveState.IDLE)
   const [validationErrors, setValidationErrors] = useState<string[]>([])
-  const actions = workflow?.actions || []
+  const actions = workflow?.actions || ({} as Record<string, ActionRead>)
   const editorRef = useRef<EditorView | null>(null)
 
   const textValue = React.useMemo(
@@ -257,38 +247,9 @@ export const YamlStyledEditor = React.forwardRef<
       }
     )
 
-    // Core navigation and editing keybindings (stable)
-    const coreKeymap = keymap.of([
-      {
-        key: "ArrowLeft",
-        run: enhancedCursorLeft,
-      },
-      {
-        key: "ArrowRight",
-        run: enhancedCursorRight,
-      },
-      {
-        key: "Enter",
-        run: (view: EditorView): boolean => {
-          const currentEditingRange = view.state.field(editingRangeField)
-          if (currentEditingRange) {
-            // Clear editing state on Enter key
-            view.dispatch({ effects: setEditingRange.of(null) })
-            return true
-          }
-          return false
-        },
-      },
-      ...closeBracketsKeymap,
-      ...standardKeymap,
-      ...historyKeymap,
-      ...completionKeymap,
-      indentWithTab,
-    ])
-
     return [
       createPillDeleteKeymap(), // This must be first to ensure that the delete key is handled before the core keymap
-      coreKeymap,
+      createCoreKeymap(),
       createAtKeyCompletion(),
       createExitEditModeKeyHandler(),
       lintGutter(),
@@ -300,15 +261,10 @@ export const YamlStyledEditor = React.forwardRef<
 
       bracketMatching(),
       closeBrackets(),
-      autocompletion({
-        override: [
-          createMentionCompletion(),
-          createFunctionCompletion(workspaceId),
-          createActionCompletion(Object.values(actions).map((a) => a)),
-          createSecretsCompletion(workspaceId),
-          createEnvCompletion(),
-          createVarCompletion(forEachExpressions),
-        ],
+      createAutocomplete({
+        workspaceId,
+        actions,
+        forEach: forEachExpressions,
       }),
 
       editingRangeField,
