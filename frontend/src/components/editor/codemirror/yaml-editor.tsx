@@ -23,7 +23,7 @@ import {
   syntaxHighlighting,
 } from "@codemirror/language"
 import { linter, lintGutter, type Diagnostic } from "@codemirror/lint"
-import { EditorState, RangeValue } from "@codemirror/state"
+import { EditorState } from "@codemirror/state"
 import {
   Decoration,
   DecorationSet,

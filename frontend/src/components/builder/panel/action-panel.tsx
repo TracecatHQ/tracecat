@@ -108,7 +108,6 @@ import {
 import { ControlFlowField } from "@/components/builder/panel/control-flow-fields"
 import { CopyButton } from "@/components/copy-button"
 import { YamlViewOnlyEditor } from "@/components/editor/codemirror/yaml-editor"
-import { DynamicCustomEditor } from "@/components/editor/dynamic"
 import { ExpressionInput } from "@/components/editor/expression-input"
 import {
   useYamlEditorContext,
@@ -1547,7 +1546,7 @@ function ActionPanelContent({
                                       .template_action
                                   : {}
                               )}
-                              className="h-full w-full"
+                              className="size-full"
                             />
                           </div>
                         </AccordionContent>
