@@ -1,0 +1,104 @@
+---
+title: Scatter-gather
+description: Split, transform, and merge lists of data with scatter and gather actions.
+icon: layer-group
+---
+
+The scatter-gather pattern is a powerful way to process lists of data.
+
+If you encounter lists of data (e.g. alerts, messages) in your workflows that you want to:
+- Filter with a simple `if-condition` (see [if-conditions](/quickstart/control-flow))
+- Process one at a time: rename fields, create a case, etc.
+
+We recommend first scattering the list of data into individual items, processing them one at a time, then gathering them back into a single list.
+
+<Tip>
+  It's almost always easier to deal with data one at a time than as a list!
+
+  After scattering, chain actions like you would in a workflow that processes one data point at a time.
+  The output for every action between a scatter and gather action will be shown as N individual items in the workflow runs view.
+
+  ![Scatter-gather](/img/tutorials/scatter-gather/scatter-gather.png)
+</Tip>
+
+# Scatter
+
+![Scatter](/img/tutorials/scatter-gather/scatter.png)
+
+The scatter action takes a list of data and scatters it into individual items.
+Every action after a scatter action will be run for each item in the list.
+
+```yaml
+collection: [
+  {
+    "name": "John",
+    "age": 30,
+    "city": "New York"
+  },
+  {
+    "name": "Jane",
+    "age": 25,
+    "city": "Los Angeles"
+  }
+]
+```
+
+# Gather
+
+<Note>
+  The gather action ONLY works downstream of a scatter action.
+  It will not work if you try to gather data that was not scattered.
+</Note>
+
+![Gather](/img/tutorials/scatter-gather/gather.png)
+
+The gather action takes a list of scattered data and gathers it back into a single list.
+
+```yaml
+items: ${{ ACTIONS.some_action_after_scatter.result }}
+```
+
+# Scatter, filter, then gather
+
+In this example, we'll scatter a list of integers, filter out the odd numbers with a simple `if-condition` on a reshape action, then gather the even numbers back into a single list.
+
+<Steps>
+  <Step title="Scatter">
+    Scatter the list of integers into individual items.
+
+    ![Scatter](/img/tutorials/scatter-gather/scatter.png)
+  </Step>
+  <Step title="Filter">
+    Filter out the odd numbers with a simple `if-condition` on a reshape action.
+    Set the inputs for the reshape action to:
+
+    ```yaml
+    value: ${{ ACTIONS.scatter.result }}
+    ```
+
+    And the if-condition to:
+
+    ```yaml
+    ${{ FN.mod(ACTIONS.reshape.result.number, 2) == 0 }}
+    ```
+
+    ![Filter](/img/tutorials/scatter-gather/filter.png)
+  </Step>
+  <Step title="Gather">
+    Gather the even numbers back into a single list.
+
+    Set the inputs for the gather action to:
+    ```yaml
+    items: ${{ ACTIONS.reshape.result }}
+    ```
+
+    ![Gather](/img/tutorials/scatter-gather/gather.png)
+  </Step>
+  <Step title="Run workflow">
+    Notice how the results for actions after the scatter action are shown as N individual items.
+
+    ![Runs view](/img/tutorials/scatter-gather/runs-view.png)
+    ![Filter results](/img/tutorials/scatter-gather/filter-results.png)
+    ![Gather results](/img/tutorials/scatter-gather/gather-results.png)
+  </Step>
+</Steps>
