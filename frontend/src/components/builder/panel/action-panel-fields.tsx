@@ -7,6 +7,7 @@ import {
   BracesIcon,
   ChevronDownIcon,
   CodeIcon,
+  InfoIcon,
   ListIcon,
   LucideIcon,
   TypeIcon,
@@ -134,11 +135,13 @@ export function ControlledYamlField({
   label,
   description,
   type,
+  info,
 }: {
   fieldName: string
   label?: string
   description?: string
   type?: string
+  info?: string
 }) {
   const methods = useFormContext()
   const forEach = methods.watch("for_each")
@@ -154,6 +157,12 @@ export function ControlledYamlField({
             type={type}
           />
           <FormMessage className="whitespace-pre-line" />
+          {info && (
+            <div className="flex max-w-fit items-center gap-1 rounded bg-blue-100 px-2 py-0.5 text-xs text-blue-500">
+              <InfoIcon className="size-3 shrink-0" />
+              <span>{info}</span>
+            </div>
+          )}
           <YamlStyledEditor
             name={fieldName}
             control={methods.control}

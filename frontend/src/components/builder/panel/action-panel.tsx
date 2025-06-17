@@ -1131,6 +1131,7 @@ function ActionPanelContent({
                                       key={fieldName}
                                       label={label}
                                       fieldName={fullFieldName}
+                                      info="Please sync your base actions repository to get the latest field schema."
                                     />
                                   )
                                 }
