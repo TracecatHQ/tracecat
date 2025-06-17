@@ -1,5 +1,6 @@
 "use client"
 
+import { json } from "@codemirror/lang-json"
 import { python } from "@codemirror/lang-python"
 import ReactCodeMirror from "@uiw/react-codemirror"
 
@@ -16,6 +17,8 @@ export const getLanguageExtension = (language: string) => {
   switch (language) {
     case "python":
       return python()
+    case "json":
+      return json()
     default:
       return python()
   }

@@ -1114,7 +1114,6 @@ function ActionPanelContent({
                             <ControlledYamlField
                               label="Inputs"
                               fieldName="inputs"
-                              type="unknown"
                             />
                           )}
                           {inputMode === "form" && (
@@ -1132,7 +1131,6 @@ function ActionPanelContent({
                                       key={fieldName}
                                       label={label}
                                       fieldName={fullFieldName}
-                                      type="unknown"
                                     />
                                   )
                                 }
@@ -1166,7 +1164,6 @@ function ActionPanelContent({
                                         key={fieldName}
                                         label={label}
                                         fieldName={fullFieldName}
-                                        type="unknown"
                                       />
                                     )
                                   }

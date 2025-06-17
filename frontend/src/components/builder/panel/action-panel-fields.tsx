@@ -101,42 +101,44 @@ export function FormLabelComponent({
   description,
   type,
 }: {
-  label: string
+  label?: string
   description?: string
   type?: string
 }) {
   return (
-    <FormLabel className="flex flex-col gap-1 text-xs font-medium">
-      <div className="group flex items-center gap-2">
-        <span className="font-semibold capitalize">{label}</span>
-        {type && (
-          <span className="font-mono tracking-tighter text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
-            {type}
+    (label || type || description) && (
+      <FormLabel className="flex flex-col gap-1 text-xs font-medium">
+        <div className="group flex items-center gap-2">
+          {label && <span className="font-semibold capitalize">{label}</span>}
+          {type && (
+            <span className="font-mono tracking-tighter text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
+              {type}
+            </span>
+          )}
+        </div>
+        {description && (
+          <span className="text-xs text-muted-foreground">
+            {formatInlineCode(description)}
           </span>
         )}
-      </div>
-      {description && (
-        <span className="text-xs text-muted-foreground">
-          {formatInlineCode(description)}
-        </span>
-      )}
-    </FormLabel>
+      </FormLabel>
+    )
   )
 }
 
 export function ControlledYamlField({
-  label,
   fieldName,
+  label,
   description,
   type,
 }: {
-  label: string
   fieldName: string
+  label?: string
   description?: string
   type?: string
 }) {
   const methods = useFormContext()
-  const forEach = useMemo(() => methods.watch("for_each"), [methods])
+  const forEach = methods.watch("for_each")
   return (
     <Controller
       name={fieldName}
