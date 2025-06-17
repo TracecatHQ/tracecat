@@ -726,6 +726,7 @@ function MultipleActionTypeField({
       onChange={onChange}
       suggestions={suggestions}
       searchKeys={searchKeys as (keyof Suggestion)[]}
+      placeholder="Start typing to search actions..."
     />
   )
 }

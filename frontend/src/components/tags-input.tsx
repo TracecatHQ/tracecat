@@ -163,7 +163,7 @@ export function MultiTagCommandInput({
         <PopoverAnchor asChild>
           <div
             className={cn(
-              "flex min-h-10 w-full flex-wrap items-center gap-1 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background",
+              "flex min-h-10 w-full flex-wrap items-center gap-1 rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm ring-offset-background",
               "focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2",
               disabled && "cursor-not-allowed opacity-50",
               className
@@ -203,7 +203,7 @@ export function MultiTagCommandInput({
               onBlur={handleBlur}
               disabled={disabled}
               placeholder={tags.length === 0 ? placeholder : ""}
-              className="min-w-[120px] flex-1 bg-transparent outline-none placeholder:text-muted-foreground"
+              className="min-w-[120px] flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground"
             />
 
             {/* Dropdown indicator */}
