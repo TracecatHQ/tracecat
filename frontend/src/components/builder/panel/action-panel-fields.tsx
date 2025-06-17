@@ -1,8 +1,11 @@
 "use client"
 
-import React, { useMemo, useState } from "react"
+import React, { useCallback, useMemo, useState } from "react"
+import type { ActionType, RegistryActionReadMinimal } from "@/client/types.gen"
+import fuzzysort from "fuzzysort"
 import {
   BracesIcon,
+  ChevronDownIcon,
   CodeIcon,
   ListIcon,
   LucideIcon,
@@ -17,6 +20,7 @@ import {
   useFormContext,
 } from "react-hook-form"
 
+import { useBuilderRegistryActions } from "@/lib/hooks"
 import { getType } from "@/lib/jsonschema"
 import {
   ExpressionComponent,
@@ -28,6 +32,13 @@ import {
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
+  Command,
+  CommandEmpty,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command"
+import {
   FormControl,
   FormField,
   FormItem,
@@ -35,6 +46,12 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   Select,
   SelectContent,
@@ -46,10 +63,14 @@ import { Textarea } from "@/components/ui/textarea"
 import { CodeEditor } from "@/components/editor/codemirror/code-editor"
 import { createTemplateRegex } from "@/components/editor/codemirror/common"
 import { YamlStyledEditor } from "@/components/editor/codemirror/yaml-editor"
-import { DynamicCustomEditor } from "@/components/editor/dynamic"
 import { ExpressionInput } from "@/components/editor/expression-input"
+import { getIcon } from "@/components/icons"
 import { FieldTypeTab, PolyField } from "@/components/polymorphic-field"
-import { CustomTagInput } from "@/components/tags-input"
+import {
+  CustomTagInput,
+  MultiTagCommandInput,
+  Suggestion,
+} from "@/components/tags-input"
 
 export interface FormComponentProps {
   label: string
@@ -89,7 +110,7 @@ export function FormLabelComponent({
       <div className="group flex items-center gap-2">
         <span className="font-semibold capitalize">{label}</span>
         {type && (
-          <span className="font-mono tracking-tighter text-muted-foreground/70 opacity-0 transition-opacity group-hover:opacity-100">
+          <span className="font-mono tracking-tighter text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
             {type}
           </span>
         )}
@@ -217,8 +238,8 @@ export function PolymorphicField({
 
   // If there is only one component and it is a text or text-area, we should render an expression field
   if (components.length === 1) {
-    const componentId = components[0].component_id
-    switch (componentId) {
+    const component = components[0]
+    switch (component.component_id) {
       case "text":
         return (
           <Controller
@@ -270,6 +291,28 @@ export function PolymorphicField({
             fieldName={fieldName}
             description={formattedDescription}
             type={type}
+          />
+        )
+      case "action-type":
+        return (
+          <Controller
+            name={fieldName}
+            control={methods.control}
+            render={({ field }) => (
+              <FormItem>
+                <FormLabelComponent
+                  label={label}
+                  description={formattedDescription}
+                  type={type}
+                />
+                <FormMessage className="whitespace-pre-line" />
+                <ActionTypeField
+                  field={field}
+                  onChange={field.onChange}
+                  component={component}
+                />
+              </FormItem>
+            )}
           />
         )
     }
@@ -576,7 +619,6 @@ function ComponentContent({
         </div>
       )
     case "code":
-      console.log("CODE BLOCK", field.value)
       return (
         <CodeEditor
           value={field.value}
@@ -586,7 +628,13 @@ function ComponentContent({
         />
       )
     case "action-type":
-      return <div>Action Type</div>
+      return (
+        <ActionTypeField
+          field={field}
+          onChange={field.onChange}
+          component={component}
+        />
+      )
     case "workflow-alias":
       return <div>Workflow Alias</div>
     case "expression":
@@ -598,17 +646,230 @@ function ComponentContent({
         />
       )
     default:
-      return (
-        <DynamicCustomEditor
-          className="h-64 w-full"
-          value={field.value}
-          onChange={field.onChange}
-          defaultLanguage="yaml-extended"
-          workspaceId={workspaceId}
-          workflowId={workflowId}
-        />
-      )
+      return <div>Unknown component</div>
   }
+}
+
+function SingleActionTypeField({
+  field,
+  onChange,
+  searchKeys,
+}: {
+  field: ControllerRenderProps<FieldValues>
+  onChange: (value: string) => void
+  searchKeys: (keyof RegistryActionReadMinimal)[]
+}) {
+  const [open, setOpen] = useState(false)
+  const [searchValue, setSearchValue] = useState("")
+  const { registryActions, registryActionsIsLoading } =
+    useBuilderRegistryActions()
+
+  const filterActions = useCallback(
+    (actions: RegistryActionReadMinimal[], search: string) => {
+      if (!search.trim()) {
+        return actions.map((action) => ({ obj: action, score: 0 }))
+      }
+
+      const results = fuzzysort.go<RegistryActionReadMinimal>(search, actions, {
+        all: true,
+        keys: searchKeys,
+      })
+      return results
+    },
+    [searchKeys]
+  )
+
+  // Use fuzzy matching for filtering actions
+  const filteredResults = useMemo(() => {
+    if (!registryActions) return []
+    return filterActions(registryActions, searchValue)
+  }, [registryActions, searchValue])
+
+  // Sort actions by score (fuzzy match relevance) then by namespace and name
+  const sortedActions = useMemo(() => {
+    return [...filteredResults].sort((a, b) => {
+      // If there's a search, sort by fuzzy score first
+      if (searchValue.trim()) {
+        if (a.score !== b.score) {
+          return b.score - a.score // Higher score first
+        }
+      }
+
+      // Then sort by namespace
+      const namespaceComparison = a.obj.namespace.localeCompare(b.obj.namespace)
+      // If namespaces are the same, sort by name
+      if (namespaceComparison === 0) {
+        return a.obj.name.localeCompare(b.obj.name)
+      }
+      return namespaceComparison
+    })
+  }, [filteredResults, searchValue])
+
+  const selectedAction = useMemo(() => {
+    return registryActions?.find((action) => action.action === field.value)
+  }, [registryActions, field.value])
+
+  const handleSelect = (actionKey: string) => {
+    field.onChange(actionKey)
+    onChange(actionKey)
+    setOpen(false)
+    setSearchValue("")
+  }
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          className="w-full justify-between text-left font-normal"
+        >
+          <div className="flex items-center gap-2 truncate">
+            {selectedAction ? (
+              getIcon(selectedAction.action, {
+                className: "size-4 shrink-0",
+              })
+            ) : (
+              <TypeIcon className="size-4 shrink-0" />
+            )}
+            <span className="truncate">
+              {selectedAction
+                ? selectedAction.default_title || selectedAction.action
+                : "Select action type..."}
+            </span>
+          </div>
+          <ChevronDownIcon className="ml-2 size-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[400px] p-0" align="start">
+        <Command shouldFilter={false}>
+          <CommandInput
+            placeholder="Search actions..."
+            value={searchValue}
+            onValueChange={setSearchValue}
+          />
+          <ScrollArea className="h-[300px]">
+            <CommandList>
+              <CommandEmpty className="py-6 text-center text-xs text-muted-foreground">
+                {registryActionsIsLoading
+                  ? "Loading actions..."
+                  : "No actions found."}
+              </CommandEmpty>
+              {sortedActions.map((result) => {
+                const action = result.obj
+                return (
+                  <CommandItem
+                    key={action.action}
+                    value={action.action}
+                    onSelect={() => handleSelect(action.action)}
+                    className="cursor-pointer p-2"
+                  >
+                    <div className="flex w-full flex-col gap-1">
+                      <div className="flex items-center gap-2">
+                        {getIcon(action.action, {
+                          className: "size-4 shrink-0 text-muted-foreground",
+                        })}
+                        <span className="font-medium">
+                          {action.default_title || action.name}
+                        </span>
+                        {action.type === "template" && (
+                          <span className="rounded bg-blue-100 px-1.5 py-0.5 text-xs text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+                            template
+                          </span>
+                        )}
+                      </div>
+                      <p className="line-clamp-2 text-xs text-muted-foreground">
+                        {action.description}
+                      </p>
+                      <span className="font-mono text-xs text-muted-foreground/70">
+                        {action.action}
+                      </span>
+                    </div>
+                  </CommandItem>
+                )
+              })}
+            </CommandList>
+          </ScrollArea>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+function MultipleActionTypeField({
+  field,
+  onChange,
+  searchKeys,
+}: {
+  field: ControllerRenderProps<FieldValues>
+  onChange: (value: string[]) => void
+  searchKeys: (keyof RegistryActionReadMinimal)[]
+}) {
+  const { registryActions } = useBuilderRegistryActions()
+
+  // Map actions to suggestions format for MultiTagCommandInput
+  const suggestions = useMemo(() => {
+    return (
+      registryActions
+        ?.map((action) => ({
+          id: action.action,
+          label: action.default_title || action.action,
+          value: action.action,
+          description: action.description,
+          group: action.namespace,
+          icon: getIcon(action.action, {
+            className: "size-6 p-[3px] border-[0.5px]",
+          }),
+        }))
+        .sort((a, b) => a.value.localeCompare(b.value)) || []
+    )
+  }, [registryActions])
+
+  return (
+    <MultiTagCommandInput
+      value={field.value}
+      onChange={onChange}
+      suggestions={suggestions}
+      searchKeys={searchKeys as (keyof Suggestion)[]}
+    />
+  )
+}
+
+export function ActionTypeField({
+  field,
+  onChange,
+  component,
+}: {
+  field: ControllerRenderProps<FieldValues>
+  onChange: (value: string | string[]) => void
+  component?: ActionType
+}) {
+  const isMultiple = component?.multiple === true
+  const searchKeys = [
+    "action",
+    "default_title",
+    "description",
+    "display_group",
+  ] as (keyof RegistryActionReadMinimal)[]
+
+  if (isMultiple) {
+    return (
+      <MultipleActionTypeField
+        field={field}
+        onChange={onChange as (value: string[]) => void}
+        searchKeys={searchKeys}
+      />
+    )
+  }
+
+  return (
+    <SingleActionTypeField
+      field={field}
+      onChange={onChange as (value: string) => void}
+      searchKeys={searchKeys}
+    />
+  )
 }
 
 const COMPONENT_LABELS: Record<TracecatComponentId, string> = {
