@@ -1,5 +1,5 @@
 import { jsonSchemaToParams } from "@/lib/jsonschema"
-import { TracecatJsonSchema } from "@/lib/schema"
+import type { TracecatJsonSchema } from "@/lib/schema"
 import {
   HoverCard,
   HoverCardContent,
