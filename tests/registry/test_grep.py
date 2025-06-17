@@ -6,7 +6,7 @@ from io import BytesIO
 import pytest
 from minio import Minio
 from tracecat_registry.integrations.amazon_s3 import _s3_semaphore
-from tracecat_registry.integrations.ee.grep import s3 as grep_s3
+from tracecat_registry.integrations.grep import s3 as grep_s3
 
 from tracecat import config
 

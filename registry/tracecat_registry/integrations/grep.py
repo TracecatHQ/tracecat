@@ -38,6 +38,8 @@ The module also implements intelligent caching using diskcache to reduce redunda
 S3 operations and improve performance for repeated requests.
 """
 
+import jsonpath_ng.ext
+import jsonpath_ng
 import orjson
 import tempfile
 from pathlib import Path
@@ -46,7 +48,7 @@ from typing_extensions import Doc
 import subprocess
 from diskcache import FanoutCache
 
-from tracecat import config
+from tracecat.config import TRACECAT__MAX_FILE_SIZE_BYTES, TRACECAT__SYSTEM_PATH
 from tracecat_registry import registry
 from tracecat_registry.integrations.amazon_s3 import s3_secret, get_objects
 
@@ -56,16 +58,93 @@ S3_CACHE = FanoutCache(
     size_limit=1024**3,  # 1GB limit
 )
 
+# Similar to Cursor read_file tool
+MAX_MATCHES = 250
 
-def _ripgrep(
+
+def _validate_file_security(
+    file_path: Path,
+    *,
+    pattern_or_expression: str,
+    pattern_name: str = "pattern",
+    max_pattern_length: int = 1000,
+    require_file: bool = True,
+) -> None:
+    """Common security validation for file operations.
+
+    Args:
+        file_path: Path to validate
+        pattern_or_expression: Pattern/expression to validate
+        pattern_name: Name of the pattern for error messages
+        max_pattern_length: Maximum allowed pattern length
+        require_file: If True, path must be a file; if False, must be a directory
+
+    Raises:
+        ValueError: If validation fails
+    """
+    # Validate and resolve path to prevent directory traversal
+    file_path = file_path.resolve()
+
+    # Ensure the path exists and is the correct type
+    if not file_path.exists():
+        raise ValueError(f"Path does not exist: {file_path}")
+
+    if require_file and not file_path.is_file():
+        raise ValueError(f"Path is not a file: {file_path}")
+    elif not require_file and not file_path.is_dir():
+        raise ValueError(f"Path is not a directory: {file_path}")
+
+    # Basic validation of pattern/expression
+    if not pattern_or_expression or not pattern_or_expression.strip():
+        raise ValueError(f"{pattern_name} cannot be empty")
+
+    # Reasonable length limit to prevent DoS
+    if len(pattern_or_expression) > max_pattern_length:
+        raise ValueError(f"{pattern_name} too long (max {max_pattern_length} chars)")
+
+    # Check for null bytes which could indicate binary injection
+    if "\x00" in pattern_or_expression:
+        raise ValueError(f"{pattern_name} contains null bytes")
+
+
+def _validate_file_size(file_path: Path) -> None:
+    """Validate file size to prevent DoS attacks.
+
+    Args:
+        file_path: Path to check
+
+    Raises:
+        ValueError: If file is too large
+    """
+    file_size = file_path.stat().st_size
+    if file_size > TRACECAT__MAX_FILE_SIZE_BYTES:
+        raise ValueError(
+            f"File too large: {file_size} bytes (max {TRACECAT__MAX_FILE_SIZE_BYTES})"
+        )
+
+
+def ripgrep(
     pattern: str, dir_path: Path, max_columns: int | None = None
 ) -> str | list[str] | dict[str, Any] | list[dict[str, Any]]:
-    # Validate and resolve dir_path to prevent directory traversal
-    dir_path = dir_path.resolve()
+    """Search for a pattern in a directory using ripgrep. Returns max 250 matches.
 
-    # Ensure the directory exists and is actually a directory
-    if not dir_path.exists() or not dir_path.is_dir():
-        raise ValueError(f"Invalid directory path: {dir_path}")
+    Args:
+        pattern: Regex pattern to search for.
+        dir_path: Directory to search in.
+        max_columns: Maximum number of columns to grep.
+
+    Returns:
+        Matched text.
+
+    References: https://github.com/BurntSushi/ripgrep/blob/master/GUIDE.md
+    """
+    # Use consolidated security validation
+    _validate_file_security(
+        dir_path,
+        pattern_or_expression=pattern,
+        pattern_name="regex pattern",
+        require_file=False,  # ripgrep works on directories
+    )
 
     # Build command with security-focused flags
     args = [
@@ -74,8 +153,10 @@ def _ripgrep(
         "--no-follow",  # Don't follow symbolic links
         "--no-ignore",  # Don't respect .gitignore files
         "--no-config",  # Don't read configuration files
+        "--max-count",
+        "250",  # Limit results to prevent memory exhaustion
         "--max-filesize",
-        str(config.TRACECAT__MAX_FILE_SIZE_BYTES),  # Limit file size to prevent DoS
+        str(TRACECAT__MAX_FILE_SIZE_BYTES),  # Limit file size to prevent DoS
         "--threads",
         "4",  # Limit threads to prevent resource exhaustion
     ]
@@ -93,7 +174,7 @@ def _ripgrep(
         text=True,
         shell=False,
         env={
-            "PATH": config.TRACECAT__SYSTEM_PATH,  # Use configurable system PATH
+            "PATH": TRACECAT__SYSTEM_PATH,  # Use configurable system PATH
             "HOME": dir_path.as_posix(),  # Set HOME to the temp directory
         },
         cwd=dir_path.as_posix(),  # Set working directory to the temp directory
@@ -119,6 +200,69 @@ def _ripgrep(
                 continue
 
     return json_objects
+
+
+def jsonpath_find(
+    expression: str,
+    file_path: Path,
+) -> list[Any]:
+    """Find matches in a JSON file using a JSONPath expression.
+
+    Args:
+        expression: JSONPath expression to search for.
+        file_path: Path to the JSON file to search in.
+
+    Returns:
+        Matched values.
+
+    Raises:
+        ValueError: If file path is invalid or expression is malformed
+        RuntimeError: If JSON parsing or JSONPath evaluation fails
+
+    References: https://pypi.org/project/jsonpath-ng/
+    """
+    # Use consolidated security validation
+    _validate_file_security(
+        file_path,
+        pattern_or_expression=expression,
+        pattern_name="JSONPath expression",
+        require_file=True,  # jsonpath_find works on files
+    )
+
+    try:
+        # Check file size before reading to prevent DoS
+        _validate_file_size(file_path)
+
+        # Read file with proper encoding and error handling
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                content = f.read()
+        except (OSError, IOError) as e:
+            raise RuntimeError(f"File read error: {e}")
+
+        # Parse JSON content with proper error handling
+        try:
+            json_data = orjson.loads(content)
+        except orjson.JSONDecodeError as e:
+            raise RuntimeError(f"Invalid JSON content: {e}")
+
+        # Parse and validate JSONPath expression
+        try:
+            jsonpath_expr = jsonpath_ng.ext.parse(expression)
+        except Exception as e:
+            raise RuntimeError(f"Invalid JSONPath expression: {e}")
+
+        # Execute JSONPath search
+        matches = jsonpath_expr.find(json_data)
+        match_values = [found.value for found in matches[:MAX_MATCHES]]
+
+        return match_values
+
+    except Exception as e:
+        # Re-raise our own exceptions, catch any unexpected ones
+        if isinstance(e, (ValueError, RuntimeError)):
+            raise
+        raise RuntimeError(f"JSONPath evaluation failed: {e}")
 
 
 async def _get_cached_objects(
@@ -199,4 +343,4 @@ async def s3(
             file_path.write_text(content, encoding="utf-8")
 
         # Run ripgrep on all files (this is CPU-bound, not I/O limited)
-        return _ripgrep(pattern, temp_path, max_columns)
+        return ripgrep(pattern, temp_path, max_columns)
