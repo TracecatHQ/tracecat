@@ -1,4 +1,4 @@
-import { createTemplateRegex } from "@/components/editor/codemirror/common"
+import { createTemplateRegex } from "@/lib/expressions"
 
 /**
  * Check if a value contains a template expression pattern
