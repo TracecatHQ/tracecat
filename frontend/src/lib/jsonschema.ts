@@ -1,27 +1,28 @@
 import {
-  JSONSchema7,
-  JSONSchema7Definition,
-  JSONSchema7Type,
-} from "json-schema"
+  TRACECAT_COMPONENT_KEY,
+  TracecatJsonSchema,
+  TracecatJsonSchemaDefinition,
+  TracecatJsonSchemaType,
+} from "@/lib/schema"
 
-export interface JSONSchemaTableRow {
+export interface JSONSchemaParam {
   parameter: string
   type: string
-  default: JSONSchema7Type
+  default: TracecatJsonSchemaType
   description: string
   constraints: string
   required: boolean
 }
 
-export function transformJsonSchemaToTableRows(
-  schema: JSONSchema7
-): JSONSchemaTableRow[] {
+export function jsonSchemaToParams(
+  schema: TracecatJsonSchema
+): JSONSchemaParam[] {
   const properties = schema.properties || {}
   const required = schema.required || []
 
-  const rows: JSONSchemaTableRow[] = Object.entries(properties).map(
+  const rows: JSONSchemaParam[] = Object.entries(properties).map(
     ([key, value]) => {
-      const jsonSchemaValue = value as JSONSchema7
+      const jsonSchemaValue = value as TracecatJsonSchema
       const { default: defaultValue, description } = jsonSchemaValue
       return {
         parameter: key,
@@ -33,11 +34,10 @@ export function transformJsonSchemaToTableRows(
       }
     }
   )
-  console.log(rows)
   return rows
 }
 
-export function getType(value: JSONSchema7): string {
+export function getType(value: TracecatJsonSchema): string {
   // Handle anyOf
   if (value.anyOf) {
     return value.anyOf.map((item) => getTypeFromDefinition(item)).join(" | ")
@@ -64,29 +64,40 @@ export function getType(value: JSONSchema7): string {
   }
 
   // Handle primitive types
-  return (value.type || "unknown") as string
+  return (value.type || "any") as string
 }
 
 // Helper function to get type from JSONSchema7Definition
-function getTypeFromDefinition(definition: JSONSchema7Definition): string {
+function getTypeFromDefinition(
+  definition: TracecatJsonSchemaDefinition
+): string {
   if (typeof definition === "boolean") {
     throw new Error("Boolean type not supported")
   }
   return getType(definition)
 }
 
-export function getConstraints(value: JSONSchema7): string {
+export function getConstraints(value: TracecatJsonSchema): string {
   const constraints = []
 
   // Exclude these standard keys from constraints
-  const excludeKeys = ["type", "description", "default", "title", "anyOf"]
+  const excludeKeys = [
+    "type",
+    "description",
+    "default",
+    "title",
+    "anyOf",
+    TRACECAT_COMPONENT_KEY,
+  ]
 
   // Iterate through the keys of the value object
   for (const key in value) {
     if (excludeKeys.includes(key)) continue
-    const cons = value[key as keyof JSONSchema7]
+    const cons = value[key as keyof TracecatJsonSchema]
     if (key === "additionalProperties") {
-      constraints.push(`additionalProperties: ${getType(cons as JSONSchema7)}`)
+      constraints.push(
+        `additionalProperties: ${getType(cons as TracecatJsonSchema)}`
+      )
     } else if (Array.isArray(cons)) {
       constraints.push(
         `${key}: [${cons.map((c) => JSON.stringify(c)).join(", ")}]`

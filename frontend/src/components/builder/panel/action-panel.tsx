@@ -2,9 +2,14 @@
 
 import "react18-json-view/src/style.css"
 
-import React, { useCallback, useEffect, useState } from "react"
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link"
-import { ActionUpdate, ApiError, ValidationResult } from "@/client"
+import {
+  $JoinStrategy,
+  ActionUpdate,
+  ApiError,
+  ValidationResult,
+} from "@/client"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
 import { useWorkspace } from "@/providers/workspace"
@@ -12,16 +17,16 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import {
   AlertTriangleIcon,
   CircleCheckIcon,
+  CodeIcon,
   Database,
   FileTextIcon,
-  InfoIcon,
   LayoutListIcon,
   LinkIcon,
+  ListIcon,
   Loader2Icon,
   LucideIcon,
   MessagesSquare,
   Plus,
-  RotateCcwIcon,
   SaveIcon,
   SettingsIcon,
   ShapesIcon,
@@ -35,6 +40,7 @@ import { z } from "zod"
 import { RequestValidationError, TracecatApiError } from "@/lib/errors"
 import { useAction, useGetRegistryAction, useOrgAppSettings } from "@/lib/hooks"
 import { PERMITTED_INTERACTION_ACTIONS } from "@/lib/interactions"
+import { isTracecatJsonSchema, TracecatJsonSchema } from "@/lib/schema"
 import { cn, slugify } from "@/lib/utils"
 import {
   Accordion,
@@ -45,6 +51,12 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import {
   FormControl,
   FormDescription,
   FormField,
@@ -52,11 +64,6 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form"
-import {
-  HoverCard,
-  HoverCardContent,
-  HoverCardTrigger,
-} from "@/components/ui/hover-card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
@@ -78,19 +85,35 @@ import {
 } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
+import { ToggleTabOption, ToggleTabs } from "@/components/ui/toggle-tabs"
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import {
-  ControlFlowOptionsTooltip,
+  ControlledYamlField,
+  PolymorphicField,
+} from "@/components/builder/panel/action-panel-fields"
+import {
   ForEachTooltip,
-  RetryPolicyTooltip,
+  JoinStrategyTooltip,
+  MaxAttemptsTooltip,
+  RetryUntilTooltip,
   RunIfTooltip,
+  StartDelayTooltip,
+  TimeoutTooltip,
+  WaitUntilTooltip,
 } from "@/components/builder/panel/action-panel-tooltips"
+import { ControlFlowField } from "@/components/builder/panel/control-flow-fields"
 import { CopyButton } from "@/components/copy-button"
-import { DynamicCustomEditor } from "@/components/editor/dynamic"
+import { YamlViewOnlyEditor } from "@/components/editor/codemirror/yaml-editor"
+import { ExpressionInput } from "@/components/editor/expression-input"
+import {
+  useYamlEditorContext,
+  YamlEditorProvider,
+} from "@/components/editor/yaml-editor-context"
+import { ForEachField } from "@/components/form/for-each-field"
 import { getIcon } from "@/components/icons"
 import { JSONSchemaTable } from "@/components/jsonschema-table"
 import { CenteredSpinner } from "@/components/loading/spinner"
@@ -108,28 +131,34 @@ const actionFormSchema = z.object({
     .string()
     .max(500, "Description must be less than 500 characters")
     .optional(),
-  inputs: z
+  // AI-TODO: Add validation for the inputs
+  inputs: z.record(z.string(), z.unknown()),
+  for_each: z
+    .union([
+      z.string().max(1000, "For each must be less than 1000 characters"),
+      z.array(
+        z.string().max(1000, "For each must be less than 1000 characters")
+      ),
+    ])
+    .optional(),
+  run_if: z
     .string()
-    .max(300000, "Inputs must be less than 300000 characters")
-    .default(""),
-  control_flow: z.object({
-    for_each: z
-      .string()
-      .max(1000, "For each must be less than 1000 characters")
-      .optional(),
-    run_if: z
-      .string()
-      .max(1000, "Run if must be less than 1000 characters")
-      .optional(),
-    retry_policy: z
-      .string()
-      .max(1000, "Retry policy must be less than 1000 characters")
-      .optional(),
-    options: z
-      .string()
-      .max(1000, "Options must be less than 1000 characters")
-      .optional(),
-  }),
+    .max(1000, "Run if must be less than 1000 characters")
+    .optional(),
+  // Retry policy fields
+  max_attempts: z.number().int().min(0).optional(),
+  timeout: z.number().int().min(1).optional(),
+  retry_until: z
+    .string()
+    .max(1000, "Retry until must be less than 1000 characters")
+    .optional(),
+  // Control flow options fields
+  start_delay: z.number().min(0).optional(),
+  join_strategy: z.enum($JoinStrategy.enum).optional(),
+  wait_until: z
+    .string()
+    .max(1000, "Wait until must be less than 1000 characters")
+    .optional(),
   is_interactive: z.boolean().default(false),
   interaction: z
     .discriminatedUnion("type", [
@@ -146,14 +175,6 @@ const actionFormSchema = z.object({
 })
 type ActionFormSchema = z.infer<typeof actionFormSchema>
 
-const isControlFlowOption = (key: string) => {
-  return [
-    "control_flow.wait_until",
-    "control_flow.join_strategy",
-    "control_flow.start_delay",
-  ].includes(key)
-}
-
 enum SaveState {
   IDLE = "idle",
   UNSAVED = "unsaved",
@@ -167,11 +188,57 @@ const parseYaml = (str: string | undefined) =>
 const stringifyYaml = (obj: unknown | undefined) =>
   obj ? YAML.stringify(obj) : ""
 
-export type ActionPanelTabs =
-  | "inputs"
-  | "control-flow"
-  | "retry-policy"
-  | "template-inputs"
+// Helper function to reconstruct YAML preserving original structure when possible
+const reconstructYamlFromForm = (
+  originalYaml: string,
+  formChanges: Record<string, unknown>
+) => {
+  try {
+    // Parse the original YAML to retain ordering information.
+    // We treat this purely as an object map and rebuild a brand-new object
+    // that:
+    // 1. Contains *only* the keys present in formChanges (ensures removed
+    //    optional fields are actually deleted).
+    // 2. Preserves the ordering of existing keys as much as possible by
+    //    iterating over the original first, then appending new keys.
+
+    const original = (parseYaml(originalYaml) || {}) as Record<string, unknown>
+
+    // Start with an empty object so keys that were removed in the form are
+    // NOT carried over from the original.
+    const updated: Record<string, unknown> = {}
+
+    // First, iterate over the original keys to preserve ordering where the
+    // key still exists in formChanges.
+    Object.keys(original).forEach((key) => {
+      if (key in formChanges) {
+        updated[key] = formChanges[key]
+      }
+      // If the key is *not* in formChanges we deliberately omit it so that it
+      // is removed in the final YAML output.
+    })
+
+    // Next, append any brand-new keys that were not present in the original
+    // YAML but are now introduced via the form.
+    Object.keys(formChanges).forEach((key) => {
+      if (!(key in original)) {
+        updated[key] = formChanges[key]
+      }
+    })
+
+    return YAML.stringify(updated, {
+      indent: 2,
+      lineWidth: -1, // Don't wrap lines
+    })
+  } catch (error) {
+    // Fallback to clean YAML if original is unparseable.
+    return YAML.stringify(formChanges)
+  }
+}
+
+type InputMode = "form" | "yaml"
+
+export type ActionPanelTabs = "inputs" | "control-flow" | "template-inputs"
 export interface ActionPanelRef extends ImperativePanelHandle {
   setActiveTab: (tab: ActionPanelTabs) => void
   getActiveTab: () => ActionPanelTabs
@@ -179,7 +246,7 @@ export interface ActionPanelRef extends ImperativePanelHandle {
   isOpen: () => boolean
 }
 
-export function ActionPanel({
+function ActionPanelContent({
   actionId,
   workflowId,
 }: {
@@ -195,22 +262,30 @@ export function ActionPanel({
     workflowId
   )
   const { actionPanelRef } = useWorkflowBuilder()
+  const { commitAllEditors } = useYamlEditorContext()
   const { registryAction, registryActionIsLoading, registryActionError } =
     useGetRegistryAction(action?.type)
-  const { for_each, run_if, retry_policy, ...options } =
-    action?.control_flow ?? {}
+  const actionControlFlow = action?.control_flow ?? {}
+
+  const actionInputsObj = useMemo(
+    () => parseYaml(action?.inputs) ?? {},
+    [action?.inputs]
+  )
+
   const methods = useForm<ActionFormSchema>({
     resolver: zodResolver(actionFormSchema),
     values: {
       title: action?.title,
       description: action?.description,
-      inputs: action?.inputs ?? "",
-      control_flow: {
-        for_each: stringifyYaml(for_each),
-        run_if: stringifyYaml(run_if),
-        retry_policy: stringifyYaml(retry_policy),
-        options: stringifyYaml(options),
-      },
+      inputs: actionInputsObj,
+      for_each: actionControlFlow?.for_each || undefined,
+      run_if: actionControlFlow?.run_if || undefined,
+      max_attempts: actionControlFlow?.retry_policy?.max_attempts,
+      timeout: actionControlFlow?.retry_policy?.timeout,
+      retry_until: actionControlFlow?.retry_policy?.retry_until || undefined,
+      start_delay: actionControlFlow?.start_delay,
+      join_strategy: actionControlFlow?.join_strategy,
+      wait_until: actionControlFlow?.wait_until || undefined,
       is_interactive: action?.is_interactive ?? false,
       interaction: action?.interaction ?? undefined,
     },
@@ -222,12 +297,87 @@ export function ActionPanel({
   const [saveState, setSaveState] = useState<SaveState>(SaveState.IDLE)
   const [activeTab, setActiveTab] = useState<ActionPanelTabs>("inputs")
   const [open, setOpen] = useState(false)
+  const [inputMode, setInputMode] = useState<InputMode>("form")
+
+  // Raw YAML state for preserving original formatting
+  const [rawInputsYaml, setRawInputsYaml] = useState(() => action?.inputs || "")
+
+  const required = (registryAction?.interface?.expects?.required ||
+    []) as string[]
+  // Managing required/optional fields
+  const { requiredFields, optionalFields } = useMemo(() => {
+    if (!registryAction?.interface?.expects?.properties) {
+      return { requiredFields: [], optionalFields: [] }
+    }
+
+    const allFields = Object.entries(
+      registryAction.interface.expects.properties
+    )
+    const requiredFieldEntries = allFields.filter(([fieldName]) =>
+      required.includes(fieldName)
+    )
+    const optionalFieldEntries = allFields.filter(
+      ([fieldName]) => !required.includes(fieldName)
+    )
+
+    // Sort each group alphabetically
+    requiredFieldEntries.sort(([a], [b]) => a.localeCompare(b))
+    optionalFieldEntries.sort(([a], [b]) => a.localeCompare(b))
+
+    return {
+      requiredFields: requiredFieldEntries,
+      optionalFields: optionalFieldEntries,
+    }
+  }, [registryAction, required])
+
+  // Track manually shown/hidden fields separately from fields with values
+  const [manuallyVisibleFields, setManuallyVisibleFields] = useState<
+    Set<string>
+  >(new Set())
+  const [manuallyHiddenFields, setManuallyHiddenFields] = useState<Set<string>>(
+    new Set()
+  )
+
+  // Compute visible optional fields: fields with values OR manually shown, MINUS manually hidden
+  const visibleOptionalFields = useMemo(() => {
+    const fieldsWithValues = new Set<string>()
+
+    // Add fields that have values in the current inputs
+    if (optionalFields.length > 0 && actionInputsObj) {
+      optionalFields.forEach(([fieldName]) => {
+        if (actionInputsObj[fieldName] !== undefined) {
+          fieldsWithValues.add(fieldName)
+        }
+      })
+    }
+
+    // Combine: (fields with values + manually shown) - manually hidden
+    const visible = new Set([...fieldsWithValues, ...manuallyVisibleFields])
+    manuallyHiddenFields.forEach((field) => visible.delete(field))
+
+    return visible
+  }, [
+    optionalFields,
+    actionInputsObj,
+    manuallyVisibleFields,
+    manuallyHiddenFields,
+  ])
+
+  // Reset manual visibility when action changes
+  const prevActionIdRef = useRef(actionId)
+  if (prevActionIdRef.current !== actionId) {
+    prevActionIdRef.current = actionId
+    setManuallyVisibleFields(new Set())
+    setManuallyHiddenFields(new Set())
+  }
 
   useEffect(() => {
     setActiveTab("inputs")
     setSaveState(SaveState.IDLE)
     setValidationResults([])
-  }, [actionId])
+    // Update raw YAML when action changes
+    setRawInputsYaml(action?.inputs || "")
+  }, [actionId, action?.inputs])
 
   // Set up the ref methods
   useEffect(() => {
@@ -260,16 +410,40 @@ export function ActionPanel({
       setSaveState(SaveState.SAVING)
       setValidationResults([])
 
+      // Commit all YAML editors before saving
+      commitAllEditors()
+
       try {
+        // Determine inputs value based on current mode
+        let inputsYaml: string
+
+        if (inputMode === "yaml") {
+          // YAML editors have already committed the parsed object to the form,
+          // serialise that so we persist the latest version written by the user.
+          inputsYaml = stringifyYaml(values.inputs)
+        } else {
+          // In form mode, try to preserve original YAML structure when possible
+          inputsYaml = reconstructYamlFromForm(
+            action.inputs || "",
+            values.inputs
+          )
+        }
+
         const params: ActionUpdate = {
           title: values.title,
           description: values.description,
-          inputs: values.inputs,
+          inputs: inputsYaml, // Use preserved/raw YAML
           control_flow: {
-            ...parseYaml(values.control_flow.options), // Miscellaneous options
-            for_each: parseYaml(values.control_flow.for_each),
-            run_if: parseYaml(values.control_flow.run_if),
-            retry_policy: parseYaml(values.control_flow.retry_policy),
+            for_each: values.for_each,
+            run_if: values.run_if,
+            retry_policy: {
+              max_attempts: values.max_attempts,
+              timeout: values.timeout,
+              retry_until: values.retry_until,
+            },
+            start_delay: values.start_delay,
+            join_strategy: values.join_strategy,
+            wait_until: values.wait_until,
           },
           is_interactive: values.is_interactive,
           interaction: values.interaction,
@@ -289,10 +463,8 @@ export function ActionPanel({
             const valErrs = apiError.body.detail as RequestValidationError[]
             console.error("Validation errors", valErrs)
             valErrs.forEach(({ loc, msg }) => {
-              let key: string = loc.slice(1).join(".")
-              if (isControlFlowOption(key)) {
-                key = "control_flow.options"
-              }
+              const key: string = loc.slice(1).join(".")
+              // Skip the old combined field mapping since we now have individual fields
               // Combine errors if they have the same key
               if (errors[key]) {
                 errors[key].message += `\n${msg}`
@@ -323,6 +495,9 @@ export function ActionPanel({
       methods,
       setSaveState,
       setValidationResults,
+      inputMode,
+      rawInputsYaml,
+      commitAllEditors,
     ]
   )
 
@@ -359,21 +534,53 @@ export function ActionPanel({
   )
 
   const onPanelBlur = useCallback(() => {
-    methods.handleSubmit(onSubmit)()
-  }, [methods, onSubmit])
+    // Commit all YAML editors before form submission
+    if (methods.formState.isDirty) {
+      commitAllEditors()
+      methods.handleSubmit(onSubmit)()
+    }
+  }, [methods, onSubmit, commitAllEditors])
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Save with Cmd+S (Mac) or Ctrl+S (Windows/Linux)
       if ((e.metaKey || e.ctrlKey) && e.key === "s") {
         e.preventDefault()
+        // Commit all YAML editors before form submission
+        commitAllEditors()
         methods.handleSubmit(onSubmit)()
       }
     }
 
     document.addEventListener("keydown", handleKeyDown)
     return () => document.removeEventListener("keydown", handleKeyDown)
-  }, [methods, onSubmit, action])
+  }, [methods, onSubmit, action, commitAllEditors])
+
+  // Handle mode switching with YAML preservation
+  const handleModeChange = useCallback(
+    (newMode: InputMode) => {
+      if (inputMode === "form" && newMode === "yaml") {
+        // Switching TO yaml: generate YAML from current form state
+        const currentFormData = methods.getValues("inputs")
+        const newYaml = reconstructYamlFromForm(
+          action?.inputs || "",
+          currentFormData
+        )
+        setRawInputsYaml(newYaml)
+      } else if (inputMode === "yaml" && newMode === "form") {
+        // Switching TO form: parse current YAML and update form
+        try {
+          const parsed = parseYaml(rawInputsYaml) || {}
+          methods.setValue("inputs", parsed)
+        } catch (error) {
+          // Show error but don't prevent mode switch
+          console.warn("Invalid YAML when switching to form mode:", error)
+        }
+      }
+      setInputMode(newMode)
+    },
+    [inputMode, methods, action?.inputs, rawInputsYaml]
+  )
 
   if (actionIsLoading || registryActionIsLoading) {
     return <CenteredSpinner />
@@ -407,6 +614,7 @@ export function ActionPanel({
   const ActionIcon = actionTypeToLabel[registryAction.type].icon
   const isInteractive = methods.watch("is_interactive")
   const interactionType = methods.watch("interaction.type")
+
   return (
     <div onBlur={onPanelBlur}>
       <Tabs
@@ -513,14 +721,7 @@ export function ActionPanel({
                     value="control-flow"
                   >
                     <SplitIcon className="mr-2 size-4" />
-                    <span>If-condition / Loops</span>
-                  </TabsTrigger>
-                  <TabsTrigger
-                    className="flex h-full min-w-24 items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
-                    value="retry-policy"
-                  >
-                    <RotateCcwIcon className="mr-2 size-4" />
-                    <span>Retries</span>
+                    <span>Control flow</span>
                   </TabsTrigger>
                   {registryAction.is_template && (
                     <TabsTrigger
@@ -826,14 +1027,19 @@ export function ActionPanel({
                           )}
                         </div>
                         {/* Action inputs */}
-                        <div className="space-y-4 px-4">
-                          <span className="text-xs text-muted-foreground">
-                            Hover over each row for details.
-                          </span>
-                          <JSONSchemaTable
-                            schema={registryAction.interface.expects}
-                          />
-                        </div>
+                        {inputMode === "yaml" && (
+                          <div className="space-y-4 px-4">
+                            <span className="text-xs text-muted-foreground">
+                              Hover over each row for details.
+                            </span>
+                            <JSONSchemaTable
+                              schema={
+                                registryAction.interface
+                                  .expects as TracecatJsonSchema
+                              }
+                            />
+                          </div>
+                        )}
                       </AccordionContent>
                     </AccordionItem>
 
@@ -861,29 +1067,227 @@ export function ActionPanel({
                               </div>
                             </ValidationErrorView>
                           )}
-                          <span className="text-xs text-muted-foreground">
-                            Define action inputs in YAML below.
-                          </span>
-                          <FormField
-                            name="inputs"
-                            control={methods.control}
-                            render={({ field }) => (
-                              <FormItem>
-                                {/* Place form message above because it's not visible otherwise */}
-                                <FormMessage className="whitespace-pre-line" />
-                                <FormControl>
-                                  <DynamicCustomEditor
-                                    className="min-h-[40rem] w-full"
-                                    value={field.value}
-                                    onChange={field.onChange}
-                                    defaultLanguage="yaml-extended"
-                                    workspaceId={workspaceId}
-                                    workflowId={workflowId}
+                          {/* Input Mode Toggle */}
+                          <div className="flex flex-col space-y-2">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs text-muted-foreground">
+                                {inputMode === "form"
+                                  ? "Define action inputs using form fields below."
+                                  : "Define action inputs in YAML below."}
+                              </span>
+                              <ToggleTabs
+                                options={
+                                  [
+                                    {
+                                      value: "form",
+                                      content: (
+                                        <div className="flex items-center gap-1">
+                                          <ListIcon className="size-3" />
+                                          <span className="text-xs">Form</span>
+                                        </div>
+                                      ),
+                                      tooltip: "Use form fields",
+                                      ariaLabel: "Form mode",
+                                    },
+                                    {
+                                      value: "yaml",
+                                      content: (
+                                        <div className="flex items-center gap-1">
+                                          <CodeIcon className="size-3" />
+                                          <span className="text-xs">YAML</span>
+                                        </div>
+                                      ),
+                                      tooltip: "Use YAML editor",
+                                      ariaLabel: "YAML mode",
+                                    },
+                                  ] as ToggleTabOption<InputMode>[]
+                                }
+                                value={inputMode}
+                                onValueChange={handleModeChange}
+                                size="sm"
+                                className="w-auto"
+                              />
+                            </div>
+                          </div>
+                          {inputMode === "yaml" && (
+                            /* YAML Mode - Preserve raw YAML */
+                            <ControlledYamlField
+                              label="Inputs"
+                              fieldName="inputs"
+                            />
+                          )}
+                          {inputMode === "form" && (
+                            <>
+                              {/* Required fields - always shown */}
+                              {requiredFields.map(([fieldName, fieldDefn]) => {
+                                const fullFieldName = `inputs.${fieldName}`
+                                const label = fieldName
+                                  .replaceAll("_", " ")
+                                  .replace(/^\w/, (c) => c.toUpperCase())
+                                if (!isTracecatJsonSchema(fieldDefn)) {
+                                  // For non-TracecatJsonSchema, we can't extract type information
+                                  return (
+                                    <ControlledYamlField
+                                      key={fieldName}
+                                      label={label}
+                                      fieldName={fullFieldName}
+                                      info="Please sync your base actions repository to get the latest field schema."
+                                    />
+                                  )
+                                }
+
+                                return (
+                                  <PolymorphicField
+                                    key={fieldName}
+                                    label={label}
+                                    fieldName={fullFieldName}
+                                    fieldDefn={fieldDefn}
                                   />
-                                </FormControl>
-                              </FormItem>
-                            )}
-                          />
+                                )
+                              })}
+
+                              {/* Optional fields - only shown if in visibleOptionalFields */}
+                              {optionalFields
+                                .filter(([fieldName]) =>
+                                  visibleOptionalFields.has(fieldName)
+                                )
+                                .map(([fieldName, fieldDefn]) => {
+                                  const fullFieldName = `inputs.${fieldName}`
+                                  const label = fieldName
+                                    .replaceAll("_", " ")
+                                    .replace(/^\w/, (c) => c.toUpperCase())
+                                  if (!isTracecatJsonSchema(fieldDefn)) {
+                                    // For non-TracecatJsonSchema, we can't extract type information
+                                    return (
+                                      <ControlledYamlField
+                                        key={fieldName}
+                                        label={label}
+                                        fieldName={fullFieldName}
+                                      />
+                                    )
+                                  }
+
+                                  return (
+                                    <PolymorphicField
+                                      key={fieldName}
+                                      label={label}
+                                      fieldName={fullFieldName}
+                                      fieldDefn={fieldDefn}
+                                    />
+                                  )
+                                })}
+
+                              {/* Add optional fields dropdown */}
+                              {optionalFields.length > 0 && (
+                                <div className="mt-4">
+                                  <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="w-full"
+                                      >
+                                        <Plus className="mr-2 size-4" />
+                                        Optional fields
+                                      </Button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent
+                                      align="start"
+                                      className="max-w-96"
+                                    >
+                                      {optionalFields.map(
+                                        ([fieldName, fieldDefn]) => {
+                                          const label = fieldName
+                                            .replaceAll("_", " ")
+                                            .replace(/^\w/, (c) =>
+                                              c.toUpperCase()
+                                            )
+                                          const isVisible =
+                                            visibleOptionalFields.has(fieldName)
+                                          const description =
+                                            isTracecatJsonSchema(fieldDefn)
+                                              ? fieldDefn.description
+                                              : null
+                                          return (
+                                            <DropdownMenuCheckboxItem
+                                              key={fieldName}
+                                              checked={isVisible}
+                                              onCheckedChange={(checked) => {
+                                                if (checked) {
+                                                  // Show the field
+                                                  setManuallyVisibleFields(
+                                                    (prev) =>
+                                                      new Set([
+                                                        ...prev,
+                                                        fieldName,
+                                                      ])
+                                                  )
+                                                  setManuallyHiddenFields(
+                                                    (prev) => {
+                                                      const newSet = new Set(
+                                                        prev
+                                                      )
+                                                      newSet.delete(fieldName)
+                                                      return newSet
+                                                    }
+                                                  )
+                                                } else {
+                                                  // Hide the field
+                                                  setManuallyHiddenFields(
+                                                    (prev) =>
+                                                      new Set([
+                                                        ...prev,
+                                                        fieldName,
+                                                      ])
+                                                  )
+                                                  setManuallyVisibleFields(
+                                                    (prev) => {
+                                                      const newSet = new Set(
+                                                        prev
+                                                      )
+                                                      newSet.delete(fieldName)
+                                                      return newSet
+                                                    }
+                                                  )
+                                                  // Remove field from form state when hiding
+                                                  const currentInputs =
+                                                    methods.getValues("inputs")
+                                                  const {
+                                                    [fieldName]: _removed,
+                                                    ...remainingInputs
+                                                  } = currentInputs
+                                                  methods.setValue(
+                                                    "inputs",
+                                                    remainingInputs
+                                                  )
+                                                  methods.unregister(
+                                                    `inputs.${fieldName}`
+                                                  )
+                                                }
+                                              }}
+                                            >
+                                              <div className="flex flex-col gap-1">
+                                                <span className="font-medium">
+                                                  {label}
+                                                </span>
+                                                {description && (
+                                                  <span className="text-xs text-muted-foreground">
+                                                    {description.endsWith(".")
+                                                      ? description
+                                                      : `${description}.`}
+                                                  </span>
+                                                )}
+                                              </div>
+                                            </DropdownMenuCheckboxItem>
+                                          )
+                                        }
+                                      )}
+                                    </DropdownMenuContent>
+                                  </DropdownMenu>
+                                </div>
+                              )}
+                            </>
+                          )}
                         </div>
                       </AccordionContent>
                     </AccordionItem>
@@ -892,194 +1296,220 @@ export function ActionPanel({
                 <TabsContent value="control-flow">
                   <div className="mt-6 space-y-8 px-4">
                     {/* Run if */}
-                    <div className="flex flex-col space-y-2">
-                      <FormLabel className="flex items-center gap-2 text-xs font-medium">
-                        <span>Run if</span>
-                      </FormLabel>
-                      <div className="mb-2 flex items-center">
-                        <HoverCard openDelay={100} closeDelay={100}>
-                          <HoverCardTrigger
-                            asChild
-                            className="hover:border-none"
-                          >
-                            <InfoIcon className="mr-1 size-3 stroke-muted-foreground" />
-                          </HoverCardTrigger>
-                          <HoverCardContent
-                            className="w-auto max-w-[500px] p-3 font-mono text-xs tracking-tight"
-                            side="left"
-                            sideOffset={20}
-                          >
-                            <RunIfTooltip />
-                          </HoverCardContent>
-                        </HoverCard>
-
-                        <span className="text-xs text-muted-foreground">
-                          Define a conditional expression that determines if the
-                          action executes.
-                        </span>
-                      </div>
+                    <ControlFlowField
+                      label="Run if"
+                      description="Define a conditional expression that determines if the action executes."
+                      tooltip={<RunIfTooltip />}
+                    >
                       <FormField
-                        name="control_flow.run_if"
+                        name="run_if"
                         control={methods.control}
                         render={({ field }) => (
                           <FormItem>
+                            <FormMessage className="whitespace-pre-line" />
                             <FormControl>
-                              <DynamicCustomEditor
-                                className="h-24 w-full"
-                                defaultLanguage="yaml-extended"
+                              <ExpressionInput
                                 value={field.value}
                                 onChange={field.onChange}
-                                workspaceId={workspaceId}
                               />
                             </FormControl>
-                            <FormMessage className="whitespace-pre-line" />
                           </FormItem>
                         )}
                       />
-                    </div>
+                    </ControlFlowField>
+
                     {/* Loop */}
-                    <div className="flex flex-col space-y-2">
-                      <FormLabel className="flex items-center gap-2 text-xs font-medium">
-                        <span>For loops</span>
-                      </FormLabel>
-                      <div className="mb-2 flex items-center">
-                        <HoverCard openDelay={100} closeDelay={100}>
-                          <HoverCardTrigger
-                            asChild
-                            className="hover:border-none"
-                          >
-                            <InfoIcon className="mr-1 size-3 stroke-muted-foreground" />
-                          </HoverCardTrigger>
-                          <HoverCardContent
-                            className="w-auto max-w-[500px] p-3 font-mono text-xs tracking-tight"
-                            side="left"
-                            sideOffset={20}
-                          >
-                            <ForEachTooltip />
-                          </HoverCardContent>
-                        </HoverCard>
-
-                        <span className="text-xs text-muted-foreground">
-                          Define one or more loop expressions for the action to
-                          iterate over.
-                        </span>
-                      </div>
-                      <FormField
-                        name="control_flow.for_each"
-                        control={methods.control}
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormControl>
-                              <DynamicCustomEditor
-                                className="h-24 w-full"
-                                defaultLanguage="yaml-extended"
-                                value={field.value}
-                                onChange={field.onChange}
-                                workspaceId={workspaceId}
-                                workflowId={workflowId}
-                              />
-                            </FormControl>
-                            <FormMessage className="whitespace-pre-line" />
-                          </FormItem>
-                        )}
-                      />
-                    </div>
+                    <ControlFlowField
+                      label="For each"
+                      description="Define one or more loop expressions for the action to iterate over."
+                      tooltip={<ForEachTooltip />}
+                    >
+                      <ForEachField />
+                    </ControlFlowField>
                     {/* Other options */}
-                    <div className="flex flex-col space-y-2">
-                      <FormLabel className="flex items-center gap-2 text-xs font-medium">
-                        <span>Options</span>
-                      </FormLabel>
-                      <div className="mb-2 flex items-center">
-                        <HoverCard openDelay={100} closeDelay={100}>
-                          <HoverCardTrigger
-                            asChild
-                            className="hover:border-none"
-                          >
-                            <InfoIcon className="mr-1 size-3 stroke-muted-foreground" />
-                          </HoverCardTrigger>
-                          <HoverCardContent
-                            className="w-auto max-w-[500px] p-3 font-mono text-xs tracking-tight"
-                            side="left"
-                            sideOffset={20}
-                          >
-                            <ControlFlowOptionsTooltip />
-                          </HoverCardContent>
-                        </HoverCard>
 
-                        <span className="text-xs text-muted-foreground">
-                          Define additional control flow options for the action.
-                        </span>
-                      </div>
+                    <ControlFlowField
+                      label="Start delay"
+                      description="Define a delay before the action starts."
+                      tooltip={<StartDelayTooltip />}
+                    >
                       <FormField
-                        name="control_flow.options"
+                        name="start_delay"
                         control={methods.control}
                         render={({ field }) => (
                           <FormItem>
+                            <FormMessage className="whitespace-pre-line" />
                             <FormControl>
-                              <DynamicCustomEditor
-                                className="h-24 w-full"
-                                defaultLanguage="yaml-extended"
-                                value={field.value}
-                                onChange={field.onChange}
-                                workspaceId={workspaceId}
-                                workflowId={workflowId}
+                              <Input
+                                type="number"
+                                value={field.value || ""}
+                                onChange={(e) =>
+                                  field.onChange(
+                                    e.target.value
+                                      ? parseFloat(e.target.value)
+                                      : undefined
+                                  )
+                                }
+                                placeholder="0.0"
+                                className="text-xs"
                               />
                             </FormControl>
-                            <FormMessage className="whitespace-pre-line" />
                           </FormItem>
                         )}
                       />
-                    </div>
-                  </div>
-                </TabsContent>
-                <TabsContent value="retry-policy">
-                  <div className="mt-6 space-y-8 px-4">
-                    {/* Retry Policy */}
-                    <div className="flex flex-col space-y-2">
-                      <FormLabel className="flex items-center gap-2 text-xs font-medium">
-                        <span>Retry policy</span>
-                      </FormLabel>
-                      <div className="mb-2 flex items-center">
-                        <HoverCard openDelay={100} closeDelay={100}>
-                          <HoverCardTrigger
-                            asChild
-                            className="hover:border-none"
-                          >
-                            <InfoIcon className="mr-1 size-3 stroke-muted-foreground" />
-                          </HoverCardTrigger>
-                          <HoverCardContent
-                            className="w-auto max-w-[500px] p-3 font-mono text-xs tracking-tight"
-                            side="left"
-                            sideOffset={20}
-                          >
-                            <RetryPolicyTooltip />
-                          </HoverCardContent>
-                        </HoverCard>
+                    </ControlFlowField>
 
-                        <span className="text-xs text-muted-foreground">
-                          Define the retry policy for the action.
-                        </span>
-                      </div>
+                    {/* Max attempts */}
+                    <ControlFlowField
+                      label="Max attempts"
+                      description="Define the maximum number of retry attempts for the action."
+                      tooltip={<MaxAttemptsTooltip />}
+                    >
                       <FormField
-                        name="control_flow.retry_policy"
+                        name="max_attempts"
                         control={methods.control}
                         render={({ field }) => (
                           <FormItem>
+                            <FormMessage className="whitespace-pre-line" />
                             <FormControl>
-                              <DynamicCustomEditor
-                                className="h-24 w-full"
-                                defaultLanguage="yaml-extended"
-                                value={field.value}
-                                onChange={field.onChange}
-                                workspaceId={workspaceId}
-                                workflowId={workflowId}
+                              <Input
+                                type="number"
+                                value={field.value || ""}
+                                onChange={(e) =>
+                                  field.onChange(
+                                    e.target.value
+                                      ? parseInt(e.target.value)
+                                      : undefined
+                                  )
+                                }
+                                placeholder="1"
+                                className="text-xs"
                               />
                             </FormControl>
-                            <FormMessage className="whitespace-pre-line" />
                           </FormItem>
                         )}
                       />
-                    </div>
+                    </ControlFlowField>
+
+                    {/* Timeout */}
+                    <ControlFlowField
+                      label="Timeout"
+                      description="Define the timeout in seconds for the action."
+                      tooltip={<TimeoutTooltip />}
+                    >
+                      <FormField
+                        name="timeout"
+                        control={methods.control}
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormMessage className="whitespace-pre-line" />
+                            <FormControl>
+                              <Input
+                                type="number"
+                                value={field.value || ""}
+                                onChange={(e) =>
+                                  field.onChange(
+                                    e.target.value
+                                      ? parseInt(e.target.value)
+                                      : undefined
+                                  )
+                                }
+                                placeholder="300"
+                                className="text-xs"
+                              />
+                            </FormControl>
+                          </FormItem>
+                        )}
+                      />
+                    </ControlFlowField>
+
+                    {/* Retry until */}
+                    <ControlFlowField
+                      label="Retry until"
+                      description="Define a conditional expression that determines when to stop retrying."
+                      tooltip={<RetryUntilTooltip />}
+                    >
+                      <FormField
+                        name="retry_until"
+                        control={methods.control}
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormMessage className="whitespace-pre-line" />
+                            <FormControl>
+                              <ExpressionInput
+                                value={field.value || ""}
+                                onChange={field.onChange}
+                              />
+                            </FormControl>
+                          </FormItem>
+                        )}
+                      />
+                    </ControlFlowField>
+
+                    {/* Join strategy */}
+                    <ControlFlowField
+                      label="Join strategy"
+                      description="Define how to handle results when the action runs in parallel."
+                      tooltip={<JoinStrategyTooltip />}
+                    >
+                      <FormField
+                        name="join_strategy"
+                        control={methods.control}
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormMessage className="whitespace-pre-line" />
+                            <FormControl>
+                              <Select
+                                value={field.value || ""}
+                                onValueChange={field.onChange}
+                              >
+                                <SelectTrigger className="text-xs">
+                                  <SelectValue
+                                    placeholder="Select strategy..."
+                                    className="text-xs"
+                                  />
+                                </SelectTrigger>
+                                <SelectContent className="w-full text-xs">
+                                  {$JoinStrategy.enum.map((strategy) => (
+                                    <SelectItem
+                                      key={strategy}
+                                      value={strategy}
+                                      className="text-xs"
+                                    >
+                                      {strategy.charAt(0).toUpperCase() +
+                                        strategy.slice(1)}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </FormControl>
+                          </FormItem>
+                        )}
+                      />
+                    </ControlFlowField>
+
+                    {/* Wait until */}
+                    <ControlFlowField
+                      label="Wait until"
+                      description="Define a conditional expression that determines when the action can proceed."
+                      tooltip={<WaitUntilTooltip />}
+                    >
+                      <FormField
+                        name="wait_until"
+                        control={methods.control}
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormMessage className="whitespace-pre-line" />
+                            <FormControl>
+                              <ExpressionInput
+                                value={field.value || ""}
+                                onChange={field.onChange}
+                              />
+                            </FormControl>
+                          </FormItem>
+                        )}
+                      />
+                    </ControlFlowField>
                   </div>
                 </TabsContent>
                 {/* Template */}
@@ -1102,26 +1532,16 @@ export function ActionPanel({
                             <span className="text-xs text-muted-foreground">
                               Template action definition in YAML format.
                             </span>
-                            <DynamicCustomEditor
-                              className="min-h-[30rem] w-full"
-                              value={YAML.stringify(
+                            <YamlViewOnlyEditor
+                              value={stringifyYaml(
                                 "type" in registryAction.implementation &&
                                   registryAction.implementation.type ===
                                     "template"
                                   ? registryAction.implementation
                                       .template_action
-                                  : {},
-                                null,
-                                2
+                                  : {}
                               )}
-                              defaultLanguage="yaml"
-                              options={{
-                                readOnly: true,
-                                minimap: {
-                                  enabled: false,
-                                },
-                                fontSize: 11,
-                              }}
+                              className="size-full"
                             />
                           </div>
                         </AccordionContent>
@@ -1135,6 +1555,20 @@ export function ActionPanel({
         </FormProvider>
       </Tabs>
     </div>
+  )
+}
+
+export function ActionPanel({
+  actionId,
+  workflowId,
+}: {
+  actionId: string
+  workflowId: string
+}) {
+  return (
+    <YamlEditorProvider>
+      <ActionPanelContent actionId={actionId} workflowId={workflowId} />
+    </YamlEditorProvider>
   )
 }
 function SaveStateIcon({ saveState }: { saveState: SaveState }) {

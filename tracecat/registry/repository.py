@@ -22,6 +22,7 @@ from pydantic import (
     ValidationError,
     create_model,
 )
+from pydantic_core import to_jsonable_python
 from sqlmodel.ext.asyncio.session import AsyncSession
 from tracecat_registry import RegistrySecret
 from typing_extensions import Doc
@@ -39,6 +40,11 @@ from tracecat.registry.constants import (
     CUSTOM_REPOSITORY_ORIGIN,
     DEFAULT_LOCAL_REGISTRY_ORIGIN,
     DEFAULT_REGISTRY_ORIGIN,
+)
+from tracecat.registry.fields import (
+    Component,
+    get_components_for_union_type,
+    type_drop_null,
 )
 from tracecat.registry.repositories.models import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
@@ -666,17 +672,33 @@ def generate_model_from_function(
     fields = {}
     for name, param in sig.parameters.items():
         # Use the annotation and default value of the parameter to define the model field
-        field_type: type = param.annotation
+        field_annotation = param.annotation
+        raw_field_type: type = field_annotation.__origin__
         field_info_kwargs = {}
-        if metadata := getattr(field_type, "__metadata__", None):
+        # Get the default UI for the field
+        non_null_field_type = type_drop_null(raw_field_type)
+        components = get_components_for_union_type(non_null_field_type)
+        manually_set_components: list[Component] = []
+
+        if metadata := getattr(field_annotation, "__metadata__", None):
             for meta in metadata:
                 match meta:
                     case Doc(documentation=doc):
                         field_info_kwargs["description"] = doc
+                    # Only set the component if no default UI is provided
+                    case Component():
+                        manually_set_components.append(meta)
+
+        final_components = manually_set_components or components
+        if final_components:
+            jsonschema_extra = field_info_kwargs.setdefault("json_schema_extra", {})
+            jsonschema_extra["x-tracecat-component"] = to_jsonable_python(
+                final_components
+            )
 
         default = ... if param.default is param.empty else param.default
         field_info = Field(default=default, **field_info_kwargs)
-        fields[name] = (field_type, field_info)
+        fields[name] = (field_annotation, field_info)
     # Dynamically create and return the Pydantic model class
     input_model = create_model(
         _udf_slug_camelcase(func, udf_kwargs.namespace),

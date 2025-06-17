@@ -1,0 +1,31 @@
+type: action
+definition:
+  title: List threats
+  description: List threats from VirusTotal.
+  display_group: VirusTotal
+  doc_url: https://gtidocs.virustotal.com/reference/list-threats
+  namespace: tools.virustotal
+  name: list_threats
+  secrets:
+    - name: virustotal
+      keys: ["VIRUSTOTAL_API_KEY"]
+  expects:
+    filter:
+      type: str
+      description: Filter to apply to the list of threats.
+    limit:
+      type: int
+      description: Maximum number of threats to return.
+      default: 10
+  steps:
+    - ref: list_threats
+      action: core.http_request
+      args:
+        url: https://www.virustotal.com/api/v3/threats
+        method: GET
+        headers:
+          x-apikey: ${{ SECRETS.virustotal.VIRUSTOTAL_API_KEY }}
+        params:
+          filter: ${{ inputs.filter }}
+          limit: ${{ inputs.limit }}
+  returns: ${{ steps.list_threats.result }}

@@ -254,6 +254,6 @@ async def call_paginated_api(
 
     results = []
     async for page in pages:
-        results.extend(page)
+        results.append(page)
 
     return results
