@@ -30,11 +30,11 @@ export interface PolymorphicFieldProps extends Omit<InputProps, "children"> {
   /** Array of field type tabs to display */
   fieldTypes: FieldTypeTab[]
   /** Currently active field type */
-  activeFieldType?: string
+  activeFieldType?: TracecatComponentId
   /** Default field type (used if activeFieldType is not provided) */
-  defaultFieldType?: string
+  defaultFieldType?: TracecatComponentId
   /** Callback fired when field type changes */
-  onFieldTypeChange?: (fieldType: string) => void
+  onFieldTypeChange?: (fieldType: TracecatComponentId) => void
   /** Child components representing different field types */
   children: React.ReactNode
   /** Additional className for the wrapper */
@@ -89,7 +89,7 @@ export const PolyField = React.forwardRef<
       if (activeFieldType === undefined) {
         setInternalActiveType(fieldType)
       }
-      onFieldTypeChange?.(fieldType)
+      onFieldTypeChange?.(fieldType as TracecatComponentId)
     }
 
     if (fieldTypes.length === 0) {

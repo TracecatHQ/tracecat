@@ -185,7 +185,6 @@ export function PolymorphicField({
 }) {
   const methods = useFormContext()
   const { description } = fieldDefn
-  const [activeFieldType, setActiveFieldType] = useState<string>()
   const formattedDescription = description?.endsWith(".")
     ? description
     : `${description}.`
@@ -193,6 +192,14 @@ export function PolymorphicField({
   // Watch the current field value to check if it's an expression
   const currentValue = methods.watch(fieldName)
   const isCurrentValueExpression = isExpression(currentValue)
+  const [activeFieldType, setActiveFieldType] = useState<
+    TracecatComponentId | undefined
+  >(() => {
+    if (isCurrentValueExpression) {
+      return "expression"
+    }
+    return undefined
+  })
 
   // Extract the type information
   const type = getType(fieldDefn)
@@ -347,27 +354,8 @@ export function PolymorphicField({
     { component_id: "expression" } as ExpressionComponent,
   ]
 
-  /**
-   * Determine the active component to render based on the current activeFieldType.
-   * If no matching component is found, fallback to the first component in allComponents.
-   *
-   * IMPORTANT: If the current field value is an expression, force the active type to "expression"
-   * regardless of the schema type. This prevents boolean fields from rendering as checkboxes
-   * when they contain expressions.
-   */
-  let currentActiveType = activeFieldType || fieldTypes[0]?.value
-
-  // Override the active type if the current value is an expression
-  if (isCurrentValueExpression && currentActiveType !== "expression") {
-    currentActiveType = "expression"
-    // Update the active field type state to reflect this change
-    if (activeFieldType !== "expression") {
-      setActiveFieldType("expression")
-    }
-  }
-
   // Handle field type changes
-  const handleFieldTypeChange = (newFieldType: string) => {
+  const handleFieldTypeChange = (newFieldType: TracecatComponentId) => {
     setActiveFieldType(newFieldType)
 
     // If switching from expression to a native type, and the current value is an expression,
@@ -381,7 +369,7 @@ export function PolymorphicField({
   // Find the active component by component_id
   const activeComponent: TracecatEditorComponent | undefined =
     allComponents.find(
-      (component) => component.component_id === currentActiveType
+      (component) => component.component_id === activeFieldType
     )
 
   // Fallback to the first component if no match is found
@@ -418,7 +406,7 @@ export function PolymorphicField({
           <FormControl>
             <PolyField
               fieldTypes={fieldTypes}
-              activeFieldType={currentActiveType}
+              activeFieldType={activeFieldType}
               onFieldTypeChange={handleFieldTypeChange}
               value={field.value}
               onChange={field.onChange}
