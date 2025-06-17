@@ -522,7 +522,7 @@ function customYamlLinter(view: EditorView): Diagnostic[] {
 const yamlSyntaxTheme = HighlightStyle.define([
   { tag: tags.content, color: "#586069" },
   { tag: tags.propertyName, color: "#0077aa", fontWeight: "500" },
-  { tag: tags.string, color: "#d73a49" },
+  { tag: tags.string, color: "#10b981" },
   { tag: tags.number, color: "#005cc5" },
   { tag: tags.bool, color: "#e36209" },
   { tag: tags.atom, color: "#e36209", fontWeight: "600" },
