@@ -64,6 +64,7 @@ class RegistryRepositoryCreate(BaseModel):
         if not re.match(
             r"^git\+ssh://git@"  # Protocol and user prefix
             r"[-a-zA-Z0-9.]+"  # Hostname
+            r"(:[0-9]{1,5})?"  # Port
             r"/[-a-zA-Z0-9._]+/"  # Organization/user
             r"[-a-zA-Z0-9._]+\.git$",  # Repository name
             v,
