@@ -510,11 +510,11 @@ function customYamlLinter(view: EditorView): Diagnostic[] {
 
 const yamlEditorTheme = EditorView.theme({
   ".cm-content": {
-    whiteSpace: "nowrap !important",
+    whiteSpace: "pre !important",
     overflowX: "auto",
   },
   ".cm-line": {
-    whiteSpace: "nowrap !important",
+    whiteSpace: "pre !important",
   },
   ".cm-scroller": {
     overflowX: "auto",
