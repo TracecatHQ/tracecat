@@ -10,15 +10,7 @@ import {
 } from "@/components/ui/form"
 import { ExpressionInput } from "@/components/editor/expression-input"
 
-export function ForEachField({
-  label,
-  fieldName,
-  description,
-}: {
-  label: string
-  fieldName: string
-  description: string
-}) {
+export function ForEachField() {
   const { control } = useFormContext()
   return (
     <FormField
@@ -39,7 +31,7 @@ export function ForEachField({
                           newExpressions[index] = newValue
                           field.onChange(newExpressions)
                         }}
-                        placeholder="Enter expression..."
+                        placeholder="Type @foreach to begin a for loop expression..."
                         className="flex-1"
                       />
                       <Button
@@ -60,7 +52,7 @@ export function ForEachField({
               <Button
                 variant="outline"
                 size="sm"
-                className="w-full"
+                className="h-7 w-full"
                 onClick={() => {
                   const newExpressions = Array.isArray(field.value)
                     ? [...field.value, ""]

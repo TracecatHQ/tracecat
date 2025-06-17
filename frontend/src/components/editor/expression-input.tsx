@@ -104,7 +104,7 @@ export interface ExpressionInputProps {
 export function ExpressionInput({
   value = "",
   onChange,
-  placeholder: placeholderText = "Enter expression...",
+  placeholder: placeholderText = "Type @ to begin an expression...",
   className,
   disabled = false,
   showTypeWarnings = true,

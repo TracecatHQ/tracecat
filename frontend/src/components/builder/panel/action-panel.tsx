@@ -107,6 +107,7 @@ import {
 } from "@/components/builder/panel/action-panel-tooltips"
 import { ControlFlowField } from "@/components/builder/panel/control-flow-fields"
 import { CopyButton } from "@/components/copy-button"
+import { YamlViewOnlyEditor } from "@/components/editor/codemirror/yaml-editor"
 import { DynamicCustomEditor } from "@/components/editor/dynamic"
 import { ExpressionInput } from "@/components/editor/expression-input"
 import {
@@ -1343,11 +1344,7 @@ function ActionPanelContent({
                       description="Define one or more loop expressions for the action to iterate over."
                       tooltip={<ForEachTooltip />}
                     >
-                      <ForEachField
-                        label="For each"
-                        fieldName="for_each"
-                        description="Define one or more loop expressions for the action to iterate over."
-                      />
+                      <ForEachField />
                     </ControlFlowField>
                     {/* Other options */}
 
@@ -1551,26 +1548,16 @@ function ActionPanelContent({
                             <span className="text-xs text-muted-foreground">
                               Template action definition in YAML format.
                             </span>
-                            <DynamicCustomEditor
-                              className="min-h-[30rem] w-full"
-                              value={YAML.stringify(
+                            <YamlViewOnlyEditor
+                              value={stringifyYaml(
                                 "type" in registryAction.implementation &&
                                   registryAction.implementation.type ===
                                     "template"
                                   ? registryAction.implementation
                                       .template_action
-                                  : {},
-                                null,
-                                2
+                                  : {}
                               )}
-                              defaultLanguage="yaml"
-                              options={{
-                                readOnly: true,
-                                minimap: {
-                                  enabled: false,
-                                },
-                                fontSize: 11,
-                              }}
+                              className="h-full w-full"
                             />
                           </div>
                         </AccordionContent>

@@ -18,6 +18,7 @@ import {
 import { yaml } from "@codemirror/lang-yaml"
 import { bracketMatching, indentUnit } from "@codemirror/language"
 import { linter, lintGutter, type Diagnostic } from "@codemirror/lint"
+import { EditorState } from "@codemirror/state"
 import {
   EditorView,
   keymap,
@@ -28,6 +29,8 @@ import CodeMirror from "@uiw/react-codemirror"
 import { AlertTriangle, Check } from "lucide-react"
 import { Control, FieldValues, useController } from "react-hook-form"
 import YAML from "yaml"
+
+import { cn } from "@/lib/utils"
 
 import {
   createActionCompletion,
@@ -85,8 +88,6 @@ export const YamlStyledEditor = React.forwardRef<
   const [validationErrors, setValidationErrors] = useState<string[]>([])
   const actions = workflow?.actions || []
   const editorRef = useRef<EditorView | null>(null)
-
-  console.log("forEachExpressions", forEachExpressions)
 
   const textValue = React.useMemo(
     () => stripNewline(field.value ? YAML.stringify(field.value) : ""),
@@ -678,3 +679,82 @@ const yamlEditorTheme = EditorView.theme({
     paddingLeft: "8px",
   },
 })
+
+export function YamlViewOnlyEditor({
+  value,
+  className,
+}: {
+  value: unknown
+  className?: string
+}) {
+  const { workspaceId } = useWorkspace()
+
+  const textValue = React.useMemo(() => {
+    if (!value) return ""
+    return stripNewline(
+      typeof value === "string" ? value : YAML.stringify(value)
+    )
+  }, [value])
+
+  const extensions = useMemo(() => {
+    return [
+      // Core language support with proper indentation
+      indentUnit.of("  "),
+      yaml(),
+      bracketMatching(),
+
+      // Read-only configuration
+      EditorView.editable.of(false),
+      EditorState.readOnly.of(true),
+
+      // Visual features - keep pills and hover
+      editingRangeField,
+      createTemplatePillPlugin(workspaceId),
+
+      // Styling
+      templatePillTheme,
+      yamlEditorTheme,
+    ]
+  }, [workspaceId])
+
+  return (
+    <div className="relative">
+      <div
+        className={cn(
+          "no-scrollbar overflow-auto rounded-md border-[0.5px] border-border bg-muted/50 shadow-sm",
+          className
+        )}
+      >
+        <CodeMirror
+          value={textValue}
+          height="auto"
+          extensions={extensions}
+          theme="light"
+          editable={false}
+          basicSetup={{
+            foldGutter: true,
+            lineNumbers: true,
+            highlightActiveLineGutter: false,
+            highlightSpecialChars: true,
+            drawSelection: false,
+            syntaxHighlighting: true,
+            bracketMatching: true,
+            highlightActiveLine: false,
+            rectangularSelection: false,
+            defaultKeymap: false,
+            autocompletion: false,
+            closeBrackets: false,
+            dropCursor: false,
+            allowMultipleSelections: false,
+            indentOnInput: false,
+            history: false,
+            lintKeymap: false,
+          }}
+          className={EDITOR_STYLE}
+        />
+      </div>
+    </div>
+  )
+}
+
+YamlViewOnlyEditor.displayName = "YamlViewOnlyEditor"
