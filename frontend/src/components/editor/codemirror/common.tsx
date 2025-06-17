@@ -46,11 +46,7 @@ import {
 } from "lucide-react"
 import { createRoot } from "react-dom/client"
 
-// Template expression utilities
-export function createTemplateRegex() {
-  // Match template expressions with named capture groups, equivalent to Python's TEMPLATE_STRING
-  return /\$\{\{(\s*(.+?)\s*)\}\}/g
-}
+import { createTemplateRegex } from "@/lib/expressions"
 
 /**
  * Parse variable names from for_each expressions

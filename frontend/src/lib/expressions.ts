@@ -50,3 +50,47 @@ export function compressActionsInString(s: string): string {
     return match
   })
 }
+// Template expression utilities
+
+/**
+ * Creates a regular expression for matching template expressions
+ *
+ * Template expressions use the syntax ${{ ... }} and can contain:
+ * - Action references: ${{ ACTIONS.step_name.result }}
+ * - Function calls: ${{ FN.add(1, 2) }}
+ * - Input references: ${{ inputs.field_name }}
+ * - Secret references: ${{ SECRETS.secret_name.key }}
+ * - Mixed content: "Hello ${{ inputs.name }}"
+ *
+ * @returns Regular expression for matching template expressions
+ */
+export function createTemplateRegex() {
+  // Match template expressions with named capture groups, equivalent to Python's TEMPLATE_STRING
+  return /\$\{\{(\s*(.+?)\s*)\}\}/g
+}
+
+/**
+ * Check if a value contains a template expression pattern
+ *
+ * Template expressions use the syntax ${{ ... }} and can contain:
+ * - Action references: ${{ ACTIONS.step_name.result }}
+ * - Function calls: ${{ FN.add(1, 2) }}
+ * - Input references: ${{ inputs.field_name }}
+ * - Secret references: ${{ SECRETS.secret_name.key }}
+ * - Mixed content: "Hello ${{ inputs.name }}"
+ *
+ * This function is critical for field rendering logic because:
+ * - Boolean fields normally render as checkboxes
+ * - But if they contain expressions, they must render as text/expression inputs
+ * - Same principle applies to other typed fields (numbers, selects, etc.)
+ *
+ * @param value - The field value to check
+ * @returns true if the value contains template expression syntax
+ */
+export function isExpression(value: unknown): boolean {
+  if (typeof value !== "string") {
+    return false
+  }
+  const regex = createTemplateRegex()
+  return regex.test(value)
+}

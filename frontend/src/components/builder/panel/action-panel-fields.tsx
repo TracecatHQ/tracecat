@@ -20,6 +20,7 @@ import {
   useFormContext,
 } from "react-hook-form"
 
+import { isExpression } from "@/lib/expressions"
 import { useBuilderRegistryActions } from "@/lib/hooks"
 import { getType } from "@/lib/jsonschema"
 import {
@@ -61,7 +62,6 @@ import {
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { CodeEditor } from "@/components/editor/codemirror/code-editor"
-import { createTemplateRegex } from "@/components/editor/codemirror/common"
 import { YamlStyledEditor } from "@/components/editor/codemirror/yaml-editor"
 import { ExpressionInput } from "@/components/editor/expression-input"
 import { getIcon } from "@/components/icons"
@@ -160,32 +160,6 @@ export function ControlledYamlField({
       )}
     />
   )
-}
-
-/**
- * Check if a value contains a template expression pattern
- *
- * Template expressions use the syntax ${{ ... }} and can contain:
- * - Action references: ${{ ACTIONS.step_name.result }}
- * - Function calls: ${{ FN.add(1, 2) }}
- * - Input references: ${{ inputs.field_name }}
- * - Secret references: ${{ SECRETS.secret_name.key }}
- * - Mixed content: "Hello ${{ inputs.name }}"
- *
- * This function is critical for field rendering logic because:
- * - Boolean fields normally render as checkboxes
- * - But if they contain expressions, they must render as text/expression inputs
- * - Same principle applies to other typed fields (numbers, selects, etc.)
- *
- * @param value - The field value to check
- * @returns true if the value contains template expression syntax
- */
-function isExpression(value: unknown): boolean {
-  if (typeof value !== "string") {
-    return false
-  }
-  const regex = createTemplateRegex()
-  return regex.test(value)
 }
 
 /**

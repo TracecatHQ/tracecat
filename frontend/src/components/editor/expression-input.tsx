@@ -32,6 +32,7 @@ import CodeMirror from "@uiw/react-codemirror"
 import { AlertTriangle } from "lucide-react"
 import { useFormContext } from "react-hook-form"
 
+import { createTemplateRegex } from "@/lib/expressions"
 import { cn } from "@/lib/utils"
 import {
   createActionCompletion,
@@ -43,7 +44,6 @@ import {
   createMentionCompletion,
   createPillClickHandler,
   createTemplatePillPlugin,
-  createTemplateRegex,
   createVarCompletion,
   editingRangeField,
   EDITOR_STYLE,
