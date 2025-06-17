@@ -1027,17 +1027,19 @@ function ActionPanelContent({
                           )}
                         </div>
                         {/* Action inputs */}
-                        <div className="space-y-4 px-4">
-                          <span className="text-xs text-muted-foreground">
-                            Hover over each row for details.
-                          </span>
-                          <JSONSchemaTable
-                            schema={
-                              registryAction.interface
-                                .expects as TracecatJsonSchema
-                            }
-                          />
-                        </div>
+                        {inputMode === "yaml" && (
+                          <div className="space-y-4 px-4">
+                            <span className="text-xs text-muted-foreground">
+                              Hover over each row for details.
+                            </span>
+                            <JSONSchemaTable
+                              schema={
+                                registryAction.interface
+                                  .expects as TracecatJsonSchema
+                              }
+                            />
+                          </div>
+                        )}
                       </AccordionContent>
                     </AccordionItem>
 
