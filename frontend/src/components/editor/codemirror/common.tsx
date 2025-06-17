@@ -1630,6 +1630,47 @@ export function createVarCompletion(
   }
 }
 
+/**
+ * Calculate accurate click position within a template pill using CodeMirror's coordinate system
+ */
+function getAccurateClickPosition(
+  event: MouseEvent,
+  view: EditorView,
+  templateRange: { from: number; to: number },
+  offset: { start: number; end: number }
+): number {
+  try {
+    // Get the rendered coordinates for the template start and end
+    const startCoords = view.coordsAtPos(templateRange.from)
+    const endCoords = view.coordsAtPos(templateRange.to)
+
+    if (!startCoords || !endCoords) {
+      // Fallback to end of content if coordinates unavailable
+      return templateRange.to - offset.end
+    }
+
+    // Calculate relative position based on actual rendered coordinates
+    const totalWidth = endCoords.left - startCoords.left
+    const clickOffset = event.clientX - startCoords.left
+
+    // Ensure click is within bounds (0 to 1)
+    const relativePosition = Math.max(0, Math.min(1, clickOffset / totalWidth))
+
+    // Map to content area (excluding "${{" and "}}")
+    const innerStart = templateRange.from + offset.start
+    const innerEnd = templateRange.to - offset.end
+    const contentLength = innerEnd - innerStart
+
+    // Calculate final position within the editable content
+    const contentPosition = Math.floor(relativePosition * contentLength)
+    return innerStart + contentPosition
+  } catch (error) {
+    console.warn("Failed to calculate accurate click position:", error)
+    // Fallback to end of content
+    return templateRange.to - offset.end
+  }
+}
+
 // Click handler for template pills
 export function createPillClickHandler() {
   return (event: MouseEvent, view: EditorView): boolean => {
@@ -1638,11 +1679,9 @@ export function createPillClickHandler() {
 
     const clickedTemplateRange = findTemplateAt(view.state, pos)
     const currentEditingRange = view.state.field(editingRangeField)
-    console.log({
-      clickedTemplateRange,
-      currentEditingRange,
-    })
 
+    // User clicked on a template pill, AND
+    // Either no pill is currently being edited, OR the clicked pill is different from the one being edited
     if (
       clickedTemplateRange &&
       (!currentEditingRange ||
@@ -1654,15 +1693,13 @@ export function createPillClickHandler() {
         class: "cm-template-pill cm-template-editing",
       })
 
-      const innerStart = clickedTemplateRange.from + 3
-      const innerEnd = clickedTemplateRange.to - 2
-      // Ensure click position is within the content area, accounting for hidden braces
-      const content = view.state.doc.sliceString(innerStart, innerEnd)
-      console.log("content", content)
-      const contentLength = content.length
-      const adjustedPos = Math.max(
-        innerStart,
-        Math.min(innerEnd, pos, innerStart + contentLength)
+      // Calculate accurate cursor position based on click coordinates
+      const offset = { start: 3, end: 2 }
+      const adjustedPos = getAccurateClickPosition(
+        event,
+        view,
+        clickedTemplateRange,
+        offset
       )
 
       view.dispatch({
