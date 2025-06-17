@@ -118,7 +118,11 @@ export function FormLabelComponent({
         </div>
         {description && (
           <span className="text-xs text-muted-foreground">
-            {formatInlineCode(description)}
+            {formatInlineCode(
+              !description.trim().endsWith(".")
+                ? description + "."
+                : description
+            )}
           </span>
         )}
       </FormLabel>
