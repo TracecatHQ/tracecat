@@ -92,8 +92,8 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import {
+  ControlledYamlField,
   PolymorphicField,
-  YamlField,
 } from "@/components/builder/panel/action-panel-fields"
 import {
   ForEachTooltip,
@@ -1142,7 +1142,7 @@ function ActionPanelContent({
                                 if (!isTracecatJsonSchema(fieldDefn)) {
                                   // For non-TracecatJsonSchema, we can't extract type information
                                   return (
-                                    <YamlField
+                                    <ControlledYamlField
                                       key={fieldName}
                                       label={label}
                                       fieldName={fieldName}
@@ -1175,7 +1175,7 @@ function ActionPanelContent({
                                   if (!isTracecatJsonSchema(fieldDefn)) {
                                     // For non-TracecatJsonSchema, we can't extract type information
                                     return (
-                                      <YamlField
+                                      <ControlledYamlField
                                         key={fieldName}
                                         label={label}
                                         fieldName={fieldName}
