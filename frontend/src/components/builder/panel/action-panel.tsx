@@ -20,7 +20,6 @@ import {
   CodeIcon,
   Database,
   FileTextIcon,
-  InfoIcon,
   LayoutListIcon,
   LinkIcon,
   ListIcon,
@@ -28,7 +27,6 @@ import {
   LucideIcon,
   MessagesSquare,
   Plus,
-  RotateCcwIcon,
   SaveIcon,
   SettingsIcon,
   ShapesIcon,
@@ -66,11 +64,6 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form"
-import {
-  HoverCard,
-  HoverCardContent,
-  HoverCardTrigger,
-} from "@/components/ui/hover-card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
@@ -469,7 +462,7 @@ function ActionPanelContent({
             const valErrs = apiError.body.detail as RequestValidationError[]
             console.error("Validation errors", valErrs)
             valErrs.forEach(({ loc, msg }) => {
-              let key: string = loc.slice(1).join(".")
+              const key: string = loc.slice(1).join(".")
               // Skip the old combined field mapping since we now have individual fields
               // Combine errors if they have the same key
               if (errors[key]) {
@@ -1147,11 +1140,13 @@ function ActionPanelContent({
                                   .replaceAll("_", " ")
                                   .replace(/^\w/, (c) => c.toUpperCase())
                                 if (!isTracecatJsonSchema(fieldDefn)) {
+                                  // For non-TracecatJsonSchema, we can't extract type information
                                   return (
                                     <YamlField
                                       key={fieldName}
                                       label={label}
                                       fieldName={fieldName}
+                                      type="unknown"
                                     />
                                   )
                                 }
@@ -1178,11 +1173,13 @@ function ActionPanelContent({
                                     .replaceAll("_", " ")
                                     .replace(/^\w/, (c) => c.toUpperCase())
                                   if (!isTracecatJsonSchema(fieldDefn)) {
+                                    // For non-TracecatJsonSchema, we can't extract type information
                                     return (
                                       <YamlField
                                         key={fieldName}
                                         label={label}
                                         fieldName={fieldName}
+                                        type="unknown"
                                       />
                                     )
                                   }
@@ -1333,7 +1330,6 @@ function ActionPanelContent({
                               <ExpressionInput
                                 value={field.value}
                                 onChange={field.onChange}
-                                placeholder="Enter expression..."
                               />
                             </FormControl>
                           </FormItem>
@@ -1466,7 +1462,6 @@ function ActionPanelContent({
                               <ExpressionInput
                                 value={field.value || ""}
                                 onChange={field.onChange}
-                                placeholder="Enter expression..."
                               />
                             </FormControl>
                           </FormItem>
@@ -1528,7 +1523,6 @@ function ActionPanelContent({
                               <ExpressionInput
                                 value={field.value || ""}
                                 onChange={field.onChange}
-                                placeholder="Enter expression..."
                               />
                             </FormControl>
                           </FormItem>

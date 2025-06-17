@@ -6,6 +6,7 @@ import { Tag } from "emblor"
 import {
   BracesIcon,
   CodeIcon,
+  InfoIcon,
   ListIcon,
   LucideIcon,
   PlusCircleIcon,
@@ -19,6 +20,7 @@ import {
   useFormContext,
 } from "react-hook-form"
 
+import { getType } from "@/lib/jsonschema"
 import {
   ExpressionComponent,
   getTracecatComponents,
@@ -35,6 +37,11 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form"
+import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from "@/components/ui/hover-card"
 import { Input } from "@/components/ui/input"
 import {
   Select,
@@ -83,13 +90,22 @@ export function formatInlineCode(text: string) {
 export function FormLabelComponent({
   label,
   description,
+  type,
 }: {
   label: string
   description?: string
+  type?: string
 }) {
   return (
     <FormLabel className="flex flex-col gap-1 text-xs font-medium">
-      <span className="font-semibold capitalize">{label}</span>
+      <div className="group flex items-center gap-2">
+        <span className="font-semibold capitalize">{label}</span>
+        {type && (
+          <span className="font-mono tracking-tighter text-muted-foreground/70 opacity-0 transition-opacity group-hover:opacity-100">
+            {type}
+          </span>
+        )}
+      </div>
       {description && (
         <span className="text-xs text-muted-foreground">
           {formatInlineCode(description)}
@@ -103,10 +119,12 @@ export function YamlField({
   label,
   fieldName,
   description,
+  type,
 }: {
   label: string
   fieldName: string
   description?: string
+  type?: string
 }) {
   const methods = useFormContext()
   const yamlEditorRef = React.useRef<YamlStyledEditorRef>(null)
@@ -132,7 +150,11 @@ export function YamlField({
       control={methods.control}
       render={() => (
         <FormItem>
-          <FormLabelComponent label={label} description={description} />
+          <FormLabelComponent
+            label={label}
+            description={description}
+            type={type}
+          />
           {/* Place form message above because it's not visible otherwise */}
           <FormMessage className="whitespace-pre-line" />
           <FormControl>
@@ -597,10 +619,12 @@ export function ControlledYamlField({
   label,
   fieldName,
   description,
+  type,
 }: {
   label: string
   fieldName: string
   description?: string
+  type?: string
 }) {
   const methods = useFormContext()
   const forEach = useMemo(() => methods.watch("for_each"), [methods])
@@ -610,7 +634,11 @@ export function ControlledYamlField({
       control={methods.control}
       render={() => (
         <FormItem>
-          <FormLabelComponent label={label} description={description} />
+          <FormLabelComponent
+            label={label}
+            description={description}
+            type={type}
+          />
           <FormMessage className="whitespace-pre-line" />
           <YamlStyledEditor
             name={`inputs.${fieldName}`}
@@ -681,6 +709,9 @@ export function PolymorphicField({
   const currentValue = methods.watch(`inputs.${fieldName}`)
   const isCurrentValueExpression = isExpression(currentValue)
 
+  // Extract the type information
+  const type = getType(fieldDefn)
+
   // Get all available components for this field
   const components = getTracecatComponents(fieldDefn)
 
@@ -691,9 +722,11 @@ export function PolymorphicField({
         label={label}
         fieldName={fieldName}
         description={formattedDescription}
+        type={type}
       />
     )
   }
+
   // If there is only one component and it is a text or text-area, we should render an expression field
   if (components.length === 1) {
     const componentId = components[0].component_id
@@ -708,6 +741,7 @@ export function PolymorphicField({
                 <FormLabelComponent
                   label={label}
                   description={formattedDescription}
+                  type={type}
                 />
                 <FormMessage className="whitespace-pre-line" />
                 <ExpressionInput
@@ -728,6 +762,7 @@ export function PolymorphicField({
                 <FormLabelComponent
                   label={label}
                   description={formattedDescription}
+                  type={type}
                 />
                 <FormMessage className="whitespace-pre-line" />
                 <ExpressionInput
@@ -746,6 +781,7 @@ export function PolymorphicField({
             label={label}
             fieldName={fieldName}
             description={formattedDescription}
+            type={type}
           />
         )
     }
@@ -855,6 +891,7 @@ export function PolymorphicField({
         label={label}
         fieldName={fieldName}
         description={description}
+        type={type}
       />
     )
   }
@@ -865,7 +902,11 @@ export function PolymorphicField({
       control={methods.control}
       render={({ field }) => (
         <FormItem>
-          <FormLabelComponent label={label} description={description} />
+          <FormLabelComponent
+            label={label}
+            description={description}
+            type={type}
+          />
           <FormMessage className="whitespace-pre-line" />
           <FormControl>
             <PolyField
@@ -887,114 +928,6 @@ export function PolymorphicField({
       )}
     />
   )
-}
-
-function renderSingleComponent(
-  component: TracecatEditorComponent,
-  label: string,
-  fieldName: string,
-  fieldDefn: TracecatJsonSchema
-) {
-  // Render the appropriate single component based on component_id
-  switch (component.component_id) {
-    case "text":
-      return (
-        <TextField label={label} fieldName={fieldName} fieldDefn={fieldDefn} />
-      )
-    case "text-area":
-      return (
-        <TextAreaField
-          label={label}
-          fieldName={fieldName}
-          fieldDefn={fieldDefn}
-          rows={component.rows}
-          placeholder={component.placeholder}
-        />
-      )
-    case "select":
-      return (
-        <SelectField
-          label={label}
-          fieldName={fieldName}
-          fieldDefn={fieldDefn}
-          options={component.options ?? []}
-          multiple={component.multiple}
-        />
-      )
-    case "tag-input":
-      return (
-        <TagInputField
-          label={label}
-          fieldName={fieldName}
-          fieldDefn={fieldDefn}
-        />
-      )
-    case "key-value":
-      return (
-        <KeyValueField
-          label={label}
-          fieldName={fieldName}
-          fieldDefn={fieldDefn}
-        />
-      )
-    case "integer":
-      return (
-        <IntegerField
-          label={label}
-          fieldName={fieldName}
-          fieldDefn={fieldDefn}
-          minVal={component.min_val ?? undefined}
-          maxVal={component.max_val ?? undefined}
-          step={component.step}
-        />
-      )
-    case "float":
-      return (
-        <FloatField
-          label={label}
-          fieldName={fieldName}
-          fieldDefn={fieldDefn}
-          minVal={component.min_val}
-          maxVal={component.max_val}
-          step={component.step}
-        />
-      )
-    case "toggle":
-      return (
-        <ToggleField
-          label={label}
-          fieldName={fieldName}
-          fieldDefn={fieldDefn}
-          labelOn={component.label_on}
-          labelOff={component.label_off}
-        />
-      )
-    case "code":
-      return (
-        <CodeMirrorCodeField
-          label={label}
-          fieldName={fieldName}
-          fieldDefn={fieldDefn}
-          code={component}
-        />
-      )
-    case "yaml":
-      return (
-        <YamlField
-          label={label}
-          fieldName={fieldName}
-          description={fieldDefn.description}
-        />
-      )
-    default:
-      return (
-        <YamlField
-          label={label}
-          fieldName={fieldName}
-          description={fieldDefn.description}
-        />
-      )
-  }
 }
 
 function ComponentContent({
@@ -1155,6 +1088,7 @@ function ComponentContent({
         </div>
       )
     case "code":
+      console.log("CODE BLOCK", field.value)
       return (
         <CodeEditor
           value={field.value}
