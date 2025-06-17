@@ -1,8 +1,11 @@
+from typing import Any
+
 import temporalio.service
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy.exc import NoResultFound
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
+from tracecat_registry.integrations.agents.builder import AgentOutput
 
 from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.auth.enums import SpecialUserID
@@ -132,7 +135,7 @@ async def get_workflow_execution_compact(
     role: WorkspaceUserRole,
     execution_id: UnquotedExecutionID,
     session: AsyncDBSession,
-) -> WorkflowExecutionReadCompact:
+) -> WorkflowExecutionReadCompact[Any, AgentOutput | Any]:
     """Get a workflow execution."""
     service = await WorkflowExecutionsService.connect(role=role)
     execution = await service.get_execution(execution_id)

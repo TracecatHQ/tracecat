@@ -14,7 +14,7 @@ export function Navbar({ children, ...props }: NavbarProps) {
   return (
     <TooltipProvider delayDuration={300}>
       <div className="w-full space-x-8 border-b" {...props}>
-        <div className="flex h-12 w-full items-center space-x-5 px-5">
+        <div className="flex h-10 w-full items-center space-x-5 px-5">
           <Link href="/workspaces">
             <Icons.logo className="size-5" />
           </Link>

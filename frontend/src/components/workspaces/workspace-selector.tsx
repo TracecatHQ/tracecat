@@ -89,7 +89,7 @@ export function WorkspaceSelector(props: React.HTMLAttributes<HTMLElement>) {
             role="combobox"
             aria-label="Load a workspace..."
             aria-expanded={open}
-            className="flex-1 justify-between md:min-w-[150px] md:max-w-[200px] lg:min-w-[250px] lg:max-w-[300px]"
+            className="h-8 flex-1 justify-between md:min-w-[150px] md:max-w-[200px] lg:min-w-[250px] lg:max-w-[300px]"
           >
             {currWorkspace?.name || "Select a workspace..."}
             <CaretSortIcon className="ml-2 size-4 shrink-0 opacity-50" />

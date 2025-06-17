@@ -14,7 +14,7 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile
 
   api:
-    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.35.3}
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.36.18}
     container_name: api
     restart: unless-stopped
     networks:
@@ -30,6 +30,7 @@ services:
       TRACECAT__AUTH_ALLOWED_DOMAINS: ${TRACECAT__AUTH_ALLOWED_DOMAINS}
       TRACECAT__AUTH_MIN_PASSWORD_LENGTH: ${TRACECAT__AUTH_MIN_PASSWORD_LENGTH}
       TRACECAT__AUTH_TYPES: ${TRACECAT__AUTH_TYPES}
+      TRACECAT__AUTH_SUPERADMIN_EMAIL: ${TRACECAT__AUTH_SUPERADMIN_EMAIL}
       TRACECAT__DB_ENCRYPTION_KEY: ${TRACECAT__DB_ENCRYPTION_KEY} # Sensitive
       TRACECAT__DB_SSLMODE: ${TRACECAT__DB_SSLMODE}
       TRACECAT__DB_URI: ${TRACECAT__DB_URI} # Sensitive
@@ -58,7 +59,7 @@ services:
       - temporal
 
   worker:
-    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.35.3}
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.36.18}
     restart: unless-stopped
     networks:
       - core
@@ -95,7 +96,7 @@ services:
       - temporal
 
   executor:
-    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.35.3}
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.36.18}
     restart: unless-stopped
     networks:
       - core-db
@@ -130,7 +131,7 @@ services:
       - temporal
 
   ui:
-    image: ghcr.io/tracecathq/tracecat-ui:${TRACECAT__IMAGE_TAG:-0.35.3}
+    image: ghcr.io/tracecathq/tracecat-ui:${TRACECAT__IMAGE_TAG:-0.36.18}
     container_name: ui
     restart: unless-stopped
     networks:
@@ -142,6 +143,7 @@ services:
       NEXT_PUBLIC_AUTH_TYPES: ${TRACECAT__AUTH_TYPES}
       NEXT_SERVER_API_URL: ${NEXT_SERVER_API_URL}
       NODE_ENV: production
+      TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY}
     depends_on:
       - api
 

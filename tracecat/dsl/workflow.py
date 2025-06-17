@@ -25,11 +25,16 @@ with workflow.unsafe.imports_passed_through():
     import jsonpath_ng.parser  # noqa
     import tracecat_registry  # noqa
     from pydantic import ValidationError
-    from slugify import slugify
 
     from tracecat import config, identifiers
     from tracecat.concurrency import GatheringTaskGroup
-    from tracecat.contexts import ctx_interaction, ctx_logger, ctx_role, ctx_run
+    from tracecat.contexts import (
+        ctx_interaction,
+        ctx_logger,
+        ctx_role,
+        ctx_run,
+        ctx_stream_id,
+    )
     from tracecat.dsl.action import (
         DSLActivities,
         ValidateActionActivityInput,
@@ -58,6 +63,7 @@ with workflow.unsafe.imports_passed_through():
         ExecutionContext,
         RunActionInput,
         RunContext,
+        StreamID,
         TaskResult,
         TriggerInputs,
     )
@@ -71,6 +77,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.ee.interactions.service import InteractionManager
     from tracecat.executor.service import evaluate_templated_args, iter_for_each
     from tracecat.expressions.common import ExprContext
+    from tracecat.expressions.core import extract_expressions
     from tracecat.expressions.eval import eval_templated_object
     from tracecat.identifiers.workflow import WorkflowExecutionID, WorkflowID
     from tracecat.logger import logger
@@ -183,6 +190,11 @@ class DSLWorkflow:
     def validate_interaction_handler(self, input: InteractionInput) -> None:
         """Validate the interaction handler."""
         return self.interactions.validate_interaction(input)
+
+    def get_context(self, stream_id: StreamID | None = None) -> ExecutionContext:
+        """Get the current execution context."""
+        sid = stream_id or ctx_stream_id.get()
+        return self.scheduler.streams[sid]
 
     @workflow.run
     async def run(self, args: DSLRunArgs) -> Any:
@@ -379,7 +391,7 @@ class DSLWorkflow:
         )
 
         self.scheduler = DSLScheduler(
-            executor=self.execute_task,  # type: ignore
+            executor=self.execute_task,
             dsl=self.dsl,
             context=self.context,
         )
@@ -474,6 +486,8 @@ class DSLWorkflow:
 
     async def execute_task(self, task: ActionStatement) -> Any:
         """Execute a task and manage the results."""
+        if task.action == PlatformAction.TRANSFORM_GATHER:
+            return await self._noop_gather_action(task)
         if task.retry_policy.retry_until:
             return await self._execute_task_until_condition(task)
         return await self._execute_task(task)
@@ -521,8 +535,8 @@ class DSLWorkflow:
             - If we have both, the wait_until timer will take precedence
         2. Decide whether we're running a child workflow or not
         """
-
-        logger.info("Begin task execution", task_ref=task.ref)
+        stream_id = ctx_stream_id.get()
+        logger.info("Begin task execution", task_ref=task.ref, stream_id=stream_id)
         task_result = TaskResult(result=None, result_typename=type(None).__name__)
 
         try:
@@ -600,7 +614,8 @@ class DSLWorkflow:
             raise ApplicationError(msg, non_retryable=True, type=err_type) from e
         finally:
             logger.trace("Setting action result", task_result=task_result)
-            self.context[ExprContext.ACTIONS][task.ref] = task_result  # type: ignore
+            context = self.get_context(stream_id)
+            context[ExprContext.ACTIONS][task.ref] = task_result
         return task_result
 
     ERROR_TYPE_TO_MESSAGE = {
@@ -625,7 +640,7 @@ class DSLWorkflow:
             # At this point,
             # Child run args
             # Task args here refers to the args passed to the child
-            args = evaluate_templated_args(task, context=self.context)
+            args = evaluate_templated_args(task, context=self.get_context())
             self.logger.trace(
                 "Executing child workflow",
                 child_run_args=child_run_args,
@@ -902,14 +917,57 @@ class DSLWorkflow:
             runtime_config=runtime_config,
         )
 
-    async def _run_action(self, task: ActionStatement) -> Any:
+    async def _noop_gather_action(self, task: ActionStatement) -> Any:
+        # Parent stream
+        stream_id = ctx_stream_id.get()
+        new_action_context: dict[str, Any] = {}
+        action_ref = task.ref
+        self.logger.debug(
+            "Noop gather action", action_ref=action_ref, stream_id=stream_id
+        )
+        res = self.scheduler.get_stream_aware_action_result(action_ref, stream_id)
+        new_action_context[action_ref] = res
+
+        new_context = {**self.context, ExprContext.ACTIONS: new_action_context}
+
         arg = RunActionInput(
             task=task,
             run_context=self.run_context,
-            exec_context=self.context,
+            exec_context=new_context,
             interaction_context=ctx_interaction.get(),
+            stream_id=stream_id,
         )
-        self.logger.debug("Running action", action=task.action)
+
+        return await workflow.execute_activity(
+            DSLActivities.noop_gather_action_activity,
+            args=(arg, self.role),
+            start_to_close_timeout=timedelta(
+                seconds=task.start_delay + task.retry_policy.timeout
+            ),
+            retry_policy=RetryPolicy(
+                maximum_attempts=task.retry_policy.max_attempts,
+            ),
+        )
+
+    async def _run_action(self, task: ActionStatement) -> Any:
+        # XXX(perf): We shouldn't pass the full execution context to the activity
+        # We should only keep the contexts that are needed for the action
+        stream_id = ctx_stream_id.get()
+        expr_ctxs = extract_expressions(task.model_dump())
+        new_action_context: dict[str, Any] = {}
+        for action_ref in expr_ctxs[ExprContext.ACTIONS]:
+            res = self.scheduler.get_stream_aware_action_result(action_ref, stream_id)
+            new_action_context[action_ref] = res
+
+        new_context = {**self.context, ExprContext.ACTIONS: new_action_context}
+
+        arg = RunActionInput(
+            task=task,
+            run_context=self.run_context,
+            exec_context=new_context,
+            interaction_context=ctx_interaction.get(),
+            stream_id=stream_id,
+        )
 
         return await workflow.execute_activity(
             DSLActivities.run_action_activity,
@@ -930,8 +988,12 @@ class DSLWorkflow:
         # XXX(safety): This has been validated in prepare_child_workflow
         args = ExecuteChildWorkflowArgs.model_construct(**task.args)
         # Use Temporal memo to store the action ref in the child workflow run
+        stream_id = ctx_stream_id.get()
         memo = ChildWorkflowMemo(
-            action_ref=task.ref, loop_index=loop_index, wait_strategy=args.wait_strategy
+            action_ref=task.ref,
+            loop_index=loop_index,
+            wait_strategy=args.wait_strategy,
+            stream_id=stream_id,
         ).model_dump()
         self.logger.info(
             "Running child workflow",
@@ -1063,7 +1125,7 @@ class DSLWorkflow:
         if args.dsl is None:
             raise ValueError("DSL is required to run error handler workflow")
         # Use Temporal memo to store the action ref in the child workflow run
-        memo = ChildWorkflowMemo(action_ref=slugify(args.dsl.title, separator="_"))
+        memo = ChildWorkflowMemo(action_ref=identifiers.action.ref(args.dsl.title))
         await workflow.execute_child_workflow(
             DSLWorkflow.run,
             args,

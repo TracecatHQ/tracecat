@@ -28,9 +28,11 @@ from tracecat.dsl.common import (
 )
 from tracecat.dsl.enums import JoinStrategy, PlatformAction, WaitStrategy
 from tracecat.dsl.models import (
+    ROOT_STREAM,
     ActionErrorInfo,
     ActionRetryPolicy,
     RunActionInput,
+    StreamID,
     TriggerInputs,
 )
 from tracecat.ee.interactions.models import (
@@ -125,8 +127,8 @@ class WorkflowExecutionRead(WorkflowExecutionBase):
     )
 
 
-class WorkflowExecutionReadCompact(WorkflowExecutionBase):
-    events: list[WorkflowExecutionEventCompact] = Field(
+class WorkflowExecutionReadCompact[TInput: Any, TResult: Any](WorkflowExecutionBase):
+    events: list[WorkflowExecutionEventCompact[TInput, TResult]] = Field(
         ..., description="Compact events in the workflow execution"
     )
     interactions: list[InteractionRead] = Field(
@@ -319,7 +321,7 @@ class WorkflowExecutionEvent(BaseModel, Generic[EventInput]):
     workflow_timeout: float | None = None
 
 
-class WorkflowExecutionEventCompact(BaseModel):
+class WorkflowExecutionEventCompact[TInput: Any, TResult: Any](BaseModel):
     """A compact representation of a workflow execution event."""
 
     source_event_id: int
@@ -332,9 +334,10 @@ class WorkflowExecutionEventCompact(BaseModel):
     status: WorkflowExecutionEventStatus
     action_name: str
     action_ref: str
-    action_input: Any | None = None
-    action_result: Any | None = None
+    action_input: TInput | None = None
+    action_result: TResult | None = None
     action_error: EventFailure | None = None
+    stream_id: StreamID = ROOT_STREAM
     child_wf_exec_id: WorkflowExecutionID | None = None
     child_wf_count: int = 0
     loop_index: int | None = None
@@ -388,6 +391,7 @@ class WorkflowExecutionEventCompact(BaseModel):
             action_name=task.action,
             action_ref=task.ref,
             action_input=task.args,
+            stream_id=action_input.stream_id,
         )
 
     @staticmethod
@@ -445,6 +449,7 @@ class WorkflowExecutionEventCompact(BaseModel):
             child_wf_exec_id=wf_exec_id,
             loop_index=memo.loop_index,
             child_wf_wait_strategy=memo.wait_strategy,
+            stream_id=memo.stream_id,
         )
 
     @staticmethod

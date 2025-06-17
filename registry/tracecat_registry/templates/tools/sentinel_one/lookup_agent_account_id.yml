@@ -1,0 +1,35 @@
+type: action
+definition:
+  title: Lookup agents by account ID
+  description: Find all SentinelOne agents in a specific account.
+  display_group: SentinelOne
+  doc_url: https://<base_url>/api-doc/api-details?category=agents&api=get-agents
+  namespace: tools.sentinel_one
+  name: lookup_agent_account_id
+  secrets:
+    - name: sentinel_one
+      keys: ["SENTINEL_ONE_API_TOKEN"]
+  expects:
+    account_id:
+      type: str
+      description: Account ID to filter agents by.
+    limit:
+      type: int
+      description: The maximum number of agents to return.
+      default: 100
+    base_url:
+      type: str
+      description: SentinelOne tenant URL.
+  steps:
+    - ref: query_agents
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/web/api/v2.1/agents
+        method: GET
+        timeout: 60
+        headers:
+          Authorization: "ApiToken ${{ SECRETS.sentinel_one.SENTINEL_ONE_API_TOKEN }}"
+        params:
+          accountIds: ${{ inputs.account_id }}
+          limit: ${{ inputs.limit }}
+  returns: ${{ steps.query_agents.result }}

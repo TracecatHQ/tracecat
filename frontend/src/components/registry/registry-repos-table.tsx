@@ -78,7 +78,7 @@ export function RegistryRepositoriesTable() {
         return {
           title: "Sync repository",
           description: (
-            <div className="flex flex-col space-y-2">
+            <span className="flex flex-col space-y-2">
               <span>
                 You are about to pull the latest version of the repository{" "}
               </span>
@@ -86,26 +86,26 @@ export function RegistryRepositoriesTable() {
                 {selectedRepo?.origin}
               </b>
               {selectedRepo?.commit_sha && (
-                <div className="text-sm text-muted-foreground">
+                <span className="text-sm text-muted-foreground">
                   <span>Current SHA: </span>
                   <Badge className="font-mono text-xs" variant="secondary">
                     {selectedRepo.commit_sha}
                   </Badge>
-                </div>
+                </span>
               )}
               {selectedRepo?.last_synced_at && (
-                <div className="text-sm text-muted-foreground">
+                <span className="text-sm text-muted-foreground">
                   <span>Last synced: </span>
                   <span>
                     {new Date(selectedRepo.last_synced_at).toLocaleString()}
                   </span>
-                </div>
+                </span>
               )}
-              <p>
+              <span>
                 Are you sure you want to proceed? This will reload all existing
                 actions with the latest versions from the remote repository.
-              </p>
-            </div>
+              </span>
+            </span>
           ),
           actions: [
             {
@@ -126,12 +126,12 @@ export function RegistryRepositoriesTable() {
                   toast({
                     title: "Successfully synced repository",
                     description: (
-                      <div className="flex flex-col space-y-2">
-                        <div>
+                      <span className="flex flex-col space-y-2">
+                        <span>
                           Successfully reloaded actions from{" "}
                           <b className="inline-block">{selectedRepo.origin}</b>
-                        </div>
-                      </div>
+                        </span>
+                      </span>
                     ),
                   })
                 } catch (error) {
@@ -147,20 +147,20 @@ export function RegistryRepositoriesTable() {
         return {
           title: "Delete repository",
           description: (
-            <div className="flex flex-col space-y-2">
+            <span className="flex flex-col space-y-2">
               <span>You are about to delete the repository </span>
               <b className="font-mono tracking-tighter">
                 {selectedRepo?.origin}
               </b>
-              <p>
+              <span>
                 Are you sure you want to proceed? This action cannot be undone.
-              </p>
-              <p className="italic">
+              </span>
+              <span className="italic">
                 You cannot delete the base Tracecat actions or the custom
                 template repositories. If you delete your remote repository, you
                 will need to restart the instance to restore it.
-              </p>
-            </div>
+              </span>
+            </span>
           ),
           actions: [
             {
@@ -387,11 +387,11 @@ export function RegistryRepositoriesTable() {
                           toast({
                             title: "Repository origin copied",
                             description: (
-                              <div className="flex flex-col space-y-2">
+                              <span className="flex flex-col space-y-2">
                                 <span className="inline-block">
                                   {row.original.origin}
                                 </span>
-                              </div>
+                              </span>
                             ),
                           })
                         }}
@@ -408,11 +408,11 @@ export function RegistryRepositoriesTable() {
                             toast({
                               title: "Commit SHA copied",
                               description: (
-                                <div className="flex flex-col space-y-2">
+                                <span className="flex flex-col space-y-2">
                                   <span className="inline-block">
                                     {commitSha}
                                   </span>
-                                </div>
+                                </span>
                               ),
                             })
                           }}

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# type: ignore
 # /// script
 # requires-python = ">=3.12"
 # dependencies = [

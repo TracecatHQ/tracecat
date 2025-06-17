@@ -1,3 +1,4 @@
+import os
 from typing import Any
 
 import pytest
@@ -6,6 +7,17 @@ from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserProm
 from tracecat_registry.integrations.pydantic_ai import _parse_message_history, call
 
 load_dotenv()
+
+# Skip tests if OpenAI API key is not available
+skip_if_no_openai_api_key = pytest.mark.skipif(
+    os.environ.get("OPENAI_API_KEY") is None,
+    reason="OPENAI_API_KEY not available in environment variables",
+)
+
+# Mark all tests in this module to be skipped if no OpenAI API key is available
+pytestmark = [
+    skip_if_no_openai_api_key,
+]
 
 
 @pytest.mark.parametrize(
@@ -262,7 +274,43 @@ def test_pydantic_ai_call_with_enum_output():
     assert "order_id" in result
     assert "status" in result
     assert result["status"] in ["pending", "shipped", "delivered", "cancelled"]
-    # We can be more specific if the prompt strongly suggests a value, e.g.:
-    # assert result["status"] == "shipped"
-    # However, LLM responses can vary, so checking inclusion in the enum is safer for a live test.
-    print(f"Live LLM call for enum test returned: {result}")
+
+
+def test_pydantic_ai_call_with_tool_choice():
+    """Tests that model_settings can include tool_choice for OpenAI."""
+
+    # Define a simple mock calculator tool
+    calculator_schema = {
+        "type": "function",
+        "function": {
+            "name": "calculator",
+            "description": "Perform a calculation",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "expression": {
+                        "type": "string",
+                        "description": "The mathematical expression to evaluate",
+                    }
+                },
+                "required": ["expression"],
+            },
+        },
+    }
+
+    # Call with tool_choice to force tool use
+    result = call(
+        instructions="You are a helpful calculator assistant.",
+        user_prompt="What is 123 + 456?",
+        model_name="gpt-4o-mini",
+        model_provider="openai",
+        model_settings={
+            "temperature": 0.0,
+            "tools": [calculator_schema],
+            "tool_choice": {"type": "function", "function": {"name": "calculator"}},
+        },
+    )
+
+    # Result should contain the calculation result in some form
+    assert isinstance(result, str)
+    assert "579" in result or "123 + 456" in result

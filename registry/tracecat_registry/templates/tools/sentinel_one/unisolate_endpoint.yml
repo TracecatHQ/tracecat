@@ -1,0 +1,31 @@
+type: action
+definition:
+  title: Unisolate endpoint
+  description: Connect a SentinelOne agent to the network.
+  display_group: SentinelOne
+  doc_url: https://<base_url>/api-doc/api-details?category=agents&api=post-agents-actions-connect
+  namespace: tools.sentinel_one
+  name: connect_to_network
+  secrets:
+    - name: sentinel_one
+      keys: ["SENTINEL_ONE_API_TOKEN"]
+  expects:
+    endpoint_id:
+      type: str
+      description: ID of the endpoint/agent to connect.
+    base_url:
+      type: str
+      description: SentinelOne tenant URL.
+  steps:
+    - ref: connect_agent
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/web/api/v2.1/agents/actions/connect
+        method: POST
+        headers:
+          Authorization: "ApiToken ${{ SECRETS.sentinel_one.SENTINEL_ONE_API_TOKEN }}"
+          Content-Type: "application/json"
+        payload:
+          filter:
+            ids: ["${{ inputs.endpoint_id }}"]
+  returns: ${{ steps.connect_agent.result }}

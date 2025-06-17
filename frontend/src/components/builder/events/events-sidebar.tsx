@@ -247,21 +247,17 @@ function BuilderSidebarEventsList({
           </ScrollArea>
         </div>
         <Separator />
-        <ScrollArea className="!m-0 flex-1 rounded-md p-0">
-          <div className="overflow-y-auto">
-            {tabItems.map((tab) => (
-              <TabsContent
-                key={tab.value}
-                value={tab.value}
-                className="m-0 size-full min-w-[200px] p-0"
-              >
-                {tab.content}
-              </TabsContent>
-            ))}
-          </div>
-          <ScrollBar orientation="horizontal" />
-          <ScrollBar orientation="vertical" />
-        </ScrollArea>
+        <div className="size-full overflow-scroll">
+          {tabItems.map((tab) => (
+            <TabsContent
+              key={tab.value}
+              value={tab.value}
+              className="m-0 size-full min-w-[200px] p-0"
+            >
+              {tab.content}
+            </TabsContent>
+          ))}
+        </div>
       </Tabs>
     </div>
   )

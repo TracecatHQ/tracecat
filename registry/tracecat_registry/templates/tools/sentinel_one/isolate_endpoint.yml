@@ -1,0 +1,32 @@
+type: action
+definition:
+  title: Isolate endpoint
+  description: Disconnect a SentinelOne agent from the network.
+  display_group: SentinelOne
+  doc_url: https://<base_url>/api-doc/api-details?category=agents&api=post-agents-actions-disconnect
+  namespace: tools.sentinel_one
+  name: disconnect_device
+  secrets:
+    - name: sentinel_one
+      keys: ["SENTINEL_ONE_API_TOKEN"]
+  expects:
+    endpoint_id:
+      type: str
+      description: ID of the endpoint/agent to disconnect.
+    base_url:
+      type: str
+      description: SentinelOne tenant URL.
+  steps:
+    - ref: disconnect_agent
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/web/api/v2.1/agents/actions/disconnect
+        method: POST
+        timeout: 60
+        headers:
+          Authorization: "ApiToken ${{ SECRETS.sentinel_one.SENTINEL_ONE_API_TOKEN }}"
+          Content-Type: "application/json"
+        payload:
+          filter:
+            ids: ["${{ inputs.endpoint_id }}"]
+  returns: ${{ steps.disconnect_agent.result }}

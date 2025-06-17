@@ -1,0 +1,32 @@
+type: action
+definition:
+  title: Abort scan
+  description: Abort a running scan on SentinelOne agents.
+  display_group: SentinelOne
+  doc_url: https://<base_url>/api-doc/api-details?category=agents&api=post-agents-actions-abort-scan
+  namespace: tools.sentinel_one
+  name: abort_scan
+  secrets:
+    - name: sentinel_one
+      keys: ["SENTINEL_ONE_API_TOKEN"]
+  expects:
+    device_id:
+      type: str
+      description: ID of the agent/device to abort scan on.
+    base_url:
+      type: str
+      description: SentinelOne tenant URL.
+  steps:
+    - ref: abort_scan
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/web/api/v2.1/agents/actions/abort-scan
+        method: POST
+        timeout: 60
+        headers:
+          Authorization: "ApiToken ${{ SECRETS.sentinel_one.SENTINEL_ONE_API_TOKEN }}"
+          Content-Type: "application/json"
+        payload:
+          filter:
+            ids: ["${{ inputs.device_id }}"]
+  returns: ${{ steps.abort_scan.result }}

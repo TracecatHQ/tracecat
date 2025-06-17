@@ -305,7 +305,7 @@ export const publicIncomingWebhook = (
   data: PublicIncomingWebhookData
 ): CancelablePromise<PublicIncomingWebhookResponse> => {
   return __request(OpenAPI, {
-    method: "POST",
+    method: "GET",
     url: "/webhooks/{workflow_id}/{secret}",
     path: {
       secret: data.secret,
@@ -345,7 +345,7 @@ export const publicIncomingWebhook1 = (
   data: PublicIncomingWebhook1Data
 ): CancelablePromise<PublicIncomingWebhook1Response> => {
   return __request(OpenAPI, {
-    method: "GET",
+    method: "POST",
     url: "/webhooks/{workflow_id}/{secret}",
     path: {
       secret: data.secret,
@@ -1171,7 +1171,7 @@ export const workflowExecutionsGetWorkflowExecution = (
  * @param data The data for the request.
  * @param data.executionId
  * @param data.workspaceId
- * @returns WorkflowExecutionReadCompact Successful Response
+ * @returns WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__ Successful Response
  * @throws ApiError
  */
 export const workflowExecutionsGetWorkflowExecutionCompact = (
@@ -3992,6 +3992,7 @@ export const authOauthGoogleDatabaseCallback = (
 
 /**
  * Saml:Database.Login
+ * Initiate SAML login flow
  * @returns SAMLDatabaseLoginResponse Successful Response
  * @throws ApiError
  */

@@ -1,9 +1,15 @@
 import asyncio
 import os
+import subprocess
+import time
 import uuid
 from collections.abc import AsyncGenerator, Iterator
+from unittest.mock import patch
 
 import pytest
+from minio import Minio
+from minio.error import S3Error
+from pydantic import SecretStr
 from sqlalchemy import create_engine, text
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlmodel import SQLModel
@@ -18,8 +24,30 @@ from tracecat.dsl.client import get_temporal_client
 from tracecat.logger import logger
 from tracecat.registry.repositories.models import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
+from tracecat.secrets.models import SecretCreate, SecretKeyValue, SecretUpdate
+from tracecat.secrets.service import SecretsService
 from tracecat.types.auth import AccessLevel, Role, system_role
 from tracecat.workspaces.service import WorkspaceService
+
+# Define Slack test skip markers
+skip_if_no_slack_token = pytest.mark.skipif(
+    not os.getenv("SLACK_BOT_TOKEN"),
+    reason="SLACK_BOT_TOKEN must be set as environment variable",
+)
+
+skip_if_no_slack_credentials = pytest.mark.skipif(
+    not os.getenv("SLACK_BOT_TOKEN") or not os.getenv("SLACK_CHANNEL_ID"),
+    reason="SLACK_BOT_TOKEN and SLACK_CHANNEL_ID must be set as environment variables",
+)
+
+# Define a reusable usefixture marker for slack tests
+requires_slack_mocks = pytest.mark.usefixtures("mock_slack_secrets")
+
+# MinIO test configuration
+MINIO_ENDPOINT = "localhost:9002"
+MINIO_ACCESS_KEY = "minioadmin"
+MINIO_SECRET_KEY = "minioadmin"
+MINIO_CONTAINER_NAME = "test-minio-grep"
 
 
 @pytest.fixture
@@ -145,6 +173,12 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
     monkeysession.setattr(config, "TRACECAT__AUTH_ALLOWED_DOMAINS", ["tracecat.com"])
     # Need this for local unit tests
     monkeysession.setattr(config, "TRACECAT__EXECUTOR_URL", "http://localhost:8001")
+    # Add Homebrew path for macOS development environments
+    monkeysession.setattr(
+        config,
+        "TRACECAT__SYSTEM_PATH",
+        "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin",
+    )
 
     monkeysession.setenv(
         "TRACECAT__DB_URI",
@@ -328,3 +362,252 @@ async def svc_admin_role(svc_workspace: Workspace) -> Role:
         user_id=uuid.uuid4(),
         service_id="tracecat-api",
     )
+
+
+@pytest.fixture
+async def mock_slack_secrets():
+    """Mock the secrets.get function for slack_sdk integration.
+
+    This fixture is used by both the agent builder tests and MCP slackbot tests.
+    It mocks the secrets.get function for direct SDK access.
+    """
+    slack_token = os.getenv("SLACK_BOT_TOKEN")
+    if not slack_token:
+        pytest.skip("SLACK_BOT_TOKEN not set in environment")
+
+    with patch("tracecat_registry.integrations.slack_sdk.secrets.get") as mock_get:
+
+        def side_effect(key):
+            if key == "SLACK_BOT_TOKEN":
+                return slack_token
+            return None
+
+        mock_get.side_effect = side_effect
+        yield mock_get
+
+
+@pytest.fixture
+async def slack_secret(test_role):
+    """Create a Slack secret in the Tracecat secrets manager for testing.
+
+    This fixture creates a temporary secret in the Tracecat secrets manager that
+    can be used by tests that need to access Slack via the Tracecat service.
+    """
+    slack_token = os.getenv("SLACK_BOT_TOKEN")
+    if not slack_token:
+        pytest.skip("SLACK_BOT_TOKEN not set in environment")
+
+    async with SecretsService.with_session(role=test_role) as svc:
+        # Check if slack secret already exists
+        try:
+            existing_secret = await svc.get_secret_by_name("slack")
+            if existing_secret:
+                # Update the existing secret
+                await svc.update_secret(
+                    existing_secret,
+                    SecretUpdate(
+                        keys=[
+                            SecretKeyValue(
+                                key="SLACK_BOT_TOKEN", value=SecretStr(slack_token)
+                            )
+                        ]
+                    ),
+                )
+                yield existing_secret
+                return
+        except Exception:
+            # Secret doesn't exist, create it
+            pass
+
+        # Create the slack secret
+        await svc.create_secret(
+            SecretCreate(
+                name="slack",
+                description="Slack bot token for testing",
+                environment="default",
+                keys=[
+                    SecretKeyValue(key="SLACK_BOT_TOKEN", value=SecretStr(slack_token))
+                ],
+            )
+        )
+
+        # Get the created secret to yield it
+        created_secret = await svc.get_secret_by_name("slack")
+
+        try:
+            yield created_secret
+        finally:
+            # Clean up the secret
+            try:
+                await svc.delete_secret(created_secret)
+            except Exception as e:
+                logger.warning(f"Failed to clean up slack secret: {e}")
+
+
+# MinIO and S3 testing fixtures
+@pytest.fixture(scope="session")
+def minio_server():
+    """Start MinIO server in Docker for the test session."""
+    # First, clean up any existing container
+    try:
+        subprocess.run(
+            ["docker", "stop", MINIO_CONTAINER_NAME], check=False, capture_output=True
+        )
+        subprocess.run(
+            ["docker", "rm", MINIO_CONTAINER_NAME], check=False, capture_output=True
+        )
+    except subprocess.CalledProcessError:
+        pass
+
+    # Start MinIO container with correct environment variables
+    try:
+        subprocess.run(
+            [
+                "docker",
+                "run",
+                "-d",
+                "--name",
+                MINIO_CONTAINER_NAME,
+                "-p",
+                "9002:9000",
+                "-p",
+                "9003:9001",
+                "-e",
+                f"MINIO_ROOT_USER={MINIO_ACCESS_KEY}",
+                "-e",
+                f"MINIO_ROOT_PASSWORD={MINIO_SECRET_KEY}",
+                "minio/minio:latest",
+                "server",
+                "/data",
+                "--console-address",
+                ":9001",
+            ],
+            check=True,
+            capture_output=True,
+            # Add timeout
+            timeout=20,
+        )
+
+        # Wait for MinIO to be ready
+        max_retries = 30
+        for i in range(max_retries):
+            try:
+                client = Minio(
+                    MINIO_ENDPOINT,
+                    access_key=MINIO_ACCESS_KEY,
+                    secret_key=MINIO_SECRET_KEY,
+                    secure=False,
+                )
+                # Try to list buckets to check if MinIO is ready
+                list(client.list_buckets())
+                logger.info(f"MinIO server started in container {MINIO_CONTAINER_NAME}")
+                break
+            except Exception as e:
+                if i == max_retries - 1:
+                    logger.error(
+                        f"MinIO failed to start after {max_retries} retries: {e}"
+                    )
+                    raise RuntimeError(
+                        "MinIO server failed to start within timeout"
+                    ) from e
+                time.sleep(1)
+
+        yield
+
+    finally:
+        # Cleanup: stop and remove container
+        try:
+            subprocess.run(
+                ["docker", "stop", MINIO_CONTAINER_NAME],
+                check=False,
+                capture_output=True,
+            )
+            subprocess.run(
+                ["docker", "rm", MINIO_CONTAINER_NAME], check=False, capture_output=True
+            )
+            logger.info(f"MinIO container {MINIO_CONTAINER_NAME} cleaned up")
+        except subprocess.CalledProcessError:
+            pass
+
+
+@pytest.fixture
+async def minio_client(minio_server) -> AsyncGenerator[Minio, None]:
+    """Create MinIO client for testing."""
+    client = Minio(
+        MINIO_ENDPOINT,
+        access_key=MINIO_ACCESS_KEY,
+        secret_key=MINIO_SECRET_KEY,
+        secure=False,
+    )
+    yield client
+
+
+@pytest.fixture
+async def minio_bucket(minio_client: Minio) -> AsyncGenerator[str, None]:
+    """Create and cleanup a test bucket in MinIO."""
+    bucket_name = f"test-bucket-{uuid.uuid4().hex[:8]}"
+
+    # Create test bucket
+    try:
+        if not minio_client.bucket_exists(bucket_name):
+            minio_client.make_bucket(bucket_name)
+    except S3Error as e:
+        if e.code != "BucketAlreadyOwnedByYou":
+            raise
+
+    yield bucket_name
+
+    # Cleanup: remove all objects and bucket
+    try:
+        objects = minio_client.list_objects(bucket_name, recursive=True)
+        for obj in objects:
+            if obj.object_name:  # Check for None
+                minio_client.remove_object(bucket_name, obj.object_name)
+        minio_client.remove_bucket(bucket_name)
+    except S3Error:
+        pass  # Ignore cleanup errors
+
+
+@pytest.fixture
+async def mock_s3_secrets(monkeypatch):
+    """Mock S3 secrets to use MinIO credentials."""
+
+    def mock_get_secret(key: str) -> str:
+        secrets_map = {
+            "AWS_ACCESS_KEY_ID": MINIO_ACCESS_KEY,
+            "AWS_SECRET_ACCESS_KEY": MINIO_SECRET_KEY,
+            "AWS_REGION": "us-east-1",
+        }
+        return secrets_map.get(key, "")
+
+    # Mock the secrets.get function in various modules using the correct import path
+    monkeypatch.setattr("tracecat_registry.secrets.get", mock_get_secret)
+
+
+@pytest.fixture
+async def aioboto3_minio_client(monkeypatch):
+    """Fixture that mocks aioboto3 to use MinIO endpoint."""
+    import aioboto3
+    import tracecat_registry.integrations.aws_boto3 as boto3_module
+
+    # Mock get_session to return session with MinIO credentials
+    async def mock_get_session():
+        return aioboto3.Session(
+            aws_access_key_id=MINIO_ACCESS_KEY,
+            aws_secret_access_key=MINIO_SECRET_KEY,
+            region_name="us-east-1",
+        )
+
+    # Mock client creation to use MinIO endpoint
+    original_client = aioboto3.Session.client
+
+    def mock_client(self, service_name, **kwargs):
+        if service_name == "s3":
+            kwargs["endpoint_url"] = f"http://{MINIO_ENDPOINT}"
+        return original_client(self, service_name, **kwargs)
+
+    # Apply mocks using monkeypatch
+    monkeypatch.setattr(boto3_module, "get_session", mock_get_session)
+    monkeypatch.setattr(aioboto3.Session, "client", mock_client)
+
+    yield

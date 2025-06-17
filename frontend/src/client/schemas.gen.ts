@@ -130,15 +130,9 @@ export const $ActionCreate = {
       mode: "json",
     },
     is_interactive: {
-      anyOf: [
-        {
-          type: "boolean",
-        },
-        {
-          type: "null",
-        },
-      ],
+      type: "boolean",
       title: "Is Interactive",
+      default: false,
     },
     interaction: {
       anyOf: [
@@ -232,6 +226,11 @@ export const $ActionRead = {
       ],
       title: "Interaction",
     },
+    ref: {
+      type: "string",
+      title: "Ref",
+      readOnly: true,
+    },
   },
   type: "object",
   required: [
@@ -242,6 +241,7 @@ export const $ActionRead = {
     "status",
     "inputs",
     "is_interactive",
+    "ref",
   ],
   title: "ActionRead",
 } as const
@@ -633,6 +633,53 @@ export const $ActionValidationResult = {
   description: "Result of validating a registry action's arguments.",
 } as const
 
+export const $AgentOutput = {
+  properties: {
+    output: {
+      type: "string",
+      title: "Output",
+    },
+    message_history: {
+      items: {
+        oneOf: [
+          {
+            $ref: "#/components/schemas/ModelRequest",
+          },
+          {
+            $ref: "#/components/schemas/ModelResponse",
+          },
+        ],
+        discriminator: {
+          propertyName: "kind",
+          mapping: {
+            request: "#/components/schemas/ModelRequest",
+            response: "#/components/schemas/ModelResponse",
+          },
+        },
+      },
+      type: "array",
+      title: "Message History",
+    },
+    duration: {
+      type: "number",
+      title: "Duration",
+    },
+    usage: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/Usage",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+  },
+  type: "object",
+  required: ["output", "message_history", "duration"],
+  title: "AgentOutput",
+} as const
+
 export const $AppSettingsRead = {
   properties: {
     app_registry_validation_enabled: {
@@ -779,6 +826,7 @@ export const $AssigneeChangedEventRead = {
         },
       ],
       title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
     },
     type: {
       type: "string",
@@ -834,6 +882,24 @@ export const $AssigneeChangedEventRead = {
   required: ["old", "new", "created_at"],
   title: "AssigneeChangedEventRead",
   description: "Event for when a case assignee is changed.",
+} as const
+
+export const $AudioUrl = {
+  properties: {
+    url: {
+      type: "string",
+      title: "Url",
+    },
+    kind: {
+      type: "string",
+      const: "audio-url",
+      title: "Kind",
+      default: "audio-url",
+    },
+  },
+  type: "object",
+  required: ["url"],
+  title: "AudioUrl",
 } as const
 
 export const $AuthSettingsRead = {
@@ -913,6 +979,54 @@ export const $AuthSettingsUpdate = {
   title: "AuthSettingsUpdate",
 } as const
 
+export const $BinaryContent = {
+  properties: {
+    data: {
+      type: "string",
+      format: "binary",
+      title: "Data",
+    },
+    media_type: {
+      anyOf: [
+        {
+          type: "string",
+          enum: ["audio/wav", "audio/mpeg"],
+        },
+        {
+          type: "string",
+          enum: ["image/jpeg", "image/png", "image/gif", "image/webp"],
+        },
+        {
+          type: "string",
+          enum: [
+            "application/pdf",
+            "text/plain",
+            "text/csv",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "text/html",
+            "text/markdown",
+            "application/vnd.ms-excel",
+          ],
+        },
+        {
+          type: "string",
+        },
+      ],
+      title: "Media Type",
+    },
+    kind: {
+      type: "string",
+      const: "binary",
+      title: "Kind",
+      default: "binary",
+    },
+  },
+  type: "object",
+  required: ["data", "media_type"],
+  title: "BinaryContent",
+} as const
+
 export const $Body_auth_reset_forgot_password = {
   properties: {
     email: {
@@ -948,9 +1062,13 @@ export const $Body_auth_sso_acs = {
       type: "string",
       title: "Saml Response",
     },
+    relay_state: {
+      type: "string",
+      title: "Relay State",
+    },
   },
   type: "object",
-  required: ["saml_response"],
+  required: ["saml_response", "relay_state"],
   title: "Body_auth-sso_acs",
 } as const
 
@@ -1759,6 +1877,7 @@ export const $ClosedEventRead = {
         },
       ],
       title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
     },
     type: {
       type: "string",
@@ -1810,6 +1929,7 @@ export const $CreatedEventRead = {
         },
       ],
       title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
     },
     type: {
       type: "string",
@@ -2122,6 +2242,24 @@ export const $DSLValidationResult = {
   description: "Result of validating a generic input.",
 } as const
 
+export const $DocumentUrl = {
+  properties: {
+    url: {
+      type: "string",
+      title: "Url",
+    },
+    kind: {
+      type: "string",
+      const: "document-url",
+      title: "Kind",
+      default: "document-url",
+    },
+  },
+  type: "object",
+  required: ["url"],
+  title: "DocumentUrl",
+} as const
+
 export const $EditorActionRead = {
   properties: {
     type: {
@@ -2187,6 +2325,43 @@ export const $EditorParamRead = {
   type: "object",
   required: ["name", "type", "optional"],
   title: "EditorParamRead",
+} as const
+
+export const $ErrorDetails = {
+  properties: {
+    type: {
+      type: "string",
+      title: "Type",
+    },
+    loc: {
+      items: {
+        anyOf: [
+          {
+            type: "integer",
+          },
+          {
+            type: "string",
+          },
+        ],
+      },
+      type: "array",
+      title: "Loc",
+    },
+    msg: {
+      type: "string",
+      title: "Msg",
+    },
+    input: {
+      title: "Input",
+    },
+    ctx: {
+      type: "object",
+      title: "Ctx",
+    },
+  },
+  type: "object",
+  required: ["type", "loc", "msg", "input"],
+  title: "ErrorDetails",
 } as const
 
 export const $ErrorModel = {
@@ -2519,6 +2694,7 @@ export const $FieldChangedEventRead = {
         },
       ],
       title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
     },
     type: {
       type: "string",
@@ -2755,6 +2931,24 @@ export const $HTTPValidationError = {
   title: "HTTPValidationError",
 } as const
 
+export const $ImageUrl = {
+  properties: {
+    url: {
+      type: "string",
+      title: "Url",
+    },
+    kind: {
+      type: "string",
+      const: "image-url",
+      title: "Kind",
+      default: "image-url",
+    },
+  },
+  type: "object",
+  required: ["url"],
+  title: "ImageUrl",
+} as const
+
 export const $InteractionCategory = {
   type: "string",
   enum: ["slack"],
@@ -2956,6 +3150,114 @@ export const $JoinStrategy = {
   title: "JoinStrategy",
 } as const
 
+export const $ModelRequest = {
+  properties: {
+    parts: {
+      items: {
+        oneOf: [
+          {
+            $ref: "#/components/schemas/SystemPromptPart",
+          },
+          {
+            $ref: "#/components/schemas/UserPromptPart",
+          },
+          {
+            $ref: "#/components/schemas/ToolReturnPart",
+          },
+          {
+            $ref: "#/components/schemas/RetryPromptPart",
+          },
+        ],
+        discriminator: {
+          propertyName: "part_kind",
+          mapping: {
+            "retry-prompt": "#/components/schemas/RetryPromptPart",
+            "system-prompt": "#/components/schemas/SystemPromptPart",
+            "tool-return": "#/components/schemas/ToolReturnPart",
+            "user-prompt": "#/components/schemas/UserPromptPart",
+          },
+        },
+      },
+      type: "array",
+      title: "Parts",
+    },
+    instructions: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Instructions",
+    },
+    kind: {
+      type: "string",
+      const: "request",
+      title: "Kind",
+      default: "request",
+    },
+  },
+  type: "object",
+  required: ["parts"],
+  title: "ModelRequest",
+} as const
+
+export const $ModelResponse = {
+  properties: {
+    parts: {
+      items: {
+        oneOf: [
+          {
+            $ref: "#/components/schemas/TextPart",
+          },
+          {
+            $ref: "#/components/schemas/ToolCallPart",
+          },
+        ],
+        discriminator: {
+          propertyName: "part_kind",
+          mapping: {
+            text: "#/components/schemas/TextPart",
+            "tool-call": "#/components/schemas/ToolCallPart",
+          },
+        },
+      },
+      type: "array",
+      title: "Parts",
+    },
+    usage: {
+      $ref: "#/components/schemas/Usage",
+    },
+    model_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Model Name",
+    },
+    timestamp: {
+      type: "string",
+      format: "date-time",
+      title: "Timestamp",
+    },
+    kind: {
+      type: "string",
+      const: "response",
+      title: "Kind",
+      default: "response",
+    },
+  },
+  type: "object",
+  required: ["parts"],
+  title: "ModelResponse",
+} as const
+
 export const $OAuth2AuthorizeResponse = {
   properties: {
     authorization_url: {
@@ -3084,6 +3386,7 @@ export const $PriorityChangedEventRead = {
         },
       ],
       title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
     },
     type: {
       type: "string",
@@ -4102,6 +4405,7 @@ export const $ReopenedEventRead = {
         },
       ],
       title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
     },
     type: {
       type: "string",
@@ -4167,6 +4471,54 @@ export const $ResponseInteraction = {
   description: "Configuration for a response interaction.",
 } as const
 
+export const $RetryPromptPart = {
+  properties: {
+    content: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/ErrorDetails",
+          },
+          type: "array",
+        },
+        {
+          type: "string",
+        },
+      ],
+      title: "Content",
+    },
+    tool_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tool Name",
+    },
+    tool_call_id: {
+      type: "string",
+      title: "Tool Call Id",
+    },
+    timestamp: {
+      type: "string",
+      format: "date-time",
+      title: "Timestamp",
+    },
+    part_kind: {
+      type: "string",
+      const: "retry-prompt",
+      title: "Part Kind",
+      default: "retry-prompt",
+    },
+  },
+  type: "object",
+  required: ["content"],
+  title: "RetryPromptPart",
+} as const
+
 export const $Role = {
   properties: {
     type: {
@@ -4215,13 +4567,14 @@ export const $Role = {
     service_id: {
       type: "string",
       enum: [
-        "tracecat-runner",
         "tracecat-api",
+        "tracecat-bootstrap",
         "tracecat-cli",
+        "tracecat-executor",
+        "tracecat-runner",
         "tracecat-schedule-runner",
         "tracecat-service",
-        "tracecat-executor",
-        "tracecat-bootstrap",
+        "tracecat-ui",
       ],
       title: "Service Id",
     },
@@ -4279,6 +4632,11 @@ export const $RunActionInput = {
           type: "null",
         },
       ],
+    },
+    stream_id: {
+      type: "string",
+      title: "Stream Id",
+      default: "<root>:0",
     },
   },
   type: "object",
@@ -5166,6 +5524,7 @@ export const $SeverityChangedEventRead = {
         },
       ],
       title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
     },
     type: {
       type: "string",
@@ -5240,6 +5599,7 @@ export const $StatusChangedEventRead = {
         },
       ],
       title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
     },
     type: {
       type: "string",
@@ -5277,6 +5637,40 @@ export const $StatusChangedEventRead = {
   required: ["old", "new", "created_at"],
   title: "StatusChangedEventRead",
   description: "Event for when a case status is changed.",
+} as const
+
+export const $SystemPromptPart = {
+  properties: {
+    content: {
+      type: "string",
+      title: "Content",
+    },
+    timestamp: {
+      type: "string",
+      format: "date-time",
+      title: "Timestamp",
+    },
+    dynamic_ref: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Dynamic Ref",
+    },
+    part_kind: {
+      type: "string",
+      const: "system-prompt",
+      title: "Part Kind",
+      default: "system-prompt",
+    },
+  },
+  type: "object",
+  required: ["content"],
+  title: "SystemPromptPart",
 } as const
 
 export const $TableColumnCreate = {
@@ -5927,6 +6321,87 @@ export const $TemplateActionValidationErrorType = {
   title: "TemplateActionValidationErrorType",
 } as const
 
+export const $TextPart = {
+  properties: {
+    content: {
+      type: "string",
+      title: "Content",
+    },
+    part_kind: {
+      type: "string",
+      const: "text",
+      title: "Part Kind",
+      default: "text",
+    },
+  },
+  type: "object",
+  required: ["content"],
+  title: "TextPart",
+} as const
+
+export const $ToolCallPart = {
+  properties: {
+    tool_name: {
+      type: "string",
+      title: "Tool Name",
+    },
+    args: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "object",
+        },
+      ],
+      title: "Args",
+    },
+    tool_call_id: {
+      type: "string",
+      title: "Tool Call Id",
+    },
+    part_kind: {
+      type: "string",
+      const: "tool-call",
+      title: "Part Kind",
+      default: "tool-call",
+    },
+  },
+  type: "object",
+  required: ["tool_name", "args"],
+  title: "ToolCallPart",
+} as const
+
+export const $ToolReturnPart = {
+  properties: {
+    tool_name: {
+      type: "string",
+      title: "Tool Name",
+    },
+    content: {
+      title: "Content",
+    },
+    tool_call_id: {
+      type: "string",
+      title: "Tool Call Id",
+    },
+    timestamp: {
+      type: "string",
+      format: "date-time",
+      title: "Timestamp",
+    },
+    part_kind: {
+      type: "string",
+      const: "tool-return",
+      title: "Part Kind",
+      default: "tool-return",
+    },
+  },
+  type: "object",
+  required: ["tool_name", "content", "tool_call_id"],
+  title: "ToolReturnPart",
+} as const
+
 export const $Trigger = {
   properties: {
     type: {
@@ -5968,6 +6443,7 @@ export const $UpdatedEventRead = {
         },
       ],
       title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
     },
     type: {
       type: "string",
@@ -6026,6 +6502,65 @@ export const $UpdatedEventRead = {
   required: ["field", "old", "new", "created_at"],
   title: "UpdatedEventRead",
   description: "Event for when a case is updated.",
+} as const
+
+export const $Usage = {
+  properties: {
+    requests: {
+      type: "integer",
+      title: "Requests",
+      default: 0,
+    },
+    request_tokens: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Request Tokens",
+    },
+    response_tokens: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Response Tokens",
+    },
+    total_tokens: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Tokens",
+    },
+    details: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "integer",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Details",
+    },
+  },
+  type: "object",
+  title: "Usage",
 } as const
 
 export const $UserCreate = {
@@ -6101,6 +6636,58 @@ export const $UserCreate = {
   type: "object",
   required: ["email", "password"],
   title: "UserCreate",
+} as const
+
+export const $UserPromptPart = {
+  properties: {
+    content: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          items: {
+            anyOf: [
+              {
+                type: "string",
+              },
+              {
+                $ref: "#/components/schemas/ImageUrl",
+              },
+              {
+                $ref: "#/components/schemas/AudioUrl",
+              },
+              {
+                $ref: "#/components/schemas/DocumentUrl",
+              },
+              {
+                $ref: "#/components/schemas/VideoUrl",
+              },
+              {
+                $ref: "#/components/schemas/BinaryContent",
+              },
+            ],
+          },
+          type: "array",
+        },
+      ],
+      title: "Content",
+    },
+    timestamp: {
+      type: "string",
+      format: "date-time",
+      title: "Timestamp",
+    },
+    part_kind: {
+      type: "string",
+      const: "user-prompt",
+      title: "Part Kind",
+      default: "user-prompt",
+    },
+  },
+  type: "object",
+  required: ["content"],
+  title: "UserPromptPart",
 } as const
 
 export const $UserRead = {
@@ -6374,6 +6961,24 @@ export const $ValidationResult = {
       secret: "#/components/schemas/SecretValidationResult",
     },
   },
+} as const
+
+export const $VideoUrl = {
+  properties: {
+    url: {
+      type: "string",
+      title: "Url",
+    },
+    kind: {
+      type: "string",
+      const: "video-url",
+      title: "Kind",
+      default: "video-url",
+    },
+  },
+  type: "object",
+  required: ["url"],
+  title: "VideoUrl",
 } as const
 
 export const $WaitStrategy = {
@@ -6970,7 +7575,7 @@ export const $WorkflowExecutionEvent = {
   title: "WorkflowExecutionEvent",
 } as const
 
-export const $WorkflowExecutionEventCompact = {
+export const $WorkflowExecutionEventCompact_Any_Union_AgentOutput__Any__ = {
   properties: {
     source_event_id: {
       type: "integer",
@@ -7020,16 +7625,13 @@ export const $WorkflowExecutionEventCompact = {
       title: "Action Ref",
     },
     action_input: {
-      anyOf: [
-        {},
-        {
-          type: "null",
-        },
-      ],
       title: "Action Input",
     },
     action_result: {
       anyOf: [
+        {
+          $ref: "#/components/schemas/AgentOutput",
+        },
         {},
         {
           type: "null",
@@ -7046,6 +7648,11 @@ export const $WorkflowExecutionEventCompact = {
           type: "null",
         },
       ],
+    },
+    stream_id: {
+      type: "string",
+      title: "Stream Id",
+      default: "<root>:0",
     },
     child_wf_exec_id: {
       anyOf: [
@@ -7096,8 +7703,7 @@ export const $WorkflowExecutionEventCompact = {
     "action_name",
     "action_ref",
   ],
-  title: "WorkflowExecutionEventCompact",
-  description: "A compact representation of a workflow execution event.",
+  title: "WorkflowExecutionEventCompact[Any, Union[AgentOutput, Any]]",
 } as const
 
 export const $WorkflowExecutionEventStatus = {
@@ -7233,7 +7839,7 @@ export const $WorkflowExecutionRead = {
   title: "WorkflowExecutionRead",
 } as const
 
-export const $WorkflowExecutionReadCompact = {
+export const $WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__ = {
   properties: {
     id: {
       type: "string",
@@ -7320,7 +7926,7 @@ export const $WorkflowExecutionReadCompact = {
     },
     events: {
       items: {
-        $ref: "#/components/schemas/WorkflowExecutionEventCompact",
+        $ref: "#/components/schemas/WorkflowExecutionEventCompact_Any_Union_AgentOutput__Any__",
       },
       type: "array",
       title: "Events",
@@ -7347,7 +7953,7 @@ export const $WorkflowExecutionReadCompact = {
     "trigger_type",
     "events",
   ],
-  title: "WorkflowExecutionReadCompact",
+  title: "WorkflowExecutionReadCompact[Any, Union[AgentOutput, Any]]",
 } as const
 
 export const $WorkflowExecutionReadMinimal = {

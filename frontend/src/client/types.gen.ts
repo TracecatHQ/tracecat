@@ -27,7 +27,7 @@ export type ActionCreate = {
   description?: string | null
   inputs?: string
   control_flow?: ActionControlFlow | null
-  is_interactive?: boolean | null
+  is_interactive?: boolean
   interaction?: ResponseInteraction | ApprovalInteraction | null
 }
 
@@ -41,6 +41,7 @@ export type ActionRead = {
   control_flow?: ActionControlFlow
   is_interactive: boolean
   interaction?: ResponseInteraction | ApprovalInteraction | null
+  readonly ref: string
 }
 
 export type ActionReadMinimal = {
@@ -156,6 +157,13 @@ export type ActionValidationResult = {
 
 export type status = "success" | "error"
 
+export type AgentOutput = {
+  output: string
+  message_history: Array<ModelRequest | ModelResponse>
+  duration: number
+  usage?: Usage | null
+}
+
 /**
  * Settings for the app.
  */
@@ -224,6 +232,9 @@ export type ApprovalInteraction = {
  * Event for when a case assignee is changed.
  */
 export type AssigneeChangedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
   wf_exec_id?: string | null
   type?: "assignee_changed"
   old: string | null
@@ -236,6 +247,11 @@ export type AssigneeChangedEventRead = {
    * The timestamp of the event.
    */
   created_at: string
+}
+
+export type AudioUrl = {
+  url: string
+  kind?: "audio-url"
 }
 
 export type AuthSettingsRead = {
@@ -269,6 +285,27 @@ export type AuthSettingsUpdate = {
   auth_session_expire_time_seconds?: number
 }
 
+export type BinaryContent = {
+  data: Blob | File
+  media_type:
+    | "audio/wav"
+    | "audio/mpeg"
+    | "image/jpeg"
+    | "image/png"
+    | "image/gif"
+    | "image/webp"
+    | "application/pdf"
+    | "text/plain"
+    | "text/csv"
+    | "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    | "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    | "text/html"
+    | "text/markdown"
+    | "application/vnd.ms-excel"
+    | string
+  kind?: "binary"
+}
+
 export type Body_auth_reset_forgot_password = {
   email: string
 }
@@ -280,6 +317,7 @@ export type Body_auth_reset_reset_password = {
 
 export type Body_auth_sso_acs = {
   saml_response: string
+  relay_state: string
 }
 
 export type Body_auth_verify_request_token = {
@@ -522,6 +560,9 @@ export type CaseUpdate = {
  * Event for when a case is closed.
  */
 export type ClosedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
   wf_exec_id?: string | null
   type?: "case_closed"
   old: CaseStatus
@@ -540,6 +581,9 @@ export type ClosedEventRead = {
  * Event for when a case is created.
  */
 export type CreatedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
   wf_exec_id?: string | null
   type?: "case_created"
   /**
@@ -670,6 +714,11 @@ export type DSLValidationResult = {
   ref?: string | null
 }
 
+export type DocumentUrl = {
+  url: string
+  kind?: "document-url"
+}
+
 export type EditorActionRead = {
   type: string
   ref: string
@@ -687,6 +736,16 @@ export type EditorParamRead = {
   name: string
   type: string
   optional: boolean
+}
+
+export type ErrorDetails = {
+  type: string
+  loc: Array<number | string>
+  msg: string
+  input: unknown
+  ctx?: {
+    [key: string]: unknown
+  }
 }
 
 export type ErrorModel = {
@@ -780,6 +839,9 @@ export type ExprValidationResult = {
  * Event for when a case field is changed.
  */
 export type FieldChangedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
   wf_exec_id?: string | null
   type?: "fields_changed"
   changes: Array<FieldDiff>
@@ -834,6 +896,11 @@ export type GitSettingsUpdate = {
 
 export type HTTPValidationError = {
   detail?: Array<ValidationError>
+}
+
+export type ImageUrl = {
+  url: string
+  kind?: "image-url"
 }
 
 export type InteractionCategory = "slack"
@@ -900,6 +967,22 @@ export type InteractionType = "approval" | "response"
 
 export type JoinStrategy = "any" | "all"
 
+export type ModelRequest = {
+  parts: Array<
+    SystemPromptPart | UserPromptPart | ToolReturnPart | RetryPromptPart
+  >
+  instructions?: string | null
+  kind?: "request"
+}
+
+export type ModelResponse = {
+  parts: Array<TextPart | ToolCallPart>
+  usage?: Usage
+  model_name?: string | null
+  timestamp?: string
+  kind?: "response"
+}
+
 export type OAuth2AuthorizeResponse = {
   authorization_url: string
 }
@@ -937,6 +1020,9 @@ export type OrgMemberRead = {
  * Event for when a case priority is changed.
  */
 export type PriorityChangedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
   wf_exec_id?: string | null
   type?: "priority_changed"
   old: CasePriority
@@ -1295,6 +1381,9 @@ export type RegistrySecret = {
  * Event for when a case is reopened.
  */
 export type ReopenedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
   wf_exec_id?: string | null
   type?: "case_reopened"
   old: CaseStatus
@@ -1318,6 +1407,14 @@ export type ResponseInteraction = {
    * The timeout for the interaction in seconds.
    */
   timeout?: number | null
+}
+
+export type RetryPromptPart = {
+  content: Array<ErrorDetails> | string
+  tool_name?: string | null
+  tool_call_id?: string
+  timestamp?: string
+  part_kind?: "retry-prompt"
 }
 
 /**
@@ -1353,25 +1450,27 @@ export type Role = {
   user_id?: string | null
   access_level?: AccessLevel
   service_id:
-    | "tracecat-runner"
     | "tracecat-api"
+    | "tracecat-bootstrap"
     | "tracecat-cli"
+    | "tracecat-executor"
+    | "tracecat-runner"
     | "tracecat-schedule-runner"
     | "tracecat-service"
-    | "tracecat-executor"
-    | "tracecat-bootstrap"
+    | "tracecat-ui"
 }
 
 export type type2 = "user" | "service"
 
 export type service_id =
-  | "tracecat-runner"
   | "tracecat-api"
+  | "tracecat-bootstrap"
   | "tracecat-cli"
+  | "tracecat-executor"
+  | "tracecat-runner"
   | "tracecat-schedule-runner"
   | "tracecat-service"
-  | "tracecat-executor"
-  | "tracecat-bootstrap"
+  | "tracecat-ui"
 
 /**
  * This object contains all the information needed to execute an action.
@@ -1383,6 +1482,7 @@ export type RunActionInput = {
   }
   run_context: RunContext
   interaction_context?: InteractionContext | null
+  stream_id?: string
 }
 
 /**
@@ -1619,6 +1719,9 @@ export type SessionRead = {
  * Event for when a case severity is changed.
  */
 export type SeverityChangedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
   wf_exec_id?: string | null
   type?: "severity_changed"
   old: CaseSeverity
@@ -1655,6 +1758,9 @@ export type SqlType =
  * Event for when a case status is changed.
  */
 export type StatusChangedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
   wf_exec_id?: string | null
   type?: "status_changed"
   old: CaseStatus
@@ -1667,6 +1773,13 @@ export type StatusChangedEventRead = {
    * The timestamp of the event.
    */
   created_at: string
+}
+
+export type SystemPromptPart = {
+  content: string
+  timestamp?: string
+  dynamic_ref?: string | null
+  part_kind?: "system-prompt"
 }
 
 /**
@@ -1922,6 +2035,30 @@ export type TemplateActionValidationErrorType =
   | "STEP_VALIDATION_ERROR"
   | "EXPRESSION_VALIDATION_ERROR"
 
+export type TextPart = {
+  content: string
+  part_kind?: "text"
+}
+
+export type ToolCallPart = {
+  tool_name: string
+  args:
+    | string
+    | {
+        [key: string]: unknown
+      }
+  tool_call_id?: string
+  part_kind?: "tool-call"
+}
+
+export type ToolReturnPart = {
+  tool_name: string
+  content: unknown
+  tool_call_id: string
+  timestamp?: string
+  part_kind?: "tool-return"
+}
+
 export type Trigger = {
   type: "schedule" | "webhook"
   ref: string
@@ -1941,6 +2078,9 @@ export type TriggerType = "manual" | "scheduled" | "webhook"
  * Event for when a case is updated.
  */
 export type UpdatedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
   wf_exec_id?: string | null
   type?: "case_updated"
   field: "summary"
@@ -1956,6 +2096,16 @@ export type UpdatedEventRead = {
   created_at: string
 }
 
+export type Usage = {
+  requests?: number
+  request_tokens?: number | null
+  response_tokens?: number | null
+  total_tokens?: number | null
+  details?: {
+    [key: string]: number
+  } | null
+}
+
 export type UserCreate = {
   email: string
   password: string
@@ -1964,6 +2114,16 @@ export type UserCreate = {
   is_verified?: boolean | null
   first_name?: string | null
   last_name?: string | null
+}
+
+export type UserPromptPart = {
+  content:
+    | string
+    | Array<
+        string | ImageUrl | AudioUrl | DocumentUrl | VideoUrl | BinaryContent
+      >
+  timestamp?: string
+  part_kind?: "user-prompt"
 }
 
 export type UserRead = {
@@ -2014,6 +2174,11 @@ export type ValidationResult =
   | ExprValidationResult
   | TemplateActionExprValidationResult
   | ActionValidationResult
+
+export type VideoUrl = {
+  url: string
+  kind?: "video-url"
+}
 
 export type WaitStrategy = "wait" | "detach"
 
@@ -2182,10 +2347,7 @@ export type WorkflowExecutionEvent = {
   workflow_timeout?: number | null
 }
 
-/**
- * A compact representation of a workflow execution event.
- */
-export type WorkflowExecutionEventCompact = {
+export type WorkflowExecutionEventCompact_Any_Union_AgentOutput__Any__ = {
   source_event_id: number
   schedule_time: string
   start_time?: string | null
@@ -2194,9 +2356,10 @@ export type WorkflowExecutionEventCompact = {
   status: WorkflowExecutionEventStatus
   action_name: string
   action_ref: string
-  action_input?: unknown | null
-  action_result?: unknown | null
+  action_input?: unknown
+  action_result?: AgentOutput | unknown | null
   action_error?: EventFailure | null
+  stream_id?: string
   child_wf_exec_id?: string | null
   child_wf_count?: number
   loop_index?: number | null
@@ -2270,7 +2433,7 @@ export type status4 =
   | "CONTINUED_AS_NEW"
   | "TIMED_OUT"
 
-export type WorkflowExecutionReadCompact = {
+export type WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__ = {
   /**
    * The ID of the workflow execution
    */
@@ -2310,7 +2473,7 @@ export type WorkflowExecutionReadCompact = {
   /**
    * Compact events in the workflow execution
    */
-  events: Array<WorkflowExecutionEventCompact>
+  events: Array<WorkflowExecutionEventCompact_Any_Union_AgentOutput__Any__>
   /**
    * The interactions in the workflow execution
    */
@@ -2802,7 +2965,7 @@ export type WorkflowExecutionsGetWorkflowExecutionCompactData = {
 }
 
 export type WorkflowExecutionsGetWorkflowExecutionCompactResponse =
-  WorkflowExecutionReadCompact
+  WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__
 
 export type WorkflowExecutionsCancelWorkflowExecutionData = {
   executionId: string
@@ -3611,7 +3774,7 @@ export type PublicCheckHealthResponse = {
 
 export type $OpenApiTs = {
   "/webhooks/{workflow_id}/{secret}": {
-    post: {
+    get: {
       req: PublicIncomingWebhookData
       res: {
         /**
@@ -3624,7 +3787,7 @@ export type $OpenApiTs = {
         422: HTTPValidationError
       }
     }
-    get: {
+    post: {
       req: PublicIncomingWebhook1Data
       res: {
         /**
@@ -4049,7 +4212,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: WorkflowExecutionReadCompact
+        200: WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__
         /**
          * Validation Error
          */

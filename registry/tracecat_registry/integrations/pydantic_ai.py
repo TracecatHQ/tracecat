@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from pydantic_ai import Agent
+from pydantic_ai import Agent, Tool
 from pydantic_ai.agent import AgentRunResult
 import orjson
 from pydantic_ai.messages import (
@@ -107,19 +107,26 @@ bedrock_secret = RegistrySecret(
     optional_keys=[
         "AWS_ACCESS_KEY_ID",
         "AWS_SECRET_ACCESS_KEY",
-        "AWS_SESSION_TOKEN",
         "AWS_REGION",
+        "AWS_PROFILE",
+        "AWS_ROLE_ARN",
+        "AWS_ROLE_SESSION_NAME",
     ],
     optional=True,
 )
-"""Bedrock API key.
+"""AWS credentials.
 
 - name: `amazon_bedrock`
 - optional_keys:
-    - `AWS_ACCESS_KEY_ID`: Optional AWS access key ID.
-    - `AWS_SECRET_ACCESS_KEY`: Optional AWS secret access key.
-    - `AWS_SESSION_TOKEN`: Optional AWS session token.
-    - `AWS_REGION`: Optional AWS region.
+    Either:
+        - `AWS_ACCESS_KEY_ID`
+        - `AWS_SECRET_ACCESS_KEY`
+        - `AWS_REGION`
+    Or:
+        - `AWS_PROFILE`
+    Or:
+        - `AWS_ROLE_ARN`
+        - `AWS_ROLE_SESSION_NAME` (optional)
 """
 
 
@@ -163,6 +170,7 @@ def build_agent(
     output_type: str | dict[str, Any] | None = None,
     model_settings: dict[str, Any] | None = None,
     mcp_servers: list[MCPServerHTTP] | None = None,
+    tools: list[Tool] | None = None,
     retries: Annotated[int, Doc("Number of retries")] = 3,
     deps_type: type[AgentDepsT] | None = None,
 ) -> Agent[AgentDepsT, Any]:
@@ -230,18 +238,20 @@ def build_agent(
                 f"Invalid JSONSchema: {output_type}. Missing top-level `name` or `title` field."
             )
 
-    mcp_servers = mcp_servers or []
-
     agent_kwargs = {
         "model": model,
         "instructions": instructions,
         "output_type": response_format,
         "model_settings": ModelSettings(**model_settings) if model_settings else None,
-        "mcp_servers": mcp_servers,
         "retries": retries,
     }
 
-    # Only add deps_type if it's not None
+    if tools:
+        agent_kwargs["tools"] = tools
+
+    if mcp_servers:
+        agent_kwargs["mcp_servers"] = mcp_servers
+
     if deps_type is not None:
         agent_kwargs["deps_type"] = deps_type
 

@@ -41,10 +41,10 @@ Use the commands listed below to download the required configuration files
 
 ```bash
 # 1. Download the env.sh installation script
-curl -o env.sh https://raw.githubusercontent.com/TracecatHQ/tracecat/0.35.3/env.sh
+curl -o env.sh https://raw.githubusercontent.com/TracecatHQ/tracecat/0.36.18/env.sh
 
 # 2. Download the .env.example template file (env.sh needs this to generate your .env file)
-curl -o .env.example https://raw.githubusercontent.com/TracecatHQ/tracecat/0.35.3/.env.example
+curl -o .env.example https://raw.githubusercontent.com/TracecatHQ/tracecat/0.36.18/.env.example
 
 # 3. Make the env.sh script executable and run it
 chmod +x env.sh && ./env.sh
@@ -55,6 +55,7 @@ After running `env.sh`, you'll be prompted to input the following:
 - Use production mode? - defaults to `y` (use `y` unless you are a Tracecat developer)
 - Set `PUBLIC_APP_URL` to - defaults to `localhost`
 - Require PostgreSQL SSL mode? - defaults to `n`
+- Enter email address for the first user (superadmin) - **required field**
 
 <Info>
   When installing Tracecat on a local workstation, use `localhost` or `127.0.0.1` as the IP address.
@@ -80,13 +81,13 @@ Tracecat uses Caddy as a reverse proxy.
 You'll need to download the following `Caddyfile` to configure this service.
 
 ```bash
-curl -o Caddyfile https://raw.githubusercontent.com/TracecatHQ/tracecat/0.35.3/Caddyfile
+curl -o Caddyfile https://raw.githubusercontent.com/TracecatHQ/tracecat/0.36.18/Caddyfile
 ```
 
 ## Download Docker Compose File
 
 ```bash
-curl -o docker-compose.yml https://raw.githubusercontent.com/TracecatHQ/tracecat/0.35.3/docker-compose.yml
+curl -o docker-compose.yml https://raw.githubusercontent.com/TracecatHQ/tracecat/0.36.18/docker-compose.yml
 ```
 
 ## Start Tracecat
@@ -120,10 +121,13 @@ To access the Tracecat GUI, visit `http://localhost:${PUBLIC_APP_PORT}`.
   docs](/self-hosting/authentication/overview).
 </Note>
 
-For each new Tracecat deployment, the admin superuser role is assigned to the first user who logs into the Tracecat instance.
+For each new Tracecat deployment, the super admin role is assigned to the first user who logs into the Tracecat instance.
 This user owns the organization and has admin rights to every workspace in the Tracecat deployment.
 
-To proceed, sign up and create an account with a strong and secure password.
+**Important:** Only the email address you specified during the `env.sh` setup can become super admin.
+You must sign up using exactly that email address to gain super admin privileges.
+
+To proceed, sign up and create an account with a strong and secure password using the super admin email you configured.
 Check out the [admin tutorial](/quickstart/admin) for more information.
 
 ## Networking
@@ -166,4 +170,4 @@ Please check the following:
 ## Next Steps
 - Log into Tracecat and build your first playbook. [View quickstart](/quickstart).
 - Tracecat comes with basic (email + password) authentication. Find out how to configure other authentication methods. [View docs](/self-hosting/authentication/overview).
-- Read inline comments in the generated `.env` file to better understand Tracecat's configurations. [View `.env.example` file](https://github.com/TracecatHQ/tracecat/blob/0.35.3/.env.example).
+- Read inline comments in the generated `.env` file to better understand Tracecat's configurations. [View `.env.example` file](https://github.com/TracecatHQ/tracecat/blob/0.36.18/.env.example).

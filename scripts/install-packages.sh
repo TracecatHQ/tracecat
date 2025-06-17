@@ -37,7 +37,8 @@ apt-get install -y \
   apt-transport-https \
   ca-certificates \
   gnupg \
-  unzip
+  unzip \
+  ripgrep
 
 # Verify curl is installed and in PATH
 which curl || { echo "ERROR: curl not found after installation"; exit 1; }
@@ -94,20 +95,27 @@ echo "Deno installed successfully"
 # Pre-cache pyodide and dependencies using deno cache
 echo "Pre-caching Pyodide v${PYODIDE_VERSION}..."
 
-# Create cache directory that will be accessible by apiuser
+# Create ALL cache directories that apiuser will need
+# This consolidates directory creation in one place
+# Note: Permissions will be set in Dockerfile after user creation
+mkdir -p \
+    /home/apiuser/.cache/deno \
+    /home/apiuser/.cache/uv \
+    /home/apiuser/.cache/pyodide-packages \
+    /home/apiuser/.cache/s3 \
+    /home/apiuser/.local \
+    /home/apiuser/.local/lib/node_modules \
+    /app/.scripts
+
+# Set DENO_DIR for caching during build (use root-owned location)
 export DENO_DIR="/opt/deno-cache"
-mkdir -p "${DENO_DIR}"
-mkdir -p "/opt/node_modules"
+mkdir -p "$DENO_DIR"
 
 # Use deno cache to download pyodide module and its dependencies
-# This is simpler and more secure than running a script
+# This runs as root and creates root-owned cache that will be copied later
+# Note: node_modules will be created automatically in the current directory
+cd /opt
 deno cache --node-modules-dir=auto "npm:pyodide@${PYODIDE_VERSION}"
-
-# Set read-only permissions for security (apiuser can read but not modify)
-if [ -d "/opt/node_modules" ]; then
-    chmod -R 755 /opt/node_modules
-fi
-chmod -R 755 "${DENO_DIR}"
 
 echo "Deno and Pyodide installation complete"
 
@@ -127,6 +135,12 @@ fi
 # Check if kubectl is installed by checking the version
 if ! kubectl version --client &> /dev/null; then
     echo "ERROR: Failed to install kubectl"
+    exit 1
+fi
+
+# Check if ripgrep is installed by checking the version
+if ! rg --version &> /dev/null; then
+    echo "ERROR: Failed to install ripgrep"
     exit 1
 fi
 

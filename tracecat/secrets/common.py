@@ -8,7 +8,13 @@ def apply_masks(value: str, masks: Iterable[str]) -> str:
     if not masks:
         return value
 
-    pattern = "|".join(map(re.escape, masks))
+    # Filter out single-character masks to prevent over-aggressive masking
+    filtered_masks = [mask for mask in masks if len(mask) > 1]
+
+    if not filtered_masks:
+        return value
+
+    pattern = "|".join(map(re.escape, filtered_masks))
     return re.sub(pattern, MASK_VALUE, value)
 
 

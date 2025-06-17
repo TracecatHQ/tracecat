@@ -29,6 +29,7 @@ dependencies = [
     "diskcache==5.6.3",
     "dnspython==2.6.1",
     "docker==7.1.0",
+    "fastmcp==2.5.1",
     "fpdf2==2.8.2",
     "grpcio==1.68.0",
     "hatchling==1.27.0",

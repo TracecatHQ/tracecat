@@ -1,15 +1,14 @@
 import asyncio
 import json
-import os
 import re
 import shutil
 import sys
+from pathlib import Path
 import tempfile
 from io import StringIO
 from typing import Annotated, Any, TypedDict
-import uuid
 
-from tracecat.config import TRACECAT__PYODIDE_VERSION
+from tracecat.config import TRACECAT__PYODIDE_VERSION, TRACECAT__NODE_MODULES_DIR
 from tracecat.logger import logger
 from tracecat_registry import registry
 from typing_extensions import Doc
@@ -159,9 +158,7 @@ async def run_python(
         Doc(
             "Python script to execute. Must contain at least one function. "
             "If multiple functions are defined, one must be named 'main'. "
-            "The function's return value is the output of this operation. "
-            "The script runs in a secure, sandboxed WebAssembly environment "
-            "isolated from the host operating system."
+            "Returns the output of the function. "
         ),
     ],
     inputs: Annotated[
@@ -507,8 +504,8 @@ async def _run_python_script_subprocess(
     """
     Execute Python script via Deno subprocess using Pyodide.
 
-    This function creates a temporary TypeScript file that loads Pyodide
-    and executes the Python script in a secure WebAssembly sandbox.
+    This function executes the Python script in a secure WebAssembly sandbox
+    using Deno with restrictive permissions for better security isolation.
 
     Args:
         script: The Python script code to execute.
@@ -528,92 +525,65 @@ async def _run_python_script_subprocess(
     # Check if Deno is available
     deno_path = shutil.which("deno")
     if not deno_path:
-        # Log detailed error for debugging
         logger.error(
-            "Deno executable not found in PATH. Please install Deno to run Python scripts."
+            "Deno executable not found in PATH. Install Deno to run Python scripts."
         )
-        # Provide generic error to users
         raise PythonScriptExecutionError(
-            "Script execution failed: Python runtime not available. Please contact support."
+            "Script execution failed: Python runtime not available."
         )
 
     deno_script = _create_deno_script(script, inputs, dependencies)
 
-    # Use a secure temporary directory to prevent race conditions
-    temp_dir = None
-    temp_file_path = ""
-    try:
-        # Create a secure temporary directory
-        temp_dir = tempfile.mkdtemp(prefix="tracecat_pyodide_")
-        temp_file_path = os.path.join(temp_dir, f"script_{uuid.uuid4().hex}.ts")
+    scripts_dir = Path("/app/.scripts")
+    temp_base_dir = scripts_dir if scripts_dir.exists() else None
 
-        # Write the script to the temporary file
-        with open(temp_file_path, "w") as f:
-            f.write(deno_script)
+    with tempfile.TemporaryDirectory(dir=temp_base_dir) as temp_dir:
+        temp_path = Path(temp_dir)
+        script_file = temp_path / "script.ts"
+        script_file.write_text(deno_script, encoding="utf-8")
 
-        # Run Deno with minimal permissions for security
+        # Build Deno arguments with proper permissions including temp directory
         deno_args = [
             deno_path,
             "run",
-            f"--allow-read=node_modules,{temp_dir}",
-            "--allow-write=node_modules",
+            "--no-prompt",
+            f"--allow-read={temp_dir},{TRACECAT__NODE_MODULES_DIR}",
+            f"--allow-write={temp_dir},{TRACECAT__NODE_MODULES_DIR}",
             "--node-modules-dir=auto",
         ]
 
-        # Only add network permissions if explicitly allowed
         if allow_network:
-            # Network access only for downloading Pyodide and Python packages
             deno_args.append("--allow-net")
 
-        deno_args.append(temp_file_path)
-
-        process = await asyncio.create_subprocess_exec(
-            *deno_args,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=os.getcwd(),
-        )
+        deno_args.append(str(script_file))
 
         try:
+            process = await asyncio.create_subprocess_exec(
+                *deno_args,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=str(
+                    temp_path
+                ),  # Run from temp directory to avoid permission issues
+            )
+
             stdout_bytes, stderr_bytes = await asyncio.wait_for(
                 process.communicate(), timeout=timeout_seconds + 5
             )
+
         except asyncio.TimeoutError as timeout_error:
             error_msg = f"Script execution (subprocess) timed out after {timeout_seconds} seconds"
             logger.error(error_msg)
             raise PythonScriptTimeoutError(error_msg) from timeout_error
 
+        # Decode output
         stdout = stdout_bytes.decode().strip()
         stderr = stderr_bytes.decode().strip()
 
+        # Check for process errors
         if process.returncode != 0:
-            # Log the full error for debugging
             logger.error(f"Deno process error. Stderr: {stderr}")
-            # But show a clean error to the user
             clean_error = _extract_deno_error(stderr)
             raise PythonScriptExecutionError(clean_error)
 
         return _parse_subprocess_output(stdout)
-
-    except (
-        PythonScriptTimeoutError,
-        PythonScriptExecutionError,
-        PythonScriptOutputError,
-    ):
-        # Re-raise our custom exceptions as-is
-        raise
-    except Exception as e:
-        error_msg = f"Failed to execute script via subprocess: {str(e)}"
-        logger.error(error_msg)
-        raise PythonScriptExecutionError(error_msg) from e
-    finally:
-        # Clean up the temporary directory and all its contents
-        if temp_dir and os.path.exists(temp_dir):
-            try:
-                shutil.rmtree(temp_dir)
-            except OSError as e:
-                # Directory cleanup failed, but this is not critical
-                logger.warning(
-                    f"Failed to clean up temporary directory: {temp_dir}, error: {e}"
-                )
-                pass

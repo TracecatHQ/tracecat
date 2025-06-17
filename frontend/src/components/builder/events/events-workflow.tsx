@@ -1,11 +1,6 @@
 import { useCallback, useState } from "react"
 import Link from "next/link"
-import {
-  TriggerType,
-  WorkflowExecutionEventCompact,
-  WorkflowExecutionEventStatus,
-  WorkflowExecutionReadCompact,
-} from "@/client"
+import { TriggerType, WorkflowExecutionEventStatus } from "@/client"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
 import { useWorkspace } from "@/providers/workspace"
@@ -34,7 +29,12 @@ import {
   ZapIcon,
 } from "lucide-react"
 
-import { executionId } from "@/lib/event-history"
+import {
+  executionId,
+  groupEventsByActionRef,
+  WorkflowExecutionEventCompact,
+  WorkflowExecutionReadCompact,
+} from "@/lib/event-history"
 import { cn, slugify, undoSlugify } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -224,6 +224,9 @@ export function WorkflowEvents({
   const { workflow } = useWorkflow()
   const [isOpen, setIsOpen] = useState(true)
 
+  // Group events by action_ref
+  const groupedEvents = groupEventsByActionRef(events)
+
   const centerNode = useCallback(
     (actionRef: string) => {
       const action = Object.values(workflow?.actions || {}).find(
@@ -264,6 +267,41 @@ export function WorkflowEvents({
     [workflow]
   )
 
+  const getAggregateStatus = useCallback(
+    (relatedEvents: WorkflowExecutionEventCompact[]) => {
+      const statuses = relatedEvents.map((event) => event.status)
+
+      // Prioritize showing error states
+      if (statuses.some((status) => status === "FAILED")) return "FAILED"
+      if (statuses.some((status) => status === "TIMED_OUT")) return "TIMED_OUT"
+      if (statuses.some((status) => status === "CANCELED")) return "CANCELED"
+      if (statuses.some((status) => status === "TERMINATED"))
+        return "TERMINATED"
+
+      // Then show active states
+      if (statuses.some((status) => status === "STARTED")) return "STARTED"
+      if (statuses.some((status) => status === "SCHEDULED")) return "SCHEDULED"
+
+      // Finally, completed states
+      if (statuses.every((status) => status === "COMPLETED")) return "COMPLETED"
+      if (statuses.some((status) => status === "DETACHED")) return "DETACHED"
+
+      return "UNKNOWN"
+    },
+    []
+  )
+
+  const getLatestStartTime = useCallback(
+    (relatedEvents: WorkflowExecutionEventCompact[]) => {
+      const times = relatedEvents
+        .map((event) => event.start_time)
+        .filter(Boolean)
+        .sort()
+      return times.length > 0 ? times[times.length - 1] : null
+    },
+    []
+  )
+
   return (
     <ScrollArea className="p-4 pt-0">
       <div className="pointer-events-none mb-2 flex items-center justify-between">
@@ -276,105 +314,125 @@ export function WorkflowEvents({
       {isOpen && (
         <div className="overflow-hidden rounded-md border">
           <div className="relative">
-            {/* Vertical timeline line */}
-            {events.length > 0 && (
-              <div className="absolute inset-y-5 left-5 w-px bg-muted-foreground/30" />
-            )}
+            {Object.keys(groupedEvents).length > 0 ? (
+              Object.entries(groupedEvents).map(
+                ([actionRef, relatedEvents]) => {
+                  const aggregateStatus = getAggregateStatus(relatedEvents)
+                  const latestStartTime = getLatestStartTime(relatedEvents)
+                  const instanceCount = relatedEvents.length
 
-            {events.length > 0 ? (
-              events.map((event) => (
-                <div
-                  key={event.source_event_id}
-                  className={cn(
-                    "group flex h-9 cursor-pointer items-center border-b border-muted/30 p-3 text-xs transition-all last:border-b-0 hover:bg-muted/50",
-                    selectedActionEventRef === event.action_ref &&
-                      "bg-muted-foreground/10"
-                  )}
-                  onClick={() => handleRowClick(event.action_ref)}
-                >
-                  <div className="relative z-10 mr-3 rounded-full bg-background transition-all group-hover:bg-muted/50">
-                    <WorkflowEventStatusIcon status={event.status} />
-                  </div>
+                  return (
+                    <div key={actionRef}>
+                      {/* Vertical timeline line */}
+                      <div className="absolute inset-y-5 left-[20px] w-px bg-gray-300" />
+                      <div
+                        className={cn(
+                          "group flex h-9 cursor-pointer items-center border-b border-muted/30 p-3 text-xs transition-all last:border-b-0 hover:bg-muted/50",
+                          selectedActionEventRef === actionRef &&
+                            "bg-muted-foreground/10"
+                        )}
+                        onClick={() => handleRowClick(actionRef)}
+                      >
+                        <div className="relative z-10 mr-3 rounded-full bg-background transition-all group-hover:bg-muted/50">
+                          <WorkflowEventStatusIcon status={aggregateStatus} />
+                        </div>
 
-                  <div className="flex flex-1 items-center justify-between">
-                    <div className="w-full truncate text-foreground/70">
-                      {event.action_ref}
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <div className="whitespace-nowrap text-foreground/70">
-                        {event.start_time
-                          ? new Date(event.start_time).toLocaleTimeString()
-                          : "-"}
-                      </div>
-
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button
-                            className="size-4 p-0  focus-visible:ring-0"
-                            variant="ghost"
-                          >
-                            <DotsHorizontalIcon className="size-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent
-                          className={cn(
-                            "flex flex-col",
-                            "[&_[data-radix-collection-item]]:flex",
-                            "[&_[data-radix-collection-item]]:items-center",
-                            "[&_[data-radix-collection-item]]:gap-2",
-                            "[&_[data-radix-collection-item]]:text-xs",
-                            "[&_[data-radix-collection-item]]:text-foreground/80"
-                          )}
-                        >
-                          <DropdownMenuItem
-                            disabled={!isActionRefValid(event.action_ref)}
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              sidebarRef.current?.setOpen(true)
-                              sidebarRef.current?.setActiveTab("action-input")
-                              setSelectedActionEventRef(
-                                slugify(event.action_ref)
-                              )
-                            }}
-                          >
-                            <LayoutListIcon className="size-3" />
-                            <span>View last input</span>
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            disabled={!isActionRefValid(event.action_ref)}
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              sidebarRef.current?.setOpen(true)
-                              sidebarRef.current?.setActiveTab("action-result")
-                              setSelectedActionEventRef(
-                                slugify(event.action_ref)
-                              )
-                            }}
-                          >
-                            <CircleCheckBigIcon className="size-3" />
-                            <span>View last result</span>
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            disabled={!isActionRefValid(event.action_ref)}
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              centerNode(event.action_ref)
-                            }}
-                          >
-                            {!isActionRefValid(event.action_ref) ? (
-                              <EyeOffIcon className="size-3" />
-                            ) : (
-                              <ScanEyeIcon className="size-3" />
+                        <div className="flex flex-1 items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <div className="truncate text-foreground/70">
+                              {actionRef}
+                            </div>
+                            {instanceCount > 1 && (
+                              <Badge
+                                variant="secondary"
+                                className="h-4 px-1.5 text-[10px] font-medium text-foreground/60"
+                              >
+                                {instanceCount}x
+                              </Badge>
                             )}
-                            <span>Focus action</span>
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <div className="whitespace-nowrap text-foreground/70">
+                              {latestStartTime
+                                ? new Date(latestStartTime).toLocaleTimeString()
+                                : "-"}
+                            </div>
+
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button
+                                  className="size-4 p-0 focus-visible:ring-0"
+                                  variant="ghost"
+                                >
+                                  <DotsHorizontalIcon className="size-4" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent
+                                className={cn(
+                                  "flex flex-col",
+                                  "[&_[data-radix-collection-item]]:flex",
+                                  "[&_[data-radix-collection-item]]:items-center",
+                                  "[&_[data-radix-collection-item]]:gap-2",
+                                  "[&_[data-radix-collection-item]]:text-xs",
+                                  "[&_[data-radix-collection-item]]:text-foreground/80"
+                                )}
+                              >
+                                <DropdownMenuItem
+                                  disabled={!isActionRefValid(actionRef)}
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    sidebarRef.current?.setOpen(true)
+                                    sidebarRef.current?.setActiveTab(
+                                      "action-input"
+                                    )
+                                    setSelectedActionEventRef(
+                                      slugify(actionRef)
+                                    )
+                                  }}
+                                >
+                                  <LayoutListIcon className="size-3" />
+                                  <span>View last input</span>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  disabled={!isActionRefValid(actionRef)}
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    sidebarRef.current?.setOpen(true)
+                                    sidebarRef.current?.setActiveTab(
+                                      "action-result"
+                                    )
+                                    setSelectedActionEventRef(
+                                      slugify(actionRef)
+                                    )
+                                  }}
+                                >
+                                  <CircleCheckBigIcon className="size-3" />
+                                  <span>View last result</span>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  disabled={!isActionRefValid(actionRef)}
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    centerNode(actionRef)
+                                  }}
+                                >
+                                  {!isActionRefValid(actionRef) ? (
+                                    <EyeOffIcon className="size-3" />
+                                  ) : (
+                                    <ScanEyeIcon className="size-3" />
+                                  )}
+                                  <span>Focus action</span>
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                </div>
-              ))
+                  )
+                }
+              )
             ) : (
               <div className="flex h-16 items-center justify-center bg-muted-foreground/5 p-3 text-center text-xs text-muted-foreground">
                 <div className="flex items-center justify-center gap-2">

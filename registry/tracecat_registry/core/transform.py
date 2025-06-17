@@ -1,11 +1,11 @@
 from builtins import filter as filter_
 from builtins import map as map_
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from tracecat.expressions.common import build_safe_lambda, eval_jsonpath
 from typing_extensions import Doc
 
-from tracecat_registry import registry
+from tracecat_registry import ActionIsInterfaceError, registry
 
 
 @registry.register(
@@ -195,3 +195,57 @@ def compact(
     items: Annotated[list[Any], Doc("List of items to compact.")],
 ) -> list[Any]:
     return [item for item in items if item is not None and item != ""]
+
+
+@registry.register(
+    default_title="Scatter",
+    description=(
+        "Transform a collection of items into parallel execution streams, "
+        "where each item is processed independently."
+    ),
+    display_group="Data Transform",
+    namespace="core.transform",
+)
+def scatter(
+    collection: Annotated[
+        str | list[Any],
+        Doc(
+            "The collection to scatter. Each item in the collection will be"
+            " processed independently in its own execution stream. This should"
+            " be a JSONPath expression to a collection or a list of items."
+        ),
+    ],
+) -> Any:
+    raise ActionIsInterfaceError()
+
+
+@registry.register(
+    default_title="Gather",
+    description="Collect the results of a list of execution streams into a single list.",
+    display_group="Data Transform",
+    namespace="core.transform",
+)
+def gather(
+    items: Annotated[
+        str,
+        Doc(
+            "The JSONPath expression referencing the item to gather in the current execution stream."
+        ),
+    ],
+    drop_nulls: Annotated[
+        bool,
+        Doc(
+            "Whether to drop null values from the final result. If True, any null values encountered during the gather operation will be omitted from the output list."
+        ),
+    ] = False,
+    error_strategy: Annotated[
+        Literal["partition", "include", "drop"],
+        Doc(
+            "Controls how errors are handled when gathering. "
+            '"partition" puts successful results in `.result` and errors in `.error`. '
+            '"include" puts errors in `.result` as JSON objects. '
+            '"drop" removes errors from `.result`.'
+        ),
+    ] = "partition",
+) -> list[Any]:
+    raise ActionIsInterfaceError()
