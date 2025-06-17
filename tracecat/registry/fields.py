@@ -136,6 +136,7 @@ class ActionType(Component):
     """Render field as action type dropdown in UI"""
 
     component_id: Literal[ComponentID.ACTION_TYPE] = ComponentID.ACTION_TYPE
+    multiple: bool = False
 
 
 @dataclass(slots=True)

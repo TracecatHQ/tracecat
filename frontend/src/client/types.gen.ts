@@ -132,6 +132,7 @@ export type ActionStep = {
 
 export type ActionType = {
   component_id?: "action-type"
+  multiple?: boolean
 }
 
 export type ActionUpdate = {

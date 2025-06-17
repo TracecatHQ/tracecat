@@ -479,6 +479,11 @@ export const $ActionType = {
       title: "Component Id",
       default: "action-type",
     },
+    multiple: {
+      type: "boolean",
+      title: "Multiple",
+      default: false,
+    },
   },
   type: "object",
   title: "ActionType",
