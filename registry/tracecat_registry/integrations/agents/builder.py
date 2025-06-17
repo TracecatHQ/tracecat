@@ -31,6 +31,7 @@ from tracecat.expressions.eval import extract_templated_secrets
 from tracecat.expressions.expectations import create_expectation_model
 from tracecat.logger import logger
 from tracecat.registry.actions.service import RegistryActionsService
+from tracecat.registry.fields import ActionType, TextArea
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.secrets.secrets_manager import env_sandbox
 from tracecat_registry.integrations.pydantic_ai import (
@@ -438,14 +439,21 @@ class AgentOutput(BaseModel):
     namespace="ai",
 )
 async def agent(
-    user_prompt: Annotated[str, Doc("User prompt to the agent.")],
+    user_prompt: Annotated[
+        str,
+        Doc("User prompt to the agent."),
+        TextArea(),
+    ],
     model_name: Annotated[str, Doc("Name of the model to use.")],
     model_provider: Annotated[str, Doc("Provider of the model to use.")],
     actions: Annotated[
         list[str] | str,
         Doc("Actions (e.g. 'tools.slack.post_message') to include in the agent."),
+        ActionType(multiple=True),
     ],
-    instructions: Annotated[str | None, Doc("Instructions for the agent.")] = None,
+    instructions: Annotated[
+        str | None, Doc("Instructions for the agent."), TextArea()
+    ] = None,
     output_type: Annotated[
         str | dict[str, Any] | None, Doc("Output type for the agent.")
     ] = None,

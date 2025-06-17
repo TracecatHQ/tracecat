@@ -130,6 +130,11 @@ export type ActionStep = {
   }
 }
 
+export type ActionType = {
+  component_id?: "action-type"
+  multiple?: boolean
+}
+
 export type ActionUpdate = {
   title?: string | null
   description?: string | null
@@ -577,6 +582,13 @@ export type ClosedEventRead = {
   created_at: string
 }
 
+export type Code = {
+  component_id?: "code"
+  lang?: "yaml" | "python"
+}
+
+export type lang = "yaml" | "python"
+
 /**
  * Event for when a case is created.
  */
@@ -725,6 +737,19 @@ export type EditorActionRead = {
   description: string
 }
 
+export type EditorComponent =
+  | Text
+  | Code
+  | Select
+  | TextArea
+  | Integer
+  | Float
+  | Toggle
+  | Yaml
+  | TagInput
+  | ActionType
+  | WorkflowAlias
+
 export type EditorFunctionRead = {
   name: string
   description: string
@@ -835,6 +860,16 @@ export type ExprValidationResult = {
   expression_type: ExprType
 }
 
+export type ExpressionValidationRequest = {
+  expression: string
+}
+
+export type ExpressionValidationResponse = {
+  is_valid: boolean
+  errors?: Array<ValidationError>
+  tokens?: Array<SyntaxToken>
+}
+
 /**
  * Event for when a case field is changed.
  */
@@ -859,6 +894,13 @@ export type FieldDiff = {
   field: string
   old: unknown
   new: unknown
+}
+
+export type Float = {
+  component_id?: "float"
+  min_val?: number | null
+  max_val?: number | null
+  step?: number
 }
 
 export type FolderDirectoryItem = {
@@ -901,6 +943,13 @@ export type HTTPValidationError = {
 export type ImageUrl = {
   url: string
   kind?: "image-url"
+}
+
+export type Integer = {
+  component_id?: "integer"
+  min_val?: number | null
+  max_val?: number | null
+  step?: number
 }
 
 export type InteractionCategory = "slack"
@@ -1708,6 +1757,12 @@ export type SecretValidationResult = {
   ref?: string | null
 }
 
+export type Select = {
+  component_id?: "select"
+  options?: Array<string> | null
+  multiple?: boolean
+}
+
 export type SessionRead = {
   id: string
   created_at: string
@@ -1773,6 +1828,13 @@ export type StatusChangedEventRead = {
    * The timestamp of the event.
    */
   created_at: string
+}
+
+export type SyntaxToken = {
+  type: string
+  value: string
+  start: number
+  end: number
 }
 
 export type SystemPromptPart = {
@@ -1924,6 +1986,10 @@ export type TagCreate = {
   color?: string | null
 }
 
+export type TagInput = {
+  component_id?: "tag-input"
+}
+
 /**
  * Model for reading tag data with validation.
  */
@@ -2035,9 +2101,25 @@ export type TemplateActionValidationErrorType =
   | "STEP_VALIDATION_ERROR"
   | "EXPRESSION_VALIDATION_ERROR"
 
+export type Text = {
+  component_id?: "text"
+}
+
+export type TextArea = {
+  component_id?: "text-area"
+  rows?: number
+  placeholder?: string
+}
+
 export type TextPart = {
   content: string
   part_kind?: "text"
+}
+
+export type Toggle = {
+  label_on?: string
+  label_off?: string
+  component_id?: "toggle"
 }
 
 export type ToolCallPart = {
@@ -2218,6 +2300,10 @@ export type WebhookUpdate = {
   status?: WebhookStatus | null
   methods?: Array<WebhookMethod> | null
   entrypoint_ref?: string | null
+}
+
+export type WorkflowAlias = {
+  component_id?: "workflow-alias"
 }
 
 export type WorkflowCommitResponse = {
@@ -2688,6 +2774,10 @@ export type WorkspaceUpdate = {
   settings?: {
     [key: string]: string
   } | null
+}
+
+export type Yaml = {
+  component_id?: "yaml"
 }
 
 export type login = {
@@ -3220,6 +3310,15 @@ export type EditorListActionsData = {
 }
 
 export type EditorListActionsResponse = Array<EditorActionRead>
+
+export type EditorValidateExpressionData = {
+  requestBody: ExpressionValidationRequest
+  workspaceId: string
+}
+
+export type EditorValidateExpressionResponse = ExpressionValidationResponse
+
+export type EditorFieldSchemaResponse = EditorComponent
 
 export type RegistryRepositoriesReloadRegistryRepositoriesResponse = void
 
@@ -3774,7 +3873,7 @@ export type PublicCheckHealthResponse = {
 
 export type $OpenApiTs = {
   "/webhooks/{workflow_id}/{secret}": {
-    get: {
+    post: {
       req: PublicIncomingWebhookData
       res: {
         /**
@@ -3787,7 +3886,7 @@ export type $OpenApiTs = {
         422: HTTPValidationError
       }
     }
-    post: {
+    get: {
       req: PublicIncomingWebhook1Data
       res: {
         /**
@@ -4706,6 +4805,31 @@ export type $OpenApiTs = {
          * Validation Error
          */
         422: HTTPValidationError
+      }
+    }
+  }
+  "/editor/expressions/validate": {
+    post: {
+      req: EditorValidateExpressionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ExpressionValidationResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/editor/field-schema": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: EditorComponent
       }
     }
   }

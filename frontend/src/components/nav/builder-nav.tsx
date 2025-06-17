@@ -61,7 +61,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { DynamicCustomEditor } from "@/components/editor/dynamic"
+import { CodeEditor } from "@/components/editor/codemirror/code-editor"
 import { ExportMenuItem } from "@/components/export-workflow-dropdown-item"
 import { Spinner } from "@/components/loading/spinner"
 import { ValidationErrorView } from "@/components/validation-errors"
@@ -247,7 +247,6 @@ function WorkflowManualTrigger({
   const { createExecution, createExecutionIsPending } =
     useCreateManualWorkflowExecution(workflowId)
   const [open, setOpen] = React.useState(false)
-  const { workspaceId } = useWorkspace()
   const [lastTriggerInput, setLastTriggerInput] = React.useState<string | null>(
     null
   )
@@ -259,7 +258,9 @@ function WorkflowManualTrigger({
   const form = useForm<TWorkflowControlsForm>({
     resolver: zodResolver(workflowControlsFormSchema),
     defaultValues: {
-      payload: lastTriggerInput || '{"sampleWebhookParam": "sampleValue"}',
+      payload:
+        lastTriggerInput ||
+        JSON.stringify({ sampleWebhookParam: "sampleValue" }, null, 2),
     },
   })
 
@@ -361,13 +362,10 @@ function WorkflowManualTrigger({
                     render={({ field }) => (
                       <FormItem>
                         <FormControl>
-                          <DynamicCustomEditor
-                            className="max-h-[50rem] min-h-60 min-w-[30rem] max-w-[50rem] resize overflow-auto"
-                            defaultLanguage="yaml-extended"
+                          <CodeEditor
                             value={field.value}
+                            language="json"
                             onChange={field.onChange}
-                            workspaceId={workspaceId}
-                            workflowId={workflowId}
                           />
                         </FormControl>
                         <FormMessage />
