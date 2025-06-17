@@ -1109,28 +1109,10 @@ function ActionPanelContent({
                           </div>
                           {inputMode === "yaml" && (
                             /* YAML Mode - Preserve raw YAML */
-                            <FormField
-                              name="inputs"
-                              control={methods.control}
-                              render={() => {
-                                return (
-                                  <FormItem>
-                                    <FormMessage className="whitespace-pre-line" />
-                                    <FormControl>
-                                      <DynamicCustomEditor
-                                        className="h-64 min-h-[40rem] w-full"
-                                        value={rawInputsYaml}
-                                        onChange={(e) => {
-                                          e && setRawInputsYaml(e)
-                                        }}
-                                        defaultLanguage="yaml-extended"
-                                        workspaceId={workspaceId}
-                                        workflowId={workflowId}
-                                      />
-                                    </FormControl>
-                                  </FormItem>
-                                )
-                              }}
+                            <ControlledYamlField
+                              label="Inputs"
+                              fieldName="inputs"
+                              type="unknown"
                             />
                           )}
                           {inputMode === "form" && (
