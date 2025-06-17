@@ -183,7 +183,7 @@ export function MultiTagCommandInput({
                     }}
                     className="ml-1 rounded-full hover:bg-muted-foreground/20"
                   >
-                    <X className="h-3 w-3" />
+                    <X className="size-3" />
                   </button>
                 )}
               </Badge>
@@ -203,7 +203,7 @@ export function MultiTagCommandInput({
             />
 
             {/* Dropdown indicator */}
-            {open && <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+            {open && <ChevronDown className="size-4 text-muted-foreground" />}
           </div>
         </PopoverAnchor>
 
