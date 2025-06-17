@@ -64,7 +64,7 @@ export function getType(value: TracecatJsonSchema): string {
   }
 
   // Handle primitive types
-  return (value.type || "unknown") as string
+  return (value.type || "any") as string
 }
 
 // Helper function to get type from JSONSchema7Definition

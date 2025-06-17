@@ -1193,7 +1193,7 @@ function FunctionTooltip({ fn }: { fn: EditorFunctionRead }) {
   const params = fn.parameters
     .map((p) => `${p.name}: ${p.type || "any"}`)
     .join(", ")
-  const signature = `${fn.name}(${params}) → ${fn.return_type || "unknown"}`
+  const signature = `${fn.name}(${params}) → ${fn.return_type || "any"}`
   return (
     <div className="max-w-[400px] overflow-hidden p-0 text-xs">
       <div className="border-b px-3 py-2 font-mono font-semibold text-[#24292f]">
@@ -1211,7 +1211,7 @@ function FunctionTooltip({ fn }: { fn: EditorFunctionRead }) {
       </div>
       {/*return type*/}
       <div className="px-3 py-2 font-mono text-[11px] text-[#656d76]">
-        Returns: {fn.return_type || "unknown"}
+        Returns: {fn.return_type || "any"}
       </div>
     </div>
   )
@@ -1638,6 +1638,10 @@ export function createPillClickHandler() {
 
     const clickedTemplateRange = findTemplateAt(view.state, pos)
     const currentEditingRange = view.state.field(editingRangeField)
+    console.log({
+      clickedTemplateRange,
+      currentEditingRange,
+    })
 
     if (
       clickedTemplateRange &&
@@ -1651,9 +1655,10 @@ export function createPillClickHandler() {
       })
 
       const innerStart = clickedTemplateRange.from + 3
-      const innerEnd = clickedTemplateRange.to - 3
+      const innerEnd = clickedTemplateRange.to - 2
       // Ensure click position is within the content area, accounting for hidden braces
       const content = view.state.doc.sliceString(innerStart, innerEnd)
+      console.log("content", content)
       const contentLength = content.length
       const adjustedPos = Math.max(
         innerStart,
@@ -1725,7 +1730,7 @@ export const templatePillTheme = EditorView.theme({
     fontWeight: "bold",
   },
   ".cm-template-editing": {
-    padding: "0 0.2em !important",
+    padding: "0 0.6em !important",
     border: "1px solid rgba(59, 130, 246, 0.8)",
     backgroundColor: "rgba(59, 130, 246, 0.1)",
     outline: "none",
