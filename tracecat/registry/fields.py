@@ -2,19 +2,9 @@ import inspect
 import types
 from dataclasses import dataclass
 from enum import Enum, StrEnum
-from typing import Annotated, Any, Literal, Optional, Union, get_args, get_origin
+from typing import Annotated, Any, Literal, Union, get_args, get_origin
 
-from pydantic import Field, GetJsonSchemaHandler, RootModel
-from pydantic.json_schema import JsonSchemaValue
-from pydantic_core import CoreSchema
-
-
-class TracecatStrEnum(StrEnum):
-    @classmethod
-    def __get_pydantic_json_schema__(
-        cls, _core_schema: CoreSchema, _handler: GetJsonSchemaHandler
-    ) -> JsonSchemaValue:
-        return {"enum": [m.value for m in cls], "type": "string"}
+from pydantic import Field, RootModel
 
 
 class ComponentID(StrEnum):
@@ -253,9 +243,9 @@ def get_default_component(field_type: Any) -> Component | None:
         args = get_args(field_type)
         if len(args) == 1 and args[0] is str:
             return TagInput()
-        return Json()  # Other list[T] types use Json
+        return Yaml()  # Other list[T] types use Json
     elif origin is dict:
-        return Json()  # Changed from KeyValue() to Json() for dict[K, V]
+        return Yaml()  # Changed from KeyValue() to Json() for dict[K, V]
     elif origin is Literal:
         if args := getattr(field_type, "__args__", None):
             return Select(options=list(args))
@@ -284,19 +274,8 @@ def get_components_for_union_type(field_type: Any) -> list[Component]:
     if has_str and has_list_str:
         return [TagInput()]
 
-    # Everything else is a Json
-    return [Json()]
-    # components = []
-
-    # for arg in args:
-    #     if arg is type(None):
-    #         continue  # Skip None type
-
-    #     component = get_default_component(arg)
-    #     if component and component not in components:
-    #         components.append(component)
-
-    # return components
+    # Everything else is a Yaml
+    return [Yaml()]
 
 
 class EditorComponent(RootModel):
@@ -316,25 +295,3 @@ class EditorComponent(RootModel):
         | WorkflowAlias,
         Field(discriminator="component_id"),
     ]
-
-
-if __name__ == "__main__":
-    t = list[str] | None
-    y = Optional[list[str]]  # noqa: UP007
-    z = list[str]
-    print(type_is_nullable(t))
-    print(type_is_nullable(y))
-    print(type_is_nullable(z))
-
-    # Test it
-    T1 = list[str] | None
-    T2 = Union[int, str, None]  # noqa: UP007
-    T3 = str | int | None
-
-    print(type_drop_null(T1))  # list[str]
-    print(type_drop_null(T2))  # typing.Union[int, str]
-    print(type_drop_null(T3))  # str | int
-
-    t = list[str] | str
-    for a in t.__args__:
-        print(get_default_component(a))
