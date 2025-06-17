@@ -702,7 +702,7 @@ def generate_model_from_function(
     # Dynamically create and return the Pydantic model class
     input_model = create_model(
         _udf_slug_camelcase(func, udf_kwargs.namespace),
-        __config__=ConfigDict(extra="forbid", use_enum_values=True),
+        __config__=ConfigDict(extra="forbid"),
         **fields,
     )
     # Capture the return type of the function

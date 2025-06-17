@@ -181,11 +181,7 @@ def create_expectation_model(
     logger.trace("Creating expectation model", model_name=model_name, fields=fields)
     model = create_model(
         model_name,
-        __config__=ConfigDict(
-            extra="forbid",
-            arbitrary_types_allowed=True,
-            use_enum_values=True,
-        ),
+        __config__=ConfigDict(extra="forbid", arbitrary_types_allowed=True),
         **fields,
     )
     return model
