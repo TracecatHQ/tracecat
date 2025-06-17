@@ -1492,12 +1492,16 @@ function ActionPanelContent({
                                   />
                                 </SelectTrigger>
                                 <SelectContent className="w-full text-xs">
-                                  <SelectItem value="inner" className="text-xs">
-                                    Inner
-                                  </SelectItem>
-                                  <SelectItem value="outer" className="text-xs">
-                                    Outer
-                                  </SelectItem>
+                                  {$JoinStrategy.enum.map((strategy) => (
+                                    <SelectItem
+                                      key={strategy}
+                                      value={strategy}
+                                      className="text-xs"
+                                    >
+                                      {strategy.charAt(0).toUpperCase() +
+                                        strategy.slice(1)}
+                                    </SelectItem>
+                                  ))}
                                 </SelectContent>
                               </Select>
                             </FormControl>
