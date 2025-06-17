@@ -407,12 +407,7 @@ export function PolymorphicField({
               value={field.value}
               onChange={field.onChange}
             >
-              <ComponentContent
-                component={componentToRender}
-                field={field}
-                workspaceId={workspaceId}
-                workflowId={workflowId}
-              />
+              <ComponentContent component={componentToRender} field={field} />
             </PolyField>
           </FormControl>
         </FormItem>
@@ -424,13 +419,9 @@ export function PolymorphicField({
 function ComponentContent({
   component,
   field,
-  workspaceId,
-  workflowId,
 }: {
   component: TracecatEditorComponent
   field: ControllerRenderProps<FieldValues>
-  workspaceId?: string
-  workflowId?: string
 }) {
   switch (component.component_id) {
     case "text":
@@ -536,18 +527,11 @@ function ComponentContent({
           component={component}
         />
       )
+    // Expression, workflow alias, and other fields fallback to expression
     case "workflow-alias":
-      return <div>Workflow Alias</div>
     case "expression":
-      return (
-        <ExpressionInput
-          value={field.value}
-          onChange={field.onChange}
-          placeholder="Enter an expression"
-        />
-      )
     default:
-      return <div>Unknown component</div>
+      return <ExpressionInput value={field.value} onChange={field.onChange} />
   }
 }
 
