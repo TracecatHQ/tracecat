@@ -746,8 +746,6 @@ export type EditorComponent =
   | Float
   | Toggle
   | Yaml
-  | Json
-  | KeyValue
   | TagInput
   | ActionType
   | WorkflowAlias
@@ -1017,16 +1015,6 @@ export type InteractionStatus =
 export type InteractionType = "approval" | "response"
 
 export type JoinStrategy = "any" | "all"
-
-export type Json = {
-  component_id?: "json"
-}
-
-export type KeyValue = {
-  component_id?: "key-value"
-  key_placeholder?: string
-  value_placeholder?: string
-}
 
 export type ModelRequest = {
   parts: Array<

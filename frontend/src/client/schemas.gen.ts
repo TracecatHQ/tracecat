@@ -2344,12 +2344,6 @@ export const $EditorComponent = {
       $ref: "#/components/schemas/Yaml",
     },
     {
-      $ref: "#/components/schemas/Json",
-    },
-    {
-      $ref: "#/components/schemas/KeyValue",
-    },
-    {
       $ref: "#/components/schemas/TagInput",
     },
     {
@@ -2367,8 +2361,6 @@ export const $EditorComponent = {
       code: "#/components/schemas/Code",
       float: "#/components/schemas/Float",
       integer: "#/components/schemas/Integer",
-      json: "#/components/schemas/Json",
-      "key-value": "#/components/schemas/KeyValue",
       select: "#/components/schemas/Select",
       "tag-input": "#/components/schemas/TagInput",
       text: "#/components/schemas/Text",
@@ -3368,42 +3360,6 @@ export const $JoinStrategy = {
   type: "string",
   enum: ["any", "all"],
   title: "JoinStrategy",
-} as const
-
-export const $Json = {
-  properties: {
-    component_id: {
-      type: "string",
-      const: "json",
-      title: "Component Id",
-      default: "json",
-    },
-  },
-  type: "object",
-  title: "Json",
-} as const
-
-export const $KeyValue = {
-  properties: {
-    component_id: {
-      type: "string",
-      const: "key-value",
-      title: "Component Id",
-      default: "key-value",
-    },
-    key_placeholder: {
-      type: "string",
-      title: "Key Placeholder",
-      default: "Key",
-    },
-    value_placeholder: {
-      type: "string",
-      title: "Value Placeholder",
-      default: "Value",
-    },
-  },
-  type: "object",
-  title: "KeyValue",
 } as const
 
 export const $ModelRequest = {

@@ -266,7 +266,6 @@ export function PolymorphicField({
             )}
           />
         )
-      case "json":
       case "yaml":
         return (
           <ControlledYamlField
@@ -376,11 +375,8 @@ export function PolymorphicField({
   const componentToRender: TracecatEditorComponent =
     activeComponent ?? allComponents[0]
 
-  // if the component is yaml or json, we need to render the yaml editor
-  if (
-    componentToRender.component_id === "yaml" ||
-    componentToRender.component_id === "json"
-  ) {
+  // if the component is yaml, we need to render the yaml editor
+  if (componentToRender.component_id === "yaml") {
     return (
       <ControlledYamlField
         label={label}
@@ -481,73 +477,6 @@ function ComponentContent({
           }}
           placeholder="Add values..."
         />
-      )
-    case "key-value":
-      const keyValuePairs = (field.value as Record<string, string>) || {}
-      const pairs = Object.entries(keyValuePairs)
-
-      const addPair = () => {
-        const newPairs = { ...keyValuePairs, "": "" }
-        field.onChange(newPairs)
-      }
-
-      const updateKey = (oldKey: string, newKey: string) => {
-        const newPairs = { ...keyValuePairs }
-        if (oldKey !== newKey) {
-          delete newPairs[oldKey]
-          newPairs[newKey] = keyValuePairs[oldKey] || ""
-        }
-        field.onChange(newPairs)
-      }
-
-      const updateValue = (key: string, newValue: string) => {
-        const newPairs = { ...keyValuePairs, [key]: newValue }
-        field.onChange(newPairs)
-      }
-
-      const removePair = (keyToRemove: string) => {
-        const newPairs = { ...keyValuePairs }
-        delete newPairs[keyToRemove]
-        field.onChange(newPairs)
-      }
-
-      return (
-        <div className="space-y-2">
-          {pairs.map(([key, value], index) => (
-            <div key={index} className="flex items-center gap-2">
-              <Input
-                type="text"
-                placeholder="Key"
-                value={key}
-                onChange={(e) => updateKey(key, e.target.value)}
-                className="flex-1 text-xs"
-              />
-              <Input
-                type="text"
-                placeholder="Value"
-                value={value as string}
-                onChange={(e) => updateValue(key, e.target.value)}
-                className="flex-1 text-xs"
-              />
-              <Button
-                variant="ghost"
-                onClick={() => removePair(key)}
-                className="px-2 text-red-500 hover:text-red-700"
-                aria-label="Remove pair"
-              >
-                ×
-              </Button>
-            </div>
-          ))}
-          <Button
-            variant="outline"
-            onClick={addPair}
-            className="h-7 w-full rounded-md border border-dashed border-gray-300 px-3 py-2 text-xs text-muted-foreground transition-colors hover:border-gray-400 hover:bg-gray-50"
-          >
-            <PlusCircleIcon className="mr-1 size-3" />
-            Add key-value pair
-          </Button>
-        </div>
       )
     case "integer":
       return (
@@ -849,13 +778,11 @@ const COMPONENT_LABELS: Record<TracecatComponentId, string> = {
   "text-area": "Text Area",
   select: "Select",
   "tag-input": "Tags",
-  "key-value": "Key-Value",
   integer: "Number",
   float: "Decimal",
   toggle: "Toggle",
   code: "Code",
   yaml: "YAML",
-  json: "JSON",
   expression: "Expression",
   "action-type": "Action Type",
   "workflow-alias": "Workflow Alias",
@@ -866,13 +793,11 @@ const COMPONENT_ICONS: Record<TracecatComponentId, LucideIcon> = {
   "text-area": TypeIcon,
   select: ListIcon,
   "tag-input": ListIcon,
-  "key-value": ListIcon,
   integer: TypeIcon,
   float: TypeIcon,
   toggle: TypeIcon,
   code: CodeIcon,
   yaml: CodeIcon,
-  json: CodeIcon,
   expression: BracesIcon,
   "action-type": TypeIcon,
   "workflow-alias": WorkflowIcon,

@@ -18,9 +18,7 @@ class ComponentID(StrEnum):
     INTEGER = "integer"
     FLOAT = "float"
     TAG_INPUT = "tag-input"
-    KEY_VALUE = "key-value"
     YAML = "yaml"
-    JSON = "json"
     ACTION_TYPE = "action-type"
     WORKFLOW_ALIAS = "workflow-alias"
 
@@ -103,22 +101,6 @@ class Yaml(Component):
     """Render field as YAML editor in UI"""
 
     component_id: Literal[ComponentID.YAML] = ComponentID.YAML
-
-
-@dataclass(slots=True)
-class Json(Component):
-    """Render field as JSON editor with resolvables in UI"""
-
-    component_id: Literal[ComponentID.JSON] = ComponentID.JSON
-
-
-@dataclass(slots=True)
-class KeyValue(Component):
-    """Render field as key-value editor in UI"""
-
-    component_id: Literal[ComponentID.KEY_VALUE] = ComponentID.KEY_VALUE
-    key_placeholder: str = "Key"
-    value_placeholder: str = "Value"
 
 
 @dataclass(slots=True)
@@ -288,8 +270,6 @@ class EditorComponent(RootModel):
         | Float
         | Toggle
         | Yaml
-        | Json
-        | KeyValue
         | TagInput
         | ActionType
         | WorkflowAlias,
