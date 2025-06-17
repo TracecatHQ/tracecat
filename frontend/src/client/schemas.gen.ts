@@ -2902,14 +2902,26 @@ export const $Float = {
       default: "float",
     },
     min_val: {
-      type: "number",
+      anyOf: [
+        {
+          type: "number",
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "Min Val",
-      default: 0,
     },
     max_val: {
-      type: "number",
+      anyOf: [
+        {
+          type: "number",
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "Max Val",
-      default: 100,
     },
     step: {
       type: "number",

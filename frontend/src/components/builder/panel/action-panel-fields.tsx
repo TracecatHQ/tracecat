@@ -553,22 +553,30 @@ function ComponentContent({
       return (
         <Input
           type="number"
-          value={field.value}
+          value={field.value || ""}
           min={component.min_val ?? undefined}
           max={component.max_val ?? undefined}
           step={component.step || 1}
-          onChange={field.onChange}
+          onChange={(e) =>
+            field.onChange(
+              e.target.value ? parseInt(e.target.value) : undefined
+            )
+          }
         />
       )
     case "float":
       return (
         <Input
           type="number"
-          value={field.value}
-          min={component.min_val}
-          max={component.max_val}
+          value={field.value || ""}
+          min={component.min_val ?? undefined}
+          max={component.max_val ?? undefined}
           step={component.step || 0.1}
-          onChange={field.onChange}
+          onChange={(e) =>
+            field.onChange(
+              e.target.value ? parseFloat(e.target.value) : undefined
+            )
+          }
         />
       )
     case "toggle":

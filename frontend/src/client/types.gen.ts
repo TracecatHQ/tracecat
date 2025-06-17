@@ -900,8 +900,8 @@ export type FieldDiff = {
 
 export type Float = {
   component_id?: "float"
-  min_val?: number
-  max_val?: number
+  min_val?: number | null
+  max_val?: number | null
   step?: number
 }
 
@@ -3885,7 +3885,7 @@ export type PublicCheckHealthResponse = {
 
 export type $OpenApiTs = {
   "/webhooks/{workflow_id}/{secret}": {
-    post: {
+    get: {
       req: PublicIncomingWebhookData
       res: {
         /**
@@ -3898,7 +3898,7 @@ export type $OpenApiTs = {
         422: HTTPValidationError
       }
     }
-    get: {
+    post: {
       req: PublicIncomingWebhook1Data
       res: {
         /**
