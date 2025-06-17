@@ -1,7 +1,6 @@
 "use client"
 
 import * as React from "react"
-import { useState } from "react"
 import { cva, type VariantProps } from "class-variance-authority"
 
 import { cn } from "@/lib/utils"
@@ -52,6 +51,69 @@ const toggleTabVariants = cva(
   }
 )
 
+interface TabButtonProps<T> {
+  option: ToggleTabOption<T>
+  index: number
+  optionsCount: number
+  currentValue: T
+  onValueChange: (value: T) => void
+  showTooltips: boolean
+  size: VariantProps<typeof toggleTabVariants>["size"]
+}
+
+function TabButton<T>({
+  option,
+  index,
+  optionsCount,
+  currentValue,
+  onValueChange,
+  size,
+  showTooltips,
+}: TabButtonProps<T>) {
+  const isActive = currentValue === option.value
+  const isFirst = index === 0
+  const isLast = index === optionsCount - 1
+
+  const position =
+    optionsCount === 1
+      ? "single"
+      : isFirst
+        ? "first"
+        : isLast
+          ? "last"
+          : "middle"
+
+  const button = (
+    <button
+      type="button"
+      onClick={() => onValueChange(option.value)}
+      className={cn(toggleTabVariants({ size, active: isActive, position }))}
+      aria-pressed={isActive}
+      aria-label={option.ariaLabel}
+      {...(isActive && { "aria-current": "true" })}
+    >
+      {option.content}
+    </button>
+  )
+
+  if (showTooltips && option.tooltip) {
+    return (
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>{button}</TooltipTrigger>
+          <TooltipContent>
+            <p>{option.tooltip}</p>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    )
+  }
+
+  return button
+}
+TabButton.displayName = "TabButton"
+const MemoizedTabButton = React.memo(TabButton) as typeof TabButton
+
 export interface ToggleTabsProps<T = string>
   extends Omit<
       React.HTMLAttributes<HTMLDivElement>,
@@ -80,69 +142,21 @@ export function ToggleTabs<T = string>({
   showTooltips = true,
   ...props
 }: ToggleTabsProps<T>) {
-  const [internalValue, setInternalValue] = useState<T>(
+  const [internalValue, setInternalValue] = React.useState<T>(
     value ?? defaultValue ?? options[0]?.value
   )
 
   const currentValue = value ?? internalValue
 
-  const handleValueChange = (newValue: T) => {
-    if (value === undefined) {
-      setInternalValue(newValue)
-    }
-    onValueChange?.(newValue)
-  }
-
-  const TabButton = React.memo(
-    ({ option, index }: { option: ToggleTabOption<T>; index: number }) => {
-      const isActive = currentValue === option.value
-      const isFirst = index === 0
-      const isLast = index === options.length - 1
-
-      const position =
-        options.length === 1
-          ? "single"
-          : isFirst
-            ? "first"
-            : isLast
-              ? "last"
-              : "middle"
-
-      const button = (
-        <button
-          type="button"
-          onClick={() => handleValueChange(option.value)}
-          className={cn(
-            toggleTabVariants({ size, active: isActive, position })
-          )}
-          aria-pressed={isActive}
-          aria-label={option.ariaLabel}
-          {...(isActive && { "aria-current": "true" })}
-        >
-          {option.content}
-        </button>
-      )
-
-      if (showTooltips && option.tooltip) {
-        return (
-          <TooltipProvider key={option.value as string}>
-            <Tooltip>
-              <TooltipTrigger asChild>{button}</TooltipTrigger>
-              <TooltipContent>
-                <p>{option.tooltip}</p>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-        )
+  const handleValueChange = React.useCallback(
+    (newValue: T) => {
+      if (value === undefined) {
+        setInternalValue(newValue)
       }
-
-      return (
-        <React.Fragment key={option.value as string}>{button}</React.Fragment>
-      )
-    }
+      onValueChange?.(newValue)
+    },
+    [value, onValueChange]
   )
-
-  TabButton.displayName = "TabButton"
 
   if (options.length === 0) {
     return null
@@ -158,7 +172,16 @@ export function ToggleTabs<T = string>({
       {...props}
     >
       {options.map((option, index) => (
-        <TabButton key={option.value as string} option={option} index={index} />
+        <MemoizedTabButton
+          key={String(option.value)}
+          option={option}
+          index={index}
+          optionsCount={options.length}
+          currentValue={currentValue}
+          onValueChange={handleValueChange}
+          size={size}
+          showTooltips={showTooltips}
+        />
       ))}
     </div>
   )
