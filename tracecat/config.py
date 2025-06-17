@@ -116,9 +116,45 @@ USER_AUTH_SECRET = os.environ.get("USER_AUTH_SECRET", "")
 SAML_PUBLIC_ACS_URL = f"{TRACECAT__PUBLIC_APP_URL}/auth/saml/acs"
 
 SAML_IDP_METADATA_URL = os.environ.get("SAML_IDP_METADATA_URL")
-"""Deprecated: This config has been moved into the settings service"""
+"""Sets the default SAML metadata URL for cold start."""
+
+SAML_ALLOW_UNSOLICITED = (
+    os.environ.get("SAML_ALLOW_UNSOLICITED", "true").lower() == "true"
+)
+"""Whether to allow unsolicited SAML responses."""
+
+SAML_AUTHN_REQUESTS_SIGNED = (
+    os.environ.get("SAML_AUTHN_REQUESTS_SIGNED", "true").lower() == "true"
+)
+"""Whether to require signed SAML authentication requests."""
+
+SAML_SIGNED_ASSERTIONS = (
+    os.environ.get("SAML_SIGNED_ASSERTIONS", "true").lower() == "true"
+)
+"""Whether to require signed SAML assertions."""
+
+SAML_SIGNED_RESPONSES = (
+    os.environ.get("SAML_SIGNED_RESPONSES", "true").lower() == "true"
+)
+"""Whether to require signed SAML responses."""
+
+SAML_ACCEPTED_TIME_DIFF = int(os.environ.get("SAML_ACCEPTED_TIME_DIFF", "3"))
+"""The time difference in seconds for SAML authentication."""
 
 XMLSEC_BINARY_PATH = os.environ.get("XMLSEC_BINARY_PATH", "/usr/bin/xmlsec1")
+
+SAML_CA_CERTS = os.environ.get("SAML_CA_CERTS")
+"""Base64 encoded CA certificates for validating self-signed certificates."""
+
+SAML_VERIFY_SSL_ENTITY = (
+    os.environ.get("SAML_VERIFY_SSL_ENTITY", "true").lower() == "true"
+)
+"""Whether to verify SSL certificates for general SAML entity operations."""
+
+SAML_VERIFY_SSL_METADATA = (
+    os.environ.get("SAML_VERIFY_SSL_METADATA", "true").lower() == "true"
+)
+"""Whether to verify SSL certificates for SAML metadata operations."""
 
 # === CORS config === #
 # NOTE: If you are using Tracecat self-hosted, please replace with your
