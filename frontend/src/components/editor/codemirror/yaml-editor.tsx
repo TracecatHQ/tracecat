@@ -416,7 +416,7 @@ export const YamlStyledEditor = React.forwardRef<
 
       <div className="absolute bottom-2 right-2 z-10 flex items-center gap-2">
         {/* Save state indicator */}
-        {saveState === SaveState.UNSAVED && (
+        {/* {saveState === SaveState.UNSAVED && (
           <div className="flex items-center gap-1 rounded-md bg-yellow-100 px-2 py-1 text-xs text-yellow-800">
             <span>Unsaved</span>
             <span className="text-[10px] text-yellow-600">
@@ -427,7 +427,7 @@ export const YamlStyledEditor = React.forwardRef<
               +S
             </span>
           </div>
-        )}
+        )} */}
         {saveState === SaveState.SAVED && (
           <div className="flex items-center gap-1 rounded-md bg-green-100 px-2 py-1 text-xs text-green-800">
             <Check className="size-3" />
