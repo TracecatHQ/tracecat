@@ -43,6 +43,8 @@ async def create_misp_event_from_ioc(
     to_ids: Annotated[bool, Field(True)],
     verify_ssl: Annotated[bool, Field(True)],
     tags: Annotated[Optional[List[str]], Field(None)] = None,
+    analysis: Annotated[int, Field(2, description="Analysis level (0=Initial, 1=Ongoing, 2=Completed)")] = 2,
+    published: Annotated[bool, Field(False, description="Whether the event should be published")] = False,
 ) -> dict:
     headers = {
         "Authorization": secrets.get("MISP_API_KEY"),
@@ -51,29 +53,29 @@ async def create_misp_event_from_ioc(
     }
 
     category = get_category_for_ioc_type(ioc_type)
+    url = f"{base_url.rstrip('/')}/events"
 
-    event_payload = {
+    data = {
         "Event": {
             "info": event_info,
-            "analysis": "2",
+            "analysis": str(analysis),
             "threat_level_id": threat_level_id,
             "distribution": distribution,
             "date": datetime.utcnow().strftime("%Y-%m-%d"),
+            "published": published,
             "Attribute": [{
                 "type": ioc_type,
                 "category": category,
                 "value": ioc_value,
                 "to_ids": to_ids
-            }],
-            **({"Tag": [{"name": tag} for tag in tags]} if tags else {})
+            }]
         }
     }
 
+    if tags:
+        data["Event"]["Tag"] = [{"name": tag} for tag in tags]
+
     async with httpx.AsyncClient(verify=verify_ssl) as client:
-        response = await client.post(
-            f"{base_url.rstrip('/')}/events",
-            headers=headers,
-            json=event_payload,
-        )
+        response = await client.post(url, headers=headers, json=data)
         response.raise_for_status()
         return response.json()

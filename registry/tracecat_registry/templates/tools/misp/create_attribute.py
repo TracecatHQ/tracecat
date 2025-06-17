@@ -51,6 +51,7 @@ async def add_attribute_to_misp_event(
     event_info: Annotated[Optional[str], Field(None)] = None,
     tags: Annotated[Optional[List[str]], Field(None)] = None,
     threat_level_id: Annotated[Optional[int], Field(None)] = None,
+    disable_correlation: Annotated[bool, Field(False, description="Disable correlation for this attribute")] = False,
 ) -> dict:
     headers = {
         "Authorization": secrets.get("MISP_API_KEY"),
@@ -62,24 +63,24 @@ async def add_attribute_to_misp_event(
     if category and category not in VALID_CATEGORIES:
         raise ValueError(f"Invalid category '{category}'. Must be one of: {', '.join(sorted(VALID_CATEGORIES))}")
 
-    attribute_payload = {
+    base_url = base_url.rstrip("/")
+    url = f"{base_url}/attributes/add/{event_id}"
+
+    data = {
         "Attribute": {
             "type": ioc_type,
             "value": ioc_value,
             "category": selected_category,
             "to_ids": to_ids,
-            **({"comment": comment.strip()} if comment and comment.strip() else {})
+            "disable_correlation": disable_correlation
         }
     }
 
-    base_url = base_url.rstrip("/")
+    if comment and comment.strip():
+        data["Attribute"]["comment"] = comment.strip()
 
     async with httpx.AsyncClient(verify=verify_ssl) as client:
-        attr_resp = await client.post(
-            f"{base_url}/attributes/add/{event_id}",
-            headers=headers,
-            json=attribute_payload
-        )
+        attr_resp = await client.post(url, headers=headers, json=data)
         attr_resp.raise_for_status()
         result = attr_resp.json()
 
@@ -92,16 +93,18 @@ async def add_attribute_to_misp_event(
                 )
 
         if event_info or threat_level_id is not None:
-            update_payload = {
-                "Event": {
-                    **({"info": event_info} if event_info else {}),
-                    **({"threat_level_id": threat_level_id} if threat_level_id is not None else {})
-                }
+            update_data = {
+                "Event": {}
             }
+            if event_info:
+                update_data["Event"]["info"] = event_info
+            if threat_level_id is not None:
+                update_data["Event"]["threat_level_id"] = threat_level_id
+
             await client.post(
                 f"{base_url}/events/edit/{event_id}",
                 headers=headers,
-                json=update_payload
+                json=update_data
             )
 
         return result
