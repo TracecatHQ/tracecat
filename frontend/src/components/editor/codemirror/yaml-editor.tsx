@@ -4,7 +4,7 @@ import React, { useCallback, useMemo, useRef, useState } from "react"
 import { ActionRead } from "@/client"
 import { useWorkflow } from "@/providers/workflow"
 import { useWorkspace } from "@/providers/workspace"
-import { autocompletion, closeBrackets } from "@codemirror/autocomplete"
+import { closeBrackets } from "@codemirror/autocomplete"
 import { history } from "@codemirror/commands"
 import { yaml } from "@codemirror/lang-yaml"
 import {
@@ -32,21 +32,15 @@ import YAML from "yaml"
 import { cn } from "@/lib/utils"
 
 import {
-  createActionCompletion,
   createAtKeyCompletion,
   createAutocomplete,
   createBlurHandler,
   createCoreKeymap,
-  createEnvCompletion,
   createExitEditModeKeyHandler,
   createExpressionNodeHover,
-  createFunctionCompletion,
-  createMentionCompletion,
   createPillClickHandler,
   createPillDeleteKeymap,
-  createSecretsCompletion,
   createTemplatePillPlugin,
-  createVarCompletion,
   editingRangeField,
   EDITOR_STYLE,
   templatePillTheme,
