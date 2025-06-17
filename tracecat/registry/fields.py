@@ -6,6 +6,8 @@ from typing import Annotated, Any, Literal, Union, get_args, get_origin
 
 from pydantic import Field, RootModel
 
+from tracecat.logger import logger
+
 
 class ComponentID(StrEnum):
     """The ID of a component in the UI"""
@@ -213,6 +215,8 @@ def get_default_component(field_type: Any) -> Component | None:
         return Toggle()
     elif field_type is str:
         return Text()
+    elif field_type is Any:
+        return Yaml()  # Use Yaml editor for Any type to allow flexible input
     elif _safe_issubclass(field_type, Enum):
         member_map = field_type._member_map_
         return Select(options=[member.value for member in member_map.values()])
@@ -234,7 +238,10 @@ def get_default_component(field_type: Any) -> Component | None:
         else:
             raise ValueError("Couldn't get __args__ for Literal")
     else:
-        return None
+        logger.warning(
+            f"Unknown field type: {field_type}. Using Yaml editor for flexible input."
+        )
+        return Yaml()
 
 
 def get_components_for_union_type(field_type: Any) -> list[Component]:
