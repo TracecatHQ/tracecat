@@ -418,8 +418,9 @@ function ActionPanelContent({
         let inputsYaml: string
 
         if (inputMode === "yaml") {
-          // In YAML mode, use the raw YAML directly to preserve formatting
-          inputsYaml = rawInputsYaml || stringifyYaml(values.inputs)
+          // YAML editors have already committed the parsed object to the form,
+          // serialise that so we persist the latest version written by the user.
+          inputsYaml = stringifyYaml(values.inputs)
         } else {
           // In form mode, try to preserve original YAML structure when possible
           inputsYaml = reconstructYamlFromForm(
