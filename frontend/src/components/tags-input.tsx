@@ -74,7 +74,7 @@ export interface MultiTagCommandInputProps {
 }
 
 export function MultiTagCommandInput({
-  value = [],
+  value: valueProp,
   onChange,
   suggestions = [],
   placeholder = "Add tags...",
@@ -88,17 +88,21 @@ export function MultiTagCommandInput({
   const inputRef = useRef<HTMLInputElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const [highlightedIndex, setHighlightedIndex] = useState(-1)
+  const value = useMemo(() => valueProp || [], [valueProp])
+  const valueSet = useMemo(() => new Set(value), [value])
 
   // Convert values to tag objects
   const tags = useMemo(() => {
-    return value.map((val, index) => {
-      const suggestion = suggestions.find((s) => s.value === val)
-      return {
-        id: `${index}`,
-        text: suggestion?.label || val,
-        value: val,
-      }
-    })
+    return (
+      value?.map((val, index) => {
+        const suggestion = suggestions.find((s) => s.value === val)
+        return {
+          id: `${index}`,
+          text: suggestion?.label || val,
+          value: val,
+        }
+      }) || []
+    )
   }, [value, suggestions])
   const filterActions = useCallback(
     (actions: Suggestion[], search: string) => {
@@ -117,9 +121,9 @@ export function MultiTagCommandInput({
   // Filter suggestions based on input and exclude already selected
   const filteredSuggestions = useMemo(() => {
     // filter out suggestions that are already selected
-    const filtered = suggestions.filter((s) => !value.includes(s.value))
+    const filtered = suggestions.filter((s) => !valueSet.has(s.value))
     return filterActions(filtered, inputValue).map((result) => result.obj)
-  }, [suggestions, inputValue, value])
+  }, [suggestions, inputValue, valueSet, filterActions])
 
   const handleSelect = (suggestionValue: string) => {
     if (maxTags && value.length >= maxTags) return
