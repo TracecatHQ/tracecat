@@ -237,6 +237,7 @@ export function PolymorphicField({
                 <ExpressionInput
                   value={field.value}
                   onChange={field.onChange}
+                  placeholder="Enter text or @ to begin an expression..."
                 />
               </FormItem>
             )}
@@ -259,6 +260,7 @@ export function PolymorphicField({
                   value={field.value}
                   onChange={field.onChange}
                   defaultHeight="text-area"
+                  placeholder="Enter text or @ to begin an expression..."
                 />
               </FormItem>
             )}
