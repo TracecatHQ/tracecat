@@ -672,15 +672,15 @@ def generate_model_from_function(
     fields = {}
     for name, param in sig.parameters.items():
         # Use the annotation and default value of the parameter to define the model field
-        annotation = param.annotation
-        field_type: type = annotation.__origin__
+        field_annotation = param.annotation
+        raw_field_type: type = field_annotation.__origin__
         field_info_kwargs = {}
         # Get the default UI for the field
-        non_null_field_type = type_drop_null(field_type)
+        non_null_field_type = type_drop_null(raw_field_type)
         components = get_components_for_union_type(non_null_field_type)
         manually_set_components: list[Component] = []
 
-        if metadata := getattr(annotation, "__metadata__", None):
+        if metadata := getattr(field_annotation, "__metadata__", None):
             for meta in metadata:
                 match meta:
                     case Doc(documentation=doc):
@@ -698,7 +698,7 @@ def generate_model_from_function(
 
         default = ... if param.default is param.empty else param.default
         field_info = Field(default=default, **field_info_kwargs)
-        fields[name] = (field_type, field_info)
+        fields[name] = (field_annotation, field_info)
     # Dynamically create and return the Pydantic model class
     input_model = create_model(
         _udf_slug_camelcase(func, udf_kwargs.namespace),
