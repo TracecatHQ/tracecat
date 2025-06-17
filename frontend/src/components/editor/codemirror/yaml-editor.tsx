@@ -16,15 +16,23 @@ import {
   standardKeymap,
 } from "@codemirror/commands"
 import { yaml } from "@codemirror/lang-yaml"
-import { bracketMatching, indentUnit } from "@codemirror/language"
-import { linter, lintGutter, type Diagnostic } from "@codemirror/lint"
-import { EditorState } from "@codemirror/state"
 import {
+  bracketMatching,
+  HighlightStyle,
+  indentUnit,
+  syntaxHighlighting,
+} from "@codemirror/language"
+import { linter, lintGutter, type Diagnostic } from "@codemirror/lint"
+import { EditorState, RangeValue } from "@codemirror/state"
+import {
+  Decoration,
+  DecorationSet,
   EditorView,
   keymap,
   ViewPlugin,
   type ViewUpdate,
 } from "@codemirror/view"
+import { tags } from "@lezer/highlight"
 import CodeMirror from "@uiw/react-codemirror"
 import { AlertTriangle, Check } from "lucide-react"
 import { Control, FieldValues, useController } from "react-hook-form"
@@ -287,6 +295,7 @@ export const YamlStyledEditor = React.forwardRef<
       history(),
       indentUnit.of("  "),
       yaml(),
+      syntaxHighlighting(yamlSyntaxTheme),
       linter(customYamlLinter),
 
       bracketMatching(),
@@ -314,6 +323,7 @@ export const YamlStyledEditor = React.forwardRef<
 
       templatePillTheme,
       yamlEditorTheme,
+      yamlLiteralHighlighter,
     ]
   }, [workspaceId, actions, yamlBlurHandler]) // Only stable dependencies
 
@@ -509,6 +519,17 @@ function customYamlLinter(view: EditorView): Diagnostic[] {
   return diagnostics
 }
 
+const yamlSyntaxTheme = HighlightStyle.define([
+  { tag: tags.content, color: "#586069" },
+  { tag: tags.propertyName, color: "#0077aa", fontWeight: "500" },
+  { tag: tags.string, color: "#d73a49" },
+  { tag: tags.number, color: "#005cc5" },
+  { tag: tags.bool, color: "#e36209" },
+  { tag: tags.atom, color: "#e36209", fontWeight: "600" },
+  { tag: tags.keyword, color: "#e36209" },
+  { tag: tags.comment, color: "#6a737d", fontStyle: "italic" },
+  { tag: [tags.punctuation, tags.bracket, tags.brace], color: "#586069" },
+])
 const yamlEditorTheme = EditorView.theme({
   ".cm-content": {
     whiteSpace: "pre !important",
@@ -680,6 +701,99 @@ const yamlEditorTheme = EditorView.theme({
   },
 })
 
+// Custom semantic highlighting for true/false/null literals
+const yamlLiteralHighlighter = ViewPlugin.fromClass(
+  class {
+    decorations: DecorationSet
+
+    constructor(view: EditorView) {
+      this.decorations = this.buildDecorations(view)
+    }
+
+    update(update: ViewUpdate) {
+      if (update.docChanged || update.viewportChanged) {
+        this.decorations = this.buildDecorations(update.view)
+      }
+    }
+
+    buildDecorations(view: EditorView) {
+      const decorations: Array<{
+        from: number
+        to: number
+        value: Decoration
+      }> = []
+
+      // Define decoration styles
+      const booleanMark = Decoration.mark({
+        class: "cm-yaml-boolean",
+        attributes: {
+          style: "font-weight: 700 !important;",
+        },
+      })
+      const nullMark = Decoration.mark({
+        class: "cm-yaml-null",
+        attributes: {
+          style: "font-weight: 700 !important;",
+        },
+      })
+
+      const doc = view.state.doc
+      const text = doc.toString()
+
+      // Regular expressions to match unquoted literals
+      // Match true/false/null that are:
+      // - At start of line after whitespace and colon
+      // - In arrays after dash and whitespace
+      // - Not inside quotes
+      const patterns = [
+        // Value after key: true/false/null
+        /^(\s*)([\w-]+)(\s*:\s*)(true|false|null)(\s*(?:#.*)?$)/gm,
+        // Array item: - true/false/null
+        /^(\s*-)(\s+)(true|false|null)(\s*(?:#.*)?$)/gm,
+        // Flow sequence: [true, false, null]
+        /([,\[])\s*(true|false|null)\s*([,\]])/g,
+        // Flow mapping: {key: true}
+        /(:)\s*(true|false|null)\s*([,}])/g,
+      ]
+
+      for (const pattern of patterns) {
+        let match
+        while ((match = pattern.exec(text)) !== null) {
+          const valueMatch = match[0].match(/(true|false|null)/)
+          if (valueMatch) {
+            const value = valueMatch[0]
+            const valueIndex = match.index + match[0].indexOf(value)
+            const from = valueIndex
+            const to = valueIndex + value.length
+
+            // Additional check: ensure we're not in a comment
+            const line = doc.lineAt(from)
+            const lineText = line.text
+            const commentIndex = lineText.indexOf("#")
+            const posInLine = from - line.from
+
+            if (commentIndex === -1 || posInLine < commentIndex) {
+              if (value === "true" || value === "false") {
+                decorations.push({ from, to, value: booleanMark })
+              } else if (value === "null") {
+                decorations.push({ from, to, value: nullMark })
+              }
+            }
+          }
+        }
+      }
+
+      return Decoration.set(
+        decorations.sort((a, b) => a.from - b.from),
+        true
+      )
+    }
+  },
+  {
+    decorations: (v) => v.decorations,
+  }
+)
+
 export function YamlViewOnlyEditor({
   value,
   className,
@@ -701,6 +815,7 @@ export function YamlViewOnlyEditor({
       // Core language support with proper indentation
       indentUnit.of("  "),
       yaml(),
+      syntaxHighlighting(yamlSyntaxTheme),
       bracketMatching(),
 
       // Read-only configuration
@@ -714,6 +829,7 @@ export function YamlViewOnlyEditor({
       // Styling
       templatePillTheme,
       yamlEditorTheme,
+      yamlLiteralHighlighter,
     ]
   }, [workspaceId])
 
