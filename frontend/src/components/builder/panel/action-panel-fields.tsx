@@ -98,7 +98,7 @@ export function formatInlineCode(text: string) {
 export function FormLabelComponent({
   label,
   description,
-  type,
+  type = "any",
 }: {
   label?: string
   description?: string
