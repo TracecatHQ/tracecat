@@ -123,7 +123,7 @@ def _validate_file_size(file_path: Path) -> None:
         )
 
 
-def ripgrep(
+def grep_search(
     pattern: str, dir_path: Path, max_columns: int | None = None
 ) -> str | list[str] | dict[str, Any] | list[dict[str, Any]]:
     """Search for a pattern in a directory using ripgrep. Returns max 250 matches.
@@ -206,7 +206,7 @@ def jsonpath_find(
     expression: str,
     file_path: Path,
 ) -> list[Any]:
-    """Find matches in a JSON file using a JSONPath expression.
+    """Find matches in a JSON file using a JSONPath expression. Returns max 250 matches.
 
     Args:
         expression: JSONPath expression to search for.
@@ -263,6 +263,98 @@ def jsonpath_find(
         if isinstance(e, (ValueError, RuntimeError)):
             raise
         raise RuntimeError(f"JSONPath evaluation failed: {e}")
+
+
+def jsonpath_find_and_replace(
+    expression: str,
+    file_path: Path,
+    replacement: Any,
+) -> str:
+    """Find and replace all matches of a JSONPath expression in a file.
+
+    Args:
+        expression: JSONPath expression to search for.
+        file_path: Path to the JSON file to modify.
+        replacement: Replacement value for matched elements.
+
+    Returns:
+        The modified JSON content as a string.
+
+    Raises:
+        ValueError: If file path is invalid or expression is malformed
+        RuntimeError: If JSON parsing, JSONPath evaluation, or file operations fail
+
+    References: https://pypi.org/project/jsonpath-ng/
+    """
+    # Use consolidated security validation
+    _validate_file_security(
+        file_path,
+        pattern_or_expression=expression,
+        pattern_name="JSONPath expression",
+        require_file=True,  # jsonpath_find_and_replace works on files
+    )
+
+    # Validate replacement value
+    if replacement is None:
+        raise ValueError("Replacement value cannot be None")
+
+    try:
+        # Check file size before reading to prevent DoS
+        _validate_file_size(file_path)
+
+        # Read file with proper encoding and error handling
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                content = f.read()
+        except (OSError, IOError) as e:
+            raise RuntimeError(f"File read error: {e}")
+
+        # Parse JSON content with proper error handling
+        try:
+            json_data = orjson.loads(content)
+        except orjson.JSONDecodeError as e:
+            raise RuntimeError(f"Invalid JSON content: {e}")
+
+        # Parse and validate JSONPath expression
+        try:
+            jsonpath_expr = jsonpath_ng.ext.parse(expression)
+        except Exception as e:
+            raise RuntimeError(f"Invalid JSONPath expression: {e}")
+
+        # Find matches and perform replacements
+        try:
+            # Find all matches
+            matches = jsonpath_expr.find(json_data)
+
+            # Perform replacements in reverse order to maintain correct indices
+            # This is important when dealing with array indices that might shift
+            for match in reversed(matches):
+                match.full_path.update(json_data, replacement)
+
+            # Convert back to JSON string with proper formatting
+            modified_json = orjson.dumps(
+                json_data, option=orjson.OPT_INDENT_2 | orjson.OPT_SORT_KEYS
+            ).decode("utf-8")
+
+            # Write the modified content back to the file
+            try:
+                with open(file_path, "w", encoding="utf-8") as f:
+                    f.write(modified_json)
+            except (OSError, IOError) as e:
+                raise RuntimeError(f"File write error: {e}")
+
+            return modified_json
+
+        except Exception as e:
+            if isinstance(e, RuntimeError):
+                raise
+            raise RuntimeError(f"JSONPath replacement failed: {e}")
+
+    except Exception as e:
+        # Re-raise our own exceptions, catch any unexpected ones
+        if isinstance(e, (ValueError, RuntimeError)):
+            raise
+        raise RuntimeError(f"JSONPath find and replace operation failed: {e}")
 
 
 async def _get_cached_objects(
@@ -343,4 +435,4 @@ async def s3(
             file_path.write_text(content, encoding="utf-8")
 
         # Run ripgrep on all files (this is CPU-bound, not I/O limited)
-        return ripgrep(pattern, temp_path, max_columns)
+        return grep_search(pattern, temp_path, max_columns)

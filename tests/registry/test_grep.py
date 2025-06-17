@@ -1,11 +1,15 @@
 """Integration tests for grep functionality using MinIO as S3-compatible storage."""
 
 import asyncio
+import json
+import tempfile
 from io import BytesIO
+from pathlib import Path
 
 import pytest
 from minio import Minio
 from tracecat_registry.integrations.amazon_s3 import _s3_semaphore
+from tracecat_registry.integrations.grep import jsonpath_find, jsonpath_find_and_replace
 from tracecat_registry.integrations.grep import s3 as grep_s3
 
 from tracecat import config
@@ -509,3 +513,306 @@ class TestGrepS3Integration:
         assert (
             config.TRACECAT__S3_CONCURRENCY_LIMIT <= 200
         )  # Reasonable upper bound for S3
+
+
+class TestJsonPathFunctions:
+    """Tests for jsonpath_find and jsonpath_find_and_replace functions focusing on file handling and security."""
+
+    @pytest.fixture
+    def sample_json_file(self):
+        """Create a temporary JSON file for testing."""
+        sample_data = {
+            "users": [
+                {"id": 1, "name": "John", "active": True},
+                {"id": 2, "name": "Jane", "active": False},
+            ],
+            "settings": {"theme": "dark", "count": 42},
+        }
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump(sample_data, f, indent=2)
+            temp_path = Path(f.name)
+
+        yield temp_path
+
+        # Cleanup
+        if temp_path.exists():
+            temp_path.unlink()
+
+    @pytest.fixture
+    def invalid_json_file(self):
+        """Create a file with invalid JSON for error testing."""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            f.write('{"invalid": json, "missing": quotes}')
+            temp_path = Path(f.name)
+
+        yield temp_path
+
+        # Cleanup
+        if temp_path.exists():
+            temp_path.unlink()
+
+    @pytest.fixture
+    def empty_json_file(self):
+        """Create an empty JSON file."""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            f.write("{}")
+            temp_path = Path(f.name)
+
+        yield temp_path
+
+        # Cleanup
+        if temp_path.exists():
+            temp_path.unlink()
+
+    @pytest.fixture
+    def non_utf8_file(self):
+        """Create a file with non-UTF8 content."""
+        with tempfile.NamedTemporaryFile(mode="wb", suffix=".json", delete=False) as f:
+            # Write invalid UTF-8 bytes
+            f.write(b'{"test": "\xff\xfe"}')
+            temp_path = Path(f.name)
+
+        yield temp_path
+
+        # Cleanup
+        if temp_path.exists():
+            temp_path.unlink()
+
+    # Security and validation tests
+
+    def test_jsonpath_find_nonexistent_file(self):
+        """Test jsonpath_find with nonexistent file."""
+        nonexistent_path = Path("/nonexistent/file.json")
+
+        with pytest.raises(ValueError, match="Path does not exist"):
+            jsonpath_find("$.test", nonexistent_path)
+
+    def test_jsonpath_find_directory_instead_of_file(self, tmp_path):
+        """Test jsonpath_find with directory instead of file."""
+        with pytest.raises(ValueError, match="Path is not a file"):
+            jsonpath_find("$.test", tmp_path)
+
+    def test_jsonpath_find_empty_expression(self, sample_json_file):
+        """Test jsonpath_find with empty or whitespace-only expressions."""
+        with pytest.raises(ValueError, match="JSONPath expression cannot be empty"):
+            jsonpath_find("", sample_json_file)
+
+        with pytest.raises(ValueError, match="JSONPath expression cannot be empty"):
+            jsonpath_find("   ", sample_json_file)
+
+    def test_jsonpath_find_expression_too_long(self, sample_json_file):
+        """Test jsonpath_find with expression exceeding length limit."""
+        long_expression = "$.test" + ".field" * 500  # Over 1000 chars
+        with pytest.raises(ValueError, match="JSONPath expression too long"):
+            jsonpath_find(long_expression, sample_json_file)
+
+    def test_jsonpath_find_null_bytes_in_expression(self, sample_json_file):
+        """Test jsonpath_find with null bytes in expression (security check)."""
+        with pytest.raises(ValueError, match="JSONPath expression contains null bytes"):
+            jsonpath_find("$.test\x00", sample_json_file)
+
+    def test_jsonpath_find_invalid_json_content(self, invalid_json_file):
+        """Test jsonpath_find with malformed JSON."""
+        with pytest.raises(RuntimeError, match="Invalid JSON content"):
+            jsonpath_find("$.test", invalid_json_file)
+
+    def test_jsonpath_find_invalid_jsonpath_expression(self, sample_json_file):
+        """Test jsonpath_find with malformed JSONPath expression."""
+        with pytest.raises(RuntimeError, match="Invalid JSONPath expression"):
+            jsonpath_find("$.[invalid", sample_json_file)
+
+    def test_jsonpath_find_file_read_error(self, sample_json_file):
+        """Test jsonpath_find when file becomes unreadable."""
+        # Make file unreadable
+        sample_json_file.chmod(0o000)
+
+        try:
+            with pytest.raises(RuntimeError, match="File read error"):
+                jsonpath_find("$.test", sample_json_file)
+        finally:
+            # Restore permissions for cleanup
+            sample_json_file.chmod(0o644)
+
+    def test_jsonpath_find_non_utf8_content(self, non_utf8_file):
+        """Test jsonpath_find with non-UTF8 content."""
+        # This might raise either a decode error or JSON parse error depending on system
+        with pytest.raises((RuntimeError, UnicodeDecodeError)):
+            jsonpath_find("$.test", non_utf8_file)
+
+    def test_jsonpath_find_max_matches_limit(self, sample_json_file):
+        """Test that jsonpath_find respects MAX_MATCHES limit."""
+        # Create a large JSON structure temporarily
+        large_data = {"items": [{"id": i} for i in range(300)]}
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump(large_data, f)
+            large_file = Path(f.name)
+
+        try:
+            result = jsonpath_find("$.items[*].id", large_file)
+            # Should be limited to MAX_MATCHES (250)
+            assert len(result) == 250
+            assert result == list(range(250))
+        finally:
+            large_file.unlink()
+
+    def test_jsonpath_find_empty_json(self, empty_json_file):
+        """Test jsonpath_find with empty JSON object."""
+        result = jsonpath_find("$.nonexistent", empty_json_file)
+        assert result == []
+
+    def test_jsonpath_find_basic_functionality(self, sample_json_file):
+        """Test basic jsonpath_find functionality to ensure it works."""
+        # Simple property access
+        result = jsonpath_find("$.settings.theme", sample_json_file)
+        assert result == ["dark"]
+
+        # Array access
+        result = jsonpath_find("$.users[0].name", sample_json_file)
+        assert result == ["John"]
+
+    # Tests for jsonpath_find_and_replace
+
+    def test_jsonpath_find_and_replace_none_replacement(self, sample_json_file):
+        """Test jsonpath_find_and_replace with None replacement value."""
+        with pytest.raises(ValueError, match="Replacement value cannot be None"):
+            jsonpath_find_and_replace("$.settings.theme", sample_json_file, None)  # type: ignore
+
+    def test_jsonpath_find_and_replace_file_validation(self):
+        """Test jsonpath_find_and_replace with invalid file paths."""
+        nonexistent_path = Path("/nonexistent/file.json")
+
+        with pytest.raises(ValueError, match="Path does not exist"):
+            jsonpath_find_and_replace("$.test", nonexistent_path, "replacement")
+
+    def test_jsonpath_find_and_replace_directory_error(self, tmp_path):
+        """Test jsonpath_find_and_replace with directory instead of file."""
+        with pytest.raises(ValueError, match="Path is not a file"):
+            jsonpath_find_and_replace("$.test", tmp_path, "replacement")
+
+    def test_jsonpath_find_and_replace_expression_validation(self, sample_json_file):
+        """Test jsonpath_find_and_replace expression validation."""
+        # Empty expression
+        with pytest.raises(ValueError, match="JSONPath expression cannot be empty"):
+            jsonpath_find_and_replace("", sample_json_file, "replacement")
+
+        # Expression too long
+        long_expression = "$.test" + ".field" * 500
+        with pytest.raises(ValueError, match="JSONPath expression too long"):
+            jsonpath_find_and_replace(long_expression, sample_json_file, "replacement")
+
+        # Null bytes
+        with pytest.raises(ValueError, match="JSONPath expression contains null bytes"):
+            jsonpath_find_and_replace("$.test\x00", sample_json_file, "replacement")
+
+    def test_jsonpath_find_and_replace_invalid_json(self, invalid_json_file):
+        """Test jsonpath_find_and_replace with invalid JSON content."""
+        with pytest.raises(RuntimeError, match="Invalid JSON content"):
+            jsonpath_find_and_replace("$.test", invalid_json_file, "replacement")
+
+    def test_jsonpath_find_and_replace_invalid_expression(self, sample_json_file):
+        """Test jsonpath_find_and_replace with invalid JSONPath expression."""
+        with pytest.raises(RuntimeError, match="Invalid JSONPath expression"):
+            jsonpath_find_and_replace("$.[invalid", sample_json_file, "replacement")
+
+    def test_jsonpath_find_and_replace_file_write_error(self, sample_json_file):
+        """Test jsonpath_find_and_replace when file becomes unwritable."""
+        # Make file unwritable
+        sample_json_file.chmod(0o444)  # Read-only
+
+        try:
+            with pytest.raises(RuntimeError, match="File write error"):
+                jsonpath_find_and_replace("$.settings.theme", sample_json_file, "light")
+        finally:
+            # Restore permissions for cleanup
+            sample_json_file.chmod(0o644)
+
+    def test_jsonpath_find_and_replace_basic_functionality(self, sample_json_file):
+        """Test basic jsonpath_find_and_replace functionality."""
+        # Simple replacement
+        result = jsonpath_find_and_replace(
+            "$.settings.theme", sample_json_file, "light"
+        )
+
+        # Verify the result is valid JSON
+        modified_data = json.loads(result)
+        assert modified_data["settings"]["theme"] == "light"
+
+        # Verify other data is unchanged
+        assert modified_data["users"][0]["name"] == "John"
+        assert modified_data["settings"]["count"] == 42
+
+    def test_jsonpath_find_and_replace_multiple_matches(self, sample_json_file):
+        """Test jsonpath_find_and_replace with multiple matches."""
+        # Replace all user names
+        result = jsonpath_find_and_replace(
+            "$.users[*].name", sample_json_file, "Anonymous"
+        )
+
+        # Verify all names were replaced
+        modified_data = json.loads(result)
+        for user in modified_data["users"]:
+            assert user["name"] == "Anonymous"
+
+    def test_jsonpath_find_and_replace_no_matches(self, sample_json_file):
+        """Test jsonpath_find_and_replace when no matches are found."""
+        # Try to replace non-existent path
+        result = jsonpath_find_and_replace(
+            "$.nonexistent.path", sample_json_file, "replacement"
+        )
+
+        # Should return unchanged JSON
+        original_data = json.loads(sample_json_file.read_text())
+        modified_data = json.loads(result)
+        assert original_data == modified_data
+
+    def test_jsonpath_find_and_replace_different_types(self, sample_json_file):
+        """Test jsonpath_find_and_replace with different replacement types."""
+        # Replace with number
+        result = jsonpath_find_and_replace("$.settings.count", sample_json_file, 100)
+        modified_data = json.loads(result)
+        assert modified_data["settings"]["count"] == 100
+
+        # Replace with boolean
+        result = jsonpath_find_and_replace("$.users[0].active", sample_json_file, False)
+        modified_data = json.loads(result)
+        assert modified_data["users"][0]["active"] is False
+
+        # Replace with object
+        result = jsonpath_find_and_replace(
+            "$.settings", sample_json_file, {"new": "config"}
+        )
+        modified_data = json.loads(result)
+        assert modified_data["settings"] == {"new": "config"}
+
+    def test_jsonpath_find_and_replace_file_persistence(self, sample_json_file):
+        """Test that jsonpath_find_and_replace actually modifies the file."""
+        original_content = sample_json_file.read_text()
+
+        # Perform replacement
+        jsonpath_find_and_replace("$.settings.theme", sample_json_file, "light")
+
+        # Read file again to verify it was modified
+        modified_content = sample_json_file.read_text()
+        assert modified_content != original_content
+        assert '"theme": "light"' in modified_content
+
+    def test_jsonpath_find_and_replace_json_formatting(self, sample_json_file):
+        """Test that jsonpath_find_and_replace produces properly formatted JSON."""
+        result = jsonpath_find_and_replace(
+            "$.settings.theme", sample_json_file, "light"
+        )
+
+        # Should be valid, indented JSON
+        parsed = json.loads(result)
+        assert isinstance(parsed, dict)
+
+        # Should have proper indentation (orjson with OPT_INDENT_2)
+        lines = result.split("\n")
+        assert len(lines) > 1  # Should be multi-line
+
+        # Check that it's sorted (orjson with OPT_SORT_KEYS)
+        # Keys should be in alphabetical order at the root level
+        root_keys = list(parsed.keys())
+        assert root_keys == sorted(root_keys)
