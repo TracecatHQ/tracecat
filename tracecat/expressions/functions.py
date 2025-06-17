@@ -369,6 +369,21 @@ def create_range(start: int, end: int, step: int = 1) -> range:
 # NOTE: Use "object" in docstrings to align to Javascript / JSON terminology.
 
 
+def is_json(x: str) -> bool:
+    """Check if a string is valid JSON.
+
+    Args:
+        x: The string to check.
+
+    Returns:
+    """
+    try:
+        orjson.loads(x)
+        return True
+    except orjson.JSONDecodeError:
+        return False
+
+
 def index_by_key(
     x: list[dict[str, Any]],
     field_key: str,
@@ -955,6 +970,7 @@ _FUNCTION_MAPPING = {
     "or": or_,
     "not": not_,
     # Type conversion
+    "is_json": is_json,
     "deserialize_json": orjson.loads,
     "deserialize_ndjson": deserialize_ndjson,
     "deserialize_yaml": deserialize_yaml,
