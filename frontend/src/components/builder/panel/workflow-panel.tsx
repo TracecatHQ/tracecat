@@ -110,7 +110,7 @@ export function WorkflowPanel({
       environment: workflow.config?.environment || "default",
       timeout: workflow.config?.timeout || 300,
       static_inputs: workflow.static_inputs,
-      expects: workflow.expects,
+      expects: workflow.expects || undefined,
       returns: workflow.returns,
       error_handler: workflow.error_handler || "",
     },
