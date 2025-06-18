@@ -1,10 +1,12 @@
+from datetime import datetime
 from typing import Annotated, Any
 from uuid import UUID
 
 from typing_extensions import Doc
 
-
-from tracecat.tables.models import TableRowInsert
+from tracecat.config import TRACECAT__MAX_ROWS_CLIENT_POSTGRES
+from tracecat.tables.enums import SqlType
+from tracecat.tables.models import TableColumnCreate, TableCreate, TableRowInsert
 from tracecat.tables.service import TablesService
 from tracecat_registry import registry
 
@@ -34,7 +36,7 @@ async def lookup(
             table_name=table,
             columns=[column],
             values=[value],
-            limit=1,
+            limit=min(1, TRACECAT__MAX_ROWS_CLIENT_POSTGRES),
         )
     # Since we set limit=1, we know there will be at most one row
     return rows[0] if rows else None
@@ -64,6 +66,11 @@ async def lookup_many(
         Doc("The maximum number of rows to return."),
     ] = 100,
 ) -> list[dict[str, Any]]:
+    if limit > TRACECAT__MAX_ROWS_CLIENT_POSTGRES:
+        raise ValueError(
+            f"Limit cannot be greater than {TRACECAT__MAX_ROWS_CLIENT_POSTGRES}"
+        )
+
     async with TablesService.with_session() as service:
         rows = await service.lookup_rows(
             table_name=table,
@@ -72,6 +79,67 @@ async def lookup_many(
             limit=limit,
         )
     return rows
+
+
+@registry.register(
+    default_title="Search records",
+    description="Search for records in a table with optional filtering.",
+    display_group="Tables",
+    namespace="core.table",
+)
+async def search_records(
+    table: Annotated[
+        str,
+        Doc("The table to search in."),
+    ],
+    search_term: Annotated[
+        str | None,
+        Doc("Text to search for across all text and JSONB columns."),
+    ] = None,
+    start_time: Annotated[
+        datetime | None,
+        Doc("Filter records created after this time."),
+    ] = None,
+    end_time: Annotated[
+        datetime | None,
+        Doc("Filter records created before this time."),
+    ] = None,
+    updated_before: Annotated[
+        datetime | None,
+        Doc("Filter records updated before this time."),
+    ] = None,
+    updated_after: Annotated[
+        datetime | None,
+        Doc("Filter records updated after this time."),
+    ] = None,
+    limit: Annotated[
+        int,
+        Doc("The maximum number of rows to return."),
+    ] = 100,
+    offset: Annotated[
+        int,
+        Doc("The number of rows to skip."),
+    ] = 0,
+) -> list[dict[str, Any]]:
+    if limit > TRACECAT__MAX_ROWS_CLIENT_POSTGRES:
+        raise ValueError(
+            f"Limit cannot be greater than {TRACECAT__MAX_ROWS_CLIENT_POSTGRES}"
+        )
+
+    async with TablesService.with_session() as service:
+        db_table = await service.get_table_by_name(table)
+
+        rows = await service.search_rows(
+            table=db_table,
+            search_term=search_term,
+            start_time=start_time,
+            end_time=end_time,
+            updated_before=updated_before,
+            updated_after=updated_after,
+            limit=limit,
+            offset=offset,
+        )
+        return rows
 
 
 @registry.register(
@@ -148,3 +216,39 @@ async def delete_row(
     async with TablesService.with_session() as service:
         db_table = await service.get_table_by_name(table)
         await service.delete_row(table=db_table, row_id=UUID(row_id))
+
+
+@registry.register(
+    default_title="Create table",
+    description="Create a new lookup table with optional columns.",
+    display_group="Tables",
+    namespace="core.table",
+)
+async def create_table(
+    name: Annotated[
+        str,
+        Doc("The name of the table to create."),
+    ],
+    columns: Annotated[
+        list[dict[str, Any]] | None,
+        Doc(
+            "List of column definitions. Each column should have 'name', 'type', and optionally 'nullable' and 'default' fields."
+        ),
+    ] = None,
+) -> dict[str, Any]:
+    column_objects = []
+    if columns:
+        for col in columns:
+            column_objects.append(
+                TableColumnCreate(
+                    name=col["name"],
+                    type=SqlType(col["type"]),
+                    nullable=col.get("nullable", True),
+                    default=col.get("default"),
+                )
+            )
+
+    params = TableCreate(name=name, columns=column_objects)
+    async with TablesService.with_session() as service:
+        table = await service.create_table(params)
+    return table.model_dump()

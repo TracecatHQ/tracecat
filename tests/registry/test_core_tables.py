@@ -167,33 +167,22 @@ class TestCoreLookupMany:
         mock_ctx.__aenter__.return_value = mock_service
         mock_with_session.return_value = mock_ctx
 
-        # Test date filters
-        start_time = datetime.now(UTC) - timedelta(days=1)
-        end_time = datetime.now(UTC)
-        updated_after = datetime.now(UTC) - timedelta(hours=1)
-        updated_before = datetime.now(UTC) + timedelta(hours=1)
-
-        # Call the lookup_many function with date filters
+        # Note: lookup_many doesn't support date filters, so this test is removed
+        # Call the lookup_many function with just basic parameters
         result = await lookup_many(
             table="test_table",
             column="name",
             value="John Doe",
-            start_time=start_time,
-            end_time=end_time,
-            updated_after=updated_after,
-            updated_before=updated_before,
+            limit=50,
         )
 
-        # Assert lookup_rows was called with expected parameters including date filters
+        # Assert lookup_rows was called with expected parameters (no date filters)
         mock_service.lookup_rows.assert_called_once()
         call_kwargs = mock_service.lookup_rows.call_args[1]
         assert call_kwargs["table_name"] == "test_table"
         assert call_kwargs["columns"] == ["name"]
         assert call_kwargs["values"] == ["John Doe"]
-        assert call_kwargs["start_time"] == start_time
-        assert call_kwargs["end_time"] == end_time
-        assert call_kwargs["updated_after"] == updated_after
-        assert call_kwargs["updated_before"] == updated_before
+        assert call_kwargs["limit"] == 50
 
         # Verify the result
         assert result == [mock_row]
@@ -420,7 +409,9 @@ class TestCoreSearchRecords:
         # Set up the mock service context manager
         mock_service = AsyncMock()
         mock_service.get_table_by_name.return_value = mock_table
-        mock_service.list_rows.return_value = [mock_row]
+        mock_service.search_rows.return_value = [
+            mock_row
+        ]  # search_records calls search_rows, not list_rows
 
         # Set up the context manager's __aenter__ to return the mock service
         mock_ctx = AsyncMock()
@@ -437,8 +428,17 @@ class TestCoreSearchRecords:
         # Assert get_table_by_name was called
         mock_service.get_table_by_name.assert_called_once_with("test_table")
 
-        # Assert list_rows was called with expected parameters
-        mock_service.list_rows.assert_called_once_with(mock_table, limit=50, offset=10)
+        # Assert search_rows was called with expected parameters (not list_rows)
+        mock_service.search_rows.assert_called_once_with(
+            table=mock_table,
+            search_term=None,
+            start_time=None,
+            end_time=None,
+            updated_before=None,
+            updated_after=None,
+            limit=50,
+            offset=10,
+        )
 
         # Verify the result
         assert len(result) == 1
@@ -453,22 +453,9 @@ class TestCoreSearchRecords:
         # Set up the mock service context manager
         mock_service = AsyncMock()
         mock_service.get_table_by_name.return_value = mock_table
-        mock_service._get_schema_name.return_value = "test_schema"
-        mock_service._sanitize_identifier.return_value = "test_table"
-
-        # Mock the connection and execute
-        mock_connection = AsyncMock()
-        mock_result = MagicMock()  # Use MagicMock instead of AsyncMock
-        mock_mappings = MagicMock()  # Use MagicMock instead of AsyncMock
-        mock_mappings.all.return_value = [mock_row]
-        mock_result.mappings.return_value = mock_mappings
-        mock_connection.execute.return_value = mock_result
-
-        # Mock the async connection method
-        async def mock_connection_coro():
-            return mock_connection
-
-        mock_service.session.connection = mock_connection_coro
+        mock_service.search_rows.return_value = [
+            mock_row
+        ]  # search_records calls search_rows
 
         # Set up the context manager's __aenter__ to return the mock service
         mock_ctx = AsyncMock()
@@ -495,8 +482,17 @@ class TestCoreSearchRecords:
         # Assert get_table_by_name was called
         mock_service.get_table_by_name.assert_called_once_with("test_table")
 
-        # Assert the SQL execution was called instead of list_rows
-        mock_connection.execute.assert_called_once()
+        # Assert search_rows was called with date filters
+        mock_service.search_rows.assert_called_once_with(
+            table=mock_table,
+            search_term=None,
+            start_time=start_time,
+            end_time=end_time,
+            updated_before=updated_before,
+            updated_after=updated_after,
+            limit=50,
+            offset=10,
+        )
 
         # Verify the result
         assert len(result) == 1
