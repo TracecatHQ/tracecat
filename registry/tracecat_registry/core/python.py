@@ -10,8 +10,7 @@ from typing import Annotated, Any, TypedDict
 
 from tracecat.config import TRACECAT__PYODIDE_VERSION, TRACECAT__NODE_MODULES_DIR
 from tracecat.logger import logger
-from tracecat.registry.fields import Code
-from tracecat_registry import registry
+from tracecat_registry import registry, Code
 from typing_extensions import Doc
 
 

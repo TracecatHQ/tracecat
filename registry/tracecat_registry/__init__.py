@@ -17,6 +17,21 @@ from tracecat_registry._internal.exceptions import (
 )
 from tracecat_registry._internal.logger import logger
 from tracecat_registry._internal.models import RegistrySecret
+from tracecat_registry._internal.fields import (
+    Component,
+    ComponentID,
+    Integer,
+    Float,
+    Text,
+    Code,
+    Select,
+    TagInput,
+    TextArea,
+    Toggle,
+    Yaml,
+    ActionType,
+    WorkflowAlias,
+)
 
 __all__ = [
     "registry",
@@ -26,4 +41,18 @@ __all__ = [
     "exceptions",
     "RegistryActionError",
     "ActionIsInterfaceError",
+    # Fields
+    "Component",
+    "ComponentID",
+    "Integer",
+    "Float",
+    "Text",
+    "Code",
+    "Select",
+    "TagInput",
+    "TextArea",
+    "Toggle",
+    "Yaml",
+    "ActionType",
+    "WorkflowAlias",
 ]

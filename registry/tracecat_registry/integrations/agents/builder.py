@@ -31,7 +31,6 @@ from tracecat.expressions.eval import extract_templated_secrets
 from tracecat.expressions.expectations import create_expectation_model
 from tracecat.logger import logger
 from tracecat.registry.actions.service import RegistryActionsService
-from tracecat.registry.fields import ActionType, TextArea
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.secrets.secrets_manager import env_sandbox
 from tracecat_registry.integrations.pydantic_ai import (
@@ -39,7 +38,7 @@ from tracecat_registry.integrations.pydantic_ai import (
     build_agent,
 )
 
-from tracecat_registry import registry, RegistrySecret
+from tracecat_registry import registry, RegistrySecret, ActionType, TextArea
 from tracecat.types.exceptions import RegistryError
 from tracecat_registry.integrations.agents.exceptions import AgentRunError
 
