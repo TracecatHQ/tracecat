@@ -3754,7 +3754,7 @@ export const integrationsListIntegrations = (
  * Connect Provider
  * Initiate OAuth integration for the specified provider.
  * @param data The data for the request.
- * @param data.provider
+ * @param data.providerId
  * @param data.workspaceId
  * @returns string Successful Response
  * @throws ApiError
@@ -3764,9 +3764,9 @@ export const integrationsConnectProvider = (
 ): CancelablePromise<IntegrationsConnectProviderResponse> => {
   return __request(OpenAPI, {
     method: "POST",
-    url: "/integrations/{provider}/connect",
+    url: "/integrations/{provider_id}/connect",
     path: {
-      provider: data.provider,
+      provider_id: data.providerId,
     },
     query: {
       workspace_id: data.workspaceId,
@@ -3781,7 +3781,7 @@ export const integrationsConnectProvider = (
  * Oauth Callback
  * Handle OAuth callback for the specified provider.
  * @param data The data for the request.
- * @param data.provider
+ * @param data.providerId
  * @param data.code Authorization code from OAuth provider
  * @param data.state State parameter from authorization request
  * @param data.workspaceId
@@ -3793,9 +3793,9 @@ export const integrationsOauthCallback = (
 ): CancelablePromise<IntegrationsOauthCallbackResponse> => {
   return __request(OpenAPI, {
     method: "GET",
-    url: "/integrations/{provider}/callback",
+    url: "/integrations/{provider_id}/callback",
     path: {
-      provider: data.provider,
+      provider_id: data.providerId,
     },
     query: {
       code: data.code,
@@ -3812,7 +3812,7 @@ export const integrationsOauthCallback = (
  * Disconnect Provider
  * Disconnect integration for the specified provider.
  * @param data The data for the request.
- * @param data.provider
+ * @param data.providerId
  * @param data.workspaceId
  * @returns string Successful Response
  * @throws ApiError
@@ -3822,9 +3822,9 @@ export const integrationsDisconnectProvider = (
 ): CancelablePromise<IntegrationsDisconnectProviderResponse> => {
   return __request(OpenAPI, {
     method: "DELETE",
-    url: "/integrations/{provider}",
+    url: "/integrations/{provider_id}",
     path: {
-      provider: data.provider,
+      provider_id: data.providerId,
     },
     query: {
       workspace_id: data.workspaceId,
@@ -3839,7 +3839,7 @@ export const integrationsDisconnectProvider = (
  * Get Provider Status
  * Get integration status for the specified provider.
  * @param data The data for the request.
- * @param data.provider
+ * @param data.providerId
  * @param data.workspaceId
  * @returns unknown Successful Response
  * @throws ApiError
@@ -3849,9 +3849,9 @@ export const integrationsGetProviderStatus = (
 ): CancelablePromise<IntegrationsGetProviderStatusResponse> => {
   return __request(OpenAPI, {
     method: "GET",
-    url: "/integrations/{provider}/status",
+    url: "/integrations/{provider_id}/status",
     path: {
-      provider: data.provider,
+      provider_id: data.providerId,
     },
     query: {
       workspace_id: data.workspaceId,
