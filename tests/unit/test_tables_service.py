@@ -1,4 +1,5 @@
-from datetime import UTC, datetime
+import asyncio
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID, uuid4
 
@@ -522,6 +523,63 @@ class TestTableRows:
 
         assert results[1]["name"] == "Charlie"
         assert results[1]["age"] == 60
+
+    async def test_lookup_rows_with_date_filters(
+        self, tables_service: TablesService, table: Table
+    ) -> None:
+        """Test lookup_rows with date filtering capabilities."""
+        # Insert first row
+        first_row = await tables_service.insert_row(
+            table, TableRowInsert(data={"name": "Alice", "age": 25})
+        )
+        first_created = first_row["created_at"]
+
+        # Wait a bit and insert second row
+        await asyncio.sleep(0.01)
+        second_row = await tables_service.insert_row(
+            table, TableRowInsert(data={"name": "Bob", "age": 30})
+        )
+        second_created = second_row["created_at"]
+
+        # Test filtering by start_time
+        results = await tables_service.lookup_rows(
+            table_name=table.name,
+            columns=["name"],
+            values=["Alice"],
+            start_time=first_created - timedelta(seconds=1),
+        )
+        assert len(results) == 1
+        assert results[0]["name"] == "Alice"
+
+        # Test filtering by end_time (should exclude second row)
+        results = await tables_service.lookup_rows(
+            table_name=table.name,
+            columns=["name"],
+            values=["Alice"],
+            end_time=first_created + timedelta(milliseconds=5),
+        )
+        assert len(results) == 1
+        assert results[0]["name"] == "Alice"
+
+        # Test filtering by updated_after
+        results = await tables_service.lookup_rows(
+            table_name=table.name,
+            columns=["name"],
+            values=["Bob"],
+            updated_after=first_created,
+        )
+        assert len(results) == 1
+        assert results[0]["name"] == "Bob"
+
+        # Test filtering by updated_before (should find first row)
+        results = await tables_service.lookup_rows(
+            table_name=table.name,
+            columns=["name"],
+            values=["Alice"],
+            updated_before=second_created,
+        )
+        assert len(results) == 1
+        assert results[0]["name"] == "Alice"
 
 
 @pytest.mark.anyio

@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from tracecat_registry.core.cases import (
+    assign_user,
     create_case,
     create_comment,
     get_case,
@@ -708,7 +709,7 @@ class TestCoreListCases:
 
         # Assert list_cases was called with expected parameters
         mock_service.list_cases.assert_called_once_with(
-            limit=None, order_by=None, sort=None
+            limit=100, order_by=None, sort=None
         )
 
         # Verify result structure
@@ -1135,6 +1136,18 @@ class TestCoreSearchCases:
         # Verify the result is an empty list
         assert result == []
 
+    @patch("tracecat_registry.core.cases.CasesService.with_session")
+    async def test_list_cases_limit_validation(self, mock_with_session):
+        """Test that list_cases raises ValueError when limit exceeds maximum."""
+        from tracecat.config import TRACECAT__MAX_ROWS_CLIENT_POSTGRES
+
+        # Call list_cases with limit exceeding maximum
+        with pytest.raises(
+            ValueError,
+            match=f"Limit cannot be greater than {TRACECAT__MAX_ROWS_CLIENT_POSTGRES}",
+        ):
+            await list_cases(limit=TRACECAT__MAX_ROWS_CLIENT_POSTGRES + 1)
+
 
 @pytest.mark.anyio
 class TestCoreListComments:
@@ -1261,3 +1274,150 @@ class TestCoreListComments:
             case_id = str(uuid.uuid4())
             with pytest.raises(ValueError, match=f"Case with ID {case_id} not found"):
                 await list_comments(case_id=case_id)
+
+
+@pytest.mark.anyio
+class TestCoreSearchCasesWithDateFilters:
+    """Test cases for search_cases UDF with date filtering."""
+
+    @patch("tracecat_registry.core.cases.CasesService.with_session")
+    async def test_search_cases_with_date_filters(self, mock_with_session, mock_case):
+        """Test searching cases with date filtering capabilities."""
+        from datetime import UTC, datetime, timedelta
+
+        # Set up the mock service context manager
+        mock_service = AsyncMock()
+        mock_service.search_cases.return_value = [mock_case]
+
+        # Set up the context manager's __aenter__ to return the mock service
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        # Test date filters
+        start_time = datetime.now(UTC) - timedelta(days=1)
+        end_time = datetime.now(UTC)
+        updated_after = datetime.now(UTC) - timedelta(hours=1)
+        updated_before = datetime.now(UTC) + timedelta(hours=1)
+
+        # Call the search_cases function with date filters
+        result = await search_cases(
+            search_term="test",
+            status="new",
+            priority="high",
+            severity="critical",
+            limit=10,
+            order_by="updated_at",
+            sort="asc",
+            start_time=start_time,
+            end_time=end_time,
+            updated_after=updated_after,
+            updated_before=updated_before,
+        )
+
+        # Assert search_cases was called with expected parameters including date filters
+        mock_service.search_cases.assert_called_once()
+        call_args = mock_service.search_cases.call_args[1]
+        assert call_args["search_term"] == "test"
+        assert call_args["status"] == CaseStatus.NEW
+        assert call_args["priority"] == CasePriority.HIGH
+        assert call_args["severity"] == CaseSeverity.CRITICAL
+        assert call_args["limit"] == 10
+        assert call_args["order_by"] == "updated_at"
+        assert call_args["sort"] == "asc"
+        assert call_args["start_time"] == start_time
+        assert call_args["end_time"] == end_time
+        assert call_args["updated_after"] == updated_after
+        assert call_args["updated_before"] == updated_before
+
+        # Verify result structure
+        assert len(result) == 1
+        case_result = result[0]
+
+        # Check key values
+        assert case_result["id"] == str(mock_case.id)
+        assert case_result["summary"] == mock_case.summary
+        assert case_result["short_id"] == f"CASE-{mock_case.case_number:04d}"
+
+    @patch("tracecat_registry.core.cases.CasesService.with_session")
+    async def test_search_cases_limit_validation(self, mock_with_session):
+        """Test that search_cases raises ValueError when limit exceeds maximum."""
+        from tracecat.config import TRACECAT__MAX_ROWS_CLIENT_POSTGRES
+
+        # Call search_cases with limit exceeding maximum
+        with pytest.raises(
+            ValueError,
+            match=f"Limit cannot be greater than {TRACECAT__MAX_ROWS_CLIENT_POSTGRES}",
+        ):
+            await search_cases(limit=TRACECAT__MAX_ROWS_CLIENT_POSTGRES + 1)
+
+
+@pytest.mark.anyio
+class TestCoreAssignUser:
+    """Test cases for the assign_user UDF."""
+
+    @patch("tracecat_registry.core.cases.CasesService.with_session")
+    async def test_assign_user_success(self, mock_with_session, mock_case):
+        """Test successful user assignment to a case."""
+        # Set up the mock service context manager
+        mock_service = AsyncMock()
+        mock_service.get_case.return_value = mock_case
+
+        # Create an updated case with assignee
+        updated_case = MagicMock()
+        assignee_id = uuid.uuid4()
+        updated_case.model_dump.return_value = {
+            "id": str(mock_case.id),
+            "summary": mock_case.summary,
+            "description": mock_case.description,
+            "priority": mock_case.priority.value,
+            "severity": mock_case.severity.value,
+            "status": mock_case.status.value,
+            "assignee_id": str(assignee_id),
+            "created_at": mock_case.created_at,
+            "updated_at": mock_case.updated_at,
+        }
+        mock_service.update_case.return_value = updated_case
+
+        # Set up the context manager's __aenter__ to return the mock service
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        # Call the assign_user function
+        result = await assign_user(
+            case_id=str(mock_case.id),
+            assignee_id=str(assignee_id),
+        )
+
+        # Assert get_case was called with expected parameters
+        mock_service.get_case.assert_called_once_with(mock_case.id)
+
+        # Assert update_case was called with expected parameters
+        mock_service.update_case.assert_called_once()
+        case_arg, update_arg = mock_service.update_case.call_args[0]
+        assert case_arg is mock_case
+        assert update_arg.assignee_id == assignee_id
+
+        # Verify the result
+        assert result == updated_case.model_dump.return_value
+        assert result["assignee_id"] == str(assignee_id)
+
+    @patch("tracecat_registry.core.cases.CasesService.with_session")
+    async def test_assign_user_case_not_found(self, mock_with_session):
+        """Test assign_user when case is not found."""
+        # Set up the mock service context manager
+        mock_service = AsyncMock()
+        mock_service.get_case.return_value = None
+
+        # Set up the context manager's __aenter__ to return the mock service
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        # Call the assign_user function and expect an error
+        case_id = str(uuid.uuid4())
+        assignee_id = str(uuid.uuid4())
+
+        with pytest.raises(ValueError, match=f"Case with ID {case_id} not found"):
+            await assign_user(case_id=case_id, assignee_id=assignee_id)
