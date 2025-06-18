@@ -9,6 +9,11 @@ from tracecat.identifiers.workflow import WorkflowID
 
 type WebhookStatus = Literal["online", "offline"]
 type WebhookMethod = Literal["GET", "POST"]
+NDJSON_CONTENT_TYPES = (
+    "application/x-ndjson",
+    "application/jsonlines",
+    "application/jsonl",
+)
 
 
 class WebhookRead(Resource):

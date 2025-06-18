@@ -1,4 +1,8 @@
+import base64
+import os
 import secrets
+import tempfile
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any
@@ -17,8 +21,16 @@ from tracecat.api.common import bootstrap_role
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.users import AuthBackendStrategyDep, UserManagerDep, auth_backend
 from tracecat.config import (
+    SAML_ACCEPTED_TIME_DIFF,
+    SAML_ALLOW_UNSOLICITED,
+    SAML_AUTHN_REQUESTS_SIGNED,
+    SAML_CA_CERTS,
     SAML_IDP_METADATA_URL,
     SAML_PUBLIC_ACS_URL,
+    SAML_SIGNED_ASSERTIONS,
+    SAML_SIGNED_RESPONSES,
+    SAML_VERIFY_SSL_ENTITY,
+    SAML_VERIFY_SSL_METADATA,
     TRACECAT__APP_ENV,
     TRACECAT__PUBLIC_API_URL,
     XMLSEC_BINARY_PATH,
@@ -133,6 +145,70 @@ class SAMLParser:
         return attributes
 
 
+@contextmanager
+def ca_cert_tempfile(ca_cert_data: bytes):
+    """Context manager for creating and cleaning up a temporary CA certificate file.
+
+    Used for SSL/TLS transport layer certificate validation when fetching metadata
+    over HTTPS from IdPs using self-signed SSL certificates.
+    """
+    ca_cert_file = None
+    try:
+        ca_cert_file = tempfile.NamedTemporaryFile(
+            mode="wb", delete=False, suffix=".pem"
+        )
+        ca_cert_file.write(ca_cert_data)
+        ca_cert_file.close()
+        yield ca_cert_file.name
+    except Exception:
+        # Clean up on exception
+        if ca_cert_file and os.path.exists(ca_cert_file.name):
+            try:
+                os.unlink(ca_cert_file.name)
+            except OSError:
+                pass
+        raise
+    finally:
+        # Clean up after successful use
+        if ca_cert_file and os.path.exists(ca_cert_file.name):
+            try:
+                os.unlink(ca_cert_file.name)
+            except OSError:
+                pass
+
+
+@contextmanager
+def metadata_cert_tempfile(metadata_cert_data: bytes):
+    """Context manager for creating and cleaning up a temporary metadata certificate file.
+
+    Used for SAML protocol message signature verification when the IdP uses self-signed
+    certificates to sign SAML responses, assertions, and metadata documents.
+    """
+    metadata_cert_file = None
+    try:
+        metadata_cert_file = tempfile.NamedTemporaryFile(
+            mode="wb", delete=False, suffix=".pem"
+        )
+        metadata_cert_file.write(metadata_cert_data)
+        metadata_cert_file.close()
+        yield metadata_cert_file.name
+    except Exception:
+        # Clean up on exception
+        if metadata_cert_file and os.path.exists(metadata_cert_file.name):
+            try:
+                os.unlink(metadata_cert_file.name)
+            except OSError:
+                pass
+        raise
+    finally:
+        # Clean up after successful use
+        if metadata_cert_file and os.path.exists(metadata_cert_file.name):
+            try:
+                os.unlink(metadata_cert_file.name)
+            except OSError:
+                pass
+
+
 async def create_saml_client() -> Saml2Client:
     # Validate HTTPS requirement in production
     if TRACECAT__APP_ENV == "production":
@@ -162,10 +238,12 @@ async def create_saml_client() -> Saml2Client:
             detail="Invalid configuration",
         )
 
+    # Handle SSL certificate configuration for self-signed certificates
     saml_settings = {
         "strict": True,
         "entityid": TRACECAT__PUBLIC_API_URL,
         "xmlsec_binary": XMLSEC_BINARY_PATH,
+        "verify_ssl_cert": SAML_VERIFY_SSL_ENTITY,
         "service": {
             "sp": {
                 "name": "tracecat_saml_sp",
@@ -178,10 +256,10 @@ async def create_saml_client() -> Saml2Client:
                         ),
                     ],
                 },
-                "allow_unsolicited": True,
-                "authn_requests_signed": False,
-                "want_assertions_signed": True,
-                "want_response_signed": True,
+                "allow_unsolicited": SAML_ALLOW_UNSOLICITED,
+                "authn_requests_signed": SAML_AUTHN_REQUESTS_SIGNED,
+                "want_assertions_signed": SAML_SIGNED_ASSERTIONS,
+                "want_response_signed": SAML_SIGNED_RESPONSES,
                 "only_use_keys_in_metadata": True,
                 "validate_certificate": True,
             },
@@ -190,41 +268,89 @@ async def create_saml_client() -> Saml2Client:
             "remote": [
                 {
                     "url": saml_idp_metadata_url,
+                    "disable_ssl_certificate_validation": not SAML_VERIFY_SSL_METADATA,
                 }
             ]
         },
-        "accepted_time_diff": 3,
+        "accepted_time_diff": SAML_ACCEPTED_TIME_DIFF,
     }
-    try:
-        config = Saml2Config()
-        config.load(saml_settings)
-    except Exception as e:
-        logger.error(f"Failed to load SAML configuration: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Authentication service unavailable",
-        ) from e
 
-    client = Saml2Client(config)
+    # Configure CA certificate
+    if SAML_CA_CERTS:
+        try:
+            # Decode base64 CA certificate and use context manager for temp file
+            ca_cert_data = base64.b64decode(SAML_CA_CERTS)
+            with ca_cert_tempfile(ca_cert_data) as ca_cert_path:
+                logger.info(f"Using CA certificate file: {ca_cert_path}")
 
-    if not client.metadata:
-        logger.error("SAML client has no metadata loaded")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Authentication service unavailable",
-        )
+                # Create and configure SAML settings within the context
+                config = Saml2Config()
+                config.load(
+                    {
+                        **saml_settings,
+                        "ca_certs": ca_cert_path,
+                    }
+                )
+                client = Saml2Client(config)
 
-    idp_entities = list(client.metadata.keys())
-    if not idp_entities:
-        logger.error("No IdP entities found in metadata")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Authentication service unavailable",
-        )
+                # Validate client
+                if not client.metadata:
+                    logger.error("SAML client has no metadata loaded")
+                    raise HTTPException(
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        detail="Authentication service unavailable",
+                    )
 
-    logger.info(f"SAML client initialized with IdP entities: {idp_entities}")
+                idp_entities = list(client.metadata.keys())
+                if not idp_entities:
+                    logger.error("No IdP entities found in metadata")
+                    raise HTTPException(
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        detail="Authentication service unavailable",
+                    )
 
-    return client
+                logger.info(
+                    f"SAML client initialized with IdP entities: {idp_entities}"
+                )
+                return client
+
+        except Exception as e:
+            logger.error(f"Failed to create CA certificate file: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="SSL certificate configuration failed",
+            ) from e
+    else:
+        # No CA certificate - proceed with regular configuration
+        try:
+            config = Saml2Config()
+            config.load(saml_settings)
+        except Exception as e:
+            logger.error(f"Failed to load SAML configuration: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Authentication service unavailable",
+            ) from e
+
+        client = Saml2Client(config)
+
+        if not client.metadata:
+            logger.error("SAML client has no metadata loaded")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Authentication service unavailable",
+            )
+
+        idp_entities = list(client.metadata.keys())
+        if not idp_entities:
+            logger.error("No IdP entities found in metadata")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Authentication service unavailable",
+            )
+
+        logger.info(f"SAML client initialized with IdP entities: {idp_entities}")
+        return client
 
 
 @router.get("/login", name=f"saml:{auth_backend.name}.login")

@@ -64,10 +64,13 @@ import type {
   CasesUpdateCommentResponse,
   CasesUpdateFieldData,
   CasesUpdateFieldResponse,
+  EditorFieldSchemaResponse,
   EditorListActionsData,
   EditorListActionsResponse,
   EditorListFunctionsData,
   EditorListFunctionsResponse,
+  EditorValidateExpressionData,
+  EditorValidateExpressionResponse,
   FoldersCreateFolderData,
   FoldersCreateFolderResponse,
   FoldersDeleteFolderData,
@@ -305,7 +308,7 @@ export const publicIncomingWebhook = (
   data: PublicIncomingWebhookData
 ): CancelablePromise<PublicIncomingWebhookResponse> => {
   return __request(OpenAPI, {
-    method: "GET",
+    method: "POST",
     url: "/webhooks/{workflow_id}/{secret}",
     path: {
       secret: data.secret,
@@ -345,7 +348,7 @@ export const publicIncomingWebhook1 = (
   data: PublicIncomingWebhook1Data
 ): CancelablePromise<PublicIncomingWebhook1Response> => {
   return __request(OpenAPI, {
-    method: "POST",
+    method: "GET",
     url: "/webhooks/{workflow_id}/{secret}",
     path: {
       secret: data.secret,
@@ -2095,6 +2098,48 @@ export const editorListActions = (
     },
   })
 }
+
+/**
+ * Validate Expression
+ * LSP endpoint for validating template expressions using the Lark grammar.
+ *
+ * This endpoint provides syntax validation and token information for syntax highlighting
+ * of template expressions like: ACTIONS.step1.result, SECRETS.api_key, etc.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns ExpressionValidationResponse Successful Response
+ * @throws ApiError
+ */
+export const editorValidateExpression = (
+  data: EditorValidateExpressionData
+): CancelablePromise<EditorValidateExpressionResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/editor/expressions/validate",
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Field Schema
+ * @returns EditorComponent Successful Response
+ * @throws ApiError
+ */
+export const editorFieldSchema =
+  (): CancelablePromise<EditorFieldSchemaResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/editor/field-schema",
+    })
+  }
 
 /**
  * Reload Registry Repositories

@@ -13,6 +13,8 @@ clean-images:
 	docker images "tracecat*" -q | xargs -r docker rmi
 dev:
 	docker compose -f docker-compose.dev.yml up
+dev-ui:
+	npx @agentdeskai/browser-tools-server@1.2.0
 build-dev:
 	docker compose -f docker-compose.dev.yml build --no-cache
 up:
@@ -38,6 +40,7 @@ mypy path:
 	mypy --ignore-missing-imports {{path}}
 gen-client:
 	cd frontend && pnpm generate-client && cd ..
+	just lint-fix
 # Update version number. If no version is provided, increments patch version.
 update-version *after='':
 	@-./scripts/update-version.sh {{after}}

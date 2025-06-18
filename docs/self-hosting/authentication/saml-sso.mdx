@@ -12,13 +12,23 @@ icon: user-lock
 
 ## Configuration
 
-In your `.env` file, make sure you have the following value set.
+In your `.env` file, make sure you have the following values set.
 
 ```bash
 TRACECAT__AUTH_TYPES=saml
+SAML_IDP_METADATA_URL=https://<your-idp-metadata-url>
 ```
 
 ## Instructions
+
+<Note>
+   Tracecat requires BOTH assertions and responses to be signed.
+</Note>
+
+<Info>
+    If you are using a self-signed certificate for your metadata URL,
+    you'll need to add the CA certificates `.pem` file as a base64-encoded string via the `SAML_CA_CERTS` environment variable.
+</Info>
 
 ### Okta
 
@@ -54,6 +64,11 @@ TRACECAT__AUTH_TYPES=saml
 
 ### Microsoft Entra ID
 
+<Note>
+    Microsoft Entra ID only signs SAML assetions by default.
+    You'll need to explicitly enable the **Sign SAML response and assertion** option.
+</Note>
+
 <Steps>
     <Step title="Create an SAML app">
         Go to **Enterprise applications** and select the **New application** button.
@@ -63,6 +78,7 @@ TRACECAT__AUTH_TYPES=saml
         - Set the **Reply URL** and **Sign on URL** to `https://<your-tracecat-instance>/auth/saml/acs`.
         - Set **Identifier** to `https://<your-tracecat-instance>/api`.
         - Set **Relay State** to `https://<your-tracecat-instance>`.
+        - Make sure that **Sign SAML response and assertion** is enabled.
 
         ![Microsoft Entra SAML](/img/self-hosting/entra-saml.png)
     </Step>
@@ -119,3 +135,22 @@ TRACECAT__AUTH_TYPES=saml
         You should be redirected to Authentik for authentication.
     </Step>
 </Steps>
+
+## Environment variables
+
+If you know what you're doing, you can configure the SAML configuration via environment variables in the Tracecat `api` service:
+
+### Protocol Configuration
+- `SAML_ALLOW_UNSOLICITED`: Whether to allow unsolicited SAML responses (default: `true`)
+- `SAML_ACCEPTED_TIME_DIFF`: Time difference in seconds for SAML authentication (default: `3`)
+- `SAML_AUTHN_REQUESTS_SIGNED`: Whether to require signed SAML authentication requests (default: `false`)
+- `SAML_SIGNED_ASSERTIONS`: Whether to require signed SAML assertions (default: `true`)
+- `SAML_SIGNED_RESPONSES`: Whether to require signed SAML responses (default: `true`)
+
+### SSL Transport Configuration
+- `SAML_VERIFY_SSL_ENTITY`: Whether to verify SSL certificates for general SAML entity operations (default: `true`)
+- `SAML_VERIFY_SSL_METADATA`: Whether to verify SSL certificates when fetching metadata (default: `true`)
+- `SAML_CA_CERTS`: Base64 encoded CA certificates for SSL/TLS transport layer validation
+
+### SAML Protocol Configuration
+- `SAML_METADATA_CERT`: Base64 encoded certificate for SAML metadata document signature verification

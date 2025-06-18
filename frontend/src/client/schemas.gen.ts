@@ -226,6 +226,11 @@ export const $ActionRead = {
       ],
       title: "Interaction",
     },
+    ref: {
+      type: "string",
+      title: "Ref",
+      readOnly: true,
+    },
   },
   type: "object",
   required: [
@@ -236,6 +241,7 @@ export const $ActionRead = {
     "status",
     "inputs",
     "is_interactive",
+    "ref",
   ],
   title: "ActionRead",
 } as const
@@ -463,6 +469,24 @@ export const $ActionStep = {
   type: "object",
   required: ["ref", "action", "args"],
   title: "ActionStep",
+} as const
+
+export const $ActionType = {
+  properties: {
+    component_id: {
+      type: "string",
+      const: "action-type",
+      title: "Component Id",
+      default: "action-type",
+    },
+    multiple: {
+      type: "boolean",
+      title: "Multiple",
+      default: false,
+    },
+  },
+  type: "object",
+  title: "ActionType",
 } as const
 
 export const $ActionUpdate = {
@@ -1911,6 +1935,25 @@ export const $ClosedEventRead = {
   description: "Event for when a case is closed.",
 } as const
 
+export const $Code = {
+  properties: {
+    component_id: {
+      type: "string",
+      const: "code",
+      title: "Component Id",
+      default: "code",
+    },
+    lang: {
+      type: "string",
+      enum: ["yaml", "python"],
+      title: "Lang",
+      default: "python",
+    },
+  },
+  type: "object",
+  title: "Code",
+} as const
+
 export const $CreatedEventRead = {
   properties: {
     wf_exec_id: {
@@ -2272,6 +2315,61 @@ export const $EditorActionRead = {
   type: "object",
   required: ["type", "ref", "description"],
   title: "EditorActionRead",
+} as const
+
+export const $EditorComponent = {
+  oneOf: [
+    {
+      $ref: "#/components/schemas/Text",
+    },
+    {
+      $ref: "#/components/schemas/Code",
+    },
+    {
+      $ref: "#/components/schemas/Select",
+    },
+    {
+      $ref: "#/components/schemas/TextArea",
+    },
+    {
+      $ref: "#/components/schemas/Integer",
+    },
+    {
+      $ref: "#/components/schemas/Float",
+    },
+    {
+      $ref: "#/components/schemas/Toggle",
+    },
+    {
+      $ref: "#/components/schemas/Yaml",
+    },
+    {
+      $ref: "#/components/schemas/TagInput",
+    },
+    {
+      $ref: "#/components/schemas/ActionType",
+    },
+    {
+      $ref: "#/components/schemas/WorkflowAlias",
+    },
+  ],
+  title: "EditorComponent",
+  discriminator: {
+    propertyName: "component_id",
+    mapping: {
+      "action-type": "#/components/schemas/ActionType",
+      code: "#/components/schemas/Code",
+      float: "#/components/schemas/Float",
+      integer: "#/components/schemas/Integer",
+      select: "#/components/schemas/Select",
+      "tag-input": "#/components/schemas/TagInput",
+      text: "#/components/schemas/Text",
+      "text-area": "#/components/schemas/TextArea",
+      toggle: "#/components/schemas/Toggle",
+      "workflow-alias": "#/components/schemas/WorkflowAlias",
+      yaml: "#/components/schemas/Yaml",
+    },
+  },
 } as const
 
 export const $EditorFunctionRead = {
@@ -2676,6 +2774,46 @@ export const $ExprValidationResult = {
   description: "Result of visiting an expression node.",
 } as const
 
+export const $ExpressionValidationRequest = {
+  properties: {
+    expression: {
+      type: "string",
+      title: "Expression",
+    },
+  },
+  type: "object",
+  required: ["expression"],
+  title: "ExpressionValidationRequest",
+} as const
+
+export const $ExpressionValidationResponse = {
+  properties: {
+    is_valid: {
+      type: "boolean",
+      title: "Is Valid",
+    },
+    errors: {
+      items: {
+        $ref: "#/components/schemas/ValidationError",
+      },
+      type: "array",
+      title: "Errors",
+      default: [],
+    },
+    tokens: {
+      items: {
+        $ref: "#/components/schemas/SyntaxToken",
+      },
+      type: "array",
+      title: "Tokens",
+      default: [],
+    },
+  },
+  type: "object",
+  required: ["is_valid"],
+  title: "ExpressionValidationResponse",
+} as const
+
 export const $FieldChangedEventRead = {
   properties: {
     wf_exec_id: {
@@ -2745,6 +2883,46 @@ export const $FieldDiff = {
   type: "object",
   required: ["field", "old", "new"],
   title: "FieldDiff",
+} as const
+
+export const $Float = {
+  properties: {
+    component_id: {
+      type: "string",
+      const: "float",
+      title: "Component Id",
+      default: "float",
+    },
+    min_val: {
+      anyOf: [
+        {
+          type: "number",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Min Val",
+    },
+    max_val: {
+      anyOf: [
+        {
+          type: "number",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Val",
+    },
+    step: {
+      type: "number",
+      title: "Step",
+      default: 0.1,
+    },
+  },
+  type: "object",
+  title: "Float",
 } as const
 
 export const $FolderDirectoryItem = {
@@ -2941,6 +3119,46 @@ export const $ImageUrl = {
   type: "object",
   required: ["url"],
   title: "ImageUrl",
+} as const
+
+export const $Integer = {
+  properties: {
+    component_id: {
+      type: "string",
+      const: "integer",
+      title: "Component Id",
+      default: "integer",
+    },
+    min_val: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Min Val",
+    },
+    max_val: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Val",
+    },
+    step: {
+      type: "integer",
+      title: "Step",
+      default: 1,
+    },
+  },
+  type: "object",
+  title: "Integer",
 } as const
 
 export const $InteractionCategory = {
@@ -5478,6 +5696,38 @@ export const $SecretValidationResult = {
   description: "Result of validating credentials.",
 } as const
 
+export const $Select = {
+  properties: {
+    component_id: {
+      type: "string",
+      const: "select",
+      title: "Component Id",
+      default: "select",
+    },
+    options: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Options",
+    },
+    multiple: {
+      type: "boolean",
+      title: "Multiple",
+      default: false,
+    },
+  },
+  type: "object",
+  title: "Select",
+} as const
+
 export const $SessionRead = {
   properties: {
     id: {
@@ -5631,6 +5881,30 @@ export const $StatusChangedEventRead = {
   required: ["old", "new", "created_at"],
   title: "StatusChangedEventRead",
   description: "Event for when a case status is changed.",
+} as const
+
+export const $SyntaxToken = {
+  properties: {
+    type: {
+      type: "string",
+      title: "Type",
+    },
+    value: {
+      type: "string",
+      title: "Value",
+    },
+    start: {
+      type: "integer",
+      title: "Start",
+    },
+    end: {
+      type: "integer",
+      title: "End",
+    },
+  },
+  type: "object",
+  required: ["type", "value", "start", "end"],
+  title: "SyntaxToken",
 } as const
 
 export const $SystemPromptPart = {
@@ -6000,6 +6274,19 @@ export const $TagCreate = {
   description: "Model for creating new tags with validation.",
 } as const
 
+export const $TagInput = {
+  properties: {
+    component_id: {
+      type: "string",
+      const: "tag-input",
+      title: "Component Id",
+      default: "tag-input",
+    },
+  },
+  type: "object",
+  title: "TagInput",
+} as const
+
 export const $TagRead = {
   properties: {
     id: {
@@ -6315,6 +6602,42 @@ export const $TemplateActionValidationErrorType = {
   title: "TemplateActionValidationErrorType",
 } as const
 
+export const $Text = {
+  properties: {
+    component_id: {
+      type: "string",
+      const: "text",
+      title: "Component Id",
+      default: "text",
+    },
+  },
+  type: "object",
+  title: "Text",
+} as const
+
+export const $TextArea = {
+  properties: {
+    component_id: {
+      type: "string",
+      const: "text-area",
+      title: "Component Id",
+      default: "text-area",
+    },
+    rows: {
+      type: "integer",
+      title: "Rows",
+      default: 4,
+    },
+    placeholder: {
+      type: "string",
+      title: "Placeholder",
+      default: "",
+    },
+  },
+  type: "object",
+  title: "TextArea",
+} as const
+
 export const $TextPart = {
   properties: {
     content: {
@@ -6331,6 +6654,29 @@ export const $TextPart = {
   type: "object",
   required: ["content"],
   title: "TextPart",
+} as const
+
+export const $Toggle = {
+  properties: {
+    label_on: {
+      type: "string",
+      title: "Label On",
+      default: "On",
+    },
+    label_off: {
+      type: "string",
+      title: "Label Off",
+      default: "Off",
+    },
+    component_id: {
+      type: "string",
+      const: "toggle",
+      title: "Component Id",
+      default: "toggle",
+    },
+  },
+  type: "object",
+  title: "Toggle",
 } as const
 
 export const $ToolCallPart = {
@@ -7134,6 +7480,19 @@ export const $WebhookUpdate = {
   },
   type: "object",
   title: "WebhookUpdate",
+} as const
+
+export const $WorkflowAlias = {
+  properties: {
+    component_id: {
+      type: "string",
+      const: "workflow-alias",
+      title: "Component Id",
+      default: "workflow-alias",
+    },
+  },
+  type: "object",
+  title: "WorkflowAlias",
 } as const
 
 export const $WorkflowCommitResponse = {
@@ -8876,6 +9235,19 @@ export const $WorkspaceUpdate = {
   },
   type: "object",
   title: "WorkspaceUpdate",
+} as const
+
+export const $Yaml = {
+  properties: {
+    component_id: {
+      type: "string",
+      const: "yaml",
+      title: "Component Id",
+      default: "yaml",
+    },
+  },
+  type: "object",
+  title: "Yaml",
 } as const
 
 export const $login = {
