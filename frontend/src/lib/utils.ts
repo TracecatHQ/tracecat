@@ -1,3 +1,4 @@
+import { IntegrationOauthCallback } from "@/client"
 import { type ClassValue, clsx } from "clsx"
 import { twMerge } from "tailwind-merge"
 import YAML from "yaml"
@@ -107,4 +108,16 @@ export function shortTimeAgo(date: Date) {
  */
 export function reconstructActionType(type: string) {
   return type.replaceAll("__", ".")
+}
+
+export function isIntegrationOauthCallback(
+  obj: unknown
+): obj is IntegrationOauthCallback {
+  return (
+    typeof obj === "object" &&
+    obj !== null &&
+    "status" in obj &&
+    "provider_id" in obj &&
+    "redirect_url" in obj
+  )
 }

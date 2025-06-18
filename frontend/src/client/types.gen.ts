@@ -955,6 +955,42 @@ export type Integer = {
   step?: number
 }
 
+/**
+ * Response for OAuth callback.
+ */
+export type IntegrationOauthCallback = {
+  /**
+   * The status of the OAuth callback
+   */
+  status?: string
+  /**
+   * The provider that the user connected to
+   */
+  provider_id: string
+  /**
+   * The URL to redirect to after the OAuth callback
+   */
+  redirect_url: string
+}
+
+/**
+ * Response model for user integration.
+ */
+export type IntegrationRead = {
+  id: string
+  workspace_id: string
+  user_id?: string | null
+  provider_id: string
+  token_type: string
+  expires_at: string | null
+  scope: string | null
+  metadata: {
+    [key: string]: unknown
+  }
+  created_at: string
+  updated_at: string
+}
+
 export type InteractionCategory = "slack"
 
 /**
@@ -3782,6 +3818,54 @@ export type FoldersMoveFolderData = {
 
 export type FoldersMoveFolderResponse = WorkflowFolderRead
 
+export type IntegrationsListIntegrationsData = {
+  workspaceId: string
+}
+
+export type IntegrationsListIntegrationsResponse = Array<IntegrationRead>
+
+export type IntegrationsConnectProviderData = {
+  provider: string
+  workspaceId: string
+}
+
+export type IntegrationsConnectProviderResponse = {
+  [key: string]: string
+}
+
+export type IntegrationsOauthCallbackData = {
+  /**
+   * Authorization code from OAuth provider
+   */
+  code: string
+  provider: string
+  /**
+   * State parameter from authorization request
+   */
+  state: string
+  workspaceId: string
+}
+
+export type IntegrationsOauthCallbackResponse = IntegrationOauthCallback
+
+export type IntegrationsDisconnectProviderData = {
+  provider: string
+  workspaceId: string
+}
+
+export type IntegrationsDisconnectProviderResponse = {
+  [key: string]: string
+}
+
+export type IntegrationsGetProviderStatusData = {
+  provider: string
+  workspaceId: string
+}
+
+export type IntegrationsGetProviderStatusResponse = {
+  [key: string]: unknown
+}
+
 export type UsersUsersCurrentUserResponse = UserRead
 
 export type UsersUsersPatchCurrentUserData = {
@@ -5684,6 +5768,87 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: WorkflowFolderRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/integrations": {
+    get: {
+      req: IntegrationsListIntegrationsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<IntegrationRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/integrations/{provider}/connect": {
+    post: {
+      req: IntegrationsConnectProviderData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: {
+          [key: string]: string
+        }
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/integrations/{provider}/callback": {
+    get: {
+      req: IntegrationsOauthCallbackData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: IntegrationOauthCallback
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/integrations/{provider}": {
+    delete: {
+      req: IntegrationsDisconnectProviderData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: {
+          [key: string]: string
+        }
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/integrations/{provider}/status": {
+    get: {
+      req: IntegrationsGetProviderStatusData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: {
+          [key: string]: unknown
+        }
         /**
          * Validation Error
          */

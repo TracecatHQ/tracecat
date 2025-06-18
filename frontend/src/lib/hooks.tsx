@@ -44,6 +44,11 @@ import {
   foldersMoveFolder,
   foldersUpdateFolder,
   type GitSettingsRead,
+  IntegrationRead,
+  integrationsConnectProvider,
+  integrationsDisconnectProvider,
+  integrationsGetProviderStatus,
+  integrationsListIntegrations,
   type OAuthSettingsRead,
   type OrganizationDeleteOrgMemberData,
   type OrganizationDeleteSessionData,
@@ -3101,5 +3106,96 @@ export function useCaseEvents({
     caseEvents,
     caseEventsIsLoading,
     caseEventsError,
+  }
+}
+
+/* Integrations */
+export function useIntegrations(workspaceId: string) {
+  const queryClient = useQueryClient()
+
+  // List user integrations
+  const {
+    data: integrations,
+    isLoading: integrationsIsLoading,
+    error: integrationsError,
+  } = useQuery<IntegrationRead[], TracecatApiError>({
+    queryKey: ["integrations", workspaceId],
+    queryFn: async () => await integrationsListIntegrations({ workspaceId }),
+  })
+
+  // Connect to provider
+  const {
+    mutateAsync: connectProvider,
+    isPending: connectProviderIsPending,
+    error: connectProviderError,
+  } = useMutation({
+    mutationFn: async (provider: string) =>
+      await integrationsConnectProvider({ provider, workspaceId }),
+    onSuccess: (result) => {
+      // Redirect to OAuth provider if auth_url is returned
+      if (result.auth_url) {
+        window.location.href = result.auth_url
+      }
+    },
+    onError: (error: TracecatApiError) => {
+      console.error("Failed to connect provider:", error)
+      toast({
+        title: "Failed to connect",
+        description: `Could not connect to provider: ${error.body?.detail || error.message}`,
+        variant: "destructive",
+      })
+    },
+  })
+
+  // Disconnect from provider
+  const {
+    mutateAsync: disconnectProvider,
+    isPending: disconnectProviderIsPending,
+    error: disconnectProviderError,
+  } = useMutation({
+    mutationFn: async (provider: string) =>
+      await integrationsDisconnectProvider({ provider, workspaceId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["integrations"] })
+      toast({
+        title: "Disconnected",
+        description: "Successfully disconnected from provider",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      console.error("Failed to disconnect provider:", error)
+      toast({
+        title: "Failed to disconnect",
+        description: `Could not disconnect from provider: ${error.body?.detail || error.message}`,
+        variant: "destructive",
+      })
+    },
+  })
+
+  // Get provider status
+  const getProviderStatus = async (provider: string) => {
+    try {
+      return await integrationsGetProviderStatus({ provider, workspaceId })
+    } catch (error) {
+      console.error(`Failed to get status for ${provider}:`, error)
+      return null
+    }
+  }
+
+  return {
+    // List
+    integrations,
+    integrationsIsLoading,
+    integrationsError,
+    // Connect
+    connectProvider,
+    connectProviderIsPending,
+    connectProviderError,
+    // Disconnect
+    disconnectProvider,
+    disconnectProviderIsPending,
+    disconnectProviderError,
+    // Status
+    getProviderStatus,
   }
 }
