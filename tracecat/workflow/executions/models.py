@@ -5,7 +5,6 @@ from datetime import UTC, datetime
 from typing import (
     Annotated,
     Any,
-    Generic,
     Literal,
     NotRequired,
     TypedDict,
@@ -152,7 +151,7 @@ EventInput = TypeVar(
 )
 
 
-class EventGroup(BaseModel, Generic[EventInput]):
+class EventGroup[EventInput](BaseModel):
     event_id: int
     udf_namespace: str
     udf_name: str
@@ -304,7 +303,7 @@ class EventFailure(BaseModel):
         )
 
 
-class WorkflowExecutionEvent(BaseModel, Generic[EventInput]):
+class WorkflowExecutionEvent[EventInput](BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
     event_id: int
     event_time: datetime

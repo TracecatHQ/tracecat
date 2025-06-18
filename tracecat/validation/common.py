@@ -1,4 +1,4 @@
-from typing import Annotated, Any, Literal, Optional
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, create_model
 from pydantic.alias_generators import to_camel
@@ -89,7 +89,7 @@ def json_schema_to_pydantic(
             field_params["description"] = prop_schema_val["description"]
 
         if prop_name not in required:
-            field_type = Optional[field_type]  # noqa: UP007
+            field_type = field_type | None
             field_params["default"] = None
 
         fields[prop_name] = (field_type, Field(**field_params))

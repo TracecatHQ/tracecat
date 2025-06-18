@@ -10,7 +10,7 @@ from tracecat.logger import logger
 T = TypeVar("T")
 
 
-def apartial(coro: Callable[..., Awaitable[T]], /, *bind_args, **bind_kwargs):
+def apartial[T](coro: Callable[..., Awaitable[T]], /, *bind_args, **bind_kwargs):
     async def wrapped(*args, **kwargs):
         keywords = {**bind_kwargs, **kwargs}
         return await coro(*bind_args, *args, **keywords)
