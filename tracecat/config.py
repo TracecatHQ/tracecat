@@ -279,3 +279,8 @@ TRACECAT__S3_CONCURRENCY_LIMIT = int(
     os.environ.get("TRACECAT__S3_CONCURRENCY_LIMIT", 50)
 )
 """Maximum number of concurrent S3 operations to prevent resource exhaustion. Defaults to 50."""
+
+TRACECAT__MAX_ROWS_CLIENT_POSTGRES = int(
+    os.environ.get("TRACECAT__MAX_ROWS_CLIENT_POSTGRES", 1000)
+)
+"""Maximum number of rows that can be returned from PostgreSQL client queries. Defaults to 1,000."""

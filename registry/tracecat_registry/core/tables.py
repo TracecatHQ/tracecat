@@ -112,14 +112,14 @@ async def search_records(
         datetime | None,
         Doc("Filter records updated after this time."),
     ] = None,
-    limit: Annotated[
-        int,
-        Doc("The maximum number of rows to return."),
-    ] = 100,
     offset: Annotated[
         int,
         Doc("The number of rows to skip."),
     ] = 0,
+    limit: Annotated[
+        int,
+        Doc("The maximum number of rows to return."),
+    ] = 100,
 ) -> list[dict[str, Any]]:
     if limit > TRACECAT__MAX_ROWS_CLIENT_POSTGRES:
         raise ValueError(

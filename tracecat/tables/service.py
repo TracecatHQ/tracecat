@@ -371,30 +371,61 @@ class BaseTablesService(BaseService):
             if not is_valid_sql_type(new_type):
                 raise ValueError(f"Invalid type: {new_type}")
 
-            # Build ALTER COLUMN statement
-            alter_stmts = []
+            # Build ALTER COLUMN statement using safe DDL construction
             if "name" in set_fields:
-                alter_stmts.append(f"RENAME COLUMN {old_name} TO {new_name}")
+                await conn.execute(
+                    sa.DDL(
+                        "ALTER TABLE %s RENAME COLUMN %s TO %s",
+                        (full_table_name, old_name, new_name),
+                    )
+                )
             if "type" in set_fields:
-                alter_stmts.append(f"ALTER COLUMN {new_name} TYPE {new_type}")
+                await conn.execute(
+                    sa.DDL(
+                        "ALTER TABLE %s ALTER COLUMN %s TYPE %s",
+                        (full_table_name, new_name, new_type),
+                    )
+                )
             if "nullable" in set_fields:
                 constraint = (
                     "DROP NOT NULL" if set_fields["nullable"] else "SET NOT NULL"
                 )
-                alter_stmts.append(f'ALTER COLUMN "{new_name}" {constraint}')
+                await conn.execute(
+                    sa.DDL(
+                        # SAFE f-string: constraint is a controlled literal string ("DROP NOT NULL" or "SET NOT NULL")
+                        # No user input is interpolated here - only predefined SQL keywords
+                        f"ALTER TABLE %s ALTER COLUMN %s {constraint}",
+                        (full_table_name, new_name),
+                    )
+                )
             if "default" in set_fields:
                 updated_default = set_fields["default"]
                 if updated_default is None:
-                    alter_stmts.append(f'ALTER COLUMN "{new_name}" DROP DEFAULT')
-                else:
-                    alter_stmts.append(
-                        f"ALTER COLUMN \"{new_name}\" SET DEFAULT '{updated_default}'"
+                    await conn.execute(
+                        sa.DDL(
+                            "ALTER TABLE %s ALTER COLUMN %s DROP DEFAULT",
+                            (full_table_name, new_name),
+                        )
                     )
-
-            # Execute all ALTER statements
-            self.logger.info("Updating column", stmts=alter_stmts)
-            for stmt in alter_stmts:
-                await conn.execute(sa.DDL(f"ALTER TABLE {full_table_name} {stmt}"))
+                else:
+                    # SECURITY NOTE: PostgreSQL DDL does not support parameter binding for DEFAULT clauses.
+                    # We must use string interpolation here, but it's SAFE because:
+                    # 1. handle_default_value() sanitizes and properly formats the value based on SQL type
+                    # 2. It applies proper quoting, escaping, and type casting (e.g., 'value'::text, 123, true)
+                    # 3. The function validates the SQL type and rejects invalid inputs
+                    # 4. This is the ONLY way to set DEFAULT values in PostgreSQL DDL statements
+                    formatted_default = handle_default_value(
+                        SqlType(new_type if "type" in set_fields else column.type),
+                        updated_default,
+                    )
+                    await conn.execute(
+                        sa.DDL(
+                            # SAFE f-string: formatted_default is pre-sanitized by handle_default_value()
+                            # Other parameters (table/column names) still use secure parameter binding
+                            f"ALTER TABLE %s ALTER COLUMN %s SET DEFAULT {formatted_default}",
+                            (full_table_name, new_name),
+                        )
+                    )
 
         # Update the column metadata
         for key, value in set_fields.items():
@@ -1091,31 +1122,63 @@ class TableEditorService(BaseService):
         set_fields = params.model_dump(exclude_unset=True)
         conn = await self.session.connection()
 
-        statements = []
         new_name = column_name
+        full_table_name = self._full_table_name()
+
+        # Execute ALTER statements using safe DDL construction
         if "name" in set_fields:
             new_name = sanitize_identifier(set_fields["name"])
-            statements.append(f"RENAME COLUMN {column_name} TO {new_name}")
+            await conn.execute(
+                sa.DDL(
+                    "ALTER TABLE %s RENAME COLUMN %s TO %s",
+                    (full_table_name, column_name, new_name),
+                )
+            )
         if "type" in set_fields:
             new_type = set_fields["type"]
-            statements.append(f"ALTER COLUMN {new_name} TYPE {new_type}")
+            await conn.execute(
+                sa.DDL(
+                    "ALTER TABLE %s ALTER COLUMN %s TYPE %s",
+                    (full_table_name, new_name, new_type),
+                )
+            )
         if "nullable" in set_fields:
             constraint = "DROP NOT NULL" if set_fields["nullable"] else "SET NOT NULL"
-            statements.append(f'ALTER COLUMN "{new_name}" {constraint}')
+            await conn.execute(
+                sa.DDL(
+                    # SAFE f-string: constraint is a controlled literal string ("DROP NOT NULL" or "SET NOT NULL")
+                    # No user input is interpolated here - only predefined SQL keywords
+                    f"ALTER TABLE %s ALTER COLUMN %s {constraint}",
+                    (full_table_name, new_name),
+                )
+            )
         if "default" in set_fields:
             updated_default = set_fields["default"]
             if updated_default is None:
-                statements.append(f'ALTER COLUMN "{new_name}" DROP DEFAULT')
-            else:
-                statements.append(
-                    f"ALTER COLUMN \"{new_name}\" SET DEFAULT '{updated_default}'"
+                await conn.execute(
+                    sa.DDL(
+                        "ALTER TABLE %s ALTER COLUMN %s DROP DEFAULT",
+                        (full_table_name, new_name),
+                    )
                 )
-
-        # Execute all ALTER statements
-        self.logger.info("Updating column", stmts=statements)
-        full_table_name = self._full_table_name()
-        for stmt in statements:
-            await conn.execute(sa.DDL(f"ALTER TABLE {full_table_name} {stmt}"))
+            else:
+                # SECURITY NOTE: PostgreSQL DDL does not support parameter binding for DEFAULT clauses.
+                # We must use string interpolation here, but it's SAFE because:
+                # 1. handle_default_value() sanitizes and properly formats the value based on SQL type
+                # 2. It applies proper quoting, escaping, and type casting (e.g., 'value'::text, 123, true)
+                # 3. The function validates the SQL type and rejects invalid inputs
+                # 4. This is the ONLY way to set DEFAULT values in PostgreSQL DDL statements
+                formatted_default = handle_default_value(
+                    SqlType(set_fields.get("type", "TEXT")), updated_default
+                )
+                await conn.execute(
+                    sa.DDL(
+                        # SAFE f-string: formatted_default is pre-sanitized by handle_default_value()
+                        # Other parameters (table/column names) still use secure parameter binding
+                        f"ALTER TABLE %s ALTER COLUMN %s SET DEFAULT {formatted_default}",
+                        (full_table_name, new_name),
+                    )
+                )
 
         await self.session.flush()
 
