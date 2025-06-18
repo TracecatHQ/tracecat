@@ -3825,7 +3825,7 @@ export type IntegrationsListIntegrationsData = {
 export type IntegrationsListIntegrationsResponse = Array<IntegrationRead>
 
 export type IntegrationsConnectProviderData = {
-  provider: string
+  providerId: string
   workspaceId: string
 }
 
@@ -3838,7 +3838,7 @@ export type IntegrationsOauthCallbackData = {
    * Authorization code from OAuth provider
    */
   code: string
-  provider: string
+  providerId: string
   /**
    * State parameter from authorization request
    */
@@ -3849,7 +3849,7 @@ export type IntegrationsOauthCallbackData = {
 export type IntegrationsOauthCallbackResponse = IntegrationOauthCallback
 
 export type IntegrationsDisconnectProviderData = {
-  provider: string
+  providerId: string
   workspaceId: string
 }
 
@@ -3858,7 +3858,7 @@ export type IntegrationsDisconnectProviderResponse = {
 }
 
 export type IntegrationsGetProviderStatusData = {
-  provider: string
+  providerId: string
   workspaceId: string
 }
 
@@ -5790,7 +5790,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/integrations/{provider}/connect": {
+  "/integrations/{provider_id}/connect": {
     post: {
       req: IntegrationsConnectProviderData
       res: {
@@ -5807,7 +5807,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/integrations/{provider}/callback": {
+  "/integrations/{provider_id}/callback": {
     get: {
       req: IntegrationsOauthCallbackData
       res: {
@@ -5822,7 +5822,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/integrations/{provider}": {
+  "/integrations/{provider_id}": {
     delete: {
       req: IntegrationsDisconnectProviderData
       res: {
@@ -5839,7 +5839,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/integrations/{provider}/status": {
+  "/integrations/{provider_id}/status": {
     get: {
       req: IntegrationsGetProviderStatusData
       res: {

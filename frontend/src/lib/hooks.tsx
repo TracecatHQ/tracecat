@@ -3129,8 +3129,8 @@ export function useIntegrations(workspaceId: string) {
     isPending: connectProviderIsPending,
     error: connectProviderError,
   } = useMutation({
-    mutationFn: async (provider: string) =>
-      await integrationsConnectProvider({ provider, workspaceId }),
+    mutationFn: async (providerId: string) =>
+      await integrationsConnectProvider({ providerId, workspaceId }),
     onSuccess: (result) => {
       // Redirect to OAuth provider if auth_url is returned
       if (result.auth_url) {
@@ -3153,8 +3153,8 @@ export function useIntegrations(workspaceId: string) {
     isPending: disconnectProviderIsPending,
     error: disconnectProviderError,
   } = useMutation({
-    mutationFn: async (provider: string) =>
-      await integrationsDisconnectProvider({ provider, workspaceId }),
+    mutationFn: async (providerId: string) =>
+      await integrationsDisconnectProvider({ providerId, workspaceId }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["integrations"] })
       toast({
@@ -3173,11 +3173,11 @@ export function useIntegrations(workspaceId: string) {
   })
 
   // Get provider status
-  const getProviderStatus = async (provider: string) => {
+  const getProviderStatus = async (providerId: string) => {
     try {
-      return await integrationsGetProviderStatus({ provider, workspaceId })
+      return await integrationsGetProviderStatus({ providerId, workspaceId })
     } catch (error) {
-      console.error(`Failed to get status for ${provider}:`, error)
+      console.error(`Failed to get status for ${providerId}:`, error)
       return null
     }
   }

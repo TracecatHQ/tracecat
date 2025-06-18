@@ -58,7 +58,7 @@ async def list_integrations(
 
 
 # Generic OAuth flow endpoints
-@router.post("/{provider}/connect")
+@router.post("/{provider_id}/connect")
 async def connect_provider(
     role: WorkspaceUserRole,
     provider: BaseOauthProvider = Depends(get_provider),
@@ -77,7 +77,7 @@ async def connect_provider(
     return {"auth_url": auth_url, "provider": provider.id}
 
 
-@router.get("/{provider}/callback")
+@router.get("/{provider_id}/callback")
 async def oauth_callback(
     *,
     session: AsyncDBSession,
@@ -137,7 +137,7 @@ async def oauth_callback(
     )
 
 
-@router.delete("/{provider}")
+@router.delete("/{provider_id}")
 async def disconnect_provider(
     *,
     role: WorkspaceUserRole,
@@ -168,7 +168,7 @@ async def disconnect_provider(
     return {"status": "disconnected", "provider": provider.id}
 
 
-@router.get("/{provider}/status")
+@router.get("/{provider_id}/status")
 async def get_provider_status(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
