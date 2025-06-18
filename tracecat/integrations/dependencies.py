@@ -1,7 +1,7 @@
 from fastapi import HTTPException, status
 
 from tracecat.integrations.base import BaseOauthProvider
-from tracecat.integrations.providers import get_provider as get_provider_class
+from tracecat.integrations.providers import ProviderRegistry
 
 
 def get_provider(provider_id: str) -> BaseOauthProvider:
@@ -17,7 +17,7 @@ def get_provider(provider_id: str) -> BaseOauthProvider:
     Raises:
         HTTPException: If the provider is not supported
     """
-    cls = get_provider_class(provider_id)
+    cls = ProviderRegistry.get().get_class(provider_id)
     if cls is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
