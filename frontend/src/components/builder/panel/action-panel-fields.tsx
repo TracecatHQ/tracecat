@@ -522,7 +522,7 @@ function ComponentContent({
     case "code":
       return (
         <CodeEditor
-          value={field.value}
+          value={field.value || ""}
           onChange={field.onChange}
           language={component.lang || "python"}
           readOnly={false}
