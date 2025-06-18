@@ -20,7 +20,7 @@ tavily_secret = RegistrySecret(name="tavily", keys=["TAVILY_API_KEY"])
     namespace="tools.tavily",
     secrets=[tavily_secret],
 )
-async def search(
+async def web_search(
     query: Annotated[str, Doc("Search query to execute with Tavily.")],
     search_deep: Annotated[Literal["basic", "advanced"], Doc("Depth of the search.")],
     topic: Annotated[Literal["general", "news"], Doc("Category of the search.")],

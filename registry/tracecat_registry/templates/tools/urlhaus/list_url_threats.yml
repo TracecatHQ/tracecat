@@ -1,11 +1,11 @@
 type: action
 definition:
   title: List URL blocklist
-  description: List recent URLs from URLhaus
+  description: List recent URLs from URLhaus blocklist
   display_group: URLhaus
   doc_url: https://urlhaus-api.abuse.ch/#urls-recent
   namespace: tools.urlhaus
-  name: list_urls
+  name: list_url_threats
   secrets:
     - name: abusech
       keys: ["ABUSECH_API_KEY"]
@@ -15,11 +15,11 @@ definition:
       description: Maximum number of URLs to return.
       default: 100
   steps:
-    - ref: list_urls
+    - ref: list_url_threats
       action: core.http_request
       args:
         url: https://urlhaus-api.abuse.ch/v1/urls/recent/limit/${{ inputs.limit }}
         method: GET
         headers:
           Auth-Key: ${{ SECRETS.abusech.ABUSECH_API_KEY }}
-  returns: ${{ steps.list_urls.result }}
+  returns: ${{ steps.list_url_threats.result }}
