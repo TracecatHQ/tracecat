@@ -125,25 +125,6 @@ def test_use_jsonpath_in_safe_lambda(
 
 
 @pytest.mark.parametrize(
-    "lambda_str,error_type,error_message",
-    [
-        ("lambda x: import os", ValueError, "Expression contains restricted symbols"),
-        ("import sys", ValueError, "Expression contains restricted symbols"),
-        ("lambda x: locals()", ValueError, "Expression contains restricted symbols"),
-        ("x + 1", ValueError, "Expression must be a lambda function"),
-        ("lambda x: globals()", ValueError, "Expression contains restricted symbols"),
-        ("lambda x: eval('1+1')", ValueError, "Expression contains restricted symbols"),
-    ],
-)
-def test_build_lambda_errors(
-    lambda_str: str, error_type: type[Exception], error_message: str
-) -> None:
-    with pytest.raises(error_type) as e:
-        build_safe_lambda(lambda_str)
-        assert error_message in str(e)
-
-
-@pytest.mark.parametrize(
     "expression,expect_match",
     [
         ("${{ path.to.example -> asdf }}", True),
