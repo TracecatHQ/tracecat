@@ -6,6 +6,8 @@ import tempfile
 from io import BytesIO
 from pathlib import Path
 
+import jsonpath_ng.exceptions
+import orjson
 import pytest
 from minio import Minio
 from tracecat_registry.integrations.amazon_s3 import _s3_semaphore
@@ -614,12 +616,12 @@ class TestJsonPathFunctions:
 
     def test_jsonpath_find_invalid_json_content(self, invalid_json_file):
         """Test jsonpath_find with malformed JSON."""
-        with pytest.raises(RuntimeError, match="Invalid JSON content"):
+        with pytest.raises(orjson.JSONDecodeError):
             jsonpath_find("$.test", invalid_json_file)
 
     def test_jsonpath_find_invalid_jsonpath_expression(self, sample_json_file):
         """Test jsonpath_find with malformed JSONPath expression."""
-        with pytest.raises(RuntimeError, match="Invalid JSONPath expression"):
+        with pytest.raises(jsonpath_ng.exceptions.JsonPathParserError):
             jsonpath_find("$.[invalid", sample_json_file)
 
     def test_jsonpath_find_file_read_error(self, sample_json_file):
@@ -708,12 +710,12 @@ class TestJsonPathFunctions:
 
     def test_jsonpath_find_and_replace_invalid_json(self, invalid_json_file):
         """Test jsonpath_find_and_replace with invalid JSON content."""
-        with pytest.raises(RuntimeError, match="Invalid JSON content"):
+        with pytest.raises(orjson.JSONDecodeError):
             jsonpath_find_and_replace("$.test", invalid_json_file, "replacement")
 
     def test_jsonpath_find_and_replace_invalid_expression(self, sample_json_file):
         """Test jsonpath_find_and_replace with invalid JSONPath expression."""
-        with pytest.raises(RuntimeError, match="Invalid JSONPath expression"):
+        with pytest.raises(jsonpath_ng.exceptions.JsonPathParserError):
             jsonpath_find_and_replace("$.[invalid", sample_json_file, "replacement")
 
     def test_jsonpath_find_and_replace_file_write_error(self, sample_json_file):
