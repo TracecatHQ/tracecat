@@ -1,4 +1,4 @@
-"""Tests for core.tables UDFs in the registry."""
+"""Tests for core.table UDFs in the registry."""
 
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -49,7 +49,7 @@ def mock_row():
 class TestCoreLookup:
     """Test cases for the lookup UDF."""
 
-    @patch("tracecat_registry.core.tables.TablesService.with_session")
+    @patch("tracecat_registry.core.table.TablesService.with_session")
     async def test_lookup_success(self, mock_with_session, mock_row):
         """Test successful single row lookup."""
         # Set up the mock service context manager
@@ -79,7 +79,7 @@ class TestCoreLookup:
         # Verify the result
         assert result == mock_row
 
-    @patch("tracecat_registry.core.tables.TablesService.with_session")
+    @patch("tracecat_registry.core.table.TablesService.with_session")
     async def test_lookup_not_found(self, mock_with_session):
         """Test lookup when no row is found."""
         # Set up the mock service context manager
@@ -106,7 +106,7 @@ class TestCoreLookup:
 class TestCoreLookupMany:
     """Test cases for the lookup_many UDF."""
 
-    @patch("tracecat_registry.core.tables.TablesService.with_session")
+    @patch("tracecat_registry.core.table.TablesService.with_session")
     async def test_lookup_many_success(self, mock_with_session, mock_row):
         """Test successful multiple row lookup."""
         # Set up the mock service context manager
@@ -138,7 +138,7 @@ class TestCoreLookupMany:
         # Verify the result
         assert result == mock_rows
 
-    @patch("tracecat_registry.core.tables.TablesService.with_session")
+    @patch("tracecat_registry.core.table.TablesService.with_session")
     async def test_lookup_many_limit_validation(self, mock_with_session):
         """Test that lookup_many raises ValueError when limit exceeds maximum."""
         from tracecat.config import TRACECAT__MAX_ROWS_CLIENT_POSTGRES
@@ -155,7 +155,7 @@ class TestCoreLookupMany:
                 limit=TRACECAT__MAX_ROWS_CLIENT_POSTGRES + 1,
             )
 
-    @patch("tracecat_registry.core.tables.TablesService.with_session")
+    @patch("tracecat_registry.core.table.TablesService.with_session")
     async def test_lookup_many_with_date_filters(self, mock_with_session, mock_row):
         """Test lookup_many with date filtering capabilities."""
         # Set up the mock service context manager
@@ -192,7 +192,7 @@ class TestCoreLookupMany:
 class TestCoreInsertRow:
     """Test cases for the insert_row UDF."""
 
-    @patch("tracecat_registry.core.tables.TablesService.with_session")
+    @patch("tracecat_registry.core.table.TablesService.with_session")
     async def test_insert_row_success(self, mock_with_session, mock_table, mock_row):
         """Test successful row insertion."""
         # Set up the mock service context manager
@@ -224,7 +224,7 @@ class TestCoreInsertRow:
         # Verify the result
         assert result == mock_row
 
-    @patch("tracecat_registry.core.tables.TablesService.with_session")
+    @patch("tracecat_registry.core.table.TablesService.with_session")
     async def test_insert_row_with_upsert(
         self, mock_with_session, mock_table, mock_row
     ):
@@ -261,7 +261,7 @@ class TestCoreInsertRow:
 class TestCoreUpdateRow:
     """Test cases for the update_row UDF."""
 
-    @patch("tracecat_registry.core.tables.TablesService.with_session")
+    @patch("tracecat_registry.core.table.TablesService.with_session")
     async def test_update_row_success(self, mock_with_session, mock_table, mock_row):
         """Test successful row update."""
         # Set up the mock service context manager
@@ -298,7 +298,7 @@ class TestCoreUpdateRow:
 class TestCoreDeleteRow:
     """Test cases for the delete_row UDF."""
 
-    @patch("tracecat_registry.core.tables.TablesService.with_session")
+    @patch("tracecat_registry.core.table.TablesService.with_session")
     async def test_delete_row_success(self, mock_with_session, mock_table, mock_row):
         """Test successful row deletion."""
         # Set up the mock service context manager
@@ -330,7 +330,7 @@ class TestCoreDeleteRow:
 class TestCoreCreateTable:
     """Test cases for the create_table UDF."""
 
-    @patch("tracecat_registry.core.tables.TablesService.with_session")
+    @patch("tracecat_registry.core.table.TablesService.with_session")
     async def test_create_table_without_columns(self, mock_with_session, mock_table):
         """Test table creation without predefined columns."""
         # Set up the mock service context manager
@@ -354,7 +354,7 @@ class TestCoreCreateTable:
         # Verify the result
         assert result == mock_table.model_dump.return_value
 
-    @patch("tracecat_registry.core.tables.TablesService.with_session")
+    @patch("tracecat_registry.core.table.TablesService.with_session")
     async def test_create_table_with_columns(self, mock_with_session, mock_table):
         """Test table creation with predefined columns."""
         # Set up the mock service context manager
@@ -403,7 +403,7 @@ class TestCoreCreateTable:
 class TestCoreSearchRecords:
     """Test cases for the search_records UDF."""
 
-    @patch("tracecat_registry.core.tables.TablesService.with_session")
+    @patch("tracecat_registry.core.table.TablesService.with_session")
     async def test_search_records_basic(self, mock_with_session, mock_table, mock_row):
         """Test basic record search without date filters."""
         # Set up the mock service context manager
@@ -445,7 +445,7 @@ class TestCoreSearchRecords:
         assert result[0]["name"] == mock_row["name"]
         assert result[0]["age"] == mock_row["age"]
 
-    @patch("tracecat_registry.core.tables.TablesService.with_session")
+    @patch("tracecat_registry.core.table.TablesService.with_session")
     async def test_search_records_with_date_filters(
         self, mock_with_session, mock_table, mock_row
     ):
@@ -498,7 +498,7 @@ class TestCoreSearchRecords:
         assert len(result) == 1
         assert result[0] == mock_row
 
-    @patch("tracecat_registry.core.tables.TablesService.with_session")
+    @patch("tracecat_registry.core.table.TablesService.with_session")
     async def test_search_records_limit_validation(self, mock_with_session):
         """Test that search_records raises ValueError when limit exceeds maximum."""
         from tracecat.config import TRACECAT__MAX_ROWS_CLIENT_POSTGRES
