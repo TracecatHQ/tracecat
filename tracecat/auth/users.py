@@ -38,6 +38,7 @@ from tracecat.api.common import bootstrap_role
 from tracecat.auth.models import UserCreate, UserRole, UserUpdate
 from tracecat.authz.models import WorkspaceRole
 from tracecat.authz.service import MembershipService
+from tracecat.contexts import ctx_role
 from tracecat.db.adapter import (
     SQLModelAccessTokenDatabaseAsync,
     SQLModelUserDatabaseAsync,
@@ -46,7 +47,7 @@ from tracecat.db.engine import get_async_session, get_async_session_context_mana
 from tracecat.db.schemas import AccessToken, OAuthAccount, User
 from tracecat.logger import logger
 from tracecat.settings.service import get_setting
-from tracecat.types.auth import system_role
+from tracecat.types.auth import AccessLevel, system_role
 from tracecat.workspaces.models import WorkspaceMembershipCreate
 from tracecat.workspaces.service import WorkspaceService
 
@@ -82,7 +83,16 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         # NOTE(security): Prevent unprivileged users from changing role or is_superuser fields
         blacklist = ("role", "is_superuser")
         set_fields = user_update.model_fields_set
-        if is_unprivileged(user) and any(field in set_fields for field in blacklist):
+
+        role = ctx_role.get()
+        logger.info("update", role=role)
+        if (
+            # Check if the request is coming from an admin user
+            # and if the request is trying to change role or is_superuser
+            (role := ctx_role.get())
+            and role.access_level != AccessLevel.ADMIN
+            and any(field in set_fields for field in blacklist)
+        ):
             raise PermissionsException("Operation not permitted")
 
         return await super().update(user_update, user, safe=True, request=request)
