@@ -38,6 +38,7 @@ The module also implements intelligent caching using diskcache to reduce redunda
 S3 operations and improve performance for repeated requests.
 """
 
+import re
 import jsonpath_ng.ext
 import jsonpath_ng
 import orjson
@@ -146,6 +147,9 @@ def grep_search(
         pattern_name="regex pattern",
         require_file=False,  # ripgrep works on directories
     )
+
+    # Fast-fail on obviously invalid regular expressions so the model can retry quickly
+    re.compile(pattern)
 
     # Build command with security-focused flags
     args = [
