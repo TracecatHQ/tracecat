@@ -88,7 +88,7 @@ export function Builder({ defaultLayout = [0, 68, 24] }: BuilderProps) {
           collapsedSize={0}
           collapsible={true}
           minSize={24}
-          maxSize={48}
+          maxSize={38}
           className="relative h-full"
         >
           <BuilderSidebarEvents />
@@ -146,7 +146,8 @@ export function Builder({ defaultLayout = [0, 68, 24] }: BuilderProps) {
           defaultSize={defaultLayout[2]}
           collapsedSize={0}
           collapsible={true}
-          maxSize={48}
+          minSize={3}
+          maxSize={58}
           className="h-full"
         >
           <BuilderPanel ref={actionPanelRef} />
