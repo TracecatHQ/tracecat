@@ -492,3 +492,70 @@ class TestAgentBuilderIntegration:
             if isinstance(part, dict) and part.get("part_kind") == "tool-call"
         ]
         assert any("jsonpath_find_and_replace" in t for t in tool_calls)
+
+    @pytest.mark.anyio
+    async def test_agent_multiple_file_operations(self, test_role):
+        """Agent should replace text in multiple files and create a new summary file."""
+        # Prepare two text files
+        file_a = "greetings.txt"
+        file_b = "fruits.txt"
+        content_a = "Hello OldValue\nLine2"
+        content_b = "OldValue\napples\nOldValue"
+        files = {
+            file_a: base64.b64encode(content_a.encode()).decode(),
+            file_b: base64.b64encode(content_b.encode()).decode(),
+        }
+
+        prompt = (
+            "Across all files replace the string 'OldValue' with 'NewValue'. "
+            "After replacing, create a new file named 'summary.txt' that contains the single line 'Done'. "
+            "Respond with confirmation."
+        )
+
+        # Patch registry service to avoid external deps
+        mock_service = Mock()
+        mock_service.list_actions = AsyncMock(return_value=[])
+        mock_context = AsyncMock()
+        mock_context.__aenter__.return_value = mock_service
+
+        with patch(
+            "tracecat_registry.integrations.agents.builder.RegistryActionsService.with_session",
+            return_value=mock_context,
+        ):
+            result = await agent(
+                user_prompt=prompt,
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+                actions=[],
+                files=files,
+                instructions=(
+                    "You are a helpful assistant that can manipulate files using the available file tools."
+                ),
+                include_usage=True,
+            )
+
+        assert isinstance(result, dict)
+        returned_files = result.get("files") or {}
+        assert isinstance(returned_files, dict)
+
+        # Original files should have replacements
+        assert "NewValue" in returned_files[file_a]
+        assert "OldValue" not in returned_files[file_a]
+        assert "NewValue" in returned_files[file_b]
+        assert "OldValue" not in returned_files[file_b]
+
+        # New file should exist
+        assert "summary.txt" in returned_files
+        assert returned_files["summary.txt"].strip() == "Done"
+
+        # Verify tool usage
+        history = result.get("message_history", [])
+        tool_calls = [
+            part["tool_name"]
+            for msg in history
+            if isinstance(msg, dict)
+            for part in msg.get("parts", [])
+            if isinstance(part, dict) and part.get("part_kind") == "tool-call"
+        ]
+        assert any("find_and_replace" in t for t in tool_calls)
+        assert any("create_file" in t for t in tool_calls)
