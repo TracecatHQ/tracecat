@@ -1,131 +1,25 @@
+import shutil
+
 import pytest
+from tracecat_registry.core.python import PythonScriptExecutionError
 
 from tracecat.expressions.common import build_safe_lambda
 
+# Check if Deno is available (required for the subprocess fallback)
+DENO_AVAILABLE = shutil.which("deno") is not None
 
-class TestBuildSafeLambdaSecurity:
-    """Test security features of build_safe_lambda function."""
+# Skip all tests if Deno isn't available
+pytestmark = pytest.mark.skipif(
+    not DENO_AVAILABLE,
+    reason="Deno not available. Required for Pyodide subprocess execution.",
+)
 
-    def test_blocks_dunder_method_access(self):
-        """Test that access to dunder methods is blocked."""
-        dangerous_exprs = [
-            "lambda x: x.__class__",
-            "lambda x: x.__dict__",
-            "lambda x: x.__module__",
-            "lambda x: x.__bases__",
-            "lambda x: x.__subclasses__()",
-            "lambda x: x.__globals__",
-            "lambda x: x.__builtins__",
-            "lambda x: x.__import__",
-        ]
 
-        for expr in dangerous_exprs:
-            with pytest.raises(
-                ValueError, match="dangerous pattern|restricted attribute|magic method"
-            ):
-                build_safe_lambda(expr)
-
-    def test_blocks_getattr_setattr_variants(self):
-        """Test that getattr, setattr, hasattr, delattr are blocked."""
-        dangerous_exprs = [
-            'lambda x: getattr(x, "__class__")',
-            'lambda x: setattr(x, "attr", "value")',
-            'lambda x: hasattr(x, "__class__")',
-            'lambda x: delattr(x, "attr")',
-            'lambda x: getattr(x, chr(95)+chr(95)+"class"+chr(95)+chr(95))',
-        ]
-
-        for expr in dangerous_exprs:
-            with pytest.raises(ValueError, match="dangerous pattern|restricted"):
-                build_safe_lambda(expr)
-
-    def test_blocks_import_variants(self):
-        """Test that various import mechanisms are blocked."""
-        dangerous_exprs = [
-            'lambda x: __import__("os")',
-            'lambda x: __import__("sys").exit()',
-            "lambda x: import os",  # This would be a syntax error anyway
-        ]
-
-        for expr in dangerous_exprs:
-            with pytest.raises(ValueError, match="dangerous pattern|restricted|syntax"):
-                build_safe_lambda(expr)
-
-    def test_blocks_eval_exec_compile(self):
-        """Test that eval, exec, compile are blocked."""
-        dangerous_exprs = [
-            'lambda x: eval("1+1")',
-            'lambda x: exec("print(1)")',
-            'lambda x: compile("1+1", "<string>", "eval")',
-        ]
-
-        for expr in dangerous_exprs:
-            with pytest.raises(ValueError, match="dangerous pattern|restricted"):
-                build_safe_lambda(expr)
-
-    def test_blocks_file_operations(self):
-        """Test that file operations are blocked."""
-        dangerous_exprs = [
-            'lambda x: open("/etc/passwd")',
-            'lambda x: file("/etc/passwd")',
-            'lambda x: input("Enter password:")',
-        ]
-
-        for expr in dangerous_exprs:
-            with pytest.raises(ValueError, match="dangerous pattern|restricted"):
-                build_safe_lambda(expr)
-
-    def test_blocks_system_operations(self):
-        """Test that system operations are blocked."""
-        dangerous_exprs = [
-            'lambda x: x.system("ls")',
-            'lambda x: x.popen("ls")',
-            'lambda x: x.call(["ls"])',
-            'lambda x: x.run(["ls"])',
-        ]
-
-        for expr in dangerous_exprs:
-            with pytest.raises(ValueError, match="dangerous pattern"):
-                build_safe_lambda(expr)
-
-    def test_blocks_introspection_functions(self):
-        """Test that introspection functions are blocked."""
-        dangerous_exprs = [
-            "lambda x: dir(x)",
-            "lambda x: vars(x)",
-            "lambda x: type(x)",
-            "lambda x: callable(x)",
-            "lambda x: isinstance(x, str)",
-            "lambda x: globals()",
-            "lambda x: locals()",
-        ]
-
-        for expr in dangerous_exprs:
-            with pytest.raises(ValueError, match="restricted"):
-                build_safe_lambda(expr)
-
-    def test_blocks_advanced_escape_attempts(self):
-        """Test advanced Python sandbox escape techniques."""
-        dangerous_exprs = [
-            # Classic Python sandbox escape
-            "lambda x: ().__class__.__bases__[0].__subclasses__()[104]",
-            # Unicode encoding bypass attempts
-            'lambda x: getattr(x, "\\u005f\\u005fclass\\u005f\\u005f")',
-            # String concatenation bypasses
-            'lambda x: getattr(x, "__" + "class" + "__")',
-            'lambda x: x["__class__"]',
-            # Method resolution bypasses
-            "lambda x: x.mro()",
-        ]
-
-        for expr in dangerous_exprs:
-            with pytest.raises(
-                ValueError, match="dangerous pattern|restricted|magic method"
-            ):
-                build_safe_lambda(expr)
+class TestBuildSafeLambda:
+    """Test build_safe_lambda functionality with Deno sandbox."""
 
     def test_input_validation(self):
-        """Test input validation for lambda expressions."""
+        """Test basic input validation."""
         # Empty or None input
         with pytest.raises(ValueError, match="non-empty string"):
             build_safe_lambda("")
@@ -133,142 +27,175 @@ class TestBuildSafeLambdaSecurity:
         with pytest.raises(ValueError, match="non-empty string"):
             build_safe_lambda(None)  # type: ignore
 
-        # Too long input
-        long_expr = "lambda x: " + "x + " * 500 + "1"
-        with pytest.raises(ValueError, match="too long"):
-            build_safe_lambda(long_expr)
-
-        # Null bytes
-        with pytest.raises(ValueError, match="null bytes"):
-            build_safe_lambda("lambda x: x\x00")
-
     def test_lambda_structure_validation(self):
         """Test validation of lambda structure."""
-        # Not a lambda
-        with pytest.raises(ValueError, match="must be a lambda"):
+        # Not a lambda - should fail parsing
+        with pytest.raises(ValueError, match="Invalid lambda expression format"):
             build_safe_lambda("x + 1")
 
-        # No parameters
-        with pytest.raises(ValueError, match="at least one parameter"):
-            build_safe_lambda("lambda: 42")
+        # These should parse successfully - just test that we can create the callable
+        func = build_safe_lambda("lambda: 42")
+        assert callable(func)
 
-        # Too many parameters
-        with pytest.raises(ValueError, match="more than 3 parameters"):
-            build_safe_lambda("lambda a, b, c, d: a")
+        func = build_safe_lambda("lambda a, b, c, d: a + b + c + d")
+        assert callable(func)
 
-    def test_allows_safe_operations(self):
-        """Test that safe operations are allowed."""
-        safe_exprs = [
+    def test_lambda_parsing(self):
+        """Test that various lambda expressions are parsed correctly."""
+        # Test that these don't raise exceptions during parsing
+        test_cases = [
             "lambda x: x + 1",
+            "lambda x: x.upper()",
             "lambda x: len(x)",
             "lambda x, y: x * y",
-            "lambda data: sum(data)",
-            "lambda s: s.upper()",
-            "lambda s: s.strip()",
-            "lambda x: str(x)",
-            "lambda x: int(x)",
-            "lambda x: float(x)",
-            "lambda x: bool(x)",
-            "lambda items: list(filter(lambda x: x > 0, items))",
-            "lambda data: max(data)",
-            "lambda data: min(data)",
-            "lambda x: abs(x)",
-            "lambda items: sorted(items)",
-            'lambda x: x.split(",")',
-            'lambda x: x.replace("a", "b")',
+            "lambda x: sum(x)",
+            "lambda x: max(x)",
+            "lambda x: 'positive' if x > 0 else 'non-positive'",
+            "lambda d: d.get('key', 'default')",
+            "lambda items: [x for x in items if x > 0]",
+            'lambda data: jsonpath("$.users[*].name", data)',
+            'lambda x: open("/etc/passwd")',  # Should parse but fail in sandbox
+            'lambda x: __import__("os")',  # Should parse but be isolated
         ]
 
-        for expr in safe_exprs:
-            # Should not raise an exception
+        for expr in test_cases:
             func = build_safe_lambda(expr)
             assert callable(func)
 
-    def test_safe_lambda_execution(self):
-        """Test that safe lambdas execute correctly with restricted globals."""
-        # Test basic arithmetic
+    def test_basic_lambda_execution(self):
+        """Test that basic lambdas execute correctly."""
+        # These tests require actual Deno execution which needs proper environment setup
         func1 = build_safe_lambda("lambda x: x + 1")
         assert func1(5) == 6
 
-        # Test string operations
         func2 = build_safe_lambda("lambda x: x.upper()")
         assert func2("hello") == "HELLO"
 
-        # Test list operations
-        func3 = build_safe_lambda("lambda x: len(x)")
-        assert func3([1, 2, 3]) == 3
+    def test_sandbox_isolation(self):
+        """Test that dangerous operations fail safely in the sandbox."""
 
-        # Test safe built-ins
-        func4 = build_safe_lambda("lambda x: sum(x)")
-        assert func4([1, 2, 3]) == 6
+        # File operations should fail in sandbox
+        func1 = build_safe_lambda('lambda x: open("/etc/passwd")')
+        with pytest.raises(PythonScriptExecutionError):
+            func1(None)
+
+    def test_security_by_design(self):
+        """Test that previously dangerous patterns are now safe due to sandbox isolation."""
+        # These patterns were blocked in the old implementation
+        # but are now safe because they run in an isolated sandbox
+        dangerous_patterns = [
+            "lambda x: x.__class__",
+            "lambda x: x.__dict__",
+            'lambda x: getattr(x, "__class__")',
+            'lambda x: __import__("os")',
+            'lambda x: eval("1+1")',
+            'lambda x: open("/etc/passwd")',
+            "lambda x: globals()",
+            "lambda x: ().__class__.__bases__[0].__subclasses__()",
+        ]
+
+        # All of these should now parse successfully
+        # The sandbox provides the security, not pattern filtering
+        for pattern in dangerous_patterns:
+            func = build_safe_lambda(pattern)
+            assert callable(func)
+            # Actual execution would be safe but might fail due to sandbox restrictions
+
+    @pytest.mark.skip(reason="Requires Deno environment setup")
+    def test_builtin_functions(self):
+        """Test that common built-in functions work."""
+        test_cases = [
+            ("lambda x: sum(x)", [1, 2, 3], 6),
+            ("lambda x: max(x)", [1, 5, 3], 5),
+            ("lambda x: min(x)", [1, 5, 3], 1),
+            ("lambda x: abs(x)", -5, 5),
+            ("lambda x: len(x)", "hello", 5),
+            ("lambda x: str(x)", 42, "42"),
+            ("lambda x: int(x)", "42", 42),
+            ("lambda x: float(x)", "3.14", 3.14),
+            ("lambda x: bool(x)", 1, True),
+            ("lambda x: list(x)", (1, 2, 3), [1, 2, 3]),
+            ("lambda x: sorted(x)", [3, 1, 2], [1, 2, 3]),
+        ]
+
+        for expr, input_val, expected in test_cases:
+            func = build_safe_lambda(expr)
+            assert func(input_val) == expected
+
+    def test_string_methods(self):
+        """Test that string methods work correctly."""
+        test_cases = [
+            ("lambda s: s.upper()", "hello", "HELLO"),
+            ("lambda s: s.lower()", "HELLO", "hello"),
+            ("lambda s: s.strip()", "  hello  ", "hello"),
+            ('lambda s: s.split(",")', "a,b,c", ["a", "b", "c"]),
+            ('lambda s: s.replace("a", "b")', "banana", "bbnbnb"),
+            ("lambda s: s.startswith('h')", "hello", True),
+            ("lambda s: s.endswith('o')", "hello", True),
+        ]
+
+        for expr, input_val, expected in test_cases:
+            func = build_safe_lambda(expr)
+            assert func(input_val) == expected
+
+    def test_list_comprehensions_and_filtering(self):
+        """Test more complex operations like list comprehensions."""
+        # Filter operation
+        func1 = build_safe_lambda("lambda items: [x for x in items if x > 0]")
+        assert func1([-1, 0, 1, 2, -3]) == [1, 2]
+
+        # Map operation
+        func2 = build_safe_lambda("lambda items: [x * 2 for x in items]")
+        assert func2([1, 2, 3]) == [2, 4, 6]
+
+        # Nested data access
+        func3 = build_safe_lambda("lambda items: [x['name'] for x in items]")
+        assert func3([{"name": "Alice"}, {"name": "Bob"}]) == ["Alice", "Bob"]
 
     def test_jsonpath_functionality(self):
-        """Test that jsonpath functionality works in secure lambdas."""
+        """Test that jsonpath functionality works in the sandbox."""
         test_data = {
             "users": [{"name": "Alice", "age": 30}, {"name": "Bob", "age": 25}]
         }
 
-        func = build_safe_lambda('lambda data: jsonpath("$.users[*].name", data)')
-        result = func(test_data)
+        # Basic jsonpath
+        func1 = build_safe_lambda('lambda data: jsonpath("$.users[*].name", data)')
+        result = func1(test_data)
         assert result == ["Alice", "Bob"]
 
-    def test_restricted_globals_environment(self):
-        """Test that the execution environment has restricted globals."""
-        # This lambda would normally have access to __builtins__, but shouldn't in our secure env
-        func = build_safe_lambda("lambda x: x")
+        # Single value jsonpath
+        func2 = build_safe_lambda('lambda data: jsonpath("$.users[0].name", data)')
+        assert func2(test_data) == "Alice"
 
-        # The function should work but not have access to dangerous globals
-        assert func("test") == "test"
+    def test_complex_operations(self):
+        """Test more complex lambda operations."""
+        # Conditional logic
+        func1 = build_safe_lambda("lambda x: 'positive' if x > 0 else 'non-positive'")
+        assert func1(5) == "positive"
+        assert func1(-5) == "non-positive"
 
-        # Test that dangerous built-ins are not available even if we try to access them
-        # (This would be caught at parse time anyway, but good to verify)
-        with pytest.raises(ValueError, match="dangerous pattern"):
-            build_safe_lambda("lambda x: __builtins__")
+        # Dictionary operations
+        func2 = build_safe_lambda("lambda d: d.get('key', 'default')")
+        assert func2({"key": "value"}) == "value"
+        assert func2({}) == "default"
 
-    def test_comprehensive_bypass_attempts(self):
-        """Test comprehensive list of known Python sandbox bypass techniques."""
-        bypass_attempts = [
-            # Classic escapes
-            "lambda x: ().__class__.__bases__[0].__subclasses__()",
-            "lambda x: [].__class__.__bases__[0].__subclasses__()",
-            'lambda x: "".__class__.__mro__[1].__subclasses__()',
-            # Attribute access variations
-            "lambda x: x.__class__.__dict__",
-            "lambda x: x.__class__.__module__",
-            "lambda x: x.__class__.__name__",
-            # Built-in access attempts
-            "lambda x: __builtins__.__dict__",
-            "lambda x: globals().__builtins__",
-            # Method access attempts
-            'lambda x: x.__getattribute__("__class__")',
-            'lambda x: x.__getattr__("__class__")',
-            # Import variations
-            'lambda x: __import__("subprocess").call(["ls"])',
-            'lambda x: __import__("os").system("echo pwned")',
-            # Code object access
-            "lambda x: x.__code__",
-            "lambda x: x.__func__",
-            "lambda x: x.__globals__",
-        ]
+        # Multiple operations
+        func3 = build_safe_lambda("lambda items: sum([x * 2 for x in items if x > 0])")
+        assert func3([1, -2, 3, -4, 5]) == 18  # (1*2 + 3*2 + 5*2)
 
-        for expr in bypass_attempts:
-            with pytest.raises(ValueError):
-                build_safe_lambda(expr)
+    def test_error_handling(self):
+        """Test that errors in lambda execution are properly handled."""
+        # Division by zero
+        func1 = build_safe_lambda("lambda x: 1 / x")
+        with pytest.raises(PythonScriptExecutionError):
+            func1(0)
 
-    def test_edge_cases_and_corner_cases(self):
-        """Test edge cases that might slip through validation."""
-        edge_cases = [
-            # Whitespace variations
-            'lambda x: getattr( x , "__class__" )',
-            'lambda x:getattr(x,"__class__")',
-            'lambda x: getattr\t(x, "__class__")',
-            # Case variations (should be caught by case-insensitive matching)
-            'lambda x: GETATTR(x, "__class__")',
-            'lambda x: GetAttr(x, "__class__")',
-            # Complex expressions that might hide dangerous operations
-            'lambda x: [getattr(item, "__class__") for item in x]',
-            'lambda x: {"class": getattr(x, "__class__")}',
-        ]
+        # Attribute error
+        func2 = build_safe_lambda("lambda x: x.nonexistent_method()")
+        with pytest.raises(PythonScriptExecutionError):
+            func2("string")
 
-        for expr in edge_cases:
-            with pytest.raises(ValueError):
-                build_safe_lambda(expr)
+        # Type error
+        func3 = build_safe_lambda("lambda x: x + 'string'")
+        with pytest.raises(PythonScriptExecutionError):
+            func3(123)

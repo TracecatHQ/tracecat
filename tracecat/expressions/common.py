@@ -1,4 +1,4 @@
-import ast
+import asyncio
 import re
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass
@@ -99,370 +99,140 @@ K = TypeVar("K", str, StrEnum)
 ExprOperand = Mapping[K, Any]
 
 
-class SafeEvaluator(ast.NodeVisitor):
-    # Restricted AST node types that can lead to code injection
-    RESTRICTED_NODES = {
-        ast.Import,
-        ast.ImportFrom,
-        ast.FunctionDef,
-        ast.AsyncFunctionDef,
-        ast.ClassDef,
-        ast.Global,
-        ast.Nonlocal,
-        ast.With,
-        ast.AsyncWith,
-        ast.Raise,
-        ast.Try,
-        ast.ExceptHandler,
-        ast.Assert,
-        ast.Delete,
-        ast.AugAssign,  # +=, -=, etc.
-        ast.AnnAssign,  # type annotations with assignment
-    }
-
-    # Restricted symbols that should never appear in lambda expressions
-    RESTRICTED_SYMBOLS = {
-        "eval",
-        "exec",
-        "compile",
-        "open",
-        "file",
-        "input",
-        "raw_input",
-        "import",
-        "from",
-        "__import__",
-        "reload",
-        "os",
-        "sys",
-        "subprocess",
-        "platform",
-        "socket",
-        "urllib",
-        "locals",
-        "globals",
-        "vars",
-        "dir",
-        "help",
-        "memoryview",
-        "getattr",
-        "setattr",
-        "delattr",
-        "hasattr",
-        "callable",
-        "isinstance",
-        "issubclass",
-        "super",
-        "__builtins__",
-        "__builtin__",
-        "builtins",
-        "type",
-        "object",
-        "property",
-        "staticmethod",
-        "classmethod",
-        "exit",
-        "quit",
-        "license",
-        "credits",
-        "copyright",
-    }
-
-    # Restricted magic methods and attributes
-    RESTRICTED_ATTRIBUTES = {
-        "__class__",
-        "__bases__",
-        "__subclasses__",
-        "__mro__",
-        "__globals__",
-        "__locals__",
-        "__code__",
-        "__func__",
-        "__self__",
-        "__module__",
-        "__dict__",
-        "__doc__",
-        "__name__",
-        "__qualname__",
-        "__annotations__",
-        "__builtins__",
-        "__import__",
-        "__build_class__",
-        "__metaclass__",
-        "__prepare__",
-        "__instancecheck__",
-        "__subclasscheck__",
-        "__call__",
-        "__new__",
-        "__init__",
-        "__del__",
-        "__repr__",
-        "__str__",
-        "__bytes__",
-        "__format__",
-        "__lt__",
-        "__le__",
-        "__eq__",
-        "__ne__",
-        "__gt__",
-        "__ge__",
-        "__hash__",
-        "__bool__",
-        "__sizeof__",
-        "__getattr__",
-        "__getattribute__",
-        "__setattr__",
-        "__delattr__",
-        "__dir__",
-        "__get__",
-        "__set__",
-        "__delete__",
-        "__set_name__",
-        "__init_subclass__",
-        "__class_getitem__",
-    }
-
-    ALLOWED_FUNCTIONS = {"jsonpath"}
-
-    # Allowed built-in functions for data manipulation
-    SAFE_BUILTINS = {
-        "abs",
-        "all",
-        "any",
-        "bin",
-        "bool",
-        "chr",
-        "divmod",
-        "enumerate",
-        "filter",
-        "float",
-        "format",
-        "frozenset",
-        "hex",
-        "int",
-        "len",
-        "list",
-        "map",
-        "max",
-        "min",
-        "oct",
-        "ord",
-        "pow",
-        "range",
-        "reversed",
-        "round",
-        "set",
-        "slice",
-        "sorted",
-        "str",
-        "sum",
-        "tuple",
-        "zip",
-    }
-
-    def visit(self, node):
-        # Check for restricted node types
-        if type(node) in self.RESTRICTED_NODES:
-            raise ValueError(
-                f"Restricted AST node {type(node).__name__} detected in lambda expression"
-            )
-
-        # Check for assignment operations (even simple ones)
-        if isinstance(node, ast.Assign):
-            raise ValueError(
-                "Assignment operations are not allowed in lambda expressions"
-            )
-
-        # Check for attribute access to restricted attributes
-        if isinstance(node, ast.Attribute):
-            attr_name = node.attr
-            if attr_name in self.RESTRICTED_ATTRIBUTES:
-                raise ValueError(
-                    f"Access to restricted attribute '{attr_name}' is not allowed"
-                )
-
-            # Block access to any dunder methods not explicitly allowed
-            if attr_name.startswith("__") and attr_name.endswith("__"):
-                raise ValueError(f"Access to magic method '{attr_name}' is not allowed")
-
-        # Check for function calls
-        if isinstance(node, ast.Call):
-            # Handle direct function calls by name
-            if isinstance(node.func, ast.Name):
-                func_name = node.func.id
-                if func_name in self.RESTRICTED_SYMBOLS:
-                    if func_name not in self.ALLOWED_FUNCTIONS:
-                        raise ValueError(
-                            f"Calling restricted function '{func_name}' is not allowed"
-                        )
-                # Only allow safe built-ins
-                elif (
-                    func_name not in self.SAFE_BUILTINS
-                    and func_name not in self.ALLOWED_FUNCTIONS
-                ):
-                    # Allow if it's a method call on the lambda parameter
-                    pass
-
-            # Handle method calls (obj.method())
-            elif isinstance(node.func, ast.Attribute):
-                attr_name = node.func.attr
-                if attr_name in self.RESTRICTED_SYMBOLS:
-                    raise ValueError(
-                        f"Calling restricted method '{attr_name}' is not allowed"
-                    )
-                if attr_name in self.RESTRICTED_ATTRIBUTES:
-                    raise ValueError(
-                        f"Calling restricted attribute '{attr_name}' is not allowed"
-                    )
-
-        # Check for name access to restricted symbols
-        if isinstance(node, ast.Name):
-            name = node.id
-            if name in self.RESTRICTED_SYMBOLS and name not in self.ALLOWED_FUNCTIONS:
-                raise ValueError(f"Access to restricted name '{name}' is not allowed")
-
-        # Check for subscript operations that might access dangerous items
-        if isinstance(node, ast.Subscript):
-            # Allow normal list/dict access but be cautious about complex expressions
-            pass
-
-        # Recursively visit child nodes
-        self.generic_visit(node)
-
-
 def _expr_with_context(expr: str, context_type: ExprContext | None) -> str:
     return f"{context_type}.{expr}" if context_type else expr
 
 
 def build_safe_lambda(lambda_expr: str) -> Callable[[Any], Any]:
-    """Build a safe lambda function from a string expression with enhanced security."""
+    """Build a safe lambda function from a string expression using Deno sandbox.
 
-    # Input validation
+    This function converts a lambda expression string into a callable that executes
+    the expression in a secure WebAssembly sandbox using Pyodide/Deno.
+
+    Args:
+        lambda_expr: Lambda expression string (e.g., "lambda x: x > 2")
+
+    Returns:
+        A callable that executes the lambda in a secure sandbox
+
+    Raises:
+        ValueError: If the lambda expression is invalid
+    """
+
+    # Validate input
     if not lambda_expr or not isinstance(lambda_expr, str):
         raise ValueError("Lambda expression must be a non-empty string")
 
     lambda_expr = lambda_expr.strip()
 
-    # Length limit to prevent DoS
-    if len(lambda_expr) > 1000:
-        raise ValueError("Lambda expression too long (max 1000 characters)")
+    # Parse the lambda expression
+    # Match patterns like "lambda: 42", "lambda x: x > 2" or "lambda x, y: x + y"
+    lambda_pattern = r"^\s*lambda\s*([^:]*?):\s*(.+)$"
+    match = re.match(lambda_pattern, lambda_expr)
 
-    # Check for null bytes
-    if "\x00" in lambda_expr:
-        raise ValueError("Lambda expression contains null bytes")
+    if not match:
+        raise ValueError(
+            "Invalid lambda expression format. Expected 'lambda <args>: <expression>'"
+        )
 
-    # Basic pattern matching for dangerous constructs
-    dangerous_patterns = [
-        r"__\w+__",  # Most dunder methods
-        r"getattr\s*\(",
-        r"setattr\s*\(",
-        r"hasattr\s*\(",
-        r"delattr\s*\(",
-        r"__import__\s*\(",
-        r"exec\s*\(",
-        r"eval\s*\(",
-        r"compile\s*\(",
-        r"open\s*\(",
-        r"file\s*\(",
-        r"input\s*\(",
-        r"\.system\s*\(",
-        r"\.popen\s*\(",
-        r"\.call\s*\(",
-        r"\.run\s*\(",
-        r"\.mro\s*\(",  # Method resolution order - dangerous for escapes
-    ]
+    args_str, body = match.groups()
 
-    for pattern in dangerous_patterns:
-        if re.search(pattern, lambda_expr, re.IGNORECASE):
-            raise ValueError(f"Lambda expression contains dangerous pattern: {pattern}")
+    # Parse arguments
+    if args_str.strip():
+        args = [arg.strip() for arg in args_str.split(",")]
+    else:
+        args = []  # No arguments for lambdas like "lambda: 42"
 
-    # Check for restricted symbols using simple string matching
-    lambda_lower = lambda_expr.lower()
-    for symbol in SafeEvaluator.RESTRICTED_SYMBOLS - SafeEvaluator.ALLOWED_FUNCTIONS:
-        # Use word boundaries to avoid false positives
-        if re.search(r"\b" + re.escape(symbol.lower()) + r"\b", lambda_lower):
-            raise ValueError(f"Lambda expression contains restricted symbol: {symbol}")
+    # Create a function definition
+    function_def = f"""
+def main({", ".join(args)}):
+    return {body}
+"""
 
-    # Parse the AST
-    try:
-        expr_ast = ast.parse(lambda_expr, mode="eval").body
-    except SyntaxError as e:
-        raise ValueError(f"Invalid lambda syntax: {e}") from e
+    # Add jsonpath support if needed
+    if "jsonpath" in body:
+        # Import the jsonpath function in the sandbox
+        function_def = f"""
+import json
 
-    # Ensure the parsed AST is a lambda expression
-    if not isinstance(expr_ast, ast.Lambda):
-        raise ValueError("Expression must be a lambda function")
+def jsonpath(expr, data):
+    # Simple jsonpath implementation for common cases
+    if expr.startswith("$."):
+        path_parts = expr[2:].split('.')
+        result = data
+        for part in path_parts:
+            if '[*]' in part:
+                # Handle array wildcard
+                key = part.replace('[*]', '')
+                if key:
+                    result = result.get(key, [])
+                if isinstance(result, list):
+                    remaining_path = '.'.join(path_parts[path_parts.index(part)+1:])
+                    if remaining_path:
+                        return [jsonpath('$.' + remaining_path, item) for item in result]
+                    return result
+            else:
+                if isinstance(result, dict):
+                    result = result.get(part)
+                else:
+                    return None
+        return result
+    return None
 
-    # Additional lambda-specific validations
-    if len(expr_ast.args.args) == 0:
-        raise ValueError("Lambda must have at least one parameter")
+{function_def}
+"""
 
-    if len(expr_ast.args.args) > 3:
-        raise ValueError("Lambda cannot have more than 3 parameters")
+    # Create a callable wrapper that executes the function in the sandbox
+    def lambda_wrapper(*args):
+        # Import here to avoid circular imports
+        from tracecat_registry.core.python import run_python
 
-    # Check for complex argument patterns that might be dangerous
-    for arg in expr_ast.args.args:
-        if not isinstance(arg, ast.arg):
-            raise ValueError("Lambda arguments must be simple names")
+        # Build inputs dictionary from arguments
+        inputs = {}
+        if args_str.strip():
+            arg_names = [arg.strip() for arg in args_str.split(",")]
+            for _, (arg_name, arg_value) in enumerate(
+                zip(arg_names, args, strict=False)
+            ):
+                inputs[arg_name] = arg_value
+        # For lambdas with no arguments, inputs remains empty
 
-    # Ensure the expression complies with the enhanced SafeEvaluator
-    try:
-        SafeEvaluator().visit(expr_ast)
-    except ValueError as e:
-        raise ValueError(f"Security validation failed: {e}") from e
+        # Execute in sandbox with network disabled for security
+        loop = None
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # No running loop, create one
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            close_loop = True
+        else:
+            close_loop = False
 
-    # Create a wrapper for jsonpath that matches expected lambda usage
-    def safe_jsonpath_wrapper(expr: str, operand: Any) -> Any:
-        return eval_jsonpath(expr, operand)
+        async def run_sandbox():
+            return await run_python(
+                script=function_def,
+                inputs=inputs,
+                dependencies=None,
+                timeout_seconds=5,  # Short timeout for lambda expressions
+                allow_network=False,  # Security: no network access
+            )
 
-    # Create a restricted execution environment
-    safe_globals = {
-        # Only allow specific safe functions
-        "jsonpath": safe_jsonpath_wrapper,
-        # Safe built-ins
-        "abs": abs,
-        "all": all,
-        "any": any,
-        "bool": bool,
-        "chr": chr,
-        "enumerate": enumerate,
-        "filter": filter,
-        "float": float,
-        "int": int,
-        "len": len,
-        "list": list,
-        "map": map,
-        "max": max,
-        "min": min,
-        "range": range,
-        "reversed": reversed,
-        "round": round,
-        "set": set,
-        "sorted": sorted,
-        "str": str,
-        "sum": sum,
-        "tuple": tuple,
-        "zip": zip,
-        # Explicitly block dangerous built-ins
-        "__builtins__": {},
-        "__name__": None,
-        "__file__": None,
-        "__package__": None,
-    }
+        try:
+            if close_loop:
+                result = loop.run_until_complete(run_sandbox())
+            else:
+                # We're already in an async context
+                # Create a new task and wait for it
+                future = asyncio.ensure_future(run_sandbox())
+                result = loop.run_until_complete(future)
+        finally:
+            if close_loop:
+                loop.close()
 
-    # Compile the AST node into a code object
-    try:
-        code = compile(ast.Expression(expr_ast), "<lambda>", "eval")
-    except Exception as e:
-        raise ValueError(f"Failed to compile lambda: {e}") from e
+        return result
 
-    # Create a function from the code object with restricted globals
-    try:
-        lambda_func = eval(code, safe_globals, {})
-    except Exception as e:
-        raise ValueError(f"Failed to create lambda function: {e}") from e
-
-    return type_cast(Callable[[Any], Any], lambda_func)
+    return type_cast(Callable[[Any], Any], lambda_wrapper)
 
 
 def eval_jsonpath(
