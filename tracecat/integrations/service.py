@@ -1,5 +1,6 @@
 """Service for managing user integrations with external services."""
 
+import os
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -7,6 +8,7 @@ from sqlmodel import select
 
 from tracecat.db.schemas import WorkspaceIntegration
 from tracecat.identifiers import UserID, WorkspaceID
+from tracecat.secrets.encryption import decrypt_value, encrypt_value
 from tracecat.service import BaseWorkspaceService
 
 
@@ -14,6 +16,13 @@ class IntegrationService(BaseWorkspaceService):
     """Service for managing user integrations."""
 
     service_name = "integrations"
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        try:
+            self._encryption_key = os.environ["TRACECAT__DB_ENCRYPTION_KEY"]
+        except KeyError as e:
+            raise KeyError("TRACECAT__DB_ENCRYPTION_KEY is not set") from e
 
     async def get_integration(
         self,
@@ -67,8 +76,10 @@ class IntegrationService(BaseWorkspaceService):
 
         if existing:
             # Update existing integration
-            existing.access_token = access_token
-            existing.refresh_token = refresh_token
+            existing.encrypted_access_token = self._encrypt_token(access_token)
+            existing.encrypted_refresh_token = (
+                self._encrypt_token(refresh_token) if refresh_token else None
+            )
             existing.expires_at = expires_at
             existing.scope = scope
             if metadata:
@@ -91,8 +102,10 @@ class IntegrationService(BaseWorkspaceService):
                 owner_id=self.workspace_id,
                 user_id=user_id,
                 provider_id=provider,
-                access_token=access_token,
-                refresh_token=refresh_token,
+                encrypted_access_token=self._encrypt_token(access_token),
+                encrypted_refresh_token=self._encrypt_token(refresh_token)
+                if refresh_token
+                else None,
                 expires_at=expires_at,
                 scope=scope,
                 meta=metadata or {},
@@ -121,7 +134,23 @@ class IntegrationService(BaseWorkspaceService):
         if not integration.needs_refresh:
             return integration
 
-        if not integration.refresh_token:
+        # Check if refresh token exists by attempting to decrypt
+        try:
+            refresh_token = (
+                self._decrypt_token(integration.encrypted_refresh_token)
+                if integration.encrypted_refresh_token
+                else None
+            )
+        except Exception as e:
+            self.logger.error(
+                "Failed to decrypt refresh token",
+                user_id=integration.user_id,
+                provider=integration.provider_id,
+                error=str(e),
+            )
+            return integration
+
+        if not refresh_token:
             self.logger.warning(
                 "Integration needs refresh but no refresh token available",
                 user_id=integration.user_id,
@@ -138,3 +167,23 @@ class IntegrationService(BaseWorkspaceService):
         )
 
         return integration
+
+    def get_decrypted_tokens(
+        self, integration: WorkspaceIntegration
+    ) -> tuple[str, str | None]:
+        """Get decrypted access and refresh tokens for an integration."""
+        access_token = self._decrypt_token(integration.encrypted_access_token)
+        refresh_token = (
+            self._decrypt_token(integration.encrypted_refresh_token)
+            if integration.encrypted_refresh_token
+            else None
+        )
+        return access_token, refresh_token
+
+    def _encrypt_token(self, token: str) -> bytes:
+        """Encrypt a token using the service's encryption key."""
+        return encrypt_value(token.encode("utf-8"), key=self._encryption_key)
+
+    def _decrypt_token(self, encrypted_token: bytes) -> str:
+        """Decrypt a token using the service's encryption key."""
+        return decrypt_value(encrypted_token, key=self._encryption_key).decode("utf-8")
