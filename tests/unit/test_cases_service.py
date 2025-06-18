@@ -607,3 +607,74 @@ class TestCasesService:
         # This test verifies that cascade delete works through the SQLAlchemy
         # relationship configuration, which should automatically handle
         # deleting related fields when a case is deleted
+
+    async def test_search_cases_with_date_filters(
+        self, cases_service: CasesService
+    ) -> None:
+        """Test searching cases with date filtering capabilities."""
+        from datetime import UTC, datetime, timedelta
+
+        # Create cases with specific timing
+        base_time = datetime.now(UTC)
+
+        # Create first case
+        first_case = await cases_service.create_case(
+            CaseCreate(
+                summary="First Case",
+                description="This is the first case",
+                status=CaseStatus.NEW,
+                priority=CasePriority.MEDIUM,
+                severity=CaseSeverity.LOW,
+            )
+        )
+        first_created = first_case.created_at
+
+        # Wait a bit and create second case
+        await asyncio.sleep(0.01)
+
+        second_case = await cases_service.create_case(
+            CaseCreate(
+                summary="Second Case",
+                description="This is the second case",
+                status=CaseStatus.NEW,
+                priority=CasePriority.HIGH,
+                severity=CaseSeverity.MEDIUM,
+            )
+        )
+        second_created = second_case.created_at
+
+        # Test filtering by start_time
+        cases = await cases_service.search_cases(
+            start_time=first_created - timedelta(seconds=1)
+        )
+        case_ids = {case.id for case in cases}
+        assert first_case.id in case_ids
+        assert second_case.id in case_ids
+
+        # Test filtering by end_time (should exclude second case)
+        cases = await cases_service.search_cases(
+            end_time=first_created + timedelta(milliseconds=5)
+        )
+        case_ids = {case.id for case in cases}
+        assert first_case.id in case_ids
+        assert second_case.id not in case_ids
+
+        # Test filtering by updated_after (should find second case)
+        cases = await cases_service.search_cases(updated_after=first_created)
+        case_ids = {case.id for case in cases}
+        assert second_case.id in case_ids
+
+        # Test filtering by updated_before (should find first case)
+        cases = await cases_service.search_cases(updated_before=second_created)
+        case_ids = {case.id for case in cases}
+        assert first_case.id in case_ids
+
+        # Test combining date filters with other search parameters
+        cases = await cases_service.search_cases(
+            priority=CasePriority.HIGH,
+            start_time=first_created,
+            end_time=base_time + timedelta(minutes=1),
+        )
+        case_ids = {case.id for case in cases}
+        assert second_case.id in case_ids
+        assert first_case.id not in case_ids  # Different priority

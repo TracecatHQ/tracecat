@@ -15,7 +15,20 @@ def is_valid_sql_type(type: str) -> bool:
 
 
 def handle_default_value(type: SqlType, default: Any) -> str:
-    """Handle converting default values to SQL-compatible strings based on type."""
+    """Handle converting default values to SQL-compatible strings based on type.
+
+    SECURITY NOTICE: Only used in a SQL DDL statement where parameter binding is not supported.
+
+    Args:
+        type: The SQL type to format the default value for
+        default: The default value to format
+
+    Returns:
+        A properly escaped and formatted SQL literal string
+
+    Raises:
+        ValueError: If the SQL type is not supported
+    """
     match type:
         case SqlType.JSONB:
             # For JSONB, ensure default is properly quoted and cast

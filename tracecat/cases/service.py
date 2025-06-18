@@ -77,10 +77,14 @@ class CasesService(BaseWorkspaceService):
         status: CaseStatus | None = None,
         priority: CasePriority | None = None,
         severity: CaseSeverity | None = None,
-        limit: int | None = None,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
+        updated_before: datetime | None = None,
+        updated_after: datetime | None = None,
         order_by: Literal["created_at", "updated_at", "priority", "severity", "status"]
         | None = None,
         sort: Literal["asc", "desc"] | None = None,
+        limit: int | None = None,
     ) -> Sequence[Case]:
         """Search cases based on various criteria.
 
@@ -89,9 +93,13 @@ class CasesService(BaseWorkspaceService):
             status: Filter by case status
             priority: Filter by case priority
             severity: Filter by case severity
-            limit: Maximum number of cases to return
+            start_time: Filter by case creation time
+            end_time: Filter by case creation time
+            updated_before: Filter by case update time
+            updated_after: Filter by case update time
             order_by: Field to order the cases by
             sort: Direction to sort (asc or desc)
+            limit: Maximum number of cases to return
 
         Returns:
             Sequence of cases matching the search criteria
@@ -100,10 +108,18 @@ class CasesService(BaseWorkspaceService):
 
         # Apply search term filter (search in summary and description)
         if search_term:
+            # Validate search term to prevent abuse
+            if len(search_term) > 1000:
+                raise ValueError("Search term cannot exceed 1000 characters")
+            if "\x00" in search_term:
+                raise ValueError("Search term cannot contain null bytes")
+
+            # Use SQLAlchemy's concat function for proper parameter binding
+            search_pattern = sa.func.concat("%", search_term, "%")
             statement = statement.where(
                 sa.or_(
-                    col(Case.summary).ilike(f"%{search_term}%"),
-                    col(Case.description).ilike(f"%{search_term}%"),
+                    col(Case.summary).ilike(search_pattern),
+                    col(Case.description).ilike(search_pattern),
                 )
             )
 
@@ -118,6 +134,16 @@ class CasesService(BaseWorkspaceService):
         # Apply severity filter
         if severity:
             statement = statement.where(Case.severity == severity)
+
+        # Apply date filters
+        if start_time:
+            statement = statement.where(Case.created_at >= start_time)
+        if end_time:
+            statement = statement.where(Case.created_at <= end_time)
+        if updated_after:
+            statement = statement.where(Case.updated_at >= updated_after)
+        if updated_before:
+            statement = statement.where(Case.updated_at <= updated_before)
 
         # Apply limit
         if limit is not None:
