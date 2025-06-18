@@ -135,6 +135,13 @@ class Workspace(Resource, table=True):
             **DEFAULT_SA_RELATIONSHIP_KWARGS,
         },
     )
+    integrations: list["WorkspaceIntegration"] = Relationship(
+        back_populates="owner",
+        sa_relationship_kwargs={
+            "cascade": "all, delete",
+            **DEFAULT_SA_RELATIONSHIP_KWARGS,
+        },
+    )
 
     @computed_field
     @property
@@ -973,3 +980,87 @@ class Interaction(Resource, table=True):
         nullable=True,
         description="ID of the user/actor who responded",
     )
+
+
+class WorkspaceIntegration(SQLModel, TimestampMixin, table=True):
+    """Store user integrations with external services."""
+
+    __tablename__: str = "workspace_integration"
+    __table_args__ = (
+        UniqueConstraint(
+            "owner_id",
+            "provider_id",
+            name="uq_workspace_integration_owner_provider",
+        ),
+    )
+
+    id: UUID4 = Field(
+        default_factory=uuid.uuid4,
+        primary_key=True,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    # Owner (workspace)
+    owner_id: OwnerID = Field(
+        sa_column=Column(UUID, ForeignKey("workspace.id", ondelete="CASCADE"))
+    )
+    user_id: UUID4 | None = Field(
+        default=None,
+        sa_column=Column(
+            "user_id",
+            ForeignKey("user.id", ondelete="CASCADE"),
+        ),
+        description="The user this integration belongs to",
+    )
+    provider_id: str = Field(
+        ...,
+        description="Integration provider identifier (e.g., 'microsoft-teams', 'google-gmail')",
+        index=True,
+    )
+    access_token: str = Field(
+        ...,
+        description="OAuth access token for the integration",
+    )
+    refresh_token: str | None = Field(
+        default=None,
+        description="OAuth refresh token for the integration",
+    )
+    token_type: str = Field(
+        default="Bearer",
+        description="Token type (typically Bearer)",
+    )
+    expires_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(TIMESTAMP(timezone=True)),
+        description="When the access token expires",
+    )
+    scope: str | None = Field(
+        default=None,
+        description="OAuth scopes granted for this integration",
+    )
+    meta: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=Column(JSONB),
+        description="Additional metadata for the integration",
+    )
+
+    # Relationships
+    user: User | None = Relationship(
+        sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS
+    )
+    owner: Workspace = Relationship(back_populates="integrations")
+
+    @property
+    def is_expired(self) -> bool:
+        """Check if the access token is expired."""
+        if self.expires_at is None:
+            return False
+        return datetime.now() >= self.expires_at
+
+    @property
+    def needs_refresh(self) -> bool:
+        """Check if the token needs to be refreshed soon (within 5 minutes)."""
+        if self.expires_at is None:
+            return False
+        return datetime.now() >= (self.expires_at - timedelta(minutes=5))

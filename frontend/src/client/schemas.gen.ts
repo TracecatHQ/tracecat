@@ -3174,6 +3174,117 @@ export const $Integer = {
   title: "Integer",
 } as const
 
+export const $IntegrationOauthCallback = {
+  properties: {
+    status: {
+      type: "string",
+      title: "Status",
+      description: "The status of the OAuth callback",
+      default: "connected",
+    },
+    provider_id: {
+      type: "string",
+      title: "Provider Id",
+      description: "The provider that the user connected to",
+    },
+    redirect_url: {
+      type: "string",
+      title: "Redirect Url",
+      description: "The URL to redirect to after the OAuth callback",
+    },
+  },
+  type: "object",
+  required: ["provider_id", "redirect_url"],
+  title: "IntegrationOauthCallback",
+  description: "Response for OAuth callback.",
+} as const
+
+export const $IntegrationRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid4",
+      title: "Id",
+    },
+    workspace_id: {
+      type: "string",
+      pattern: "ws_[0-9a-zA-Z]+",
+      title: "Workspace Id",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid4",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+    },
+    provider_id: {
+      type: "string",
+      title: "Provider Id",
+    },
+    token_type: {
+      type: "string",
+      title: "Token Type",
+    },
+    expires_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Expires At",
+    },
+    scope: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Scope",
+    },
+    metadata: {
+      type: "object",
+      title: "Metadata",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "workspace_id",
+    "provider_id",
+    "token_type",
+    "expires_at",
+    "scope",
+    "metadata",
+    "created_at",
+    "updated_at",
+  ],
+  title: "IntegrationRead",
+  description: "Response model for user integration.",
+} as const
+
 export const $InteractionCategory = {
   type: "string",
   enum: ["slack"],

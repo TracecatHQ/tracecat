@@ -85,6 +85,16 @@ import type {
   FoldersMoveFolderResponse,
   FoldersUpdateFolderData,
   FoldersUpdateFolderResponse,
+  IntegrationsConnectProviderData,
+  IntegrationsConnectProviderResponse,
+  IntegrationsDisconnectProviderData,
+  IntegrationsDisconnectProviderResponse,
+  IntegrationsGetProviderStatusData,
+  IntegrationsGetProviderStatusResponse,
+  IntegrationsListIntegrationsData,
+  IntegrationsListIntegrationsResponse,
+  IntegrationsOauthCallbackData,
+  IntegrationsOauthCallbackResponse,
   OrganizationDeleteOrgMemberData,
   OrganizationDeleteOrgMemberResponse,
   OrganizationDeleteSessionData,
@@ -3711,6 +3721,141 @@ export const foldersMoveFolder = (
     },
     body: data.requestBody,
     mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Integrations
+ * List all integrations for the current user.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @returns IntegrationRead Successful Response
+ * @throws ApiError
+ */
+export const integrationsListIntegrations = (
+  data: IntegrationsListIntegrationsData
+): CancelablePromise<IntegrationsListIntegrationsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/integrations",
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Connect Provider
+ * Initiate OAuth integration for the specified provider.
+ * @param data The data for the request.
+ * @param data.provider
+ * @param data.workspaceId
+ * @returns string Successful Response
+ * @throws ApiError
+ */
+export const integrationsConnectProvider = (
+  data: IntegrationsConnectProviderData
+): CancelablePromise<IntegrationsConnectProviderResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/integrations/{provider}/connect",
+    path: {
+      provider: data.provider,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Oauth Callback
+ * Handle OAuth callback for the specified provider.
+ * @param data The data for the request.
+ * @param data.provider
+ * @param data.code Authorization code from OAuth provider
+ * @param data.state State parameter from authorization request
+ * @param data.workspaceId
+ * @returns IntegrationOauthCallback Successful Response
+ * @throws ApiError
+ */
+export const integrationsOauthCallback = (
+  data: IntegrationsOauthCallbackData
+): CancelablePromise<IntegrationsOauthCallbackResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/integrations/{provider}/callback",
+    path: {
+      provider: data.provider,
+    },
+    query: {
+      code: data.code,
+      state: data.state,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Disconnect Provider
+ * Disconnect integration for the specified provider.
+ * @param data The data for the request.
+ * @param data.provider
+ * @param data.workspaceId
+ * @returns string Successful Response
+ * @throws ApiError
+ */
+export const integrationsDisconnectProvider = (
+  data: IntegrationsDisconnectProviderData
+): CancelablePromise<IntegrationsDisconnectProviderResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/integrations/{provider}",
+    path: {
+      provider: data.provider,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Provider Status
+ * Get integration status for the specified provider.
+ * @param data The data for the request.
+ * @param data.provider
+ * @param data.workspaceId
+ * @returns unknown Successful Response
+ * @throws ApiError
+ */
+export const integrationsGetProviderStatus = (
+  data: IntegrationsGetProviderStatusData
+): CancelablePromise<IntegrationsGetProviderStatusResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/integrations/{provider}/status",
+    path: {
+      provider: data.provider,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
     errors: {
       422: "Validation Error",
     },
