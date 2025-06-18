@@ -43,6 +43,41 @@ from tracecat.types.exceptions import RegistryError
 from tracecat_registry.integrations.agents.exceptions import AgentRunError
 
 
+ALLOWED_TOOLS = {
+    # Cases
+    "core.cases.get_case",
+    "core.cases.list_cases",
+    "core.cases.list_comments",
+    "core.cases.search_cases",
+    # Read only 3rd party tools
+    "tools.abuseipdb.lookup_ip_address",
+    "tools.emailrep.lookup_email",
+    "tools.ipinfo.lookup_ip_address",
+    "tools.sublime.analyze_eml",
+    "tools.sublime.analyze_url",
+    "tools.sublime.binexplode",
+    "tools.sublime.score_eml",
+    "tools.tavily.web_search",
+    "tools.urlhaus.list_url_threats",
+    "tools.urlscan.lookup_url",
+    "tools.virustotal.list_threats",
+    "tools.virustotal.lookup_domain",
+    "tools.virustotal.lookup_file_hash",
+    "tools.virustotal.lookup_ip_address",
+    "tools.virustotal.lookup_url",
+    # Query engines
+    "tools.splunk.search_events",
+    # Write-tools with user-specified permissions
+    "tools.slack.post_message",
+    "tools.jira.create_issue",
+    "tools.jira.add_comment",
+    "core.cases.create_case",
+    "core.cases.update_case",
+    "core.cases.create_comment",
+    "core.cases.update_comment",
+}
+
+
 def generate_google_style_docstring(
     description: str | None, model_cls: type, fixed_args: set[str] | None = None
 ) -> str:
@@ -514,8 +549,11 @@ async def agent(
     if isinstance(actions, str):
         actions = [actions]
 
-    agent = await builder.with_action_filters(*actions).build()
+    blocked_actions = set(actions) - ALLOWED_TOOLS
+    if len(blocked_actions) > 0:
+        raise ValueError(f"Forbidden actions: {blocked_actions}")
 
+    agent = await builder.with_action_filters(*actions).build()
     with tempfile.TemporaryDirectory() as temp_dir:
         if files:
             for path, content in files.items():
