@@ -17,9 +17,7 @@ def is_valid_sql_type(type: str) -> bool:
 def handle_default_value(type: SqlType, default: Any) -> str:
     """Handle converting default values to SQL-compatible strings based on type.
 
-    SECURITY-CRITICAL FUNCTION: This function is used to safely format default values
-    for PostgreSQL DDL statements where parameter binding is not supported. It applies
-    proper SQL escaping, quoting, and type casting to prevent SQL injection.
+    SECURITY NOTICE: Only used in a SQL DDL statement where parameter binding is not supported.
 
     Args:
         type: The SQL type to format the default value for
