@@ -13,10 +13,14 @@ Inspired by: https://docs.cursor.com/chat/tools
 - apply_python_lambda: run a Python lambda function (given as a string)
 """
 
+import orjson
+import jsonpath_ng
 import difflib
 import re
 from pathlib import Path
 from typing import Any
+import jsonpath_ng.exceptions
+from pydantic_ai import ModelRetry
 from pydantic_ai.tools import Tool
 
 from tracecat.config import TRACECAT__MAX_FILE_SIZE_BYTES
@@ -436,7 +440,10 @@ def create_secure_file_tools(temp_dir: str) -> list[Tool]:
         # Check directory limits
         _check_directory_limits(temp_path)
 
-        return _grep_search(pattern, temp_path, max_columns)
+        try:
+            return _grep_search(pattern, temp_path, max_columns)
+        except Exception as e:
+            raise ModelRetry(f"Grep search failed: {e}") from e
 
     # Secure jsonpath tools with temp_dir pre-bound
     def jsonpath_find(file_path: str, jsonpath_expr: str) -> list[Any]:
@@ -457,10 +464,17 @@ def create_secure_file_tools(temp_dir: str) -> list[Tool]:
         if "\x00" in jsonpath_expr:
             raise ValueError("JSONPath expression contains null bytes")
 
-        return _jsonpath_find(jsonpath_expr, path)
+        try:
+            return _jsonpath_find(jsonpath_expr, path)
+        except orjson.JSONDecodeError as e:
+            raise ModelRetry(f"Invalid JSON content: {e}") from e
+        except jsonpath_ng.exceptions.JsonPathParserError as e:
+            raise ModelRetry(f"Unable to parse JSONPath expression: {e}") from e
 
     def jsonpath_find_and_replace(
-        file_path: str, jsonpath_expr: str, replacement_value: Any
+        file_path: str,
+        jsonpath_expr: str,
+        replacement_value: str | int | float | bool | list[Any] | dict[str, Any] | None,
     ) -> str:
         """Find and replace JSONPath matches in a file within temp directory.
 
@@ -480,7 +494,12 @@ def create_secure_file_tools(temp_dir: str) -> list[Tool]:
         if "\x00" in jsonpath_expr:
             raise ValueError("JSONPath expression contains null bytes")
 
-        return _jsonpath_find_and_replace(jsonpath_expr, path, replacement_value)
+        try:
+            return _jsonpath_find_and_replace(jsonpath_expr, path, replacement_value)
+        except orjson.JSONDecodeError as e:
+            raise ModelRetry(f"Invalid JSON content: {e}") from e
+        except jsonpath_ng.exceptions.JsonPathParserError as e:
+            raise ModelRetry(f"Unable to parse JSONPath expression: {e}") from e
 
     def apply_python_lambda(
         value: str,

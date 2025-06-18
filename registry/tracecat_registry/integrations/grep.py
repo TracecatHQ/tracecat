@@ -47,6 +47,7 @@ from typing import Annotated, Any
 from typing_extensions import Doc
 import subprocess
 from diskcache import FanoutCache
+import jsonpath_ng.exceptions
 
 from tracecat.config import TRACECAT__MAX_FILE_SIZE_BYTES, TRACECAT__SYSTEM_PATH
 from tracecat_registry import registry
@@ -240,17 +241,11 @@ def jsonpath_find(
         except (OSError, IOError) as e:
             raise RuntimeError(f"File read error: {e}")
 
-        # Parse JSON content with proper error handling
-        try:
-            json_data = orjson.loads(content)
-        except orjson.JSONDecodeError as e:
-            raise RuntimeError(f"Invalid JSON content: {e}")
+        # Parse JSON content. Let JSONDecodeError propagate so callers can differentiate.
+        json_data = orjson.loads(content)
 
-        # Parse and validate JSONPath expression
-        try:
-            jsonpath_expr = jsonpath_ng.ext.parse(expression)
-        except Exception as e:
-            raise RuntimeError(f"Invalid JSONPath expression: {e}")
+        # Parse and validate JSONPath expression. Allow JsonPathParserError to propagate.
+        jsonpath_expr = jsonpath_ng.ext.parse(expression)
 
         # Execute JSONPath search
         matches = jsonpath_expr.find(json_data)
@@ -259,8 +254,15 @@ def jsonpath_find(
         return match_values
 
     except Exception as e:
-        # Re-raise our own exceptions, catch any unexpected ones
-        if isinstance(e, (ValueError, RuntimeError)):
+        # Preserve specific parsing exceptions; wrap only truly unexpected errors
+        if isinstance(
+            e,
+            (
+                ValueError,
+                jsonpath_ng.exceptions.JsonPathParserError,
+                orjson.JSONDecodeError,
+            ),
+        ):
             raise
         raise RuntimeError(f"JSONPath evaluation failed: {e}")
 
@@ -268,7 +270,7 @@ def jsonpath_find(
 def jsonpath_find_and_replace(
     expression: str,
     file_path: Path,
-    replacement: Any,
+    replacement: str | int | float | bool | list[Any] | dict[str, Any] | None,
 ) -> str:
     """Find and replace all matches of a JSONPath expression in a file.
 
@@ -309,17 +311,11 @@ def jsonpath_find_and_replace(
         except (OSError, IOError) as e:
             raise RuntimeError(f"File read error: {e}")
 
-        # Parse JSON content with proper error handling
-        try:
-            json_data = orjson.loads(content)
-        except orjson.JSONDecodeError as e:
-            raise RuntimeError(f"Invalid JSON content: {e}")
+        # Parse JSON content. Allow JSONDecodeError to propagate.
+        json_data = orjson.loads(content)
 
-        # Parse and validate JSONPath expression
-        try:
-            jsonpath_expr = jsonpath_ng.ext.parse(expression)
-        except Exception as e:
-            raise RuntimeError(f"Invalid JSONPath expression: {e}")
+        # Parse and validate JSONPath expression. Preserve JsonPathParserError.
+        jsonpath_expr = jsonpath_ng.ext.parse(expression)
 
         # Find matches and perform replacements
         try:
@@ -346,13 +342,28 @@ def jsonpath_find_and_replace(
             return modified_json
 
         except Exception as e:
-            if isinstance(e, RuntimeError):
+            # Preserve specific parsing exceptions; wrap only unexpected ones
+            if isinstance(
+                e,
+                (
+                    ValueError,
+                    jsonpath_ng.exceptions.JsonPathParserError,
+                    orjson.JSONDecodeError,
+                ),
+            ):
                 raise
-            raise RuntimeError(f"JSONPath replacement failed: {e}")
+            raise RuntimeError(f"JSONPath find and replace operation failed: {e}")
 
     except Exception as e:
-        # Re-raise our own exceptions, catch any unexpected ones
-        if isinstance(e, (ValueError, RuntimeError)):
+        # Preserve specific parsing exceptions; wrap only truly unexpected errors
+        if isinstance(
+            e,
+            (
+                ValueError,
+                jsonpath_ng.exceptions.JsonPathParserError,
+                orjson.JSONDecodeError,
+            ),
+        ):
             raise
         raise RuntimeError(f"JSONPath find and replace operation failed: {e}")
 
