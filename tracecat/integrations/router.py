@@ -9,37 +9,16 @@ from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.identifiers.workflow import WorkspaceUUID
 from tracecat.integrations.base import BaseOauthProvider
+from tracecat.integrations.dependencies import get_provider
 from tracecat.integrations.models import (
     IntegrationOauthCallback,
     IntegrationRead,
     OauthState,
 )
-from tracecat.integrations.providers import PROVIDER_REGISTRY
 from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
 
 router = APIRouter(prefix="/integrations", tags=["integrations"])
-
-
-def get_provider(provider: str) -> BaseOauthProvider:
-    """
-    FastAPI dependency to get provider implementation by name.
-
-    Args:
-        provider: The name of the provider to retrieve
-
-    Returns:
-        An instance of the requested OAuth provider
-
-    Raises:
-        HTTPException: If the provider is not supported
-    """
-    if provider not in PROVIDER_REGISTRY:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Unsupported provider: {provider}",
-        )
-    return PROVIDER_REGISTRY[provider]()
 
 
 # Collection-level endpoints
