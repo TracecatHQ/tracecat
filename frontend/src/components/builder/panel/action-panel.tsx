@@ -1052,7 +1052,7 @@ function ActionPanelContent({
                         </div>
                       </AccordionTrigger>
                       <AccordionContent>
-                        <div className="flex flex-col space-y-4 px-4">
+                        <div className="mb-8 flex flex-col space-y-4 px-4">
                           {finalValErrors.length > 0 && (
                             <ValidationErrorView
                               validationErrors={finalValErrors}
