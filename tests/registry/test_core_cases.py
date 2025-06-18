@@ -772,7 +772,7 @@ class TestCoreListCases:
 
         # Assert list_cases was called with expected parameters
         mock_service.list_cases.assert_called_once_with(
-            limit=None, order_by="created_at", sort="desc"
+            limit=100, order_by="created_at", sort="desc"
         )
 
         # Verify result structure
@@ -801,7 +801,7 @@ class TestCoreListCases:
 
         # Assert list_cases was called with expected parameters
         mock_service.list_cases.assert_called_once_with(
-            limit=None, order_by=None, sort=None
+            limit=100, order_by=None, sort=None
         )
 
         # Verify the result is an empty list
@@ -827,15 +827,19 @@ class TestCoreSearchCases:
         # Call the search_cases function
         result = await search_cases()
 
-        # Assert search_cases was called with expected parameters
+        # Assert search_cases was called with expected parameters (including new date filters)
         mock_service.search_cases.assert_called_once_with(
             search_term=None,
             status=None,
             priority=None,
             severity=None,
-            limit=None,
+            limit=100,  # Default limit is now 100
             order_by=None,
             sort=None,
+            start_time=None,
+            end_time=None,
+            updated_before=None,
+            updated_after=None,
         )
 
         # Verify result structure
@@ -867,15 +871,19 @@ class TestCoreSearchCases:
         # Call the search_cases function with search_term
         result = await search_cases(search_term="test")
 
-        # Assert search_cases was called with expected parameters
+        # Assert search_cases was called with expected parameters (including new date filters)
         mock_service.search_cases.assert_called_once_with(
             search_term="test",
             status=None,
             priority=None,
             severity=None,
-            limit=None,
+            limit=100,  # Default limit is now 100
             order_by=None,
             sort=None,
+            start_time=None,
+            end_time=None,
+            updated_before=None,
+            updated_after=None,
         )
 
         # Verify result structure
@@ -909,9 +917,14 @@ class TestCoreSearchCases:
         assert call_args["status"] == CaseStatus.IN_PROGRESS
         assert call_args["priority"] is None
         assert call_args["severity"] is None
-        assert call_args["limit"] is None
+        assert call_args["limit"] == 100  # Default limit is now 100
         assert call_args["order_by"] is None
         assert call_args["sort"] is None
+        # Check that date filters are present
+        assert call_args["start_time"] is None
+        assert call_args["end_time"] is None
+        assert call_args["updated_before"] is None
+        assert call_args["updated_after"] is None
 
         # Verify result structure
         assert len(result) == 1
@@ -944,9 +957,14 @@ class TestCoreSearchCases:
         assert call_args["status"] is None
         assert call_args["priority"] == CasePriority.HIGH
         assert call_args["severity"] is None
-        assert call_args["limit"] is None
+        assert call_args["limit"] == 100  # Default limit is now 100
         assert call_args["order_by"] is None
         assert call_args["sort"] is None
+        # Check that date filters are present
+        assert call_args["start_time"] is None
+        assert call_args["end_time"] is None
+        assert call_args["updated_before"] is None
+        assert call_args["updated_after"] is None
 
         # Verify result structure
         assert len(result) == 1
@@ -979,9 +997,14 @@ class TestCoreSearchCases:
         assert call_args["status"] is None
         assert call_args["priority"] is None
         assert call_args["severity"] == CaseSeverity.CRITICAL
-        assert call_args["limit"] is None
+        assert call_args["limit"] == 100  # Default limit is now 100
         assert call_args["order_by"] is None
         assert call_args["sort"] is None
+        # Check that date filters are present
+        assert call_args["start_time"] is None
+        assert call_args["end_time"] is None
+        assert call_args["updated_before"] is None
+        assert call_args["updated_after"] is None
 
         # Verify result structure
         assert len(result) == 1
@@ -1007,7 +1030,7 @@ class TestCoreSearchCases:
         # Call the search_cases function with limit
         result = await search_cases(limit=5)
 
-        # Assert search_cases was called with expected parameters
+        # Assert search_cases was called with expected parameters (including new date filters)
         mock_service.search_cases.assert_called_once_with(
             search_term=None,
             status=None,
@@ -1016,6 +1039,10 @@ class TestCoreSearchCases:
             limit=5,
             order_by=None,
             sort=None,
+            start_time=None,
+            end_time=None,
+            updated_before=None,
+            updated_after=None,
         )
 
         # Verify result structure
@@ -1042,15 +1069,19 @@ class TestCoreSearchCases:
         # Call the search_cases function with ordering
         result = await search_cases(order_by="created_at", sort="desc")
 
-        # Assert search_cases was called with expected parameters
+        # Assert search_cases was called with expected parameters (including new date filters)
         mock_service.search_cases.assert_called_once_with(
             search_term=None,
             status=None,
             priority=None,
             severity=None,
-            limit=None,
+            limit=100,  # Default limit is now 100
             order_by="created_at",
             sort="desc",
+            start_time=None,
+            end_time=None,
+            updated_before=None,
+            updated_after=None,
         )
 
         # Verify result structure
@@ -1097,6 +1128,11 @@ class TestCoreSearchCases:
         assert call_args["limit"] == 10
         assert call_args["order_by"] == "updated_at"
         assert call_args["sort"] == "asc"
+        # Check that date filters are present (with None values)
+        assert call_args["start_time"] is None
+        assert call_args["end_time"] is None
+        assert call_args["updated_before"] is None
+        assert call_args["updated_after"] is None
 
         # Verify result structure
         assert len(result) == 1
@@ -1122,15 +1158,19 @@ class TestCoreSearchCases:
         # Call the search_cases function
         result = await search_cases(search_term="nonexistent")
 
-        # Assert search_cases was called with expected parameters
+        # Assert search_cases was called with expected parameters (including new date filters)
         mock_service.search_cases.assert_called_once_with(
             search_term="nonexistent",
             status=None,
             priority=None,
             severity=None,
-            limit=None,
+            limit=100,  # Default limit is now 100
             order_by=None,
             sort=None,
+            start_time=None,
+            end_time=None,
+            updated_before=None,
+            updated_after=None,
         )
 
         # Verify the result is an empty list

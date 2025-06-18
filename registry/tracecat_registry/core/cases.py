@@ -1,8 +1,10 @@
+from datetime import datetime
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from typing_extensions import Doc
 
+from tracecat.config import TRACECAT__MAX_ROWS_CLIENT_POSTGRES
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.models import (
     CaseCreate,
@@ -289,9 +291,9 @@ async def get_case(
 )
 async def list_cases(
     limit: Annotated[
-        int | None,
+        int,
         Doc("Maximum number of cases to return."),
-    ] = None,
+    ] = 100,
     order_by: Annotated[
         Literal["created_at", "updated_at", "priority", "severity", "status"] | None,
         Doc("The field to order the cases by."),
@@ -301,6 +303,11 @@ async def list_cases(
         Doc("The direction to order the cases by."),
     ] = None,
 ) -> list[dict[str, Any]]:
+    if limit > TRACECAT__MAX_ROWS_CLIENT_POSTGRES:
+        raise ValueError(
+            f"Limit cannot be greater than {TRACECAT__MAX_ROWS_CLIENT_POSTGRES}"
+        )
+
     async with CasesService.with_session() as service:
         cases = await service.list_cases(limit=limit, order_by=order_by, sort=sort)
     return [
@@ -341,9 +348,21 @@ async def search_cases(
         SeverityType | None,
         Doc("Filter by case severity."),
     ] = None,
-    limit: Annotated[
-        int | None,
-        Doc("Maximum number of cases to return."),
+    start_time: Annotated[
+        datetime | None,
+        Doc("Filter cases created after this time."),
+    ] = None,
+    end_time: Annotated[
+        datetime | None,
+        Doc("Filter cases created before this time."),
+    ] = None,
+    updated_before: Annotated[
+        datetime | None,
+        Doc("Filter cases updated before this time."),
+    ] = None,
+    updated_after: Annotated[
+        datetime | None,
+        Doc("Filter cases updated after this time."),
     ] = None,
     order_by: Annotated[
         Literal["created_at", "updated_at", "priority", "severity", "status"] | None,
@@ -353,7 +372,16 @@ async def search_cases(
         Literal["asc", "desc"] | None,
         Doc("The direction to order the cases by."),
     ] = None,
+    limit: Annotated[
+        int,
+        Doc("Maximum number of cases to return."),
+    ] = 100,
 ) -> list[dict[str, Any]]:
+    if limit > TRACECAT__MAX_ROWS_CLIENT_POSTGRES:
+        raise ValueError(
+            f"Limit cannot be greater than {TRACECAT__MAX_ROWS_CLIENT_POSTGRES}"
+        )
+
     async with CasesService.with_session() as service:
         cases = await service.search_cases(
             search_term=search_term,
@@ -363,6 +391,10 @@ async def search_cases(
             limit=limit,
             order_by=order_by,
             sort=sort,
+            start_time=start_time,
+            end_time=end_time,
+            updated_before=updated_before,
+            updated_after=updated_after,
         )
     return [
         CaseReadMinimal(
@@ -407,3 +439,30 @@ async def list_comments(
         result.append(comment_data)
 
     return result
+
+
+@registry.register(
+    default_title="Assign user to case",
+    display_group="Cases",
+    description="Assign a user to an existing case.",
+    namespace="core.cases",
+)
+async def assign_user(
+    case_id: Annotated[
+        str,
+        Doc("The ID of the case to assign a user to."),
+    ],
+    assignee_id: Annotated[
+        str,
+        Doc("The ID of the user to assign to the case."),
+    ],
+) -> dict[str, Any]:
+    async with CasesService.with_session() as service:
+        case = await service.get_case(UUID(case_id))
+        if not case:
+            raise ValueError(f"Case with ID {case_id} not found")
+
+        updated_case = await service.update_case(
+            case, CaseUpdate(assignee_id=UUID(assignee_id))
+        )
+    return updated_case.model_dump()
