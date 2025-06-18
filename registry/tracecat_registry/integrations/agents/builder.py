@@ -42,6 +42,10 @@ from tracecat_registry.integrations.pydantic_ai import (
 from tracecat_registry import registry, RegistrySecret
 from tracecat.types.exceptions import RegistryError
 from tracecat_registry.integrations.agents.exceptions import AgentRunError
+from tracecat_registry.integrations.agents.tools import (
+    DEFAULT_AGENT_TOOLS,
+    generate_default_tools_prompt,
+)
 
 
 ALLOWED_TOOLS = {
@@ -392,6 +396,11 @@ class TracecatAgentBuilder:
         self.tools.append(tool)
         return self
 
+    def with_default_tools(self) -> Self:
+        """Add default file manipulation tools."""
+        self.tools.extend(DEFAULT_AGENT_TOOLS)
+        return self
+
     async def build(self) -> Agent:
         """Build the Pydantic AI agent with tools from the registry."""
 
@@ -489,6 +498,7 @@ async def collect_secrets_for_filters(
 
 class AgentOutput(BaseModel):
     output: Any
+    files: dict[str, str] | None = None
     message_history: list[ModelMessage]
     duration: float
     usage: Usage | None = None
@@ -561,7 +571,18 @@ async def agent(
     if len(blocked_actions) > 0:
         raise ValueError(f"Forbidden actions: {blocked_actions}")
 
+    # Add default tools if files are provided
+    if files:
+        builder = builder.with_default_tools()
+
     agent = await builder.with_action_filters(*actions).build()
+
+    # Generate the enhanced user prompt with tool guidance
+    tools_prompt = generate_default_tools_prompt(files) if files else ""
+    enhanced_user_prompt = (
+        f"{user_prompt}\n{tools_prompt}" if tools_prompt else user_prompt
+    )
+
     with tempfile.TemporaryDirectory() as temp_dir:
         if files:
             for path, content in files.items():
@@ -572,7 +593,7 @@ async def agent(
         # Use async version since this function is already async
         try:
             message_nodes = []
-            async with agent.iter(user_prompt=user_prompt) as run:
+            async with agent.iter(user_prompt=enhanced_user_prompt) as run:
                 async for node in run:
                     message_nodes.append(to_jsonable_python(node))
                 result = run.result
@@ -586,8 +607,15 @@ async def agent(
             )
         end_time = timeit()
 
+        # Read potentially modified files from temp directory
+        files = {}
+        for file_path in Path(temp_dir).glob("*"):
+            with open(file_path, "r") as f:
+                files[file_path.name] = f.read()
+
         output = AgentOutput(
             output=try_parse_json(result.output),
+            files=files,
             message_history=result.all_messages(),
             duration=end_time - start_time,
         )

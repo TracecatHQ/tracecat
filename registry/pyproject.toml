@@ -33,7 +33,6 @@ dependencies = [
     "fpdf2==2.8.2",
     "grpcio==1.68.0",
     "hatchling==1.27.0",
-    "jinja2==3.1.6",
     "ldap3==2.9.1",
     "marshmallow==3.26.1",
     "nh3==0.2.18",
