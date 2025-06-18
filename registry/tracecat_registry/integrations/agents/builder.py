@@ -62,6 +62,7 @@ ALLOWED_TOOLS = {
     "tools.sublime.analyze_url",
     "tools.sublime.binexplode",
     "tools.sublime.score_eml",
+    "tools.sublime.scan_file",
     "tools.tavily.web_search",
     "tools.urlhaus.list_url_threats",
     "tools.urlscan.lookup_url",
