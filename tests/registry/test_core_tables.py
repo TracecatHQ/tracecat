@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from tracecat_registry.core.tables import (
+from tracecat_registry.core.table import (
     create_table,
     delete_row,
     insert_row,
