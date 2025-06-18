@@ -1,14 +1,14 @@
-"""Pydantic AI agents with tool calling.
-
-We use agent-wide dynamic tool preparation (deny-all by default):
-https://ai.pydantic.dev/tools/#prepare-tools
-"""
+"""Pydantic AI agents with tool calling."""
 
 import inspect
 import textwrap
+import tempfile
+from pathlib import Path
+import base64
 from typing import Any, Union, Annotated, Self
 from pydantic import BaseModel
 from pydantic_core import to_jsonable_python
+from tracecat_registry.integrations.agents.parsers import try_parse_json
 from pydantic_ai.agent import AgentRunResult
 from typing_extensions import Doc
 from timeit import timeit
@@ -42,14 +42,56 @@ from tracecat_registry.integrations.pydantic_ai import (
 from tracecat_registry import registry, RegistrySecret
 from tracecat.types.exceptions import RegistryError
 from tracecat_registry.integrations.agents.exceptions import AgentRunError
+from tracecat_registry.integrations.agents.tools import (
+    create_secure_file_tools,
+    generate_default_tools_prompt,
+)
 
 
-def generate_google_style_docstring(description: str | None, model_cls: type) -> str:
+ALLOWED_TOOLS = {
+    # Cases
+    "core.cases.get_case",
+    "core.cases.list_cases",
+    "core.cases.list_comments",
+    "core.cases.search_cases",
+    # Read only 3rd party tools
+    "tools.abuseipdb.lookup_ip_address",
+    "tools.emailrep.lookup_email",
+    "tools.ipinfo.lookup_ip_address",
+    "tools.sublime.analyze_eml",
+    "tools.sublime.analyze_url",
+    "tools.sublime.binexplode",
+    "tools.sublime.score_eml",
+    "tools.tavily.web_search",
+    "tools.urlhaus.list_url_threats",
+    "tools.urlscan.lookup_url",
+    "tools.virustotal.list_threats",
+    "tools.virustotal.lookup_domain",
+    "tools.virustotal.lookup_file_hash",
+    "tools.virustotal.lookup_ip_address",
+    "tools.virustotal.lookup_url",
+    # Query engines
+    "tools.splunk.search_events",
+    # Write-tools with user-specified permissions
+    "tools.slack.post_message",
+    "tools.jira.create_issue",
+    "tools.jira.add_comment",
+    "core.cases.create_case",
+    "core.cases.update_case",
+    "core.cases.create_comment",
+    "core.cases.update_comment",
+}
+
+
+def generate_google_style_docstring(
+    description: str | None, model_cls: type, fixed_args: set[str] | None = None
+) -> str:
     """Generate a Google-style docstring from a description and Pydantic model.
 
     Args:
         description: The base description for the function
         model_cls: The Pydantic model class containing parameter information
+        fixed_args: Set of argument names that are fixed and should be excluded
 
     Returns:
         A properly formatted Google-style docstring with Args section
@@ -62,12 +104,17 @@ def generate_google_style_docstring(description: str | None, model_cls: type) ->
 
     # Extract parameter descriptions from the model's JSON schema
     param_lines = []
+    fixed_args = fixed_args or set()
 
     if hasattr(model_cls, "model_json_schema"):
         schema = model_cls.model_json_schema()
         properties = schema.get("properties", {})
 
         for prop_name, prop_info in properties.items():
+            # Skip fixed arguments
+            if prop_name in fixed_args:
+                continue
+
             # Get description from schema, fall back to a placeholder if missing
             prop_desc = prop_info.get("description", f"Parameter {prop_name}")
             param_lines.append(f"{prop_name}: {prop_desc}")
@@ -175,20 +222,26 @@ def _extract_action_metadata(bound_action) -> tuple[str, type]:
 
 
 def _create_function_signature(
-    model_cls: type,
+    model_cls: type, fixed_args: set[str] | None = None
 ) -> tuple[inspect.Signature, dict[str, Any]]:
     """Create function signature and annotations from a Pydantic model.
 
     Args:
         model_cls: The Pydantic model class
+        fixed_args: Set of argument names that are fixed and should be excluded
 
     Returns:
         Tuple of (signature, annotations)
     """
     sig_params = []
     annotations = {}
+    fixed_args = fixed_args or set()
 
     for field_name, field_info in model_cls.model_fields.items():
+        # Skip fixed arguments
+        if field_name in fixed_args:
+            continue
+
         # Use the Pydantic field's annotation directly
         annotation = field_info.annotation
 
@@ -242,11 +295,14 @@ def _generate_tool_function_name(namespace: str, name: str, *, sep: str = "__") 
     return f"{namespace}{sep}{name}".replace(".", sep)
 
 
-async def create_tool_from_registry(action_name: str) -> Tool:
+async def create_tool_from_registry(
+    action_name: str, fixed_args: dict[str, Any] | None = None
+) -> Tool:
     """Create a Pydantic AI Tool directly from the registry.
 
     Args:
         action_name: Full action name (e.g., "core.http_request")
+        fixed_args: Fixed arguments to curry into the tool function
 
     Returns:
         A configured Pydantic AI Tool
@@ -259,9 +315,14 @@ async def create_tool_from_registry(action_name: str) -> Tool:
         reg_action = await service.get_action(action_name)
         bound_action = service.get_bound(reg_action, mode="execution")
 
-    # Create wrapper function that calls the action
+    fixed_args = fixed_args or {}
+    fixed_arg_names = set(fixed_args.keys())
+
+    # Create wrapper function that calls the action with fixed args merged
     async def tool_func(**kwargs) -> Any:
-        return await call_tracecat_action(action_name, kwargs)
+        # Merge fixed arguments with runtime arguments
+        merged_args = {**fixed_args, **kwargs}
+        return await call_tracecat_action(action_name, merged_args)
 
     # Set function name
     tool_func.__name__ = _generate_tool_function_name(
@@ -275,13 +336,15 @@ async def create_tool_from_registry(action_name: str) -> Tool:
     if not description:
         raise ValueError(f"Action '{action_name}' has no description")
 
-    # Create function signature and annotations
-    signature, annotations = _create_function_signature(model_cls)
+    # Create function signature and annotations, excluding fixed args
+    signature, annotations = _create_function_signature(model_cls, fixed_arg_names)
     tool_func.__signature__ = signature
     tool_func.__annotations__ = annotations
 
-    # Generate Google-style docstring
-    tool_func.__doc__ = generate_google_style_docstring(description, model_cls)
+    # Generate Google-style docstring, excluding fixed args
+    tool_func.__doc__ = generate_google_style_docstring(
+        description, model_cls, fixed_arg_names
+    )
 
     # Create tool with enforced documentation standards
     return Tool(
@@ -302,6 +365,7 @@ class TracecatAgentBuilder:
         model_settings: dict[str, Any] | None = None,
         retries: int = 3,
         deps_type: type[Any] | None = None,
+        fixed_arguments: dict[str, dict[str, Any]] | None = None,
     ):
         self.model_name = model_name
         self.model_provider = model_provider
@@ -311,6 +375,7 @@ class TracecatAgentBuilder:
         self.model_settings = model_settings
         self.retries = retries
         self.deps_type = deps_type
+        self.fixed_arguments = fixed_arguments or {}
         self.tools: list[Tool] = []
         self.namespace_filters: list[str] = []
         self.action_filters: list[str] = []
@@ -329,6 +394,14 @@ class TracecatAgentBuilder:
     def with_custom_tool(self, tool: Tool) -> Self:
         """Add a custom Pydantic AI tool."""
         self.tools.append(tool)
+        return self
+
+    def with_default_tools(self, temp_dir: str | None = None) -> Self:
+        """Add default file manipulation tools, optionally restricted to temp_dir."""
+        if temp_dir:
+            # Use secure tools restricted to temp_dir
+            secure_tools = create_secure_file_tools(temp_dir)
+            self.tools.extend(secure_tools)
         return self
 
     async def build(self) -> Agent:
@@ -359,7 +432,10 @@ class TracecatAgentBuilder:
                     action_secrets = await service.fetch_all_action_secrets(reg_action)
                     self.collected_secrets.update(action_secrets)
 
-                tool = await create_tool_from_registry(action_name)
+                # Get fixed arguments for this action
+                action_fixed_args = self.fixed_arguments.get(action_name, {})
+
+                tool = await create_tool_from_registry(action_name, action_fixed_args)
                 self.tools.append(tool)
             except RegistryError:
                 failed_actions.append(action_name)
@@ -424,7 +500,8 @@ async def collect_secrets_for_filters(
 
 
 class AgentOutput(BaseModel):
-    output: str
+    output: Any
+    files: dict[str, str] | None = None
     message_history: list[ModelMessage]
     duration: float
     usage: Usage | None = None
@@ -451,6 +528,19 @@ async def agent(
         Doc("Actions (e.g. 'tools.slack.post_message') to include in the agent."),
         ActionType(multiple=True),
     ],
+    files: Annotated[
+        dict[str, str] | None,
+        Doc(
+            "Files to include in the agent's temporary directory environment. Keys are file paths and values are base64-encoded file contents."
+        ),
+    ] = None,
+    fixed_arguments: Annotated[
+        dict[str, dict[str, Any]] | None,
+        Doc(
+            "Fixed action arguments: keys are action names, values are keyword arguments. "
+            "E.g. {'tools.slack.post_message': {'channel_id': 'C123456789', 'text': 'Hello, world!'}}"
+        ),
+    ] = None,
     instructions: Annotated[
         str | None, Doc("Instructions for the agent."), TextArea()
     ] = None,
@@ -460,7 +550,7 @@ async def agent(
     model_settings: Annotated[
         dict[str, Any] | None, Doc("Model settings for the agent.")
     ] = None,
-    retries: Annotated[int, Doc("Number of retries for the agent.")] = 3,
+    retries: Annotated[int, Doc("Number of retries for the agent.")] = 6,
     include_usage: Annotated[
         bool, Doc("Whether to include usage information in the output.")
     ] = False,
@@ -474,37 +564,64 @@ async def agent(
         output_type=output_type,
         model_settings=model_settings,
         retries=retries,
+        fixed_arguments=fixed_arguments,
     )
 
     if isinstance(actions, str):
         actions = [actions]
 
-    agent = await builder.with_action_filters(*actions).build()
+    blocked_actions = set(actions) - ALLOWED_TOOLS
+    if len(blocked_actions) > 0:
+        raise ValueError(f"Forbidden actions: {blocked_actions}")
 
-    start_time = timeit()
-    # Use async version since this function is already async
-    try:
-        message_nodes = []
-        async with agent.iter(user_prompt=user_prompt) as run:
-            async for node in run:
-                message_nodes.append(to_jsonable_python(node))
-            result = run.result
-            if not isinstance(result, AgentRunResult):
-                raise ValueError("No output returned from agent run.")
-    except Exception as e:
-        raise AgentRunError(
-            exc_cls=type(e),
-            exc_msg=str(e),
-            message_history=message_nodes,
-        )
-    end_time = timeit()
-
-    output = AgentOutput(
-        output=result.output,
-        message_history=result.all_messages(),
-        duration=end_time - start_time,
+    # Generate the enhanced user prompt with tool guidance
+    tools_prompt = generate_default_tools_prompt(files) if files else ""
+    enhanced_user_prompt = (
+        f"{user_prompt}\n{tools_prompt}" if tools_prompt else user_prompt
     )
-    if include_usage:
-        output.usage = result.usage()
 
-    return output.model_dump(mode="json", exclude_unset=True)
+    with tempfile.TemporaryDirectory() as temp_dir:
+        if files:
+            for path, content in files.items():
+                file_path = Path(temp_dir) / path
+                file_path.write_bytes(base64.b64decode(content))
+
+            # Add secure default tools with temp_dir restriction
+            builder = builder.with_default_tools(temp_dir)
+
+        agent = await builder.with_action_filters(*actions).build()
+
+        start_time = timeit()
+        # Use async version since this function is already async
+        try:
+            message_nodes = []
+            async with agent.iter(user_prompt=enhanced_user_prompt) as run:
+                async for node in run:
+                    message_nodes.append(to_jsonable_python(node))
+                result = run.result
+                if not isinstance(result, AgentRunResult):
+                    raise ValueError("No output returned from agent run.")
+        except Exception as e:
+            raise AgentRunError(
+                exc_cls=type(e),
+                exc_msg=str(e),
+                message_history=message_nodes,
+            )
+        end_time = timeit()
+
+        # Read potentially modified files from temp directory
+        files = {}
+        for file_path in Path(temp_dir).glob("*"):
+            with open(file_path, "r") as f:
+                files[file_path.name] = f.read()
+
+        output = AgentOutput(
+            output=try_parse_json(result.output),
+            files=files,
+            message_history=result.all_messages(),
+            duration=end_time - start_time,
+        )
+        if include_usage:
+            output.usage = result.usage()
+
+    return output.model_dump()

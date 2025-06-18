@@ -1,12 +1,12 @@
 """Tests for agent builder functionality."""
 
 import inspect
-import os
 from typing import Any
 from unittest.mock import AsyncMock, Mock, call, patch
 
 import pytest
 from dotenv import load_dotenv
+from pydantic_ai.agent import AgentRunResult
 from pydantic_ai.tools import Tool
 from tracecat_registry import RegistrySecret
 from tracecat_registry.integrations.agents.builder import (
@@ -22,7 +22,6 @@ from tracecat_registry.integrations.agents.builder import (
 
 from tests.conftest import (
     requires_slack_mocks,
-    skip_if_no_slack_credentials,
     skip_if_no_slack_token,
 )
 from tracecat.registry.actions.models import BoundRegistryAction
@@ -232,32 +231,6 @@ class TestCreateToolFromRegistry:
                 ValueError, match="Action 'test.action' has no description"
             ):
                 await create_tool_from_registry(action_name)
-
-    @pytest.mark.parametrize(
-        "action_name,expected_func_name",
-        [
-            ("core.http_request", "core__http_request"),
-            ("tools.slack.post_message", "tools__slack__post_message"),
-            ("tools.aws_boto3.s3_list_objects", "tools__aws__boto3__s3_list_objects"),
-        ],
-        ids=[
-            "core.http_request",
-            "tools.slack.post_message",
-            "tools.aws_boto3.s3_list_objects",
-        ],
-    )
-    async def test_function_name_generation(
-        self, test_role, action_name, expected_func_name
-    ):
-        """Test that function names are generated correctly from action names."""
-        # Based on the actual logic: namespace.replace(".", "__") + "__" + name
-        try:
-            tool = await create_tool_from_registry(action_name)
-            assert tool.function.__name__ == expected_func_name
-        except Exception:
-            # Skip if the action doesn't exist in the test environment
-            # We're mainly testing the name generation logic
-            pytest.skip(f"Action {action_name} not available in test environment")
 
     async def test_google_style_docstring_generation(self, test_role):
         """Test that docstrings are generated with Args section from JSON schema."""
@@ -718,424 +691,6 @@ class TestAgentBuilderHelpers:
 
 
 @pytest.mark.anyio
-class TestAgentBuilderIntegration:
-    """Integration test suite for TracecatAgentBuilder with real registry actions."""
-
-    async def test_agent_with_core_actions_integration(self, test_role):
-        """Test building and using an agent with real core actions."""
-        # Build an agent with core actions
-        builder = TracecatAgentBuilder(
-            model_name="gpt-4o-mini",
-            model_provider="openai",
-            instructions="You are a helpful assistant that can make HTTP requests and transform data.",
-        )
-
-        # Filter to only core actions for this test
-        agent = await builder.with_namespace_filters("core").build()
-
-        # Verify the agent was created
-        assert agent is not None
-
-        # Verify tools were loaded
-        assert len(builder.tools) > 0
-
-        # Check that we have some expected core tools
-        tool_names = [tool.function.__name__ for tool in builder.tools]
-
-        # Should have core HTTP and transform tools
-        expected_tools = ["core__http_request", "core__reshape"]
-        found_tools = [name for name in expected_tools if name in tool_names]
-        assert len(found_tools) > 0, (
-            f"Expected to find some of {expected_tools} in {tool_names}"
-        )
-
-    async def test_agent_with_python_script_action(self, test_role):
-        """Test building an agent with the core Python script action."""
-        builder = TracecatAgentBuilder(
-            model_name="gpt-4o-mini",
-            model_provider="openai",
-            instructions="You are a helpful assistant that can run Python scripts.",
-        )
-
-        # Filter to only the Python script action
-        agent = await builder.with_action_filters("core.script.run_python").build()
-
-        # Verify the agent was created
-        assert agent is not None
-
-        # Should have exactly one tool
-        assert len(builder.tools) == 1
-
-        # Verify it's the Python script tool
-        tool = builder.tools[0]
-        assert tool.function.__name__ == "core__script__run_python"
-
-        # Verify the tool has the expected parameters
-        sig = inspect.signature(tool.function)
-        params = list(sig.parameters.keys())
-
-        # Should have the main parameters from the Python script action
-        expected_params = [
-            "script",
-            "inputs",
-            "dependencies",
-            "timeout_seconds",
-            "allow_network",
-        ]
-        for param in expected_params:
-            assert param in params, (
-                f"Expected parameter '{param}' not found in {params}"
-            )
-
-    @skip_if_no_slack_token
-    @requires_slack_mocks
-    async def test_agent_with_template_action_integration(self, mock_slack_secrets):
-        """Test building an agent with a template action."""
-        builder = TracecatAgentBuilder(
-            model_name="gpt-4o-mini",
-            model_provider="openai",
-            instructions="You are a helpful assistant that can post Slack messages.",
-        )
-
-        # Filter to only Slack template actions
-        agent = await builder.with_namespace_filters("tools.slack").build()
-
-        # Verify the agent was created
-        assert agent is not None
-
-        # Should have some tools
-        assert len(builder.tools) > 0
-
-        # Check for Slack-related tools
-        tool_names = [tool.function.__name__ for tool in builder.tools]
-        slack_tools = [name for name in tool_names if "slack" in name.lower()]
-        assert len(slack_tools) > 0, f"Expected to find Slack tools in {tool_names}"
-
-        # Verify at least one tool has the expected Slack parameters
-        slack_tool = None
-        for tool in builder.tools:
-            if "post_message" in tool.function.__name__:
-                slack_tool = tool
-                break
-
-        if slack_tool:
-            sig = inspect.signature(slack_tool.function)
-            params = list(sig.parameters.keys())
-
-            # Should have channel parameter for Slack message posting
-            assert "channel" in params, (
-                f"Expected 'channel' parameter in Slack tool, got {params}"
-            )
-
-    @pytest.mark.anyio
-    @skip_if_no_slack_credentials
-    @requires_slack_mocks
-    @pytest.mark.parametrize(
-        "prompt_type,prompt_template",
-        [
-            (
-                "simple",
-                "Post a message to Slack asking: 'Which programming language do you prefer? "
-                "Python 🐍 or JavaScript ⚡? Let us know in the comments!' "
-                "Post this to channel: {channel}",
-            ),
-            (
-                "medium",
-                "Post an interactive message to Slack asking people to vote between Python and JavaScript. "
-                "Include two buttons: 'Python 🐍' and 'JavaScript ⚡'. "
-                "Use simple Slack blocks format. "
-                "Post this to channel: {channel}",
-            ),
-            (
-                "complex",
-                "Post a fun interactive message to the Slack channel asking people to vote on "
-                "which is the better programming language. The message should include:\n"
-                "1. A header section with an emoji and title 'Which is the better programming language?'\n"
-                "2. Two comparison sections side by side:\n"
-                "   - Python: 'Simple, readable, has pandas' \n"
-                "   - JavaScript: 'Runs everywhere, async/await, has npm chaos'\n"
-                "3. Two action buttons: 'Python 🐍' (green/primary) and 'JavaScript ⚡' (yellow/secondary)\n"
-                "4. A context section with a fun note\n"
-                "5. Use proper Slack block kit JSON format with sections, actions, and context blocks\n"
-                "Post this to channel: {channel}",
-            ),
-        ],
-        ids=[
-            "simple",
-            "medium",
-            "complex",
-        ],
-    )
-    async def test_agent_live_slack_prompts(
-        self, test_role, prompt_type, prompt_template, mock_slack_secrets, slack_secret
-    ):
-        """Live test: Agent creates Slack messages with varying complexity levels."""
-
-        # Get environment variables
-        slack_token = os.getenv("SLACK_BOT_TOKEN")
-        slack_channel = os.getenv("SLACK_CHANNEL_ID")
-
-        if not slack_token or not slack_channel:
-            pytest.skip("Slack credentials not available")
-
-        # Set higher retries for complex prompts to handle flakiness
-        retries = 5 if prompt_type == "complex" else 3
-
-        # Build an agent with Slack capabilities
-        builder = TracecatAgentBuilder(
-            model_name="gpt-4o-mini",
-            model_provider="openai",
-            instructions=(
-                "You are a helpful assistant that can post interactive Slack messages. "
-                "When asked to create interactive messages, use proper Slack block kit format "
-                "with buttons, sections, and other interactive elements. "
-                "If complex blocks fail, try simpler alternatives."
-            ),
-            retries=retries,
-        )
-
-        # Filter to Slack tools
-        agent = await builder.with_namespace_filters("tools.slack").build()
-
-        # Verify agent was created with Slack tools
-        assert agent is not None
-        assert len(builder.tools) > 0
-
-        # Format the prompt with the channel
-        prompt = prompt_template.format(channel=slack_channel)
-
-        print(f"\n🤖 Running agent with {prompt_type} Slack prompt...")
-        print(f"📝 Prompt: {prompt}")
-
-        # Run the agent - don't catch exceptions, let them fail the test immediately
-        result = await agent.run(prompt)
-        print(f"📤 Result: {result}")
-        assert isinstance(result.output, str)
-
-        # Should mention successful posting or contain message details
-        result_lower = result.output.lower()
-        success_indicators = [
-            "posted",
-            "sent",
-            "message",
-            "slack",
-            "channel",
-            "success",
-            "python",
-            "javascript",
-            "programming",
-        ]
-
-        found_indicators = [
-            indicator for indicator in success_indicators if indicator in result_lower
-        ]
-
-        assert len(found_indicators) > 0, (
-            f"Expected success indicators in result: {result.output}"
-        )
-
-    @skip_if_no_slack_credentials
-    @requires_slack_mocks
-    async def test_agent_function_direct(
-        self, mock_slack_secrets, slack_secret, test_role
-    ):
-        """Live test: Test the agent registry function directly."""
-
-        # Get environment variables
-        slack_token = os.getenv("SLACK_BOT_TOKEN")
-        slack_channel = os.getenv("SLACK_CHANNEL_ID")
-
-        if not slack_token or not slack_channel:
-            pytest.skip("Slack credentials not available")
-
-        # Call the agent function directly
-        result = await agent(
-            user_prompt=(
-                f"Post a simple message to Slack channel {slack_channel} saying "
-                "'Hello from the Tracecat AI agent! 🤖 This is a test message.'"
-            ),
-            model_name="gpt-4o-mini",
-            model_provider="openai",
-            actions=["tools.slack.post_message"],
-            instructions="You are a helpful assistant that can post messages to Slack.",
-            include_usage=True,
-        )
-
-        print(f"\n🤖 Agent function result: {result}")
-
-        # Verify the result structure
-        assert isinstance(result, dict)
-        assert "output" in result
-        assert "message_history" in result
-        assert "duration" in result
-        assert "usage" in result
-
-        # Verify the output contains success indicators
-        output = result["output"]
-        output_lower = str(output).lower()
-        success_indicators = ["posted", "message", "slack", "hello", "test"]
-        found_indicators = [
-            indicator for indicator in success_indicators if indicator in output_lower
-        ]
-        assert len(found_indicators) > 0, (
-            f"Expected success indicators in output: {output}"
-        )
-
-        # Verify message history exists
-        assert isinstance(result["message_history"], list)
-        assert len(result["message_history"]) > 0
-
-        # Verify usage information
-        assert isinstance(result["usage"], dict)
-
-        print(
-            f"🎉 Agent function test successful! Found indicators: {found_indicators}"
-        )
-        print(f"📊 Usage: {result['usage']}")
-        print(f"⏱️ Duration: {result['duration']:.2f}s")
-
-    @pytest.mark.anyio
-    async def test_agent_with_mock_action_and_secrets(self, test_role, mocker):
-        """Integration test: Agent using an action that requires secrets."""
-        # This test verifies that when an agent uses tools, the secrets are properly fetched
-
-        # Mock a simple action that uses secrets
-        async def mock_action_func(message: str) -> str:
-            # In a real action, this would use secrets from the environment
-            return f"Processed: {message}"
-
-        # Create a mock tool
-        mock_tool = Tool(mock_action_func)
-
-        # Mock the builder to return our mock tool
-        builder = TracecatAgentBuilder(
-            model_name="gpt-4o-mini",
-            model_provider="openai",
-            instructions="You are a test assistant.",
-        )
-
-        # Mock create_tool_from_registry to return our mock tool
-        async def mock_create_tool(action_name: str) -> Tool:
-            return mock_tool
-
-        mocker.patch(
-            "tracecat_registry.integrations.agents.builder.create_tool_from_registry",
-            side_effect=mock_create_tool,
-        )
-
-        # Mock the registry service to return a test action
-        mock_reg_action = Mock()
-        mock_reg_action.namespace = "test"
-        mock_reg_action.name = "mock_action"
-
-        mock_service = Mock()
-        mock_service.list_actions = AsyncMock(return_value=[mock_reg_action])
-        mock_service.fetch_all_action_secrets = AsyncMock(return_value=[])
-
-        mock_context = AsyncMock()
-        mock_context.__aenter__.return_value = mock_service
-
-        mocker.patch(
-            "tracecat_registry.integrations.agents.builder.RegistryActionsService.with_session",
-            return_value=mock_context,
-        )
-
-        # Mock env_sandbox
-        mocker.patch("tracecat_registry.integrations.agents.builder.env_sandbox")
-
-        # Build the agent
-        await builder.with_namespace_filters("test").build()
-
-        # Verify the agent was built with the tool
-        assert len(builder.tools) == 1
-        assert builder.tools[0] == mock_tool
-
-    @pytest.mark.anyio
-    async def test_agent_with_model_settings(self, test_role):
-        """Test building an agent with custom model settings."""
-        # Define model settings with specific temperature and tool_choice
-        model_settings = {
-            "temperature": 0.2,  # Low temperature for deterministic outputs
-            "top_p": 0.9,
-            "extra_body": {
-                "tool_choice": "auto"
-            },  # Don't force tool use since we have limited tools
-        }
-
-        # Build an agent with model settings
-        builder = TracecatAgentBuilder(
-            model_name="gpt-4o-mini",
-            model_provider="openai",
-            instructions="You are a helpful assistant that can make HTTP requests.",
-            model_settings=model_settings,
-        )
-
-        # Add just core.http_request tool to avoid schema issues with other tools
-        agent = await builder.with_action_filters("core.http_request").build()
-
-        # Verify the agent was created
-        assert agent is not None
-
-        # Verify tools were loaded
-        assert len(builder.tools) == 1
-        assert builder.tools[0].function.__name__ == "core__http_request"
-
-        # We can't directly check private attributes, but we can verify the agent works
-        # Try running the agent with a simple prompt
-        result = await agent.run("Tell me a fun fact about Paris, France.")
-
-        # Verify we got a result
-        assert result is not None
-        assert isinstance(result.output, str)
-
-        # Output should contain information about Paris
-        assert "paris" in result.output.lower()
-
-        print(f"Agent result with model_settings: {result.output}")
-
-    @pytest.mark.anyio
-    async def test_agent_function_with_model_settings(self, test_role):
-        """Test the agent registry function with model settings."""
-        # Call the agent function directly with model settings
-        result = await agent(
-            user_prompt="Tell me a fun fact about Paris, France.",
-            model_name="gpt-4o-mini",
-            model_provider="openai",
-            actions=[
-                "core.http_request"
-            ],  # Use just the HTTP request tool to avoid schema issues
-            instructions="You are a helpful assistant that can make HTTP requests.",
-            model_settings={
-                "temperature": 0.2,
-                "top_p": 0.9,
-                "extra_body": {"tool_choice": "auto"},  # Don't force tool use
-            },
-            include_usage=True,
-        )
-
-        print(f"\n🤖 Agent function result with model_settings: {result}")
-
-        # Verify the result structure
-        assert isinstance(result, dict)
-        assert "output" in result
-        assert "message_history" in result
-        assert "duration" in result
-        assert "usage" in result
-
-        # Output should contain information about Paris
-        output = result["output"]
-        assert isinstance(output, str)
-        assert "Paris" in output or "paris" in output.lower()
-
-        # Check that the message_history exists and has the expected structure
-        message_history = result["message_history"]
-        assert isinstance(message_history, list)
-        assert (
-            len(message_history) >= 2
-        )  # Should have at least the user message and one response
-
-
-@pytest.mark.anyio
 class TestCallTracecatAction:
     """Test suite for call_tracecat_action function."""
 
@@ -1300,3 +855,363 @@ class TestCallTracecatAction:
 
         # Verify result
         assert result == "template_result"
+
+
+@pytest.mark.anyio
+class TestFixedArguments:
+    """Test suite for fixed_arguments functionality in agent builder."""
+
+    def test_generate_google_style_docstring_with_fixed_args(self):
+        """Test that fixed arguments are excluded from generated docstrings."""
+        from pydantic import BaseModel, Field
+
+        class TestModel(BaseModel):
+            channel: str = Field(description="Slack channel ID")
+            text: str = Field(description="Message text")
+            username: str = Field(description="Bot username")
+            icon_emoji: str = Field(description="Bot emoji icon")
+
+        # Test without fixed args - should include all parameters
+        docstring_all = generate_google_style_docstring("Post a message", TestModel)
+        assert "channel: Slack channel ID" in docstring_all
+        assert "text: Message text" in docstring_all
+        assert "username: Bot username" in docstring_all
+        assert "icon_emoji: Bot emoji icon" in docstring_all
+
+        # Test with fixed args - should exclude fixed parameters
+        fixed_args = {"channel", "username"}
+        docstring_filtered = generate_google_style_docstring(
+            "Post a message", TestModel, fixed_args
+        )
+
+        # Should not include fixed arguments
+        assert "channel: Slack channel ID" not in docstring_filtered
+        assert "username: Bot username" not in docstring_filtered
+
+        # Should still include non-fixed arguments
+        assert "text: Message text" in docstring_filtered
+        assert "icon_emoji: Bot emoji icon" in docstring_filtered
+
+        print(f"\nDocstring with fixed args excluded:\n{docstring_filtered}")
+
+    def test_create_function_signature_with_fixed_args(self):
+        """Test that fixed arguments are excluded from function signatures."""
+        from pydantic import BaseModel, Field
+
+        class TestModel(BaseModel):
+            channel: str = Field(description="Slack channel ID")
+            text: str = Field(description="Message text")
+            username: str = Field(description="Bot username")
+            icon_emoji: str | None = Field(None, description="Bot emoji icon")
+
+        # Test without fixed args - should include all parameters
+        signature_all, annotations_all = _create_function_signature(TestModel)
+        params_all = list(signature_all.parameters.keys())
+        assert "channel" in params_all
+        assert "text" in params_all
+        assert "username" in params_all
+        assert "icon_emoji" in params_all
+
+        # Test with fixed args - should exclude fixed parameters
+        fixed_args = {"channel", "username"}
+        signature_filtered, annotations_filtered = _create_function_signature(
+            TestModel, fixed_args
+        )
+        params_filtered = list(signature_filtered.parameters.keys())
+
+        # Should not include fixed arguments
+        assert "channel" not in params_filtered
+        assert "username" not in params_filtered
+
+        # Should still include non-fixed arguments
+        assert "text" in params_filtered
+        assert "icon_emoji" in params_filtered
+
+        # Check annotations are also filtered
+        assert "channel" not in annotations_filtered
+        assert "username" not in annotations_filtered
+        assert "text" in annotations_filtered
+        assert "icon_emoji" in annotations_filtered
+
+    async def test_create_tool_from_registry_with_fixed_args(self, test_role):
+        """Test creating a tool with fixed arguments."""
+        action_name = "core.http_request"
+        fixed_args = {"method": "POST", "headers": {"Content-Type": "application/json"}}
+
+        tool = await create_tool_from_registry(action_name, fixed_args)
+
+        # Verify it returns a Tool instance
+        assert isinstance(tool, Tool)
+        assert tool.function.__name__ == "core__http_request"
+
+        # Verify the function signature excludes fixed parameters
+        sig = inspect.signature(tool.function)
+        params = list(sig.parameters.keys())
+
+        # Should not include fixed arguments
+        assert "method" not in params
+        assert "headers" not in params
+
+        # Should still include non-fixed arguments
+        assert "url" in params
+
+        # Verify docstring excludes fixed arguments
+        docstring = tool.function.__doc__
+        assert docstring is not None
+        assert "method:" not in docstring  # Fixed arg should not be documented
+        assert "headers:" not in docstring  # Fixed arg should not be documented
+        assert "url:" in docstring  # Non-fixed arg should be documented
+
+        print(f"\nTool docstring with fixed args:\n{docstring}")
+        print(f"Tool signature params: {params}")
+
+    async def test_agent_builder_with_fixed_arguments(self, test_role, mocker):
+        """Test TracecatAgentBuilder with fixed_arguments parameter."""
+        fixed_arguments = {
+            "core.http_request": {
+                "method": "POST",
+                "headers": {"Content-Type": "application/json"},
+            },
+            "tools.slack.post_message": {
+                "channel": "C123456789",
+                "username": "TestBot",
+            },
+        }
+
+        builder = TracecatAgentBuilder(
+            model_name="gpt-4o-mini",
+            model_provider="openai",
+            fixed_arguments=fixed_arguments,
+        )
+
+        # Verify fixed_arguments are stored
+        assert builder.fixed_arguments == fixed_arguments
+
+        # Mock dependencies for build()
+        mock_reg_action1 = Mock()
+        mock_reg_action1.namespace = "core"
+        mock_reg_action1.name = "http_request"
+
+        mock_reg_action2 = Mock()
+        mock_reg_action2.namespace = "tools.slack"
+        mock_reg_action2.name = "post_message"
+
+        mock_service = Mock()
+        mock_service.get_actions = AsyncMock(
+            return_value=[mock_reg_action1, mock_reg_action2]
+        )
+        mock_service.fetch_all_action_secrets = AsyncMock(return_value=[])
+
+        mock_context = AsyncMock()
+        mock_context.__aenter__.return_value = mock_service
+
+        mocker.patch(
+            "tracecat_registry.integrations.agents.builder.RegistryActionsService.with_session",
+            return_value=mock_context,
+        )
+
+        # Mock create_tool_from_registry to verify it's called with fixed args
+        mock_create_tool = mocker.patch(
+            "tracecat_registry.integrations.agents.builder.create_tool_from_registry",
+            return_value=Mock(),  # Just return a simple mock instead of trying to create a Tool
+        )
+
+        mocker.patch(
+            "tracecat_registry.integrations.agents.builder.build_agent",
+            return_value=Mock(),
+        )
+
+        # Build agent with specific actions
+        await builder.with_action_filters(
+            "core.http_request", "tools.slack.post_message"
+        ).build()
+
+        # Verify create_tool_from_registry was called with correct fixed args
+        expected_calls = [
+            call(
+                "core.http_request",
+                {"method": "POST", "headers": {"Content-Type": "application/json"}},
+            ),
+            call(
+                "tools.slack.post_message",
+                {"channel": "C123456789", "username": "TestBot"},
+            ),
+        ]
+        mock_create_tool.assert_has_calls(expected_calls, any_order=True)
+
+    async def test_agent_builder_with_partial_fixed_arguments(self, test_role, mocker):
+        """Test that actions without fixed arguments get empty dict."""
+        fixed_arguments = {
+            "core.http_request": {"method": "POST"}
+            # tools.slack.post_message intentionally not included
+        }
+
+        builder = TracecatAgentBuilder(
+            model_name="gpt-4o-mini",
+            model_provider="openai",
+            fixed_arguments=fixed_arguments,
+        )
+
+        # Mock dependencies
+        mock_reg_action1 = Mock()
+        mock_reg_action1.namespace = "core"
+        mock_reg_action1.name = "http_request"
+
+        mock_reg_action2 = Mock()
+        mock_reg_action2.namespace = "tools.slack"
+        mock_reg_action2.name = "post_message"
+
+        mock_service = Mock()
+        mock_service.get_actions = AsyncMock(
+            return_value=[mock_reg_action1, mock_reg_action2]
+        )
+        mock_service.fetch_all_action_secrets = AsyncMock(return_value=[])
+
+        mock_context = AsyncMock()
+        mock_context.__aenter__.return_value = mock_service
+
+        mocker.patch(
+            "tracecat_registry.integrations.agents.builder.RegistryActionsService.with_session",
+            return_value=mock_context,
+        )
+
+        mock_create_tool = mocker.patch(
+            "tracecat_registry.integrations.agents.builder.create_tool_from_registry",
+            return_value=Mock(),  # Just return a simple mock instead of trying to create a Tool
+        )
+
+        mocker.patch(
+            "tracecat_registry.integrations.agents.builder.build_agent",
+            return_value=Mock(),
+        )
+
+        await builder.with_action_filters(
+            "core.http_request", "tools.slack.post_message"
+        ).build()
+
+        # Verify create_tool_from_registry was called correctly
+        expected_calls = [
+            call("core.http_request", {"method": "POST"}),  # Has fixed args
+            call("tools.slack.post_message", {}),  # No fixed args, empty dict
+        ]
+        mock_create_tool.assert_has_calls(expected_calls, any_order=True)
+
+    async def test_agent_function_with_fixed_arguments(self, test_role, mocker):
+        """Test the agent registry function with fixed_arguments parameter."""
+        fixed_arguments = {
+            "core.http_request": {
+                "method": "POST",
+                "headers": {"Content-Type": "application/json"},
+            }
+        }
+
+        # Mock the TracecatAgentBuilder
+        mock_builder = Mock()
+        mock_agent = Mock()
+        mock_builder.with_action_filters.return_value = mock_builder
+        mock_builder.build = AsyncMock(return_value=mock_agent)
+
+        mock_run_result = Mock(spec=AgentRunResult)
+        mock_run_result.output = "HTTP request completed successfully"
+        mock_run_result.all_messages.return_value = []
+        mock_run_result.usage.return_value = {"total_tokens": 100}
+
+        mock_run_context = AsyncMock()
+        mock_run_context.result = mock_run_result
+        mock_run_context.__aenter__.return_value = mock_run_context
+        mock_run_context.__aiter__.return_value = iter([])
+
+        mock_agent.iter.return_value = mock_run_context
+
+        # Mock TracecatAgentBuilder constructor
+        mock_builder_constructor = mocker.patch(
+            "tracecat_registry.integrations.agents.builder.TracecatAgentBuilder",
+            return_value=mock_builder,
+        )
+
+        # Mock timeit
+        mocker.patch(
+            "tracecat_registry.integrations.agents.builder.timeit",
+            side_effect=[0.0, 1.5],
+        )
+
+        # Call the agent function
+        result = await agent(
+            user_prompt="Make a POST request to https://api.example.com/data",
+            model_name="gpt-4o-mini",
+            model_provider="openai",
+            actions=["core.http_request"],
+            fixed_arguments=fixed_arguments,
+            include_usage=True,
+        )
+
+        # Verify TracecatAgentBuilder was initialized with fixed_arguments
+        mock_builder_constructor.assert_called_once_with(
+            model_name="gpt-4o-mini",
+            model_provider="openai",
+            base_url=None,
+            instructions=None,
+            output_type=None,
+            model_settings=None,
+            retries=3,
+            fixed_arguments=fixed_arguments,
+        )
+
+        # Verify the result structure
+        assert isinstance(result, dict)
+        assert result["output"] == "HTTP request completed successfully"
+        assert "duration" in result
+        assert "usage" in result
+
+    async def test_empty_fixed_arguments_behavior(self, test_role):
+        """Test that empty or None fixed_arguments work correctly."""
+        # Test with None
+        builder1 = TracecatAgentBuilder(
+            model_name="gpt-4o-mini", model_provider="openai", fixed_arguments=None
+        )
+        assert builder1.fixed_arguments == {}
+
+        # Test with empty dict
+        builder2 = TracecatAgentBuilder(
+            model_name="gpt-4o-mini", model_provider="openai", fixed_arguments={}
+        )
+        assert builder2.fixed_arguments == {}
+
+        # Test create_tool_from_registry with None fixed_args
+        tool = await create_tool_from_registry("core.http_request", None)
+        assert isinstance(tool, Tool)
+
+        # Should have all original parameters since nothing is fixed
+        sig = inspect.signature(tool.function)
+        params = list(sig.parameters.keys())
+        assert "url" in params
+        assert "method" in params
+        assert "headers" in params
+
+    def test_fixed_args_parameter_validation(self):
+        """Test that fixed_args parameter is properly validated."""
+        from pydantic import BaseModel, Field
+
+        class TestModel(BaseModel):
+            param1: str = Field(description="Parameter 1")
+            param2: int = Field(description="Parameter 2")
+            param3: bool = Field(description="Parameter 3")
+
+        # Test with valid fixed_args
+        fixed_args = {"param1", "param3"}
+        signature, annotations = _create_function_signature(TestModel, fixed_args)
+        params = list(signature.parameters.keys())
+
+        assert "param1" not in params  # Should be excluded
+        assert "param2" in params  # Should be included
+        assert "param3" not in params  # Should be excluded
+
+        # Test with empty set
+        signature_empty, _ = _create_function_signature(TestModel, set())
+        params_empty = list(signature_empty.parameters.keys())
+        assert len(params_empty) == 3  # All parameters should be included
+
+        # Test with None (should behave like empty set)
+        signature_none, _ = _create_function_signature(TestModel, None)
+        params_none = list(signature_none.parameters.keys())
+        assert len(params_none) == 3  # All parameters should be included

@@ -1,4 +1,5 @@
-import ast
+import asyncio
+import re
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from enum import StrEnum, auto
@@ -98,63 +99,140 @@ K = TypeVar("K", str, StrEnum)
 ExprOperand = Mapping[K, Any]
 
 
-class SafeEvaluator(ast.NodeVisitor):
-    RESTRICTED_NODES = {ast.Import, ast.ImportFrom}
-    RESTRICTED_SYMBOLS = {
-        "eval",
-        "import",
-        "from",
-        "os",
-        "sys",
-        "exec",
-        "locals",
-        "globals",
-    }
-    ALLOWED_FUNCTIONS = {"jsonpath"}
-
-    def visit(self, node):
-        if type(node) in self.RESTRICTED_NODES:
-            raise ValueError(
-                f"Restricted node {type(node).__name__} detected in expression"
-            )
-        if (
-            isinstance(node, ast.Call)
-            and (attr := getattr(node.func, "attr", None)) is not None
-            and attr in self.RESTRICTED_SYMBOLS
-            and attr not in self.ALLOWED_FUNCTIONS
-        ):
-            raise ValueError(f"Calling restricted functions are not allowed: {attr}")
-        self.generic_visit(node)
-
-
 def _expr_with_context(expr: str, context_type: ExprContext | None) -> str:
     return f"{context_type}.{expr}" if context_type else expr
 
 
 def build_safe_lambda(lambda_expr: str) -> Callable[[Any], Any]:
-    """Build a safe lambda function from a string expression."""
-    # Check if the string has any blacklisted symbols
+    """Build a safe lambda function from a string expression using Deno sandbox.
+
+    This function converts a lambda expression string into a callable that executes
+    the expression in a secure WebAssembly sandbox using Pyodide/Deno.
+
+    Args:
+        lambda_expr: Lambda expression string (e.g., "lambda x: x > 2")
+
+    Returns:
+        A callable that executes the lambda in a secure sandbox
+
+    Raises:
+        ValueError: If the lambda expression is invalid
+    """
+
+    # Validate input
+    if not lambda_expr or not isinstance(lambda_expr, str):
+        raise ValueError("Lambda expression must be a non-empty string")
+
     lambda_expr = lambda_expr.strip()
-    if any(
-        word in lambda_expr
-        for word in SafeEvaluator.RESTRICTED_SYMBOLS - SafeEvaluator.ALLOWED_FUNCTIONS
-    ):
-        raise ValueError("Expression contains restricted symbols")
-    expr_ast = ast.parse(lambda_expr, mode="eval").body
 
-    # Ensure the parsed AST is a comparison or logical expression
-    if not isinstance(expr_ast, ast.Lambda):
-        raise ValueError("Expression must be a lambda function")
+    # Parse the lambda expression
+    # Match patterns like "lambda: 42", "lambda x: x > 2" or "lambda x, y: x + y"
+    lambda_pattern = r"^\s*lambda\s*([^:]*?):\s*(.+)$"
+    match = re.match(lambda_pattern, lambda_expr)
 
-    # Ensure the expression complies with the SafeEvaluator
-    SafeEvaluator().visit(expr_ast)
+    if not match:
+        raise ValueError(
+            "Invalid lambda expression format. Expected 'lambda <args>: <expression>'"
+        )
 
-    # Compile the AST node into a code object
-    code = compile(ast.Expression(expr_ast), "<string>", "eval")
+    args_str, body = match.groups()
 
-    # Create a function from the code object with eval_jsonpath in globals
-    lambda_func = eval(code, {"jsonpath": eval_jsonpath})
-    return type_cast(Callable[[Any], Any], lambda_func)
+    # Parse arguments
+    if args_str.strip():
+        args = [arg.strip() for arg in args_str.split(",")]
+    else:
+        args = []  # No arguments for lambdas like "lambda: 42"
+
+    # Create a function definition
+    function_def = f"""
+def main({", ".join(args)}):
+    return {body}
+"""
+
+    # Add jsonpath support if needed
+    if "jsonpath" in body:
+        # Import the jsonpath function in the sandbox
+        function_def = f"""
+import json
+
+def jsonpath(expr, data):
+    # Simple jsonpath implementation for common cases
+    if expr.startswith("$."):
+        path_parts = expr[2:].split('.')
+        result = data
+        for part in path_parts:
+            if '[*]' in part:
+                # Handle array wildcard
+                key = part.replace('[*]', '')
+                if key:
+                    result = result.get(key, [])
+                if isinstance(result, list):
+                    remaining_path = '.'.join(path_parts[path_parts.index(part)+1:])
+                    if remaining_path:
+                        return [jsonpath('$.' + remaining_path, item) for item in result]
+                    return result
+            else:
+                if isinstance(result, dict):
+                    result = result.get(part)
+                else:
+                    return None
+        return result
+    return None
+
+{function_def}
+"""
+
+    # Create a callable wrapper that executes the function in the sandbox
+    def lambda_wrapper(*args):
+        # Import here to avoid circular imports
+        from tracecat_registry.core.python import run_python
+
+        # Build inputs dictionary from arguments
+        inputs = {}
+        if args_str.strip():
+            arg_names = [arg.strip() for arg in args_str.split(",")]
+            for _, (arg_name, arg_value) in enumerate(
+                zip(arg_names, args, strict=False)
+            ):
+                inputs[arg_name] = arg_value
+        # For lambdas with no arguments, inputs remains empty
+
+        # Execute in sandbox with network disabled for security
+        loop = None
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # No running loop, create one
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            close_loop = True
+        else:
+            close_loop = False
+
+        async def run_sandbox():
+            return await run_python(
+                script=function_def,
+                inputs=inputs,
+                dependencies=None,
+                timeout_seconds=5,  # Short timeout for lambda expressions
+                allow_network=False,  # Security: no network access
+            )
+
+        try:
+            if close_loop:
+                result = loop.run_until_complete(run_sandbox())
+            else:
+                # We're already in an async context
+                # Create a new task and wait for it
+                future = asyncio.ensure_future(run_sandbox())
+                result = loop.run_until_complete(future)
+        finally:
+            if close_loop:
+                loop.close()
+
+        return result
+
+    return type_cast(Callable[[Any], Any], lambda_wrapper)
 
 
 def eval_jsonpath(
