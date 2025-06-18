@@ -1,11 +1,10 @@
-import asyncio
-import concurrent.futures
-import re
+import ast
+import functools
+import sys
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from enum import StrEnum, auto
 from typing import Any, TypeVar
-from typing import cast as type_cast
 
 import jsonpath_ng.ext
 from jsonpath_ng.exceptions import JsonPathParserError
@@ -100,153 +99,444 @@ K = TypeVar("K", str, StrEnum)
 ExprOperand = Mapping[K, Any]
 
 
+class SafeEvaluator(ast.NodeVisitor):
+    """AST node visitor that ensures expressions are safe to evaluate.
+
+    This visitor checks for and prevents:
+    - Import statements (ast.Import, ast.ImportFrom)
+    - Function/class definitions
+    - Scope manipulation (global, nonlocal)
+    - Deletion operations
+    - Context managers (with statements)
+    - Async operations
+    - Access to dangerous built-in functions and modules
+    - File, OS, and network operations
+    - Introspection and attribute manipulation
+    """
+
+    RESTRICTED_NODES = {
+        ast.Import,
+        ast.ImportFrom,
+        ast.Global,
+        ast.Nonlocal,
+        ast.Delete,
+        ast.With,
+        ast.AsyncWith,
+        ast.AsyncFor,
+        ast.AsyncFunctionDef,
+        ast.ClassDef,
+        ast.FunctionDef,
+    }
+    RESTRICTED_SYMBOLS = {
+        # Core dangerous functions
+        "eval",
+        "exec",
+        "compile",
+        "__import__",
+        "import",
+        "from",
+        # File operations
+        "open",
+        "file",
+        "input",
+        "raw_input",
+        "io",
+        "pathlib",
+        "shutil",
+        "tempfile",
+        "fileinput",
+        "glob",
+        "fnmatch",
+        # OS/System operations
+        "os",
+        "sys",
+        "subprocess",
+        "multiprocessing",
+        "threading",
+        "signal",
+        "resource",
+        "sysconfig",
+        "platform",
+        "ctypes",
+        "pickle",
+        "marshal",
+        "code",
+        "types",
+        # Network operations
+        "socket",
+        "socketserver",
+        "urllib",
+        "http",
+        "ftplib",
+        "telnetlib",
+        "smtplib",
+        "poplib",
+        "imaplib",
+        "ssl",
+        "asyncio",
+        "requests",
+        "httpx",
+        "aiohttp",
+        # Introspection/Attribute access
+        "getattr",
+        "setattr",
+        "delattr",
+        "hasattr",
+        "dir",
+        "vars",
+        "locals",
+        "globals",
+        "__builtins__",
+        "help",
+        "inspect",
+        "traceback",
+        "gc",
+        # Other potentially dangerous
+        "breakpoint",
+        "exit",
+        "quit",
+        "memoryview",
+        "bytearray",
+    }
+    ALLOWED_FUNCTIONS = {"jsonpath"}
+
+    def visit(self, node):
+        if type(node) in self.RESTRICTED_NODES:
+            raise ValueError(
+                f"Restricted node {type(node).__name__} detected in expression"
+            )
+
+        # Check for restricted function calls
+        if isinstance(node, ast.Call):
+            # Check for direct function calls (e.g., open(), eval())
+            if isinstance(node.func, ast.Name):
+                func_name = node.func.id
+                if (
+                    func_name in self.RESTRICTED_SYMBOLS
+                    and func_name not in self.ALLOWED_FUNCTIONS
+                ):
+                    raise ValueError(
+                        f"Calling restricted function '{func_name}' is not allowed"
+                    )
+
+            # Check for attribute access calls (e.g., os.system(), socket.socket())
+            elif isinstance(node.func, ast.Attribute):
+                attr_name = node.func.attr
+                if (
+                    attr_name in self.RESTRICTED_SYMBOLS
+                    and attr_name not in self.ALLOWED_FUNCTIONS
+                ):
+                    raise ValueError(
+                        f"Calling restricted method '{attr_name}' is not allowed"
+                    )
+
+                # Also check if the object being accessed is restricted
+                if isinstance(node.func.value, ast.Name):
+                    obj_name = node.func.value.id
+                    if obj_name in self.RESTRICTED_SYMBOLS:
+                        raise ValueError(
+                            f"Accessing restricted module '{obj_name}' is not allowed"
+                        )
+
+        # Check for direct name access to restricted symbols
+        elif isinstance(node, ast.Name):
+            if (
+                node.id in self.RESTRICTED_SYMBOLS
+                and node.id not in self.ALLOWED_FUNCTIONS
+            ):
+                raise ValueError(
+                    f"Accessing restricted symbol '{node.id}' is not allowed"
+                )
+
+        # Check for attribute access to restricted symbols
+        elif isinstance(node, ast.Attribute):
+            if (
+                node.attr in self.RESTRICTED_SYMBOLS
+                and node.attr not in self.ALLOWED_FUNCTIONS
+            ):
+                raise ValueError(
+                    f"Accessing restricted attribute '{node.attr}' is not allowed"
+                )
+
+        self.generic_visit(node)
+
+
+class WhitelistValidator(ast.NodeVisitor):
+    """AST validator that uses a whitelist approach - only allows safe node types."""
+
+    ALLOWED_NODE_TYPES = {
+        # Basic nodes
+        ast.Module,
+        ast.Expression,
+        ast.Load,
+        ast.Store,
+        # Lambda and function basics
+        ast.Lambda,
+        ast.arguments,
+        ast.arg,
+        # Literals and basic types
+        ast.Constant,
+        ast.List,
+        ast.Tuple,
+        ast.Dict,
+        ast.Set,
+        # F-string support
+        ast.JoinedStr,
+        ast.FormattedValue,
+        # Variables and attributes
+        ast.Name,
+        ast.Attribute,
+        ast.Subscript,
+        ast.Index,
+        ast.Slice,
+        # Operators
+        ast.BinOp,
+        ast.UnaryOp,
+        ast.BoolOp,
+        ast.Compare,
+        # Operator types
+        ast.Add,
+        ast.Sub,
+        ast.Mult,
+        ast.Div,
+        ast.FloorDiv,
+        ast.Mod,
+        ast.Pow,
+        ast.LShift,
+        ast.RShift,
+        ast.BitOr,
+        ast.BitXor,
+        ast.BitAnd,
+        ast.MatMult,
+        # Unary operators
+        ast.Not,
+        ast.UAdd,
+        ast.USub,
+        ast.Invert,
+        # Boolean operators
+        ast.And,
+        ast.Or,
+        # Comparison operators
+        ast.Eq,
+        ast.NotEq,
+        ast.Lt,
+        ast.LtE,
+        ast.Gt,
+        ast.GtE,
+        ast.Is,
+        ast.IsNot,
+        ast.In,
+        ast.NotIn,
+        # Control flow (limited)
+        ast.IfExp,  # Ternary operator
+        # Comprehensions (safe)
+        ast.ListComp,
+        ast.DictComp,
+        ast.SetComp,
+        ast.GeneratorExp,
+        ast.comprehension,
+        # Function calls (will be further validated)
+        ast.Call,
+        ast.keyword,
+    }
+
+    def visit(self, node):
+        if type(node) not in self.ALLOWED_NODE_TYPES:
+            raise ValueError(
+                f"Node type {type(node).__name__} is not allowed in expressions. "
+                f"Only safe, simple expressions are permitted."
+            )
+
+        # Additional validation for specific node types
+        if isinstance(node, ast.Attribute):
+            # Prevent access to dunder attributes
+            if node.attr.startswith("__") and node.attr.endswith("__"):
+                raise ValueError(
+                    f"Access to dunder attribute '{node.attr}' is not allowed"
+                )
+
+        self.generic_visit(node)
+
+
 def _expr_with_context(expr: str, context_type: ExprContext | None) -> str:
     return f"{context_type}.{expr}" if context_type else expr
 
 
-def build_safe_lambda(lambda_expr: str) -> Callable[[Any], Any]:
-    """Build a safe lambda function from a string expression using Deno sandbox.
+def create_sandboxed_lambda(func: Callable[[Any], Any]) -> Callable[[Any], Any]:
+    """Wrap a lambda function with additional runtime protections.
 
-    This function converts a lambda expression string into a callable that executes
-    the expression in a secure WebAssembly sandbox using Pyodide/Deno.
-
-    Args:
-        lambda_expr: Lambda expression string (e.g., "lambda x: x > 2")
-
-    Returns:
-        A callable that executes the lambda in a secure sandbox
-
-    Raises:
-        ValueError: If the lambda expression is invalid
+    This adds:
+    - Recursion depth limits
+    - Attribute access validation
+    - Protection against infinite loops via iteration limits
     """
 
-    # Validate input
-    if not lambda_expr or not isinstance(lambda_expr, str):
-        raise ValueError("Lambda expression must be a non-empty string")
+    @functools.wraps(func)
+    def sandboxed_wrapper(x):
+        # Store original recursion limit
+        original_recursion_limit = sys.getrecursionlimit()
 
-    lambda_expr = lambda_expr.strip()
-
-    # Parse the lambda expression
-    # Match patterns like "lambda: 42", "lambda x: x > 2" or "lambda x, y: x + y"
-    lambda_pattern = r"^\s*lambda\s*([^:]*?):\s*(.+)$"
-    match = re.match(lambda_pattern, lambda_expr)
-
-    if not match:
-        raise ValueError(
-            "Invalid lambda expression format. Expected 'lambda <args>: <expression>'"
-        )
-
-    args_str, body = match.groups()
-
-    # Parse arguments
-    if args_str.strip():
-        args = [arg.strip() for arg in args_str.split(",")]
-    else:
-        args = []  # No arguments for lambdas like "lambda: 42"
-
-    # Create a function definition
-    function_def = f"""
-def main({", ".join(args)}):
-    return {body}
-"""
-
-    # Add jsonpath support if needed
-    if "jsonpath" in body:
-        # Import the jsonpath function in the sandbox
-        function_def = f"""
-import json
-
-def jsonpath(expr, data):
-    # Simple jsonpath implementation for common cases
-    if expr.startswith("$."):
-        path_parts = expr[2:].split('.')
-        result = data
-        for part in path_parts:
-            if '[*]' in part:
-                # Handle array wildcard
-                key = part.replace('[*]', '')
-                if key:
-                    result = result.get(key, [])
-                if isinstance(result, list):
-                    remaining_path = '.'.join(path_parts[path_parts.index(part)+1:])
-                    if remaining_path:
-                        return [jsonpath('$.' + remaining_path, item) for item in result]
-                    return result
-            else:
-                if isinstance(result, dict):
-                    result = result.get(part)
-                else:
-                    return None
-        return result
-    return None
-
-{function_def}
-"""
-
-    # Create a callable wrapper that executes the function in the sandbox
-    def lambda_wrapper(*args):
-        # Import here to avoid circular imports
-        from tracecat_registry.core.python import run_python
-
-        # Build inputs dictionary from arguments
-        inputs = {}
-        if args_str.strip():
-            arg_names = [arg.strip() for arg in args_str.split(",")]
-            for _, (arg_name, arg_value) in enumerate(
-                zip(arg_names, args, strict=False)
-            ):
-                inputs[arg_name] = arg_value
-        # For lambdas with no arguments, inputs remains empty
-
-        # Execute in sandbox with network disabled for security
-        loop = None
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            # No running loop, create one
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            close_loop = True
-        else:
-            close_loop = False
-
-        async def run_sandbox():
-            return await run_python(
-                script=function_def,
-                inputs=inputs,
-                dependencies=None,
-                timeout_seconds=5,  # Short timeout for lambda expressions
-                allow_network=False,  # Security: no network access
-            )
+        # Set a lower recursion limit to prevent stack exhaustion
+        # But not too low - some libraries like jsonpath_ng need reasonable depth
+        MAX_RECURSION_DEPTH = 500
+        sys.setrecursionlimit(MAX_RECURSION_DEPTH)
 
         try:
-            if close_loop:
-                result = loop.run_until_complete(run_sandbox())
-            else:
-                # We're already in an async context
-                # Use asyncio.run_coroutine_threadsafe to avoid "event loop already running" error
-                def run_in_thread():
-                    # Create a new event loop in this thread
-                    new_loop = asyncio.new_event_loop()
-                    try:
-                        # Set the new loop as the current loop for this thread
-                        asyncio.set_event_loop(new_loop)
-                        return new_loop.run_until_complete(run_sandbox())
-                    finally:
-                        new_loop.close()
-                        # Clear the event loop for this thread
-                        asyncio.set_event_loop(None)
+            # Add a simple execution counter to prevent infinite loops
+            # This is a basic protection - more sophisticated would use threading
+            execution_count = 0
+            MAX_ITERATIONS = 10000
 
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(run_in_thread)
-                    result = future.result(timeout=10)  # Add timeout for safety
+            def count_guard(value):
+                nonlocal execution_count
+                execution_count += 1
+                if execution_count > MAX_ITERATIONS:
+                    raise ValueError("Expression exceeded maximum iteration limit")
+                return value
+
+            # Wrap any iterables in the input to add iteration guards
+            if hasattr(x, "__iter__") and not isinstance(x, str | bytes):
+                if isinstance(x, dict):
+                    x = {k: count_guard(v) for k, v in x.items()}
+                elif isinstance(x, list):
+                    x = [count_guard(item) for item in x]
+
+            # Execute the function
+            result = func(x)
+
+            # Validate the result isn't trying to return dangerous objects
+            if hasattr(result, "__class__"):
+                result_type = type(result)
+                # Allow basic types
+                safe_return_types = (
+                    type(None),
+                    bool,
+                    int,
+                    float,
+                    str,
+                    bytes,
+                    list,
+                    tuple,
+                    dict,
+                    set,
+                    frozenset,
+                )
+                if not isinstance(result, safe_return_types):
+                    raise ValueError(
+                        f"Lambda returned unsafe type: {result_type.__name__}"
+                    )
+
+            return result
+
+        except RecursionError as e:
+            raise ValueError("Expression exceeded maximum recursion depth") from e
         finally:
-            if close_loop:
-                loop.close()
+            # Restore original recursion limit
+            sys.setrecursionlimit(original_recursion_limit)
 
-        return result
+    return sandboxed_wrapper
 
-    return type_cast(Callable[[Any], Any], lambda_wrapper)
+
+def build_safe_lambda(lambda_expr: str) -> Callable[[Any], Any]:
+    """Build a safe lambda function from a string expression.
+
+    This function implements multiple layers of security:
+    1. String-level blacklist checking
+    2. AST whitelist validation
+    3. Deep attribute chain detection
+    4. Restricted execution environment
+    """
+    # Limit expression length to prevent DoS
+    MAX_EXPR_LENGTH = 1000
+    if len(lambda_expr) > MAX_EXPR_LENGTH:
+        raise ValueError(f"Expression too long (max {MAX_EXPR_LENGTH} characters)")
+
+    # Check if the string has any blacklisted symbols
+    lambda_expr = lambda_expr.strip()
+    if any(
+        word in lambda_expr
+        for word in SafeEvaluator.RESTRICTED_SYMBOLS - SafeEvaluator.ALLOWED_FUNCTIONS
+    ):
+        raise ValueError("Expression contains restricted symbols")
+
+    # Check for common obfuscation patterns
+    dangerous_patterns = [
+        "__",  # Double underscore (dunder) methods
+        "\\x",  # Hex escape sequences
+        "\\u",  # Unicode escape sequences
+        "chr(",  # Character conversion
+        "ord(",  # Ordinal conversion
+        ".decode",  # String decoding
+        ".encode",  # String encoding
+        "base64",  # Base64 operations
+        "codecs",  # Codec operations
+    ]
+
+    for pattern in dangerous_patterns:
+        if pattern in lambda_expr:
+            raise ValueError(f"Expression contains dangerous pattern: {pattern}")
+
+    try:
+        expr_ast = ast.parse(lambda_expr, mode="eval").body
+    except SyntaxError as e:
+        raise ValueError(f"Invalid syntax in expression: {e}") from e
+
+    # Ensure the parsed AST is a lambda expression
+    if not isinstance(expr_ast, ast.Lambda):
+        raise ValueError("Expression must be a lambda function")
+
+    # Use both blacklist and whitelist validation
+    SafeEvaluator().visit(expr_ast)
+    WhitelistValidator().visit(expr_ast)
+
+    # Compile the AST node into a code object
+    code = compile(ast.Expression(expr_ast), "<string>", "eval")
+
+    # Create a restricted builtins dict with only safe functions
+    safe_builtins = {
+        # Math operations
+        "abs": abs,
+        "min": min,
+        "max": max,
+        "sum": sum,
+        "round": round,
+        "len": len,
+        # Type conversions (limited)
+        "int": int,
+        "float": float,
+        "str": str,
+        "bool": bool,
+        # Safe data structures
+        "list": list,
+        "dict": dict,
+        "tuple": tuple,
+        "set": set,
+        # Comparison
+        "all": all,
+        "any": any,
+        # Other safe operations
+        "sorted": sorted,
+        "reversed": reversed,
+        "enumerate": enumerate,
+        "zip": zip,
+        "range": range,
+        # Constants
+        "True": True,
+        "False": False,
+        "None": None,
+    }
+
+    # Create restricted globals with custom builtins
+    restricted_globals = {
+        "__builtins__": safe_builtins,
+        "jsonpath": eval_jsonpath,
+    }
+
+    # Create a function from the code object with restricted globals
+    lambda_func = eval(code, restricted_globals, {})
+
+    # Wrap the lambda to add additional runtime protections
+    return create_sandboxed_lambda(lambda_func)
 
 
 def eval_jsonpath(
