@@ -63,7 +63,7 @@ export interface Suggestion {
 }
 
 export interface MultiTagCommandInputProps {
-  value?: string[]
+  value?: string | string[]
   onChange?: (value: string[]) => void
   suggestions?: Suggestion[]
   placeholder?: string
@@ -88,13 +88,18 @@ export function MultiTagCommandInput({
   const inputRef = useRef<HTMLInputElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const [highlightedIndex, setHighlightedIndex] = useState(-1)
-  const value = useMemo(() => valueProp || [], [valueProp])
+  const value = useMemo(() => {
+    if (typeof valueProp === "string") {
+      return [valueProp]
+    }
+    return valueProp || []
+  }, [valueProp])
   const valueSet = useMemo(() => new Set(value), [value])
 
   // Convert values to tag objects
   const tags = useMemo(() => {
     return (
-      value?.map((val, index) => {
+      value.map((val, index) => {
         const suggestion = suggestions.find((s) => s.value === val)
         return {
           id: `${index}`,
