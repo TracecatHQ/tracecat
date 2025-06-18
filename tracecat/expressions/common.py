@@ -1,4 +1,5 @@
 import asyncio
+import concurrent.futures
 import re
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass
@@ -223,9 +224,22 @@ def jsonpath(expr, data):
                 result = loop.run_until_complete(run_sandbox())
             else:
                 # We're already in an async context
-                # Create a new task and wait for it
-                future = asyncio.ensure_future(run_sandbox())
-                result = loop.run_until_complete(future)
+                # Use asyncio.run_coroutine_threadsafe to avoid "event loop already running" error
+                def run_in_thread():
+                    # Create a new event loop in this thread
+                    new_loop = asyncio.new_event_loop()
+                    try:
+                        # Set the new loop as the current loop for this thread
+                        asyncio.set_event_loop(new_loop)
+                        return new_loop.run_until_complete(run_sandbox())
+                    finally:
+                        new_loop.close()
+                        # Clear the event loop for this thread
+                        asyncio.set_event_loop(None)
+
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(run_in_thread)
+                    result = future.result(timeout=10)  # Add timeout for safety
         finally:
             if close_loop:
                 loop.close()
