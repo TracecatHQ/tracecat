@@ -43,7 +43,7 @@ from tracecat_registry import registry, RegistrySecret
 from tracecat.types.exceptions import RegistryError
 from tracecat_registry.integrations.agents.exceptions import AgentRunError
 from tracecat_registry.integrations.agents.tools import (
-    DEFAULT_AGENT_TOOLS,
+    create_secure_file_tools,
     generate_default_tools_prompt,
 )
 
@@ -396,9 +396,12 @@ class TracecatAgentBuilder:
         self.tools.append(tool)
         return self
 
-    def with_default_tools(self) -> Self:
-        """Add default file manipulation tools."""
-        self.tools.extend(DEFAULT_AGENT_TOOLS)
+    def with_default_tools(self, temp_dir: str | None = None) -> Self:
+        """Add default file manipulation tools, optionally restricted to temp_dir."""
+        if temp_dir:
+            # Use secure tools restricted to temp_dir
+            secure_tools = create_secure_file_tools(temp_dir)
+            self.tools.extend(secure_tools)
         return self
 
     async def build(self) -> Agent:
@@ -571,12 +574,6 @@ async def agent(
     if len(blocked_actions) > 0:
         raise ValueError(f"Forbidden actions: {blocked_actions}")
 
-    # Add default tools if files are provided
-    if files:
-        builder = builder.with_default_tools()
-
-    agent = await builder.with_action_filters(*actions).build()
-
     # Generate the enhanced user prompt with tool guidance
     tools_prompt = generate_default_tools_prompt(files) if files else ""
     enhanced_user_prompt = (
@@ -588,6 +585,11 @@ async def agent(
             for path, content in files.items():
                 file_path = Path(temp_dir) / path
                 file_path.write_bytes(base64.b64decode(content))
+
+            # Add secure default tools with temp_dir restriction
+            builder = builder.with_default_tools(temp_dir)
+
+        agent = await builder.with_action_filters(*actions).build()
 
         start_time = timeit()
         # Use async version since this function is already async
