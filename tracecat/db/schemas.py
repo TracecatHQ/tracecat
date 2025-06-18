@@ -1018,13 +1018,13 @@ class WorkspaceIntegration(SQLModel, TimestampMixin, table=True):
         description="Integration provider identifier (e.g., 'microsoft-teams', 'google-gmail')",
         index=True,
     )
-    access_token: str = Field(
+    encrypted_access_token: bytes = Field(
         ...,
-        description="OAuth access token for the integration",
+        description="Encrypted OAuth access token for the integration",
     )
-    refresh_token: str | None = Field(
+    encrypted_refresh_token: bytes | None = Field(
         default=None,
-        description="OAuth refresh token for the integration",
+        description="Encrypted OAuth refresh token for the integration",
     )
     token_type: str = Field(
         default="Bearer",
