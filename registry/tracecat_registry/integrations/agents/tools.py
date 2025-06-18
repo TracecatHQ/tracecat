@@ -442,6 +442,8 @@ def create_secure_file_tools(temp_dir: str) -> list[Tool]:
 
         try:
             return _grep_search(pattern, temp_path, max_columns)
+        except re.error as e:
+            raise ModelRetry(f"Invalid regex pattern: {e}") from e
         except Exception as e:
             raise ModelRetry(f"Grep search failed: {e}") from e
 

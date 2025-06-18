@@ -550,7 +550,7 @@ async def agent(
     model_settings: Annotated[
         dict[str, Any] | None, Doc("Model settings for the agent.")
     ] = None,
-    retries: Annotated[int, Doc("Number of retries for the agent.")] = 3,
+    retries: Annotated[int, Doc("Number of retries for the agent.")] = 6,
     include_usage: Annotated[
         bool, Doc("Whether to include usage information in the output.")
     ] = False,
