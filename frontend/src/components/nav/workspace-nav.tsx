@@ -4,7 +4,12 @@ import React from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useWorkspace } from "@/providers/workspace"
-import { ShieldAlertIcon, Table2Icon, WorkflowIcon } from "lucide-react"
+import {
+  ShieldAlertIcon,
+  Table2Icon,
+  WorkflowIcon,
+  ZapIcon,
+} from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import {
@@ -20,6 +25,7 @@ export function WorkspaceNav() {
   const workflowsPath = `${basePath}/workflows`
   const tablesPath = `${basePath}/tables`
   const casesPath = `${basePath}/cases`
+  const integrationsPath = `${basePath}/integrations`
   return (
     <nav className="flex space-x-4 lg:space-x-6">
       <div className="md:min-w-[150px] md:max-w-[200px] lg:min-w-[250px] lg:max-w-[300px]">
@@ -54,6 +60,16 @@ export function WorkspaceNav() {
       >
         <ShieldAlertIcon className="mr-2 size-4" />
         <span>Cases</span>
+      </Link>
+      <Link
+        href={integrationsPath}
+        className={cn(
+          "flex-cols flex items-center text-sm font-medium text-muted-foreground transition-colors hover:text-primary",
+          pathname === integrationsPath && "text-primary"
+        )}
+      >
+        <ZapIcon className="mr-2 size-4" />
+        <span>Integrations</span>
       </Link>
       <RegistryNavButton />
       <OrganizationNavButton />
