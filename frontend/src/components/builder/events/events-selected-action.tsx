@@ -125,6 +125,7 @@ export function ActionEvent({
     </div>
   )
 }
+
 function ActionEventView({
   selectedRef,
   execution,
@@ -233,35 +234,97 @@ export function AgentOutputEvent({
     </div>
   )
 }
+
 export function SystemPromptPartComponent({
   part,
+  defaultExpanded = false,
 }: {
   part: SystemPromptPart
+  defaultExpanded?: boolean
 }) {
+  const [isExpanded, setIsExpanded] = React.useState(defaultExpanded)
+  const content = typeof part.content === "string"
+    ? part.content
+    : JSON.stringify(part.content, null, 2)
+
+  const TRUNCATE_LIMIT = 200
+  const shouldTruncate = content.length > TRUNCATE_LIMIT
+
+  // For collapsed view: normalize whitespace and truncate
+  const normalizedContent = content.replace(/\s+/g, ' ').trim()
+  const displayContent = isExpanded
+    ? content
+    : shouldTruncate
+      ? normalizedContent.substring(0, TRUNCATE_LIMIT) + "..."
+      : normalizedContent
+
   return (
-    <Card className="rounded-lg border-[0.5px] bg-muted/40 p-3 text-xs leading-normal shadow-sm">
+    <Card
+      className="cursor-pointer rounded-lg border-[0.5px] bg-muted/40 p-3 text-xs leading-normal shadow-sm hover:bg-muted/50"
+      onClick={() => setIsExpanded(!isExpanded)}
+    >
       <div className="flex items-start gap-2">
         <CaseUserAvatar user={SYSTEM_USER} size="sm" />
-        <div className="overflow-x-auto whitespace-pre-wrap break-words">
-          {typeof part.content === "string"
-            ? part.content
-            : JSON.stringify(part.content, null, 2)}
+        <div className={`flex-1 overflow-x-auto break-words ${isExpanded ? 'whitespace-pre-wrap' : 'whitespace-nowrap'}`}>
+          {displayContent}
         </div>
+        {shouldTruncate && (
+          <ChevronRightIcon
+            className={`ml-2 size-4 flex-shrink-0 transition-transform ${isExpanded ? "rotate-90" : ""}`}
+          />
+        )}
       </div>
     </Card>
   )
 }
 
-export function UserPromptPartComponent({ part }: { part: UserPromptPart }) {
+export function UserPromptPartComponent({
+  part,
+  defaultExpanded = false,
+}: {
+  part: UserPromptPart
+  defaultExpanded?: boolean
+}) {
   const { user } = useAuth()
+  const [isExpanded, setIsExpanded] = React.useState(defaultExpanded)
+  const content = typeof part.content === "string"
+    ? part.content
+    : JSON.stringify(part.content, null, 2)
+
+  const TRUNCATE_LIMIT = 200
+  const shouldTruncate = content.length > TRUNCATE_LIMIT
+
+  // For collapsed view: normalize whitespace and truncate
+  const normalizedContent = content.replace(/\s+/g, ' ').trim()
+  const displayContent = isExpanded
+    ? content
+    : shouldTruncate
+      ? normalizedContent.substring(0, TRUNCATE_LIMIT) + "..."
+      : normalizedContent
+
   return (
-    <Card className="rounded-lg border-[0.5px] bg-muted/40 p-3 text-xs leading-normal shadow-sm">
-      <div className="flex items-start gap-2">
-        {user && <CaseUserAvatar user={user} size="sm" />}
-        <div className="overflow-x-auto whitespace-pre-wrap break-words">
-          {typeof part.content === "string"
-            ? part.content
-            : JSON.stringify(part.content, null, 2)}
+    <Card
+      className="cursor-pointer rounded-lg border-[0.5px] bg-muted/40 p-3 text-xs leading-normal shadow-sm hover:bg-muted/50"
+      onClick={() => setIsExpanded(!isExpanded)}
+    >
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            {user && <CaseUserAvatar user={user} size="sm" />}
+            {user && (
+              <span className="text-xs font-semibold text-foreground/80">
+                {user.firstName || user.email}
+              </span>
+            )}
+          </div>
+          {shouldTruncate && (
+            <ChevronRightIcon
+              className={`size-4 flex-shrink-0 transition-transform ${isExpanded ? "rotate-90" : ""}`}
+            />
+          )}
+        </div>
+        <div className={`overflow-x-auto break-words ${isExpanded ? 'whitespace-pre-wrap' : 'whitespace-nowrap'}`}>
+          {displayContent}
         </div>
       </div>
     </Card>
@@ -394,7 +457,14 @@ export function AgentResponsePart({
   )
 }
 
-export function TextPartComponent({ text }: { text: TextPart }) {
+export function TextPartComponent({
+  text,
+  defaultExpanded = false,
+}: {
+  text: TextPart
+  defaultExpanded?: boolean
+}) {
+  const [isExpanded, setIsExpanded] = React.useState(defaultExpanded)
   const editor = useCreateBlockNote({
     animations: false,
     codeBlock,
@@ -405,25 +475,51 @@ export function TextPartComponent({ text }: { text: TextPart }) {
       loadInitialContent(editor, text.content)
     }
   }, [text.content, editor])
+
+  const TRUNCATE_LIMIT = 200
+  const shouldTruncate = text.content.length > TRUNCATE_LIMIT
+
+  // For collapsed view: normalize whitespace and truncate
+  const normalizedContent = text.content.replace(/\s+/g, ' ').trim()
+  const displayContent = shouldTruncate
+    ? normalizedContent.substring(0, TRUNCATE_LIMIT) + "..."
+    : normalizedContent
+
   return (
-    <div className="flex flex-col gap-2 overflow-scroll whitespace-pre-wrap rounded-md border-[0.5px] bg-muted/20 p-3 text-xs shadow-sm">
-      <div className="flex items-center gap-1">
-        <MessageCircle className="size-4" />
-        <span className="text-xs font-semibold text-foreground/80">Agent</span>
+    <div
+      className="flex cursor-pointer flex-col gap-2 overflow-scroll whitespace-pre-wrap rounded-md border-[0.5px] bg-muted/20 p-3 text-xs shadow-sm hover:bg-muted/30"
+      onClick={() => setIsExpanded(!isExpanded)}
+    >
+      <div className="flex items-center justify-between gap-1">
+        <div className="flex items-center gap-1">
+          <MessageCircle className="size-4" />
+          <span className="text-xs font-semibold text-foreground/80">Agent</span>
+        </div>
+        {shouldTruncate && (
+          <ChevronRightIcon
+            className={`size-4 transition-transform ${isExpanded ? "rotate-90" : ""}`}
+          />
+        )}
       </div>
 
-      <BlockNoteView
-        editor={editor}
-        theme="light"
-        editable={false}
-        slashMenu={false}
-        style={{
-          height: "100%",
-          width: "100%",
-          whiteSpace: "pre-wrap",
-          lineHeight: "1.5",
-        }}
-      />
+      {isExpanded ? (
+        <BlockNoteView
+          editor={editor}
+          theme="light"
+          editable={false}
+          slashMenu={false}
+          style={{
+            height: "100%",
+            width: "100%",
+            whiteSpace: "pre-wrap",
+            lineHeight: "1.5",
+          }}
+        />
+      ) : (
+        <div className="whitespace-nowrap overflow-hidden text-ellipsis">
+          {displayContent}
+        </div>
+      )}
     </div>
   )
 }
