@@ -502,20 +502,24 @@ export function TextPartComponent({
     codeBlock,
   })
 
-  useEffect(() => {
-    if (text.content) {
-      loadInitialContent(editor, text.content)
-    }
-  }, [text.content, editor])
-
   const TRUNCATE_LIMIT = 200
   const shouldTruncate = text.content.length > TRUNCATE_LIMIT
+  useEffect(() => {
+    if (text.content) {
+      let contentToLoad
+      if (isExpanded) {
+        contentToLoad = text.content
+      } else {
+        // For collapsed view: normalize whitespace and truncate
+        const normalizedContent = text.content.replace(/\s+/g, ' ').trim()
+        contentToLoad = shouldTruncate
+          ? normalizedContent.substring(0, TRUNCATE_LIMIT) + "..."
+          : normalizedContent
+      }
 
-  // For collapsed view: normalize whitespace and truncate
-  const normalizedContent = text.content.replace(/\s+/g, ' ').trim()
-  const displayContent = shouldTruncate
-    ? normalizedContent.substring(0, TRUNCATE_LIMIT) + "..."
-    : normalizedContent
+      loadInitialContent(editor, contentToLoad)
+    }
+  }, [text.content, editor, isExpanded, shouldTruncate])
 
   return (
     <div
@@ -534,24 +538,20 @@ export function TextPartComponent({
         )}
       </div>
 
-      {isExpanded ? (
-        <BlockNoteView
-          editor={editor}
-          theme="light"
-          editable={false}
-          slashMenu={false}
-          style={{
-            height: "100%",
-            width: "100%",
-            whiteSpace: "pre-wrap",
-            lineHeight: "1.5",
-          }}
-        />
-      ) : (
-        <div className="whitespace-nowrap overflow-hidden text-ellipsis">
-          {displayContent}
-        </div>
-      )}
+      <BlockNoteView
+        editor={editor}
+        theme="light"
+        editable={false}
+        slashMenu={false}
+        style={{
+          height: "100%",
+          width: "100%",
+          whiteSpace: "nowrap",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          lineHeight: "1.5",
+        }}
+      />
     </div>
   )
 }
