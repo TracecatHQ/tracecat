@@ -441,16 +441,40 @@ def build_safe_lambda(lambda_expr: str) -> Callable[[Any], Any]:
     """Build a safe lambda function from a string expression.
 
     This function implements multiple layers of security:
-    1. AST whitelist validation
-    2. Restricted execution environment
-    3. Runtime protections
+    1. String-level blacklist checking
+    2. AST whitelist validation
+    3. Deep attribute chain detection
+    4. Restricted execution environment
     """
     # Limit expression length to prevent DoS
     MAX_EXPR_LENGTH = 1000
     if len(lambda_expr) > MAX_EXPR_LENGTH:
         raise ValueError(f"Expression too long (max {MAX_EXPR_LENGTH} characters)")
 
+    # Check if the string has any blacklisted symbols
     lambda_expr = lambda_expr.strip()
+    if any(
+        word in lambda_expr
+        for word in SafeEvaluator.RESTRICTED_SYMBOLS - SafeEvaluator.ALLOWED_FUNCTIONS
+    ):
+        raise ValueError("Expression contains restricted symbols")
+
+    # Check for common obfuscation patterns
+    dangerous_patterns = [
+        "__",  # Double underscore (dunder) methods
+        "\\x",  # Hex escape sequences
+        "\\u",  # Unicode escape sequences
+        "chr(",  # Character conversion
+        "ord(",  # Ordinal conversion
+        ".decode",  # String decoding
+        ".encode",  # String encoding
+        "base64",  # Base64 operations
+        "codecs",  # Codec operations
+    ]
+
+    for pattern in dangerous_patterns:
+        if pattern in lambda_expr:
+            raise ValueError(f"Expression contains dangerous pattern: {pattern}")
 
     try:
         expr_ast = ast.parse(lambda_expr, mode="eval").body
