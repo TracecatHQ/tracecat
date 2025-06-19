@@ -2,16 +2,7 @@
 
 from typing import Any, ClassVar
 
-from dotenv import load_dotenv
-from pydantic import BaseModel
-
 from tracecat.integrations.base import BaseOauthProvider
-
-load_dotenv()
-
-
-class MicrosoftOAuthConfig(BaseModel):
-    tenant_id: str
 
 
 class MicrosoftOAuthProvider(BaseOauthProvider):
