@@ -288,7 +288,7 @@ export function SystemPromptPartComponent({
       <div className="flex items-start gap-2">
         <CaseUserAvatar user={SYSTEM_USER} size="sm" />
         <div
-          className={`flex-1 overflow-x-auto break-words ${isExpanded ? "whitespace-pre-wrap" : "whitespace-nowrap"}`}
+          className={cn("flex-1 overflow-x-auto break-words", isExpanded ? "whitespace-pre-wrap" : "whitespace-nowrap")}
         >
           {displayContent}
         </div>
