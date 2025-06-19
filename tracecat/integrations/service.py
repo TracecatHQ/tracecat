@@ -4,10 +4,11 @@ import os
 from datetime import datetime, timedelta
 from typing import Any
 
-from sqlmodel import select
+from pydantic import SecretStr
+from sqlmodel import col, select
 
 from tracecat.db.schemas import WorkspaceIntegration
-from tracecat.identifiers import UserID, WorkspaceID
+from tracecat.identifiers import UserID
 from tracecat.secrets.encryption import decrypt_value, encrypt_value
 from tracecat.service import BaseWorkspaceService
 
@@ -27,13 +28,12 @@ class IntegrationService(BaseWorkspaceService):
     async def get_integration(
         self,
         *,
-        workspace_id: WorkspaceID,
         provider: str,
         user_id: UserID | None = None,
     ) -> WorkspaceIntegration | None:
         """Get a user's integration for a specific provider."""
         statement = select(WorkspaceIntegration).where(
-            WorkspaceIntegration.owner_id == workspace_id,
+            WorkspaceIntegration.owner_id == self.workspace_id,
             WorkspaceIntegration.provider_id == provider,
         )
         if user_id is not None:
@@ -42,19 +42,22 @@ class IntegrationService(BaseWorkspaceService):
         return result.first()
 
     async def list_integrations(
-        self, *, workspace_id: WorkspaceID
+        self, *, providers: set[str] | None = None
     ) -> list[WorkspaceIntegration]:
-        """List all integrations for a workspace."""
+        """List all integrations for a workspace, optionally filtered by providers."""
         statement = select(WorkspaceIntegration).where(
-            WorkspaceIntegration.owner_id == workspace_id
+            WorkspaceIntegration.owner_id == self.workspace_id
         )
+        if providers:
+            statement = statement.where(
+                col(WorkspaceIntegration.provider_id).in_(providers)
+            )
         result = await self.session.exec(statement)
         return list(result.all())
 
     async def store_integration(
         self,
         *,
-        workspace_id: WorkspaceID,
         provider: str,
         user_id: UserID | None = None,
         access_token: str,
@@ -70,9 +73,7 @@ class IntegrationService(BaseWorkspaceService):
             expires_at = datetime.now() + timedelta(seconds=expires_in)
 
         # Check if integration already exists
-        existing = await self.get_integration(
-            workspace_id=workspace_id, user_id=user_id, provider=provider
-        )
+        existing = await self.get_integration(user_id=user_id, provider=provider)
 
         if existing:
             # Update existing integration
@@ -167,6 +168,11 @@ class IntegrationService(BaseWorkspaceService):
         )
 
         return integration
+
+    async def get_access_token(self, integration: WorkspaceIntegration) -> SecretStr:
+        """Get the decrypted access token for an integration."""
+        access_token = self._decrypt_token(integration.encrypted_access_token)
+        return SecretStr(access_token)
 
     def get_decrypted_tokens(
         self, integration: WorkspaceIntegration
