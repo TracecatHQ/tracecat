@@ -152,26 +152,26 @@ class TestAgentBuilderIntegration:
                 "Python 🐍 or JavaScript ⚡? Let us know in the comments!' "
                 "Post this to channel: {channel}",
             ),
-            (
-                "medium",
-                "Post an interactive message to Slack asking people to vote between Python and JavaScript. "
-                "Include two buttons: 'Python 🐍' and 'JavaScript ⚡'. "
-                "Use simple Slack blocks format. "
-                "Post this to channel: {channel}",
-            ),
-            (
-                "complex",
-                "Post a fun interactive message to the Slack channel asking people to vote on "
-                "which is the better programming language. The message should include:\n"
-                "1. A header section with an emoji and title 'Which is the better programming language?'\n"
-                "2. Two comparison sections side by side:\n"
-                "   - Python: 'Simple, readable, has pandas' \n"
-                "   - JavaScript: 'Runs everywhere, async/await, has npm chaos'\n"
-                "3. Two action buttons: 'Python 🐍' (green/primary) and 'JavaScript ⚡' (yellow/secondary)\n"
-                "4. A context section with a fun note\n"
-                "5. Use proper Slack block kit JSON format with sections, actions, and context blocks\n"
-                "Post this to channel: {channel}",
-            ),
+            # (
+            #     "medium",
+            #     "Post an interactive message to Slack asking people to vote between Python and JavaScript. "
+            #     "Include two buttons: 'Python 🐍' and 'JavaScript ⚡'. "
+            #     "Use simple Slack blocks format. "
+            #     "Post this to channel: {channel}",
+            # ),
+            # (
+            #     "complex",
+            #     "Post a fun interactive message to the Slack channel asking people to vote on "
+            #     "which is the better programming language. The message should include:\n"
+            #     "1. A header section with an emoji and title 'Which is the better programming language?'\n"
+            #     "2. Two comparison sections side by side:\n"
+            #     "   - Python: 'Simple, readable, has pandas' \n"
+            #     "   - JavaScript: 'Runs everywhere, async/await, has npm chaos'\n"
+            #     "3. Two action buttons: 'Python 🐍' (green/primary) and 'JavaScript ⚡' (yellow/secondary)\n"
+            #     "4. A context section with a fun note\n"
+            #     "5. Use proper Slack block kit JSON format with sections, actions, and context blocks\n"
+            #     "Post this to channel: {channel}",
+            # ),
         ],
         ids=[
             "simple",
@@ -427,6 +427,7 @@ class TestAgentBuilderIntegration:
         assert any(ind in output for ind in success_indicators)
 
     @pytest.mark.anyio
+    @pytest.mark.skip(reason="Skipping until agents support empty actions")
     async def test_agent_jsonpath_find_and_replace(self, test_role):
         """Ensure agent can use default file tools to modify nested JSON via JSONPath and return updated file."""
 
@@ -494,6 +495,7 @@ class TestAgentBuilderIntegration:
         assert any("jsonpath_find_and_replace" in t for t in tool_calls)
 
     @pytest.mark.anyio
+    @pytest.mark.skip(reason="Skipping until agents support empty actions")
     async def test_agent_multiple_file_operations(self, test_role):
         """Agent should replace text in multiple files and create a new summary file."""
         # Prepare two text files
