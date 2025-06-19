@@ -64,7 +64,6 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import {
   Select,
   SelectContent,
@@ -83,7 +82,6 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Textarea } from "@/components/ui/textarea"
 import { ToggleTabOption, ToggleTabs } from "@/components/ui/toggle-tabs"
 import {
   Tooltip,
@@ -105,7 +103,6 @@ import {
   WaitUntilTooltip,
 } from "@/components/builder/panel/action-panel-tooltips"
 import { ControlFlowField } from "@/components/builder/panel/control-flow-fields"
-import { CopyButton } from "@/components/copy-button"
 import { YamlViewOnlyEditor } from "@/components/editor/codemirror/yaml-editor"
 import { ExpressionInput } from "@/components/editor/expression-input"
 import {
@@ -636,7 +633,7 @@ function ActionPanelContent({
                     })}
                   </div>
                   <div className="flex w-full flex-1 space-x-4">
-                    <div className="flex flex-col flex-1">
+                    <div className="flex flex-1 flex-col">
                       {/* Editable action name */}
                       <FormField
                         control={methods.control}
@@ -646,7 +643,7 @@ function ActionPanelContent({
                             <FormControl>
                               <Input
                                 variant="flat"
-                                className="w-full h-auto px-0 py-0 border-none text-xs font-medium leading-none focus-visible:ring-0 focus-visible:border-input focus-visible:bg-background"
+                                className="h-auto w-full border-none p-0 text-xs font-medium leading-none focus-visible:border-input focus-visible:bg-background focus-visible:ring-0"
                                 placeholder="Name your action..."
                                 {...field}
                               />
@@ -666,7 +663,7 @@ function ActionPanelContent({
                                 <FormControl>
                                   <Input
                                     variant="flat"
-                                    className="w-full max-w-[36rem] h-auto px-0 py-0 border-none bg-transparent text-xs leading-normal placeholder:italic placeholder:text-muted-foreground focus-visible:ring-0 focus-visible:border-input focus-visible:bg-background whitespace-nowrap overflow-x-auto"
+                                    className="h-auto w-full max-w-xl overflow-x-auto whitespace-nowrap border-none bg-transparent p-0 text-xs leading-normal placeholder:italic placeholder:text-muted-foreground focus-visible:border-input focus-visible:bg-background focus-visible:ring-0"
                                     placeholder="No description"
                                     {...field}
                                   />

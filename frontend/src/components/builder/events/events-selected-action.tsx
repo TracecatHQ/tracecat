@@ -291,7 +291,7 @@ export function SystemPromptPartComponent({
         </div>
         {shouldTruncate && (
           <ChevronRightIcon
-            className={`ml-2 size-4 flex-shrink-0 transition-transform ${isExpanded ? "rotate-90" : ""}`}
+            className={`ml-2 size-4 shrink-0 transition-transform ${isExpanded ? "rotate-90" : ""}`}
           />
         )}
       </div>
@@ -340,7 +340,7 @@ export function UserPromptPartComponent({
           </div>
           {shouldTruncate && (
             <ChevronRightIcon
-              className={`size-4 flex-shrink-0 transition-transform ${isExpanded ? "rotate-90" : ""}`}
+              className={`size-4 shrink-0 transition-transform ${isExpanded ? "rotate-90" : ""}`}
             />
           )}
         </div>
@@ -381,7 +381,7 @@ export function RetryPromptPartComponent({
 
   return (
     <Card
-      className="cursor-pointer flex flex-col gap-2 rounded-lg border-[0.5px] bg-muted/40 p-2 text-xs leading-normal shadow-sm hover:bg-muted/50"
+      className="flex cursor-pointer flex-col gap-2 rounded-lg border-[0.5px] bg-muted/40 p-2 text-xs leading-normal shadow-sm hover:bg-muted/50"
       onClick={() => setIsExpanded(!isExpanded)}
     >
       <div className="flex items-center justify-between gap-1">
@@ -397,7 +397,7 @@ export function RetryPromptPartComponent({
           />
         )}
       </div>
-      <div className={`${isExpanded ? 'whitespace-pre-wrap' : 'whitespace-nowrap overflow-hidden text-ellipsis'}`}>
+      <div className={`${isExpanded ? 'whitespace-pre-wrap' : 'truncate'}`}>
         {displayContent}
       </div>
     </Card>
