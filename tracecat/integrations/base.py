@@ -38,18 +38,31 @@ class BaseOauthProvider:
         """The redirect URI for the OAuth provider."""
         return f"{self.base_url}/callback"
 
-    def __init__(self):
-        """Initialize the OAuth provider."""
-        # Get client credentials from environment
-        env_prefix = self.id.upper().replace("-", "_")
-        self.client_id = os.getenv(f"{env_prefix}_CLIENT_ID")
-        self.client_secret = os.getenv(f"{env_prefix}_CLIENT_SECRET")
+    def __init__(self, client_id: str | None = None, client_secret: str | None = None):
+        """Initialize the OAuth provider.
 
-        if not self.client_id or not self.client_secret:
-            raise ValueError(
-                f"{self.id} OAuth credentials not configured. "
-                f"Set {env_prefix}_CLIENT_ID and {env_prefix}_CLIENT_SECRET environment variables."
-            )
+        Args:
+            client_id: Optional client ID to use instead of environment variable
+            client_secret: Optional client secret to use instead of environment variable
+        """
+        # Get environment prefix for this provider
+        env_prefix = self.id.upper().replace("-", "_")
+
+        # Use provided credentials or fallback to environment variables
+        if client_id and client_secret:
+            self.client_id = client_id
+            self.client_secret = client_secret
+        else:
+            # Get client credentials from environment
+            self.client_id = os.getenv(f"{env_prefix}_CLIENT_ID")
+            self.client_secret = os.getenv(f"{env_prefix}_CLIENT_SECRET")
+
+            if not self.client_id or not self.client_secret:
+                raise ValueError(
+                    f"{self.id} OAuth credentials not configured. "
+                    f"Either provide client_id/client_secret parameters or set "
+                    f"{env_prefix}_CLIENT_ID and {env_prefix}_CLIENT_SECRET environment variables."
+                )
 
         # Get custom scopes from environment or use defaults
         env_scopes = os.getenv(f"{env_prefix}_SCOPES")

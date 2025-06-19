@@ -1026,6 +1026,18 @@ class OAuthIntegration(SQLModel, TimestampMixin, table=True):
         default=None,
         description="Encrypted OAuth refresh token for the integration",
     )
+    encrypted_client_id: bytes | None = Field(
+        default=None,
+        description="Encrypted OAuth client ID for the integration",
+    )
+    encrypted_client_secret: bytes | None = Field(
+        default=None,
+        description="Encrypted OAuth client secret for the integration",
+    )
+    use_workspace_credentials: bool = Field(
+        default=False,
+        description="Whether to use workspace-configured credentials instead of environment variables",
+    )
     token_type: str = Field(
         default="Bearer",
         description="Token type (typically Bearer)",
