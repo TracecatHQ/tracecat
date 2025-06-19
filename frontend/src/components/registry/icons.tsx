@@ -6,11 +6,11 @@ export const actionTypeToLabel: Record<
   { label: string; icon: LucideIcon }
 > = {
   udf: {
-    label: "User Defined Function",
+    label: "User defined function",
     icon: SquareFunctionIcon,
   },
   template: {
-    label: "Template Action",
+    label: "Template action",
     icon: ToyBrickIcon,
   },
 }

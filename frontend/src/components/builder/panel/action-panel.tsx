@@ -28,7 +28,6 @@ import {
   MessagesSquare,
   Plus,
   SaveIcon,
-  SettingsIcon,
   ShapesIcon,
   SplitIcon,
 } from "lucide-react"
@@ -65,7 +64,6 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import {
   Select,
   SelectContent,
@@ -84,7 +82,6 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Textarea } from "@/components/ui/textarea"
 import { ToggleTabOption, ToggleTabs } from "@/components/ui/toggle-tabs"
 import {
   Tooltip,
@@ -106,7 +103,6 @@ import {
   WaitUntilTooltip,
 } from "@/components/builder/panel/action-panel-tooltips"
 import { ControlFlowField } from "@/components/builder/panel/control-flow-fields"
-import { CopyButton } from "@/components/copy-button"
 import { YamlViewOnlyEditor } from "@/components/editor/codemirror/yaml-editor"
 import { ExpressionInput } from "@/components/editor/expression-input"
 import {
@@ -582,6 +578,12 @@ function ActionPanelContent({
     [inputMode, methods, action?.inputs, rawInputsYaml]
   )
 
+  const ActionIcon = registryAction
+    ? actionTypeToLabel[registryAction.type].icon
+    : Database
+  const isInteractive = methods.watch("is_interactive")
+  const interactionType = methods.watch("interaction.type")
+
   if (actionIsLoading || registryActionIsLoading) {
     return <CenteredSpinner />
   }
@@ -611,10 +613,6 @@ function ActionPanelContent({
     ...(validationErrors || []),
   ].filter((e) => e.ref === slugify(action.title))
 
-  const ActionIcon = actionTypeToLabel[registryAction.type].icon
-  const isInteractive = methods.watch("is_interactive")
-  const interactionType = methods.watch("interaction.type")
-
   return (
     <div onBlur={onPanelBlur}>
       <Tabs
@@ -626,7 +624,7 @@ function ActionPanelContent({
         <FormProvider {...methods}>
           <form onSubmit={methods.handleSubmit(onSubmit)}>
             <div className="relative">
-              <h3 className="p-4 py-6">
+              <h3 className="p-4 pt-6">
                 <div className="flex w-full items-start space-x-4">
                   <div className="flex-col">
                     {getIcon(registryAction.action, {
@@ -634,30 +632,55 @@ function ActionPanelContent({
                       flairsize: "md",
                     })}
                   </div>
-                  <div className="flex w-full flex-1 justify-between space-x-12">
-                    <div className="flex flex-col">
-                      <div className="flex w-full items-center justify-between text-xs font-medium leading-none">
-                        <div className="flex w-full">{action.title}</div>
-                      </div>
-                      <p className="mt-2 text-xs text-muted-foreground">
-                        {action.description || (
-                          <span className="italic">No description</span>
+                  <div className="flex w-full flex-1 space-x-4">
+                    <div className="flex flex-1 flex-col">
+                      {/* Editable action name */}
+                      <FormField
+                        control={methods.control}
+                        name="title"
+                        render={({ field }) => (
+                          <FormItem className="w-full">
+                            <FormControl>
+                              <Input
+                                variant="flat"
+                                className="h-auto w-full border-none p-0 text-xs font-medium leading-none focus-visible:border-input focus-visible:bg-background focus-visible:ring-0"
+                                placeholder="Name your action..."
+                                {...field}
+                              />
+                            </FormControl>
+                          </FormItem>
                         )}
-                      </p>
+                      />
+
+                      {/* Editable action description with tooltip */}
+                      <FormField
+                        control={methods.control}
+                        name="description"
+                        render={({ field }) => (
+                          <FormItem className="mt-2 w-full">
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <FormControl>
+                                  <Input
+                                    variant="flat"
+                                    className="h-auto w-full max-w-xl overflow-x-auto whitespace-nowrap border-none bg-transparent p-0 text-xs leading-normal placeholder:italic placeholder:text-muted-foreground focus-visible:border-input focus-visible:bg-background focus-visible:ring-0"
+                                    placeholder="No description"
+                                    {...field}
+                                  />
+                                </FormControl>
+                              </TooltipTrigger>
+                              <TooltipContent
+                                side="left"
+                                sideOffset={10}
+                                className="max-w-xs break-words text-xs"
+                              >
+                                {field.value || "No description"}
+                              </TooltipContent>
+                            </Tooltip>
+                          </FormItem>
+                        )}
+                      />
                       <div className="mt-2 hover:cursor-default">
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <div className="mt-2 flex items-center text-xs text-muted-foreground">
-                              <ActionIcon className="mr-1 size-3 stroke-2" />
-                              <span>
-                                {actionTypeToLabel[registryAction.type].label}
-                              </span>
-                            </div>
-                          </TooltipTrigger>
-                          <TooltipContent side="left" sideOffset={10}>
-                            Action type
-                          </TooltipContent>
-                        </Tooltip>
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <div className="mt-2 flex items-center text-xs text-muted-foreground">
@@ -743,73 +766,6 @@ function ActionPanelContent({
                     defaultValue={["action-inputs"]}
                     className="pb-10"
                   >
-                    <AccordionItem value="action-settings">
-                      <AccordionTrigger className="px-4 text-xs font-bold">
-                        <div className="flex items-center">
-                          <SettingsIcon className="mr-3 size-4" />
-                          <span>General</span>
-                        </div>
-                      </AccordionTrigger>
-                      {/* General settings for the action */}
-                      <AccordionContent>
-                        <div className="my-4 space-y-2 px-4">
-                          <FormField
-                            control={methods.control}
-                            name="title"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel className="text-xs">Name</FormLabel>
-                                <FormControl>
-                                  <Input
-                                    className="text-xs"
-                                    placeholder="Name your action..."
-                                    {...field}
-                                  />
-                                </FormControl>
-                                <FormMessage className="whitespace-pre-line" />
-                              </FormItem>
-                            )}
-                          />
-                          <FormField
-                            control={methods.control}
-                            name="description"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel className="text-xs">
-                                  Description
-                                </FormLabel>
-                                <FormControl>
-                                  <Textarea
-                                    className="text-xs"
-                                    placeholder="Describe your action..."
-                                    {...field}
-                                  />
-                                </FormControl>
-                                <FormMessage className="whitespace-pre-line" />
-                              </FormItem>
-                            )}
-                          />
-                          <div className="space-y-2">
-                            <Label className="flex items-center gap-2 text-xs font-medium">
-                              <span>Action ID</span>
-                              <CopyButton
-                                value={action.id}
-                                toastMessage="Copied action ID to clipboard"
-                              />
-                            </Label>
-                            <div className="rounded-md border shadow-sm">
-                              <Input
-                                value={action.id}
-                                className="rounded-md border-none text-xs shadow-none"
-                                readOnly
-                                disabled
-                              />
-                            </div>
-                          </div>
-                        </div>
-                      </AccordionContent>
-                    </AccordionItem>
-
                     {/* Interaction */}
                     {appSettings?.app_interactions_enabled &&
                       PERMITTED_INTERACTION_ACTIONS.includes(

@@ -27,9 +27,15 @@ import { BlockNoteView } from "@blocknote/shadcn"
 import {
   ChevronRightIcon,
   CircleDot,
+  FileIcon,
+  FilePlusIcon,
+  FilterIcon,
+  FunctionSquareIcon,
+  ListIcon,
   LoaderIcon,
   MessageCircle,
   RefreshCw,
+  SearchIcon,
   Undo2Icon,
 } from "lucide-react"
 
@@ -69,6 +75,21 @@ import { AlertNotification } from "@/components/notifications"
 import { InlineDotSeparator } from "@/components/separator"
 
 type TabType = "input" | "result" | "interaction"
+
+// Add default agent tool icon mappings
+const DEFAULT_AGENT_TOOLS: Record<string, JSX.Element> = {
+  read_file: <FileIcon className="size-4" />,
+  create_file: <FilePlusIcon className="size-4" />,
+  search_files: <SearchIcon className="size-4" />,
+  list_directory: <ListIcon className="size-4" />,
+  grep_search: <SearchIcon className="size-4" />,
+  find_and_replace: <RefreshCw className="size-4" />,
+  jsonpath_find: <FilterIcon className="size-4" />,
+  jsonpath_find_and_replace: <FilterIcon className="size-4" />,
+  apply_python_lambda: <FunctionSquareIcon className="size-4" />,
+}
+
+const DEFAULT_TOOL_NAMES = new Set(Object.keys(DEFAULT_AGENT_TOOLS))
 
 export function ActionEvent({
   execution,
@@ -125,6 +146,7 @@ export function ActionEvent({
     </div>
   )
 }
+
 function ActionEventView({
   selectedRef,
   execution,
@@ -233,56 +255,157 @@ export function AgentOutputEvent({
     </div>
   )
 }
+
 export function SystemPromptPartComponent({
   part,
+  defaultExpanded = false,
 }: {
   part: SystemPromptPart
+  defaultExpanded?: boolean
 }) {
+  const [isExpanded, setIsExpanded] = React.useState(defaultExpanded)
+  const content =
+    typeof part.content === "string"
+      ? part.content
+      : JSON.stringify(part.content, null, 2)
+
+  const TRUNCATE_LIMIT = 200
+  const shouldTruncate = content.length > TRUNCATE_LIMIT
+
+  // For collapsed view: normalize whitespace and truncate
+  const normalizedContent = content.replace(/\s+/g, " ").trim()
+  const displayContent = isExpanded
+    ? content
+    : shouldTruncate
+      ? normalizedContent.substring(0, TRUNCATE_LIMIT) + "..."
+      : normalizedContent
+
   return (
-    <Card className="rounded-lg border-[0.5px] bg-muted/40 p-3 text-xs leading-normal shadow-sm">
+    <Card
+      className="cursor-pointer rounded-lg border-[0.5px] bg-muted/40 p-3 text-xs leading-normal shadow-sm hover:bg-muted/50"
+      onClick={() => setIsExpanded(!isExpanded)}
+    >
       <div className="flex items-start gap-2">
         <CaseUserAvatar user={SYSTEM_USER} size="sm" />
-        <div className="overflow-x-auto whitespace-pre-wrap break-words">
-          {typeof part.content === "string"
-            ? part.content
-            : JSON.stringify(part.content, null, 2)}
+        <div
+          className={cn("flex-1 overflow-x-auto break-words", isExpanded ? "whitespace-pre-wrap" : "whitespace-nowrap")}
+        >
+          {displayContent}
         </div>
+        {shouldTruncate && (
+          <ChevronRightIcon
+            className={`ml-2 size-4 shrink-0 transition-transform ${isExpanded ? "rotate-90" : ""}`}
+          />
+        )}
       </div>
     </Card>
   )
 }
 
-export function UserPromptPartComponent({ part }: { part: UserPromptPart }) {
+export function UserPromptPartComponent({
+  part,
+  defaultExpanded = false,
+}: {
+  part: UserPromptPart
+  defaultExpanded?: boolean
+}) {
   const { user } = useAuth()
+  const [isExpanded, setIsExpanded] = React.useState(defaultExpanded)
+  const content =
+    typeof part.content === "string"
+      ? part.content
+      : JSON.stringify(part.content, null, 2)
+
+  const TRUNCATE_LIMIT = 200
+  const shouldTruncate = content.length > TRUNCATE_LIMIT
+
+  // For collapsed view: normalize whitespace and truncate
+  const normalizedContent = content.replace(/\s+/g, " ").trim()
+  const displayContent = isExpanded
+    ? content
+    : shouldTruncate
+      ? normalizedContent.substring(0, TRUNCATE_LIMIT) + "..."
+      : normalizedContent
+
   return (
-    <Card className="rounded-lg border-[0.5px] bg-muted/40 p-3 text-xs leading-normal shadow-sm">
-      <div className="flex items-start gap-2">
-        {user && <CaseUserAvatar user={user} size="sm" />}
-        <div className="overflow-x-auto whitespace-pre-wrap break-words">
-          {typeof part.content === "string"
-            ? part.content
-            : JSON.stringify(part.content, null, 2)}
+    <Card
+      className="cursor-pointer rounded-lg border-[0.5px] bg-muted/40 p-3 text-xs leading-normal shadow-sm hover:bg-muted/50"
+      onClick={() => setIsExpanded(!isExpanded)}
+    >
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            {user && <CaseUserAvatar user={user} size="sm" />}
+            {user && (
+              <span className="text-xs font-semibold text-foreground/80">
+                {user.firstName || user.email}
+              </span>
+            )}
+          </div>
+          {shouldTruncate && (
+            <ChevronRightIcon
+              className={`size-4 shrink-0 transition-transform ${isExpanded ? "rotate-90" : ""}`}
+            />
+          )}
+        </div>
+        <div
+          className={`overflow-x-auto break-words ${isExpanded ? "whitespace-pre-wrap" : "whitespace-nowrap"}`}
+        >
+          {displayContent}
         </div>
       </div>
     </Card>
   )
 }
 
-export function RetryPromptPartComponent({ part }: { part: RetryPromptPart }) {
+export function RetryPromptPartComponent({
+  part,
+  defaultExpanded = false,
+}: {
+  part: RetryPromptPart
+  defaultExpanded?: boolean
+}) {
+  const [isExpanded, setIsExpanded] = React.useState(defaultExpanded)
+  const content =
+    typeof part.content === "string"
+      ? part.content
+      : part.content.map((c) => c.msg).join(" ")
+
+  const TRUNCATE_LIMIT = 200
+  const shouldTruncate = content.length > TRUNCATE_LIMIT
+
+  // For collapsed view: normalize whitespace and truncate
+  const normalizedContent = content.replace(/\s+/g, " ").trim()
+  const displayContent = isExpanded
+    ? typeof part.content === "string"
+      ? part.content
+      : part.content.map((c) => {
+          return <span key={c.msg}>{c.msg}</span>
+        })
+    : shouldTruncate
+      ? normalizedContent.substring(0, TRUNCATE_LIMIT) + "..."
+      : normalizedContent
+
   return (
-    <Card className="flex flex-col gap-2 rounded-lg border-[0.5px] bg-muted/40 p-2 text-xs shadow-sm">
-      <div className="flex items-center gap-1">
-        <RefreshCw className="size-3 text-muted-foreground" />
-        <span className="text-xs font-semibold text-foreground/80">
-          Retry prompt
-        </span>
+    <Card
+      className="flex cursor-pointer flex-col gap-2 rounded-lg border-[0.5px] bg-muted/40 p-2 text-xs leading-normal shadow-sm hover:bg-muted/50"
+      onClick={() => setIsExpanded(!isExpanded)}
+    >
+      <div className="flex items-center justify-between gap-1">
+        <div className="flex items-center gap-1">
+          <RefreshCw className="size-3 text-muted-foreground" />
+          <span className="text-xs font-semibold text-foreground/80">
+            Retry prompt
+          </span>
+        </div>
+        {shouldTruncate && (
+          <ChevronRightIcon
+            className={`size-4 transition-transform ${isExpanded ? "rotate-90" : ""}`}
+          />
+        )}
       </div>
-      <div className="whitespace-pre-wrap">
-        {typeof part.content === "string"
-          ? part.content
-          : part.content.map((c) => {
-              return <span key={c.msg}>{c.msg}</span>
-            })}
+      <div className={`${isExpanded ? "whitespace-pre-wrap" : "truncate"}`}>
+        {displayContent}
       </div>
     </Card>
   )
@@ -290,64 +413,110 @@ export function RetryPromptPartComponent({ part }: { part: RetryPromptPart }) {
 
 export function ToolReturnPartComponent({ part }: { part: ToolReturnPart }) {
   const [isExpanded, setIsExpanded] = React.useState(false)
-  const actionType = reconstructActionType(part.tool_name)
+
+  const toolName = part.tool_name
+  const isDefaultTool = DEFAULT_TOOL_NAMES.has(toolName)
+
+  // Always resolve action type so hooks are called consistently
+  const actionType = reconstructActionType(toolName)
+  // Call hook unconditionally; it will be disabled internally when actionType is undefined
   const { registryAction, registryActionIsLoading, registryActionError } =
-    useGetRegistryAction(actionType)
-  if (registryActionIsLoading) {
-    return <Skeleton className="h-16 w-full" />
-  }
-  if (registryActionError || !registryAction) {
+    useGetRegistryAction(isDefaultTool ? undefined : actionType)
+
+  // Case 1 – default agent tool
+  if (isDefaultTool) {
+    const iconElement = DEFAULT_AGENT_TOOLS[toolName]
     return (
-      <div className="flex items-center justify-center gap-2 p-4 text-xs text-muted-foreground">
-        <CircleDot className="size-3 text-muted-foreground" />
-        <span>Action not found</span>
+      <div className="flex flex-col gap-2">
+        <Card
+          className="flex cursor-pointer flex-col gap-1 rounded-md border-[0.5px] bg-muted/20 text-xs shadow-sm hover:bg-muted/40"
+          onClick={() => setIsExpanded(!isExpanded)}
+        >
+          <div
+            className={cn(
+              "flex items-center gap-2 p-2",
+              isExpanded && "border-b-[0.5px]"
+            )}
+          >
+            <div className="rounded-sm border-[0.5px] p-[3px]">
+              {iconElement}
+            </div>
+            <span className="text-xs font-semibold text-foreground/80">
+              {toolName}
+            </span>
+            <Undo2Icon className="size-3" />
+            <ChevronRightIcon
+              className={`ml-auto size-4 transition-transform ${isExpanded ? "rotate-90" : ""}`}
+            />
+          </div>
+        </Card>
+        {isExpanded && (
+          <JsonViewWithControls
+            src={part.content}
+            defaultExpanded={true}
+            defaultTab="nested"
+            className="shadow-sm"
+          />
+        )}
       </div>
     )
   }
-  const { default_title, namespace } = registryAction
-  return (
-    <div className="flex flex-col gap-2">
-      <Card
-        className="flex cursor-pointer flex-col gap-1 rounded-md border-[0.5px] bg-muted/20 text-xs shadow-sm hover:bg-muted/40"
-        onClick={() => setIsExpanded(!isExpanded)}
-      >
-        <div
-          className={cn(
-            "flex items-center gap-2 p-2",
-            isExpanded && "border-b-[0.5px]"
-          )}
+
+  // Case 2 – registry action
+  if (registryActionIsLoading) {
+    return <Skeleton className="h-16 w-full" />
+  }
+  if (registryAction && !registryActionError) {
+    return (
+      <div className="flex flex-col gap-2">
+        <Card
+          className="flex cursor-pointer flex-col gap-1 rounded-md border-[0.5px] bg-muted/20 text-xs shadow-sm hover:bg-muted/40"
+          onClick={() => setIsExpanded(!isExpanded)}
         >
-          <Tooltip>
-            <TooltipTrigger>
-              <div>
-                {getIcon(actionType, {
-                  className: "size-4 p-[3px] border-[0.5px]",
-                })}
-              </div>
-            </TooltipTrigger>
-            <TooltipContent className="p-1">
-              <p>{namespace}</p>
-            </TooltipContent>
-          </Tooltip>
-          <div className="flex items-center gap-1">
+          <div
+            className={cn(
+              "flex items-center gap-2 p-2",
+              isExpanded && "border-b-[0.5px]"
+            )}
+          >
+            <Tooltip>
+              <TooltipTrigger>
+                <div>
+                  {getIcon(actionType, {
+                    className: "size-4 p-[3px] border-[0.5px]",
+                  })}
+                </div>
+              </TooltipTrigger>
+              <TooltipContent className="p-1">
+                <p>{registryAction.namespace}</p>
+              </TooltipContent>
+            </Tooltip>
             <span className="text-xs font-semibold text-foreground/80">
-              {default_title}
+              {registryAction.default_title}
             </span>
             <Undo2Icon className="size-3" />
+            <ChevronRightIcon
+              className={`ml-auto size-4 transition-transform ${isExpanded ? "rotate-90" : ""}`}
+            />
           </div>
-          <ChevronRightIcon
-            className={`ml-auto size-4 transition-transform ${isExpanded ? "rotate-90" : ""}`}
+        </Card>
+        {isExpanded && (
+          <JsonViewWithControls
+            src={part.content}
+            defaultExpanded={true}
+            defaultTab="nested"
+            className="shadow-sm"
           />
-        </div>
-      </Card>
-      {isExpanded && (
-        <JsonViewWithControls
-          src={part.content}
-          defaultExpanded={true}
-          defaultTab="nested"
-          className="shadow-sm"
-        />
-      )}
+        )}
+      </div>
+    )
+  }
+
+  // Case 3 – not found
+  return (
+    <div className="flex items-center justify-center gap-2 p-4 text-xs text-muted-foreground">
+      <CircleDot className="size-3 text-muted-foreground" />
+      <span>Action not found</span>
     </div>
   )
 }
@@ -394,22 +563,55 @@ export function AgentResponsePart({
   )
 }
 
-export function TextPartComponent({ text }: { text: TextPart }) {
+export function TextPartComponent({
+  text,
+  defaultExpanded = false,
+}: {
+  text: TextPart
+  defaultExpanded?: boolean
+}) {
+  const [isExpanded, setIsExpanded] = React.useState(defaultExpanded)
   const editor = useCreateBlockNote({
     animations: false,
     codeBlock,
   })
 
+  const TRUNCATE_LIMIT = 200
+  const shouldTruncate = text.content.length > TRUNCATE_LIMIT
   useEffect(() => {
     if (text.content) {
-      loadInitialContent(editor, text.content)
+      let contentToLoad
+      if (isExpanded) {
+        contentToLoad = text.content
+      } else {
+        // For collapsed view: normalize whitespace and truncate
+        const normalizedContent = text.content.replace(/\s+/g, " ").trim()
+        contentToLoad = shouldTruncate
+          ? normalizedContent.substring(0, TRUNCATE_LIMIT) + "..."
+          : normalizedContent
+      }
+
+      loadInitialContent(editor, contentToLoad)
     }
-  }, [text.content, editor])
+  }, [text.content, editor, isExpanded, shouldTruncate])
+
   return (
-    <div className="flex flex-col gap-2 overflow-scroll whitespace-pre-wrap rounded-md border-[0.5px] bg-muted/20 p-3 text-xs shadow-sm">
-      <div className="flex items-center gap-1">
-        <MessageCircle className="size-4" />
-        <span className="text-xs font-semibold text-foreground/80">Agent</span>
+    <div
+      className="flex cursor-pointer flex-col gap-2 overflow-scroll whitespace-pre-wrap rounded-md border-[0.5px] bg-muted/20 p-3 text-xs shadow-sm hover:bg-muted/30"
+      onClick={() => setIsExpanded(!isExpanded)}
+    >
+      <div className="flex items-center justify-between gap-1">
+        <div className="flex items-center gap-1">
+          <MessageCircle className="size-4" />
+          <span className="text-xs font-semibold text-foreground/80">
+            Agent
+          </span>
+        </div>
+        {shouldTruncate && (
+          <ChevronRightIcon
+            className={`size-4 transition-transform ${isExpanded ? "rotate-90" : ""}`}
+          />
+        )}
       </div>
 
       <BlockNoteView
@@ -420,7 +622,9 @@ export function TextPartComponent({ text }: { text: TextPart }) {
         style={{
           height: "100%",
           width: "100%",
-          whiteSpace: "pre-wrap",
+          whiteSpace: isExpanded ? "pre-wrap" : "nowrap",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
           lineHeight: "1.5",
         }}
       />
@@ -436,20 +640,65 @@ export function ToolCallPartComponent({
   defaultExpanded?: boolean
 }) {
   const [isExpanded, setIsExpanded] = React.useState(defaultExpanded)
-  const actionType = reconstructActionType(toolCall.tool_name)
+
+  const toolName = toolCall.tool_name
+  const isDefaultTool = DEFAULT_TOOL_NAMES.has(toolName)
+
+  // Always resolve action type so hooks are called consistently
+  const actionType = reconstructActionType(toolName)
   const { registryAction, registryActionIsLoading, registryActionError } =
-    useGetRegistryAction(actionType)
+    useGetRegistryAction(isDefaultTool ? undefined : actionType)
+
   let args
   try {
     args =
       typeof toolCall.args === "string"
-        ? JSON.parse(toolCall.args) // This should be a JSON string
+        ? JSON.parse(toolCall.args)
         : toolCall.args
   } catch {
     args = toolCall.args
   }
 
-  // Get the title
+  // Case 1 – default agent tool
+  if (isDefaultTool) {
+    const iconElement = DEFAULT_AGENT_TOOLS[toolName]
+    return (
+      <Card
+        className="cursor-pointer rounded-md border-[0.5px] bg-muted/20 p-2 text-xs shadow-sm"
+        onClick={() => setIsExpanded(!isExpanded)}
+      >
+        <div className="flex items-center gap-2">
+          <div className="rounded-sm border-[0.5px] p-[3px]">{iconElement}</div>
+          <span className="text-xs font-semibold text-foreground/80">
+            {toolName}
+          </span>
+          <ChevronRightIcon
+            className={`ml-auto size-4 transition-transform ${isExpanded ? "rotate-90" : ""}`}
+          />
+        </div>
+        {isExpanded && (
+          <table className="mt-2 min-w-full text-xs">
+            <tbody>
+              {Object.entries(args).map(([key, value]) => (
+                <tr key={key}>
+                  <td className="px-2 py-1 text-left align-top font-semibold text-foreground/80">
+                    {key}
+                  </td>
+                  <td className="px-2 py-1 text-left align-top text-foreground/90">
+                    {typeof value === "string"
+                      ? value
+                      : JSON.stringify(value, null, 2)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </Card>
+    )
+  }
+
+  // Case 2 – registry action
   if (registryActionIsLoading) {
     return (
       <Card className="rounded-md border-[0.5px] bg-muted/20 p-2 text-xs shadow-sm">
@@ -466,61 +715,60 @@ export function ToolCallPartComponent({
       </Card>
     )
   }
-  if (registryActionError || !registryAction) {
+  if (registryAction && !registryActionError) {
     return (
-      <div className="flex items-center justify-center gap-2 p-4 text-xs text-muted-foreground">
-        <CircleDot className="size-3 text-muted-foreground" />
-        <span>Action not found</span>
-      </div>
+      <Card
+        className="cursor-pointer rounded-md border-[0.5px] bg-muted/20 p-2 text-xs shadow-sm"
+        onClick={() => setIsExpanded(!isExpanded)}
+      >
+        <div className="flex items-center gap-2">
+          <Tooltip>
+            <TooltipTrigger>
+              <div>
+                {getIcon(actionType, {
+                  className: "size-4 p-[3px] border-[0.5px]",
+                })}
+              </div>
+            </TooltipTrigger>
+            <TooltipContent className="p-1">
+              <p>{registryAction.namespace}</p>
+            </TooltipContent>
+          </Tooltip>
+          <span className="text-xs font-semibold text-foreground/80">
+            {registryAction.default_title}
+          </span>
+          <ChevronRightIcon
+            className={`ml-auto size-4 transition-transform ${isExpanded ? "rotate-90" : ""}`}
+          />
+        </div>
+        {isExpanded && (
+          <table className="mt-2 min-w-full text-xs">
+            <tbody>
+              {Object.entries(args).map(([key, value]) => (
+                <tr key={key}>
+                  <td className="px-2 py-1 text-left align-top font-semibold text-foreground/80">
+                    {key}
+                  </td>
+                  <td className="px-2 py-1 text-left align-top text-foreground/90">
+                    {typeof value === "string"
+                      ? value
+                      : JSON.stringify(value, null, 2)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </Card>
     )
   }
 
-  const { default_title, namespace } = registryAction
-
+  // Case 3 – action not found
   return (
-    <Card
-      className="cursor-pointer rounded-md border-[0.5px] bg-muted/20 p-2 text-xs shadow-sm"
-      onClick={() => setIsExpanded(!isExpanded)}
-    >
-      <div className="flex items-center gap-2">
-        <Tooltip>
-          <TooltipTrigger>
-            <div>
-              {getIcon(actionType, {
-                className: "size-4 p-[3px] border-[0.5px]",
-              })}
-            </div>
-          </TooltipTrigger>
-          <TooltipContent className="p-1">
-            <p>{namespace}</p>
-          </TooltipContent>
-        </Tooltip>
-        <span className="text-xs font-semibold text-foreground/80">
-          {default_title}
-        </span>
-        <ChevronRightIcon
-          className={`ml-auto size-4 transition-transform ${isExpanded ? "rotate-90" : ""}`}
-        />
-      </div>
-      {isExpanded && (
-        <table className="mt-2 min-w-full text-xs">
-          <tbody>
-            {Object.entries(args).map(([key, value]) => (
-              <tr key={key}>
-                <td className="px-2 py-1 text-left align-top font-semibold text-foreground/80">
-                  {key}
-                </td>
-                <td className="px-2 py-1 text-left align-top text-foreground/90">
-                  {typeof value === "string"
-                    ? value
-                    : JSON.stringify(value, null, 2)}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-    </Card>
+    <div className="flex items-center justify-center gap-2 p-4 text-xs text-muted-foreground">
+      <CircleDot className="size-3 text-muted-foreground" />
+      <span>Action not found</span>
+    </div>
   )
 }
 
