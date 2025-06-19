@@ -85,13 +85,10 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         set_fields = user_update.model_fields_set
 
         role = ctx_role.get()
-        logger.info("update", role=role)
-        if (
-            # Check if the request is coming from an admin user
-            # and if the request is trying to change role or is_superuser
-            (role := ctx_role.get())
-            and role.access_level != AccessLevel.ADMIN
-            and any(field in set_fields for field in blacklist)
+        is_unprivileged = role is not None and role.access_level != AccessLevel.ADMIN
+        if not role or (
+            # Not admin and trying to change role or is_superuser
+            is_unprivileged and any(field in set_fields for field in blacklist)
         ):
             raise PermissionsException("Operation not permitted")
 
