@@ -3,7 +3,7 @@
 import hashlib
 import os
 import uuid
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from pydantic import UUID4, BaseModel, ConfigDict, computed_field
@@ -1056,11 +1056,11 @@ class WorkspaceIntegration(SQLModel, TimestampMixin, table=True):
         """Check if the access token is expired."""
         if self.expires_at is None:
             return False
-        return datetime.now() >= self.expires_at
+        return datetime.now(UTC) >= self.expires_at
 
     @property
     def needs_refresh(self) -> bool:
         """Check if the token needs to be refreshed soon (within 5 minutes)."""
         if self.expires_at is None:
             return False
-        return datetime.now() >= (self.expires_at - timedelta(minutes=5))
+        return datetime.now(UTC) >= (self.expires_at - timedelta(minutes=5))
