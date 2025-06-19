@@ -35,9 +35,7 @@ async def list_integrations(
         )
 
     integration_service = IntegrationService(session, role=role)
-    integrations = await integration_service.list_integrations(
-        workspace_id=role.workspace_id
-    )
+    integrations = await integration_service.list_integrations()
 
     # Convert to response models (excluding sensitive data like tokens)
     return [
@@ -118,9 +116,8 @@ async def oauth_callback(
     logger.info("OAuth callback", token_result=token_result)
 
     # Store integration tokens for this user
-    integration_service = IntegrationService(session)
+    integration_service = IntegrationService(session, role=role)
     await integration_service.store_integration(
-        workspace_id=role.workspace_id,
         user_id=role.user_id,
         provider=provider.id,
         access_token=token_result.access_token,
@@ -157,7 +154,6 @@ async def disconnect_provider(
 
     svc = IntegrationService(session, role=role)
     integration = await svc.get_integration(
-        workspace_id=role.workspace_id,
         user_id=role.user_id,
         provider=provider.id,
     )
@@ -186,9 +182,8 @@ async def get_provider_status(
             detail="Workspace ID is required",
         )
 
-    svc = IntegrationService(session)
+    svc = IntegrationService(session, role=role)
     integration = await svc.get_integration(
-        workspace_id=role.workspace_id,
         user_id=role.user_id,
         provider=provider.id,
     )
