@@ -1,3 +1,4 @@
+# ruff: noqa
 """FastAPI Users database adapter for SQLModel.
 
 Adapted from https://github.com/fastapi-users/fastapi-users-db-sqlmodel for our internal use
@@ -6,11 +7,11 @@ as the original package does not plan on having official support for SQLModel.
 
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Generic
 
-from fastapi_users.authentication.strategy.db import AccessTokenDatabase
+from fastapi_users.authentication.strategy.db import AP, AccessTokenDatabase
 from fastapi_users.db.base import BaseUserDatabase
-from fastapi_users.models import OAP
+from fastapi_users.models import ID, OAP, UP
 from fastapi_users_db_sqlalchemy.generics import TIMESTAMPAware, now_utc
 from pydantic import UUID4, ConfigDict, EmailStr
 from sqlalchemy import Column, types
@@ -53,7 +54,7 @@ class SQLModelBaseOAuthAccount(SQLModel):
     account_email: str = Field(nullable=False)
 
 
-class SQLModelUserDatabaseAsync[UP, ID](BaseUserDatabase[UP, ID]):
+class SQLModelUserDatabaseAsync(BaseUserDatabase[UP, ID]):
     """
     Database adapter for SQLModel working purely asynchronously.
 
@@ -172,7 +173,7 @@ class SQLModelBaseAccessToken(SQLModel):
     user_id: UUID4 = Field(foreign_key="user.id", nullable=False)
 
 
-class SQLModelAccessTokenDatabaseAsync[AP](AccessTokenDatabase[AP]):
+class SQLModelAccessTokenDatabaseAsync(Generic[AP], AccessTokenDatabase[AP]):
     """
     Access token database adapter for SQLModel working purely asynchronously.
 

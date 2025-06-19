@@ -163,7 +163,10 @@ export type ActionValidationResult = {
 export type status = "success" | "error"
 
 export type AgentOutput = {
-  output: string
+  output: unknown
+  files?: {
+    [key: string]: string
+  } | null
   message_history: Array<ModelRequest | ModelResponse>
   duration: number
   usage?: Usage | null
@@ -788,7 +791,7 @@ export type EventFailure = {
   } | null
 }
 
-export type EventGroup = {
+export type EventGroup_TypeVar_ = {
   event_id: number
   udf_namespace: string
   udf_name: string
@@ -2425,7 +2428,7 @@ export type WorkflowExecutionEvent = {
   /**
    * The action group of the event. We use this to keep track of what events are related to each other.
    */
-  event_group?: EventGroup | null
+  event_group?: EventGroup_TypeVar_ | null
   failure?: EventFailure | null
   result?: unknown | null
   role?: Role | null
@@ -3873,7 +3876,7 @@ export type PublicCheckHealthResponse = {
 
 export type $OpenApiTs = {
   "/webhooks/{workflow_id}/{secret}": {
-    post: {
+    get: {
       req: PublicIncomingWebhookData
       res: {
         /**
@@ -3886,7 +3889,7 @@ export type $OpenApiTs = {
         422: HTTPValidationError
       }
     }
-    get: {
+    post: {
       req: PublicIncomingWebhook1Data
       res: {
         /**

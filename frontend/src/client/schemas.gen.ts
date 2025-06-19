@@ -654,8 +654,21 @@ export const $ActionValidationResult = {
 export const $AgentOutput = {
   properties: {
     output: {
-      type: "string",
       title: "Output",
+    },
+    files: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "string",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Files",
     },
     message_history: {
       items: {
@@ -2501,7 +2514,7 @@ export const $EventFailure = {
   title: "EventFailure",
 } as const
 
-export const $EventGroup = {
+export const $EventGroup_TypeVar_ = {
   properties: {
     event_id: {
       type: "integer",
@@ -2637,7 +2650,7 @@ export const $EventGroup = {
     "udf_key",
     "action_input",
   ],
-  title: "EventGroup",
+  title: "EventGroup[TypeVar]",
 } as const
 
 export const $ExpectedField = {
@@ -7860,7 +7873,7 @@ export const $WorkflowExecutionEvent = {
     event_group: {
       anyOf: [
         {
-          $ref: "#/components/schemas/EventGroup",
+          $ref: "#/components/schemas/EventGroup_TypeVar_",
         },
         {
           type: "null",

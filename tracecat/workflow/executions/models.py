@@ -8,7 +8,6 @@ from typing import (
     Literal,
     NotRequired,
     TypedDict,
-    TypeVar,
     cast,
 )
 
@@ -141,17 +140,16 @@ def destructure_slugified_namespace(s: str, delimiter: str = "__") -> tuple[str,
     return (".".join(stem), leaf)
 
 
-EventInput = TypeVar(
-    "EventInput",
-    RunActionInput,
-    DSLRunArgs,
-    GetWorkflowDefinitionActivityInputs,
-    InteractionResult,
-    InteractionInput,
+EventInput = (
+    RunActionInput
+    | DSLRunArgs
+    | GetWorkflowDefinitionActivityInputs
+    | InteractionResult
+    | InteractionInput
 )
 
 
-class EventGroup[EventInput](BaseModel):
+class EventGroup[T: EventInput](BaseModel):
     event_id: int
     udf_namespace: str
     udf_name: str
@@ -160,7 +158,7 @@ class EventGroup[EventInput](BaseModel):
     action_ref: str | None = None
     action_title: str | None = None
     action_description: str | None = None
-    action_input: EventInput
+    action_input: T
     action_result: Any | None = None
     current_attempt: int | None = None
     retry_policy: ActionRetryPolicy = Field(default_factory=ActionRetryPolicy)
@@ -303,13 +301,13 @@ class EventFailure(BaseModel):
         )
 
 
-class WorkflowExecutionEvent[EventInput](BaseModel):
+class WorkflowExecutionEvent[T: EventInput](BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
     event_id: int
     event_time: datetime
     event_type: WorkflowEventType
     task_id: int
-    event_group: EventGroup[EventInput] | None = Field(
+    event_group: EventGroup[T] | None = Field(
         default=None,
         description="The action group of the event. We use this to keep track of what events are related to each other.",
     )
