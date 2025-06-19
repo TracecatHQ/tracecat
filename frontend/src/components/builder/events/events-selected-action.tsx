@@ -331,21 +331,53 @@ export function UserPromptPartComponent({
   )
 }
 
-export function RetryPromptPartComponent({ part }: { part: RetryPromptPart }) {
+export function RetryPromptPartComponent({
+  part,
+  defaultExpanded = false,
+}: {
+  part: RetryPromptPart
+  defaultExpanded?: boolean
+}) {
+  const [isExpanded, setIsExpanded] = React.useState(defaultExpanded)
+  const content = typeof part.content === "string"
+    ? part.content
+    : part.content.map((c) => c.msg).join(' ')
+
+  const TRUNCATE_LIMIT = 200
+  const shouldTruncate = content.length > TRUNCATE_LIMIT
+
+  // For collapsed view: normalize whitespace and truncate
+  const normalizedContent = content.replace(/\s+/g, ' ').trim()
+  const displayContent = isExpanded
+    ? (typeof part.content === "string"
+        ? part.content
+        : part.content.map((c) => {
+            return <span key={c.msg}>{c.msg}</span>
+          }))
+    : shouldTruncate
+      ? normalizedContent.substring(0, TRUNCATE_LIMIT) + "..."
+      : normalizedContent
+
   return (
-    <Card className="flex flex-col gap-2 rounded-lg border-[0.5px] bg-muted/40 p-2 text-xs shadow-sm">
-      <div className="flex items-center gap-1">
-        <RefreshCw className="size-3 text-muted-foreground" />
-        <span className="text-xs font-semibold text-foreground/80">
-          Retry prompt
-        </span>
+    <Card
+      className="cursor-pointer flex flex-col gap-2 rounded-lg border-[0.5px] bg-muted/40 p-2 text-xs leading-normal shadow-sm hover:bg-muted/50"
+      onClick={() => setIsExpanded(!isExpanded)}
+    >
+      <div className="flex items-center justify-between gap-1">
+        <div className="flex items-center gap-1">
+          <RefreshCw className="size-3 text-muted-foreground" />
+          <span className="text-xs font-semibold text-foreground/80">
+            Retry prompt
+          </span>
+        </div>
+        {shouldTruncate && (
+          <ChevronRightIcon
+            className={`size-4 transition-transform ${isExpanded ? "rotate-90" : ""}`}
+          />
+        )}
       </div>
-      <div className="whitespace-pre-wrap">
-        {typeof part.content === "string"
-          ? part.content
-          : part.content.map((c) => {
-              return <span key={c.msg}>{c.msg}</span>
-            })}
+      <div className={`${isExpanded ? 'whitespace-pre-wrap' : 'whitespace-nowrap overflow-hidden text-ellipsis'}`}>
+        {displayContent}
       </div>
     </Card>
   )
