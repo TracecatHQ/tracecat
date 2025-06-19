@@ -28,7 +28,6 @@ import {
   MessagesSquare,
   Plus,
   SaveIcon,
-  SettingsIcon,
   ShapesIcon,
   SplitIcon,
 } from "lucide-react"
@@ -582,6 +581,12 @@ function ActionPanelContent({
     [inputMode, methods, action?.inputs, rawInputsYaml]
   )
 
+  const ActionIcon = registryAction
+    ? actionTypeToLabel[registryAction.type].icon
+    : Database
+  const isInteractive = methods.watch("is_interactive")
+  const interactionType = methods.watch("interaction.type")
+
   if (actionIsLoading || registryActionIsLoading) {
     return <CenteredSpinner />
   }
@@ -611,10 +616,6 @@ function ActionPanelContent({
     ...(validationErrors || []),
   ].filter((e) => e.ref === slugify(action.title))
 
-  const ActionIcon = actionTypeToLabel[registryAction.type].icon
-  const isInteractive = methods.watch("is_interactive")
-  const interactionType = methods.watch("interaction.type")
-
   return (
     <div onBlur={onPanelBlur}>
       <Tabs
@@ -626,7 +627,7 @@ function ActionPanelContent({
         <FormProvider {...methods}>
           <form onSubmit={methods.handleSubmit(onSubmit)}>
             <div className="relative">
-              <h3 className="p-4 py-6">
+              <h3 className="p-4 pt-6">
                 <div className="flex w-full items-start space-x-4">
                   <div className="flex-col">
                     {getIcon(registryAction.action, {
@@ -636,28 +637,42 @@ function ActionPanelContent({
                   </div>
                   <div className="flex w-full flex-1 justify-between space-x-12">
                     <div className="flex flex-col">
-                      <div className="flex w-full items-center justify-between text-xs font-medium leading-none">
-                        <div className="flex w-full">{action.title}</div>
-                      </div>
-                      <p className="mt-2 text-xs text-muted-foreground">
-                        {action.description || (
-                          <span className="italic">No description</span>
+                      {/* Editable action name */}
+                      <FormField
+                        control={methods.control}
+                        name="title"
+                        render={({ field }) => (
+                          <FormItem className="w-full">
+                            <FormControl>
+                              <Input
+                                variant="flat"
+                                className="w-full h-auto px-0 py-0 border-none text-xs font-medium leading-none focus-visible:ring-0 focus-visible:border-input focus-visible:bg-background"
+                                placeholder="Name your action..."
+                                {...field}
+                              />
+                            </FormControl>
+                          </FormItem>
                         )}
-                      </p>
+                      />
+
+                      {/* Editable action description */}
+                      <FormField
+                        control={methods.control}
+                        name="description"
+                        render={({ field }) => (
+                          <FormItem className="mt-2 w-full">
+                            <FormControl>
+                              <Input
+                                variant="flat"
+                                className="w-full h-auto px-0 py-0 border-none text-xs leading-normal focus-visible:ring-0 placeholder:italic placeholder:text-muted-foreground"
+                                placeholder="No description"
+                                {...field}
+                              />
+                            </FormControl>
+                          </FormItem>
+                        )}
+                      />
                       <div className="mt-2 hover:cursor-default">
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <div className="mt-2 flex items-center text-xs text-muted-foreground">
-                              <ActionIcon className="mr-1 size-3 stroke-2" />
-                              <span>
-                                {actionTypeToLabel[registryAction.type].label}
-                              </span>
-                            </div>
-                          </TooltipTrigger>
-                          <TooltipContent side="left" sideOffset={10}>
-                            Action type
-                          </TooltipContent>
-                        </Tooltip>
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <div className="mt-2 flex items-center text-xs text-muted-foreground">
@@ -743,73 +758,6 @@ function ActionPanelContent({
                     defaultValue={["action-inputs"]}
                     className="pb-10"
                   >
-                    <AccordionItem value="action-settings">
-                      <AccordionTrigger className="px-4 text-xs font-bold">
-                        <div className="flex items-center">
-                          <SettingsIcon className="mr-3 size-4" />
-                          <span>General</span>
-                        </div>
-                      </AccordionTrigger>
-                      {/* General settings for the action */}
-                      <AccordionContent>
-                        <div className="my-4 space-y-2 px-4">
-                          <FormField
-                            control={methods.control}
-                            name="title"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel className="text-xs">Name</FormLabel>
-                                <FormControl>
-                                  <Input
-                                    className="text-xs"
-                                    placeholder="Name your action..."
-                                    {...field}
-                                  />
-                                </FormControl>
-                                <FormMessage className="whitespace-pre-line" />
-                              </FormItem>
-                            )}
-                          />
-                          <FormField
-                            control={methods.control}
-                            name="description"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel className="text-xs">
-                                  Description
-                                </FormLabel>
-                                <FormControl>
-                                  <Textarea
-                                    className="text-xs"
-                                    placeholder="Describe your action..."
-                                    {...field}
-                                  />
-                                </FormControl>
-                                <FormMessage className="whitespace-pre-line" />
-                              </FormItem>
-                            )}
-                          />
-                          <div className="space-y-2">
-                            <Label className="flex items-center gap-2 text-xs font-medium">
-                              <span>Action ID</span>
-                              <CopyButton
-                                value={action.id}
-                                toastMessage="Copied action ID to clipboard"
-                              />
-                            </Label>
-                            <div className="rounded-md border shadow-sm">
-                              <Input
-                                value={action.id}
-                                className="rounded-md border-none text-xs shadow-none"
-                                readOnly
-                                disabled
-                              />
-                            </div>
-                          </div>
-                        </div>
-                      </AccordionContent>
-                    </AccordionItem>
-
                     {/* Interaction */}
                     {appSettings?.app_interactions_enabled &&
                       PERMITTED_INTERACTION_ACTIONS.includes(
