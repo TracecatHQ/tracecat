@@ -1051,10 +1051,10 @@ class OAuthIntegration(SQLModel, TimestampMixin, table=True):
         default=None,
         description="OAuth scopes granted for this integration",
     )
-    meta: dict[str, Any] = Field(
+    provider_config: dict[str, Any] = Field(
         default_factory=dict,
         sa_column=Column(JSONB),
-        description="Additional metadata for the integration",
+        description="Provider-specific configuration for the integration",
     )
 
     # Relationships

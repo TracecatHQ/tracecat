@@ -14,6 +14,8 @@ from tracecat.integrations.models import (
     IntegrationOauthCallback,
     IntegrationRead,
     OauthState,
+    ProviderConfigResponse,
+    ProviderConfigUpdate,
 )
 from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
@@ -47,7 +49,7 @@ async def list_integrations(
             token_type=integration.token_type,
             expires_at=integration.expires_at,
             scope=integration.scope,
-            metadata={},
+            provider_config=integration.provider_config,
             created_at=integration.created_at,
             updated_at=integration.updated_at,
         )
@@ -58,7 +60,9 @@ async def list_integrations(
 # Generic OAuth flow endpoints
 @router.post("/{provider_id}/connect")
 async def connect_provider(
+    provider_id: str,
     role: WorkspaceUserRole,
+    session: AsyncDBSession,
     provider: BaseOauthProvider = Depends(get_provider),
 ) -> dict[str, str]:
     """Initiate OAuth integration for the specified provider."""
@@ -78,6 +82,7 @@ async def connect_provider(
 @router.get("/{provider_id}/callback")
 async def oauth_callback(
     *,
+    provider_id: str,
     session: AsyncDBSession,
     role: WorkspaceUserRole,
     code: str = Query(..., description="Authorization code from OAuth provider"),
@@ -140,6 +145,7 @@ async def oauth_callback(
 @router.delete("/{provider_id}")
 async def disconnect_provider(
     *,
+    provider_id: str,
     role: WorkspaceUserRole,
     session: AsyncDBSession,
     provider: BaseOauthProvider = Depends(get_provider),
@@ -167,8 +173,51 @@ async def disconnect_provider(
     return {"status": "disconnected", "provider": provider.id}
 
 
+@router.patch("/{provider_id}")
+async def update_provider_integration(
+    *,
+    role: WorkspaceUserRole,
+    session: AsyncDBSession,
+    provider_id: str,
+    config: ProviderConfigUpdate,
+) -> ProviderConfigResponse:
+    """Update OAuth client credentials for the specified provider integration."""
+    if role.workspace_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Workspace ID is required",
+        )
+
+    svc = IntegrationService(session, role=role)
+
+    # Store the provider configuration
+    integration = await svc.store_provider_config(
+        provider=provider_id,
+        client_id=config.client_id,
+        client_secret=config.client_secret,
+    )
+
+    logger.info(
+        "Provider configuration updated",
+        provider_id=provider_id,
+        workspace_id=role.workspace_id,
+    )
+
+    return ProviderConfigResponse(
+        provider_id=provider_id,
+        configured=True,
+        has_tokens=bool(
+            integration.encrypted_access_token
+            and integration.encrypted_access_token != b""
+        ),
+        created_at=integration.created_at,
+        updated_at=integration.updated_at,
+    )
+
+
 @router.get("/{provider_id}/status")
 async def get_provider_status(
+    provider_id: str,
     role: WorkspaceUserRole,
     session: AsyncDBSession,
     provider: BaseOauthProvider = Depends(get_provider),
@@ -188,12 +237,26 @@ async def get_provider_status(
         provider=provider.id,
     )
 
+    # Check if provider is configured at workspace level
+    is_configured = bool(
+        integration
+        and integration.use_workspace_credentials
+        and integration.encrypted_client_id
+        and integration.encrypted_client_secret
+    )
+
     if not integration:
-        return {"connected": False, "expires_at": None, "provider": provider}
+        return {
+            "connected": False,
+            "configured": is_configured,
+            "expires_at": None,
+            "provider": provider.id,
+        }
 
     return {
         "connected": True,
-        "provider": provider,
+        "configured": is_configured,
+        "provider": provider.id,
         "expires_at": integration.expires_at,
         "is_expired": integration.is_expired,
         "needs_refresh": integration.needs_refresh,

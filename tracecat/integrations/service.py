@@ -64,7 +64,7 @@ class IntegrationService(BaseWorkspaceService):
         refresh_token: str | None = None,
         expires_in: int | None = None,
         scope: str | None = None,
-        metadata: dict[str, Any] | None = None,
+        provider_config: dict[str, Any] | None = None,
     ) -> OAuthIntegration:
         """Store or update a user's integration."""
         # Calculate expiration time if expires_in is provided
@@ -83,9 +83,9 @@ class IntegrationService(BaseWorkspaceService):
             )
             existing.expires_at = expires_at
             existing.scope = scope
-            if metadata:
-                # Update the metadata field
-                existing.meta = metadata
+            if provider_config:
+                # Update the provider_config field
+                existing.provider_config = provider_config
 
             self.session.add(existing)
             await self.session.commit()
@@ -109,7 +109,7 @@ class IntegrationService(BaseWorkspaceService):
                 else None,
                 expires_at=expires_at,
                 scope=scope,
-                meta=metadata or {},
+                provider_config=provider_config or {},
             )
 
             self.session.add(integration)
@@ -244,7 +244,7 @@ class IntegrationService(BaseWorkspaceService):
                 use_workspace_credentials=True,
                 # These will be populated during OAuth flow
                 encrypted_access_token=b"",  # Placeholder, will be updated
-                meta={},
+                provider_config={},
             )
 
             self.session.add(integration)
