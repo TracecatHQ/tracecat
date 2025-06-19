@@ -28,10 +28,10 @@ class CustomOAuthProvider(BaseOauthProvider):
         # Get endpoints from environment
         env_prefix = self._provider_id.upper().replace("-", "_")
 
-        self._authorization_endpoint = os.getenv(f"{env_prefix}_AUTHORIZATION_ENDPOINT")
-        self._token_endpoint = os.getenv(f"{env_prefix}_TOKEN_ENDPOINT")
+        authorization_endpoint = os.getenv(f"{env_prefix}_AUTHORIZATION_ENDPOINT")
+        token_endpoint = os.getenv(f"{env_prefix}_TOKEN_ENDPOINT")
 
-        if not self._authorization_endpoint or not self._token_endpoint:
+        if not authorization_endpoint or not token_endpoint:
             raise ValueError(
                 f"Custom OAuth provider '{self._provider_id}' endpoints not configured. "
                 f"Set {env_prefix}_AUTHORIZATION_ENDPOINT and {env_prefix}_TOKEN_ENDPOINT environment variables."
@@ -44,8 +44,8 @@ class CustomOAuthProvider(BaseOauthProvider):
             (CustomOAuthProvider,),
             {
                 "id": self._provider_id,
-                "authorization_endpoint": self._authorization_endpoint,
-                "token_endpoint": self._token_endpoint,
+                "authorization_endpoint": authorization_endpoint,
+                "token_endpoint": token_endpoint,
             },
         )
 

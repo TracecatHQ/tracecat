@@ -1,10 +1,10 @@
 """Base OAuth provider using authlib for standardized OAuth2 flows."""
 
-import os
 from typing import Any, ClassVar, cast
 
 from authlib.integrations.httpx_client import AsyncOAuth2Client
 from dotenv import load_dotenv
+from pydantic import BaseModel
 
 from tracecat import config
 from tracecat.integrations.models import TokenResponse
@@ -19,8 +19,8 @@ class BaseOauthProvider:
     id: ClassVar[str]
 
     # OAuth2 endpoints - to be overridden by subclasses
-    authorization_endpoint: ClassVar[str | None] = None
-    token_endpoint: ClassVar[str | None] = None
+    _authorization_endpoint: ClassVar[str]
+    _token_endpoint: ClassVar[str]
 
     # Default scopes - to be overridden by subclasses
     default_scopes: ClassVar[list[str]] = []
@@ -28,6 +28,9 @@ class BaseOauthProvider:
     # OAuth2 configuration
     response_type: ClassVar[str] = "code"
     grant_type: ClassVar[str] = "authorization_code"
+
+    # Provider specific configuration schema
+    config_model: ClassVar[type[BaseModel] | None] = None
 
     @property
     def base_url(self) -> str:
@@ -38,35 +41,52 @@ class BaseOauthProvider:
         """The redirect URI for the OAuth provider."""
         return f"{self.base_url}/callback"
 
-    def __init__(self, client_id: str | None = None, client_secret: str | None = None):
+    @property
+    def authorization_endpoint(self) -> str:
+        return self._authorization_endpoint
+
+    @property
+    def token_endpoint(self) -> str:
+        return self._token_endpoint
+
+    def __init__(
+        self,
+        client_id: str | None = None,
+        client_secret: str | None = None,
+        scopes: list[str] | None = None,
+        **kwargs,
+    ):
         """Initialize the OAuth provider.
 
         Args:
             client_id: Optional client ID to use instead of environment variable
             client_secret: Optional client secret to use instead of environment variable
         """
-        # Get environment prefix for this provider
-        env_prefix = self.id.upper().replace("-", "_")
+        # # Get environment prefix for this provider
+        # env_prefix = self.id.upper().replace("-", "_")
 
-        # Use provided credentials or fallback to environment variables
-        if client_id and client_secret:
-            self.client_id = client_id
-            self.client_secret = client_secret
-        else:
-            # Get client credentials from environment
-            self.client_id = os.getenv(f"{env_prefix}_CLIENT_ID")
-            self.client_secret = os.getenv(f"{env_prefix}_CLIENT_SECRET")
+        # # Use provided credentials or fallback to environment variables
+        # if client_id and client_secret:
+        #     self.client_id = client_id
+        #     self.client_secret = client_secret
+        # else:
+        #     # Get client credentials from environment
+        #     self.client_id = os.getenv(f"{env_prefix}_CLIENT_ID")
+        #     self.client_secret = os.getenv(f"{env_prefix}_CLIENT_SECRET")
 
-            if not self.client_id or not self.client_secret:
-                raise ValueError(
-                    f"{self.id} OAuth credentials not configured. "
-                    f"Either provide client_id/client_secret parameters or set "
-                    f"{env_prefix}_CLIENT_ID and {env_prefix}_CLIENT_SECRET environment variables."
-                )
+        #     if not self.client_id or not self.client_secret:
+        #         raise ValueError(
+        #             f"{self.id} OAuth credentials not configured. "
+        #             f"Either provide client_id/client_secret parameters or set "
+        #             f"{env_prefix}_CLIENT_ID and {env_prefix}_CLIENT_SECRET environment variables."
+        #         )
 
         # Get custom scopes from environment or use defaults
-        env_scopes = os.getenv(f"{env_prefix}_SCOPES")
-        self.scopes = env_scopes.split(",") if env_scopes else self.default_scopes
+        # env_scopes = os.getenv(f"{env_prefix}_SCOPES")
+        # self.scopes = env_scopes.split(",") if env_scopes else self.default_scopes
+        self.client_id = client_id
+        self.client_secret = client_secret
+        self.scopes = scopes or self.default_scopes
 
         # Validate required endpoints
         if not self.authorization_endpoint or not self.token_endpoint:
