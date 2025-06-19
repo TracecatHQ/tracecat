@@ -11,6 +11,7 @@ from tracecat.auth.credentials import RoleACL
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.editor.models import EditorActionRead, EditorFunctionRead, EditorParamRead
 from tracecat.expressions.functions import FUNCTION_MAPPING
+from tracecat.expressions.parser.core import _clean_lark_error_message
 from tracecat.expressions.parser.grammar import grammar
 from tracecat.identifiers.workflow import AnyWorkflowIDQuery
 from tracecat.registry.fields import EditorComponent
@@ -255,33 +256,12 @@ async def validate_expression(
         )
 
     except LarkError as e:
-        # Parse the error to extract line and column information
-        error_msg = str(e)
-        line = 1
-        column = 1
-
-        # Try to extract position information from error message
-        try:
-            # Some Lark errors include position info in the message
-            pos_match = re.search(r"at line (\d+), column (\d+)", error_msg)
-            if pos_match:
-                line = int(pos_match.group(1))
-                column = int(pos_match.group(2))
-        except Exception:
-            # Fallback to default position
-            pass
-
-        # Clean up error message for user display
-        if "Unexpected token" in error_msg:
-            error_msg = "Unexpected token in expression"
-        elif "Expected" in error_msg:
-            error_msg = "Invalid syntax in expression"
-        else:
-            error_msg = "Syntax error in expression"
+        # Use the shared error cleaning function
+        cleaned_msg, line, column = _clean_lark_error_message(str(e))
 
         return ExpressionValidationResponse(
             is_valid=False,
-            errors=[ValidationError(message=error_msg, line=line, column=column)],
+            errors=[ValidationError(message=cleaned_msg, line=line, column=column)],
             tokens=[],
         )
 

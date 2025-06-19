@@ -4,7 +4,7 @@
  * Expression Input - A single-line input that looks like shadcn/ui Input but has
  * template expression pill functionality backed by CodeMirror
  */
-import React, { useCallback, useMemo } from "react"
+import React, { useCallback, useMemo, useRef } from "react"
 import { ActionRead } from "@/client"
 import { useWorkflow } from "@/providers/workflow"
 import { useWorkspace } from "@/providers/workspace"
@@ -34,7 +34,150 @@ import {
   templatePillTheme,
 } from "@/components/editor/codemirror/common"
 
-// Single-line expression linter
+// Enhanced expression linter that uses backend validation
+function createExpressionLinter(workspaceId?: string) {
+  // Cache for validation results to avoid repeated API calls
+  const validationCache = new Map<string, { result: Diagnostic[]; timestamp: number }>()
+  const pendingRequests = new Map<string, Promise<Diagnostic[]>>()
+  
+  return async (view: EditorView): Promise<Diagnostic[]> => {
+    const diagnostics: Diagnostic[] = []
+    const content = view.state.doc.toString()
+
+    if (!content.trim()) {
+      return diagnostics
+    }
+
+    // Check for basic syntax issues in template expressions
+    const regex = createTemplateRegex()
+    let match: RegExpExecArray | null
+
+    while ((match = regex.exec(content)) !== null) {
+      const innerContent = match[1].trim()
+      const start = match.index
+      const end = start + match[0].length
+
+      // Skip empty expressions
+      if (innerContent === "") {
+        diagnostics.push({
+          from: start,
+          to: end,
+          severity: "error",
+          message: "Expression cannot be empty",
+          source: "expression",
+        })
+        continue
+      }
+
+      // Check cache first (with 5 minute expiry)
+      const cached = validationCache.get(innerContent)
+      if (cached && Date.now() - cached.timestamp < 5 * 60 * 1000) {
+        // Adjust positions for cached results
+        cached.result.forEach(diag => {
+          diagnostics.push({
+            ...diag,
+            from: start + diag.from,
+            to: start + diag.to,
+          })
+        })
+        continue
+      }
+
+      // Check if we already have a pending request for this expression
+      let validationPromise = pendingRequests.get(innerContent)
+      
+      if (!validationPromise) {
+        validationPromise = validateExpressionWithBackend(innerContent, workspaceId)
+        pendingRequests.set(innerContent, validationPromise)
+      }
+
+      try {
+        const validationResult = await validationPromise
+        
+        // Cache the result
+        validationCache.set(innerContent, {
+          result: validationResult,
+          timestamp: Date.now()
+        })
+        
+        // Remove from pending requests
+        pendingRequests.delete(innerContent)
+        
+        // Adjust positions and add to diagnostics
+        validationResult.forEach(diag => {
+          diagnostics.push({
+            ...diag,
+            from: start + diag.from,
+            to: start + diag.to,
+          })
+        })
+      } catch (error) {
+        // Remove from pending requests on error
+        pendingRequests.delete(innerContent)
+        
+        // Fallback to basic validation on API error
+        if (
+          innerContent.includes("..") ||
+          innerContent.endsWith(".") ||
+          innerContent.includes("undefined")
+        ) {
+          diagnostics.push({
+            from: start,
+            to: end,
+            severity: "error",
+            message: "Invalid expression syntax",
+            source: "expression",
+          })
+        }
+      }
+    }
+
+    return diagnostics
+  }
+}
+
+// Function to validate expression with backend API
+async function validateExpressionWithBackend(
+  expression: string, 
+  workspaceId?: string
+): Promise<Diagnostic[]> {
+  if (!workspaceId) {
+    return []
+  }
+
+  try {
+    const response = await fetch(`/api/v1/editor/expressions/validate`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ expression })
+    })
+
+    if (!response.ok) {
+      throw new Error(`Validation API error: ${response.status}`)
+    }
+
+    const data = await response.json()
+    
+    if (!data.is_valid && data.errors?.length > 0) {
+      return data.errors.map((error: any) => ({
+        from: 0,
+        to: expression.length,
+        severity: "error" as const,
+        message: error.message || "Expression validation error",
+        source: "expression",
+      }))
+    }
+    
+    return []
+  } catch (error) {
+    console.warn('Expression validation API failed:', error)
+    return []
+  }
+}
+
+// Legacy synchronous linter for fallback
 function expressionLinter(view: EditorView): Diagnostic[] {
   const diagnostics: Diagnostic[] = []
   const content = view.state.doc.toString()
@@ -152,8 +295,8 @@ export function ExpressionInput({
       EditorState.allowMultipleSelections.of(true),
       indentUnit.of("  "),
 
-      // Linting
-      linter(expressionLinter),
+      // Linting - use enhanced linter with backend validation
+      linter(createExpressionLinter(workspaceId), { delay: 300 }),
 
       // Features
       bracketMatching(),
@@ -229,15 +372,22 @@ export function ExpressionInput({
           color: "hsl(var(--muted-foreground))",
           fontStyle: "normal",
         },
-        // Error styling
+        // Enhanced error styling for better visibility
         ".cm-diagnostic-error": {
           borderBottom: "2px wavy hsl(var(--destructive))",
+          backgroundColor: "hsl(var(--destructive) / 0.1)",
         },
         ".cm-lint-marker-error": {
           backgroundColor: "hsl(var(--destructive))",
           borderRadius: "50%",
           width: "0.6em",
           height: "0.6em",
+        },
+        ".cm-tooltip.cm-tooltip-lint": {
+          backgroundColor: "hsl(var(--popover))",
+          border: "1px solid hsl(var(--border))",
+          borderRadius: "6px",
+          fontSize: "12px",
         },
         ".cm-line": {
           padding: "0px",

@@ -933,6 +933,58 @@ def test_parser_error():
     assert evaluator.evaluate(parse_tree) is None
 
 
+@pytest.mark.parametrize(
+    "invalid_expr,expected_error_pattern",
+    [
+        # Test invalid characters
+        ("ACTIONS.test<", "Unexpected character '<' in expression"),
+        ("ACTIONS.test>", "Unexpected character '>' in expression"),
+        ("ACTIONS.test&", "Unexpected character '&' in expression"),
+        # Test incomplete expressions
+        ("ACTIONS.test(", "Expression is incomplete - missing closing brackets or quotes"),
+        ("ACTIONS.test[", "Expression is incomplete - missing closing brackets or quotes"),
+        ("'unclosed string", "Expression is incomplete - missing closing brackets or quotes"),
+        # Test other syntax errors
+        ("ACTIONS..invalid", "Invalid character in expression"),
+        ("invalid syntax here", "Invalid expression syntax"),
+    ],
+)
+def test_user_friendly_parser_errors(invalid_expr, expected_error_pattern):
+    """Test that parser errors are converted to user-friendly messages."""
+    parser = ExprParser()
+    
+    with pytest.raises(TracecatExpressionError) as exc_info:
+        parser.parse(invalid_expr)
+    
+    error_message = str(exc_info.value)
+    # Check that the error message is user-friendly (no raw Lark error details)
+    assert expected_error_pattern in error_message
+    assert "No terminal matches" not in error_message  # Should not contain raw Lark error
+    assert "UnexpectedCharacters" not in error_message  # Should not contain exception type
+    
+    # Check that detail contains useful debugging info
+    assert exc_info.value.detail is not None
+    assert "original_error" in exc_info.value.detail
+    assert "expression" in exc_info.value.detail
+
+
+def test_html_entity_decoding_in_error_messages():
+    """Test that HTML entities in error messages are properly decoded."""
+    from tracecat.expressions.parser.core import _clean_lark_error_message
+    
+    # Test common HTML entities
+    test_cases = [
+        ("No terminal matches '&lt;' in the current parser context", "Unexpected character '<' in expression"),
+        ("No terminal matches '&gt;' in the current parser context", "Unexpected character '>' in expression"),
+        ("No terminal matches '&amp;' in the current parser context", "Unexpected character '&' in expression"),
+        ("No terminal matches '&quot;' in the current parser context", "Unexpected character '\"' in expression"),
+    ]
+    
+    for lark_error, expected_clean_msg in test_cases:
+        clean_msg, line, column = _clean_lark_error_message(lark_error)
+        assert clean_msg == expected_clean_msg
+
+
 def assert_validation_result(
     res: ExprValidationResult,
     *,
