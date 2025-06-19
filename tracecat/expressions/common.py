@@ -451,14 +451,6 @@ def build_safe_lambda(lambda_expr: str) -> Callable[[Any], Any]:
     if len(lambda_expr) > MAX_EXPR_LENGTH:
         raise ValueError(f"Expression too long (max {MAX_EXPR_LENGTH} characters)")
 
-    # Check if the string has any blacklisted symbols
-    lambda_expr = lambda_expr.strip()
-    if any(
-        word in lambda_expr
-        for word in SafeEvaluator.RESTRICTED_SYMBOLS - SafeEvaluator.ALLOWED_FUNCTIONS
-    ):
-        raise ValueError("Expression contains restricted symbols")
-
     # Check for common obfuscation patterns
     dangerous_patterns = [
         "__",  # Double underscore (dunder) methods
