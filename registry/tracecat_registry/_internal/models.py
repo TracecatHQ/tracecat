@@ -1,4 +1,4 @@
-from typing import Annotated
+from typing import Annotated, Self
 
 from pydantic import BaseModel, StringConstraints, model_validator
 
@@ -24,10 +24,14 @@ class RegistrySecret(BaseModel):
 
     @model_validator(mode="after")
     def validate_keys(cls, v):
-        if v.keys is None and v.optional_keys is None:
-            raise ValueError(
-                "At least one of 'keys' or 'optional_keys' must be specified"
-            )
+        if isinstance(v.name, str) and v.name.endswith("_oauth"):
+            if v.keys is not None or v.optional_keys is not None:
+                raise ValueError("OAuth secrets cannot have keys or optional_keys")
+        else:
+            if v.keys is None and v.optional_keys is None:
+                raise ValueError(
+                    "At least one of 'keys' or 'optional_keys' must be specified"
+                )
         return v
 
     def __hash__(self) -> int:
@@ -40,3 +44,23 @@ class RegistrySecret(BaseModel):
                 self.optional,
             )
         )
+
+    @property
+    def is_oauth(self) -> bool:
+        return self.name.endswith("_oauth")
+
+    @property
+    def provider_id(self) -> str:
+        return self.name.replace("_oauth", "")
+
+    @classmethod
+    def oauth(cls, provider_id: str) -> Self:
+        """Create an OAuth secret for the specified provider.
+
+        Args:
+            provider_id: The identifier for the OAuth provider (e.g., 'microsoft_graph').
+
+        Returns:
+            A new RegistrySecret instance configured for OAuth authentication.
+        """
+        return cls(name=f"{provider_id}_oauth")
