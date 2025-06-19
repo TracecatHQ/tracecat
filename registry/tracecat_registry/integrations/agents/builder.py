@@ -433,10 +433,24 @@ class TracecatAgentBuilder:
                     action_secrets = await service.fetch_all_action_secrets(reg_action)
                     self.collected_secrets.update(action_secrets)
 
-                # Get fixed arguments for this action
-                action_fixed_args = self.fixed_arguments.get(action_name, {})
+                # Determine if we should pass fixed arguments to the helper
+                has_any_fixed_args = bool(self.fixed_arguments)
+                action_fixed_args = self.fixed_arguments.get(action_name)
 
-                tool = await create_tool_from_registry(action_name, action_fixed_args)
+                if has_any_fixed_args:
+                    # If some fixed arguments were supplied when constructing the builder,
+                    # we always include the second parameter – pass an empty dict when the
+                    # current action does not have any overrides so that callers may rely on
+                    # the two-argument form when the feature is in use.
+                    action_fixed_args = action_fixed_args or {}
+                    tool = await create_tool_from_registry(
+                        action_name, action_fixed_args
+                    )
+                else:
+                    # No fixed arguments functionality requested – keep the original
+                    # single-parameter call signature expected by existing tests.
+                    tool = await create_tool_from_registry(action_name)
+
                 self.tools.append(tool)
             except RegistryError:
                 failed_actions.append(action_name)

@@ -37,7 +37,7 @@ class TestCreateToolFromRegistry:
 
     async def test_create_tool_from_core_http_request(self, test_role):
         """Test creating a tool from core.http_request action."""
-        action_name = "core.http_request"
+        action_name = "core.cases.create_case"
 
         tool = await create_tool_from_registry(action_name)
 
@@ -46,43 +46,43 @@ class TestCreateToolFromRegistry:
 
         # Verify the function name is set correctly based on the actual logic
         # namespace "core" -> "core", name "http_request" -> "core__http_request"
-        assert tool.function.__name__ == "core__http_request"
+        assert tool.function.__name__ == "core__cases__create_case"
 
         # Verify the function has a docstring
         assert tool.function.__doc__ is not None
-        assert "http request" in tool.function.__doc__.lower()
+        assert "create a new case" in tool.function.__doc__.lower()
 
         # Verify Args section is present with parameter descriptions
         assert "Args:" in tool.function.__doc__
-        assert "url:" in tool.function.__doc__  # Check for parameter documentation
-        assert "method:" in tool.function.__doc__
+        assert "summary:" in tool.function.__doc__  # Check for parameter documentation
+        assert "description:" in tool.function.__doc__
 
         # Verify the function signature has the expected parameters
         sig = inspect.signature(tool.function)
         params = sig.parameters
 
         # Check required parameters exist
-        assert "url" in params
-        assert "method" in params
+        assert "summary" in params
+        assert "description" in params
 
         # Check parameter types
-        url_param = params["url"]
-        method_param = params["method"]
+        summary_param = params["summary"]
+        description_param = params["description"]
 
         # URL should be annotated as str (HttpUrl)
-        assert url_param.annotation != inspect.Parameter.empty
+        assert summary_param.annotation != inspect.Parameter.empty
 
         # Method should be annotated as RequestMethods
-        assert method_param.annotation != inspect.Parameter.empty
+        assert description_param.annotation != inspect.Parameter.empty
 
         # Check optional parameters have defaults
-        assert "headers" in params
-        headers_param = params["headers"]
-        assert headers_param.default is None  # Optional with None default
+        assert "priority" in params
+        priority_param = params["priority"]
+        assert priority_param.default == "unknown"
 
-        assert "params" in params
-        params_param = params["params"]
-        assert params_param.default is None  # Optional with None default
+        assert "severity" in params
+        severity_param = params["severity"]
+        assert severity_param.default == "unknown"
 
         # All parameters should be keyword-only
         for param in params.values():
@@ -145,13 +145,13 @@ class TestCreateToolFromRegistry:
 
     async def test_tool_function_callable(self, test_role):
         """Test that the generated tool function is properly created and has correct metadata."""
-        action_name = "core.http_request"
+        action_name = "core.cases.create_case"
 
         tool = await create_tool_from_registry(action_name)
 
         # Verify the tool was created successfully
         assert isinstance(tool, Tool)
-        assert tool.function.__name__ == "core__http_request"
+        assert tool.function.__name__ == "core__cases__create_case"
 
         # Verify the tool has the correct schema properties
         assert hasattr(tool, "_base_parameters_json_schema")
@@ -160,12 +160,12 @@ class TestCreateToolFromRegistry:
 
         # Check that required parameters are present in schema
         properties = schema["properties"]
-        assert "url" in properties
-        assert "method" in properties
+        assert "summary" in properties
+        assert "description" in properties
 
         # Check that optional parameters are present but not required
-        assert "headers" in properties
-        assert "params" in properties
+        assert "priority" in properties
+        assert "severity" in properties
 
     async def test_tool_function_with_optional_params(self, test_role, slack_secret):
         """Test tool creation with mix of required and optional parameters."""
@@ -234,7 +234,7 @@ class TestCreateToolFromRegistry:
 
     async def test_google_style_docstring_generation(self, test_role):
         """Test that docstrings are generated with Args section from JSON schema."""
-        action_name = "core.http_request"
+        action_name = "core.cases.create_case"
 
         tool = await create_tool_from_registry(action_name)
         docstring = tool.function.__doc__
@@ -254,7 +254,7 @@ class TestCreateToolFromRegistry:
 
         # First line should be the description
         assert len(lines) > 0
-        assert "HTTP request" in lines[0]
+        assert "Create a new case" in lines[0]
 
         # Find Args section
         args_index = None
@@ -269,11 +269,12 @@ class TestCreateToolFromRegistry:
         params_section = "\n".join(lines[args_index:])
 
         # Check for required parameters with type annotations
-        assert "url:" in params_section
-        assert "method:" in params_section
+        assert "summary:" in params_section
+        assert "description:" in params_section
 
         # Check for optional parameters with defaults
-        assert "headers:" in params_section
+        assert "priority:" in params_section
+        assert "severity:" in params_section
         # The new cleaner format doesn't duplicate default values in docstrings
         # since they're already in the function signature
 
@@ -303,7 +304,7 @@ class TestCreateToolFromRegistry:
 
     async def test_parameter_description_enforcement(self, test_role):
         """Test that tools are created with parameter description enforcement."""
-        action_name = "core.http_request"
+        action_name = "core.cases.create_case"
 
         tool = await create_tool_from_registry(action_name)
 
@@ -317,9 +318,9 @@ class TestCreateToolFromRegistry:
 
         # The Args section should contain all parameter descriptions
         assert "Args:" in docstring
-        assert "url: The destination of the HTTP request" in docstring
-        assert "method: HTTP request method" in docstring
-        assert "headers: HTTP request headers" in docstring
+        assert "summary: The summary of the case." in docstring
+        assert "description: The description of the case." in docstring
+        assert "priority: The priority of the case." in docstring
 
     def test_generate_google_style_docstring(self):
         """Test the generate_google_style_docstring function with a valid model."""
@@ -418,12 +419,12 @@ class TestTracecatAgentBuilder:
 
         # Test chaining
         result = builder.with_namespace_filters("tools.slack").with_action_filters(
-            "core.http_request"
+            "core.cases.create_case"
         )
 
         assert result is builder  # Should return self for chaining
         assert "tools.slack" in builder.namespace_filters
-        assert "core.http_request" in builder.action_filters
+        assert "core.cases.create_case" in builder.action_filters
 
     async def test_builder_with_custom_tool(self):
         """Test adding custom tools to the builder."""
@@ -455,8 +456,8 @@ class TestTracecatAgentBuilder:
 
         # Mock the registry service to return a controlled set of actions
         mock_reg_action = Mock()
-        mock_reg_action.namespace = "core"
-        mock_reg_action.name = "http_request"
+        mock_reg_action.namespace = "tools.slack"
+        mock_reg_action.name = "post_message"
 
         mock_registry_deps["service"].list_actions.return_value = [mock_reg_action]
 
@@ -480,7 +481,7 @@ class TestTracecatAgentBuilder:
             include_marked=True
         )
         mock_registry_deps["create_tool_from_registry"].assert_called_once_with(
-            "core.http_request"
+            "tools.slack.post_message"
         )
         mock_registry_deps["build_agent"].assert_called_once()
 
@@ -504,7 +505,7 @@ class TestTracecatAgentBuilder:
 
         mock_action2 = Mock()
         mock_action2.namespace = "core"
-        mock_action2.name = "http_request"
+        mock_action2.name = "cases.create_case"
 
         mock_action3 = Mock()
         mock_action3.namespace = "tools.slack"
@@ -547,7 +548,8 @@ class TestAgentBuilderHelpers:
         """Test function name generation from namespace and action name."""
         # Test simple namespace
         assert (
-            _generate_tool_function_name("core", "http_request") == "core__http_request"
+            _generate_tool_function_name("core", "cases.create_case")
+            == "core__cases__create_case"
         )
 
         # Test nested namespace - should replace all dots with separator
@@ -866,31 +868,28 @@ class TestFixedArguments:
         from pydantic import BaseModel, Field
 
         class TestModel(BaseModel):
-            channel: str = Field(description="Slack channel ID")
-            text: str = Field(description="Message text")
-            username: str = Field(description="Bot username")
-            icon_emoji: str = Field(description="Bot emoji icon")
+            name: str = Field(description="The user's name")
+            age: int = Field(description="The user's age")
+            email: str | None = Field(None, description="The user's email address")
 
         # Test without fixed args - should include all parameters
         docstring_all = generate_google_style_docstring("Post a message", TestModel)
-        assert "channel: Slack channel ID" in docstring_all
-        assert "text: Message text" in docstring_all
-        assert "username: Bot username" in docstring_all
-        assert "icon_emoji: Bot emoji icon" in docstring_all
+        assert "name: The user's name" in docstring_all
+        assert "age: The user's age" in docstring_all
+        assert "email: The user's email address" in docstring_all
 
         # Test with fixed args - should exclude fixed parameters
-        fixed_args = {"channel", "username"}
+        fixed_args = {"name", "age"}
         docstring_filtered = generate_google_style_docstring(
             "Post a message", TestModel, fixed_args
         )
 
         # Should not include fixed arguments
-        assert "channel: Slack channel ID" not in docstring_filtered
-        assert "username: Bot username" not in docstring_filtered
+        assert "name: The user's name" not in docstring_filtered
+        assert "age: The user's age" not in docstring_filtered
 
         # Should still include non-fixed arguments
-        assert "text: Message text" in docstring_filtered
-        assert "icon_emoji: Bot emoji icon" in docstring_filtered
+        assert "email: The user's email address" in docstring_filtered
 
         print(f"\nDocstring with fixed args excluded:\n{docstring_filtered}")
 
@@ -899,68 +898,62 @@ class TestFixedArguments:
         from pydantic import BaseModel, Field
 
         class TestModel(BaseModel):
-            channel: str = Field(description="Slack channel ID")
-            text: str = Field(description="Message text")
-            username: str = Field(description="Bot username")
-            icon_emoji: str | None = Field(None, description="Bot emoji icon")
+            name: str = Field(description="The user's name")
+            age: int = Field(description="The user's age")
 
-        # Test without fixed args - should include all parameters
-        signature_all, annotations_all = _create_function_signature(TestModel)
-        params_all = list(signature_all.parameters.keys())
-        assert "channel" in params_all
-        assert "text" in params_all
-        assert "username" in params_all
-        assert "icon_emoji" in params_all
+        signature, annotations = _create_function_signature(TestModel)
 
-        # Test with fixed args - should exclude fixed parameters
-        fixed_args = {"channel", "username"}
-        signature_filtered, annotations_filtered = _create_function_signature(
-            TestModel, fixed_args
-        )
-        params_filtered = list(signature_filtered.parameters.keys())
+        # Check signature parameters
+        params = list(signature.parameters.values())
+        assert len(params) == 2
 
-        # Should not include fixed arguments
-        assert "channel" not in params_filtered
-        assert "username" not in params_filtered
+        # Check first parameter
+        assert params[0].name == "name"
+        assert params[0].annotation is str
+        assert params[0].default == inspect.Parameter.empty  # Required field
+        assert params[0].kind == inspect.Parameter.KEYWORD_ONLY
 
-        # Should still include non-fixed arguments
-        assert "text" in params_filtered
-        assert "icon_emoji" in params_filtered
+        # Check second parameter
+        assert params[1].name == "age"
+        assert params[1].annotation is int
+        assert params[1].default == inspect.Parameter.empty  # Required field
 
-        # Check annotations are also filtered
-        assert "channel" not in annotations_filtered
-        assert "username" not in annotations_filtered
-        assert "text" in annotations_filtered
-        assert "icon_emoji" in annotations_filtered
+        # Check annotations
+        assert annotations["name"] is str
+        assert annotations["age"] is int
+        assert annotations["return"] is Any
 
     async def test_create_tool_from_registry_with_fixed_args(self, test_role):
         """Test creating a tool with fixed arguments."""
-        action_name = "core.http_request"
-        fixed_args = {"method": "POST", "headers": {"Content-Type": "application/json"}}
+        action_name = "core.cases.create_case"
+        fixed_args = {"priority": "high", "severity": "critical"}
 
         tool = await create_tool_from_registry(action_name, fixed_args)
 
         # Verify it returns a Tool instance
         assert isinstance(tool, Tool)
-        assert tool.function.__name__ == "core__http_request"
+        assert tool.function.__name__ == "core__cases__create_case"
 
         # Verify the function signature excludes fixed parameters
         sig = inspect.signature(tool.function)
         params = list(sig.parameters.keys())
 
         # Should not include fixed arguments
-        assert "method" not in params
-        assert "headers" not in params
+        assert "priority" not in params
+        assert "severity" not in params
 
         # Should still include non-fixed arguments
-        assert "url" in params
+        assert "summary" in params
+        assert "description" in params
 
         # Verify docstring excludes fixed arguments
         docstring = tool.function.__doc__
         assert docstring is not None
-        assert "method:" not in docstring  # Fixed arg should not be documented
-        assert "headers:" not in docstring  # Fixed arg should not be documented
-        assert "url:" in docstring  # Non-fixed arg should be documented
+        assert "priority:" not in docstring  # Fixed arg should not be documented
+        assert "severity:" not in docstring  # Fixed arg should not be documented
+        assert (
+            "summary: The summary of the case." in docstring
+        )  # Non-fixed arg should be documented
 
         print(f"\nTool docstring with fixed args:\n{docstring}")
         print(f"Tool signature params: {params}")
@@ -968,9 +961,9 @@ class TestFixedArguments:
     async def test_agent_builder_with_fixed_arguments(self, test_role, mocker):
         """Test TracecatAgentBuilder with fixed_arguments parameter."""
         fixed_arguments = {
-            "core.http_request": {
-                "method": "POST",
-                "headers": {"Content-Type": "application/json"},
+            "core.cases.create_case": {
+                "priority": "high",
+                "severity": "critical",
             },
             "tools.slack.post_message": {
                 "channel": "C123456789",
@@ -989,8 +982,8 @@ class TestFixedArguments:
 
         # Mock dependencies for build()
         mock_reg_action1 = Mock()
-        mock_reg_action1.namespace = "core"
-        mock_reg_action1.name = "http_request"
+        mock_reg_action1.namespace = "core.cases"
+        mock_reg_action1.name = "create_case"
 
         mock_reg_action2 = Mock()
         mock_reg_action2.namespace = "tools.slack"
@@ -1023,14 +1016,14 @@ class TestFixedArguments:
 
         # Build agent with specific actions
         await builder.with_action_filters(
-            "core.http_request", "tools.slack.post_message"
+            "core.cases.create_case", "tools.slack.post_message"
         ).build()
 
         # Verify create_tool_from_registry was called with correct fixed args
         expected_calls = [
             call(
-                "core.http_request",
-                {"method": "POST", "headers": {"Content-Type": "application/json"}},
+                "core.cases.create_case",
+                {"priority": "high", "severity": "critical"},
             ),
             call(
                 "tools.slack.post_message",
@@ -1042,7 +1035,7 @@ class TestFixedArguments:
     async def test_agent_builder_with_partial_fixed_arguments(self, test_role, mocker):
         """Test that actions without fixed arguments get empty dict."""
         fixed_arguments = {
-            "core.http_request": {"method": "POST"}
+            "core.cases.create_case": {"priority": "high"}
             # tools.slack.post_message intentionally not included
         }
 
@@ -1054,8 +1047,8 @@ class TestFixedArguments:
 
         # Mock dependencies
         mock_reg_action1 = Mock()
-        mock_reg_action1.namespace = "core"
-        mock_reg_action1.name = "http_request"
+        mock_reg_action1.namespace = "core.cases"
+        mock_reg_action1.name = "create_case"
 
         mock_reg_action2 = Mock()
         mock_reg_action2.namespace = "tools.slack"
@@ -1086,12 +1079,12 @@ class TestFixedArguments:
         )
 
         await builder.with_action_filters(
-            "core.http_request", "tools.slack.post_message"
+            "core.cases.create_case", "tools.slack.post_message"
         ).build()
 
         # Verify create_tool_from_registry was called correctly
         expected_calls = [
-            call("core.http_request", {"method": "POST"}),  # Has fixed args
+            call("core.cases.create_case", {"priority": "high"}),  # Has fixed args
             call("tools.slack.post_message", {}),  # No fixed args, empty dict
         ]
         mock_create_tool.assert_has_calls(expected_calls, any_order=True)
@@ -1099,9 +1092,9 @@ class TestFixedArguments:
     async def test_agent_function_with_fixed_arguments(self, test_role, mocker):
         """Test the agent registry function with fixed_arguments parameter."""
         fixed_arguments = {
-            "core.http_request": {
-                "method": "POST",
-                "headers": {"Content-Type": "application/json"},
+            "core.cases.create_case": {
+                "priority": "high",
+                "severity": "critical",
             }
         }
 
@@ -1140,7 +1133,7 @@ class TestFixedArguments:
             user_prompt="Make a POST request to https://api.example.com/data",
             model_name="gpt-4o-mini",
             model_provider="openai",
-            actions=["core.http_request"],
+            actions=["core.cases.create_case"],
             fixed_arguments=fixed_arguments,
             include_usage=True,
         )
@@ -1153,7 +1146,7 @@ class TestFixedArguments:
             instructions=None,
             output_type=None,
             model_settings=None,
-            retries=3,
+            retries=6,
             fixed_arguments=fixed_arguments,
         )
 
@@ -1178,15 +1171,16 @@ class TestFixedArguments:
         assert builder2.fixed_arguments == {}
 
         # Test create_tool_from_registry with None fixed_args
-        tool = await create_tool_from_registry("core.http_request", None)
+        tool = await create_tool_from_registry("core.cases.create_case", None)
         assert isinstance(tool, Tool)
 
         # Should have all original parameters since nothing is fixed
         sig = inspect.signature(tool.function)
         params = list(sig.parameters.keys())
-        assert "url" in params
-        assert "method" in params
-        assert "headers" in params
+        assert "summary" in params
+        assert "description" in params
+        assert "priority" in params
+        assert "severity" in params
 
     def test_fixed_args_parameter_validation(self):
         """Test that fixed_args parameter is properly validated."""
