@@ -3254,9 +3254,9 @@ export const $IntegrationRead = {
       ],
       title: "Scope",
     },
-    metadata: {
+    provider_config: {
       type: "object",
-      title: "Metadata",
+      title: "Provider Config",
     },
     created_at: {
       type: "string",
@@ -3277,12 +3277,43 @@ export const $IntegrationRead = {
     "token_type",
     "expires_at",
     "scope",
-    "metadata",
+    "provider_config",
     "created_at",
     "updated_at",
   ],
   title: "IntegrationRead",
   description: "Response model for user integration.",
+} as const
+
+export const $IntegrationUpdate = {
+  properties: {
+    provider_id: {
+      type: "string",
+      title: "Provider Id",
+      description: "The provider identifier",
+    },
+    client_id: {
+      type: "string",
+      minLength: 1,
+      title: "Client Id",
+      description: "OAuth client ID for the provider",
+    },
+    client_secret: {
+      type: "string",
+      minLength: 1,
+      title: "Client Secret",
+      description: "OAuth client secret for the provider",
+    },
+    config: {
+      type: "object",
+      title: "Config",
+      description: "Provider-specific configuration",
+    },
+  },
+  type: "object",
+  required: ["provider_id", "client_id", "client_secret", "config"],
+  title: "IntegrationUpdate",
+  description: "Request model for updating an integration.",
 } as const
 
 export const $InteractionCategory = {

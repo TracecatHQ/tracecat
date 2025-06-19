@@ -984,11 +984,35 @@ export type IntegrationRead = {
   token_type: string
   expires_at: string | null
   scope: string | null
-  metadata: {
+  provider_config: {
     [key: string]: unknown
   }
   created_at: string
   updated_at: string
+}
+
+/**
+ * Request model for updating an integration.
+ */
+export type IntegrationUpdate = {
+  /**
+   * The provider identifier
+   */
+  provider_id: string
+  /**
+   * OAuth client ID for the provider
+   */
+  client_id: string
+  /**
+   * OAuth client secret for the provider
+   */
+  client_secret: string
+  /**
+   * Provider-specific configuration
+   */
+  config: {
+    [key: string]: unknown
+  }
 }
 
 export type InteractionCategory = "slack"
@@ -3848,21 +3872,29 @@ export type IntegrationsOauthCallbackData = {
 
 export type IntegrationsOauthCallbackResponse = IntegrationOauthCallback
 
-export type IntegrationsDisconnectProviderData = {
+export type IntegrationsDisconnectIntegrationData = {
   providerId: string
   workspaceId: string
 }
 
-export type IntegrationsDisconnectProviderResponse = {
+export type IntegrationsDisconnectIntegrationResponse = {
   [key: string]: string
 }
 
-export type IntegrationsGetProviderStatusData = {
+export type IntegrationsUpdateIntegrationData = {
+  providerId: string
+  requestBody: IntegrationUpdate
+  workspaceId: string
+}
+
+export type IntegrationsUpdateIntegrationResponse = void
+
+export type IntegrationsGetIntegrationStatusData = {
   providerId: string
   workspaceId: string
 }
 
-export type IntegrationsGetProviderStatusResponse = {
+export type IntegrationsGetIntegrationStatusResponse = {
   [key: string]: unknown
 }
 
@@ -5824,7 +5856,7 @@ export type $OpenApiTs = {
   }
   "/integrations/{provider_id}": {
     delete: {
-      req: IntegrationsDisconnectProviderData
+      req: IntegrationsDisconnectIntegrationData
       res: {
         /**
          * Successful Response
@@ -5838,10 +5870,23 @@ export type $OpenApiTs = {
         422: HTTPValidationError
       }
     }
+    patch: {
+      req: IntegrationsUpdateIntegrationData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
   }
   "/integrations/{provider_id}/status": {
     get: {
-      req: IntegrationsGetProviderStatusData
+      req: IntegrationsGetIntegrationStatusData
       res: {
         /**
          * Successful Response
