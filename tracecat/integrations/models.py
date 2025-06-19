@@ -35,16 +35,27 @@ class IntegrationRead(BaseModel):
         return datetime.now(UTC) >= self.expires_at
 
 
-class IntegrationCreate(BaseModel):
-    """Request model for creating a user integration."""
+class IntegrationUpdate(BaseModel):
+    """Request model for updating an integration."""
 
-    provider_id: str
-    access_token: str
-    refresh_token: str | None = None
-    token_type: str = "Bearer"
-    expires_in: int | None = None  # seconds from now
-    scope: str | None = None
-    provider_config: dict[str, Any] = {}
+    provider_id: str = Field(
+        ...,
+        description="The provider identifier",
+    )
+    client_id: str = Field(
+        ...,
+        description="OAuth client ID for the provider",
+        min_length=1,
+    )
+    client_secret: str = Field(
+        ...,
+        description="OAuth client secret for the provider",
+        min_length=1,
+    )
+    config: dict[str, Any] = Field(
+        ...,
+        description="Provider-specific configuration",
+    )
 
 
 class IntegrationOauthCallback(BaseModel):
@@ -91,47 +102,3 @@ class OauthState(BaseModel):
             user_id=uuid.UUID(user_id),
             state=uuid.UUID(state),
         )
-
-
-class ProviderConfigUpdate[T: BaseModel](BaseModel):
-    """Request model for updating provider configuration."""
-
-    client_id: str = Field(
-        ...,
-        description="OAuth client ID for the provider",
-        min_length=1,
-    )
-    client_secret: str = Field(
-        ...,
-        description="OAuth client secret for the provider",
-        min_length=1,
-    )
-    config: T = Field(
-        ...,
-        description="Provider-specific configuration",
-    )
-
-
-class ProviderConfigResponse(BaseModel):
-    """Response model for provider configuration status."""
-
-    provider_id: str = Field(
-        ...,
-        description="The provider identifier",
-    )
-    configured: bool = Field(
-        ...,
-        description="Whether the provider has been configured with client credentials",
-    )
-    has_tokens: bool = Field(
-        ...,
-        description="Whether the provider has active OAuth tokens",
-    )
-    created_at: datetime | None = Field(
-        default=None,
-        description="When the configuration was created",
-    )
-    updated_at: datetime | None = Field(
-        default=None,
-        description="When the configuration was last updated",
-    )

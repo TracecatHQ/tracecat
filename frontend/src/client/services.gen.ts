@@ -87,14 +87,16 @@ import type {
   FoldersUpdateFolderResponse,
   IntegrationsConnectProviderData,
   IntegrationsConnectProviderResponse,
-  IntegrationsDisconnectProviderData,
-  IntegrationsDisconnectProviderResponse,
-  IntegrationsGetProviderStatusData,
-  IntegrationsGetProviderStatusResponse,
+  IntegrationsDisconnectIntegrationData,
+  IntegrationsDisconnectIntegrationResponse,
+  IntegrationsGetIntegrationStatusData,
+  IntegrationsGetIntegrationStatusResponse,
   IntegrationsListIntegrationsData,
   IntegrationsListIntegrationsResponse,
   IntegrationsOauthCallbackData,
   IntegrationsOauthCallbackResponse,
+  IntegrationsUpdateIntegrationData,
+  IntegrationsUpdateIntegrationResponse,
   OrganizationDeleteOrgMemberData,
   OrganizationDeleteOrgMemberResponse,
   OrganizationDeleteSessionData,
@@ -3809,7 +3811,7 @@ export const integrationsOauthCallback = (
 }
 
 /**
- * Disconnect Provider
+ * Disconnect Integration
  * Disconnect integration for the specified provider.
  * @param data The data for the request.
  * @param data.providerId
@@ -3817,9 +3819,9 @@ export const integrationsOauthCallback = (
  * @returns string Successful Response
  * @throws ApiError
  */
-export const integrationsDisconnectProvider = (
-  data: IntegrationsDisconnectProviderData
-): CancelablePromise<IntegrationsDisconnectProviderResponse> => {
+export const integrationsDisconnectIntegration = (
+  data: IntegrationsDisconnectIntegrationData
+): CancelablePromise<IntegrationsDisconnectIntegrationResponse> => {
   return __request(OpenAPI, {
     method: "DELETE",
     url: "/integrations/{provider_id}",
@@ -3836,7 +3838,37 @@ export const integrationsDisconnectProvider = (
 }
 
 /**
- * Get Provider Status
+ * Update Integration
+ * Update OAuth client credentials for the specified provider integration.
+ * @param data The data for the request.
+ * @param data.providerId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const integrationsUpdateIntegration = (
+  data: IntegrationsUpdateIntegrationData
+): CancelablePromise<IntegrationsUpdateIntegrationResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/integrations/{provider_id}",
+    path: {
+      provider_id: data.providerId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Integration Status
  * Get integration status for the specified provider.
  * @param data The data for the request.
  * @param data.providerId
@@ -3844,9 +3876,9 @@ export const integrationsDisconnectProvider = (
  * @returns unknown Successful Response
  * @throws ApiError
  */
-export const integrationsGetProviderStatus = (
-  data: IntegrationsGetProviderStatusData
-): CancelablePromise<IntegrationsGetProviderStatusResponse> => {
+export const integrationsGetIntegrationStatus = (
+  data: IntegrationsGetIntegrationStatusData
+): CancelablePromise<IntegrationsGetIntegrationStatusResponse> => {
   return __request(OpenAPI, {
     method: "GET",
     url: "/integrations/{provider_id}/status",
