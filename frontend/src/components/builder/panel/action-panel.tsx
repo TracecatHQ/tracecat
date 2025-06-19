@@ -669,7 +669,11 @@ function ActionPanelContent({
                                   />
                                 </FormControl>
                               </TooltipTrigger>
-                              <TooltipContent side="left" sideOffset={10} className="max-w-xs break-words text-xs">
+                              <TooltipContent
+                                side="left"
+                                sideOffset={10}
+                                className="max-w-xs break-words text-xs"
+                              >
                                 {field.value || "No description"}
                               </TooltipContent>
                             </Tooltip>

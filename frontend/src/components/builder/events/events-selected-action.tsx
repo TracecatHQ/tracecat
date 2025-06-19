@@ -27,16 +27,16 @@ import { BlockNoteView } from "@blocknote/shadcn"
 import {
   ChevronRightIcon,
   CircleDot,
+  FileIcon,
+  FilePlusIcon,
+  FilterIcon,
+  FunctionSquareIcon,
+  ListIcon,
   LoaderIcon,
   MessageCircle,
   RefreshCw,
-  Undo2Icon,
-  FileIcon,
-  FilePlusIcon,
   SearchIcon,
-  ListIcon,
-  FilterIcon,
-  FunctionSquareIcon,
+  Undo2Icon,
 } from "lucide-react"
 
 import { SYSTEM_USER } from "@/lib/auth"
@@ -264,15 +264,16 @@ export function SystemPromptPartComponent({
   defaultExpanded?: boolean
 }) {
   const [isExpanded, setIsExpanded] = React.useState(defaultExpanded)
-  const content = typeof part.content === "string"
-    ? part.content
-    : JSON.stringify(part.content, null, 2)
+  const content =
+    typeof part.content === "string"
+      ? part.content
+      : JSON.stringify(part.content, null, 2)
 
   const TRUNCATE_LIMIT = 200
   const shouldTruncate = content.length > TRUNCATE_LIMIT
 
   // For collapsed view: normalize whitespace and truncate
-  const normalizedContent = content.replace(/\s+/g, ' ').trim()
+  const normalizedContent = content.replace(/\s+/g, " ").trim()
   const displayContent = isExpanded
     ? content
     : shouldTruncate
@@ -286,7 +287,9 @@ export function SystemPromptPartComponent({
     >
       <div className="flex items-start gap-2">
         <CaseUserAvatar user={SYSTEM_USER} size="sm" />
-        <div className={`flex-1 overflow-x-auto break-words ${isExpanded ? 'whitespace-pre-wrap' : 'whitespace-nowrap'}`}>
+        <div
+          className={`flex-1 overflow-x-auto break-words ${isExpanded ? "whitespace-pre-wrap" : "whitespace-nowrap"}`}
+        >
           {displayContent}
         </div>
         {shouldTruncate && (
@@ -308,15 +311,16 @@ export function UserPromptPartComponent({
 }) {
   const { user } = useAuth()
   const [isExpanded, setIsExpanded] = React.useState(defaultExpanded)
-  const content = typeof part.content === "string"
-    ? part.content
-    : JSON.stringify(part.content, null, 2)
+  const content =
+    typeof part.content === "string"
+      ? part.content
+      : JSON.stringify(part.content, null, 2)
 
   const TRUNCATE_LIMIT = 200
   const shouldTruncate = content.length > TRUNCATE_LIMIT
 
   // For collapsed view: normalize whitespace and truncate
-  const normalizedContent = content.replace(/\s+/g, ' ').trim()
+  const normalizedContent = content.replace(/\s+/g, " ").trim()
   const displayContent = isExpanded
     ? content
     : shouldTruncate
@@ -344,7 +348,9 @@ export function UserPromptPartComponent({
             />
           )}
         </div>
-        <div className={`overflow-x-auto break-words ${isExpanded ? 'whitespace-pre-wrap' : 'whitespace-nowrap'}`}>
+        <div
+          className={`overflow-x-auto break-words ${isExpanded ? "whitespace-pre-wrap" : "whitespace-nowrap"}`}
+        >
           {displayContent}
         </div>
       </div>
@@ -360,21 +366,22 @@ export function RetryPromptPartComponent({
   defaultExpanded?: boolean
 }) {
   const [isExpanded, setIsExpanded] = React.useState(defaultExpanded)
-  const content = typeof part.content === "string"
-    ? part.content
-    : part.content.map((c) => c.msg).join(' ')
+  const content =
+    typeof part.content === "string"
+      ? part.content
+      : part.content.map((c) => c.msg).join(" ")
 
   const TRUNCATE_LIMIT = 200
   const shouldTruncate = content.length > TRUNCATE_LIMIT
 
   // For collapsed view: normalize whitespace and truncate
-  const normalizedContent = content.replace(/\s+/g, ' ').trim()
+  const normalizedContent = content.replace(/\s+/g, " ").trim()
   const displayContent = isExpanded
-    ? (typeof part.content === "string"
-        ? part.content
-        : part.content.map((c) => {
-            return <span key={c.msg}>{c.msg}</span>
-          }))
+    ? typeof part.content === "string"
+      ? part.content
+      : part.content.map((c) => {
+          return <span key={c.msg}>{c.msg}</span>
+        })
     : shouldTruncate
       ? normalizedContent.substring(0, TRUNCATE_LIMIT) + "..."
       : normalizedContent
@@ -397,7 +404,7 @@ export function RetryPromptPartComponent({
           />
         )}
       </div>
-      <div className={`${isExpanded ? 'whitespace-pre-wrap' : 'truncate'}`}>
+      <div className={`${isExpanded ? "whitespace-pre-wrap" : "truncate"}`}>
         {displayContent}
       </div>
     </Card>
@@ -409,6 +416,12 @@ export function ToolReturnPartComponent({ part }: { part: ToolReturnPart }) {
 
   const toolName = part.tool_name
   const isDefaultTool = DEFAULT_TOOL_NAMES.has(toolName)
+
+  // Always resolve action type so hooks are called consistently
+  const actionType = reconstructActionType(toolName)
+  // Call hook unconditionally; it will be disabled internally when actionType is undefined
+  const { registryAction, registryActionIsLoading, registryActionError } =
+    useGetRegistryAction(isDefaultTool ? undefined : actionType)
 
   // Case 1 – default agent tool
   if (isDefaultTool) {
@@ -425,7 +438,9 @@ export function ToolReturnPartComponent({ part }: { part: ToolReturnPart }) {
               isExpanded && "border-b-[0.5px]"
             )}
           >
-            <div className="rounded-sm border-[0.5px] p-[3px]">{iconElement}</div>
+            <div className="rounded-sm border-[0.5px] p-[3px]">
+              {iconElement}
+            </div>
             <span className="text-xs font-semibold text-foreground/80">
               {toolName}
             </span>
@@ -448,12 +463,9 @@ export function ToolReturnPartComponent({ part }: { part: ToolReturnPart }) {
   }
 
   // Case 2 – registry action
-  const actionType = reconstructActionType(toolName)
-  const { registryAction, registryActionIsLoading, registryActionError } =
-    useGetRegistryAction(actionType)
-
-  if (registryActionIsLoading) return <Skeleton className="h-16 w-full" />
-
+  if (registryActionIsLoading) {
+    return <Skeleton className="h-16 w-full" />
+  }
   if (registryAction && !registryActionError) {
     return (
       <div className="flex flex-col gap-2">
@@ -573,7 +585,7 @@ export function TextPartComponent({
         contentToLoad = text.content
       } else {
         // For collapsed view: normalize whitespace and truncate
-        const normalizedContent = text.content.replace(/\s+/g, ' ').trim()
+        const normalizedContent = text.content.replace(/\s+/g, " ").trim()
         contentToLoad = shouldTruncate
           ? normalizedContent.substring(0, TRUNCATE_LIMIT) + "..."
           : normalizedContent
@@ -591,7 +603,9 @@ export function TextPartComponent({
       <div className="flex items-center justify-between gap-1">
         <div className="flex items-center gap-1">
           <MessageCircle className="size-4" />
-          <span className="text-xs font-semibold text-foreground/80">Agent</span>
+          <span className="text-xs font-semibold text-foreground/80">
+            Agent
+          </span>
         </div>
         {shouldTruncate && (
           <ChevronRightIcon
@@ -630,10 +644,17 @@ export function ToolCallPartComponent({
   const toolName = toolCall.tool_name
   const isDefaultTool = DEFAULT_TOOL_NAMES.has(toolName)
 
+  // Always resolve action type so hooks are called consistently
+  const actionType = reconstructActionType(toolName)
+  const { registryAction, registryActionIsLoading, registryActionError } =
+    useGetRegistryAction(isDefaultTool ? undefined : actionType)
+
   let args
   try {
     args =
-      typeof toolCall.args === "string" ? JSON.parse(toolCall.args) : toolCall.args
+      typeof toolCall.args === "string"
+        ? JSON.parse(toolCall.args)
+        : toolCall.args
   } catch {
     args = toolCall.args
   }
@@ -664,7 +685,9 @@ export function ToolCallPartComponent({
                     {key}
                   </td>
                   <td className="px-2 py-1 text-left align-top text-foreground/90">
-                    {typeof value === "string" ? value : JSON.stringify(value, null, 2)}
+                    {typeof value === "string"
+                      ? value
+                      : JSON.stringify(value, null, 2)}
                   </td>
                 </tr>
               ))}
@@ -676,10 +699,6 @@ export function ToolCallPartComponent({
   }
 
   // Case 2 – registry action
-  const actionType = reconstructActionType(toolName)
-  const { registryAction, registryActionIsLoading, registryActionError } =
-    useGetRegistryAction(actionType)
-
   if (registryActionIsLoading) {
     return (
       <Card className="rounded-md border-[0.5px] bg-muted/20 p-2 text-xs shadow-sm">
@@ -696,7 +715,6 @@ export function ToolCallPartComponent({
       </Card>
     )
   }
-
   if (registryAction && !registryActionError) {
     return (
       <Card
@@ -732,7 +750,9 @@ export function ToolCallPartComponent({
                     {key}
                   </td>
                   <td className="px-2 py-1 text-left align-top text-foreground/90">
-                    {typeof value === "string" ? value : JSON.stringify(value, null, 2)}
+                    {typeof value === "string"
+                      ? value
+                      : JSON.stringify(value, null, 2)}
                   </td>
                 </tr>
               ))}
