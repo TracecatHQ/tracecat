@@ -635,8 +635,8 @@ function ActionPanelContent({
                       flairsize: "md",
                     })}
                   </div>
-                  <div className="flex w-full flex-1 justify-between space-x-12">
-                    <div className="flex flex-col">
+                  <div className="flex w-full flex-1 space-x-4">
+                    <div className="flex flex-col flex-1">
                       {/* Editable action name */}
                       <FormField
                         control={methods.control}
@@ -655,20 +655,27 @@ function ActionPanelContent({
                         )}
                       />
 
-                      {/* Editable action description */}
+                      {/* Editable action description with tooltip */}
                       <FormField
                         control={methods.control}
                         name="description"
                         render={({ field }) => (
                           <FormItem className="mt-2 w-full">
-                            <FormControl>
-                              <Input
-                                variant="flat"
-                                className="w-full h-auto px-0 py-0 border-none text-xs leading-normal focus-visible:ring-0 placeholder:italic placeholder:text-muted-foreground"
-                                placeholder="No description"
-                                {...field}
-                              />
-                            </FormControl>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <FormControl>
+                                  <Input
+                                    variant="flat"
+                                    className="w-full max-w-[36rem] h-auto px-0 py-0 border-none bg-transparent text-xs leading-normal placeholder:italic placeholder:text-muted-foreground focus-visible:ring-0 focus-visible:border-input focus-visible:bg-background whitespace-nowrap overflow-x-auto"
+                                    placeholder="No description"
+                                    {...field}
+                                  />
+                                </FormControl>
+                              </TooltipTrigger>
+                              <TooltipContent side="left" sideOffset={10} className="max-w-xs break-words text-xs">
+                                {field.value || "No description"}
+                              </TooltipContent>
+                            </Tooltip>
                           </FormItem>
                         )}
                       />
