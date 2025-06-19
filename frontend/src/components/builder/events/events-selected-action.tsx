@@ -622,7 +622,7 @@ export function TextPartComponent({
         style={{
           height: "100%",
           width: "100%",
-          whiteSpace: "nowrap",
+          whiteSpace: isExpanded ? "pre-wrap" : "nowrap",
           overflow: "hidden",
           textOverflow: "ellipsis",
           lineHeight: "1.5",
