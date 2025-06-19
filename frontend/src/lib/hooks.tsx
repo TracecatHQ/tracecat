@@ -49,6 +49,7 @@ import {
   integrationsDisconnectProvider,
   integrationsGetProviderStatus,
   integrationsListIntegrations,
+  integrationsUpdateProviderIntegration,
   type OAuthSettingsRead,
   type OrganizationDeleteOrgMemberData,
   type OrganizationDeleteSessionData,
@@ -181,6 +182,7 @@ import {
   workspacesCreateWorkspace,
   workspacesDeleteWorkspace,
   workspacesListWorkspaces,
+  type ProviderConfigurationUpdate,
 } from "@/client"
 import { toast } from "@/components/ui/use-toast"
 
@@ -3172,6 +3174,38 @@ export function useIntegrations(workspaceId: string) {
     },
   })
 
+  // Configure provider credentials
+  const {
+    mutateAsync: configureProvider,
+    isPending: configureProviderIsPending,
+    error: configureProviderError,
+  } = useMutation({
+    mutationFn: async (data: {
+      providerId: string
+      config: ProviderConfigurationUpdate
+    }) =>
+      await integrationsUpdateProviderIntegration({
+        providerId: data.providerId,
+        workspaceId,
+        requestBody: data.config,
+      }),
+    onSuccess: (result, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["integrations"] })
+      toast({
+        title: "Provider configured",
+        description: `Successfully configured ${variables.providerId} credentials`,
+      })
+    },
+    onError: (error: TracecatApiError, variables) => {
+      console.error("Failed to configure provider:", error)
+      toast({
+        title: "Failed to configure",
+        description: `Could not configure ${variables.providerId}: ${error.body?.detail || error.message}`,
+        variant: "destructive",
+      })
+    },
+  })
+
   // Get provider status
   const getProviderStatus = async (providerId: string) => {
     try {
@@ -3195,6 +3229,10 @@ export function useIntegrations(workspaceId: string) {
     disconnectProvider,
     disconnectProviderIsPending,
     disconnectProviderError,
+    // Configure
+    configureProvider,
+    configureProviderIsPending,
+    configureProviderError,
     // Status
     getProviderStatus,
   }
