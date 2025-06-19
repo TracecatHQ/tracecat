@@ -193,3 +193,132 @@ class IntegrationService(BaseWorkspaceService):
     def _decrypt_token(self, encrypted_token: bytes) -> str:
         """Decrypt a token using the service's encryption key."""
         return decrypt_value(encrypted_token, key=self._encryption_key).decode("utf-8")
+
+    def _encrypt_client_credential(self, credential: str) -> bytes:
+        """Encrypt a client credential using the service's encryption key."""
+        return encrypt_value(credential.encode("utf-8"), key=self._encryption_key)
+
+    def _decrypt_client_credential(self, encrypted_credential: bytes) -> str:
+        """Decrypt a client credential using the service's encryption key."""
+        return decrypt_value(encrypted_credential, key=self._encryption_key).decode(
+            "utf-8"
+        )
+
+    async def store_provider_config(
+        self,
+        *,
+        provider: str,
+        client_id: str,
+        client_secret: str,
+    ) -> OAuthIntegration:
+        """Store or update provider configuration (client credentials) for a workspace."""
+        # Check if integration configuration already exists for this provider
+        existing = await self.get_integration(provider=provider)
+
+        if existing:
+            # Update existing integration with client credentials
+            existing.encrypted_client_id = self._encrypt_client_credential(client_id)
+            existing.encrypted_client_secret = self._encrypt_client_credential(
+                client_secret
+            )
+            existing.use_workspace_credentials = True
+
+            self.session.add(existing)
+            await self.session.commit()
+            await self.session.refresh(existing)
+
+            self.logger.info(
+                "Updated provider configuration",
+                provider=provider,
+                workspace_id=self.workspace_id,
+            )
+            return existing
+        else:
+            # Create new integration record with just client credentials
+            # Access tokens will be added later during OAuth flow
+            integration = OAuthIntegration(
+                owner_id=self.workspace_id,
+                provider_id=provider,
+                encrypted_client_id=self._encrypt_client_credential(client_id),
+                encrypted_client_secret=self._encrypt_client_credential(client_secret),
+                use_workspace_credentials=True,
+                # These will be populated during OAuth flow
+                encrypted_access_token=b"",  # Placeholder, will be updated
+                meta={},
+            )
+
+            self.session.add(integration)
+            await self.session.commit()
+            await self.session.refresh(integration)
+
+            self.logger.info(
+                "Created provider configuration",
+                provider=provider,
+                workspace_id=self.workspace_id,
+            )
+            return integration
+
+    async def get_provider_config(self, *, provider: str) -> tuple[str, str] | None:
+        """Get decrypted client credentials for a provider."""
+        integration = await self.get_integration(provider=provider)
+
+        if not integration or not integration.use_workspace_credentials:
+            return None
+
+        if (
+            not integration.encrypted_client_id
+            or not integration.encrypted_client_secret
+        ):
+            return None
+
+        try:
+            client_id = self._decrypt_client_credential(integration.encrypted_client_id)
+            client_secret = self._decrypt_client_credential(
+                integration.encrypted_client_secret
+            )
+            return client_id, client_secret
+        except Exception as e:
+            self.logger.error(
+                "Failed to decrypt client credentials",
+                provider=provider,
+                workspace_id=self.workspace_id,
+                error=str(e),
+            )
+            return None
+
+    async def remove_provider_config(self, *, provider: str) -> bool:
+        """Remove provider configuration (client credentials) for a workspace."""
+        integration = await self.get_integration(provider=provider)
+
+        if not integration:
+            return False
+
+        # If integration has tokens, just clear client credentials
+        if (
+            integration.encrypted_access_token
+            and integration.encrypted_access_token != b""
+        ):
+            integration.encrypted_client_id = None
+            integration.encrypted_client_secret = None
+            integration.use_workspace_credentials = False
+
+            self.session.add(integration)
+            await self.session.commit()
+
+            self.logger.info(
+                "Removed provider configuration, kept tokens",
+                provider=provider,
+                workspace_id=self.workspace_id,
+            )
+        else:
+            # No tokens, remove entire integration record
+            await self.session.delete(integration)
+            await self.session.commit()
+
+            self.logger.info(
+                "Removed provider configuration completely",
+                provider=provider,
+                workspace_id=self.workspace_id,
+            )
+
+        return True
