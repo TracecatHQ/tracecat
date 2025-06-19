@@ -1,0 +1,108 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tracecat-worker
+  namespace: {{ .Release.Namespace }}
+{{- if .Values.worker.deployment.annotations }}
+  annotations:
+    {{- range $key, $value := .Values.worker.deployment.annotations }}
+    {{ $key }}: {{ $value | quote }}
+    {{- end }}
+{{- end }}
+  labels:
+    app: tracecat
+    chart: "{{ template "chart.fullname" . }}"
+    release: "{{ .Release.Name }}"
+    heritage: "{{ .Release.Service }}"
+    app.kubernetes.io/component: worker
+    app.kubernetes.io/name: "{{ .Chart.Name }}"
+    app.kubernetes.io/version: {{ template "chart.version" . }}
+{{- if .Values.worker.deployment.labels }}
+    {{- range $key, $value := .Values.worker.deployment.labels }}
+    {{ $key }}: {{ $value | quote }}
+    {{- end }}
+{{- end }}
+spec:
+  replicas: {{ .Values.worker.replicaCount }}
+  strategy:
+    type: {{ .Values.worker.strategyType }}
+  selector:
+    matchLabels:
+      app: tracecat
+      app.kubernetes.io/component: worker
+  template:
+    metadata:
+{{- if .Values.worker.pods.annotations }}
+      annotations:
+        {{- range $key, $value := .Values.worker.pods.annotations }}
+        {{ $key }}: {{ $value | quote }}
+        {{- end }}
+{{- end }}
+      labels:
+        app: tracecat
+        app.kubernetes.io/component: worker
+        app.kubernetes.io/name: "{{ .Chart.Name }}"
+        app.kubernetes.io/version: {{ template "chart.version" . }}
+{{- if .Values.worker.pods.labels }}
+        {{- range $key, $value := .Values.worker.pods.labels}}
+        {{ $key }}: {{ $value | quote }}
+        {{- end }}
+{{- end }}
+    spec:
+      containers:
+        - name: "tracecat-worker"
+          image: "{{ include "tracecat.image" .Values.worker }}"
+          imagePullPolicy: "{{ ((.Values.worker.image).pullPolicy) | default "Always" }}"
+          command: ["python", "tracecat/dsl/worker.py"]
+{{- if .Values.worker.resources }}
+          resources:
+{{ toYaml .Values.worker.resources | indent 10 }}
+{{- end }}
+          env:
+            - name: LOG_LEVEL
+              value: "{{ .Values.global.log_level }}"
+            - name: TRACECAT__API_ROOT_PATH
+              value: "{{ .Values.api.root_path }}"
+            - name: TRACECAT__API_URL
+              value: "{{ template "tracecat.url.internal_api_url" . }}"
+            - name: TRACECAT__APP_ENV
+              value: "{{ .Values.global.app_env }}"
+            - name: TRACECAT__DB_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: "{{ .Values.global.secretName }}"
+                  key: databaseEncryptionKey
+            - name: TRACECAT__DB_SSLMODE
+              value: "{{ .Values.database.db_sslmode }}"
+            - name: TRACECAT__DB_URI
+              valueFrom:
+                secretKeyRef:
+                  name: "{{ .Values.global.secretName }}"
+                  key: databaseUri
+            - name: TRACECAT__EXECUTOR_URL
+              value: "http://{{ template "tracecat.services.executor" . }}"
+            - name: TRACECAT__PUBLIC_API_URL
+              value: "{{ template "tracecat.url.public_api_url" . }}"
+            - name: TRACECAT__SERVICE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: "{{ .Values.global.secretName }}"
+                  key: serviceKey
+            - name: TRACECAT__SIGNING_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: "{{ .Values.global.secretName }}"
+                  key: signingSecret
+            # Temporal
+            - name: TEMPORAL__CLUSTER_URL
+              value: "{{ template "tracecat.services.temporal" . }}"
+            - name: TEMPORAL__CLUSTER_QUEUE
+              value: "{{ .Values.temporal.cluster_queue }}"
+            - name: TEMPORAL__CLUSTER_NAMESPACE
+              value: "{{ .Values.temporal.cluster_namespace }}"
+            # Sentry
+            - name: SENTRY_DSN
+              value: ""
+          ports:
+            - containerPort: 8001
+            - containerPort: 9000
