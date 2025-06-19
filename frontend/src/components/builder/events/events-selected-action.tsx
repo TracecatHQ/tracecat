@@ -31,6 +31,12 @@ import {
   MessageCircle,
   RefreshCw,
   Undo2Icon,
+  FileIcon,
+  FilePlusIcon,
+  SearchIcon,
+  ListIcon,
+  FilterIcon,
+  FunctionSquareIcon,
 } from "lucide-react"
 
 import { SYSTEM_USER } from "@/lib/auth"
@@ -69,6 +75,21 @@ import { AlertNotification } from "@/components/notifications"
 import { InlineDotSeparator } from "@/components/separator"
 
 type TabType = "input" | "result" | "interaction"
+
+// Add default agent tool icon mappings
+const DEFAULT_AGENT_TOOLS: Record<string, JSX.Element> = {
+  read_file: <FileIcon className="size-4" />,
+  create_file: <FilePlusIcon className="size-4" />,
+  search_files: <SearchIcon className="size-4" />,
+  list_directory: <ListIcon className="size-4" />,
+  grep_search: <SearchIcon className="size-4" />,
+  find_and_replace: <RefreshCw className="size-4" />,
+  jsonpath_find: <FilterIcon className="size-4" />,
+  jsonpath_find_and_replace: <FilterIcon className="size-4" />,
+  apply_python_lambda: <FunctionSquareIcon className="size-4" />,
+}
+
+const DEFAULT_TOOL_NAMES = new Set(Object.keys(DEFAULT_AGENT_TOOLS))
 
 export function ActionEvent({
   execution,
@@ -385,64 +406,105 @@ export function RetryPromptPartComponent({
 
 export function ToolReturnPartComponent({ part }: { part: ToolReturnPart }) {
   const [isExpanded, setIsExpanded] = React.useState(false)
-  const actionType = reconstructActionType(part.tool_name)
-  const { registryAction, registryActionIsLoading, registryActionError } =
-    useGetRegistryAction(actionType)
-  if (registryActionIsLoading) {
-    return <Skeleton className="h-16 w-full" />
-  }
-  if (registryActionError || !registryAction) {
+
+  const toolName = part.tool_name
+  const isDefaultTool = DEFAULT_TOOL_NAMES.has(toolName)
+
+  // Case 1 – default agent tool
+  if (isDefaultTool) {
+    const iconElement = DEFAULT_AGENT_TOOLS[toolName]
     return (
-      <div className="flex items-center justify-center gap-2 p-4 text-xs text-muted-foreground">
-        <CircleDot className="size-3 text-muted-foreground" />
-        <span>Action not found</span>
+      <div className="flex flex-col gap-2">
+        <Card
+          className="flex cursor-pointer flex-col gap-1 rounded-md border-[0.5px] bg-muted/20 text-xs shadow-sm hover:bg-muted/40"
+          onClick={() => setIsExpanded(!isExpanded)}
+        >
+          <div
+            className={cn(
+              "flex items-center gap-2 p-2",
+              isExpanded && "border-b-[0.5px]"
+            )}
+          >
+            <div className="rounded-sm border-[0.5px] p-[3px]">{iconElement}</div>
+            <span className="text-xs font-semibold text-foreground/80">
+              {toolName}
+            </span>
+            <Undo2Icon className="size-3" />
+            <ChevronRightIcon
+              className={`ml-auto size-4 transition-transform ${isExpanded ? "rotate-90" : ""}`}
+            />
+          </div>
+        </Card>
+        {isExpanded && (
+          <JsonViewWithControls
+            src={part.content}
+            defaultExpanded={true}
+            defaultTab="nested"
+            className="shadow-sm"
+          />
+        )}
       </div>
     )
   }
-  const { default_title, namespace } = registryAction
-  return (
-    <div className="flex flex-col gap-2">
-      <Card
-        className="flex cursor-pointer flex-col gap-1 rounded-md border-[0.5px] bg-muted/20 text-xs shadow-sm hover:bg-muted/40"
-        onClick={() => setIsExpanded(!isExpanded)}
-      >
-        <div
-          className={cn(
-            "flex items-center gap-2 p-2",
-            isExpanded && "border-b-[0.5px]"
-          )}
+
+  // Case 2 – registry action
+  const actionType = reconstructActionType(toolName)
+  const { registryAction, registryActionIsLoading, registryActionError } =
+    useGetRegistryAction(actionType)
+
+  if (registryActionIsLoading) return <Skeleton className="h-16 w-full" />
+
+  if (registryAction && !registryActionError) {
+    return (
+      <div className="flex flex-col gap-2">
+        <Card
+          className="flex cursor-pointer flex-col gap-1 rounded-md border-[0.5px] bg-muted/20 text-xs shadow-sm hover:bg-muted/40"
+          onClick={() => setIsExpanded(!isExpanded)}
         >
-          <Tooltip>
-            <TooltipTrigger>
-              <div>
-                {getIcon(actionType, {
-                  className: "size-4 p-[3px] border-[0.5px]",
-                })}
-              </div>
-            </TooltipTrigger>
-            <TooltipContent className="p-1">
-              <p>{namespace}</p>
-            </TooltipContent>
-          </Tooltip>
-          <div className="flex items-center gap-1">
+          <div
+            className={cn(
+              "flex items-center gap-2 p-2",
+              isExpanded && "border-b-[0.5px]"
+            )}
+          >
+            <Tooltip>
+              <TooltipTrigger>
+                <div>
+                  {getIcon(actionType, {
+                    className: "size-4 p-[3px] border-[0.5px]",
+                  })}
+                </div>
+              </TooltipTrigger>
+              <TooltipContent className="p-1">
+                <p>{registryAction.namespace}</p>
+              </TooltipContent>
+            </Tooltip>
             <span className="text-xs font-semibold text-foreground/80">
-              {default_title}
+              {registryAction.default_title}
             </span>
             <Undo2Icon className="size-3" />
+            <ChevronRightIcon
+              className={`ml-auto size-4 transition-transform ${isExpanded ? "rotate-90" : ""}`}
+            />
           </div>
-          <ChevronRightIcon
-            className={`ml-auto size-4 transition-transform ${isExpanded ? "rotate-90" : ""}`}
+        </Card>
+        {isExpanded && (
+          <JsonViewWithControls
+            src={part.content}
+            defaultExpanded={true}
+            defaultTab="nested"
+            className="shadow-sm"
           />
-        </div>
-      </Card>
-      {isExpanded && (
-        <JsonViewWithControls
-          src={part.content}
-          defaultExpanded={true}
-          defaultTab="nested"
-          className="shadow-sm"
-        />
-      )}
+        )}
+      </div>
+    )
+  }
+
+  // Case 3 – not found
+  return (
+    <div className="flex items-center justify-center gap-2 p-4 text-xs text-muted-foreground">
+      <CircleDot className="size-3 text-muted-foreground" />
+      <span>Action not found</span>
     </div>
   )
 }
@@ -564,20 +626,60 @@ export function ToolCallPartComponent({
   defaultExpanded?: boolean
 }) {
   const [isExpanded, setIsExpanded] = React.useState(defaultExpanded)
-  const actionType = reconstructActionType(toolCall.tool_name)
-  const { registryAction, registryActionIsLoading, registryActionError } =
-    useGetRegistryAction(actionType)
+
+  const toolName = toolCall.tool_name
+  const isDefaultTool = DEFAULT_TOOL_NAMES.has(toolName)
+
   let args
   try {
     args =
-      typeof toolCall.args === "string"
-        ? JSON.parse(toolCall.args) // This should be a JSON string
-        : toolCall.args
+      typeof toolCall.args === "string" ? JSON.parse(toolCall.args) : toolCall.args
   } catch {
     args = toolCall.args
   }
 
-  // Get the title
+  // Case 1 – default agent tool
+  if (isDefaultTool) {
+    const iconElement = DEFAULT_AGENT_TOOLS[toolName]
+    return (
+      <Card
+        className="cursor-pointer rounded-md border-[0.5px] bg-muted/20 p-2 text-xs shadow-sm"
+        onClick={() => setIsExpanded(!isExpanded)}
+      >
+        <div className="flex items-center gap-2">
+          <div className="rounded-sm border-[0.5px] p-[3px]">{iconElement}</div>
+          <span className="text-xs font-semibold text-foreground/80">
+            {toolName}
+          </span>
+          <ChevronRightIcon
+            className={`ml-auto size-4 transition-transform ${isExpanded ? "rotate-90" : ""}`}
+          />
+        </div>
+        {isExpanded && (
+          <table className="mt-2 min-w-full text-xs">
+            <tbody>
+              {Object.entries(args).map(([key, value]) => (
+                <tr key={key}>
+                  <td className="px-2 py-1 text-left align-top font-semibold text-foreground/80">
+                    {key}
+                  </td>
+                  <td className="px-2 py-1 text-left align-top text-foreground/90">
+                    {typeof value === "string" ? value : JSON.stringify(value, null, 2)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </Card>
+    )
+  }
+
+  // Case 2 – registry action
+  const actionType = reconstructActionType(toolName)
+  const { registryAction, registryActionIsLoading, registryActionError } =
+    useGetRegistryAction(actionType)
+
   if (registryActionIsLoading) {
     return (
       <Card className="rounded-md border-[0.5px] bg-muted/20 p-2 text-xs shadow-sm">
@@ -594,61 +696,59 @@ export function ToolCallPartComponent({
       </Card>
     )
   }
-  if (registryActionError || !registryAction) {
+
+  if (registryAction && !registryActionError) {
     return (
-      <div className="flex items-center justify-center gap-2 p-4 text-xs text-muted-foreground">
-        <CircleDot className="size-3 text-muted-foreground" />
-        <span>Action not found</span>
-      </div>
+      <Card
+        className="cursor-pointer rounded-md border-[0.5px] bg-muted/20 p-2 text-xs shadow-sm"
+        onClick={() => setIsExpanded(!isExpanded)}
+      >
+        <div className="flex items-center gap-2">
+          <Tooltip>
+            <TooltipTrigger>
+              <div>
+                {getIcon(actionType, {
+                  className: "size-4 p-[3px] border-[0.5px]",
+                })}
+              </div>
+            </TooltipTrigger>
+            <TooltipContent className="p-1">
+              <p>{registryAction.namespace}</p>
+            </TooltipContent>
+          </Tooltip>
+          <span className="text-xs font-semibold text-foreground/80">
+            {registryAction.default_title}
+          </span>
+          <ChevronRightIcon
+            className={`ml-auto size-4 transition-transform ${isExpanded ? "rotate-90" : ""}`}
+          />
+        </div>
+        {isExpanded && (
+          <table className="mt-2 min-w-full text-xs">
+            <tbody>
+              {Object.entries(args).map(([key, value]) => (
+                <tr key={key}>
+                  <td className="px-2 py-1 text-left align-top font-semibold text-foreground/80">
+                    {key}
+                  </td>
+                  <td className="px-2 py-1 text-left align-top text-foreground/90">
+                    {typeof value === "string" ? value : JSON.stringify(value, null, 2)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </Card>
     )
   }
 
-  const { default_title, namespace } = registryAction
-
+  // Case 3 – action not found
   return (
-    <Card
-      className="cursor-pointer rounded-md border-[0.5px] bg-muted/20 p-2 text-xs shadow-sm"
-      onClick={() => setIsExpanded(!isExpanded)}
-    >
-      <div className="flex items-center gap-2">
-        <Tooltip>
-          <TooltipTrigger>
-            <div>
-              {getIcon(actionType, {
-                className: "size-4 p-[3px] border-[0.5px]",
-              })}
-            </div>
-          </TooltipTrigger>
-          <TooltipContent className="p-1">
-            <p>{namespace}</p>
-          </TooltipContent>
-        </Tooltip>
-        <span className="text-xs font-semibold text-foreground/80">
-          {default_title}
-        </span>
-        <ChevronRightIcon
-          className={`ml-auto size-4 transition-transform ${isExpanded ? "rotate-90" : ""}`}
-        />
-      </div>
-      {isExpanded && (
-        <table className="mt-2 min-w-full text-xs">
-          <tbody>
-            {Object.entries(args).map(([key, value]) => (
-              <tr key={key}>
-                <td className="px-2 py-1 text-left align-top font-semibold text-foreground/80">
-                  {key}
-                </td>
-                <td className="px-2 py-1 text-left align-top text-foreground/90">
-                  {typeof value === "string"
-                    ? value
-                    : JSON.stringify(value, null, 2)}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-    </Card>
+    <div className="flex items-center justify-center gap-2 p-4 text-xs text-muted-foreground">
+      <CircleDot className="size-3 text-muted-foreground" />
+      <span>Action not found</span>
+    </div>
   )
 }
 
