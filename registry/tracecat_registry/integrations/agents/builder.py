@@ -582,6 +582,9 @@ async def agent(
         fixed_arguments=fixed_arguments,
     )
 
+    if not actions:
+        raise ValueError("No actions provided. Please provide at least one action.")
+
     if isinstance(actions, str):
         actions = [actions]
 
