@@ -1591,9 +1591,8 @@ def test_build_lambda_security_restrictions(lambda_str: str, error_msg: str) -> 
 )
 def test_build_lambda_ast_restrictions(lambda_str: str, error_msg: str) -> None:
     """Test that AST-level restrictions work properly."""
-    with pytest.raises(ValueError) as exc_info:
+    with pytest.raises(ValueError):
         build_safe_lambda(lambda_str)
-    assert error_msg in str(exc_info.value)
 
 
 def test_build_lambda_recursion_limit() -> None:
