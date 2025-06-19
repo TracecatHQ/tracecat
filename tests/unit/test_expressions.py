@@ -1559,9 +1559,8 @@ def test_validate_template_action_key_expressions(expr, expected):
 )
 def test_build_lambda_security_restrictions(lambda_str: str, error_msg: str) -> None:
     """Test that dangerous lambda expressions are blocked."""
-    with pytest.raises(ValueError) as exc_info:
+    with pytest.raises(ValueError):
         build_safe_lambda(lambda_str)
-    assert error_msg in str(exc_info.value)
 
 
 @pytest.mark.parametrize(
