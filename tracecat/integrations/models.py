@@ -2,7 +2,7 @@
 
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Self
 
 from pydantic import UUID4, BaseModel
@@ -32,7 +32,7 @@ class IntegrationRead(BaseModel):
         """Check if the access token is expired."""
         if self.expires_at is None:
             return False
-        return datetime.now() >= self.expires_at
+        return datetime.now(UTC) >= self.expires_at
 
 
 class IntegrationCreate(BaseModel):
