@@ -7,7 +7,7 @@ from typing import Any
 from pydantic import SecretStr
 from sqlmodel import col, select
 
-from tracecat.db.schemas import WorkspaceIntegration
+from tracecat.db.schemas import OAuthIntegration
 from tracecat.identifiers import UserID
 from tracecat.secrets.encryption import decrypt_value, encrypt_value
 from tracecat.service import BaseWorkspaceService
@@ -30,27 +30,27 @@ class IntegrationService(BaseWorkspaceService):
         *,
         provider: str,
         user_id: UserID | None = None,
-    ) -> WorkspaceIntegration | None:
+    ) -> OAuthIntegration | None:
         """Get a user's integration for a specific provider."""
-        statement = select(WorkspaceIntegration).where(
-            WorkspaceIntegration.owner_id == self.workspace_id,
-            WorkspaceIntegration.provider_id == provider,
+        statement = select(OAuthIntegration).where(
+            OAuthIntegration.owner_id == self.workspace_id,
+            OAuthIntegration.provider_id == provider,
         )
         if user_id is not None:
-            statement = statement.where(WorkspaceIntegration.user_id == user_id)
+            statement = statement.where(OAuthIntegration.user_id == user_id)
         result = await self.session.exec(statement)
         return result.first()
 
     async def list_integrations(
         self, *, providers: set[str] | None = None
-    ) -> list[WorkspaceIntegration]:
+    ) -> list[OAuthIntegration]:
         """List all integrations for a workspace, optionally filtered by providers."""
-        statement = select(WorkspaceIntegration).where(
-            WorkspaceIntegration.owner_id == self.workspace_id
+        statement = select(OAuthIntegration).where(
+            OAuthIntegration.owner_id == self.workspace_id
         )
         if providers:
             statement = statement.where(
-                col(WorkspaceIntegration.provider_id).in_(providers)
+                col(OAuthIntegration.provider_id).in_(providers)
             )
         result = await self.session.exec(statement)
         return list(result.all())
@@ -65,7 +65,7 @@ class IntegrationService(BaseWorkspaceService):
         expires_in: int | None = None,
         scope: str | None = None,
         metadata: dict[str, Any] | None = None,
-    ) -> WorkspaceIntegration:
+    ) -> OAuthIntegration:
         """Store or update a user's integration."""
         # Calculate expiration time if expires_in is provided
         expires_at = None
@@ -99,7 +99,7 @@ class IntegrationService(BaseWorkspaceService):
             return existing
         else:
             # Create new integration
-            integration = WorkspaceIntegration(
+            integration = OAuthIntegration(
                 owner_id=self.workspace_id,
                 user_id=user_id,
                 provider_id=provider,
@@ -123,14 +123,14 @@ class IntegrationService(BaseWorkspaceService):
             )
             return integration
 
-    async def remove_integration(self, *, integration: WorkspaceIntegration) -> None:
+    async def remove_integration(self, *, integration: OAuthIntegration) -> None:
         """Remove a user's integration for a specific provider."""
         await self.session.delete(integration)
         await self.session.commit()
 
     async def refresh_token_if_needed(
-        self, integration: WorkspaceIntegration
-    ) -> WorkspaceIntegration:
+        self, integration: OAuthIntegration
+    ) -> OAuthIntegration:
         """Refresh the access token if it's expired or about to expire."""
         if not integration.needs_refresh:
             return integration
@@ -169,13 +169,13 @@ class IntegrationService(BaseWorkspaceService):
 
         return integration
 
-    async def get_access_token(self, integration: WorkspaceIntegration) -> SecretStr:
+    async def get_access_token(self, integration: OAuthIntegration) -> SecretStr:
         """Get the decrypted access token for an integration."""
         access_token = self._decrypt_token(integration.encrypted_access_token)
         return SecretStr(access_token)
 
     def get_decrypted_tokens(
-        self, integration: WorkspaceIntegration
+        self, integration: OAuthIntegration
     ) -> tuple[str, str | None]:
         """Get decrypted access and refresh tokens for an integration."""
         access_token = self._decrypt_token(integration.encrypted_access_token)

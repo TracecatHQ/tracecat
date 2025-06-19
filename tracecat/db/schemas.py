@@ -135,7 +135,7 @@ class Workspace(Resource, table=True):
             **DEFAULT_SA_RELATIONSHIP_KWARGS,
         },
     )
-    integrations: list["WorkspaceIntegration"] = Relationship(
+    integrations: list["OAuthIntegration"] = Relationship(
         back_populates="owner",
         sa_relationship_kwargs={
             "cascade": "all, delete",
@@ -982,15 +982,15 @@ class Interaction(Resource, table=True):
     )
 
 
-class WorkspaceIntegration(SQLModel, TimestampMixin, table=True):
+class OAuthIntegration(SQLModel, TimestampMixin, table=True):
     """Store user integrations with external services."""
 
-    __tablename__: str = "workspace_integration"
+    __tablename__: str = "oauth_integration"
     __table_args__ = (
         UniqueConstraint(
             "owner_id",
             "provider_id",
-            name="uq_workspace_integration_owner_provider",
+            name="uq_oauth_integration_owner_provider",
         ),
     )
 
