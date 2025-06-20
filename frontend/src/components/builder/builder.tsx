@@ -6,7 +6,6 @@ import { SidebarIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
-import { WorkflowBuilderErrorBoundary } from "@/components/error-boundaries"
 import {
   CustomResizableHandle,
   ResizablePanel,
@@ -22,6 +21,7 @@ import { WorkflowCanvas } from "@/components/builder/canvas/canvas"
 import { BuilderSidebarEvents } from "@/components/builder/events/events-sidebar"
 import { EventsSidebarToolbar } from "@/components/builder/events/events-sidebar-toolbar"
 import { BuilderPanel } from "@/components/builder/panel/builder-panel"
+import { WorkflowBuilderErrorBoundary } from "@/components/error-boundaries"
 
 interface BuilderProps {
   defaultLayout: number[] | undefined
@@ -84,78 +84,78 @@ export function Builder({ defaultLayout = [0, 68, 24] }: BuilderProps) {
             )}`
           }}
         >
-        <ResizablePanel
-          ref={sidebarRef}
-          defaultSize={defaultLayout[0]}
-          collapsedSize={0}
-          collapsible={true}
-          minSize={24}
-          maxSize={38}
-          className="relative h-full"
-        >
-          <BuilderSidebarEvents />
-          <EventsSidebarToolbar />
-        </ResizablePanel>
-        <TooltipProvider>
-          <Tooltip>
-            <CustomResizableHandle>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  className={cn(
-                    "absolute top-0 m-0 translate-x-6 rounded-full !bg-transparent p-4 active:cursor-grabbing"
-                  )}
-                  onClick={toggleSidebar}
-                >
-                  <div className="group rounded-sm p-1 hover:bg-border">
-                    <SidebarIcon className="group size-4 text-muted-foreground group-hover:text-foreground" />
-                  </div>
-                </Button>
-              </TooltipTrigger>
-              {isSidebarCollapsed && (
-                <TooltipContent side="right">View Events</TooltipContent>
-              )}
-            </CustomResizableHandle>
-          </Tooltip>
-        </TooltipProvider>
-        <ResizablePanel defaultSize={defaultLayout[1]}>
-          <WorkflowCanvas ref={canvasRef} />
-        </ResizablePanel>
-        <TooltipProvider>
-          <Tooltip>
-            <CustomResizableHandle>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  className={cn(
-                    "absolute top-0 m-0 -translate-x-6 rounded-full !bg-transparent p-4 active:cursor-grabbing"
-                  )}
-                  onClick={toggleActionPanel}
-                >
-                  <div className="group rounded-sm p-1 hover:bg-border">
-                    <SidebarIcon className="group size-4 -scale-x-100 text-muted-foreground group-hover:text-foreground" />
-                  </div>
-                </Button>
-              </TooltipTrigger>
-              {isActionPanelCollapsed && (
-                <TooltipContent side="right">View Side Panel</TooltipContent>
-              )}
-            </CustomResizableHandle>
-          </Tooltip>
-        </TooltipProvider>
-        <ResizablePanel
-          ref={actionPanelRef}
-          defaultSize={defaultLayout[2]}
-          collapsedSize={0}
-          collapsible={true}
-          minSize={3}
-          maxSize={58}
-          className="h-full"
-        >
-          <BuilderPanel ref={actionPanelRef} />
-        </ResizablePanel>
-      </ResizablePanelGroup>
-    </TooltipProvider>
+          <ResizablePanel
+            ref={sidebarRef}
+            defaultSize={defaultLayout[0]}
+            collapsedSize={0}
+            collapsible={true}
+            minSize={24}
+            maxSize={38}
+            className="relative h-full"
+          >
+            <BuilderSidebarEvents />
+            <EventsSidebarToolbar />
+          </ResizablePanel>
+          <TooltipProvider>
+            <Tooltip>
+              <CustomResizableHandle>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    className={cn(
+                      "absolute top-0 m-0 translate-x-6 rounded-full !bg-transparent p-4 active:cursor-grabbing"
+                    )}
+                    onClick={toggleSidebar}
+                  >
+                    <div className="group rounded-sm p-1 hover:bg-border">
+                      <SidebarIcon className="group size-4 text-muted-foreground group-hover:text-foreground" />
+                    </div>
+                  </Button>
+                </TooltipTrigger>
+                {isSidebarCollapsed && (
+                  <TooltipContent side="right">View Events</TooltipContent>
+                )}
+              </CustomResizableHandle>
+            </Tooltip>
+          </TooltipProvider>
+          <ResizablePanel defaultSize={defaultLayout[1]}>
+            <WorkflowCanvas ref={canvasRef} />
+          </ResizablePanel>
+          <TooltipProvider>
+            <Tooltip>
+              <CustomResizableHandle>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    className={cn(
+                      "absolute top-0 m-0 -translate-x-6 rounded-full !bg-transparent p-4 active:cursor-grabbing"
+                    )}
+                    onClick={toggleActionPanel}
+                  >
+                    <div className="group rounded-sm p-1 hover:bg-border">
+                      <SidebarIcon className="group size-4 -scale-x-100 text-muted-foreground group-hover:text-foreground" />
+                    </div>
+                  </Button>
+                </TooltipTrigger>
+                {isActionPanelCollapsed && (
+                  <TooltipContent side="right">View Side Panel</TooltipContent>
+                )}
+              </CustomResizableHandle>
+            </Tooltip>
+          </TooltipProvider>
+          <ResizablePanel
+            ref={actionPanelRef}
+            defaultSize={defaultLayout[2]}
+            collapsedSize={0}
+            collapsible={true}
+            minSize={3}
+            maxSize={58}
+            className="h-full"
+          >
+            <BuilderPanel ref={actionPanelRef} />
+          </ResizablePanel>
+        </ResizablePanelGroup>
+      </TooltipProvider>
     </WorkflowBuilderErrorBoundary>
   )
 }

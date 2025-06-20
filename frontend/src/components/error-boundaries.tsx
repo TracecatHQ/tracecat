@@ -1,14 +1,15 @@
 "use client"
 
 import React from "react"
+
 import { Input } from "@/components/ui/input"
 import {
   BaseErrorBoundary,
   ErrorBoundaryProps,
   ErrorInfo,
+  FormFieldErrorFallback,
   MinimalErrorFallback,
   SectionErrorFallback,
-  FormFieldErrorFallback
 } from "@/components/error-boundary"
 
 // Component Error Boundary - for individual components
@@ -71,14 +72,24 @@ export function FormFieldErrorBoundary({
   }
 
   // Custom fallback that includes a simple input option
-  const FormFieldFallback = ({ error, resetError, errorId }: { error: Error | null, resetError: () => void, errorId: string }) => (
+  const FormFieldFallback = ({
+    error,
+    resetError,
+    errorId,
+  }: {
+    error: Error | null
+    resetError: () => void
+    errorId: string
+  }) => (
     <FormFieldErrorFallback
       error={error}
       resetError={resetError}
       errorId={errorId}
       errorInfo={null}
     >
-      {fallbackInput || <Input placeholder="Simplified text input (error mode)" />}
+      {fallbackInput || (
+        <Input placeholder="Simplified text input (error mode)" />
+      )}
     </FormFieldErrorFallback>
   )
 
@@ -115,7 +126,15 @@ export function ExpressionErrorBoundary({
   }
 
   // Custom fallback that provides a simple text input
-  const ExpressionFallback = ({ error, resetError, errorId }: { error: Error | null, resetError: () => void, errorId: string }) => (
+  const ExpressionFallback = ({
+    error,
+    resetError,
+    errorId,
+  }: {
+    error: Error | null
+    resetError: () => void
+    errorId: string
+  }) => (
     <FormFieldErrorFallback
       error={error}
       resetError={resetError}
@@ -152,10 +171,7 @@ export function WorkflowBuilderErrorBoundary({
   }
 
   return (
-    <BaseErrorBoundary
-      {...props}
-      onError={handleError}
-    >
+    <BaseErrorBoundary {...props} onError={handleError}>
       {children}
     </BaseErrorBoundary>
   )
@@ -174,8 +190,16 @@ export function TemplatePillErrorBoundary({
   }
 
   // Minimal fallback for template pills to not disrupt editor flow
-  const TemplatePillFallback = ({ error }: { error: Error | null, resetError: () => void }) => (
-    <span className="cm-template-pill cm-template-error" title={`Error: ${error?.message}`}>
+  const TemplatePillFallback = ({
+    error,
+  }: {
+    error: Error | null
+    resetError: () => void
+  }) => (
+    <span
+      className="cm-template-pill cm-template-error"
+      title={`Error: ${error?.message}`}
+    >
       [Error]
     </span>
   )

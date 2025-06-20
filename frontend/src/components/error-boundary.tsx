@@ -36,7 +36,10 @@ export interface ErrorFallbackProps {
 }
 
 // Base Error Boundary Component
-export class BaseErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+export class BaseErrorBoundary extends Component<
+  ErrorBoundaryProps,
+  ErrorBoundaryState
+> {
   private resetTimeoutId: number | null = null
 
   constructor(props: ErrorBoundaryProps) {
@@ -45,7 +48,7 @@ export class BaseErrorBoundary extends Component<ErrorBoundaryProps, ErrorBounda
       hasError: false,
       error: null,
       errorInfo: null,
-      errorId: ""
+      errorId: "",
     }
   }
 
@@ -53,13 +56,13 @@ export class BaseErrorBoundary extends Component<ErrorBoundaryProps, ErrorBounda
     return {
       hasError: true,
       error,
-      errorId: Math.random().toString(36).substring(7)
+      errorId: Math.random().toString(36).substring(7),
     }
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     this.setState({
-      errorInfo
+      errorInfo,
     })
 
     // Call custom error handler if provided
@@ -87,7 +90,7 @@ export class BaseErrorBoundary extends Component<ErrorBoundaryProps, ErrorBounda
       hasError: false,
       error: null,
       errorInfo: null,
-      errorId: ""
+      errorId: "",
     })
   }
 
@@ -113,7 +116,7 @@ export function DefaultErrorFallback({
   error,
   errorInfo,
   resetError,
-  errorId
+  errorId,
 }: ErrorFallbackProps) {
   const [showDetails, setShowDetails] = React.useState(false)
 
@@ -123,7 +126,8 @@ export function DefaultErrorFallback({
       <AlertTitle>Something went wrong</AlertTitle>
       <AlertDescription className="space-y-3">
         <p className="text-sm">
-          An unexpected error occurred. You can try to reload this section or continue with your work.
+          An unexpected error occurred. You can try to reload this section or
+          continue with your work.
         </p>
         <div className="flex gap-2">
           <Button
@@ -178,7 +182,7 @@ export function DefaultErrorFallback({
 export function MinimalErrorFallback({
   error,
   resetError,
-  errorId
+  errorId,
 }: ErrorFallbackProps) {
   return (
     <div className="flex items-center gap-2 rounded border border-destructive/20 bg-destructive/10 p-2 text-xs text-destructive">
@@ -201,7 +205,7 @@ export function MinimalErrorFallback({
 export function InlineErrorFallback({
   error,
   resetError,
-  errorId
+  errorId,
 }: ErrorFallbackProps) {
   return (
     <div className="space-y-2">
@@ -225,7 +229,7 @@ export function InlineErrorFallback({
 export function SectionErrorFallback({
   error,
   resetError,
-  errorId
+  errorId,
 }: ErrorFallbackProps) {
   return (
     <div className="rounded-md border border-destructive/20 bg-destructive/5 p-4">
@@ -237,7 +241,8 @@ export function SectionErrorFallback({
               Section temporarily unavailable
             </h4>
             <p className="mt-1 text-xs text-muted-foreground">
-              This section encountered an error but the rest of your workflow is still functional.
+              This section encountered an error but the rest of your workflow is
+              still functional.
             </p>
           </div>
           <div className="flex gap-2">
@@ -262,9 +267,11 @@ export function FormFieldErrorFallback({
   error,
   resetError,
   errorId,
-  children
+  children,
 }: ErrorFallbackProps & { children?: ReactNode }) {
-  const [fallbackMode, setFallbackMode] = React.useState<"error" | "text">("error")
+  const [fallbackMode, setFallbackMode] = React.useState<"error" | "text">(
+    "error"
+  )
 
   if (fallbackMode === "text") {
     return (
