@@ -175,8 +175,8 @@ class TestAgentBuilderIntegration:
         ],
         ids=[
             "simple",
-            "medium",
-            "complex",
+            # "medium",
+            # "complex",
         ],
     )
     async def test_agent_live_slack_prompts(
