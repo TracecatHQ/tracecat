@@ -63,6 +63,9 @@ ALLOWED_TOOLS = {
     "tools.sublime.binexplode",
     "tools.sublime.score_eml",
     "tools.sublime.scan_file",
+    "tools.slack.list_messages",
+    "tools.slack.list_replies",
+    "tools.slack.lookup_user_by_email",
     "tools.tavily.web_search",
     "tools.urlhaus.list_url_threats",
     "tools.urlscan.lookup_url",
@@ -82,6 +85,11 @@ ALLOWED_TOOLS = {
     "core.cases.create_comment",
     "core.cases.update_comment",
 }
+
+
+def raise_error(error_message: str) -> None:
+    """Raise an error with a custom message to be displayed to the user."""
+    raise ModelRetry(error_message)
 
 
 def generate_google_style_docstring(
@@ -462,6 +470,15 @@ class TracecatAgentBuilder:
                 f"Unknown namespaces or action names. Please double check the following:\n{failed_list}"
             )
 
+        # Add raise_error tool
+        self.tools.append(
+            Tool(
+                name="raise_error",
+                description="Raise an error with a custom message to be displayed to the user.",
+                function=raise_error,
+            )
+        )
+
         # Create the agent using build_agent
         agent = build_agent(
             model_name=self.model_name,
@@ -594,9 +611,23 @@ async def agent(
 
     # Generate the enhanced user prompt with tool guidance
     tools_prompt = generate_default_tools_prompt(files) if files else ""
-    enhanced_user_prompt = (
-        f"{user_prompt}\n{tools_prompt}" if tools_prompt else user_prompt
-    )
+    # Provide current date context using Tracecat expression
+    current_date_prompt = "<current_date>${{ FN.utcnow() }}</current_date>"
+    error_handling_prompt = """
+    <error_handling>
+    - Use `raise_error` when a <task> or any task-like instruction requires clarification or missing information
+    - Be specific about what's needed: "Missing API key" not "Cannot proceed"
+    - Stop execution immediately - don't attempt workarounds or assumptions
+    </error_handling>
+    """
+
+    # Build the final enhanced user prompt including date context
+    if tools_prompt:
+        enhanced_user_prompt = f"{user_prompt}\n{current_date_prompt}\n{tools_prompt}\n{error_handling_prompt}"
+    else:
+        enhanced_user_prompt = (
+            f"{user_prompt}\n{current_date_prompt}\n{error_handling_prompt}"
+        )
 
     with tempfile.TemporaryDirectory() as temp_dir:
         if files:
@@ -631,7 +662,8 @@ async def agent(
         files = {}
         for file_path in Path(temp_dir).glob("*"):
             with open(file_path, "r") as f:
-                files[file_path.name] = f.read()
+                base64_content = base64.b64encode(f.read().encode()).decode()
+                files[file_path.name] = base64_content
 
         output = AgentOutput(
             output=try_parse_json(result.output),
