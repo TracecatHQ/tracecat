@@ -3793,6 +3793,81 @@ export const $PriorityChangedEventRead = {
   description: "Event for when a case priority is changed.",
 } as const
 
+export const $ProviderMetadata = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+      description: "Provider identifier",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+      description: "Human-readable provider name",
+    },
+    description: {
+      type: "string",
+      title: "Description",
+      description: "Provider description",
+    },
+    logo_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Logo Url",
+      description: "URL to provider logo",
+    },
+    setup_instructions: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Setup Instructions",
+      description: "Setup instructions for the provider",
+    },
+    oauth_scopes: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Oauth Scopes",
+      description: "Default OAuth scopes",
+    },
+    requires_config: {
+      type: "boolean",
+      title: "Requires Config",
+      description: "Whether this provider requires additional configuration",
+      default: false,
+    },
+  },
+  type: "object",
+  required: ["id", "name", "description"],
+  title: "ProviderMetadata",
+  description: "Metadata for a provider.",
+} as const
+
+export const $ProviderSchema = {
+  properties: {
+    json_schema: {
+      type: "object",
+      title: "Json Schema",
+    },
+  },
+  type: "object",
+  required: ["json_schema"],
+  title: "ProviderSchema",
+  description: "Schema for a provider.",
+} as const
+
 export const $ReceiveInteractionResponse = {
   properties: {
     message: {
