@@ -1,11 +1,18 @@
-"""Database models for user integrations with external services."""
+"""Database models for user integrations with external services.
+
+Terminology:
+- Integration: A user's integration with an external service.
+- Provider: An external service that can be integrated with. Defined by BaseOauthProvider.
+
+
+"""
 
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any, Self
+from typing import Any, NotRequired, Required, Self, TypedDict
 
-from pydantic import UUID4, BaseModel
+from pydantic import UUID4, BaseModel, SecretStr
 from sqlmodel import Field
 
 from tracecat.identifiers import UserID, WorkspaceID
@@ -38,21 +45,17 @@ class IntegrationRead(BaseModel):
 class IntegrationUpdate(BaseModel):
     """Request model for updating an integration."""
 
-    provider_id: str = Field(
-        ...,
-        description="The provider identifier",
-    )
     client_id: str = Field(
         ...,
         description="OAuth client ID for the provider",
         min_length=1,
     )
-    client_secret: str = Field(
+    client_secret: SecretStr = Field(
         ...,
         description="OAuth client secret for the provider",
         min_length=1,
     )
-    config: dict[str, Any] = Field(
+    provider_config: dict[str, Any] = Field(
         ...,
         description="Provider-specific configuration",
     )
@@ -75,15 +78,22 @@ class IntegrationOauthCallback(BaseModel):
     )
 
 
-@dataclass(slots=True)
-class TokenResponse:
-    """Data class for OAuth token response."""
+class ProviderMetadata(BaseModel):
+    """Metadata for a provider."""
 
-    access_token: str
-    refresh_token: str | None = None
-    expires_in: int = 3600
-    scope: str = ""
-    token_type: str = "Bearer"
+    id: str = Field(..., description="Provider identifier")
+    name: str = Field(..., description="Human-readable provider name")
+    description: str = Field(..., description="Provider description")
+    logo_url: str | None = Field(None, description="URL to provider logo")
+    setup_instructions: str | None = Field(
+        None, description="Setup instructions for the provider"
+    )
+    oauth_scopes: list[str] = Field(
+        default_factory=list, description="Default OAuth scopes"
+    )
+    requires_config: bool = Field(
+        False, description="Whether this provider requires additional configuration"
+    )
 
 
 class OauthState(BaseModel):
@@ -102,3 +112,37 @@ class OauthState(BaseModel):
             user_id=uuid.UUID(user_id),
             state=uuid.UUID(state),
         )
+
+
+class OAuthProviderKwargs(TypedDict):
+    """Kwargs for OAuth providers."""
+
+    client_id: Required[str]
+    client_secret: Required[str]
+    scopes: NotRequired[list[str] | None]
+
+
+class ProviderSchema(BaseModel):
+    """Schema for a provider."""
+
+    json_schema: dict[str, Any]
+
+
+@dataclass(slots=True)
+class TokenResponse:
+    """Data class for OAuth token response."""
+
+    access_token: SecretStr
+    refresh_token: SecretStr | None = None
+    expires_in: int = 3600
+    scope: str = ""
+    token_type: str = "Bearer"
+
+
+@dataclass(slots=True)
+class ProviderConfig:
+    """Data class for integration client credentials."""
+
+    client_id: str
+    client_secret: SecretStr
+    provider_config: dict[str, Any]

@@ -1,8 +1,9 @@
 import uuid
-from typing import Any
+from datetime import datetime
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from tracecat import config
 from tracecat.auth.dependencies import WorkspaceUserRole
@@ -15,7 +16,10 @@ from tracecat.integrations.models import (
     IntegrationRead,
     IntegrationUpdate,
     OauthState,
+    ProviderMetadata,
+    ProviderSchema,
 )
+from tracecat.integrations.providers import ProviderRegistry
 from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
 
@@ -56,11 +60,14 @@ async def list_integrations(
     ]
 
 
+# XXX(SECURITY): Should we allow non-admins to connect providers?
 # Generic OAuth flow endpoints
 @router.post("/{provider_id}/connect")
 async def connect_provider(
+    *,
     role: WorkspaceUserRole,
-    provider: BaseOauthProvider = Depends(get_provider),
+    session: AsyncDBSession,
+    provider_impl: Annotated[type[BaseOauthProvider], Depends(get_provider)],
 ) -> dict[str, str]:
     """Initiate OAuth integration for the specified provider."""
 
@@ -69,7 +76,22 @@ async def connect_provider(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Workspace and user ID is required",
         )
+    svc = IntegrationService(session, role=role)
+    integration = await svc.get_integration(provider_id=provider_impl.id)
+    if integration is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Provider is not configured for this workspace",
+        )
 
+    # This requires that the provider is configured
+    provider_config = svc.get_provider_config(integration=integration)
+    if provider_config is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Provider is not configured for this workspace",
+        )
+    provider = provider_impl.from_config(provider_config)
     state = f"{role.workspace_id}:{role.user_id}:{uuid.uuid4()}"
     auth_url = await provider.get_authorization_url(state)
 
@@ -79,12 +101,11 @@ async def connect_provider(
 @router.get("/{provider_id}/callback")
 async def oauth_callback(
     *,
-    provider_id: str,
     session: AsyncDBSession,
     role: WorkspaceUserRole,
     code: str = Query(..., description="Authorization code from OAuth provider"),
     state: str = Query(..., description="State parameter from authorization request"),
-    provider: BaseOauthProvider = Depends(get_provider),
+    provider_impl: Annotated[type[BaseOauthProvider], Depends(get_provider)],
 ) -> IntegrationOauthCallback:
     """Handle OAuth callback for the specified provider."""
     if role.workspace_id is None or role.user_id is None:
@@ -93,7 +114,7 @@ async def oauth_callback(
             detail="Workspace and user ID is required",
         )
 
-    logger.info("OAuth callback", code=code, state=state, provider=provider.id)
+    logger.info("OAuth callback", code=code, state=state, provider_id=provider_impl.id)
     # Verify state contains user ID
     try:
         oauth_state = OauthState.from_state(state)
@@ -113,6 +134,23 @@ async def oauth_callback(
         )
 
     # Exchange code for tokens
+    svc = IntegrationService(session, role=role)
+    integration = await svc.get_integration(provider_id=provider_impl.id)
+    if integration is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Provider is not configured for this workspace",
+        )
+
+    # This requires that the provider is configured
+    provider_config = svc.get_provider_config(integration=integration)
+    if provider_config is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Provider is not configured for this workspace",
+        )
+    provider = provider_impl.from_config(provider_config)
+
     token_result = await provider.exchange_code_for_token(code, state)
 
     logger.info("OAuth callback", token_result=token_result)
@@ -121,7 +159,7 @@ async def oauth_callback(
     integration_service = IntegrationService(session, role=role)
     await integration_service.store_integration(
         user_id=role.user_id,
-        provider=provider.id,
+        provider_id=provider.id,
         access_token=token_result.access_token,
         refresh_token=token_result.refresh_token,
         expires_in=token_result.expires_in,
@@ -139,13 +177,13 @@ async def oauth_callback(
     )
 
 
-@router.delete("/{provider_id}")
+@router.delete("/{provider_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def disconnect_integration(
     *,
     role: WorkspaceUserRole,
     session: AsyncDBSession,
-    provider: BaseOauthProvider = Depends(get_provider),
-) -> dict[str, str]:
+    provider_impl: Annotated[type[BaseOauthProvider], Depends(get_provider)],
+) -> None:
     """Disconnect integration for the specified provider."""
     # Verify provider exists (this will raise 400 if not)
     if role.workspace_id is None:
@@ -155,27 +193,22 @@ async def disconnect_integration(
         )
 
     svc = IntegrationService(session, role=role)
-    integration = await svc.get_integration(
-        user_id=role.user_id,
-        provider=provider.id,
-    )
+    integration = await svc.get_integration(provider_id=provider_impl.id)
     if integration is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"{provider.id} integration not found",
+            detail=f"{provider_impl.id} integration not found",
         )
     await svc.remove_integration(integration=integration)
 
-    return {"status": "disconnected", "provider": provider.id}
 
-
-@router.patch("/{provider_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.put("/{provider_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def update_integration(
     *,
     role: WorkspaceUserRole,
     session: AsyncDBSession,
-    provider_id: str,
-    config: IntegrationUpdate,
+    params: IntegrationUpdate,
+    provider_impl: Annotated[type[BaseOauthProvider], Depends(get_provider)],
 ) -> None:
     """Update OAuth client credentials for the specified provider integration."""
     if role.workspace_id is None:
@@ -185,27 +218,36 @@ async def update_integration(
         )
 
     svc = IntegrationService(session, role=role)
-
     # Store the provider configuration
     await svc.store_provider_config(
-        provider=provider_id,
-        client_id=config.client_id,
-        client_secret=config.client_secret,
+        provider_id=provider_impl.id,
+        client_id=params.client_id,
+        client_secret=params.client_secret,
+        provider_config=params.provider_config,
     )
 
     logger.info(
         "Provider configuration updated",
-        provider_id=provider_id,
+        provider_id=provider_impl.id,
         workspace_id=role.workspace_id,
     )
+
+
+class IntegrationStatus(BaseModel):
+    connected: bool
+    configured: bool
+    provider: str
+    expires_at: datetime | None
+    is_expired: bool
+    needs_refresh: bool
 
 
 @router.get("/{provider_id}/status")
 async def get_integration_status(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
-    provider: BaseOauthProvider = Depends(get_provider),
-) -> dict[str, Any]:
+    provider_impl: Annotated[type[BaseOauthProvider], Depends(get_provider)],
+) -> IntegrationStatus:
     """Get integration status for the specified provider."""
     # Verify provider exists (this will raise 400 if not)
 
@@ -216,32 +258,70 @@ async def get_integration_status(
         )
 
     svc = IntegrationService(session, role=role)
-    integration = await svc.get_integration(
-        user_id=role.user_id,
-        provider=provider.id,
-    )
-
+    integration = await svc.get_integration(provider_id=provider_impl.id)
+    if integration is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"{provider_impl.id} integration not found",
+        )
     # Check if provider is configured at workspace level
-    is_configured = bool(
-        integration
-        and integration.use_workspace_credentials
-        and integration.encrypted_client_id
-        and integration.encrypted_client_secret
+    provider_config = svc.get_provider_config(integration=integration)
+    if provider_config is None:
+        return IntegrationStatus(
+            connected=True,
+            configured=False,
+            provider=provider_impl.id,
+            expires_at=None,
+            is_expired=False,
+            needs_refresh=False,
+        )
+    provider = provider_impl.from_config(provider_config)
+
+    return IntegrationStatus(
+        connected=True,
+        configured=True,
+        provider=provider.id,
+        expires_at=integration.expires_at,
+        is_expired=integration.is_expired,
+        needs_refresh=integration.needs_refresh,
     )
 
-    if not integration:
-        return {
-            "connected": False,
-            "configured": is_configured,
-            "expires_at": None,
-            "provider": provider.id,
-        }
 
-    return {
-        "connected": True,
-        "configured": is_configured,
-        "provider": provider.id,
-        "expires_at": integration.expires_at,
-        "is_expired": integration.is_expired,
-        "needs_refresh": integration.needs_refresh,
-    }
+# Provider discovery endpoints
+@router.get("/providers")
+async def list_providers(_: WorkspaceUserRole) -> list[ProviderMetadata]:
+    """List all available OAuth providers with metadata."""
+
+    # Load providers and create metadata
+    registry = ProviderRegistry.get()
+    providers = []
+
+    for provider_id in registry.list_providers():
+        if provider_id == "microsoft":
+            providers.append(
+                ProviderMetadata(
+                    id="microsoft",
+                    name="Microsoft",
+                    description="Connect to Microsoft Graph API for Teams, Outlook, and other Microsoft services",
+                    oauth_scopes=[
+                        "https://graph.microsoft.com/Team.ReadBasic.All",
+                        "https://graph.microsoft.com/Channel.ReadBasic.All",
+                        "https://graph.microsoft.com/ChannelMessage.Send",
+                        "https://graph.microsoft.com/User.Read",
+                    ],
+                    requires_config=True,
+                    setup_instructions="Create an app registration in Azure AD and configure redirect URIs",
+                )
+            )
+        # Add other providers here as they're implemented
+
+    return providers
+
+
+@router.get("/{provider_id}/schema")
+async def get_provider_schema(
+    role: WorkspaceUserRole,
+    provider_impl: Annotated[type[BaseOauthProvider], Depends(get_provider)],
+) -> ProviderSchema:
+    """Get JSON Schema for provider-specific configuration."""
+    return ProviderSchema(json_schema=provider_impl.schema())

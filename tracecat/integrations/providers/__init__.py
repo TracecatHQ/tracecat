@@ -14,7 +14,9 @@ def load_providers():
             importlib.import_module(module_name)
 
 
-# Discover all subclasses of BaseOauthProvider and create instances
+load_providers()
+
+
 class ProviderRegistry:
     _instance: Self | None = None
 
@@ -41,6 +43,3 @@ class ProviderRegistry:
     def list_providers(self) -> list[str]:
         """List the IDs of all available providers."""
         return list(self._providers.keys())
-
-
-load_providers()

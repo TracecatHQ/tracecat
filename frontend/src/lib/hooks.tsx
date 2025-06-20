@@ -52,7 +52,6 @@ import {
   integrationsListIntegrations,
   integrationsListProviders,
   integrationsUpdateIntegration,
-  IntegrationsUpdateIntegrationResponse,
   IntegrationUpdate,
   type OAuthSettingsRead,
   type OrganizationDeleteOrgMemberData,
@@ -3137,7 +3136,7 @@ export function useIntegrations(workspaceId: string) {
     error: providersError,
   } = useQuery<ProviderMetadata[], TracecatApiError>({
     queryKey: ["providers"],
-    queryFn: async () => await integrationsListProviders(),
+    queryFn: async () => await integrationsListProviders({ workspaceId }),
   })
 
   // Connect to provider
@@ -3194,29 +3193,31 @@ export function useIntegrations(workspaceId: string) {
     mutateAsync: configureProvider,
     isPending: configureProviderIsPending,
     error: configureProviderError,
-  } = useMutation<
-    IntegrationsUpdateIntegrationResponse,
-    TracecatApiError,
-    IntegrationUpdate
-  >({
-    mutationFn: async (params: IntegrationUpdate) =>
+  } = useMutation({
+    mutationFn: async ({
+      providerId,
+      params,
+    }: {
+      providerId: string
+      params: IntegrationUpdate
+    }) =>
       await integrationsUpdateIntegration({
-        providerId: params.provider_id,
+        providerId,
         workspaceId,
         requestBody: params,
       }),
-    onSuccess: (result, variables) => {
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["integrations"] })
       toast({
         title: "Provider configured",
-        description: `Successfully configured ${variables.provider_id} credentials`,
+        description: `Successfully configured credentials`,
       })
     },
-    onError: (error: TracecatApiError, variables) => {
+    onError: (error: TracecatApiError) => {
       console.error("Failed to configure provider:", error)
       toast({
         title: "Failed to configure",
-        description: `Could not configure ${variables.provider_id}: ${JSON.stringify(error.body?.detail) || error.message}`,
+        description: `Could not configure provider: ${JSON.stringify(error.body?.detail) || error.message}`,
       })
     },
   })

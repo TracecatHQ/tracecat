@@ -268,7 +268,9 @@ async def run_action_from_input(input: RunActionInput, role: Role) -> Any:
                 integration, attribute_names=("encrypted_access_token",)
             )
             access_token = await service.get_access_token(integration)
-            secrets[integration.provider_id] = access_token.get_secret_value()
+            secrets[integration.provider_id] = {
+                f"{integration.provider_id.upper()}_ACCESS_TOKEN": access_token.get_secret_value()
+            }
 
     if config.TRACECAT__UNSAFE_DISABLE_SM_MASKING:
         log.warning(

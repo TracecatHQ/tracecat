@@ -9,6 +9,7 @@ from sqlmodel import col, select
 
 from tracecat.db.schemas import OAuthIntegration
 from tracecat.identifiers import UserID
+from tracecat.integrations.models import ProviderConfig
 from tracecat.secrets.encryption import decrypt_value, encrypt_value
 from tracecat.service import BaseWorkspaceService
 
@@ -28,13 +29,13 @@ class IntegrationService(BaseWorkspaceService):
     async def get_integration(
         self,
         *,
-        provider: str,
+        provider_id: str,
         user_id: UserID | None = None,
     ) -> OAuthIntegration | None:
         """Get a user's integration for a specific provider."""
         statement = select(OAuthIntegration).where(
             OAuthIntegration.owner_id == self.workspace_id,
-            OAuthIntegration.provider_id == provider,
+            OAuthIntegration.provider_id == provider_id,
         )
         if user_id is not None:
             statement = statement.where(OAuthIntegration.user_id == user_id)
@@ -58,10 +59,10 @@ class IntegrationService(BaseWorkspaceService):
     async def store_integration(
         self,
         *,
-        provider: str,
+        provider_id: str,
         user_id: UserID | None = None,
-        access_token: str,
-        refresh_token: str | None = None,
+        access_token: SecretStr,
+        refresh_token: SecretStr | None = None,
         expires_in: int | None = None,
         scope: str | None = None,
         provider_config: dict[str, Any] | None = None,
@@ -73,38 +74,45 @@ class IntegrationService(BaseWorkspaceService):
             expires_at = datetime.now() + timedelta(seconds=expires_in)
 
         # Check if integration already exists
-        existing = await self.get_integration(user_id=user_id, provider=provider)
 
-        if existing:
+        if integration := await self.get_integration(provider_id=provider_id):
             # Update existing integration
-            existing.encrypted_access_token = self._encrypt_token(access_token)
-            existing.encrypted_refresh_token = (
-                self._encrypt_token(refresh_token) if refresh_token else None
+            integration.encrypted_access_token = self._encrypt_token(
+                access_token.get_secret_value()
             )
-            existing.expires_at = expires_at
-            existing.scope = scope
+            integration.encrypted_refresh_token = (
+                self._encrypt_token(refresh_token.get_secret_value())
+                if refresh_token
+                else None
+            )
+            integration.expires_at = expires_at
+            integration.scope = scope
             if provider_config:
                 # Update the provider_config field
-                existing.provider_config = provider_config
+                integration.provider_config = provider_config
 
-            self.session.add(existing)
+            self.session.add(integration)
             await self.session.commit()
-            await self.session.refresh(existing)
+            await self.session.refresh(integration)
 
             self.logger.info(
                 "Updated user integration",
                 user_id=user_id,
-                provider=provider,
+                provider=provider_id,
             )
-            return existing
+            return integration
         else:
             # Create new integration
             integration = OAuthIntegration(
                 owner_id=self.workspace_id,
                 user_id=user_id,
-                provider_id=provider,
-                encrypted_access_token=self._encrypt_token(access_token),
-                encrypted_refresh_token=self._encrypt_token(refresh_token)
+                provider_id=provider_id,
+                encrypted_access_token=self._encrypt_token(
+                    access_token.get_secret_value()
+                ),
+                encrypted_refresh_token=self._encrypt_token(
+                    refresh_token.get_secret_value()
+                )
                 if refresh_token
                 else None,
                 expires_at=expires_at,
@@ -119,7 +127,7 @@ class IntegrationService(BaseWorkspaceService):
             self.logger.info(
                 "Created user integration",
                 user_id=user_id,
-                provider=provider,
+                provider=provider_id,
             )
             return integration
 
@@ -207,44 +215,47 @@ class IntegrationService(BaseWorkspaceService):
     async def store_provider_config(
         self,
         *,
-        provider: str,
+        provider_id: str,
         client_id: str,
-        client_secret: str,
+        client_secret: SecretStr,
+        provider_config: dict[str, Any],
     ) -> OAuthIntegration:
         """Store or update provider configuration (client credentials) for a workspace."""
         # Check if integration configuration already exists for this provider
-        existing = await self.get_integration(provider=provider)
 
-        if existing:
+        if integration := await self.get_integration(provider_id=provider_id):
             # Update existing integration with client credentials
-            existing.encrypted_client_id = self._encrypt_client_credential(client_id)
-            existing.encrypted_client_secret = self._encrypt_client_credential(
-                client_secret
+            integration.encrypted_client_id = self._encrypt_client_credential(client_id)
+            integration.encrypted_client_secret = self._encrypt_client_credential(
+                client_secret.get_secret_value()
             )
-            existing.use_workspace_credentials = True
+            integration.use_workspace_credentials = True
+            integration.provider_config = provider_config
 
-            self.session.add(existing)
+            self.session.add(integration)
             await self.session.commit()
-            await self.session.refresh(existing)
+            await self.session.refresh(integration)
 
             self.logger.info(
                 "Updated provider configuration",
-                provider=provider,
+                provider=provider_id,
                 workspace_id=self.workspace_id,
             )
-            return existing
+            return integration
         else:
             # Create new integration record with just client credentials
             # Access tokens will be added later during OAuth flow
             integration = OAuthIntegration(
                 owner_id=self.workspace_id,
-                provider_id=provider,
+                provider_id=provider_id,
                 encrypted_client_id=self._encrypt_client_credential(client_id),
-                encrypted_client_secret=self._encrypt_client_credential(client_secret),
+                encrypted_client_secret=self._encrypt_client_credential(
+                    client_secret.get_secret_value()
+                ),
                 use_workspace_credentials=True,
                 # These will be populated during OAuth flow
                 encrypted_access_token=b"",  # Placeholder, will be updated
-                provider_config={},
+                provider_config=provider_config,
             )
 
             self.session.add(integration)
@@ -253,14 +264,15 @@ class IntegrationService(BaseWorkspaceService):
 
             self.logger.info(
                 "Created provider configuration",
-                provider=provider,
+                provider=provider_id,
                 workspace_id=self.workspace_id,
             )
             return integration
 
-    async def get_provider_config(self, *, provider: str) -> tuple[str, str] | None:
+    def get_provider_config(
+        self, *, integration: OAuthIntegration
+    ) -> ProviderConfig | None:
         """Get decrypted client credentials for a provider."""
-        integration = await self.get_integration(provider=provider)
 
         if not integration or not integration.use_workspace_credentials:
             return None
@@ -276,19 +288,23 @@ class IntegrationService(BaseWorkspaceService):
             client_secret = self._decrypt_client_credential(
                 integration.encrypted_client_secret
             )
-            return client_id, client_secret
+            return ProviderConfig(
+                client_id=client_id,
+                client_secret=SecretStr(client_secret),
+                provider_config=integration.provider_config,
+            )
         except Exception as e:
             self.logger.error(
                 "Failed to decrypt client credentials",
-                provider=provider,
+                provider=integration.provider_id,
                 workspace_id=self.workspace_id,
                 error=str(e),
             )
             return None
 
-    async def remove_provider_config(self, *, provider: str) -> bool:
+    async def remove_provider_config(self, *, provider_id: str) -> bool:
         """Remove provider configuration (client credentials) for a workspace."""
-        integration = await self.get_integration(provider=provider)
+        integration = await self.get_integration(provider_id=provider_id)
 
         if not integration:
             return False
@@ -307,7 +323,7 @@ class IntegrationService(BaseWorkspaceService):
 
             self.logger.info(
                 "Removed provider configuration, kept tokens",
-                provider=provider,
+                provider=provider_id,
                 workspace_id=self.workspace_id,
             )
         else:
@@ -317,7 +333,7 @@ class IntegrationService(BaseWorkspaceService):
 
             self.logger.info(
                 "Removed provider configuration completely",
-                provider=provider,
+                provider=provider_id,
                 workspace_id=self.workspace_id,
             )
 

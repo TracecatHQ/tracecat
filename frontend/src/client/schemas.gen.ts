@@ -3285,13 +3285,55 @@ export const $IntegrationRead = {
   description: "Response model for user integration.",
 } as const
 
+export const $IntegrationStatus = {
+  properties: {
+    connected: {
+      type: "boolean",
+      title: "Connected",
+    },
+    configured: {
+      type: "boolean",
+      title: "Configured",
+    },
+    provider: {
+      type: "string",
+      title: "Provider",
+    },
+    expires_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Expires At",
+    },
+    is_expired: {
+      type: "boolean",
+      title: "Is Expired",
+    },
+    needs_refresh: {
+      type: "boolean",
+      title: "Needs Refresh",
+    },
+  },
+  type: "object",
+  required: [
+    "connected",
+    "configured",
+    "provider",
+    "expires_at",
+    "is_expired",
+    "needs_refresh",
+  ],
+  title: "IntegrationStatus",
+} as const
+
 export const $IntegrationUpdate = {
   properties: {
-    provider_id: {
-      type: "string",
-      title: "Provider Id",
-      description: "The provider identifier",
-    },
     client_id: {
       type: "string",
       minLength: 1,
@@ -3304,14 +3346,14 @@ export const $IntegrationUpdate = {
       title: "Client Secret",
       description: "OAuth client secret for the provider",
     },
-    config: {
+    provider_config: {
       type: "object",
-      title: "Config",
+      title: "Provider Config",
       description: "Provider-specific configuration",
     },
   },
   type: "object",
-  required: ["provider_id", "client_id", "client_secret", "config"],
+  required: ["client_id", "client_secret", "provider_config"],
   title: "IntegrationUpdate",
   description: "Request model for updating an integration.",
 } as const
