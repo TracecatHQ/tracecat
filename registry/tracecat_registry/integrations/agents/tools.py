@@ -518,6 +518,10 @@ def create_secure_file_tools(temp_dir: str) -> list[Tool]:
         """
         return apply(value, lambda_function)
 
+    def raise_error(error_message: str) -> None:
+        """Raise an error with a custom message to be displayed to the user."""
+        raise ModelRetry(error_message)
+
     # Return secure tools
     return [
         Tool(
@@ -565,6 +569,11 @@ def create_secure_file_tools(temp_dir: str) -> list[Tool]:
             description="Run a Python lambda function, given as a string, on a value.",
             function=apply_python_lambda,
         ),
+        Tool(
+            name="raise_error",
+            description="Raise an error with a custom message to be displayed to the user.",
+            function=raise_error,
+        ),
     ]
 
 
@@ -592,6 +601,7 @@ When the user requests file modifications, use the file modification tools to ac
    - `jsonpath_find` - Search JSON files using JSONPath expressions
    - `jsonpath_find_and_replace` - Modify JSON files
    - `apply_python_lambda` - Transform data with Python functions
+   - `raise_error` - Raise an error with a custom message to be displayed to the user
 
 2. For file modifications:
    - Use `find_and_replace` to change existing files
@@ -612,7 +622,15 @@ When the user requests file modifications, use the file modification tools to ac
 - Use `apply_python_lambda` to process and transform file contents
 - Use `search_files` when you need to locate files by partial names
 - Verify changes with `read_file` after modifications
+- If you encounter an error, use `raise_error` to display a message to the user
 </best_practices>
+
+<error_handling>
+- Use `raise_error` when a <task> requires clarification or missing information
+- Be specific about what's needed: "Missing API key" not "Cannot proceed"
+- Stop execution immediately - don't attempt workarounds or assumptions
+</error_handling>
+
 </file_interaction_guidelines>"""
     else:
         return """<file_interaction_guidelines>
