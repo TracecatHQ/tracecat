@@ -151,7 +151,7 @@ def extract_payload(payload: temporalio.api.common.v1.Payloads, index: int = 0) 
     try:
         return orjson.loads(raw_data)
     except orjson.JSONDecodeError as e:
-        logger.warning(
+        logger.debug(
             "Failed to decode JSON data, attemping to decode as string",
             raw_data=raw_data,
             e=e,
@@ -160,7 +160,7 @@ def extract_payload(payload: temporalio.api.common.v1.Payloads, index: int = 0) 
     try:
         return raw_data.decode()
     except UnicodeDecodeError:
-        logger.warning("Failed to decode data as string, returning raw bytes")
+        logger.debug("Failed to decode data as string, returning raw bytes")
         return raw_data
 
 
