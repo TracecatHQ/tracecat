@@ -6,6 +6,7 @@ import { SidebarIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
+import { WorkflowBuilderErrorBoundary } from "@/components/error-boundaries"
 import {
   CustomResizableHandle,
   ResizablePanel,
@@ -72,16 +73,17 @@ export function Builder({ defaultLayout = [0, 68, 24] }: BuilderProps) {
   }, [toggleActionPanel])
 
   return (
-    <TooltipProvider delayDuration={0}>
-      <ResizablePanelGroup
-        className="h-full"
-        direction="horizontal"
-        onLayout={(sizes: number[]) => {
-          document.cookie = `react-resizable-panels:layout=${JSON.stringify(
-            sizes
-          )}`
-        }}
-      >
+    <WorkflowBuilderErrorBoundary>
+      <TooltipProvider delayDuration={0}>
+        <ResizablePanelGroup
+          className="h-full"
+          direction="horizontal"
+          onLayout={(sizes: number[]) => {
+            document.cookie = `react-resizable-panels:layout=${JSON.stringify(
+              sizes
+            )}`
+          }}
+        >
         <ResizablePanel
           ref={sidebarRef}
           defaultSize={defaultLayout[0]}
@@ -154,5 +156,6 @@ export function Builder({ defaultLayout = [0, 68, 24] }: BuilderProps) {
         </ResizablePanel>
       </ResizablePanelGroup>
     </TooltipProvider>
+    </WorkflowBuilderErrorBoundary>
   )
 }

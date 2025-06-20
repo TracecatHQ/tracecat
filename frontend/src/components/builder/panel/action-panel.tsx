@@ -109,6 +109,7 @@ import {
   useYamlEditorContext,
   YamlEditorProvider,
 } from "@/components/editor/yaml-editor-context"
+import { SectionErrorBoundary } from "@/components/error-boundaries"
 import { ForEachField } from "@/components/form/for-each-field"
 import { getIcon } from "@/components/icons"
 import { JSONSchemaTable } from "@/components/jsonschema-table"
@@ -760,749 +761,768 @@ function ActionPanelContent({
               <Separator />
               <div className="w-full overflow-x-auto">
                 <TabsContent value="inputs">
-                  {/* Metadata */}
-                  <Accordion
-                    type="multiple"
-                    defaultValue={["action-inputs"]}
-                    className="pb-10"
-                  >
-                    {/* Interaction */}
-                    {appSettings?.app_interactions_enabled &&
-                      PERMITTED_INTERACTION_ACTIONS.includes(
-                        registryAction.action as (typeof PERMITTED_INTERACTION_ACTIONS)[number]
-                      ) && (
-                        <AccordionItem value="action-interaction">
-                          <AccordionTrigger className="px-4 text-xs font-bold">
-                            <div className="flex items-center">
-                              <MessagesSquare className="mr-3 size-4" />
-                              <span>Interaction</span>
-                            </div>
-                          </AccordionTrigger>
-                          <AccordionContent>
-                            <div className="my-4 space-y-2 px-4">
-                              {/* Toggle for enabling interaction */}
-                              <FormField
-                                control={methods.control}
-                                name="is_interactive"
-                                render={({ field }) => (
-                                  <FormItem>
-                                    <div className="flex items-center gap-2">
-                                      <FormControl>
-                                        <Switch
-                                          checked={field.value}
-                                          onCheckedChange={field.onChange}
-                                        />
-                                      </FormControl>
-                                      <FormLabel className="text-xs">
-                                        Enable interaction
-                                      </FormLabel>
-                                    </div>
-                                    <FormMessage className="whitespace-pre-line" />
-                                  </FormItem>
-                                )}
-                              />
-
-                              {/* Interaction settings - only shown when interaction is enabled */}
-                              {isInteractive && (
-                                <>
-                                  <FormField
-                                    control={methods.control}
-                                    name="interaction.type"
-                                    render={({ field }) => (
-                                      <FormItem>
-                                        <FormLabel className="text-xs">
-                                          Type
-                                        </FormLabel>
-                                        <FormControl>
-                                          <Select
-                                            value={field.value}
-                                            onValueChange={field.onChange}
-                                          >
-                                            <SelectTrigger className="text-xs">
-                                              <SelectValue
-                                                placeholder="Select a type..."
-                                                className="text-xs"
-                                              />
-                                            </SelectTrigger>
-                                            <SelectContent className="w-full text-xs">
-                                              <SelectItem
-                                                value="response"
-                                                className="text-xs"
-                                              >
-                                                Response
-                                              </SelectItem>
-                                              <SelectItem
-                                                value="approval"
-                                                className="text-xs"
-                                                disabled
-                                              >
-                                                <span>Approval</span>
-                                                <Badge
-                                                  variant="outline"
-                                                  className="ml-4 text-xs font-normal"
-                                                >
-                                                  Coming soon
-                                                </Badge>
-                                              </SelectItem>
-                                              <SelectItem
-                                                value="mfa"
-                                                className="text-xs"
-                                                disabled
-                                              >
-                                                <span>
-                                                  Multi-factor Authentication
-                                                </span>
-                                                <Badge
-                                                  variant="outline"
-                                                  className="ml-4 text-xs font-normal"
-                                                >
-                                                  Coming soon
-                                                </Badge>
-                                              </SelectItem>
-                                              <SelectItem
-                                                value="form"
-                                                className="text-xs"
-                                                disabled
-                                              >
-                                                <span>Form</span>
-                                                <Badge
-                                                  variant="outline"
-                                                  className="ml-4 text-xs font-normal"
-                                                >
-                                                  Coming soon
-                                                </Badge>
-                                              </SelectItem>
-                                            </SelectContent>
-                                          </Select>
-                                        </FormControl>
-                                        <FormMessage className="whitespace-pre-line" />
-                                      </FormItem>
-                                    )}
-                                  />
-
-                                  {interactionType === "response" && (
-                                    <div className="space-y-2">
-                                      <FormDescription className="text-xs">
-                                        The action will only complete when it
-                                        receives a response.
-                                      </FormDescription>
-                                      <FormField
-                                        control={methods.control}
-                                        name="interaction.timeout"
-                                        render={({ field }) => (
-                                          <FormItem>
-                                            <FormLabel className="text-xs">
-                                              Timeout
-                                            </FormLabel>
-                                            <FormControl>
-                                              <Input
-                                                disabled
-                                                type="number"
-                                                value={field.value || ""}
-                                                onChange={field.onChange}
-                                                placeholder="Timeout in seconds"
-                                                className="text-xs"
-                                              />
-                                            </FormControl>
-                                            <FormMessage className="whitespace-pre-line" />
-                                          </FormItem>
-                                        )}
-                                      />
-                                    </div>
-                                  )}
-                                </>
-                              )}
-                            </div>
-                          </AccordionContent>
-                        </AccordionItem>
-                      )}
-
-                    {/* Schema */}
-                    <AccordionItem value="action-schema">
-                      <AccordionTrigger className="px-4 text-xs font-bold">
-                        <div className="flex items-center">
-                          <ShapesIcon className="mr-3 size-4" />
-                          <span>Input schema</span>
-                        </div>
-                      </AccordionTrigger>
-                      <AccordionContent className="space-y-4">
-                        {/* Action secrets */}
-                        <div className="space-y-4 px-4">
-                          {registryAction.secrets &&
-                          registryAction.secrets.length > 0 ? (
-                            <div className="text-xs text-muted-foreground">
-                              <span>
-                                This action requires the following secrets:
-                              </span>
-                              <Table>
-                                <TableHeader>
-                                  <TableRow className="h-6  text-xs capitalize">
-                                    <TableHead
-                                      className="font-bold"
-                                      colSpan={1}
-                                    >
-                                      Secret Name
-                                    </TableHead>
-                                    <TableHead
-                                      className="font-bold"
-                                      colSpan={1}
-                                    >
-                                      Required Keys
-                                    </TableHead>
-                                    <TableHead
-                                      className="font-bold"
-                                      colSpan={1}
-                                    >
-                                      Optional Keys
-                                    </TableHead>
-                                  </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                  {registryAction.secrets.map((secret, idx) => (
-                                    <TableRow
-                                      key={idx}
-                                      className="font-mono text-xs tracking-tight text-muted-foreground"
-                                    >
-                                      <TableCell>{secret.name}</TableCell>
-                                      <TableCell>
-                                        {secret.keys?.join(", ") || "-"}
-                                      </TableCell>
-                                      <TableCell>
-                                        {secret.optional_keys?.join(", ") ||
-                                          "-"}
-                                      </TableCell>
-                                    </TableRow>
-                                  ))}
-                                </TableBody>
-                              </Table>
-                            </div>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">
-                              No secrets required.
-                            </span>
-                          )}
-                        </div>
-                        {/* Action inputs */}
-                        {inputMode === "yaml" && (
-                          <div className="space-y-4 px-4">
-                            <span className="text-xs text-muted-foreground">
-                              Hover over each row for details.
-                            </span>
-                            <JSONSchemaTable
-                              schema={
-                                registryAction.interface
-                                  .expects as TracecatJsonSchema
-                              }
-                            />
-                          </div>
-                        )}
-                      </AccordionContent>
-                    </AccordionItem>
-
-                    {/* Inputs */}
-                    <AccordionItem value="action-inputs">
-                      <AccordionTrigger className="px-4 text-xs font-bold">
-                        <div className="flex items-center">
-                          <LayoutListIcon className="mr-3 size-4" />
-                          <span>Inputs</span>
-                        </div>
-                      </AccordionTrigger>
-                      <AccordionContent>
-                        <div className="mb-8 flex flex-col space-y-4 px-4">
-                          {finalValErrors.length > 0 && (
-                            <ValidationErrorView
-                              validationErrors={finalValErrors}
-                              side="left"
-                              className="max-w-[600px]"
-                            >
-                              <div className="flex items-center space-x-2">
-                                <AlertTriangleIcon className="size-4 fill-rose-500 stroke-white" />
-                                <span className="pointer-events-none text-xs text-rose-500">
-                                  Hover to view errors.
-                                </span>
-                              </div>
-                            </ValidationErrorView>
-                          )}
-                          {/* Input Mode Toggle */}
-                          <div className="flex flex-col space-y-2">
-                            <div className="flex items-center justify-between">
-                              <span className="text-xs text-muted-foreground">
-                                {inputMode === "form"
-                                  ? "Define action inputs using form fields below."
-                                  : "Define action inputs in YAML below."}
-                              </span>
-                              <ToggleTabs
-                                options={
-                                  [
-                                    {
-                                      value: "form",
-                                      content: (
-                                        <div className="flex items-center gap-1">
-                                          <ListIcon className="size-3" />
-                                          <span className="text-xs">Form</span>
-                                        </div>
-                                      ),
-                                      tooltip: "Use form fields",
-                                      ariaLabel: "Form mode",
-                                    },
-                                    {
-                                      value: "yaml",
-                                      content: (
-                                        <div className="flex items-center gap-1">
-                                          <CodeIcon className="size-3" />
-                                          <span className="text-xs">YAML</span>
-                                        </div>
-                                      ),
-                                      tooltip: "Use YAML editor",
-                                      ariaLabel: "YAML mode",
-                                    },
-                                  ] as ToggleTabOption<InputMode>[]
-                                }
-                                value={inputMode}
-                                onValueChange={handleModeChange}
-                                size="sm"
-                                className="w-auto"
-                              />
-                            </div>
-                          </div>
-                          {inputMode === "yaml" && (
-                            /* YAML Mode - Preserve raw YAML */
-                            <ControlledYamlField
-                              label="Inputs"
-                              fieldName="inputs"
-                            />
-                          )}
-                          {inputMode === "form" && (
-                            <>
-                              {/* Required fields - always shown */}
-                              {requiredFields.map(([fieldName, fieldDefn]) => {
-                                const fullFieldName = `inputs.${fieldName}`
-                                const label = fieldName
-                                  .replaceAll("_", " ")
-                                  .replace(/^\w/, (c) => c.toUpperCase())
-                                if (!isTracecatJsonSchema(fieldDefn)) {
-                                  // For non-TracecatJsonSchema, we can't extract type information
-                                  return (
-                                    <ControlledYamlField
-                                      key={fieldName}
-                                      label={label}
-                                      fieldName={fullFieldName}
-                                      info="Please sync your base actions repository to get the latest field schema."
-                                    />
-                                  )
-                                }
-
-                                return (
-                                  <PolymorphicField
-                                    key={fieldName}
-                                    label={label}
-                                    fieldName={fullFieldName}
-                                    fieldDefn={fieldDefn}
-                                  />
-                                )
-                              })}
-
-                              {/* Optional fields - only shown if in visibleOptionalFields */}
-                              {optionalFields
-                                .filter(([fieldName]) =>
-                                  visibleOptionalFields.has(fieldName)
-                                )
-                                .map(([fieldName, fieldDefn]) => {
-                                  const fullFieldName = `inputs.${fieldName}`
-                                  const label = fieldName
-                                    .replaceAll("_", " ")
-                                    .replace(/^\w/, (c) => c.toUpperCase())
-                                  if (!isTracecatJsonSchema(fieldDefn)) {
-                                    // For non-TracecatJsonSchema, we can't extract type information
-                                    return (
-                                      <ControlledYamlField
-                                        key={fieldName}
-                                        label={label}
-                                        fieldName={fullFieldName}
-                                      />
-                                    )
-                                  }
-
-                                  return (
-                                    <PolymorphicField
-                                      key={fieldName}
-                                      label={label}
-                                      fieldName={fullFieldName}
-                                      fieldDefn={fieldDefn}
-                                    />
-                                  )
-                                })}
-
-                              {/* Add optional fields dropdown */}
-                              {optionalFields.length > 0 && (
-                                <div className="mt-4">
-                                  <DropdownMenu>
-                                    <DropdownMenuTrigger asChild>
-                                      <Button
-                                        variant="outline"
-                                        size="sm"
-                                        className="w-full"
-                                      >
-                                        <Plus className="mr-2 size-4" />
-                                        Optional fields
-                                      </Button>
-                                    </DropdownMenuTrigger>
-                                    <DropdownMenuContent
-                                      align="start"
-                                      className="max-w-96"
-                                    >
-                                      {optionalFields.map(
-                                        ([fieldName, fieldDefn]) => {
-                                          const label = fieldName
-                                            .replaceAll("_", " ")
-                                            .replace(/^\w/, (c) =>
-                                              c.toUpperCase()
-                                            )
-                                          const isVisible =
-                                            visibleOptionalFields.has(fieldName)
-                                          const description =
-                                            isTracecatJsonSchema(fieldDefn)
-                                              ? fieldDefn.description
-                                              : null
-                                          return (
-                                            <DropdownMenuCheckboxItem
-                                              key={fieldName}
-                                              checked={isVisible}
-                                              onCheckedChange={(checked) => {
-                                                if (checked) {
-                                                  // Show the field
-                                                  setManuallyVisibleFields(
-                                                    (prev) =>
-                                                      new Set([
-                                                        ...prev,
-                                                        fieldName,
-                                                      ])
-                                                  )
-                                                  setManuallyHiddenFields(
-                                                    (prev) => {
-                                                      const newSet = new Set(
-                                                        prev
-                                                      )
-                                                      newSet.delete(fieldName)
-                                                      return newSet
-                                                    }
-                                                  )
-                                                } else {
-                                                  // Hide the field
-                                                  setManuallyHiddenFields(
-                                                    (prev) =>
-                                                      new Set([
-                                                        ...prev,
-                                                        fieldName,
-                                                      ])
-                                                  )
-                                                  setManuallyVisibleFields(
-                                                    (prev) => {
-                                                      const newSet = new Set(
-                                                        prev
-                                                      )
-                                                      newSet.delete(fieldName)
-                                                      return newSet
-                                                    }
-                                                  )
-                                                  // Remove field from form state when hiding
-                                                  const currentInputs =
-                                                    methods.getValues("inputs")
-                                                  const {
-                                                    [fieldName]: _removed,
-                                                    ...remainingInputs
-                                                  } = currentInputs
-                                                  methods.setValue(
-                                                    "inputs",
-                                                    remainingInputs
-                                                  )
-                                                  methods.unregister(
-                                                    `inputs.${fieldName}`
-                                                  )
-                                                }
-                                              }}
-                                            >
-                                              <div className="flex flex-col gap-1">
-                                                <span className="font-medium">
-                                                  {label}
-                                                </span>
-                                                {description && (
-                                                  <span className="text-xs text-muted-foreground">
-                                                    {description.endsWith(".")
-                                                      ? description
-                                                      : `${description}.`}
-                                                  </span>
-                                                )}
-                                              </div>
-                                            </DropdownMenuCheckboxItem>
-                                          )
-                                        }
-                                      )}
-                                    </DropdownMenuContent>
-                                  </DropdownMenu>
-                                </div>
-                              )}
-                            </>
-                          )}
-                        </div>
-                      </AccordionContent>
-                    </AccordionItem>
-                  </Accordion>
-                </TabsContent>
-                <TabsContent value="control-flow">
-                  <div className="mt-6 space-y-8 px-4">
-                    {/* Run if */}
-                    <ControlFlowField
-                      label="Run if"
-                      description="Define a conditional expression that determines if the action executes."
-                      tooltip={<RunIfTooltip />}
-                    >
-                      <FormField
-                        name="run_if"
-                        control={methods.control}
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormMessage className="whitespace-pre-line" />
-                            <FormControl>
-                              <ExpressionInput
-                                value={field.value}
-                                onChange={field.onChange}
-                              />
-                            </FormControl>
-                          </FormItem>
-                        )}
-                      />
-                    </ControlFlowField>
-
-                    {/* Loop */}
-                    <ControlFlowField
-                      label="For each"
-                      description="Define one or more loop expressions for the action to iterate over."
-                      tooltip={<ForEachTooltip />}
-                    >
-                      <ForEachField />
-                    </ControlFlowField>
-                    {/* Other options */}
-
-                    <ControlFlowField
-                      label="Start delay"
-                      description="Define a delay before the action starts."
-                      tooltip={<StartDelayTooltip />}
-                    >
-                      <FormField
-                        name="start_delay"
-                        control={methods.control}
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormMessage className="whitespace-pre-line" />
-                            <FormControl>
-                              <Input
-                                type="number"
-                                value={field.value || ""}
-                                onChange={(e) =>
-                                  field.onChange(
-                                    e.target.value
-                                      ? parseFloat(e.target.value)
-                                      : undefined
-                                  )
-                                }
-                                placeholder="0.0"
-                                className="text-xs"
-                              />
-                            </FormControl>
-                          </FormItem>
-                        )}
-                      />
-                    </ControlFlowField>
-
-                    {/* Max attempts */}
-                    <ControlFlowField
-                      label="Max attempts"
-                      description="Define the maximum number of retry attempts for the action."
-                      tooltip={<MaxAttemptsTooltip />}
-                    >
-                      <FormField
-                        name="max_attempts"
-                        control={methods.control}
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormMessage className="whitespace-pre-line" />
-                            <FormControl>
-                              <Input
-                                type="number"
-                                value={field.value || ""}
-                                onChange={(e) =>
-                                  field.onChange(
-                                    e.target.value
-                                      ? parseInt(e.target.value)
-                                      : undefined
-                                  )
-                                }
-                                placeholder="1"
-                                className="text-xs"
-                              />
-                            </FormControl>
-                          </FormItem>
-                        )}
-                      />
-                    </ControlFlowField>
-
-                    {/* Timeout */}
-                    <ControlFlowField
-                      label="Timeout"
-                      description="Define the timeout in seconds for the action."
-                      tooltip={<TimeoutTooltip />}
-                    >
-                      <FormField
-                        name="timeout"
-                        control={methods.control}
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormMessage className="whitespace-pre-line" />
-                            <FormControl>
-                              <Input
-                                type="number"
-                                value={field.value || ""}
-                                onChange={(e) =>
-                                  field.onChange(
-                                    e.target.value
-                                      ? parseInt(e.target.value)
-                                      : undefined
-                                  )
-                                }
-                                placeholder="300"
-                                className="text-xs"
-                              />
-                            </FormControl>
-                          </FormItem>
-                        )}
-                      />
-                    </ControlFlowField>
-
-                    {/* Retry until */}
-                    <ControlFlowField
-                      label="Retry until"
-                      description="Define a conditional expression that determines when to stop retrying."
-                      tooltip={<RetryUntilTooltip />}
-                    >
-                      <FormField
-                        name="retry_until"
-                        control={methods.control}
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormMessage className="whitespace-pre-line" />
-                            <FormControl>
-                              <ExpressionInput
-                                value={field.value || ""}
-                                onChange={field.onChange}
-                              />
-                            </FormControl>
-                          </FormItem>
-                        )}
-                      />
-                    </ControlFlowField>
-
-                    {/* Join strategy */}
-                    <ControlFlowField
-                      label="Join strategy"
-                      description="Define how to handle results when the action runs in parallel."
-                      tooltip={<JoinStrategyTooltip />}
-                    >
-                      <FormField
-                        name="join_strategy"
-                        control={methods.control}
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormMessage className="whitespace-pre-line" />
-                            <FormControl>
-                              <Select
-                                value={field.value || ""}
-                                onValueChange={field.onChange}
-                              >
-                                <SelectTrigger className="text-xs">
-                                  <SelectValue
-                                    placeholder="Select strategy..."
-                                    className="text-xs"
-                                  />
-                                </SelectTrigger>
-                                <SelectContent className="w-full text-xs">
-                                  {$JoinStrategy.enum.map((strategy) => (
-                                    <SelectItem
-                                      key={strategy}
-                                      value={strategy}
-                                      className="text-xs"
-                                    >
-                                      {strategy.charAt(0).toUpperCase() +
-                                        strategy.slice(1)}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            </FormControl>
-                          </FormItem>
-                        )}
-                      />
-                    </ControlFlowField>
-
-                    {/* Wait until */}
-                    <ControlFlowField
-                      label="Wait until"
-                      description="Define a conditional expression that determines when the action can proceed."
-                      tooltip={<WaitUntilTooltip />}
-                    >
-                      <FormField
-                        name="wait_until"
-                        control={methods.control}
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormMessage className="whitespace-pre-line" />
-                            <FormControl>
-                              <ExpressionInput
-                                value={field.value || ""}
-                                onChange={field.onChange}
-                              />
-                            </FormControl>
-                          </FormItem>
-                        )}
-                      />
-                    </ControlFlowField>
-                  </div>
-                </TabsContent>
-                {/* Template */}
-                {registryAction?.implementation && (
-                  <TabsContent value="template-inputs">
+                  <SectionErrorBoundary>
+                    {/* Metadata */}
                     <Accordion
                       type="multiple"
-                      defaultValue={["action-template"]}
+                      defaultValue={["action-inputs"]}
                       className="pb-10"
                     >
-                      <AccordionItem value="action-template">
+                      {/* Interaction */}
+                      {appSettings?.app_interactions_enabled &&
+                        PERMITTED_INTERACTION_ACTIONS.includes(
+                          registryAction.action as (typeof PERMITTED_INTERACTION_ACTIONS)[number]
+                        ) && (
+                          <AccordionItem value="action-interaction">
+                            <AccordionTrigger className="px-4 text-xs font-bold">
+                              <div className="flex items-center">
+                                <MessagesSquare className="mr-3 size-4" />
+                                <span>Interaction</span>
+                              </div>
+                            </AccordionTrigger>
+                            <AccordionContent>
+                              <div className="my-4 space-y-2 px-4">
+                                {/* Toggle for enabling interaction */}
+                                <FormField
+                                  control={methods.control}
+                                  name="is_interactive"
+                                  render={({ field }) => (
+                                    <FormItem>
+                                      <div className="flex items-center gap-2">
+                                        <FormControl>
+                                          <Switch
+                                            checked={field.value}
+                                            onCheckedChange={field.onChange}
+                                          />
+                                        </FormControl>
+                                        <FormLabel className="text-xs">
+                                          Enable interaction
+                                        </FormLabel>
+                                      </div>
+                                      <FormMessage className="whitespace-pre-line" />
+                                    </FormItem>
+                                  )}
+                                />
+
+                                {/* Interaction settings - only shown when interaction is enabled */}
+                                {isInteractive && (
+                                  <>
+                                    <FormField
+                                      control={methods.control}
+                                      name="interaction.type"
+                                      render={({ field }) => (
+                                        <FormItem>
+                                          <FormLabel className="text-xs">
+                                            Type
+                                          </FormLabel>
+                                          <FormControl>
+                                            <Select
+                                              value={field.value}
+                                              onValueChange={field.onChange}
+                                            >
+                                              <SelectTrigger className="text-xs">
+                                                <SelectValue
+                                                  placeholder="Select a type..."
+                                                  className="text-xs"
+                                                />
+                                              </SelectTrigger>
+                                              <SelectContent className="w-full text-xs">
+                                                <SelectItem
+                                                  value="response"
+                                                  className="text-xs"
+                                                >
+                                                  Response
+                                                </SelectItem>
+                                                <SelectItem
+                                                  value="approval"
+                                                  className="text-xs"
+                                                  disabled
+                                                >
+                                                  <span>Approval</span>
+                                                  <Badge
+                                                    variant="outline"
+                                                    className="ml-4 text-xs font-normal"
+                                                  >
+                                                    Coming soon
+                                                  </Badge>
+                                                </SelectItem>
+                                                <SelectItem
+                                                  value="mfa"
+                                                  className="text-xs"
+                                                  disabled
+                                                >
+                                                  <span>
+                                                    Multi-factor Authentication
+                                                  </span>
+                                                  <Badge
+                                                    variant="outline"
+                                                    className="ml-4 text-xs font-normal"
+                                                  >
+                                                    Coming soon
+                                                  </Badge>
+                                                </SelectItem>
+                                                <SelectItem
+                                                  value="form"
+                                                  className="text-xs"
+                                                  disabled
+                                                >
+                                                  <span>Form</span>
+                                                  <Badge
+                                                    variant="outline"
+                                                    className="ml-4 text-xs font-normal"
+                                                  >
+                                                    Coming soon
+                                                  </Badge>
+                                                </SelectItem>
+                                              </SelectContent>
+                                            </Select>
+                                          </FormControl>
+                                          <FormMessage className="whitespace-pre-line" />
+                                        </FormItem>
+                                      )}
+                                    />
+
+                                    {interactionType === "response" && (
+                                      <div className="space-y-2">
+                                        <FormDescription className="text-xs">
+                                          The action will only complete when it
+                                          receives a response.
+                                        </FormDescription>
+                                        <FormField
+                                          control={methods.control}
+                                          name="interaction.timeout"
+                                          render={({ field }) => (
+                                            <FormItem>
+                                              <FormLabel className="text-xs">
+                                                Timeout
+                                              </FormLabel>
+                                              <FormControl>
+                                                <Input
+                                                  disabled
+                                                  type="number"
+                                                  value={field.value || ""}
+                                                  onChange={field.onChange}
+                                                  placeholder="Timeout in seconds"
+                                                  className="text-xs"
+                                                />
+                                              </FormControl>
+                                              <FormMessage className="whitespace-pre-line" />
+                                            </FormItem>
+                                          )}
+                                        />
+                                      </div>
+                                    )}
+                                  </>
+                                )}
+                              </div>
+                            </AccordionContent>
+                          </AccordionItem>
+                        )}
+
+                      {/* Schema */}
+                      <AccordionItem value="action-schema">
                         <AccordionTrigger className="px-4 text-xs font-bold">
                           <div className="flex items-center">
-                            <FileTextIcon className="mr-3 size-4" />
-                            <span>Template Definition</span>
+                            <ShapesIcon className="mr-3 size-4" />
+                            <span>Input schema</span>
                           </div>
                         </AccordionTrigger>
                         <AccordionContent className="space-y-4">
-                          <div className="flex flex-col space-y-4 px-4">
-                            <span className="text-xs text-muted-foreground">
-                              Template action definition in YAML format.
-                            </span>
-                            <YamlViewOnlyEditor
-                              value={stringifyYaml(
-                                "type" in registryAction.implementation &&
-                                  registryAction.implementation.type ===
-                                    "template"
-                                  ? registryAction.implementation
-                                      .template_action
-                                  : {}
-                              )}
-                              className="size-full"
-                            />
+                          {/* Action secrets */}
+                          <div className="space-y-4 px-4">
+                            {registryAction.secrets &&
+                            registryAction.secrets.length > 0 ? (
+                              <div className="text-xs text-muted-foreground">
+                                <span>
+                                  This action requires the following secrets:
+                                </span>
+                                <Table>
+                                  <TableHeader>
+                                    <TableRow className="h-6  text-xs capitalize">
+                                      <TableHead
+                                        className="font-bold"
+                                        colSpan={1}
+                                      >
+                                        Secret Name
+                                      </TableHead>
+                                      <TableHead
+                                        className="font-bold"
+                                        colSpan={1}
+                                      >
+                                        Required Keys
+                                      </TableHead>
+                                      <TableHead
+                                        className="font-bold"
+                                        colSpan={1}
+                                      >
+                                        Optional Keys
+                                      </TableHead>
+                                    </TableRow>
+                                  </TableHeader>
+                                  <TableBody>
+                                    {registryAction.secrets.map(
+                                      (secret, idx) => (
+                                        <TableRow
+                                          key={idx}
+                                          className="font-mono text-xs tracking-tight text-muted-foreground"
+                                        >
+                                          <TableCell>{secret.name}</TableCell>
+                                          <TableCell>
+                                            {secret.keys?.join(", ") || "-"}
+                                          </TableCell>
+                                          <TableCell>
+                                            {secret.optional_keys?.join(", ") ||
+                                              "-"}
+                                          </TableCell>
+                                        </TableRow>
+                                      )
+                                    )}
+                                  </TableBody>
+                                </Table>
+                              </div>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">
+                                No secrets required.
+                              </span>
+                            )}
+                          </div>
+                          {/* Action inputs */}
+                          {inputMode === "yaml" && (
+                            <div className="space-y-4 px-4">
+                              <span className="text-xs text-muted-foreground">
+                                Hover over each row for details.
+                              </span>
+                              <JSONSchemaTable
+                                schema={
+                                  registryAction.interface
+                                    .expects as TracecatJsonSchema
+                                }
+                              />
+                            </div>
+                          )}
+                        </AccordionContent>
+                      </AccordionItem>
+
+                      {/* Inputs */}
+                      <AccordionItem value="action-inputs">
+                        <AccordionTrigger className="px-4 text-xs font-bold">
+                          <div className="flex items-center">
+                            <LayoutListIcon className="mr-3 size-4" />
+                            <span>Inputs</span>
+                          </div>
+                        </AccordionTrigger>
+                        <AccordionContent>
+                          <div className="mb-8 flex flex-col space-y-4 px-4">
+                            {finalValErrors.length > 0 && (
+                              <ValidationErrorView
+                                validationErrors={finalValErrors}
+                                side="left"
+                                className="max-w-[600px]"
+                              >
+                                <div className="flex items-center space-x-2">
+                                  <AlertTriangleIcon className="size-4 fill-rose-500 stroke-white" />
+                                  <span className="pointer-events-none text-xs text-rose-500">
+                                    Hover to view errors.
+                                  </span>
+                                </div>
+                              </ValidationErrorView>
+                            )}
+                            {/* Input Mode Toggle */}
+                            <div className="flex flex-col space-y-2">
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs text-muted-foreground">
+                                  {inputMode === "form"
+                                    ? "Define action inputs using form fields below."
+                                    : "Define action inputs in YAML below."}
+                                </span>
+                                <ToggleTabs
+                                  options={
+                                    [
+                                      {
+                                        value: "form",
+                                        content: (
+                                          <div className="flex items-center gap-1">
+                                            <ListIcon className="size-3" />
+                                            <span className="text-xs">
+                                              Form
+                                            </span>
+                                          </div>
+                                        ),
+                                        tooltip: "Use form fields",
+                                        ariaLabel: "Form mode",
+                                      },
+                                      {
+                                        value: "yaml",
+                                        content: (
+                                          <div className="flex items-center gap-1">
+                                            <CodeIcon className="size-3" />
+                                            <span className="text-xs">
+                                              YAML
+                                            </span>
+                                          </div>
+                                        ),
+                                        tooltip: "Use YAML editor",
+                                        ariaLabel: "YAML mode",
+                                      },
+                                    ] as ToggleTabOption<InputMode>[]
+                                  }
+                                  value={inputMode}
+                                  onValueChange={handleModeChange}
+                                  size="sm"
+                                  className="w-auto"
+                                />
+                              </div>
+                            </div>
+
+                            {inputMode === "yaml" && (
+                              /* YAML Mode - Preserve raw YAML */
+                              <ControlledYamlField
+                                label="Inputs"
+                                fieldName="inputs"
+                              />
+                            )}
+                            {inputMode === "form" && (
+                              <>
+                                {/* Required fields - always shown */}
+                                {requiredFields.map(
+                                  ([fieldName, fieldDefn]) => {
+                                    const fullFieldName = `inputs.${fieldName}`
+                                    const label = fieldName
+                                      .replaceAll("_", " ")
+                                      .replace(/^\w/, (c) => c.toUpperCase())
+                                    if (!isTracecatJsonSchema(fieldDefn)) {
+                                      // For non-TracecatJsonSchema, we can't extract type information
+                                      return (
+                                        <ControlledYamlField
+                                          key={fieldName}
+                                          label={label}
+                                          fieldName={fullFieldName}
+                                          info="Please sync your base actions repository to get the latest field schema."
+                                        />
+                                      )
+                                    }
+
+                                    return (
+                                      <PolymorphicField
+                                        key={fieldName}
+                                        label={label}
+                                        fieldName={fullFieldName}
+                                        fieldDefn={fieldDefn}
+                                      />
+                                    )
+                                  }
+                                )}
+
+                                {/* Optional fields - only shown if in visibleOptionalFields */}
+                                {optionalFields
+                                  .filter(([fieldName]) =>
+                                    visibleOptionalFields.has(fieldName)
+                                  )
+                                  .map(([fieldName, fieldDefn]) => {
+                                    const fullFieldName = `inputs.${fieldName}`
+                                    const label = fieldName
+                                      .replaceAll("_", " ")
+                                      .replace(/^\w/, (c) => c.toUpperCase())
+                                    if (!isTracecatJsonSchema(fieldDefn)) {
+                                      // For non-TracecatJsonSchema, we can't extract type information
+                                      return (
+                                        <ControlledYamlField
+                                          key={fieldName}
+                                          label={label}
+                                          fieldName={fullFieldName}
+                                        />
+                                      )
+                                    }
+
+                                    return (
+                                      <PolymorphicField
+                                        key={fieldName}
+                                        label={label}
+                                        fieldName={fullFieldName}
+                                        fieldDefn={fieldDefn}
+                                      />
+                                    )
+                                  })}
+
+                                {/* Add optional fields dropdown */}
+                                {optionalFields.length > 0 && (
+                                  <div className="mt-4">
+                                    <DropdownMenu>
+                                      <DropdownMenuTrigger asChild>
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          className="w-full"
+                                        >
+                                          <Plus className="mr-2 size-4" />
+                                          Optional fields
+                                        </Button>
+                                      </DropdownMenuTrigger>
+                                      <DropdownMenuContent
+                                        align="start"
+                                        className="max-w-96"
+                                      >
+                                        {optionalFields.map(
+                                          ([fieldName, fieldDefn]) => {
+                                            const label = fieldName
+                                              .replaceAll("_", " ")
+                                              .replace(/^\w/, (c) =>
+                                                c.toUpperCase()
+                                              )
+                                            const isVisible =
+                                              visibleOptionalFields.has(
+                                                fieldName
+                                              )
+                                            const description =
+                                              isTracecatJsonSchema(fieldDefn)
+                                                ? fieldDefn.description
+                                                : null
+                                            return (
+                                              <DropdownMenuCheckboxItem
+                                                key={fieldName}
+                                                checked={isVisible}
+                                                onCheckedChange={(checked) => {
+                                                  if (checked) {
+                                                    // Show the field
+                                                    setManuallyVisibleFields(
+                                                      (prev) =>
+                                                        new Set([
+                                                          ...prev,
+                                                          fieldName,
+                                                        ])
+                                                    )
+                                                    setManuallyHiddenFields(
+                                                      (prev) => {
+                                                        const newSet = new Set(
+                                                          prev
+                                                        )
+                                                        newSet.delete(fieldName)
+                                                        return newSet
+                                                      }
+                                                    )
+                                                  } else {
+                                                    // Hide the field
+                                                    setManuallyHiddenFields(
+                                                      (prev) =>
+                                                        new Set([
+                                                          ...prev,
+                                                          fieldName,
+                                                        ])
+                                                    )
+                                                    setManuallyVisibleFields(
+                                                      (prev) => {
+                                                        const newSet = new Set(
+                                                          prev
+                                                        )
+                                                        newSet.delete(fieldName)
+                                                        return newSet
+                                                      }
+                                                    )
+                                                    // Remove field from form state when hiding
+                                                    const currentInputs =
+                                                      methods.getValues(
+                                                        "inputs"
+                                                      )
+                                                    const {
+                                                      [fieldName]: _removed,
+                                                      ...remainingInputs
+                                                    } = currentInputs
+                                                    methods.setValue(
+                                                      "inputs",
+                                                      remainingInputs
+                                                    )
+                                                    methods.unregister(
+                                                      `inputs.${fieldName}`
+                                                    )
+                                                  }
+                                                }}
+                                              >
+                                                <div className="flex flex-col gap-1">
+                                                  <span className="font-medium">
+                                                    {label}
+                                                  </span>
+                                                  {description && (
+                                                    <span className="text-xs text-muted-foreground">
+                                                      {description.endsWith(".")
+                                                        ? description
+                                                        : `${description}.`}
+                                                    </span>
+                                                  )}
+                                                </div>
+                                              </DropdownMenuCheckboxItem>
+                                            )
+                                          }
+                                        )}
+                                      </DropdownMenuContent>
+                                    </DropdownMenu>
+                                  </div>
+                                )}
+                              </>
+                            )}
                           </div>
                         </AccordionContent>
                       </AccordionItem>
                     </Accordion>
+                  </SectionErrorBoundary>
+                </TabsContent>
+                <TabsContent value="control-flow">
+                  <SectionErrorBoundary>
+                    <div className="mt-6 space-y-8 px-4">
+                      {/* Run if */}
+                      <ControlFlowField
+                        label="Run if"
+                        description="Define a conditional expression that determines if the action executes."
+                        tooltip={<RunIfTooltip />}
+                      >
+                        <FormField
+                          name="run_if"
+                          control={methods.control}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormMessage className="whitespace-pre-line" />
+                              <FormControl>
+                                <ExpressionInput
+                                  value={field.value}
+                                  onChange={field.onChange}
+                                />
+                              </FormControl>
+                            </FormItem>
+                          )}
+                        />
+                      </ControlFlowField>
+
+                      {/* Loop */}
+                      <ControlFlowField
+                        label="For each"
+                        description="Define one or more loop expressions for the action to iterate over."
+                        tooltip={<ForEachTooltip />}
+                      >
+                        <ForEachField />
+                      </ControlFlowField>
+                      {/* Other options */}
+
+                      <ControlFlowField
+                        label="Start delay"
+                        description="Define a delay before the action starts."
+                        tooltip={<StartDelayTooltip />}
+                      >
+                        <FormField
+                          name="start_delay"
+                          control={methods.control}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormMessage className="whitespace-pre-line" />
+                              <FormControl>
+                                <Input
+                                  type="number"
+                                  value={field.value || ""}
+                                  onChange={(e) =>
+                                    field.onChange(
+                                      e.target.value
+                                        ? parseFloat(e.target.value)
+                                        : undefined
+                                    )
+                                  }
+                                  placeholder="0.0"
+                                  className="text-xs"
+                                />
+                              </FormControl>
+                            </FormItem>
+                          )}
+                        />
+                      </ControlFlowField>
+
+                      {/* Max attempts */}
+                      <ControlFlowField
+                        label="Max attempts"
+                        description="Define the maximum number of retry attempts for the action."
+                        tooltip={<MaxAttemptsTooltip />}
+                      >
+                        <FormField
+                          name="max_attempts"
+                          control={methods.control}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormMessage className="whitespace-pre-line" />
+                              <FormControl>
+                                <Input
+                                  type="number"
+                                  value={field.value || ""}
+                                  onChange={(e) =>
+                                    field.onChange(
+                                      e.target.value
+                                        ? parseInt(e.target.value)
+                                        : undefined
+                                    )
+                                  }
+                                  placeholder="1"
+                                  className="text-xs"
+                                />
+                              </FormControl>
+                            </FormItem>
+                          )}
+                        />
+                      </ControlFlowField>
+
+                      {/* Timeout */}
+                      <ControlFlowField
+                        label="Timeout"
+                        description="Define the timeout in seconds for the action."
+                        tooltip={<TimeoutTooltip />}
+                      >
+                        <FormField
+                          name="timeout"
+                          control={methods.control}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormMessage className="whitespace-pre-line" />
+                              <FormControl>
+                                <Input
+                                  type="number"
+                                  value={field.value || ""}
+                                  onChange={(e) =>
+                                    field.onChange(
+                                      e.target.value
+                                        ? parseInt(e.target.value)
+                                        : undefined
+                                    )
+                                  }
+                                  placeholder="300"
+                                  className="text-xs"
+                                />
+                              </FormControl>
+                            </FormItem>
+                          )}
+                        />
+                      </ControlFlowField>
+
+                      {/* Retry until */}
+                      <ControlFlowField
+                        label="Retry until"
+                        description="Define a conditional expression that determines when to stop retrying."
+                        tooltip={<RetryUntilTooltip />}
+                      >
+                        <FormField
+                          name="retry_until"
+                          control={methods.control}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormMessage className="whitespace-pre-line" />
+                              <FormControl>
+                                <ExpressionInput
+                                  value={field.value || ""}
+                                  onChange={field.onChange}
+                                />
+                              </FormControl>
+                            </FormItem>
+                          )}
+                        />
+                      </ControlFlowField>
+
+                      {/* Join strategy */}
+                      <ControlFlowField
+                        label="Join strategy"
+                        description="Define how to handle results when the action runs in parallel."
+                        tooltip={<JoinStrategyTooltip />}
+                      >
+                        <FormField
+                          name="join_strategy"
+                          control={methods.control}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormMessage className="whitespace-pre-line" />
+                              <FormControl>
+                                <Select
+                                  value={field.value || ""}
+                                  onValueChange={field.onChange}
+                                >
+                                  <SelectTrigger className="text-xs">
+                                    <SelectValue
+                                      placeholder="Select strategy..."
+                                      className="text-xs"
+                                    />
+                                  </SelectTrigger>
+                                  <SelectContent className="w-full text-xs">
+                                    {$JoinStrategy.enum.map((strategy) => (
+                                      <SelectItem
+                                        key={strategy}
+                                        value={strategy}
+                                        className="text-xs"
+                                      >
+                                        {strategy.charAt(0).toUpperCase() +
+                                          strategy.slice(1)}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </FormControl>
+                            </FormItem>
+                          )}
+                        />
+                      </ControlFlowField>
+
+                      {/* Wait until */}
+                      <ControlFlowField
+                        label="Wait until"
+                        description="Define a conditional expression that determines when the action can proceed."
+                        tooltip={<WaitUntilTooltip />}
+                      >
+                        <FormField
+                          name="wait_until"
+                          control={methods.control}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormMessage className="whitespace-pre-line" />
+                              <FormControl>
+                                <ExpressionInput
+                                  value={field.value || ""}
+                                  onChange={field.onChange}
+                                />
+                              </FormControl>
+                            </FormItem>
+                          )}
+                        />
+                      </ControlFlowField>
+                    </div>
+                  </SectionErrorBoundary>
+                </TabsContent>
+                {/* Template */}
+                {registryAction?.implementation && (
+                  <TabsContent value="template-inputs">
+                    <SectionErrorBoundary>
+                      <Accordion
+                        type="multiple"
+                        defaultValue={["action-template"]}
+                        className="pb-10"
+                      >
+                        <AccordionItem value="action-template">
+                          <AccordionTrigger className="px-4 text-xs font-bold">
+                            <div className="flex items-center">
+                              <FileTextIcon className="mr-3 size-4" />
+                              <span>Template Definition</span>
+                            </div>
+                          </AccordionTrigger>
+                          <AccordionContent className="space-y-4">
+                            <div className="flex flex-col space-y-4 px-4">
+                              <span className="text-xs text-muted-foreground">
+                                Template action definition in YAML format.
+                              </span>
+                              <YamlViewOnlyEditor
+                                value={stringifyYaml(
+                                  "type" in registryAction.implementation &&
+                                    registryAction.implementation.type ===
+                                      "template"
+                                    ? registryAction.implementation
+                                        .template_action
+                                    : {}
+                                )}
+                                className="size-full"
+                              />
+                            </div>
+                          </AccordionContent>
+                        </AccordionItem>
+                      </Accordion>
+                    </SectionErrorBoundary>
                   </TabsContent>
                 )}
               </div>

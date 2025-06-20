@@ -19,6 +19,7 @@ import { useFormContext } from "react-hook-form"
 
 import { createTemplateRegex } from "@/lib/expressions"
 import { cn } from "@/lib/utils"
+import { Input } from "@/components/ui/input"
 import {
   createAtKeyCompletion,
   createAutocomplete,
@@ -33,6 +34,7 @@ import {
   EDITOR_STYLE,
   templatePillTheme,
 } from "@/components/editor/codemirror/common"
+import { ExpressionErrorBoundary } from "@/components/error-boundaries"
 
 // Single-line expression linter
 function expressionLinter(view: EditorView): Diagnostic[] {
@@ -81,7 +83,36 @@ export interface ExpressionInputProps {
   defaultHeight?: "input" | "text-area"
 }
 
-export function ExpressionInput({
+// Simple fallback input component for when ExpressionInput fails
+function SimpleFallbackInput({
+  value,
+  onChange,
+  placeholder,
+  className,
+  disabled,
+  defaultHeight,
+}: ExpressionInputProps) {
+  const safeValue =
+    typeof value === "string" ? value : JSON.stringify(value || "")
+
+  return (
+    <div className={cn("relative", className)}>
+      <Input
+        value={safeValue}
+        onChange={(e) => onChange?.(e.target.value)}
+        placeholder={placeholder}
+        disabled={disabled}
+        className={cn(
+          "text-xs",
+          defaultHeight === "text-area" && "min-h-[240px]"
+        )}
+      />
+    </div>
+  )
+}
+
+// Core ExpressionInput implementation
+function ExpressionInputCore({
   value = "",
   onChange,
   placeholder: placeholderText = "Type @ to begin an expression...",
@@ -269,5 +300,25 @@ export function ExpressionInput({
         />
       </div>
     </div>
+  )
+}
+
+// Main ExpressionInput component with error boundary
+export function ExpressionInput(props: ExpressionInputProps) {
+  const fallbackInput = <SimpleFallbackInput {...props} />
+
+  return (
+    <ExpressionErrorBoundary
+      fieldName="expression"
+      value={
+        typeof props.value === "string"
+          ? props.value
+          : String(props.value || "")
+      }
+      onChange={props.onChange}
+      fallbackInput={fallbackInput}
+    >
+      <ExpressionInputCore {...props} />
+    </ExpressionErrorBoundary>
   )
 }
