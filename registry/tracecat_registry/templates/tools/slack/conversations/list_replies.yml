@@ -1,0 +1,26 @@
+type: action
+definition:
+  title: List conversation replies
+  description: List replies to a conversation in a Slack channel.
+  display_group: Slack
+  doc_url: https://api.slack.com/methods/conversations.replies
+  namespace: tools.slack
+  name: list_replies
+  expects:
+    channel:
+      type: str
+      description: ID of the channel to list replies from.
+    ts:
+      type: str
+      description: >
+        Timestamp of the thread's parent message or message in the thread to list replies from.
+        Also known as `thread_ts` in some Slack responses.
+  steps:
+    - ref: list_replies
+      action: tools.slack_sdk.call_method
+      args:
+        sdk_method: conversations_replies
+        params:
+          channel: ${{ inputs.channel }}
+          ts: ${{ inputs.ts }}
+  returns: ${{ steps.list_replies.result }}
