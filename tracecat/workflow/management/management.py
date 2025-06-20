@@ -31,6 +31,7 @@ from tracecat.service import BaseService
 from tracecat.types.exceptions import (
     TracecatAuthorizationError,
     TracecatValidationError,
+    TracecatExpressionError,
 )
 from tracecat.validation.models import (
     DSLValidationResult,
@@ -218,6 +219,11 @@ class WorkflowsManagementService(BaseService):
             self.logger.info("Creating workflow from database")
         except TracecatValidationError as e:
             self.logger.info("Custom validation error", error=e)
+            construction_errors.append(
+                DSLValidationResult(status="error", msg=str(e), detail=e.detail)
+            )
+        except TracecatExpressionError as e:
+            self.logger.info("Expression parsing error", error=e)
             construction_errors.append(
                 DSLValidationResult(status="error", msg=str(e), detail=e.detail)
             )

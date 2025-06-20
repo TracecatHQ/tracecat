@@ -28,7 +28,7 @@ from tracecat.identifiers.workflow import AnyWorkflowIDPath, WorkflowUUID
 from tracecat.logger import logger
 from tracecat.settings.service import get_setting
 from tracecat.tags.models import TagRead
-from tracecat.types.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.types.exceptions import TracecatNotFoundError, TracecatValidationError, TracecatExpressionError
 from tracecat.validation.models import (
     ValidationDetail,
     ValidationResult,
@@ -319,6 +319,16 @@ async def commit_workflow(
         dsl = await mgmt_service.build_dsl_from_workflow(workflow)
     except TracecatValidationError as e:
         logger.info("Custom validation error in DSL", e=e)
+        construction_errors.append(
+            ValidationResult.new(
+                type=ValidationResultType.DSL,
+                status="error",
+                msg=str(e),
+                detail=e.detail,
+            )
+        )
+    except TracecatExpressionError as e:
+        logger.info("Expression parsing error in DSL", e=e)
         construction_errors.append(
             ValidationResult.new(
                 type=ValidationResultType.DSL,
