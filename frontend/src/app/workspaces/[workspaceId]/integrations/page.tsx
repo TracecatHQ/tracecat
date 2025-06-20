@@ -1,36 +1,28 @@
 "use client"
 
 import { useState } from "react"
+import { ProviderMetadata } from "@/client"
 import { useWorkspace } from "@/providers/workspace"
 
 import { useIntegrations } from "@/lib/hooks"
 import { Button } from "@/components/ui/button"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
+import { ProviderConfigForm } from "@/components/provider-config-form"
 
 export default function IntegrationsPage() {
   const { workspaceId } = useWorkspace()
   const [isConfigDialogOpen, setIsConfigDialogOpen] = useState(false)
-  const [clientId, setClientId] = useState("")
-  const [clientSecret, setClientSecret] = useState("")
+  const [selectedProvider, setSelectedProvider] =
+    useState<ProviderMetadata | null>(null)
 
   const {
     integrations,
     integrationsIsLoading,
+    providers,
+    providersIsLoading,
     connectProvider,
     connectProviderIsPending,
     disconnectProvider,
     disconnectProviderIsPending,
-    configureProvider,
     configureProviderIsPending,
     getProviderStatus,
   } = useIntegrations(workspaceId)
@@ -49,26 +41,9 @@ export default function IntegrationsPage() {
     alert(`Status for ${provider}: ${JSON.stringify(status, null, 2)}`)
   }
 
-  const handleConfigure = async (provider: string) => {
-    if (!clientId.trim() || !clientSecret.trim()) {
-      alert("Please enter both client ID and client secret")
-      return
-    }
-
-    try {
-      await configureProvider({
-        providerId: provider,
-        config: {
-          client_id: clientId.trim(),
-          client_secret: clientSecret.trim(),
-        },
-      })
-      setIsConfigDialogOpen(false)
-      setClientId("")
-      setClientSecret("")
-    } catch (error) {
-      console.error("Failed to configure provider:", error)
-    }
+  const openConfigDialog = (provider: ProviderMetadata) => {
+    setSelectedProvider(provider)
+    setIsConfigDialogOpen(true)
   }
 
   if (integrationsIsLoading) {
@@ -77,101 +52,68 @@ export default function IntegrationsPage() {
 
   return (
     <div className="container mx-auto space-y-6 p-6">
-      <h1 className="text-2xl font-bold">Integrations Test Page</h1>
+      <h1 className="text-2xl font-bold">Integrations</h1>
 
+      {/* Available Providers */}
       <div className="space-y-4">
-        <h2 className="text-lg font-semibold">Test Microsoft Integration</h2>
+        <h2 className="text-lg font-semibold">Available Providers</h2>
 
-        <div className="flex gap-4">
-          <Dialog
-            open={isConfigDialogOpen}
-            onOpenChange={setIsConfigDialogOpen}
-          >
-            <DialogTrigger asChild>
-              <Button variant="secondary">Configure Microsoft</Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Configure Microsoft OAuth</DialogTitle>
-                <DialogDescription>
-                  Enter your Microsoft OAuth application credentials. You can
-                  create these in the Azure Portal.
-                </DialogDescription>
-              </DialogHeader>
-              <div className="grid gap-4 py-4">
-                <div className="grid grid-cols-4 items-center gap-4">
-                  <Label htmlFor="clientId" className="text-right">
-                    Client ID
-                  </Label>
-                  <Input
-                    id="clientId"
-                    value={clientId}
-                    onChange={(e) => setClientId(e.target.value)}
-                    className="col-span-3"
-                    placeholder="Enter client ID"
-                  />
+        {providersIsLoading ? (
+          <div className="text-muted-foreground">Loading providers...</div>
+        ) : providers?.length === 0 ? (
+          <div className="text-muted-foreground">No providers available</div>
+        ) : (
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {providers?.map((provider) => (
+              <div key={provider.id} className="rounded-lg border p-4">
+                <div className="flex items-start justify-between">
+                  <div className="space-y-2">
+                    <h3 className="font-medium">{provider.name}</h3>
+                    <p className="text-sm text-muted-foreground">
+                      {provider.description}
+                    </p>
+                  </div>
                 </div>
-                <div className="grid grid-cols-4 items-center gap-4">
-                  <Label htmlFor="clientSecret" className="text-right">
-                    Client Secret
-                  </Label>
-                  <Input
-                    id="clientSecret"
-                    type="password"
-                    value={clientSecret}
-                    onChange={(e) => setClientSecret(e.target.value)}
-                    className="col-span-3"
-                    placeholder="Enter client secret"
-                  />
+                <div className="mt-4 flex gap-2">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => openConfigDialog(provider)}
+                  >
+                    Configure
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => handleConnect(provider.id)}
+                    disabled={connectProviderIsPending}
+                  >
+                    {connectProviderIsPending ? "Connecting..." : "Connect"}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => handleCheckStatus(provider.id)}
+                  >
+                    Status
+                  </Button>
                 </div>
               </div>
-              <DialogFooter>
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setIsConfigDialogOpen(false)
-                    setClientId("")
-                    setClientSecret("")
-                  }}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  onClick={() => handleConfigure("microsoft")}
-                  disabled={configureProviderIsPending}
-                >
-                  {configureProviderIsPending
-                    ? "Configuring..."
-                    : "Save Configuration"}
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
+            ))}
+          </div>
+        )}
 
-          <Button
-            onClick={() => handleConnect("microsoft")}
-            disabled={connectProviderIsPending}
-          >
-            {connectProviderIsPending ? "Connecting..." : "Connect Microsoft"}
-          </Button>
-
-          <Button
-            onClick={() => handleDisconnect("microsoft")}
-            disabled={disconnectProviderIsPending}
-            variant="destructive"
-          >
-            {disconnectProviderIsPending
-              ? "Disconnecting..."
-              : "Disconnect Microsoft"}
-          </Button>
-
-          <Button
-            onClick={() => handleCheckStatus("microsoft")}
-            variant="outline"
-          >
-            Check Status
-          </Button>
-        </div>
+        {/* Provider Configuration Form */}
+        {selectedProvider && (
+          <ProviderConfigForm
+            provider={selectedProvider}
+            isOpen={isConfigDialogOpen}
+            onClose={() => {
+              setIsConfigDialogOpen(false)
+              setSelectedProvider(null)
+            }}
+            isLoading={configureProviderIsPending}
+          />
+        )}
       </div>
 
       <div className="space-y-4">

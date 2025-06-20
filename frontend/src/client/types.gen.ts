@@ -1149,6 +1149,49 @@ export type PriorityChangedEventRead = {
   created_at: string
 }
 
+/**
+ * Metadata for a provider.
+ */
+export type ProviderMetadata = {
+  /**
+   * Provider identifier
+   */
+  id: string
+  /**
+   * Human-readable provider name
+   */
+  name: string
+  /**
+   * Provider description
+   */
+  description: string
+  /**
+   * URL to provider logo
+   */
+  logo_url?: string | null
+  /**
+   * Setup instructions for the provider
+   */
+  setup_instructions?: string | null
+  /**
+   * Default OAuth scopes
+   */
+  oauth_scopes?: Array<string>
+  /**
+   * Whether this provider requires additional configuration
+   */
+  requires_config?: boolean
+}
+
+/**
+ * Schema for a provider.
+ */
+export type ProviderSchema = {
+  json_schema: {
+    [key: string]: unknown
+  }
+}
+
 export type ReceiveInteractionResponse = {
   message: string
 }
@@ -3898,6 +3941,15 @@ export type IntegrationsGetIntegrationStatusResponse = {
   [key: string]: unknown
 }
 
+export type IntegrationsListProvidersResponse = Array<ProviderMetadata>
+
+export type IntegrationsGetProviderSchemaData = {
+  providerId: string
+  workspaceId: string
+}
+
+export type IntegrationsGetProviderSchemaResponse = ProviderSchema
+
 export type UsersUsersCurrentUserResponse = UserRead
 
 export type UsersUsersPatchCurrentUserData = {
@@ -5894,6 +5946,31 @@ export type $OpenApiTs = {
         200: {
           [key: string]: unknown
         }
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/integrations/providers": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<ProviderMetadata>
+      }
+    }
+  }
+  "/integrations/{provider_id}/schema": {
+    get: {
+      req: IntegrationsGetProviderSchemaData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ProviderSchema
         /**
          * Validation Error
          */

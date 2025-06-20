@@ -46,10 +46,14 @@ import {
   type GitSettingsRead,
   IntegrationRead,
   integrationsConnectProvider,
-  integrationsDisconnectProvider,
-  integrationsGetProviderStatus,
+  integrationsDisconnectIntegration,
+  integrationsGetIntegrationStatus,
+  integrationsGetProviderSchema,
   integrationsListIntegrations,
-  integrationsUpdateProviderIntegration,
+  integrationsListProviders,
+  integrationsUpdateIntegration,
+  IntegrationsUpdateIntegrationResponse,
+  IntegrationUpdate,
   type OAuthSettingsRead,
   type OrganizationDeleteOrgMemberData,
   type OrganizationDeleteSessionData,
@@ -67,6 +71,8 @@ import {
   type RegistryActionCreate,
   type RegistryActionRead,
   type RegistryActionReadMinimal,
+  type ProviderMetadata,
+  type ProviderSchema,
   type RegistryActionsDeleteRegistryActionData,
   type RegistryActionsUpdateRegistryActionData,
   type RegistryRepositoriesDeleteRegistryRepositoryData,
@@ -182,7 +188,6 @@ import {
   workspacesCreateWorkspace,
   workspacesDeleteWorkspace,
   workspacesListWorkspaces,
-  type ProviderConfigurationUpdate,
 } from "@/client"
 import { toast } from "@/components/ui/use-toast"
 
@@ -3125,6 +3130,16 @@ export function useIntegrations(workspaceId: string) {
     queryFn: async () => await integrationsListIntegrations({ workspaceId }),
   })
 
+  // List available providers
+  const {
+    data: providers,
+    isLoading: providersIsLoading,
+    error: providersError,
+  } = useQuery<ProviderMetadata[], TracecatApiError>({
+    queryKey: ["providers"],
+    queryFn: async () => await integrationsListProviders(),
+  })
+
   // Connect to provider
   const {
     mutateAsync: connectProvider,
@@ -3156,7 +3171,7 @@ export function useIntegrations(workspaceId: string) {
     error: disconnectProviderError,
   } = useMutation({
     mutationFn: async (providerId: string) =>
-      await integrationsDisconnectProvider({ providerId, workspaceId }),
+      await integrationsDisconnectIntegration({ providerId, workspaceId }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["integrations"] })
       toast({
@@ -3179,29 +3194,29 @@ export function useIntegrations(workspaceId: string) {
     mutateAsync: configureProvider,
     isPending: configureProviderIsPending,
     error: configureProviderError,
-  } = useMutation({
-    mutationFn: async (data: {
-      providerId: string
-      config: ProviderConfigurationUpdate
-    }) =>
-      await integrationsUpdateProviderIntegration({
-        providerId: data.providerId,
+  } = useMutation<
+    IntegrationsUpdateIntegrationResponse,
+    TracecatApiError,
+    IntegrationUpdate
+  >({
+    mutationFn: async (params: IntegrationUpdate) =>
+      await integrationsUpdateIntegration({
+        providerId: params.provider_id,
         workspaceId,
-        requestBody: data.config,
+        requestBody: params,
       }),
     onSuccess: (result, variables) => {
       queryClient.invalidateQueries({ queryKey: ["integrations"] })
       toast({
         title: "Provider configured",
-        description: `Successfully configured ${variables.providerId} credentials`,
+        description: `Successfully configured ${variables.provider_id} credentials`,
       })
     },
     onError: (error: TracecatApiError, variables) => {
       console.error("Failed to configure provider:", error)
       toast({
         title: "Failed to configure",
-        description: `Could not configure ${variables.providerId}: ${error.body?.detail || error.message}`,
-        variant: "destructive",
+        description: `Could not configure ${variables.provider_id}: ${JSON.stringify(error.body?.detail) || error.message}`,
       })
     },
   })
@@ -3209,7 +3224,7 @@ export function useIntegrations(workspaceId: string) {
   // Get provider status
   const getProviderStatus = async (providerId: string) => {
     try {
-      return await integrationsGetProviderStatus({ providerId, workspaceId })
+      return await integrationsGetIntegrationStatus({ providerId, workspaceId })
     } catch (error) {
       console.error(`Failed to get status for ${providerId}:`, error)
       return null
@@ -3221,6 +3236,10 @@ export function useIntegrations(workspaceId: string) {
     integrations,
     integrationsIsLoading,
     integrationsError,
+    // Providers
+    providers,
+    providersIsLoading,
+    providersError,
     // Connect
     connectProvider,
     connectProviderIsPending,
@@ -3236,4 +3255,24 @@ export function useIntegrations(workspaceId: string) {
     // Status
     getProviderStatus,
   }
+}
+
+export function useGetProviderSchema({
+  providerId,
+  workspaceId,
+}: {
+  providerId: string
+  workspaceId: string
+}) {
+  const {
+    data: providerSchema,
+    isLoading: providerSchemaIsLoading,
+    error: providerSchemaError,
+  } = useQuery<ProviderSchema, TracecatApiError>({
+    queryKey: ["provider-schema", providerId, workspaceId],
+    queryFn: async () =>
+      await integrationsGetProviderSchema({ providerId, workspaceId }),
+  })
+
+  return { providerSchema, providerSchemaIsLoading, providerSchemaError }
 }

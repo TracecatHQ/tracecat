@@ -91,8 +91,11 @@ import type {
   IntegrationsDisconnectIntegrationResponse,
   IntegrationsGetIntegrationStatusData,
   IntegrationsGetIntegrationStatusResponse,
+  IntegrationsGetProviderSchemaData,
+  IntegrationsGetProviderSchemaResponse,
   IntegrationsListIntegrationsData,
   IntegrationsListIntegrationsResponse,
+  IntegrationsListProvidersResponse,
   IntegrationsOauthCallbackData,
   IntegrationsOauthCallbackResponse,
   IntegrationsUpdateIntegrationData,
@@ -3882,6 +3885,47 @@ export const integrationsGetIntegrationStatus = (
   return __request(OpenAPI, {
     method: "GET",
     url: "/integrations/{provider_id}/status",
+    path: {
+      provider_id: data.providerId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Providers
+ * List all available OAuth providers with metadata.
+ * @returns ProviderMetadata Successful Response
+ * @throws ApiError
+ */
+export const integrationsListProviders =
+  (): CancelablePromise<IntegrationsListProvidersResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/integrations/providers",
+    })
+  }
+
+/**
+ * Get Provider Schema
+ * Get JSON Schema for provider-specific configuration.
+ * @param data The data for the request.
+ * @param data.providerId
+ * @param data.workspaceId
+ * @returns ProviderSchema Successful Response
+ * @throws ApiError
+ */
+export const integrationsGetProviderSchema = (
+  data: IntegrationsGetProviderSchemaData
+): CancelablePromise<IntegrationsGetProviderSchemaResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/integrations/{provider_id}/schema",
     path: {
       provider_id: data.providerId,
     },
