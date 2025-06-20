@@ -424,32 +424,59 @@ export class InnerContentWidget extends WidgetType {
   }
 
   toDOM() {
-    const span = document.createElement("span")
-    const hasErrors =
-      this.validation?.isValid === false ||
-      (this.validation?.errors && this.validation.errors.length > 0)
+    try {
+      const span = document.createElement("span")
+      const hasErrors =
+        this.validation?.isValid === false ||
+        (this.validation?.errors && this.validation.errors.length > 0)
 
-    span.className = `cm-template-pill ${hasErrors ? "cm-template-error" : ""}`
+      span.className = `cm-template-pill ${hasErrors ? "cm-template-error" : ""}`
 
-    const contextType = detectContextType(this.content)
-    if (contextType) {
-      span.classList.add(`cm-context-${contextType.toLowerCase()}`)
+      const contextType = detectContextType(this.content)
+      if (contextType) {
+        span.classList.add(`cm-context-${contextType.toLowerCase()}`)
+      }
+
+      try {
+        this.renderContentWithContextStyling(span, this.content)
+      } catch (renderError) {
+        console.warn("Template pill content rendering failed:", renderError)
+        // Fallback to simple text rendering
+        span.textContent = this.content
+      }
+
+      if (hasErrors && this.validation?.errors) {
+        try {
+          const errorMessages = this.validation.errors
+            .map((e) => e.msg)
+            .join(", ")
+          span.title = `Template Expression Error: ${errorMessages}`
+
+          const errorIcon = document.createElement("span")
+          errorIcon.className = "cm-template-error-icon"
+          errorIcon.textContent = "⚠"
+          errorIcon.title = errorMessages
+          span.appendChild(errorIcon)
+        } catch (errorIconError) {
+          console.warn(
+            "Template pill error icon rendering failed:",
+            errorIconError
+          )
+          // Just set a simple error class
+          span.classList.add("cm-template-error-fallback")
+        }
+      }
+
+      return span
+    } catch (error) {
+      console.warn("Template pill DOM creation failed:", error)
+      // Ultimate fallback - return a simple error indicator
+      const fallbackSpan = document.createElement("span")
+      fallbackSpan.className = "cm-template-pill cm-template-error"
+      fallbackSpan.textContent = "[Error]"
+      fallbackSpan.title = `Template pill error: ${error instanceof Error ? error.message : String(error)}`
+      return fallbackSpan
     }
-
-    this.renderContentWithContextStyling(span, this.content)
-
-    if (hasErrors && this.validation?.errors) {
-      const errorMessages = this.validation.errors.map((e) => e.msg).join(", ")
-      span.title = `Template Expression Error: ${errorMessages}`
-
-      const errorIcon = document.createElement("span")
-      errorIcon.className = "cm-template-error-icon"
-      errorIcon.textContent = "⚠"
-      errorIcon.title = errorMessages
-      span.appendChild(errorIcon)
-    }
-
-    return span
   }
 
   private renderContentWithContextStyling(
@@ -604,59 +631,100 @@ export class TemplatePillPluginView {
     widgets: Range<Decoration>[],
     editingRange: Range<Decoration> | null
   ): DecorationSet {
-    // Default implementation for plain text content
-    const content = view.state.doc.toString()
-    const regex = createTemplateRegex()
-    let match: RegExpExecArray | null
+    try {
+      // Default implementation for plain text content
+      const content = view.state.doc.toString()
+      const regex = createTemplateRegex()
+      let match: RegExpExecArray | null
 
-    while ((match = regex.exec(content)) !== null) {
-      const fullMatchText = match[0]
-      const innerContent = match[1].trim()
-      const start = match.index
-      const end = start + fullMatchText.length
+      while ((match = regex.exec(content)) !== null) {
+        try {
+          const fullMatchText = match[0]
+          const innerContent = match[1].trim()
+          const start = match.index
+          const end = start + fullMatchText.length
 
-      // Safety check: Skip if match contains line breaks
-      if (fullMatchText.includes("\n")) {
-        continue
-      }
-
-      if (
-        editingRange &&
-        editingRange.from === start &&
-        editingRange.to === end
-      ) {
-        continue
-      }
-
-      const validation = this.validationCache.get(innerContent)
-      const widget = new InnerContentWidget(innerContent, validation)
-
-      if (!validation && innerContent.trim()) {
-        this.getValidation(innerContent).then((result) => {
-          if (result) {
-            view.dispatch({ effects: [] })
+          // Safety check: Skip if match contains line breaks
+          if (fullMatchText.includes("\n")) {
+            continue
           }
-        })
+
+          if (
+            editingRange &&
+            editingRange.from === start &&
+            editingRange.to === end
+          ) {
+            continue
+          }
+
+          const validation = this.validationCache.get(innerContent)
+          let widget: InnerContentWidget
+
+          try {
+            widget = new InnerContentWidget(innerContent, validation)
+          } catch (widgetError) {
+            console.warn("Failed to create template pill widget:", widgetError)
+            // Create a simple error widget
+            widget = new InnerContentWidget("[Error]", {
+              isValid: false,
+              errors: [
+                {
+                  loc: [],
+                  msg: "Widget creation failed",
+                  type: "render_error",
+                },
+              ],
+            })
+          }
+
+          if (!validation && innerContent.trim()) {
+            this.getValidation(innerContent)
+              .then((result) => {
+                if (result) {
+                  view.dispatch({ effects: [] })
+                }
+              })
+              .catch((error) => {
+                console.warn("Template pill validation failed:", error)
+              })
+          }
+
+          try {
+            widgets.push(
+              Decoration.mark({
+                class: `cm-template-pill ${
+                  validation?.isValid === false ? "cm-template-error" : ""
+                }`,
+                inclusive: false,
+              }).range(start, end)
+            )
+
+            widgets.push(
+              Decoration.replace({
+                widget: widget,
+                inclusive: false,
+              }).range(start, end)
+            )
+          } catch (decorationError) {
+            console.warn(
+              "Failed to create template pill decoration:",
+              decorationError
+            )
+            // Skip this widget rather than crash
+          }
+        } catch (matchError) {
+          console.warn("Failed to process template match:", matchError)
+          // Continue to next match
+          continue
+        }
       }
 
-      widgets.push(
-        Decoration.mark({
-          class: `cm-template-pill ${
-            validation?.isValid === false ? "cm-template-error" : ""
-          }`,
-          inclusive: false,
-        }).range(start, end)
-      )
-
-      widgets.push(
-        Decoration.replace({
-          widget: widget,
-          inclusive: false,
-        }).range(start, end)
-      )
+      return Decoration.set(widgets, true)
+    } catch (error) {
+      console.warn("Template pill decoration building failed:", error)
+      // Return empty decorations rather than crash
+      return Decoration.set([], true)
     }
-
-    return Decoration.set(widgets, true)
   }
 }
 
@@ -1827,6 +1895,12 @@ export const templatePillTheme = EditorView.theme({
     fontSize: "0.8em",
     marginLeft: "0.2em",
     fontWeight: "bold",
+  },
+  ".cm-template-error-fallback": {
+    backgroundColor: "rgba(239, 68, 68, 0.3)",
+    border: "1px solid rgba(239, 68, 68, 0.7)",
+    color: "#dc2626",
+    fontStyle: "italic",
   },
   ".cm-template-editing": {
     padding: "0 0.6em !important",
