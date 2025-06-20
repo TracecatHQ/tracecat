@@ -111,6 +111,8 @@ just gen-functions
 - Use `uv run` for executing Python/pytest commands
 - Use `uv pip install` for package installation
 - Tests under `tests/unit` are integration tests - no mocks, test as close to production as possible
+- Always use `@pytest.mark.anyio` in async python tests over `@pytest.mark.asyncio`
+- Always avoid use of `type: ignore` when writing python code
 
 ### Frontend Standards
 - Use kebab-case for file names
@@ -153,3 +155,13 @@ just gen-functions
 - Never add methods in `tracecat/db/schemas.py`. Keep imports minimal.
 - Always use `pnpm` over `npm` and `rg` instead of `grep`
 - Always ask clarifying questions when lacking full context
+- When handling frontend types, don't import variables prefixed with '$' unless you are importing the schema object
+
+## Code Typing Guidelines
+- When writing typescript code, always do your best to use proper type hints and avoid using `any`. If you really have to you can use `unknown`.
+
+## Code Style Guidelines
+- When writing typescript code, always avoid using nested ternary statements. You probably want to use `if/else` or `switch/case`.
+
+## Database Migrations
+- When running an alembic migration, you should use `export TRACECAT__DB_URI=postgresql+psycopg://postgres:postgres@localhost:5432/postgres` or pass it into the command
