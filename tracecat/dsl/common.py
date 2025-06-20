@@ -103,6 +103,10 @@ class DSLInput(BaseModel):
         default=None, description="The action ref to handle errors."
     )
 
+    def model_dump(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        kwargs["mode"] = "json"
+        return super().model_dump(*args, **kwargs)
+
     @field_validator("inputs")
     @classmethod
     def inputs_cannot_have_expressions(cls, inputs: Any) -> dict[str, Any]:
