@@ -171,7 +171,7 @@ async def validate_workspace_integration(
     # Get the integration from the workspace
     provider_id = registry_secret.name.replace("_oauth", "")
     integration = await IntegrationService(session).get_integration(
-        provider=provider_id
+        provider_id=provider_id
     )
 
     if not integration:

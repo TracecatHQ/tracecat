@@ -991,14 +991,19 @@ export type IntegrationRead = {
   updated_at: string
 }
 
+export type IntegrationStatus = {
+  connected: boolean
+  configured: boolean
+  provider: string
+  expires_at: string | null
+  is_expired: boolean
+  needs_refresh: boolean
+}
+
 /**
  * Request model for updating an integration.
  */
 export type IntegrationUpdate = {
-  /**
-   * The provider identifier
-   */
-  provider_id: string
   /**
    * OAuth client ID for the provider
    */
@@ -1010,7 +1015,7 @@ export type IntegrationUpdate = {
   /**
    * Provider-specific configuration
    */
-  config: {
+  provider_config: {
     [key: string]: unknown
   }
 }
@@ -3920,9 +3925,7 @@ export type IntegrationsDisconnectIntegrationData = {
   workspaceId: string
 }
 
-export type IntegrationsDisconnectIntegrationResponse = {
-  [key: string]: string
-}
+export type IntegrationsDisconnectIntegrationResponse = void
 
 export type IntegrationsUpdateIntegrationData = {
   providerId: string
@@ -3937,8 +3940,10 @@ export type IntegrationsGetIntegrationStatusData = {
   workspaceId: string
 }
 
-export type IntegrationsGetIntegrationStatusResponse = {
-  [key: string]: unknown
+export type IntegrationsGetIntegrationStatusResponse = IntegrationStatus
+
+export type IntegrationsListProvidersData = {
+  workspaceId: string
 }
 
 export type IntegrationsListProvidersResponse = Array<ProviderMetadata>
@@ -5913,16 +5918,14 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: {
-          [key: string]: string
-        }
+        204: void
         /**
          * Validation Error
          */
         422: HTTPValidationError
       }
     }
-    patch: {
+    put: {
       req: IntegrationsUpdateIntegrationData
       res: {
         /**
@@ -5943,9 +5946,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: {
-          [key: string]: unknown
-        }
+        200: IntegrationStatus
         /**
          * Validation Error
          */
@@ -5955,11 +5956,16 @@ export type $OpenApiTs = {
   }
   "/integrations/providers": {
     get: {
+      req: IntegrationsListProvidersData
       res: {
         /**
          * Successful Response
          */
         200: Array<ProviderMetadata>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
       }
     }
   }

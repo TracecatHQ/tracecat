@@ -1,8 +1,22 @@
 """Microsoft OAuth integration using generic OAuth provider."""
 
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Unpack
+
+from pydantic import BaseModel, Field
 
 from tracecat.integrations.base import BaseOauthProvider
+from tracecat.integrations.models import OAuthProviderKwargs
+
+
+class MicrosoftOAuthConfig(BaseModel):
+    """Configuration model for Microsoft OAuth provider."""
+
+    tenant_id: str = Field(
+        ...,
+        description="Azure AD tenant ID. Use 'common' for multi-tenant apps, 'organizations' for work/school accounts, 'consumers' for personal accounts, or a specific tenant GUID",
+        min_length=1,
+        max_length=100,
+    )
 
 
 class MicrosoftOAuthProvider(BaseOauthProvider):
@@ -26,13 +40,19 @@ class MicrosoftOAuthProvider(BaseOauthProvider):
         "https://graph.microsoft.com/User.Read",
     ]
 
-    def __init__(self, tenant_id: str):
+    config_model: ClassVar[type[BaseModel]] = MicrosoftOAuthConfig
+
+    def __init__(
+        self,
+        tenant_id: str,
+        **kwargs: Unpack[OAuthProviderKwargs],
+    ):
         """Initialize the Microsoft OAuth provider."""
         # Get tenant ID for Microsoft
         self.tenant_id = tenant_id
 
-        # Initialize parent class
-        super().__init__()
+        # Initialize parent class with credentials
+        super().__init__(**kwargs)
 
     @property
     def authorization_endpoint(self) -> str:

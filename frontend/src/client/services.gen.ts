@@ -95,6 +95,7 @@ import type {
   IntegrationsGetProviderSchemaResponse,
   IntegrationsListIntegrationsData,
   IntegrationsListIntegrationsResponse,
+  IntegrationsListProvidersData,
   IntegrationsListProvidersResponse,
   IntegrationsOauthCallbackData,
   IntegrationsOauthCallbackResponse,
@@ -3819,7 +3820,7 @@ export const integrationsOauthCallback = (
  * @param data The data for the request.
  * @param data.providerId
  * @param data.workspaceId
- * @returns string Successful Response
+ * @returns void Successful Response
  * @throws ApiError
  */
 export const integrationsDisconnectIntegration = (
@@ -3854,7 +3855,7 @@ export const integrationsUpdateIntegration = (
   data: IntegrationsUpdateIntegrationData
 ): CancelablePromise<IntegrationsUpdateIntegrationResponse> => {
   return __request(OpenAPI, {
-    method: "PATCH",
+    method: "PUT",
     url: "/integrations/{provider_id}",
     path: {
       provider_id: data.providerId,
@@ -3876,7 +3877,7 @@ export const integrationsUpdateIntegration = (
  * @param data The data for the request.
  * @param data.providerId
  * @param data.workspaceId
- * @returns unknown Successful Response
+ * @returns IntegrationStatus Successful Response
  * @throws ApiError
  */
 export const integrationsGetIntegrationStatus = (
@@ -3900,16 +3901,25 @@ export const integrationsGetIntegrationStatus = (
 /**
  * List Providers
  * List all available OAuth providers with metadata.
+ * @param data The data for the request.
+ * @param data.workspaceId
  * @returns ProviderMetadata Successful Response
  * @throws ApiError
  */
-export const integrationsListProviders =
-  (): CancelablePromise<IntegrationsListProvidersResponse> => {
-    return __request(OpenAPI, {
-      method: "GET",
-      url: "/integrations/providers",
-    })
-  }
+export const integrationsListProviders = (
+  data: IntegrationsListProvidersData
+): CancelablePromise<IntegrationsListProvidersResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/integrations/providers",
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
 
 /**
  * Get Provider Schema

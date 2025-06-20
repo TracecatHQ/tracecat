@@ -1,16 +1,13 @@
 """Base OAuth provider using authlib for standardized OAuth2 flows."""
 
-from typing import Any, ClassVar, cast
+from typing import Any, ClassVar, Self, cast
 
 from authlib.integrations.httpx_client import AsyncOAuth2Client
-from dotenv import load_dotenv
-from pydantic import BaseModel
+from pydantic import BaseModel, SecretStr
 
 from tracecat import config
-from tracecat.integrations.models import TokenResponse
+from tracecat.integrations.models import ProviderConfig, TokenResponse
 from tracecat.logger import logger
-
-load_dotenv()
 
 
 class BaseOauthProvider:
@@ -30,24 +27,7 @@ class BaseOauthProvider:
     grant_type: ClassVar[str] = "authorization_code"
 
     # Provider specific configuration schema
-    config_model: ClassVar[type[BaseModel] | None] = None
-
-    @property
-    def base_url(self) -> str:
-        return f"{config.TRACECAT__PUBLIC_APP_URL}/integrations/{self.id}"
-
-    @property
-    def redirect_uri(self) -> str:
-        """The redirect URI for the OAuth provider."""
-        return f"{self.base_url}/callback"
-
-    @property
-    def authorization_endpoint(self) -> str:
-        return self._authorization_endpoint
-
-    @property
-    def token_endpoint(self) -> str:
-        return self._token_endpoint
+    config_model: ClassVar[type[BaseModel]]
 
     def __init__(
         self,
@@ -114,6 +94,39 @@ class BaseOauthProvider:
             scopes=self.scopes,
         )
 
+    @property
+    def base_url(self) -> str:
+        return f"{config.TRACECAT__PUBLIC_APP_URL}/integrations/{self.id}"
+
+    @property
+    def redirect_uri(self) -> str:
+        """The redirect URI for the OAuth provider."""
+        return f"{self.base_url}/callback"
+
+    @property
+    def authorization_endpoint(self) -> str:
+        return self._authorization_endpoint
+
+    @property
+    def token_endpoint(self) -> str:
+        return self._token_endpoint
+
+    @classmethod
+    def schema(cls) -> dict[str, Any]:
+        """Get the metadata for the OAuth provider."""
+        return cls.config_model.model_json_schema()
+
+    @classmethod
+    def from_config(cls, config: ProviderConfig) -> Self:
+        """Create an OAuth provider from a configuration."""
+        logger.warning("Creating OAuth provider from configuration", config=config)
+        validated_config = cls.config_model.model_validate(config.provider_config)
+        return cls(
+            client_id=config.client_id,
+            client_secret=config.client_secret.get_secret_value(),
+            **validated_config.model_dump(exclude_unset=True),
+        )
+
     def _use_pkce(self) -> bool:
         """Override to enable PKCE for providers that support/require it."""
         return False
@@ -165,8 +178,10 @@ class BaseOauthProvider:
 
             # Convert authlib token response to our TokenResponse model
             return TokenResponse(
-                access_token=token["access_token"],
-                refresh_token=token.get("refresh_token"),
+                access_token=SecretStr(token["access_token"]),
+                refresh_token=SecretStr(refresh_token)
+                if (refresh_token := token.get("refresh_token"))
+                else None,
                 expires_in=token.get("expires_in", 3600),
                 scope=token.get("scope", " ".join(self.scopes)),
                 token_type=token.get("token_type", "Bearer"),

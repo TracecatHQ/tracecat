@@ -161,13 +161,12 @@ export function ProviderConfigFormContent({
 
       try {
         const params: IntegrationUpdate = {
-          provider_id: provider.id,
           client_id: String(client_id),
           client_secret: String(client_secret),
-          config,
+          provider_config: config,
         }
         console.log(params)
-        await configureProvider(params)
+        await configureProvider({ providerId: provider.id, params })
       } catch (error) {
         console.error(error)
       }
