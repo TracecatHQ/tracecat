@@ -3,7 +3,6 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ValidationError
-from pydantic_core import to_json
 
 from tracecat import config
 from tracecat.auth.dependencies import WorkspaceUserRole
@@ -270,62 +269,6 @@ async def update_integration(
     )
 
 
-# class IntegrationStatus(BaseModel):
-#     connected: bool
-#     configured: bool
-#     provider: str
-#     expires_at: datetime | None
-#     is_expired: bool
-#     needs_refresh: bool
-
-
-# @router.get("/{provider_id}/status")
-# async def get_integration_status(
-#     role: WorkspaceUserRole,
-#     session: AsyncDBSession,
-#     provider_impl: Annotated[type[BaseOauthProvider], Depends(get_provider)],
-# ) -> IntegrationStatus:
-#     """Get integration status for the specified provider."""
-#     # Verify provider exists (this will raise 400 if not)
-
-#     if role.workspace_id is None:
-#         raise HTTPException(
-#             status_code=status.HTTP_400_BAD_REQUEST,
-#             detail="Workspace ID is required",
-#         )
-
-#     svc = IntegrationService(session, role=role)
-#     integration = await svc.get_integration(provider_id=provider_impl.id)
-#     if integration is None:
-#         raise HTTPException(
-#             status_code=status.HTTP_404_NOT_FOUND,
-#             detail=f"{provider_impl.id} integration not found",
-#         )
-#     # Check if provider is configured at workspace level
-#     provider_config = svc.get_provider_config(integration=integration)
-#     if provider_config is None:
-#         return IntegrationStatus(
-#             connected=True,
-#             configured=False,
-#             provider=provider_impl.id,
-#             expires_at=None,
-#             is_expired=False,
-#             needs_refresh=False,
-#         )
-#     provider = provider_impl.from_config(provider_config)
-
-#     return IntegrationStatus(
-#         connected=True,
-#         configured=True,
-#         provider=provider.id,
-#         expires_at=integration.expires_at,
-#         is_expired=integration.is_expired,
-#         needs_refresh=integration.needs_refresh,
-#     )
-
-# --- Providers define how an
-
-
 # Provider discovery endpoints
 class ProviderRead(BaseModel):
     metadata: ProviderMetadata  # static
@@ -353,7 +296,6 @@ async def list_providers(
         )
         items.append(item)
 
-    logger.info(to_json(items, indent=2).decode("utf-8"))
     return items
 
 
