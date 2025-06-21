@@ -12,6 +12,7 @@ import { Filter, Search } from "lucide-react"
 
 import { useIntegrations } from "@/lib/hooks"
 import { categoryColors } from "@/lib/provider-styles"
+import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import {
   Card,
@@ -28,30 +29,27 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { ProviderIcon } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
-
-// Icon mapping for providers (temporary until backend includes icons)
-const providerIcons: Record<string, string> = {
-  microsoft: "🔷",
-  google: "🔵",
-  github: "🐙",
-  slack: "💬",
-  aws: "☁️",
-  datadog: "📊",
-  pagerduty: "🚨",
-  default: "🔌",
-}
-
 
 // Helper function to get status display info
 const getStatusInfo = (status: IntegrationStatus) => {
   switch (status) {
     case "connected":
-      return { label: "Connected", className: "bg-green-100 text-green-800 hover:bg-green-200" }
+      return {
+        label: "Connected",
+        className: "bg-green-100 text-green-800 hover:bg-green-200",
+      }
     case "configured":
-      return { label: "Configured", className: "bg-yellow-100 text-yellow-800 hover:bg-yellow-200" }
+      return {
+        label: "Configured",
+        className: "bg-yellow-100 text-yellow-800 hover:bg-yellow-200",
+      }
     default:
-      return { label: "Available", className: "bg-gray-100 text-gray-800 hover:bg-gray-200" }
+      return {
+        label: "Available",
+        className: "bg-gray-100 text-gray-800 hover:bg-gray-200",
+      }
   }
 }
 const categories = Object.values($ProviderCategory.enum) as ProviderCategory[]
@@ -192,32 +190,35 @@ export default function IntegrationsPage() {
         {filteredProviders?.map((provider) => {
           const metadata = provider.metadata
           const statusInfo = getStatusInfo(provider.integration_status)
-          const icon = providerIcons[metadata.id] || providerIcons.default
           const isEnabled = metadata.enabled !== false
 
           return (
             <Card
               key={metadata.id}
-              className={`transition-shadow ${
+              className={cn(
                 isEnabled
-                  ? "cursor-pointer hover:shadow-lg"
+                  ? "cursor-pointer transition-colors duration-200 hover:bg-accent/50"
                   : "cursor-not-allowed opacity-50"
-              }`}
+              )}
               onClick={() => handleProviderClick(metadata.id, isEnabled)}
             >
               <CardHeader>
                 <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="text-2xl">{icon}</div>
+                  <div className="flex items-start gap-3">
+                    <ProviderIcon
+                      providerId={metadata.id}
+                      className="size-8 p-1.5"
+                    />
                     <div>
                       <CardTitle className="text-lg">{metadata.name}</CardTitle>
                       <div className="mt-1 flex gap-2">
                         {metadata.categories?.map((category, index) => (
                           <Badge
                             key={index}
-                            className={`${
-                              categoryColors[category] || categoryColors.other
-                            } whitespace-nowrap`}
+                            className={cn(
+                              categoryColors[category] || categoryColors.other,
+                              "whitespace-nowrap"
+                            )}
                           >
                             {category}
                           </Badge>
@@ -226,11 +227,12 @@ export default function IntegrationsPage() {
                     </div>
                   </div>
                   <Badge
-                    className={`${
+                    className={cn(
                       isEnabled
                         ? statusInfo.className
-                        : "bg-orange-100 text-orange-800 hover:bg-orange-200"
-                    } whitespace-nowrap`}
+                        : "bg-orange-100 text-orange-800 hover:bg-orange-200",
+                      "whitespace-nowrap"
+                    )}
                   >
                     {isEnabled ? statusInfo.label : "Coming Soon"}
                   </Badge>
