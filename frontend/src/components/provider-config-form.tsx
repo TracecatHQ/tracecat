@@ -8,7 +8,7 @@ import { JSONSchema7 } from "json-schema"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 
-import { useGetProviderSchema, useIntegrations } from "@/lib/hooks"
+import { useIntegrationProvider } from "@/lib/hooks"
 import { jsonSchemaToZod } from "@/lib/jsonschema"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -43,7 +43,7 @@ interface ProviderConfigFormProps {
   provider: ProviderMetadata
   isOpen: boolean
   onClose: () => void
-  isLoading: boolean
+  onSuccess?: () => void
 }
 
 function getInputType(schemaProperty: JSONSchema7): HTMLInputTypeAttribute {
@@ -91,9 +91,10 @@ export function ProviderConfigForm({
   provider,
   isOpen,
   onClose,
+  onSuccess,
 }: ProviderConfigFormProps) {
   const { workspaceId } = useWorkspace()
-  const { providerSchema, providerSchemaIsLoading } = useGetProviderSchema({
+  const { providerSchema, providerSchemaIsLoading } = useIntegrationProvider({
     providerId: provider.id,
     workspaceId: workspaceId,
   })
@@ -111,6 +112,7 @@ export function ProviderConfigForm({
       provider={provider}
       isOpen={isOpen}
       onClose={onClose}
+      onSuccess={onSuccess}
     />
   )
 }
@@ -120,16 +122,18 @@ interface ProviderConfigFormContentProps {
   provider: ProviderMetadata
   isOpen: boolean
   onClose: () => void
+  onSuccess?: () => void
 }
 export function ProviderConfigFormContent({
   schema,
   provider,
   isOpen,
   onClose,
+  onSuccess,
 }: ProviderConfigFormContentProps) {
   const { workspaceId } = useWorkspace()
-  const { configureProvider, configureProviderIsPending } =
-    useIntegrations(workspaceId)
+  const { updateIntegration, updateIntegrationIsPending } =
+    useIntegrationProvider({ providerId: provider.id, workspaceId })
   const properties = Object.entries(schema.properties || {})
 
   const zodSchema = useMemo(() => jsonSchemaToZod(schema), [schema])
@@ -166,12 +170,13 @@ export function ProviderConfigFormContent({
           provider_config: config,
         }
         console.log(params)
-        await configureProvider({ providerId: provider.id, params })
+        await updateIntegration(params)
+        onSuccess?.()
       } catch (error) {
         console.error(error)
       }
     },
-    [configureProvider]
+    [updateIntegration, onSuccess]
   )
 
   return (
@@ -410,15 +415,15 @@ export function ProviderConfigFormContent({
           <Button
             variant="outline"
             onClick={onClose}
-            disabled={configureProviderIsPending}
+            disabled={updateIntegrationIsPending}
           >
             Cancel
           </Button>
           <Button
             onClick={form.handleSubmit(onSubmit)}
-            disabled={configureProviderIsPending}
+            disabled={updateIntegrationIsPending}
           >
-            {configureProviderIsPending ? "Saving..." : "Save Configuration"}
+            {updateIntegrationIsPending ? "Saving..." : "Save Configuration"}
           </Button>
         </DialogFooter>
       </DialogContent>
