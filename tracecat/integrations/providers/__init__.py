@@ -26,9 +26,11 @@ class ProviderRegistry:
         return cls._instance
 
     def __init__(self):
-        self._providers: dict[str, type[BaseOauthProvider]] = {
-            provider.id: provider for provider in BaseOauthProvider.__subclasses__()
-        }
+        self._providers = {}
+        for provider in BaseOauthProvider.__subclasses__():
+            if provider.id in self._providers:
+                raise ValueError(f"Duplicate provider ID: {provider.id}")
+            self._providers[provider.id] = provider
 
     @classmethod
     def get(cls) -> Self:
@@ -40,6 +42,7 @@ class ProviderRegistry:
         """Get an initialized provider by its ID."""
         return self._providers.get(provider_id)
 
-    def list_providers(self) -> list[str]:
-        """List the IDs of all available providers."""
-        return list(self._providers.keys())
+    @property
+    def providers(self) -> list[type[BaseOauthProvider]]:
+        """List all available providers."""
+        return list(self._providers.values())
