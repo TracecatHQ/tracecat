@@ -231,7 +231,13 @@ export default function IntegrationsPage() {
                       </div>
                     </div>
                   </div>
-                  <Badge className={statusInfo.className}>
+                  <Badge
+                    className={`${
+                      isEnabled
+                        ? statusInfo.className
+                        : "bg-orange-100 text-orange-800 hover:bg-orange-200"
+                    } whitespace-nowrap`}
+                  >
                     {isEnabled ? statusInfo.label : "Coming Soon"}
                   </Badge>
                 </div>
