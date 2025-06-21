@@ -11,6 +11,7 @@ import { useWorkspace } from "@/providers/workspace"
 import { Filter, Search } from "lucide-react"
 
 import { useIntegrations } from "@/lib/hooks"
+import { categoryColors } from "@/lib/provider-styles"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -42,15 +43,6 @@ const providerIcons: Record<string, string> = {
   default: "🔌",
 }
 
-// Category colors for badges
-const categoryColors: Record<string, string> = {
-  auth: "bg-green-100 text-green-800 hover:bg-green-200",
-  communication: "bg-pink-100 text-pink-800 hover:bg-pink-200",
-  cloud: "bg-blue-100 text-blue-800 hover:bg-blue-200",
-  monitoring: "bg-orange-100 text-orange-800 hover:bg-orange-200",
-  alerting: "bg-red-100 text-red-800 hover:bg-red-200",
-  other: "bg-gray-100 text-gray-800 hover:bg-gray-200",
-}
 
 // Helper function to get status display info
 const getStatusInfo = (status: IntegrationStatus) => {

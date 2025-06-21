@@ -3,7 +3,6 @@
 import { useMemo, useState } from "react"
 import Link from "next/link"
 import { useParams } from "next/navigation"
-import { ProviderCategory } from "@/client"
 import { useWorkspace } from "@/providers/workspace"
 import {
   AlertCircle,
@@ -18,6 +17,7 @@ import {
 } from "lucide-react"
 
 import { useIntegrationProvider, useIntegrations } from "@/lib/hooks"
+import { categoryColors } from "@/lib/provider-styles"
 import { cn } from "@/lib/utils"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
@@ -41,14 +41,6 @@ import { CenteredSpinner } from "@/components/loading/spinner"
 import { ProviderConfigForm } from "@/components/provider-config-form"
 import { RedirectUriDisplay } from "@/components/redirect-uri-display"
 
-const categoryColors: Record<ProviderCategory, string> = {
-  auth: "bg-green-100 text-green-800 hover:bg-green-200",
-  communication: "bg-pink-100 text-pink-800 hover:bg-pink-200",
-  cloud: "bg-blue-100 text-blue-800 hover:bg-blue-200",
-  monitoring: "bg-orange-100 text-orange-800 hover:bg-orange-200",
-  alerting: "bg-red-100 text-red-800 hover:bg-red-200",
-  other: "bg-gray-100 text-gray-800 hover:bg-gray-200",
-}
 
 export default function ProviderDetailPage() {
   const params = useParams()
