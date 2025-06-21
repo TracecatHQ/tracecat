@@ -45,4 +45,5 @@ class SlackOAuthProvider(BaseOAuthProvider):
             "Copy Client ID and Client Secret from Basic Information",
             "Configure credentials in Tracecat",
         ],
+        enabled=False,
     )

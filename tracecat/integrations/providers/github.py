@@ -42,6 +42,7 @@ class GitHubOAuthProvider(BaseOAuthProvider):
             "Copy Client ID and Client Secret",
             "Configure credentials in Tracecat",
         ],
+        enabled=False,
     )
 
     def _get_additional_token_params(self) -> dict[str, str]:

@@ -1220,6 +1220,10 @@ export type ProviderMetadata = {
    * Step-by-step instructions for setting up the provider
    */
   setup_steps?: Array<string>
+  /**
+   * Whether this provider is available for use
+   */
+  enabled?: boolean
 }
 
 export type ProviderRead = {
@@ -4089,7 +4093,7 @@ export type PublicCheckHealthResponse = {
 
 export type $OpenApiTs = {
   "/webhooks/{workflow_id}/{secret}": {
-    post: {
+    get: {
       req: PublicIncomingWebhookData
       res: {
         /**
@@ -4102,7 +4106,7 @@ export type $OpenApiTs = {
         422: HTTPValidationError
       }
     }
-    get: {
+    post: {
       req: PublicIncomingWebhook1Data
       res: {
         /**

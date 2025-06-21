@@ -143,6 +143,7 @@ export default function ProviderDetailPage() {
     )
   }
   const { metadata, integration_status } = provider ?? {}
+  const isEnabled = metadata?.enabled !== false
 
   // Check if actually connected based on backend status
   const isConnected = integration_status === "connected"
@@ -210,6 +211,16 @@ export default function ProviderDetailPage() {
           </Button>
         </Link>
       </div>
+
+      {/* Disabled Provider Alert */}
+      {!isEnabled && (
+        <Alert className="mb-6 border-orange-200 bg-orange-50">
+          <AlertCircle className="size-4 text-orange-600" />
+          <AlertDescription className="text-orange-800">
+            This integration is coming soon and is not yet available for use.
+          </AlertDescription>
+        </Alert>
+      )}
 
       {/* Status Alert */}
       {showSuccessMessage && isConnected && (
@@ -293,7 +304,7 @@ export default function ProviderDetailPage() {
                   <Button
                     variant="destructive"
                     onClick={handleDisconnect}
-                    disabled={disconnectProviderIsPending}
+                    disabled={!isEnabled || disconnectProviderIsPending}
                   >
                     {disconnectProviderIsPending
                       ? "Disconnecting..."
@@ -309,7 +320,11 @@ export default function ProviderDetailPage() {
                   </div>
 
                   <div className="flex flex-wrap gap-2">
-                    <Button onClick={openConfigDialog} className="sm:w-auto">
+                    <Button
+                      onClick={openConfigDialog}
+                      className="sm:w-auto"
+                      disabled={!isEnabled}
+                    >
                       <Settings className="mr-2 size-4" />
                       {integration_status === "configured"
                         ? "Update Configuration"
@@ -319,7 +334,7 @@ export default function ProviderDetailPage() {
                     {isConfigured && (
                       <Button
                         onClick={handleOAuthConnect}
-                        disabled={connectProviderIsPending || isConnecting}
+                        disabled={!isEnabled || connectProviderIsPending || isConnecting}
                         variant="outline"
                         className="sm:w-auto"
                       >
@@ -358,7 +373,11 @@ export default function ProviderDetailPage() {
                 <h4 className="mb-2 text-sm font-medium">OAuth Redirect URI</h4>
                 <RedirectUriDisplay redirectUri={provider.redirect_uri} />
               </div>
-              <Button onClick={openConfigDialog} variant="outline">
+              <Button
+                onClick={openConfigDialog}
+                variant="outline"
+                disabled={!isEnabled}
+              >
                 {isConnected ? "Update Configuration" : "Open Configuration"}
               </Button>
             </CardContent>

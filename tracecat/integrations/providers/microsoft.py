@@ -59,10 +59,12 @@ class MicrosoftOAuthProvider(BaseOAuthProvider):
         ],
         setup_steps=[
             "Register your application in Azure Portal",
-            "Configure OAuth redirect URIs",
-            "Add client ID and secret",
-            "Test the connection",
+            "Add the redirect URI shown above to 'Redirect URIs'",
+            "Configure required API permissions for Microsoft Graph",
+            "Copy Client ID and Client Secret",
+            "Configure credentials in Tracecat with your tenant ID",
         ],
+        enabled=True,
     )
 
     def __init__(

@@ -3911,6 +3911,12 @@ export const $ProviderMetadata = {
       title: "Setup Steps",
       description: "Step-by-step instructions for setting up the provider",
     },
+    enabled: {
+      type: "boolean",
+      title: "Enabled",
+      description: "Whether this provider is available for use",
+      default: true,
+    },
   },
   type: "object",
   required: ["id", "name", "description"],

@@ -121,6 +121,10 @@ class ProviderMetadata(BaseModel):
         default_factory=list,
         description="Step-by-step instructions for setting up the provider",
     )
+    enabled: bool = Field(
+        default=True,
+        description="Whether this provider is available for use",
+    )
 
 
 class OAuthState(BaseModel):

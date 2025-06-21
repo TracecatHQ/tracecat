@@ -31,6 +31,7 @@ class CustomOAuthProvider(BaseOAuthProvider):
             "Optionally set CUSTOM_USE_PKCE=true for PKCE-enabled providers",
             "Configure additional parameters with CUSTOM_PARAM_* variables",
         ],
+        enabled=False,
     )
 
     def __init__(self, provider_id: str | None = None):

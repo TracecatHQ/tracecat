@@ -98,8 +98,10 @@ export default function IntegrationsPage() {
     })
   }, [providers, searchQuery, selectedCategory, selectedStatus])
 
-  const handleProviderClick = (providerId: string) => {
-    router.push(`/workspaces/${workspaceId}/integrations/${providerId}`)
+  const handleProviderClick = (providerId: string, enabled: boolean) => {
+    if (enabled) {
+      router.push(`/workspaces/${workspaceId}/integrations/${providerId}`)
+    }
   }
 
   if (providersIsLoading) {
@@ -200,12 +202,17 @@ export default function IntegrationsPage() {
           const metadata = provider.metadata
           const statusInfo = getStatusInfo(provider.integration_status)
           const icon = providerIcons[metadata.id] || providerIcons.default
+          const isEnabled = metadata.enabled !== false
 
           return (
             <Card
               key={metadata.id}
-              className="cursor-pointer transition-shadow hover:shadow-lg"
-              onClick={() => handleProviderClick(metadata.id)}
+              className={`transition-shadow ${
+                isEnabled
+                  ? "cursor-pointer hover:shadow-lg"
+                  : "cursor-not-allowed opacity-50"
+              }`}
+              onClick={() => handleProviderClick(metadata.id, isEnabled)}
             >
               <CardHeader>
                 <div className="flex items-start justify-between">
@@ -224,11 +231,16 @@ export default function IntegrationsPage() {
                             {category}
                           </Badge>
                         ))}
+                        {!isEnabled && (
+                          <Badge className="bg-orange-100 text-orange-800">
+                            Coming Soon
+                          </Badge>
+                        )}
                       </div>
                     </div>
                   </div>
                   <Badge className={statusInfo.className}>
-                    {statusInfo.label}
+                    {isEnabled ? statusInfo.label : "Coming Soon"}
                   </Badge>
                 </div>
                 <CardDescription className="mt-2">

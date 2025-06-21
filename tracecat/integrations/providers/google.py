@@ -46,6 +46,7 @@ class GoogleOAuthProvider(BaseOAuthProvider):
             "Copy Client ID and Client Secret",
             "Configure credentials in Tracecat",
         ],
+        enabled=False,
     )
 
     def _get_additional_authorize_params(self) -> dict[str, str]:
