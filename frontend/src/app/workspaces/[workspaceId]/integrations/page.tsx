@@ -66,9 +66,6 @@ export default function IntegrationsPage() {
   const { providers, providersIsLoading, providersError } =
     useIntegrations(workspaceId)
 
-  // Get unique categories from provider metadata
-
-  // Filter providers
   const filteredProviders = useMemo(() => {
     return providers?.filter((provider) => {
       const metadata = provider.metadata
