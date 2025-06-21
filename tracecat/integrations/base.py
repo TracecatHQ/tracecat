@@ -45,28 +45,6 @@ class BaseOauthProvider:
             client_id: Optional client ID to use instead of environment variable
             client_secret: Optional client secret to use instead of environment variable
         """
-        # # Get environment prefix for this provider
-        # env_prefix = self.id.upper().replace("-", "_")
-
-        # # Use provided credentials or fallback to environment variables
-        # if client_id and client_secret:
-        #     self.client_id = client_id
-        #     self.client_secret = client_secret
-        # else:
-        #     # Get client credentials from environment
-        #     self.client_id = os.getenv(f"{env_prefix}_CLIENT_ID")
-        #     self.client_secret = os.getenv(f"{env_prefix}_CLIENT_SECRET")
-
-        #     if not self.client_id or not self.client_secret:
-        #         raise ValueError(
-        #             f"{self.id} OAuth credentials not configured. "
-        #             f"Either provide client_id/client_secret parameters or set "
-        #             f"{env_prefix}_CLIENT_ID and {env_prefix}_CLIENT_SECRET environment variables."
-        #         )
-
-        # Get custom scopes from environment or use defaults
-        # env_scopes = os.getenv(f"{env_prefix}_SCOPES")
-        # self.scopes = env_scopes.split(",") if env_scopes else self.default_scopes
         self.client_id = client_id
         self.client_secret = client_secret
         self.scopes = scopes or self.default_scopes
@@ -98,13 +76,9 @@ class BaseOauthProvider:
         )
 
     @property
-    def base_url(self) -> str:
-        return f"{config.TRACECAT__PUBLIC_APP_URL}/integrations/{self.id}"
-
-    @property
     def redirect_uri(self) -> str:
         """The redirect URI for the OAuth provider."""
-        return f"{self.base_url}/callback"
+        return f"{config.TRACECAT__PUBLIC_APP_URL}/integrations/{self.id}/callback"
 
     @property
     def authorization_endpoint(self) -> str:
