@@ -2,10 +2,15 @@
 
 # Function to display usage
 usage() {
-    echo "Usage: $0 [new_version]"
+    echo "Usage: $0 [options] [new_version]"
+    echo "Options:"
+    echo "  --major      # Increment major version (1.2.3 -> 2.0.0)"
+    echo "  --minor      # Increment minor version (1.2.3 -> 1.3.0)"
     echo "Examples:"
     echo "  $0           # Automatically increment patch version"
-    echo "  $0 1.0.1    # Set specific version"
+    echo "  $0 --major   # Increment major version"
+    echo "  $0 --minor   # Increment minor version"
+    echo "  $0 1.0.1     # Set specific version"
     exit 1
 }
 
@@ -22,7 +27,7 @@ if [ -z "$CURRENT_VERSION" ]; then
     exit 1
 fi
 
-# If no version provided, increment patch version
+# Parse arguments and determine new version
 if [ "$#" -eq 0 ]; then
     # Split version into major.minor.patch
     IFS='.' read -r major minor patch <<< "$CURRENT_VERSION"
@@ -30,7 +35,29 @@ if [ "$#" -eq 0 ]; then
     NEW_VERSION="${major}.${minor}.$((patch + 1))"
     echo "No version specified. Incrementing patch version to $NEW_VERSION"
 elif [ "$#" -eq 1 ]; then
-    NEW_VERSION=$1
+    case $1 in
+        --major)
+            # Split version into major.minor.patch
+            IFS='.' read -r major minor patch <<< "$CURRENT_VERSION"
+            # Increment major, reset minor and patch to 0
+            NEW_VERSION="$((major + 1)).0.0"
+            echo "Incrementing major version to $NEW_VERSION"
+            ;;
+        --minor)
+            # Split version into major.minor.patch
+            IFS='.' read -r major minor patch <<< "$CURRENT_VERSION"
+            # Increment minor, reset patch to 0
+            NEW_VERSION="${major}.$((minor + 1)).0"
+            echo "Incrementing minor version to $NEW_VERSION"
+            ;;
+        --help|-h)
+            usage
+            ;;
+        *)
+            # Assume it's a specific version
+            NEW_VERSION=$1
+            ;;
+    esac
 else
     usage
 fi
@@ -116,3 +143,17 @@ done
 echo "----------------------------------------"
 echo -e "\033[32mVersion update complete!\033[0m"
 echo -e "\033[33mPlease review the changes before committing.\033[0m"
+
+# Copy new version to clipboard
+if command -v pbcopy &> /dev/null; then
+    echo "$NEW_VERSION" | pbcopy
+    echo -e "\033[36mNew version ($NEW_VERSION) copied to clipboard!\033[0m"
+elif command -v xclip &> /dev/null; then
+    echo "$NEW_VERSION" | xclip -selection clipboard
+    echo -e "\033[36mNew version ($NEW_VERSION) copied to clipboard!\033[0m"
+elif command -v wl-copy &> /dev/null; then
+    echo "$NEW_VERSION" | wl-copy
+    echo -e "\033[36mNew version ($NEW_VERSION) copied to clipboard!\033[0m"
+else
+    echo -e "\033[33mClipboard functionality not available (pbcopy/xclip/wl-copy not found)\033[0m"
+fi
