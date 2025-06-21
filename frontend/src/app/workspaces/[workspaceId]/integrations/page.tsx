@@ -1,126 +1,113 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
+import {
+  $ProviderCategory,
+  IntegrationStatus,
+  ProviderCategory,
+} from "@/client"
 import { useWorkspace } from "@/providers/workspace"
-import { Search, Filter } from "lucide-react"
+import { Filter, Search } from "lucide-react"
 
 import { useIntegrations } from "@/lib/hooks"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { CenteredSpinner } from "@/components/loading/spinner"
 
-// Mock data for categories and icons - this will be replaced when backend provides this data
-const providerMetadata: Record<string, { icon: string; category: string; features: string[] }> = {
-  microsoft: {
-    icon: "🔷",
-    category: "auth",
-    features: ["OAuth 2.0", "Azure AD Integration", "Microsoft Graph API", "Single Sign-On"],
-  },
-  google: {
-    icon: "🔵",
-    category: "auth",
-    features: ["OAuth 2.0", "Google Workspace", "Gmail API", "Drive Integration"],
-  },
-  github: {
-    icon: "🐙",
-    category: "auth",
-    features: ["Repository Access", "Automated Deployments", "Issue Tracking", "Pull Requests"],
-  },
-  slack: {
-    icon: "💬",
-    category: "communication",
-    features: ["Channel Notifications", "Direct Messages", "Custom Webhooks", "Bot Integration"],
-  },
-  aws: {
-    icon: "☁️",
-    category: "cloud",
-    features: ["S3 Storage", "Lambda Functions", "CloudWatch Logs", "IAM Management"],
-  },
-  datadog: {
-    icon: "📊",
-    category: "monitoring",
-    features: ["Metrics Collection", "Log Aggregation", "APM Tracing", "Alerting"],
-  },
-  pagerduty: {
-    icon: "🚨",
-    category: "alerting",
-    features: ["Incident Management", "On-Call Scheduling", "Alert Routing", "Escalation Policies"],
-  },
-  default: {
-    icon: "🔌",
-    category: "other",
-    features: ["API Integration", "Webhook Support", "Custom Configuration"],
-  },
+// Icon mapping for providers (temporary until backend includes icons)
+const providerIcons: Record<string, string> = {
+  microsoft: "🔷",
+  google: "🔵",
+  github: "🐙",
+  slack: "💬",
+  aws: "☁️",
+  datadog: "📊",
+  pagerduty: "🚨",
+  default: "🔌",
 }
 
+// Category colors for badges
 const categoryColors: Record<string, string> = {
   auth: "bg-green-100 text-green-800",
   communication: "bg-pink-100 text-pink-800",
   cloud: "bg-blue-100 text-blue-800",
-  monitoring: "bg-orange-100 text-orange-800",
-  alerting: "bg-red-100 text-red-800",
+  monitoring: "bg-purple-100 text-purple-800",
+  alerting: "bg-orange-100 text-orange-800",
   other: "bg-gray-100 text-gray-800",
 }
 
-function getProviderInfo(providerId: string) {
-  return providerMetadata[providerId.toLowerCase()] || providerMetadata.default
+// Helper function to get status display info
+const getStatusInfo = (status: IntegrationStatus) => {
+  switch (status) {
+    case "connected":
+      return { label: "Connected", className: "bg-green-100 text-green-800" }
+    case "configured":
+      return { label: "Configured", className: "bg-yellow-100 text-yellow-800" }
+    default:
+      return { label: "Available", className: "bg-gray-100 text-gray-800" }
+  }
 }
+const categories = Object.values($ProviderCategory.enum) as ProviderCategory[]
 
 export default function IntegrationsPage() {
   const { workspaceId } = useWorkspace()
   const router = useRouter()
   const [searchQuery, setSearchQuery] = useState("")
-  const [selectedCategory, setSelectedCategory] = useState<string>("all")
-  const [selectedStatus, setSelectedStatus] = useState<string>("all")
+  const [selectedCategory, setSelectedCategory] =
+    useState<ProviderCategory | null>(null)
+  const [selectedStatus, setSelectedStatus] =
+    useState<IntegrationStatus | null>(null)
 
-  const {
-    integrations,
-    integrationsIsLoading,
-    providers,
-    providersIsLoading,
-  } = useIntegrations(workspaceId)
+  const { providers, providersIsLoading, providersError } =
+    useIntegrations(workspaceId)
 
-  // Create a map of connected integrations for quick lookup
-  const connectedProviders = useMemo(() => {
-    return new Set(integrations?.map(i => i.provider_id) || [])
-  }, [integrations])
-
-  // Enhanced providers with metadata
-  const enhancedProviders = useMemo(() => {
-    return providers?.map(provider => ({
-      ...provider,
-      ...getProviderInfo(provider.id),
-      status: connectedProviders.has(provider.id) ? "connected" : "available",
-    })) || []
-  }, [providers, connectedProviders])
-
-  // Get unique categories
-  const categories = useMemo(() => {
-    return Array.from(new Set(enhancedProviders.map(p => p.category)))
-  }, [enhancedProviders])
+  // Get unique categories from provider metadata
 
   // Filter providers
   const filteredProviders = useMemo(() => {
-    return enhancedProviders.filter(provider => {
+    return providers?.filter((provider) => {
+      const metadata = provider.metadata
+      const statusInfo = getStatusInfo(provider.integration_status)
+
       const matchesSearch =
-        provider.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        provider.description?.toLowerCase().includes(searchQuery.toLowerCase())
-      const matchesCategory = selectedCategory === "all" || provider.category === selectedCategory
-      const matchesStatus = selectedStatus === "all" || provider.status === selectedStatus
+        metadata.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        metadata.description?.toLowerCase().includes(searchQuery.toLowerCase())
+      const matchesCategory =
+        selectedCategory === null ||
+        (metadata.categories && metadata.categories.includes(selectedCategory))
+      const matchesStatus =
+        selectedStatus === null || statusInfo.label === selectedStatus
 
       return matchesSearch && matchesCategory && matchesStatus
     })
-  }, [enhancedProviders, searchQuery, selectedCategory, selectedStatus])
+  }, [providers, searchQuery, selectedCategory, selectedStatus])
 
   const handleProviderClick = (providerId: string) => {
     router.push(`/workspaces/${workspaceId}/integrations/${providerId}`)
   }
 
-  if (integrationsIsLoading || providersIsLoading) {
-    return <div className="p-6">Loading integrations...</div>
+  if (providersIsLoading) {
+    return <CenteredSpinner />
+  }
+  if (providersError) {
+    return <div>Error: {providersError.message}</div>
   }
 
   return (
@@ -143,21 +130,31 @@ export default function IntegrationsPage() {
             className="pl-10"
           />
         </div>
-        <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+        <Select
+          value={selectedCategory ?? "all"}
+          onValueChange={(value) =>
+            setSelectedCategory(value as ProviderCategory)
+          }
+        >
           <SelectTrigger className="w-full sm:w-48">
             <Filter className="mr-2 size-4" />
             <SelectValue placeholder="Category" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Categories</SelectItem>
-            {categories.map(category => (
+            {categories.map((category) => (
               <SelectItem key={category} value={category}>
                 {category.charAt(0).toUpperCase() + category.slice(1)}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
-        <Select value={selectedStatus} onValueChange={setSelectedStatus}>
+        <Select
+          value={selectedStatus ?? "all"}
+          onValueChange={(value) =>
+            setSelectedStatus(value as IntegrationStatus)
+          }
+        >
           <SelectTrigger className="w-full sm:w-48">
             <SelectValue placeholder="Status" />
           </SelectTrigger>
@@ -173,21 +170,26 @@ export default function IntegrationsPage() {
       <div className="mb-8 grid grid-cols-1 gap-4 md:grid-cols-3">
         <Card>
           <CardContent className="p-4">
-            <div className="text-2xl font-bold">{enhancedProviders.length}</div>
-            <div className="text-sm text-muted-foreground">Total Integrations</div>
+            <div className="text-2xl font-bold">{providers?.length || 0}</div>
+            <div className="text-sm text-muted-foreground">
+              Total Integrations
+            </div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4">
             <div className="text-2xl font-bold text-green-600">
-              {integrations?.length || 0}
+              {providers?.filter((p) => p.integration_status === "connected")
+                .length || 0}
             </div>
             <div className="text-sm text-muted-foreground">Connected</div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4">
-            <div className="text-2xl font-bold text-blue-600">{categories.length}</div>
+            <div className="text-2xl font-bold text-blue-600">
+              {categories.length}
+            </div>
             <div className="text-sm text-muted-foreground">Categories</div>
           </CardContent>
         </Card>
@@ -195,34 +197,44 @@ export default function IntegrationsPage() {
 
       {/* Integrations Grid */}
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
-        {filteredProviders.map(provider => {
-          const integration = integrations?.find(i => i.provider_id === provider.id)
+        {filteredProviders?.map((provider) => {
+          const metadata = provider.metadata
+          const statusInfo = getStatusInfo(provider.integration_status)
+          const icon = providerIcons[metadata.id] || providerIcons.default
 
           return (
             <Card
-              key={provider.id}
+              key={metadata.id}
               className="cursor-pointer transition-shadow hover:shadow-lg"
-              onClick={() => handleProviderClick(provider.id)}
+              onClick={() => handleProviderClick(metadata.id)}
             >
               <CardHeader>
                 <div className="flex items-start justify-between">
                   <div className="flex items-center gap-3">
-                    <div className="text-2xl">{provider.icon}</div>
+                    <div className="text-2xl">{icon}</div>
                     <div>
-                      <CardTitle className="text-lg">{provider.name}</CardTitle>
+                      <CardTitle className="text-lg">{metadata.name}</CardTitle>
                       <div className="mt-1 flex gap-2">
-                        <Badge className={categoryColors[provider.category]}>
-                          {provider.category}
-                        </Badge>
-                        <Badge className={provider.status === "connected" ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-800"}>
-                          {provider.status}
-                        </Badge>
+                        {metadata.categories?.map((category, index) => (
+                          <Badge
+                            key={index}
+                            className={
+                              categoryColors[category] || categoryColors.other
+                            }
+                          >
+                            {category}
+                          </Badge>
+                        ))}
                       </div>
                     </div>
                   </div>
+                  <Badge className={statusInfo.className}>
+                    {statusInfo.label}
+                  </Badge>
                 </div>
                 <CardDescription className="mt-2">
-                  {provider.description || `Connect with ${provider.name} to enhance your workflows`}
+                  {metadata.description ||
+                    `Connect with ${metadata.name} to enhance your workflows`}
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -230,35 +242,38 @@ export default function IntegrationsPage() {
                   <div>
                     <h4 className="mb-2 text-sm font-medium">Key Features</h4>
                     <div className="flex flex-wrap gap-1">
-                      {provider.features.slice(0, 3).map((feature, index) => (
-                        <Badge key={index} variant="outline" className="text-xs">
+                      {metadata.features?.slice(0, 3).map((feature, index) => (
+                        <Badge
+                          key={index}
+                          variant="outline"
+                          className="text-xs"
+                        >
                           {feature}
                         </Badge>
                       ))}
-                      {provider.features.length > 3 && (
+                      {metadata.features && metadata.features.length > 3 && (
                         <Badge variant="outline" className="text-xs">
-                          +{provider.features.length - 3} more
+                          +{metadata.features.length - 3} more
                         </Badge>
                       )}
                     </div>
                   </div>
-                  {integration && (
+                  {statusInfo.label === "connected" && (
                     <div className="text-xs text-muted-foreground">
-                      Connected • {integration.token_type}
-                      {integration.expires_at && (
-                        <span> • Expires {new Date(integration.expires_at).toLocaleDateString()}</span>
-                      )}
+                      Connected via OAuth
                     </div>
                   )}
                   <Button
                     className="w-full"
-                    variant={provider.status === "connected" ? "outline" : "default"}
+                    variant={
+                      statusInfo.label === "connected" ? "outline" : "default"
+                    }
                     onClick={(e) => {
                       e.stopPropagation()
-                      handleProviderClick(provider.id)
+                      handleProviderClick(metadata.id)
                     }}
                   >
-                    {provider.status === "connected" ? "Manage" : "Configure"}
+                    {statusInfo.label === "connected" ? "Manage" : "Configure"}
                   </Button>
                 </div>
               </CardContent>
@@ -267,7 +282,7 @@ export default function IntegrationsPage() {
         })}
       </div>
 
-      {filteredProviders.length === 0 && (
+      {filteredProviders?.length === 0 && (
         <div className="py-12 text-center">
           <div className="text-muted-foreground">
             No integrations found matching your criteria.
