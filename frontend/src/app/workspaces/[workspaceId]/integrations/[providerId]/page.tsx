@@ -18,6 +18,7 @@ import {
 } from "lucide-react"
 
 import { useIntegrationProvider, useIntegrations } from "@/lib/hooks"
+import { cn } from "@/lib/utils"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -40,12 +41,12 @@ import { CenteredSpinner } from "@/components/loading/spinner"
 import { ProviderConfigForm } from "@/components/provider-config-form"
 
 const categoryColors: Record<ProviderCategory, string> = {
-  auth: "bg-green-100 text-green-800",
-  communication: "bg-pink-100 text-pink-800",
-  cloud: "bg-blue-100 text-blue-800",
-  monitoring: "bg-orange-100 text-orange-800",
-  alerting: "bg-red-100 text-red-800",
-  other: "bg-gray-100 text-gray-800",
+  auth: "bg-green-100 text-green-800 hover:bg-green-200",
+  communication: "bg-pink-100 text-pink-800 hover:bg-pink-200",
+  cloud: "bg-blue-100 text-blue-800 hover:bg-blue-200",
+  monitoring: "bg-orange-100 text-orange-800 hover:bg-orange-200",
+  alerting: "bg-red-100 text-red-800 hover:bg-red-200",
+  other: "bg-gray-100 text-gray-800 hover:bg-gray-200",
 }
 
 export default function ProviderDetailPage() {
@@ -182,13 +183,16 @@ export default function ProviderDetailPage() {
               </Badge>
             ))}
             <Badge
-              className={
-                integration_status === "connected"
-                  ? "bg-green-100 text-green-800"
-                  : integration_status === "configured"
-                    ? "bg-yellow-100 text-yellow-800"
-                    : "bg-gray-100 text-gray-800"
-              }
+              className={cn(
+                integration_status === "connected" &&
+                  "bg-green-100 text-green-800 hover:bg-green-200",
+                integration_status === "configured" &&
+                  "bg-yellow-100 text-yellow-800 hover:bg-yellow-200",
+                (!integration_status ||
+                  (integration_status !== "connected" &&
+                    integration_status !== "configured")) &&
+                  "bg-gray-100 text-gray-800 hover:bg-gray-200"
+              )}
             >
               {integration_status === "connected"
                 ? "Connected"
