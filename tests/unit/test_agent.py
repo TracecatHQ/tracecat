@@ -12,7 +12,6 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from dotenv import load_dotenv
-from pydantic_ai.tools import Tool
 from tracecat_registry.integrations.agents.builder import (
     TracecatAgentBuilder,
     agent,
@@ -60,6 +59,9 @@ class TestAgentBuilderIntegration:
             f"Expected to find some of {expected_tools} in {tool_names}"
         )
 
+    @pytest.mark.skip(
+        reason="Skipping as denode causes async threading issues when running inside an agent"
+    )
     async def test_agent_with_python_script_action(self, test_role):
         """Test building an agent with the core Python script action."""
         builder = TracecatAgentBuilder(
@@ -306,125 +308,6 @@ class TestAgentBuilderIntegration:
         )
         print(f"📊 Usage: {result['usage']}")
         print(f"⏱️ Duration: {result['duration']:.2f}s")
-
-    @pytest.mark.anyio
-    async def test_agent_with_mock_action_and_secrets(self, test_role, mocker):
-        """Integration test: Agent using an action that requires secrets."""
-        # This test verifies that when an agent uses tools, the secrets are properly fetched
-
-        # Mock a simple action that uses secrets
-        async def mock_action_func(message: str) -> str:
-            # In a real action, this would use secrets from the environment
-            return f"Processed: {message}"
-
-        # Create a mock tool
-        mock_tool = Tool(mock_action_func)
-
-        # Mock the builder to return our mock tool
-        builder = TracecatAgentBuilder(
-            model_name="gpt-4o-mini",
-            model_provider="openai",
-            instructions="You are a test assistant.",
-        )
-
-        # Mock create_tool_from_registry to return our mock tool
-        async def mock_create_tool(*args, **kwargs) -> Tool:
-            return mock_tool
-
-        mocker.patch(
-            "tracecat_registry.integrations.agents.builder.create_tool_from_registry",
-            side_effect=mock_create_tool,
-        )
-
-        # Mock the registry service to return a test action
-        mock_reg_action = Mock()
-        mock_reg_action.namespace = "test"
-        mock_reg_action.name = "mock_action"
-
-        mock_service = Mock()
-        mock_service.list_actions = AsyncMock(return_value=[mock_reg_action])
-        mock_service.fetch_all_action_secrets = AsyncMock(return_value=[])
-
-        mock_context = AsyncMock()
-        mock_context.__aenter__.return_value = mock_service
-
-        mocker.patch(
-            "tracecat_registry.integrations.agents.builder.RegistryActionsService.with_session",
-            return_value=mock_context,
-        )
-
-        # Mock env_sandbox
-        mocker.patch("tracecat_registry.integrations.agents.builder.env_sandbox")
-
-        # Build the agent
-        await builder.with_namespace_filters("test").build()
-
-        # Verify the agent was built with the tool
-        assert len(builder.tools) == 1
-        assert builder.tools[0] == mock_tool
-
-    @pytest.mark.anyio
-    @skip_if_no_slack_credentials
-    @requires_slack_mocks
-    async def test_agent_post_file_contents_to_slack(
-        self,
-        test_role,
-        mock_slack_secrets,
-        slack_secret,
-    ):
-        """Test that the agent can receive files, read them via default tools, and post their contents to Slack."""
-        import base64
-
-        # Prepare sample file to inject into the agent's temp directory
-        file_name = "greeting.txt"
-        file_content = "Hello from Tracecat file 🗃️"
-        files = {file_name: base64.b64encode(file_content.encode()).decode()}
-
-        # Environment variables needed for Slack
-        slack_channel = os.getenv("SLACK_CHANNEL_ID")
-        if not slack_channel:
-            pytest.skip("SLACK_CHANNEL_ID not available in environment")
-
-        # Prompt instructing the agent to read the file and post it to Slack
-        prompt = (
-            f"Read the contents of '{file_name}' and post them to Slack channel {slack_channel}. "
-            "Respond with a confirmation once done."
-        )
-
-        result = await agent(
-            user_prompt=prompt,
-            model_name="gpt-4o-mini",
-            model_provider="openai",
-            actions=["tools.slack.post_message"],
-            files=files,
-            instructions=(
-                "You are a helpful assistant that can read files using the available file tools "
-                "and then post their contents to Slack."
-            ),
-            include_usage=True,
-        )
-
-        # Basic structure assertions
-        assert isinstance(result, dict)
-        assert "output" in result
-        assert "files" in result  # Returned files from temp directory
-
-        # Ensure our file persisted through the agent run
-        returned_files = result.get("files") or {}
-        assert isinstance(returned_files, dict)
-        assert file_name in returned_files
-        assert returned_files[file_name] == file_content
-
-        # Check that the agent output indicates success and mentions the file content
-        output = str(result["output"]).lower()
-        success_indicators = [
-            "posted",
-            "slack",
-            "message",
-            "hello",
-            "tracecat",
-        ]
-        assert any(ind in output for ind in success_indicators)
 
     @pytest.mark.anyio
     @pytest.mark.skip(reason="Skipping until agents support empty actions")

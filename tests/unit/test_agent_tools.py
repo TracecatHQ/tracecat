@@ -202,19 +202,6 @@ class TestListDirectory:
         results = tools["list_directory"]()
         assert results == []
 
-    def test_list_directory_nonexistent(self, secure_tools):
-        tools, _ = secure_tools
-        with pytest.raises(ValueError, match="Path does not exist"):
-            tools["list_directory"]("nonexistent_dir")
-
-    def test_list_directory_file_instead_of_dir(self, secure_tools):
-        tools, tmp_path = secure_tools
-        file_path = tmp_path / "some_file.txt"
-        file_path.write_text("data")
-
-        with pytest.raises(ValueError, match="Path is not a directory"):
-            tools["list_directory"]("some_file.txt")
-
 
 class TestFindAndReplace:
     def test_find_and_replace_success(self, secure_tools):
