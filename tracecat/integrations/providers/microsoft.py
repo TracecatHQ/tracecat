@@ -5,7 +5,11 @@ from typing import Any, ClassVar, Unpack
 from pydantic import BaseModel, Field
 
 from tracecat.integrations.base import BaseOauthProvider
-from tracecat.integrations.models import OAuthProviderKwargs
+from tracecat.integrations.models import (
+    OAuthProviderKwargs,
+    ProviderCategory,
+    ProviderMetadata,
+)
 
 
 class MicrosoftOAuthConfig(BaseModel):
@@ -41,6 +45,25 @@ class MicrosoftOAuthProvider(BaseOauthProvider):
     ]
 
     config_model: ClassVar[type[BaseModel]] = MicrosoftOAuthConfig
+
+    metadata: ClassVar[ProviderMetadata] = ProviderMetadata(
+        id="microsoft",
+        name="Microsoft",
+        description="Microsoft OAuth provider",
+        categories=[ProviderCategory.AUTH],
+        features=[
+            "OAuth 2.0",
+            "Azure AD Integration",
+            "Microsoft Graph API",
+            "Single Sign-On",
+        ],
+        setup_steps=[
+            "Register your application in Azure Portal",
+            "Configure OAuth redirect URIs",
+            "Add client ID and secret",
+            "Test the connection",
+        ],
+    )
 
     def __init__(
         self,

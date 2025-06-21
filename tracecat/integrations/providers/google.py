@@ -3,6 +3,7 @@
 from typing import ClassVar
 
 from tracecat.integrations.base import BaseOauthProvider
+from tracecat.integrations.models import ProviderCategory, ProviderMetadata
 
 
 class GoogleOAuthProvider(BaseOauthProvider):
@@ -24,6 +25,27 @@ class GoogleOAuthProvider(BaseOauthProvider):
         "https://www.googleapis.com/auth/gmail.send",
         "https://www.googleapis.com/auth/drive.readonly",
     ]
+
+    metadata: ClassVar[ProviderMetadata] = ProviderMetadata(
+        id="google",
+        name="Google",
+        description="Google OAuth provider for Workspace and Gmail integration",
+        categories=[ProviderCategory.AUTH],
+        features=[
+            "OAuth 2.0",
+            "Google Workspace",
+            "Gmail API",
+            "Drive Integration",
+        ],
+        setup_steps=[
+            "Create a project in Google Cloud Console",
+            "Enable required APIs (Gmail, Drive, etc.)",
+            "Configure OAuth consent screen",
+            "Create OAuth 2.0 credentials",
+            "Add client ID and secret",
+            "Test the connection",
+        ],
+    )
 
     def _get_additional_authorize_params(self) -> dict[str, str]:
         """Add Google-specific authorization parameters."""
