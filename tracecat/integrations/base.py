@@ -59,7 +59,7 @@ class BaseOAuthProvider:
         self.client = AsyncOAuth2Client(
             client_id=self.client_id,
             client_secret=self.client_secret,
-            redirect_uri=self.redirect_uri,
+            redirect_uri=self.redirect_uri(),
             scope=" ".join(self.scopes),
             response_type=self.response_type,
             grant_type=self.grant_type,
@@ -70,15 +70,15 @@ class BaseOAuthProvider:
         self.logger = logger.bind(service=f"{self.__class__.__name__}")
         self.logger.info(
             f"{self.id} OAuth provider initialized",
-            redirect_uri=self.redirect_uri,
+            redirect_uri=self.redirect_uri(),
             client_id=self.client_id,
             scopes=self.scopes,
         )
 
-    @property
-    def redirect_uri(self) -> str:
+    @classmethod
+    def redirect_uri(cls) -> str:
         """The redirect URI for the OAuth provider."""
-        return f"{config.TRACECAT__PUBLIC_APP_URL}/integrations/{self.id}/callback"
+        return f"{config.TRACECAT__PUBLIC_APP_URL}/integrations/{cls.id}/callback"
 
     @property
     def authorization_endpoint(self) -> str:
