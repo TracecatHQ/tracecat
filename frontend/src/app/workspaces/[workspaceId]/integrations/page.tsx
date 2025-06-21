@@ -48,11 +48,11 @@ const providerIcons: Record<string, string> = {
 const getStatusInfo = (status: IntegrationStatus) => {
   switch (status) {
     case "connected":
-      return { label: "Connected", className: "bg-green-100 text-green-800" }
+      return { label: "Connected", className: "bg-green-100 text-green-800 hover:bg-green-200" }
     case "configured":
-      return { label: "Configured", className: "bg-yellow-100 text-yellow-800" }
+      return { label: "Configured", className: "bg-yellow-100 text-yellow-800 hover:bg-yellow-200" }
     default:
-      return { label: "Available", className: "bg-gray-100 text-gray-800" }
+      return { label: "Available", className: "bg-gray-100 text-gray-800 hover:bg-gray-200" }
   }
 }
 const categories = Object.values($ProviderCategory.enum) as ProviderCategory[]
@@ -223,11 +223,6 @@ export default function IntegrationsPage() {
                             {category}
                           </Badge>
                         ))}
-                        {!isEnabled && (
-                          <Badge className="whitespace-nowrap bg-orange-100 text-orange-800 hover:bg-orange-200">
-                            Coming Soon
-                          </Badge>
-                        )}
                       </div>
                     </div>
                   </div>
