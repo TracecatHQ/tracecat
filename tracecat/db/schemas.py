@@ -28,6 +28,7 @@ from tracecat.db.adapter import (
 from tracecat.ee.interactions.enums import InteractionStatus, InteractionType
 from tracecat.identifiers import OwnerID, action, id_factory
 from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.integrations.enums import IntegrationStatus
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 
 DEFAULT_SA_RELATIONSHIP_KWARGS = {
@@ -1076,3 +1077,28 @@ class OAuthIntegration(SQLModel, TimestampMixin, table=True):
         if self.expires_at is None:
             return False
         return datetime.now(UTC) >= (self.expires_at - timedelta(minutes=5))
+
+    @property
+    def status(self) -> IntegrationStatus:
+        """Get the status of the integration."""
+        # Is configured: Has client ID and Secret
+        is_configured = (
+            self.encrypted_client_id is not None
+            and self.encrypted_client_secret is not None
+        )
+
+        # Is connected: Successfully authenticated
+        is_connected = len(self.encrypted_access_token) > 0
+
+        # Is expired: Access token has expired
+        is_expired = self.is_expired
+
+        # Return status based on conditions
+        if is_expired and is_connected:
+            return IntegrationStatus.EXPIRED
+        elif is_connected:
+            return IntegrationStatus.CONNECTED
+        elif is_configured:
+            return IntegrationStatus.CONFIGURED
+        else:
+            return IntegrationStatus.NOT_CONFIGURED

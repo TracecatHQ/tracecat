@@ -3,17 +3,20 @@
 import os
 from typing import Any, ClassVar
 
-from dotenv import load_dotenv
-
 from tracecat.integrations.base import BaseOauthProvider
-
-load_dotenv()
+from tracecat.integrations.models import ProviderCategory, ProviderMetadata
 
 
 class CustomOAuthProvider(BaseOauthProvider):
     """Custom OAuth provider that can be configured via environment variables."""
 
     id: ClassVar[str] = "custom"
+    metadata: ClassVar[ProviderMetadata] = ProviderMetadata(
+        id="custom",
+        name="Custom",
+        description="Custom OAuth provider",
+        categories=[ProviderCategory.OTHER],
+    )
 
     def __init__(self, provider_id: str | None = None):
         """Initialize a custom OAuth provider.
