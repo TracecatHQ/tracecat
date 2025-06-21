@@ -37,6 +37,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { ProviderIcon } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { ProviderConfigForm } from "@/components/provider-config-form"
 import { RedirectUriDisplay } from "@/components/redirect-uri-display"
@@ -161,39 +162,42 @@ export default function ProviderDetailPage() {
 
       {/* Header */}
       <div className="mb-8 flex items-start justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">{metadata.name}</h1>
-          <p className="mt-1 text-muted-foreground">
-            {metadata.description ||
-              `Connect ${metadata.name} to enhance your workflows`}
-          </p>
-          <div className="mt-2 flex gap-2">
-            {metadata.categories?.map((category) => (
+        <div className="flex items-start gap-4">
+          <ProviderIcon providerId={metadata.id} className="size-12 p-2" />
+          <div>
+            <h1 className="text-3xl font-bold">{metadata.name}</h1>
+            <p className="mt-1 text-muted-foreground">
+              {metadata.description ||
+                `Connect ${metadata.name} to enhance your workflows`}
+            </p>
+            <div className="mt-2 flex gap-2">
+              {metadata.categories?.map((category) => (
+                <Badge
+                  key={category}
+                  className={categoryColors[category || "other"]}
+                >
+                  {category}
+                </Badge>
+              ))}
               <Badge
-                key={category}
-                className={categoryColors[category || "other"]}
+                className={cn(
+                  integration_status === "connected" &&
+                    "bg-green-100 text-green-800 hover:bg-green-200",
+                  integration_status === "configured" &&
+                    "bg-yellow-100 text-yellow-800 hover:bg-yellow-200",
+                  (!integration_status ||
+                    (integration_status !== "connected" &&
+                      integration_status !== "configured")) &&
+                    "bg-gray-100 text-gray-800 hover:bg-gray-200"
+                )}
               >
-                {category}
+                {integration_status === "connected"
+                  ? "Connected"
+                  : integration_status === "configured"
+                    ? "Configured"
+                    : "Not Configured"}
               </Badge>
-            ))}
-            <Badge
-              className={cn(
-                integration_status === "connected" &&
-                  "bg-green-100 text-green-800 hover:bg-green-200",
-                integration_status === "configured" &&
-                  "bg-yellow-100 text-yellow-800 hover:bg-yellow-200",
-                (!integration_status ||
-                  (integration_status !== "connected" &&
-                    integration_status !== "configured")) &&
-                  "bg-gray-100 text-gray-800 hover:bg-gray-200"
-              )}
-            >
-              {integration_status === "connected"
-                ? "Connected"
-                : integration_status === "configured"
-                  ? "Configured"
-                  : "Not Configured"}
-            </Badge>
+            </div>
           </div>
         </div>
         <Link href={`/workspaces/${workspaceId}/integrations`}>
