@@ -3206,11 +3206,6 @@ export const $IntegrationRead = {
       format: "uuid4",
       title: "Id",
     },
-    workspace_id: {
-      type: "string",
-      pattern: "ws_[0-9a-zA-Z]+",
-      title: "Workspace Id",
-    },
     user_id: {
       anyOf: [
         {
@@ -3222,10 +3217,6 @@ export const $IntegrationRead = {
         },
       ],
       title: "User Id",
-    },
-    provider_id: {
-      type: "string",
-      title: "Provider Id",
     },
     token_type: {
       type: "string",
@@ -3254,6 +3245,10 @@ export const $IntegrationRead = {
       ],
       title: "Scope",
     },
+    provider_id: {
+      type: "string",
+      title: "Provider Id",
+    },
     provider_config: {
       type: "object",
       title: "Provider Config",
@@ -3268,68 +3263,61 @@ export const $IntegrationRead = {
       format: "date-time",
       title: "Updated At",
     },
-  },
-  type: "object",
-  required: [
-    "id",
-    "workspace_id",
-    "provider_id",
-    "token_type",
-    "expires_at",
-    "scope",
-    "provider_config",
-    "created_at",
-    "updated_at",
-  ],
-  title: "IntegrationRead",
-  description: "Response model for user integration.",
-} as const
-
-export const $IntegrationStatus = {
-  properties: {
-    connected: {
-      type: "boolean",
-      title: "Connected",
-    },
-    configured: {
-      type: "boolean",
-      title: "Configured",
-    },
-    provider: {
-      type: "string",
-      title: "Provider",
-    },
-    expires_at: {
-      anyOf: [
-        {
-          type: "string",
-          format: "date-time",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Expires At",
+    status: {
+      $ref: "#/components/schemas/IntegrationStatus",
     },
     is_expired: {
       type: "boolean",
       title: "Is Expired",
     },
-    needs_refresh: {
-      type: "boolean",
-      title: "Needs Refresh",
-    },
   },
   type: "object",
   required: [
-    "connected",
-    "configured",
-    "provider",
+    "id",
+    "token_type",
     "expires_at",
+    "scope",
+    "provider_id",
+    "provider_config",
+    "created_at",
+    "updated_at",
+    "status",
     "is_expired",
-    "needs_refresh",
   ],
+  title: "IntegrationRead",
+  description: "Response model for user integration.",
+} as const
+
+export const $IntegrationReadMinimal = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid4",
+      title: "Id",
+    },
+    provider_id: {
+      type: "string",
+      title: "Provider Id",
+    },
+    status: {
+      $ref: "#/components/schemas/IntegrationStatus",
+    },
+    is_expired: {
+      type: "boolean",
+      title: "Is Expired",
+    },
+  },
+  type: "object",
+  required: ["id", "provider_id", "status", "is_expired"],
+  title: "IntegrationReadMinimal",
+  description: "Response model for user integration.",
+} as const
+
+export const $IntegrationStatus = {
+  type: "string",
+  enum: ["not_configured", "configured", "connected", "expired"],
   title: "IntegrationStatus",
+  description: "Status of an integration.",
 } as const
 
 export const $IntegrationUpdate = {
@@ -3343,8 +3331,10 @@ export const $IntegrationUpdate = {
     client_secret: {
       type: "string",
       minLength: 1,
+      format: "password",
       title: "Client Secret",
       description: "OAuth client secret for the provider",
+      writeOnly: true,
     },
     provider_config: {
       type: "object",
@@ -3835,6 +3825,13 @@ export const $PriorityChangedEventRead = {
   description: "Event for when a case priority is changed.",
 } as const
 
+export const $ProviderCategory = {
+  type: "string",
+  enum: ["auth", "communication", "cloud", "monitoring", "alerting", "other"],
+  title: "ProviderCategory",
+  description: "Category of a provider.",
+} as const
+
 export const $ProviderMetadata = {
   properties: {
     id: {
@@ -3890,11 +3887,49 @@ export const $ProviderMetadata = {
       description: "Whether this provider requires additional configuration",
       default: false,
     },
+    categories: {
+      items: {
+        $ref: "#/components/schemas/ProviderCategory",
+      },
+      type: "array",
+      title: "Categories",
+      description: "Categories of the provider (e.g., auth, communication)",
+    },
+    features: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Features",
+      description: "List of features provided by this integration",
+    },
+    setup_steps: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Setup Steps",
+      description: "Step-by-step instructions for setting up the provider",
+    },
   },
   type: "object",
   required: ["id", "name", "description"],
   title: "ProviderMetadata",
   description: "Metadata for a provider.",
+} as const
+
+export const $ProviderRead = {
+  properties: {
+    metadata: {
+      $ref: "#/components/schemas/ProviderMetadata",
+    },
+    integration_status: {
+      $ref: "#/components/schemas/IntegrationStatus",
+    },
+  },
+  type: "object",
+  required: ["metadata", "integration_status"],
+  title: "ProviderRead",
 } as const
 
 export const $ProviderSchema = {
