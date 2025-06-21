@@ -6,7 +6,7 @@ from authlib.integrations.httpx_client import AsyncOAuth2Client
 from pydantic import BaseModel, SecretStr
 
 from tracecat import config
-from tracecat.integrations.models import ProviderConfig, TokenResponse
+from tracecat.integrations.models import ProviderConfig, ProviderMetadata, TokenResponse
 from tracecat.logger import logger
 
 
@@ -28,6 +28,9 @@ class BaseOauthProvider:
 
     # Provider specific configuration schema
     config_model: ClassVar[type[BaseModel]]
+
+    # Provider metadata
+    metadata: ClassVar[ProviderMetadata]
 
     def __init__(
         self,
