@@ -89,14 +89,10 @@ import type {
   IntegrationsConnectProviderResponse,
   IntegrationsDisconnectIntegrationData,
   IntegrationsDisconnectIntegrationResponse,
-  IntegrationsGetIntegrationStatusData,
-  IntegrationsGetIntegrationStatusResponse,
-  IntegrationsGetProviderSchemaData,
-  IntegrationsGetProviderSchemaResponse,
+  IntegrationsGetIntegrationData,
+  IntegrationsGetIntegrationResponse,
   IntegrationsListIntegrationsData,
   IntegrationsListIntegrationsResponse,
-  IntegrationsListProvidersData,
-  IntegrationsListProvidersResponse,
   IntegrationsOauthCallbackData,
   IntegrationsOauthCallbackResponse,
   IntegrationsUpdateIntegrationData,
@@ -119,6 +115,10 @@ import type {
   OrganizationSecretsUpdateOrgSecretByIdResponse,
   OrganizationUpdateOrgMemberData,
   OrganizationUpdateOrgMemberResponse,
+  ProvidersGetProviderSchemaData,
+  ProvidersGetProviderSchemaResponse,
+  ProvidersListProvidersData,
+  ProvidersListProvidersResponse,
   PublicCheckHealthResponse,
   PublicIncomingWebhook1Data,
   PublicIncomingWebhook1Response,
@@ -324,7 +324,7 @@ export const publicIncomingWebhook = (
   data: PublicIncomingWebhookData
 ): CancelablePromise<PublicIncomingWebhookResponse> => {
   return __request(OpenAPI, {
-    method: "POST",
+    method: "GET",
     url: "/webhooks/{workflow_id}/{secret}",
     path: {
       secret: data.secret,
@@ -364,7 +364,7 @@ export const publicIncomingWebhook1 = (
   data: PublicIncomingWebhook1Data
 ): CancelablePromise<PublicIncomingWebhook1Response> => {
   return __request(OpenAPI, {
-    method: "GET",
+    method: "POST",
     url: "/webhooks/{workflow_id}/{secret}",
     path: {
       secret: data.secret,
@@ -3738,7 +3738,7 @@ export const foldersMoveFolder = (
  * List all integrations for the current user.
  * @param data The data for the request.
  * @param data.workspaceId
- * @returns IntegrationRead Successful Response
+ * @returns IntegrationReadMinimal Successful Response
  * @throws ApiError
  */
 export const integrationsListIntegrations = (
@@ -3757,55 +3757,24 @@ export const integrationsListIntegrations = (
 }
 
 /**
- * Connect Provider
- * Initiate OAuth integration for the specified provider.
+ * Get Integration
+ * Get integration for the specified provider.
  * @param data The data for the request.
  * @param data.providerId
  * @param data.workspaceId
- * @returns string Successful Response
+ * @returns IntegrationRead Successful Response
  * @throws ApiError
  */
-export const integrationsConnectProvider = (
-  data: IntegrationsConnectProviderData
-): CancelablePromise<IntegrationsConnectProviderResponse> => {
-  return __request(OpenAPI, {
-    method: "POST",
-    url: "/integrations/{provider_id}/connect",
-    path: {
-      provider_id: data.providerId,
-    },
-    query: {
-      workspace_id: data.workspaceId,
-    },
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * Oauth Callback
- * Handle OAuth callback for the specified provider.
- * @param data The data for the request.
- * @param data.providerId
- * @param data.code Authorization code from OAuth provider
- * @param data.state State parameter from authorization request
- * @param data.workspaceId
- * @returns IntegrationOauthCallback Successful Response
- * @throws ApiError
- */
-export const integrationsOauthCallback = (
-  data: IntegrationsOauthCallbackData
-): CancelablePromise<IntegrationsOauthCallbackResponse> => {
+export const integrationsGetIntegration = (
+  data: IntegrationsGetIntegrationData
+): CancelablePromise<IntegrationsGetIntegrationResponse> => {
   return __request(OpenAPI, {
     method: "GET",
-    url: "/integrations/{provider_id}/callback",
+    url: "/integrations/{provider_id}",
     path: {
       provider_id: data.providerId,
     },
     query: {
-      code: data.code,
-      state: data.state,
       workspace_id: data.workspaceId,
     },
     errors: {
@@ -3872,20 +3841,20 @@ export const integrationsUpdateIntegration = (
 }
 
 /**
- * Get Integration Status
- * Get integration status for the specified provider.
+ * Connect Provider
+ * Initiate OAuth integration for the specified provider.
  * @param data The data for the request.
  * @param data.providerId
  * @param data.workspaceId
- * @returns IntegrationStatus Successful Response
+ * @returns string Successful Response
  * @throws ApiError
  */
-export const integrationsGetIntegrationStatus = (
-  data: IntegrationsGetIntegrationStatusData
-): CancelablePromise<IntegrationsGetIntegrationStatusResponse> => {
+export const integrationsConnectProvider = (
+  data: IntegrationsConnectProviderData
+): CancelablePromise<IntegrationsConnectProviderResponse> => {
   return __request(OpenAPI, {
-    method: "GET",
-    url: "/integrations/{provider_id}/status",
+    method: "POST",
+    url: "/integrations/{provider_id}/connect",
     path: {
       provider_id: data.providerId,
     },
@@ -3899,19 +3868,49 @@ export const integrationsGetIntegrationStatus = (
 }
 
 /**
- * List Providers
- * List all available OAuth providers with metadata.
+ * Oauth Callback
+ * Handle OAuth callback for the specified provider.
  * @param data The data for the request.
+ * @param data.providerId
+ * @param data.code Authorization code from OAuth provider
+ * @param data.state State parameter from authorization request
  * @param data.workspaceId
- * @returns ProviderMetadata Successful Response
+ * @returns IntegrationOauthCallback Successful Response
  * @throws ApiError
  */
-export const integrationsListProviders = (
-  data: IntegrationsListProvidersData
-): CancelablePromise<IntegrationsListProvidersResponse> => {
+export const integrationsOauthCallback = (
+  data: IntegrationsOauthCallbackData
+): CancelablePromise<IntegrationsOauthCallbackResponse> => {
   return __request(OpenAPI, {
     method: "GET",
-    url: "/integrations/providers",
+    url: "/integrations/{provider_id}/callback",
+    path: {
+      provider_id: data.providerId,
+    },
+    query: {
+      code: data.code,
+      state: data.state,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Providers
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @returns ProviderRead Successful Response
+ * @throws ApiError
+ */
+export const providersListProviders = (
+  data: ProvidersListProvidersData
+): CancelablePromise<ProvidersListProvidersResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/providers",
     query: {
       workspace_id: data.workspaceId,
     },
@@ -3930,12 +3929,12 @@ export const integrationsListProviders = (
  * @returns ProviderSchema Successful Response
  * @throws ApiError
  */
-export const integrationsGetProviderSchema = (
-  data: IntegrationsGetProviderSchemaData
-): CancelablePromise<IntegrationsGetProviderSchemaResponse> => {
+export const providersGetProviderSchema = (
+  data: ProvidersGetProviderSchemaData
+): CancelablePromise<ProvidersGetProviderSchemaResponse> => {
   return __request(OpenAPI, {
     method: "GET",
-    url: "/integrations/{provider_id}/schema",
+    url: "/providers/{provider_id}/schema",
     path: {
       provider_id: data.providerId,
     },

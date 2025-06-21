@@ -978,27 +978,38 @@ export type IntegrationOauthCallback = {
  */
 export type IntegrationRead = {
   id: string
-  workspace_id: string
   user_id?: string | null
-  provider_id: string
   token_type: string
   expires_at: string | null
   scope: string | null
+  provider_id: string
   provider_config: {
     [key: string]: unknown
   }
   created_at: string
   updated_at: string
+  status: IntegrationStatus
+  is_expired: boolean
 }
 
-export type IntegrationStatus = {
-  connected: boolean
-  configured: boolean
-  provider: string
-  expires_at: string | null
+/**
+ * Response model for user integration.
+ */
+export type IntegrationReadMinimal = {
+  id: string
+  provider_id: string
+  status: IntegrationStatus
   is_expired: boolean
-  needs_refresh: boolean
 }
+
+/**
+ * Status of an integration.
+ */
+export type IntegrationStatus =
+  | "not_configured"
+  | "configured"
+  | "connected"
+  | "expired"
 
 /**
  * Request model for updating an integration.
@@ -1155,6 +1166,17 @@ export type PriorityChangedEventRead = {
 }
 
 /**
+ * Category of a provider.
+ */
+export type ProviderCategory =
+  | "auth"
+  | "communication"
+  | "cloud"
+  | "monitoring"
+  | "alerting"
+  | "other"
+
+/**
  * Metadata for a provider.
  */
 export type ProviderMetadata = {
@@ -1186,6 +1208,23 @@ export type ProviderMetadata = {
    * Whether this provider requires additional configuration
    */
   requires_config?: boolean
+  /**
+   * Categories of the provider (e.g., auth, communication)
+   */
+  categories?: Array<ProviderCategory>
+  /**
+   * List of features provided by this integration
+   */
+  features?: Array<string>
+  /**
+   * Step-by-step instructions for setting up the provider
+   */
+  setup_steps?: Array<string>
+}
+
+export type ProviderRead = {
+  metadata: ProviderMetadata
+  integration_status: IntegrationStatus
 }
 
 /**
@@ -3894,7 +3933,29 @@ export type IntegrationsListIntegrationsData = {
   workspaceId: string
 }
 
-export type IntegrationsListIntegrationsResponse = Array<IntegrationRead>
+export type IntegrationsListIntegrationsResponse = Array<IntegrationReadMinimal>
+
+export type IntegrationsGetIntegrationData = {
+  providerId: string
+  workspaceId: string
+}
+
+export type IntegrationsGetIntegrationResponse = IntegrationRead
+
+export type IntegrationsDisconnectIntegrationData = {
+  providerId: string
+  workspaceId: string
+}
+
+export type IntegrationsDisconnectIntegrationResponse = void
+
+export type IntegrationsUpdateIntegrationData = {
+  providerId: string
+  requestBody: IntegrationUpdate
+  workspaceId: string
+}
+
+export type IntegrationsUpdateIntegrationResponse = void
 
 export type IntegrationsConnectProviderData = {
   providerId: string
@@ -3920,40 +3981,18 @@ export type IntegrationsOauthCallbackData = {
 
 export type IntegrationsOauthCallbackResponse = IntegrationOauthCallback
 
-export type IntegrationsDisconnectIntegrationData = {
+export type ProvidersListProvidersData = {
+  workspaceId: string
+}
+
+export type ProvidersListProvidersResponse = Array<ProviderRead>
+
+export type ProvidersGetProviderSchemaData = {
   providerId: string
   workspaceId: string
 }
 
-export type IntegrationsDisconnectIntegrationResponse = void
-
-export type IntegrationsUpdateIntegrationData = {
-  providerId: string
-  requestBody: IntegrationUpdate
-  workspaceId: string
-}
-
-export type IntegrationsUpdateIntegrationResponse = void
-
-export type IntegrationsGetIntegrationStatusData = {
-  providerId: string
-  workspaceId: string
-}
-
-export type IntegrationsGetIntegrationStatusResponse = IntegrationStatus
-
-export type IntegrationsListProvidersData = {
-  workspaceId: string
-}
-
-export type IntegrationsListProvidersResponse = Array<ProviderMetadata>
-
-export type IntegrationsGetProviderSchemaData = {
-  providerId: string
-  workspaceId: string
-}
-
-export type IntegrationsGetProviderSchemaResponse = ProviderSchema
+export type ProvidersGetProviderSchemaResponse = ProviderSchema
 
 export type UsersUsersCurrentUserResponse = UserRead
 
@@ -4049,7 +4088,7 @@ export type PublicCheckHealthResponse = {
 
 export type $OpenApiTs = {
   "/webhooks/{workflow_id}/{secret}": {
-    post: {
+    get: {
       req: PublicIncomingWebhookData
       res: {
         /**
@@ -4062,7 +4101,7 @@ export type $OpenApiTs = {
         422: HTTPValidationError
       }
     }
-    get: {
+    post: {
       req: PublicIncomingWebhook1Data
       res: {
         /**
@@ -5871,7 +5910,48 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Array<IntegrationRead>
+        200: Array<IntegrationReadMinimal>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/integrations/{provider_id}": {
+    get: {
+      req: IntegrationsGetIntegrationData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: IntegrationRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: IntegrationsDisconnectIntegrationData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    put: {
+      req: IntegrationsUpdateIntegrationData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
         /**
          * Validation Error
          */
@@ -5911,27 +5991,14 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/integrations/{provider_id}": {
-    delete: {
-      req: IntegrationsDisconnectIntegrationData
+  "/providers": {
+    get: {
+      req: ProvidersListProvidersData
       res: {
         /**
          * Successful Response
          */
-        204: void
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-    put: {
-      req: IntegrationsUpdateIntegrationData
-      res: {
-        /**
-         * Successful Response
-         */
-        204: void
+        200: Array<ProviderRead>
         /**
          * Validation Error
          */
@@ -5939,39 +6006,9 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/integrations/{provider_id}/status": {
+  "/providers/{provider_id}/schema": {
     get: {
-      req: IntegrationsGetIntegrationStatusData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: IntegrationStatus
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/integrations/providers": {
-    get: {
-      req: IntegrationsListProvidersData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: Array<ProviderMetadata>
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/integrations/{provider_id}/schema": {
-    get: {
-      req: IntegrationsGetProviderSchemaData
+      req: ProvidersGetProviderSchemaData
       res: {
         /**
          * Successful Response

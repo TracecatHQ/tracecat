@@ -45,12 +45,11 @@ import {
   foldersUpdateFolder,
   type GitSettingsRead,
   IntegrationRead,
+  IntegrationReadMinimal,
   integrationsConnectProvider,
   integrationsDisconnectIntegration,
-  integrationsGetIntegrationStatus,
-  integrationsGetProviderSchema,
+  integrationsGetIntegration,
   integrationsListIntegrations,
-  integrationsListProviders,
   integrationsUpdateIntegration,
   IntegrationUpdate,
   type OAuthSettingsRead,
@@ -70,8 +69,10 @@ import {
   type RegistryActionCreate,
   type RegistryActionRead,
   type RegistryActionReadMinimal,
-  type ProviderMetadata,
+  type ProviderRead,
   type ProviderSchema,
+  providersGetProviderSchema,
+  providersListProviders,
   type RegistryActionsDeleteRegistryActionData,
   type RegistryActionsUpdateRegistryActionData,
   type RegistryRepositoriesDeleteRegistryRepositoryData,
@@ -3117,26 +3118,91 @@ export function useCaseEvents({
 
 /* Integrations */
 export function useIntegrations(workspaceId: string) {
-  const queryClient = useQueryClient()
-
-  // List user integrations
+  // List workspace integrations
   const {
     data: integrations,
     isLoading: integrationsIsLoading,
     error: integrationsError,
-  } = useQuery<IntegrationRead[], TracecatApiError>({
+  } = useQuery<IntegrationReadMinimal[], TracecatApiError>({
     queryKey: ["integrations", workspaceId],
     queryFn: async () => await integrationsListIntegrations({ workspaceId }),
   })
 
-  // List available providers
+  // List providers
   const {
     data: providers,
     isLoading: providersIsLoading,
     error: providersError,
-  } = useQuery<ProviderMetadata[], TracecatApiError>({
-    queryKey: ["providers"],
-    queryFn: async () => await integrationsListProviders({ workspaceId }),
+  } = useQuery<ProviderRead[], TracecatApiError>({
+    queryKey: ["providers", workspaceId],
+    queryFn: async () => await providersListProviders({ workspaceId }),
+  })
+
+  return {
+    integrations,
+    integrationsIsLoading,
+    integrationsError,
+    providers,
+    providersIsLoading,
+    providersError,
+  }
+}
+
+export function useIntegrationProvider({
+  providerId,
+  workspaceId,
+}: {
+  providerId: string
+  workspaceId: string
+}) {
+  const queryClient = useQueryClient()
+
+  // Read
+  const {
+    data: integration,
+    isLoading: integrationIsLoading,
+    error: integrationError,
+  } = useQuery<IntegrationRead, TracecatApiError>({
+    queryKey: ["integration", providerId, workspaceId],
+    queryFn: async () =>
+      await integrationsGetIntegration({ providerId, workspaceId }),
+  })
+
+  // Get provider schema
+  const {
+    data: providerSchema,
+    isLoading: providerSchemaIsLoading,
+    error: providerSchemaError,
+  } = useQuery<ProviderSchema, TracecatApiError>({
+    queryKey: ["provider-schema", providerId, workspaceId],
+    queryFn: async () =>
+      await providersGetProviderSchema({ providerId, workspaceId }),
+  })
+
+  // Update
+  const {
+    mutateAsync: updateIntegration,
+    isPending: updateIntegrationIsPending,
+    error: updateIntegrationError,
+  } = useMutation({
+    mutationFn: async (params: IntegrationUpdate) =>
+      await integrationsUpdateIntegration({
+        providerId,
+        workspaceId,
+        requestBody: params,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["integration", providerId, workspaceId],
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      console.error("Failed to update integration:", error)
+      toast({
+        title: "Failed to update",
+        description: `Could not update integration: ${JSON.stringify(error.body?.detail) || error.message}`,
+      })
+    },
   })
 
   // Connect to provider
@@ -3188,92 +3254,21 @@ export function useIntegrations(workspaceId: string) {
     },
   })
 
-  // Configure provider credentials
-  const {
-    mutateAsync: configureProvider,
-    isPending: configureProviderIsPending,
-    error: configureProviderError,
-  } = useMutation({
-    mutationFn: async ({
-      providerId,
-      params,
-    }: {
-      providerId: string
-      params: IntegrationUpdate
-    }) =>
-      await integrationsUpdateIntegration({
-        providerId,
-        workspaceId,
-        requestBody: params,
-      }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["integrations"] })
-      toast({
-        title: "Provider configured",
-        description: `Successfully configured credentials`,
-      })
-    },
-    onError: (error: TracecatApiError) => {
-      console.error("Failed to configure provider:", error)
-      toast({
-        title: "Failed to configure",
-        description: `Could not configure provider: ${JSON.stringify(error.body?.detail) || error.message}`,
-      })
-    },
-  })
-
-  // Get provider status
-  const getProviderStatus = async (providerId: string) => {
-    try {
-      return await integrationsGetIntegrationStatus({ providerId, workspaceId })
-    } catch (error) {
-      console.error(`Failed to get status for ${providerId}:`, error)
-      return null
-    }
-  }
-
   return {
-    // List
-    integrations,
-    integrationsIsLoading,
-    integrationsError,
-    // Providers
-    providers,
-    providersIsLoading,
-    providersError,
-    // Connect
+    integration,
+    integrationIsLoading,
+    integrationError,
+    updateIntegration,
+    updateIntegrationIsPending,
+    updateIntegrationError,
     connectProvider,
     connectProviderIsPending,
     connectProviderError,
-    // Disconnect
     disconnectProvider,
     disconnectProviderIsPending,
     disconnectProviderError,
-    // Configure
-    configureProvider,
-    configureProviderIsPending,
-    configureProviderError,
-    // Status
-    getProviderStatus,
+    providerSchema,
+    providerSchemaIsLoading,
+    providerSchemaError,
   }
-}
-
-export function useGetProviderSchema({
-  providerId,
-  workspaceId,
-}: {
-  providerId: string
-  workspaceId: string
-}) {
-  const {
-    data: providerSchema,
-    isLoading: providerSchemaIsLoading,
-    error: providerSchemaError,
-  } = useQuery<ProviderSchema, TracecatApiError>({
-    queryKey: ["provider-schema", providerId, workspaceId],
-    queryFn: async () =>
-      await integrationsGetProviderSchema({ providerId, workspaceId }),
-  })
-
-  return { providerSchema, providerSchemaIsLoading, providerSchemaError }
 }
