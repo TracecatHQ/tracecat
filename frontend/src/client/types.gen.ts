@@ -1225,6 +1225,7 @@ export type ProviderMetadata = {
 export type ProviderRead = {
   metadata: ProviderMetadata
   integration_status: IntegrationStatus
+  redirect_uri: string
 }
 
 /**
@@ -4088,7 +4089,7 @@ export type PublicCheckHealthResponse = {
 
 export type $OpenApiTs = {
   "/webhooks/{workflow_id}/{secret}": {
-    get: {
+    post: {
       req: PublicIncomingWebhookData
       res: {
         /**
@@ -4101,7 +4102,7 @@ export type $OpenApiTs = {
         422: HTTPValidationError
       }
     }
-    post: {
+    get: {
       req: PublicIncomingWebhook1Data
       res: {
         /**

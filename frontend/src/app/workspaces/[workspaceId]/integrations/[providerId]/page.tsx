@@ -39,6 +39,7 @@ import {
 } from "@/components/ui/card"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { ProviderConfigForm } from "@/components/provider-config-form"
+import { RedirectUriDisplay } from "@/components/redirect-uri-display"
 
 const categoryColors: Record<ProviderCategory, string> = {
   auth: "bg-green-100 text-green-800 hover:bg-green-200",
@@ -352,7 +353,11 @@ export default function ProviderDetailPage() {
                 Manage your {metadata.name} integration settings and credentials
               </CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-4">
+              <div>
+                <h4 className="mb-2 text-sm font-medium">OAuth Redirect URI</h4>
+                <RedirectUriDisplay redirectUri={provider.redirect_uri} />
+              </div>
               <Button onClick={openConfigDialog} variant="outline">
                 {isConnected ? "Update Configuration" : "Open Configuration"}
               </Button>

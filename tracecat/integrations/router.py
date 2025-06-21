@@ -330,6 +330,7 @@ async def update_integration(
 class ProviderRead(BaseModel):
     metadata: ProviderMetadata  # static
     integration_status: IntegrationStatus
+    redirect_uri: str
 
 
 @providers_router.get("")
@@ -348,6 +349,7 @@ async def list_providers(
             integration_status=integration.status
             if integration
             else IntegrationStatus.NOT_CONFIGURED,
+            redirect_uri=provider_impl.redirect_uri(),
         )
         items.append(item)
 

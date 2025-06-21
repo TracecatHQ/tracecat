@@ -41,9 +41,10 @@ class GoogleOAuthProvider(BaseOAuthProvider):
             "Create a project in Google Cloud Console",
             "Enable required APIs (Gmail, Drive, etc.)",
             "Configure OAuth consent screen",
-            "Create OAuth 2.0 credentials",
-            "Add client ID and secret",
-            "Test the connection",
+            "Go to Credentials > Create Credentials > OAuth client ID",
+            "Add the redirect URI shown above to 'Authorized redirect URIs'",
+            "Copy Client ID and Client Secret",
+            "Configure credentials in Tracecat",
         ],
     )
 

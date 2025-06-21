@@ -11,7 +11,6 @@ import { useWorkspace } from "@/providers/workspace"
 import { Filter, Search } from "lucide-react"
 
 import { useIntegrations } from "@/lib/hooks"
-import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {

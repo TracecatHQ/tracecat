@@ -37,11 +37,12 @@ class SlackOAuthProvider(BaseOAuthProvider):
             "Bot Integration",
         ],
         setup_steps=[
-            "Create a Slack App in your workspace",
-            "Configure OAuth & Permissions",
-            "Add required bot token scopes",
+            "Create a new Slack App at api.slack.com/apps",
+            "Go to OAuth & Permissions section",
+            "Add the redirect URI shown above to 'Redirect URLs'",
+            "Add required bot token scopes under 'Scopes'",
             "Install the app to your workspace",
-            "Add client ID and secret",
-            "Test the connection",
+            "Copy Client ID and Client Secret from Basic Information",
+            "Configure credentials in Tracecat",
         ],
     )

@@ -35,11 +35,12 @@ class GitHubOAuthProvider(BaseOAuthProvider):
             "Pull Requests",
         ],
         setup_steps=[
-            "Register OAuth App in GitHub Developer Settings",
-            "Configure authorization callback URL",
+            "Go to GitHub Settings > Developer settings > OAuth Apps",
+            "Click 'New OAuth App' or select existing app",
+            "Add the redirect URI shown above as the Authorization callback URL",
             "Set required repository permissions",
-            "Add client ID and secret",
-            "Test the connection",
+            "Copy Client ID and Client Secret",
+            "Configure credentials in Tracecat",
         ],
     )
 

@@ -3926,9 +3926,13 @@ export const $ProviderRead = {
     integration_status: {
       $ref: "#/components/schemas/IntegrationStatus",
     },
+    redirect_uri: {
+      type: "string",
+      title: "Redirect Uri",
+    },
   },
   type: "object",
-  required: ["metadata", "integration_status"],
+  required: ["metadata", "integration_status", "redirect_uri"],
   title: "ProviderRead",
 } as const
 
