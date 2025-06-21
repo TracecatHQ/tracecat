@@ -11,11 +11,26 @@ class CustomOAuthProvider(BaseOauthProvider):
     """Custom OAuth provider that can be configured via environment variables."""
 
     id: ClassVar[str] = "custom"
+    default_scopes: ClassVar[list[str]] = []
     metadata: ClassVar[ProviderMetadata] = ProviderMetadata(
         id="custom",
         name="Custom",
-        description="Custom OAuth provider",
+        description="Configure your own OAuth2 provider with custom endpoints and parameters",
         categories=[ProviderCategory.OTHER],
+        features=[
+            "Flexible endpoint configuration",
+            "PKCE support",
+            "Custom parameters",
+            "Multi-provider support",
+        ],
+        setup_steps=[
+            "Define environment variables for your OAuth provider endpoints",
+            "Set CUSTOM_AUTHORIZATION_ENDPOINT to your provider's auth URL",
+            "Set CUSTOM_TOKEN_ENDPOINT to your provider's token URL",
+            "Add CUSTOM_CLIENT_ID and CUSTOM_CLIENT_SECRET from your provider",
+            "Optionally set CUSTOM_USE_PKCE=true for PKCE-enabled providers",
+            "Configure additional parameters with CUSTOM_PARAM_* variables",
+        ],
     )
 
     def __init__(self, provider_id: str | None = None):
