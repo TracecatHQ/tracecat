@@ -1,10 +1,10 @@
 from fastapi import HTTPException, status
 
-from tracecat.integrations.base import BaseOauthProvider
+from tracecat.integrations.base import BaseOAuthProvider
 from tracecat.integrations.providers import ProviderRegistry
 
 
-async def get_provider(provider_id: str) -> type[BaseOauthProvider]:
+async def get_provider(provider_id: str) -> type[BaseOAuthProvider]:
     """
     FastAPI dependency to get provider implementation by name.
 

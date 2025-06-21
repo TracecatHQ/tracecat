@@ -2,11 +2,11 @@
 
 from typing import ClassVar
 
-from tracecat.integrations.base import BaseOauthProvider
+from tracecat.integrations.base import BaseOAuthProvider
 from tracecat.integrations.models import ProviderCategory, ProviderMetadata
 
 
-class GitHubOAuthProvider(BaseOauthProvider):
+class GitHubOAuthProvider(BaseOAuthProvider):
     """GitHub OAuth provider using generic OAuth implementation."""
 
     id: ClassVar[str] = "github"

@@ -3,11 +3,11 @@
 import os
 from typing import Any, ClassVar
 
-from tracecat.integrations.base import BaseOauthProvider
+from tracecat.integrations.base import BaseOAuthProvider
 from tracecat.integrations.models import ProviderCategory, ProviderMetadata
 
 
-class CustomOAuthProvider(BaseOauthProvider):
+class CustomOAuthProvider(BaseOAuthProvider):
     """Custom OAuth provider that can be configured via environment variables."""
 
     id: ClassVar[str] = "custom"

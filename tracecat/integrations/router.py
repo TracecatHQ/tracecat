@@ -8,7 +8,7 @@ from pydantic_core import to_json
 from tracecat import config
 from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.integrations.base import BaseOauthProvider
+from tracecat.integrations.base import BaseOAuthProvider
 from tracecat.integrations.dependencies import get_provider
 from tracecat.integrations.enums import IntegrationStatus
 from tracecat.integrations.models import (
@@ -63,7 +63,7 @@ async def list_integrations(
 async def get_integration(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
-    provider_impl: Annotated[type[BaseOauthProvider], Depends(get_provider)],
+    provider_impl: Annotated[type[BaseOAuthProvider], Depends(get_provider)],
 ) -> IntegrationRead:
     """Get integration for the specified provider."""
     # Verify provider exists (this will raise 400 if not)
@@ -104,7 +104,7 @@ async def connect_provider(
     *,
     role: WorkspaceUserRole,
     session: AsyncDBSession,
-    provider_impl: Annotated[type[BaseOauthProvider], Depends(get_provider)],
+    provider_impl: Annotated[type[BaseOAuthProvider], Depends(get_provider)],
 ) -> dict[str, str]:
     """Initiate OAuth integration for the specified provider."""
 
@@ -142,7 +142,7 @@ async def oauth_callback(
     role: WorkspaceUserRole,
     code: str = Query(..., description="Authorization code from OAuth provider"),
     state: str = Query(..., description="State parameter from authorization request"),
-    provider_impl: Annotated[type[BaseOauthProvider], Depends(get_provider)],
+    provider_impl: Annotated[type[BaseOAuthProvider], Depends(get_provider)],
 ) -> IntegrationOauthCallback:
     """Handle OAuth callback for the specified provider."""
     if role.workspace_id is None or role.user_id is None:
@@ -219,7 +219,7 @@ async def disconnect_integration(
     *,
     role: WorkspaceUserRole,
     session: AsyncDBSession,
-    provider_impl: Annotated[type[BaseOauthProvider], Depends(get_provider)],
+    provider_impl: Annotated[type[BaseOAuthProvider], Depends(get_provider)],
 ) -> None:
     """Disconnect integration for the specified provider."""
     # Verify provider exists (this will raise 400 if not)
@@ -245,7 +245,7 @@ async def update_integration(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
     params: IntegrationUpdate,
-    provider_impl: Annotated[type[BaseOauthProvider], Depends(get_provider)],
+    provider_impl: Annotated[type[BaseOAuthProvider], Depends(get_provider)],
 ) -> None:
     """Update OAuth client credentials for the specified provider integration."""
     if role.workspace_id is None:
@@ -358,7 +358,7 @@ async def list_providers(
 @providers_router.get("/{provider_id}/schema")
 async def get_provider_schema(
     role: WorkspaceUserRole,
-    provider_impl: Annotated[type[BaseOauthProvider], Depends(get_provider)],
+    provider_impl: Annotated[type[BaseOAuthProvider], Depends(get_provider)],
 ) -> ProviderSchema:
     """Get JSON Schema for provider-specific configuration."""
     return ProviderSchema(json_schema=provider_impl.schema())

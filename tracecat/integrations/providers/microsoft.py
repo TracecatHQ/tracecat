@@ -4,7 +4,7 @@ from typing import Any, ClassVar, Unpack
 
 from pydantic import BaseModel, Field
 
-from tracecat.integrations.base import BaseOauthProvider
+from tracecat.integrations.base import BaseOAuthProvider
 from tracecat.integrations.models import (
     OAuthProviderKwargs,
     ProviderCategory,
@@ -23,7 +23,7 @@ class MicrosoftOAuthConfig(BaseModel):
     )
 
 
-class MicrosoftOAuthProvider(BaseOauthProvider):
+class MicrosoftOAuthProvider(BaseOAuthProvider):
     """Microsoft OAuth provider using generic OAuth implementation."""
 
     id: ClassVar[str] = "microsoft"

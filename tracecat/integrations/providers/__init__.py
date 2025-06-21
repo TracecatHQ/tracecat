@@ -2,7 +2,7 @@ import importlib
 from pathlib import Path
 from typing import Self
 
-from tracecat.integrations.base import BaseOauthProvider
+from tracecat.integrations.base import BaseOAuthProvider
 
 
 def load_providers():
@@ -27,7 +27,7 @@ class ProviderRegistry:
 
     def __init__(self):
         self._providers = {}
-        for provider in BaseOauthProvider.__subclasses__():
+        for provider in BaseOAuthProvider.__subclasses__():
             if provider.id in self._providers:
                 raise ValueError(f"Duplicate provider ID: {provider.id}")
             self._providers[provider.id] = provider
@@ -38,11 +38,11 @@ class ProviderRegistry:
             cls._instance = cls()
         return cls._instance
 
-    def get_class(self, provider_id: str) -> type[BaseOauthProvider] | None:
+    def get_class(self, provider_id: str) -> type[BaseOAuthProvider] | None:
         """Get an initialized provider by its ID."""
         return self._providers.get(provider_id)
 
     @property
-    def providers(self) -> list[type[BaseOauthProvider]]:
+    def providers(self) -> list[type[BaseOAuthProvider]]:
         """List all available providers."""
         return list(self._providers.values())

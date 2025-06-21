@@ -2,11 +2,11 @@
 
 from typing import ClassVar
 
-from tracecat.integrations.base import BaseOauthProvider
+from tracecat.integrations.base import BaseOAuthProvider
 from tracecat.integrations.models import ProviderCategory, ProviderMetadata
 
 
-class SlackOAuthProvider(BaseOauthProvider):
+class SlackOAuthProvider(BaseOAuthProvider):
     """Slack OAuth provider using generic OAuth implementation."""
 
     id: ClassVar[str] = "slack"

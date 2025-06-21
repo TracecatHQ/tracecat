@@ -10,7 +10,7 @@ from tracecat.integrations.models import ProviderConfig, ProviderMetadata, Token
 from tracecat.logger import logger
 
 
-class BaseOauthProvider:
+class BaseOAuthProvider:
     """Base OAuth provider using authlib for standardized OAuth2 flows."""
 
     id: ClassVar[str]
