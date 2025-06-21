@@ -9,37 +9,41 @@ Terminology:
 
 import uuid
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
+from enum import StrEnum
 from typing import Any, NotRequired, Required, Self, TypedDict
 
 from pydantic import UUID4, BaseModel, SecretStr
 from sqlmodel import Field
 
 from tracecat.identifiers import UserID, WorkspaceID
-from tracecat.identifiers.workflow import WorkspaceIDShort
+from tracecat.integrations.enums import IntegrationStatus
 
 
 # Pydantic models for API responses
+class IntegrationReadMinimal(BaseModel):
+    """Response model for user integration."""
+
+    id: UUID4
+    provider_id: str
+    status: IntegrationStatus
+    is_expired: bool
+
+
 class IntegrationRead(BaseModel):
     """Response model for user integration."""
 
     id: UUID4
-    workspace_id: WorkspaceIDShort
     user_id: UserID | None = None
-    provider_id: str
     token_type: str
     expires_at: datetime | None
     scope: str | None
+    provider_id: str
     provider_config: dict[str, Any]
     created_at: datetime
     updated_at: datetime
-
-    @property
-    def is_expired(self) -> bool:
-        """Check if the access token is expired."""
-        if self.expires_at is None:
-            return False
-        return datetime.now(UTC) >= self.expires_at
+    status: IntegrationStatus
+    is_expired: bool
 
 
 class IntegrationUpdate(BaseModel):
@@ -78,6 +82,17 @@ class IntegrationOauthCallback(BaseModel):
     )
 
 
+class ProviderCategory(StrEnum):
+    """Category of a provider."""
+
+    AUTH = "auth"
+    COMMUNICATION = "communication"
+    CLOUD = "cloud"
+    MONITORING = "monitoring"
+    ALERTING = "alerting"
+    OTHER = "other"
+
+
 class ProviderMetadata(BaseModel):
     """Metadata for a provider."""
 
@@ -94,9 +109,21 @@ class ProviderMetadata(BaseModel):
     requires_config: bool = Field(
         False, description="Whether this provider requires additional configuration"
     )
+    categories: list[ProviderCategory] = Field(
+        default_factory=list,
+        description="Categories of the provider (e.g., auth, communication)",
+    )
+    features: list[str] = Field(
+        default_factory=list,
+        description="List of features provided by this integration",
+    )
+    setup_steps: list[str] = Field(
+        default_factory=list,
+        description="Step-by-step instructions for setting up the provider",
+    )
 
 
-class OauthState(BaseModel):
+class OAuthState(BaseModel):
     """Data class for OAuth state."""
 
     workspace_id: WorkspaceID

@@ -3,6 +3,7 @@
 from typing import ClassVar
 
 from tracecat.integrations.base import BaseOauthProvider
+from tracecat.integrations.models import ProviderCategory, ProviderMetadata
 
 
 class SlackOAuthProvider(BaseOauthProvider):
@@ -23,3 +24,24 @@ class SlackOAuthProvider(BaseOauthProvider):
         "im:history",
         "channels:history",
     ]
+
+    metadata: ClassVar[ProviderMetadata] = ProviderMetadata(
+        id="slack",
+        name="Slack",
+        description="Slack OAuth provider for team communication and notifications",
+        categories=[ProviderCategory.COMMUNICATION],
+        features=[
+            "Channel Notifications",
+            "Direct Messages",
+            "Custom Webhooks",
+            "Bot Integration",
+        ],
+        setup_steps=[
+            "Create a Slack App in your workspace",
+            "Configure OAuth & Permissions",
+            "Add required bot token scopes",
+            "Install the app to your workspace",
+            "Add client ID and secret",
+            "Test the connection",
+        ],
+    )
