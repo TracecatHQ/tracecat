@@ -13,7 +13,6 @@ import { Filter, Search } from "lucide-react"
 import { useIntegrations } from "@/lib/hooks"
 import { categoryColors } from "@/lib/provider-styles"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
 import {
   Card,
   CardContent,
@@ -241,46 +240,6 @@ export default function IntegrationsPage() {
                     `Connect with ${metadata.name} to enhance your workflows`}
                 </CardDescription>
               </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  <div>
-                    <h4 className="mb-2 text-sm font-medium">Key Features</h4>
-                    <div className="flex flex-wrap gap-1">
-                      {metadata.features?.slice(0, 3).map((feature, index) => (
-                        <Badge
-                          key={index}
-                          variant="outline"
-                          className="text-xs"
-                        >
-                          {feature}
-                        </Badge>
-                      ))}
-                      {metadata.features && metadata.features.length > 3 && (
-                        <Badge variant="outline" className="text-xs">
-                          +{metadata.features.length - 3} more
-                        </Badge>
-                      )}
-                    </div>
-                  </div>
-                  {statusInfo.label === "connected" && (
-                    <div className="text-xs text-muted-foreground">
-                      Connected via OAuth
-                    </div>
-                  )}
-                  <Button
-                    className="w-full"
-                    variant={
-                      statusInfo.label === "connected" ? "outline" : "default"
-                    }
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      handleProviderClick(metadata.id)
-                    }}
-                  >
-                    {statusInfo.label === "connected" ? "Manage" : "Configure"}
-                  </Button>
-                </div>
-              </CardContent>
             </Card>
           )
         })}
