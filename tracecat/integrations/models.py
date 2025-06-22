@@ -125,6 +125,13 @@ class ProviderMetadata(BaseModel):
         default=True,
         description="Whether this provider is available for use",
     )
+    api_docs_url: str | None = Field(
+        default=None, description="URL to API documentation"
+    )
+    setup_guide_url: str | None = Field(default=None, description="URL to setup guide")
+    troubleshooting_url: str | None = Field(
+        default=None, description="URL to troubleshooting documentation"
+    )
 
 
 class OAuthState(BaseModel):

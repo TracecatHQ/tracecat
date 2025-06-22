@@ -55,7 +55,6 @@ export default function ProviderDetailPage() {
 
   const {
     integration,
-    integrationIsLoading,
     connectProvider,
     connectProviderIsPending,
     disconnectProvider,
@@ -449,33 +448,61 @@ export default function ProviderDetailPage() {
               <CardTitle>Documentation</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              <Button variant="outline" className="w-full justify-start">
-                <ExternalLink className="mr-2 size-4" />
-                API Documentation
-              </Button>
-              <Button variant="outline" className="w-full justify-start">
-                <ExternalLink className="mr-2 size-4" />
-                Setup Guide
-              </Button>
-              <Button variant="outline" className="w-full justify-start">
-                <ExternalLink className="mr-2 size-4" />
-                Troubleshooting
-              </Button>
-            </CardContent>
-          </Card>
-
-          {/* Support */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Need Help?</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="mb-3 text-sm text-muted-foreground">
-                Having trouble with this integration? We&apos;re here to help.
-              </p>
-              <Button variant="outline" className="w-full">
-                Contact Support
-              </Button>
+              {metadata.api_docs_url && (
+                <Button
+                  variant="outline"
+                  className="w-full justify-start"
+                  asChild
+                >
+                  <a
+                    href={metadata.api_docs_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <ExternalLink className="mr-2 size-4" />
+                    API Documentation
+                  </a>
+                </Button>
+              )}
+              {metadata.setup_guide_url && (
+                <Button
+                  variant="outline"
+                  className="w-full justify-start"
+                  asChild
+                >
+                  <a
+                    href={metadata.setup_guide_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <ExternalLink className="mr-2 size-4" />
+                    Setup Guide
+                  </a>
+                </Button>
+              )}
+              {metadata.troubleshooting_url && (
+                <Button
+                  variant="outline"
+                  className="w-full justify-start"
+                  asChild
+                >
+                  <a
+                    href={metadata.troubleshooting_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <ExternalLink className="mr-2 size-4" />
+                    Troubleshooting
+                  </a>
+                </Button>
+              )}
+              {!metadata.api_docs_url &&
+                !metadata.setup_guide_url &&
+                !metadata.troubleshooting_url && (
+                  <p className="text-sm text-muted-foreground">
+                    No documentation links available for this provider.
+                  </p>
+                )}
             </CardContent>
           </Card>
         </div>
