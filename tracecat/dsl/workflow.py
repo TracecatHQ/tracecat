@@ -823,6 +823,10 @@ class DSLWorkflow:
         Not sure why we can't just run the function directly here.
         Pydantic throws an invalid JsonSchema error when we do so.
         """
+        if not self.dsl.entrypoint.expects:
+            return DSLValidationResult(
+                status="success", msg="No trigger inputs expected"
+            )
 
         validation_result = await workflow.execute_activity(
             validate_trigger_inputs_activity,
@@ -997,7 +1001,6 @@ class DSLWorkflow:
         ).model_dump()
         self.logger.info(
             "Running child workflow",
-            run_args=run_args,
             wait_strategy=args.wait_strategy,
             memo=memo,
         )
