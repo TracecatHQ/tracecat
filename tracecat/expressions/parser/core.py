@@ -8,7 +8,7 @@ from tracecat.types.exceptions import TracecatExpressionError
 
 class ExprParser:
     def __init__(self, start_rule: str = "root") -> None:
-        self.parser = Lark(grammar, start=start_rule)
+        self.parser = Lark(grammar, start=start_rule, parser="lalr")
 
     def parse(self, expression: str) -> Tree[Token] | None:
         try:
