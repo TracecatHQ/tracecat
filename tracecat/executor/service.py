@@ -333,7 +333,6 @@ def flatten_secrets(secrets: dict[str, Any]):
     and are accessible as environment variables using their provider_id.
     """
     flattened_secrets: dict[str, str] = {}
-    logger.warning("Flattening secrets", secrets=secrets)
     for name, keyvalues in secrets.items():
         if name.endswith("_oauth"):
             # OAuth secrets are stored as direct string values
