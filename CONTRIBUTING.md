@@ -1,6 +1,7 @@
 # Contributing to Tracecat
 
 Tracecat is currently accepting contributions for:
+
 - **Action Templates** and **Python integrations** in [Tracecat Registry](https://docs.tracecat.com/integrations/overview)
 - **Inline functions** for Tracecat's [expressions](https://docs.tracecat.com/quickstart/expressions) engine
 
@@ -128,12 +129,14 @@ base_url:
 #### Naming conventions
 
 Our naming convention is simple:
+
 - `title` must be less than 5 words and only describe the action (i.e. does not include the integration name).
 - `description` should be a single sentence that describes the action and includes the integration name.
 - `namespace` must following the format `tools.{integration_name}`.
 - If the integration wraps a Python client, the integration name is the name of the client (e.g. `tools.slack_sdk`, `tools.aws_boto3`, `tools.falconpy`).
 
 For example:
+
 - `title`: List alerts
 - `description`: Query for Crowdstrike alerts via the Falcon SIEM API.
 - `namespace`: `tools.crowdstrike`
@@ -220,6 +223,7 @@ uv run pytest tests/unit/test_functions.py -x --last-failed
 ```
 
 > [!NOTE]
+>
 > - `-x` flag stops the tests at the first failure
 > - `--last-failed` option re-runs all tests that failed in the previous run
 
