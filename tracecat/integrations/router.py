@@ -150,7 +150,7 @@ async def oauth_callback(
             detail="Workspace and user ID is required",
         )
 
-    logger.info("OAuth callback", code=code, state=state, provider_id=provider_impl.id)
+    logger.info("OAuth callback", provider_id=provider_impl.id)
     # Verify state contains user ID
     try:
         oauth_state = OAuthState.from_state(state)
