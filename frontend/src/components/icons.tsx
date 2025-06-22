@@ -502,7 +502,7 @@ export function ProviderIcon({
   providerId: string
   className?: string
 }) {
-  const Icon = providerIcons[providerId]
+  const Icon = providerIcons[providerId] ?? providerIcons["custom"]
   return (
     <Icon
       className={cn(
