@@ -159,9 +159,12 @@ class ExprEvaluator(Transformer):
         return eval_jsonpath(expr, self._operand, strict=self._strict)
 
     @v_args(inline=True)
-    def function(self, fn_name: str, fn_args: Sequence[Any]):
+    def function(self, fn_name: str, fn_args: Sequence[Any] | None):
         is_mapped = fn_name.endswith(".map")
         fn_name = fn_name.rsplit(".", 1)[0] if is_mapped else fn_name
+        # Handle None args (empty function calls like FN.now())
+        if fn_args is None:
+            fn_args = ()
         self.logger.trace(
             "Visit function expression",
             fn_name=fn_name,
@@ -190,6 +193,112 @@ class ExprEvaluator(Transformer):
     def binary_op(self, lhs: Any, op: str, rhs: Any):
         logger.trace("Visiting binary_op:", lhs=lhs, op=op, rhs=rhs)
         return functions.OPERATORS[op](lhs, rhs)
+
+    # Logical operators
+    @v_args(inline=True)
+    def or_op(self, lhs: Any, rhs: Any):
+        logger.trace("Visiting or_op:", lhs=lhs, rhs=rhs)
+        return functions.OPERATORS["||"](lhs, rhs)
+
+    @v_args(inline=True)
+    def and_op(self, lhs: Any, rhs: Any):
+        logger.trace("Visiting and_op:", lhs=lhs, rhs=rhs)
+        return functions.OPERATORS["&&"](lhs, rhs)
+
+    @v_args(inline=True)
+    def not_op(self, value: Any):
+        logger.trace("Visiting not_op:", value=value)
+        return not value
+
+    # Comparison operators
+    @v_args(inline=True)
+    def eq_op(self, lhs: Any, rhs: Any):
+        logger.trace("Visiting eq_op:", lhs=lhs, rhs=rhs)
+        return functions.OPERATORS["=="](lhs, rhs)
+
+    @v_args(inline=True)
+    def ne_op(self, lhs: Any, rhs: Any):
+        logger.trace("Visiting ne_op:", lhs=lhs, rhs=rhs)
+        return functions.OPERATORS["!="](lhs, rhs)
+
+    @v_args(inline=True)
+    def gt_op(self, lhs: Any, rhs: Any):
+        logger.trace("Visiting gt_op:", lhs=lhs, rhs=rhs)
+        return functions.OPERATORS[">"](lhs, rhs)
+
+    @v_args(inline=True)
+    def ge_op(self, lhs: Any, rhs: Any):
+        logger.trace("Visiting ge_op:", lhs=lhs, rhs=rhs)
+        return functions.OPERATORS[">="](lhs, rhs)
+
+    @v_args(inline=True)
+    def lt_op(self, lhs: Any, rhs: Any):
+        logger.trace("Visiting lt_op:", lhs=lhs, rhs=rhs)
+        return functions.OPERATORS["<"](lhs, rhs)
+
+    @v_args(inline=True)
+    def le_op(self, lhs: Any, rhs: Any):
+        logger.trace("Visiting le_op:", lhs=lhs, rhs=rhs)
+        return functions.OPERATORS["<="](lhs, rhs)
+
+    # Inclusion operators
+    @v_args(inline=True)
+    def in_op(self, lhs: Any, rhs: Any):
+        logger.trace("Visiting in_op:", lhs=lhs, rhs=rhs)
+        return functions.OPERATORS["in"](lhs, rhs)
+
+    @v_args(inline=True)
+    def not_in_op(self, lhs: Any, rhs: Any):
+        logger.trace("Visiting not_in_op:", lhs=lhs, rhs=rhs)
+        return functions.OPERATORS["not in"](lhs, rhs)
+
+    # Identity operators
+    @v_args(inline=True)
+    def is_op(self, lhs: Any, rhs: Any):
+        logger.trace("Visiting is_op:", lhs=lhs, rhs=rhs)
+        return functions.OPERATORS["is"](lhs, rhs)
+
+    @v_args(inline=True)
+    def is_not_op(self, lhs: Any, rhs: Any):
+        logger.trace("Visiting is_not_op:", lhs=lhs, rhs=rhs)
+        return functions.OPERATORS["is not"](lhs, rhs)
+
+    # Arithmetic operators
+    @v_args(inline=True)
+    def add_op(self, lhs: Any, rhs: Any):
+        logger.trace("Visiting add_op:", lhs=lhs, rhs=rhs)
+        return functions.OPERATORS["+"](lhs, rhs)
+
+    @v_args(inline=True)
+    def sub_op(self, lhs: Any, rhs: Any):
+        logger.trace("Visiting sub_op:", lhs=lhs, rhs=rhs)
+        return functions.OPERATORS["-"](lhs, rhs)
+
+    @v_args(inline=True)
+    def mul_op(self, lhs: Any, rhs: Any):
+        logger.trace("Visiting mul_op:", lhs=lhs, rhs=rhs)
+        return functions.OPERATORS["*"](lhs, rhs)
+
+    @v_args(inline=True)
+    def div_op(self, lhs: Any, rhs: Any):
+        logger.trace("Visiting div_op:", lhs=lhs, rhs=rhs)
+        return functions.OPERATORS["/"](lhs, rhs)
+
+    @v_args(inline=True)
+    def mod_op(self, lhs: Any, rhs: Any):
+        logger.trace("Visiting mod_op:", lhs=lhs, rhs=rhs)
+        return functions.OPERATORS["%"](lhs, rhs)
+
+    # Unary operators
+    @v_args(inline=True)
+    def neg_op(self, value: Any):
+        logger.trace("Visiting neg_op:", value=value)
+        return -value
+
+    @v_args(inline=True)
+    def pos_op(self, value: Any):
+        logger.trace("Visiting pos_op:", value=value)
+        return +value
 
     def PARTIAL_JSONPATH_EXPR(self, token: Token):
         logger.trace("Visiting PARTIAL_JSONPATH_EXPR:", value=token.value)
