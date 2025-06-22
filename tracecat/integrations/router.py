@@ -189,7 +189,7 @@ async def oauth_callback(
 
     token_result = await provider.exchange_code_for_token(code, state)
 
-    logger.info("OAuth callback", token_result=token_result)
+    logger.info("OAuth callback")
 
     # Store integration tokens for this user
     integration_service = IntegrationService(session, role=role)
