@@ -147,6 +147,12 @@ TEMPORAL__TASK_TIMEOUT = os.environ.get("TEMPORAL__TASK_TIMEOUT")
 TEMPORAL__METRICS_PORT = os.environ.get("TEMPORAL__METRICS_PORT")
 """Port for the Temporal metrics server."""
 
+
+TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION = os.environ.get(
+    "TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION", "true"
+).lower() in ("true", "1")
+"""Disable eager activity execution for Temporal workflows."""
+
 # Secrets manager config
 TRACECAT__UNSAFE_DISABLE_SM_MASKING = os.environ.get(
     "TRACECAT__UNSAFE_DISABLE_SM_MASKING",
