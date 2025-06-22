@@ -1005,11 +1005,7 @@ export type IntegrationReadMinimal = {
 /**
  * Status of an integration.
  */
-export type IntegrationStatus =
-  | "not_configured"
-  | "configured"
-  | "connected"
-  | "expired"
+export type IntegrationStatus = "not_configured" | "configured" | "connected"
 
 /**
  * Request model for updating an integration.
@@ -4093,7 +4089,7 @@ export type PublicCheckHealthResponse = {
 
 export type $OpenApiTs = {
   "/webhooks/{workflow_id}/{secret}": {
-    get: {
+    post: {
       req: PublicIncomingWebhookData
       res: {
         /**
@@ -4106,7 +4102,7 @@ export type $OpenApiTs = {
         422: HTTPValidationError
       }
     }
-    post: {
+    get: {
       req: PublicIncomingWebhook1Data
       res: {
         /**

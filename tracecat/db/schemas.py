@@ -1090,13 +1090,8 @@ class OAuthIntegration(SQLModel, TimestampMixin, table=True):
         # Is connected: Successfully authenticated
         is_connected = len(self.encrypted_access_token) > 0
 
-        # Is expired: Access token has expired
-        is_expired = self.is_expired
-
         # Return status based on conditions
-        if is_expired and is_connected:
-            return IntegrationStatus.EXPIRED
-        elif is_connected:
+        if is_connected:
             return IntegrationStatus.CONNECTED
         elif is_configured:
             return IntegrationStatus.CONFIGURED

@@ -10,5 +10,3 @@ class IntegrationStatus(StrEnum):
     """The integration is configured but not connected."""
     CONNECTED = "connected"
     """The integration is connected."""
-    EXPIRED = "expired"
-    """The integration is expired."""

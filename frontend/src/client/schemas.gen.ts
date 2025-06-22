@@ -3315,7 +3315,7 @@ export const $IntegrationReadMinimal = {
 
 export const $IntegrationStatus = {
   type: "string",
-  enum: ["not_configured", "configured", "connected", "expired"],
+  enum: ["not_configured", "configured", "connected"],
   title: "IntegrationStatus",
   description: "Status of an integration.",
 } as const
