@@ -38,10 +38,11 @@ class MicrosoftOAuthProvider(BaseOAuthProvider):
 
     # Default Microsoft Graph scopes for Teams integration
     default_scopes: ClassVar[list[str]] = [
+        "offline_access",  # Required for refresh token
+        "https://graph.microsoft.com/User.Read",
         "https://graph.microsoft.com/Team.ReadBasic.All",
         "https://graph.microsoft.com/Channel.ReadBasic.All",
         "https://graph.microsoft.com/ChannelMessage.Send",
-        "https://graph.microsoft.com/User.Read",
     ]
 
     config_model: ClassVar[type[BaseModel]] = MicrosoftOAuthConfig
