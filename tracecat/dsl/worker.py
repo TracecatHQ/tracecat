@@ -13,6 +13,7 @@ from temporalio.worker.workflow_sandbox import (
 with workflow.unsafe.imports_passed_through():
     import sentry_sdk
 
+    from tracecat import config
     from tracecat.dsl.action import DSLActivities
     from tracecat.dsl.client import get_temporal_client
     from tracecat.dsl.interceptor import SentryInterceptor
@@ -88,8 +89,12 @@ async def main() -> None:
         workflows=[DSLWorkflow],
         workflow_runner=new_sandbox_runner(),
         interceptors=interceptors,
+        disable_eager_activity_execution=config.TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION,
     ):
-        logger.info("Worker started, ctrl+c to exit")
+        logger.info(
+            "Worker started, ctrl+c to exit",
+            disable_eager_activity_execution=config.TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION,
+        )
         # Wait until interrupted
         await interrupt_event.wait()
         logger.info("Shutting down")
