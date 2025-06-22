@@ -28,15 +28,15 @@ Deploy a local Tracecat stack using Docker Compose. View step-by-step instructio
 
 ```bash
 # 1. Setup .env configs and secrets (you'll be prompted for superadmin email)
-curl -o env.sh https://raw.githubusercontent.com/TracecatHQ/tracecat/0.37.1/env.sh
-curl -o .env.example https://raw.githubusercontent.com/TracecatHQ/tracecat/0.37.1/.env.example
+curl -o env.sh https://raw.githubusercontent.com/TracecatHQ/tracecat/0.37.2/env.sh
+curl -o .env.example https://raw.githubusercontent.com/TracecatHQ/tracecat/0.37.2/.env.example
 chmod +x env.sh && ./env.sh
 
 # 2. Download Caddyfile
-curl -o Caddyfile https://raw.githubusercontent.com/TracecatHQ/tracecat/0.37.1/Caddyfile
+curl -o Caddyfile https://raw.githubusercontent.com/TracecatHQ/tracecat/0.37.2/Caddyfile
 
 # 3. Download Docker Compose file
-curl -o docker-compose.yml https://raw.githubusercontent.com/TracecatHQ/tracecat/0.37.1/docker-compose.yml
+curl -o docker-compose.yml https://raw.githubusercontent.com/TracecatHQ/tracecat/0.37.2/docker-compose.yml
 
 # Run Tracecat
 docker compose up -d
@@ -45,7 +45,7 @@ docker compose up -d
 <PublicUrlNote />
 
 Check out the generated `.env` file to better understand Tracecat's configurations.
-You can also view the template `.env.example` file [here](https://github.com/TracecatHQ/tracecat/blob/0.37.1/.env.example).
+You can also view the template `.env.example` file [here](https://github.com/TracecatHQ/tracecat/blob/0.37.2/.env.example).
 
 ### AWS Fargate
 
