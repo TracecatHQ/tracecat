@@ -66,6 +66,9 @@ class MicrosoftOAuthProvider(BaseOAuthProvider):
             "Configure credentials in Tracecat with your tenant ID",
         ],
         enabled=True,
+        api_docs_url="https://learn.microsoft.com/en-us/graph/api/overview?view=graph-rest-1.0",
+        setup_guide_url="https://developer.microsoft.com/en-us/graph/quick-start",
+        troubleshooting_url="https://learn.microsoft.com/en-us/graph/resolve-auth-errors",
     )
 
     def __init__(
