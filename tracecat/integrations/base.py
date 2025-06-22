@@ -172,3 +172,37 @@ class BaseOAuthProvider:
                 state=state,
             )
             raise
+
+    async def refresh_access_token(self, refresh_token: str) -> TokenResponse:
+        """Refresh the access token using a refresh token."""
+        try:
+            # Use authlib to refresh the token
+            token = cast(
+                dict[str, Any],
+                await self.client.refresh_token(
+                    self.token_endpoint,
+                    refresh_token=refresh_token,
+                    **self._get_additional_token_params(),
+                ),  # type: ignore
+            )
+
+            self.logger.info("Successfully refreshed OAuth token", provider=self.id)
+
+            # Convert authlib token response to our TokenResponse model
+            return TokenResponse(
+                access_token=SecretStr(token["access_token"]),
+                refresh_token=SecretStr(new_refresh_token)
+                if (new_refresh_token := token.get("refresh_token"))
+                else SecretStr(refresh_token),  # Fallback to original if not rotated
+                expires_in=token.get("expires_in", 3600),
+                scope=token.get("scope", " ".join(self.scopes)),
+                token_type=token.get("token_type", "Bearer"),
+            )
+
+        except Exception as e:
+            self.logger.error(
+                "Error refreshing access token",
+                provider=self.id,
+                error=str(e),
+            )
+            raise

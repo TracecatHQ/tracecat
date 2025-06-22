@@ -10,6 +10,7 @@ from sqlmodel import col, select
 from tracecat.db.schemas import OAuthIntegration
 from tracecat.identifiers import UserID
 from tracecat.integrations.models import ProviderConfig
+from tracecat.integrations.providers import ProviderRegistry
 from tracecat.secrets.encryption import decrypt_value, encrypt_value
 from tracecat.service import BaseWorkspaceService
 
@@ -167,13 +168,98 @@ class IntegrationService(BaseWorkspaceService):
             )
             return integration
 
-        # This would need to be implemented per provider
-        # For now, just log that it needs refreshing
-        self.logger.warning(
-            "Token refresh needed but not implemented for provider",
-            user_id=integration.user_id,
-            provider=integration.provider_id,
-        )
+        # Get provider class from registry
+        registry = ProviderRegistry.get()
+        provider_class = registry.get_class(integration.provider_id)
+        if not provider_class:
+            self.logger.warning(
+                "Provider not found in registry",
+                user_id=integration.user_id,
+                provider=integration.provider_id,
+            )
+            return integration
+
+        # Create provider instance from integration config
+        try:
+            # Decrypt client credentials if using workspace credentials
+            if integration.use_workspace_credentials:
+                client_id = (
+                    self._decrypt_token(integration.encrypted_client_id)
+                    if integration.encrypted_client_id
+                    else None
+                )
+                client_secret = (
+                    self._decrypt_token(integration.encrypted_client_secret)
+                    if integration.encrypted_client_secret
+                    else None
+                )
+
+                if not client_id or not client_secret:
+                    self.logger.warning(
+                        "No client credentials found",
+                        user_id=integration.user_id,
+                        provider=integration.provider_id,
+                    )
+                    return integration
+                # Create provider config
+                provider_config = ProviderConfig(
+                    client_id=client_id,
+                    client_secret=SecretStr(client_secret),
+                    provider_config=integration.provider_config,
+                )
+                provider = provider_class.from_config(provider_config)
+            else:
+                # Use environment variables (default behavior)
+                provider = provider_class(**integration.provider_config)
+        except Exception as e:
+            self.logger.error(
+                "Failed to create provider for token refresh",
+                user_id=integration.user_id,
+                provider=integration.provider_id,
+                error=str(e),
+            )
+            raise e
+
+        # Refresh the access token
+        try:
+            token_response = await provider.refresh_access_token(refresh_token)
+
+            # Update integration with new tokens
+            integration.encrypted_access_token = self._encrypt_token(
+                token_response.access_token.get_secret_value()
+            )
+
+            # Update refresh token if provider rotated it
+            if token_response.refresh_token:
+                integration.encrypted_refresh_token = self._encrypt_token(
+                    token_response.refresh_token.get_secret_value()
+                )
+
+            # Update expiry time
+            integration.expires_at = datetime.now() + timedelta(
+                seconds=token_response.expires_in
+            )
+
+            # Update scope if changed
+            integration.scope = token_response.scope
+
+            await self.session.commit()
+            await self.session.refresh(integration)
+
+            self.logger.info(
+                "Successfully updated integration with refreshed tokens",
+                user_id=integration.user_id,
+                provider=integration.provider_id,
+            )
+
+        except Exception as e:
+            self.logger.error(
+                "Failed to refresh access token",
+                user_id=integration.user_id,
+                provider=integration.provider_id,
+                error=str(e),
+            )
+            raise e
 
         return integration
 
