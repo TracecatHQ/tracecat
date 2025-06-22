@@ -1629,13 +1629,12 @@ PARTIAL_DIVISION_BY_ZERO_ERROR = {
         "\n"
         "[evaluator] Evaluation failed at node:\n"
         "```\n"
-        "binary_op\n"
+        "div_op\n"
         "  literal\t1\n"
-        "  /\n"
         "  literal\t0\n"
         "\n"
         "```\n"
-        'Reason: Error trying to process rule "binary_op":\n'
+        'Reason: Error trying to process rule "div_op":\n'
         "\n"
         "Cannot divide by zero\n"
         "\n"
@@ -2562,12 +2561,11 @@ def assert_error_handler_initiated_correctly(
                     "TracecatExpressionError: Error evaluating expression `1/0`\n\n"
                     "[evaluator] Evaluation failed at node:\n"
                     "```\n"
-                    "binary_op\n"
+                    "div_op\n"
                     "  literal\t1\n"
-                    "  /\n"
                     "  literal\t0\n\n"
                     "```\n"
-                    'Reason: Error trying to process rule "binary_op":\n\n'
+                    'Reason: Error trying to process rule "div_op":\n\n'
                     "Cannot divide by zero\n\n"
                     "\n"
                     "------------------------------\n"
@@ -2589,12 +2587,11 @@ def assert_error_handler_initiated_correctly(
             "TracecatExpressionError: Error evaluating expression `1/0`\n\n"
             "[evaluator] Evaluation failed at node:\n"
             "```\n"
-            "binary_op\n"
+            "div_op\n"
             "  literal\t1\n"
-            "  /\n"
             "  literal\t0\n\n"
             "```\n"
-            'Reason: Error trying to process rule "binary_op":\n\n'
+            'Reason: Error trying to process rule "div_op":\n\n'
             "Cannot divide by zero\n\n"
             "\n"
             "------------------------------\n"
@@ -4506,14 +4503,14 @@ async def test_workflow_detached_child_workflow(
                         "error": [
                             {
                                 "ref": "throw",
-                                "message": "There was an error in the executor when calling action 'core.transform.reshape'.\n\n\nTracecatExpressionError: Error evaluating expression `1/0`\n\n[evaluator] Evaluation failed at node:\n```\nbinary_op\n  literal\t1\n  /\n  literal\t0\n\n```\nReason: Error trying to process rule \"binary_op\":\n\nCannot divide by zero\n\n\n------------------------------\nFile: /app/tracecat/expressions/core.py\nFunction: result\nLine: 73",
+                                "message": "There was an error in the executor when calling action 'core.transform.reshape'.\n\n\nTracecatExpressionError: Error evaluating expression `1/0`\n\n[evaluator] Evaluation failed at node:\n```\ndiv_op\n  literal\t1\n  literal\t0\n\n```\nReason: Error trying to process rule \"div_op\":\n\nCannot divide by zero\n\n\n------------------------------\nFile: /app/tracecat/expressions/core.py\nFunction: result\nLine: 73",
                                 "type": "ExecutorClientError",
                                 "expr_context": "ACTIONS",
                                 "attempt": 1,
                             },
                             {
                                 "ref": "throw",
-                                "message": "There was an error in the executor when calling action 'core.transform.reshape'.\n\n\nTracecatExpressionError: Error evaluating expression `1/0`\n\n[evaluator] Evaluation failed at node:\n```\nbinary_op\n  literal\t1\n  /\n  literal\t0\n\n```\nReason: Error trying to process rule \"binary_op\":\n\nCannot divide by zero\n\n\n------------------------------\nFile: /app/tracecat/expressions/core.py\nFunction: result\nLine: 73",
+                                "message": "There was an error in the executor when calling action 'core.transform.reshape'.\n\n\nTracecatExpressionError: Error evaluating expression `1/0`\n\n[evaluator] Evaluation failed at node:\n```\ndiv_op\n  literal\t1\n  literal\t0\n\n```\nReason: Error trying to process rule \"div_op\":\n\nCannot divide by zero\n\n\n------------------------------\nFile: /app/tracecat/expressions/core.py\nFunction: result\nLine: 73",
                                 "type": "ExecutorClientError",
                                 "expr_context": "ACTIONS",
                                 "attempt": 1,
@@ -4613,14 +4610,14 @@ async def test_workflow_detached_child_workflow(
                         "result": [
                             {
                                 "ref": "throw",
-                                "message": "There was an error in the executor when calling action 'core.transform.reshape'.\n\n\nTracecatExpressionError: Error evaluating expression `1/0`\n\n[evaluator] Evaluation failed at node:\n```\nbinary_op\n  literal\t1\n  /\n  literal\t0\n\n```\nReason: Error trying to process rule \"binary_op\":\n\nCannot divide by zero\n\n\n------------------------------\nFile: /app/tracecat/expressions/core.py\nFunction: result\nLine: 73",
+                                "message": "There was an error in the executor when calling action 'core.transform.reshape'.\n\n\nTracecatExpressionError: Error evaluating expression `1/0`\n\n[evaluator] Evaluation failed at node:\n```\ndiv_op\n  literal\t1\n  literal\t0\n\n```\nReason: Error trying to process rule \"div_op\":\n\nCannot divide by zero\n\n\n------------------------------\nFile: /app/tracecat/expressions/core.py\nFunction: result\nLine: 73",
                                 "type": "ExecutorClientError",
                                 "expr_context": "ACTIONS",
                                 "attempt": 1,
                             },
                             {
                                 "ref": "throw",
-                                "message": "There was an error in the executor when calling action 'core.transform.reshape'.\n\n\nTracecatExpressionError: Error evaluating expression `1/0`\n\n[evaluator] Evaluation failed at node:\n```\nbinary_op\n  literal\t1\n  /\n  literal\t0\n\n```\nReason: Error trying to process rule \"binary_op\":\n\nCannot divide by zero\n\n\n------------------------------\nFile: /app/tracecat/expressions/core.py\nFunction: result\nLine: 73",
+                                "message": "There was an error in the executor when calling action 'core.transform.reshape'.\n\n\nTracecatExpressionError: Error evaluating expression `1/0`\n\n[evaluator] Evaluation failed at node:\n```\ndiv_op\n  literal\t1\n  literal\t0\n\n```\nReason: Error trying to process rule \"div_op\":\n\nCannot divide by zero\n\n\n------------------------------\nFile: /app/tracecat/expressions/core.py\nFunction: result\nLine: 73",
                                 "type": "ExecutorClientError",
                                 "expr_context": "ACTIONS",
                                 "attempt": 1,
