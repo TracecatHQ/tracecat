@@ -1,10 +1,12 @@
 "use client"
 
-import * as React from "react"
-import { useWorkflowBuilder } from "@/providers/builder"
 import { SidebarIcon } from "lucide-react"
-
-import { cn } from "@/lib/utils"
+import * as React from "react"
+import { WorkflowCanvas } from "@/components/builder/canvas/canvas"
+import { BuilderSidebarEvents } from "@/components/builder/events/events-sidebar"
+import { EventsSidebarToolbar } from "@/components/builder/events/events-sidebar-toolbar"
+import { BuilderPanel } from "@/components/builder/panel/builder-panel"
+import { WorkflowBuilderErrorBoundary } from "@/components/error-boundaries"
 import { Button } from "@/components/ui/button"
 import {
   CustomResizableHandle,
@@ -17,11 +19,8 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { WorkflowCanvas } from "@/components/builder/canvas/canvas"
-import { BuilderSidebarEvents } from "@/components/builder/events/events-sidebar"
-import { EventsSidebarToolbar } from "@/components/builder/events/events-sidebar-toolbar"
-import { BuilderPanel } from "@/components/builder/panel/builder-panel"
-import { WorkflowBuilderErrorBoundary } from "@/components/error-boundaries"
+import { cn } from "@/lib/utils"
+import { useWorkflowBuilder } from "@/providers/builder"
 
 interface BuilderProps {
   defaultLayout: number[] | undefined

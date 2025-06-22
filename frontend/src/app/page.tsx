@@ -1,18 +1,17 @@
 "use client"
 
-import React, { useEffect } from "react"
+import { LogInIcon } from "lucide-react"
 import Image from "next/image"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { useAuth } from "@/providers/auth"
-import { LogInIcon } from "lucide-react"
 import TracecatIcon from "public/icon.png"
-
-import { cn } from "@/lib/utils"
-import { buttonVariants } from "@/components/ui/button"
+import { useEffect } from "react"
 import { Icons } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import PrivacyPolicy from "@/components/privacy-policy"
+import { buttonVariants } from "@/components/ui/button"
+import { cn } from "@/lib/utils"
+import { useAuth } from "@/providers/auth"
 
 export default function HomePage() {
   const { user, userIsLoading } = useAuth()

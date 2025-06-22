@@ -1,17 +1,16 @@
 import "@/styles/globals.css"
 
-import React from "react"
-import { type Metadata } from "next"
+import type { Metadata } from "next"
 import dynamic from "next/dynamic"
-import { AuthProvider } from "@/providers/auth"
-import { type PHProviderType } from "@/providers/posthog"
-import { DefaultQueryClientProvider } from "@/providers/query"
 import { PublicEnvScript } from "next-runtime-env"
-
+import React from "react"
+import { Toaster } from "@/components/ui/toaster"
 import { siteConfig } from "@/config/site"
 import { fontSans } from "@/lib/fonts"
 import { cn } from "@/lib/utils"
-import { Toaster } from "@/components/ui/toaster"
+import { AuthProvider } from "@/providers/auth"
+import type { PHProviderType } from "@/providers/posthog"
+import { DefaultQueryClientProvider } from "@/providers/query"
 
 let PostHogPageView: React.ComponentType | undefined = undefined
 let PHProvider: PHProviderType | undefined = undefined

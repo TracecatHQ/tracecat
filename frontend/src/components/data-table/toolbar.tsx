@@ -1,10 +1,12 @@
 "use client"
 
-import { useState } from "react"
 import { Cross2Icon } from "@radix-ui/react-icons"
-import { Row, Table } from "@tanstack/react-table"
+import type { Row, Table } from "@tanstack/react-table"
 import { Trash2Icon } from "lucide-react"
-
+import { useState } from "react"
+import { DataTableViewOptions } from "@/components/data-table"
+import { DataTableFacetedFilter } from "@/components/data-table/faceted-filter"
+import { Spinner } from "@/components/loading/spinner"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -18,9 +20,6 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { DataTableViewOptions } from "@/components/data-table"
-import { DataTableFacetedFilter } from "@/components/data-table/faceted-filter"
-import { Spinner } from "@/components/loading/spinner"
 
 export interface DataTableToolbarProps<TData> {
   filterProps?: DataTableToolbarFilterProps

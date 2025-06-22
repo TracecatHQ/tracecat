@@ -1,21 +1,9 @@
 "use client"
 
-import { useMemo } from "react"
-import Link from "next/link"
-import { CaseEventRead } from "@/client"
-import { useWorkspace } from "@/providers/workspace"
 import { AlertCircle, Clock, ExternalLinkIcon, PlusIcon } from "lucide-react"
-
-import { SYSTEM_USER, User } from "@/lib/auth"
-import { executionId, getWorkflowExecutionUrl } from "@/lib/event-history"
-import { useAppInfo, useCaseEvents } from "@/lib/hooks"
-import { Skeleton } from "@/components/ui/skeleton"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
+import Link from "next/link"
+import { useMemo } from "react"
+import type { CaseEventRead } from "@/client"
 import {
   AssigneeChangedEvent,
   CaseClosedEvent,
@@ -29,6 +17,17 @@ import {
   StatusChangedEvent,
 } from "@/components/cases/case-activity-feed-event"
 import { CaseEventTimestamp } from "@/components/cases/case-panel-common"
+import { Skeleton } from "@/components/ui/skeleton"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
+import { SYSTEM_USER, User } from "@/lib/auth"
+import { executionId, getWorkflowExecutionUrl } from "@/lib/event-history"
+import { useAppInfo, useCaseEvents } from "@/lib/hooks"
+import { useWorkspace } from "@/providers/workspace"
 
 import { InlineDotSeparator } from "../separator"
 

@@ -1,18 +1,17 @@
 "use client"
 
-import React, { useEffect } from "react"
-import { TableColumnRead, TableRead, TableRowRead } from "@/client"
-import { useWorkspace } from "@/providers/workspace"
-import { CellContext, ColumnDef } from "@tanstack/react-table"
+import type { CellContext, ColumnDef } from "@tanstack/react-table"
 import { DatabaseZapIcon } from "lucide-react"
-
-import { useListRows } from "@/lib/hooks"
-import { Button } from "@/components/ui/button"
-import { TooltipProvider } from "@/components/ui/tooltip"
+import React, { useEffect } from "react"
+import type { TableColumnRead, TableRead, TableRowRead } from "@/client"
 import { DataTable } from "@/components/data-table"
 import { JsonViewWithControls } from "@/components/json-viewer"
 import { TableViewAction } from "@/components/tables/table-view-action"
 import { TableViewColumnMenu } from "@/components/tables/table-view-column-menu"
+import { Button } from "@/components/ui/button"
+import { TooltipProvider } from "@/components/ui/tooltip"
+import { useListRows } from "@/lib/hooks"
+import { useWorkspace } from "@/providers/workspace"
 
 function CollapsibleText({ text }: { text: string }) {
   const [isExpanded, setIsExpanded] = React.useState(false)

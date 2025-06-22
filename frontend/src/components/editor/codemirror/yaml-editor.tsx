@@ -1,9 +1,5 @@
 "use client"
 
-import React, { useCallback, useMemo, useRef, useState } from "react"
-import { ActionRead } from "@/client"
-import { useWorkflow } from "@/providers/workflow"
-import { useWorkspace } from "@/providers/workspace"
 import { closeBrackets } from "@codemirror/autocomplete"
 import { history } from "@codemirror/commands"
 import { yaml } from "@codemirror/lang-yaml"
@@ -13,11 +9,11 @@ import {
   indentUnit,
   syntaxHighlighting,
 } from "@codemirror/language"
-import { linter, lintGutter, type Diagnostic } from "@codemirror/lint"
+import { type Diagnostic, linter, lintGutter } from "@codemirror/lint"
 import { EditorState } from "@codemirror/state"
 import {
   Decoration,
-  DecorationSet,
+  type DecorationSet,
   EditorView,
   keymap,
   ViewPlugin,
@@ -26,10 +22,13 @@ import {
 import { tags } from "@lezer/highlight"
 import CodeMirror from "@uiw/react-codemirror"
 import { AlertTriangle, Check } from "lucide-react"
-import { Control, FieldValues, useController } from "react-hook-form"
+import React, { useCallback, useMemo, useRef, useState } from "react"
+import { type Control, type FieldValues, useController } from "react-hook-form"
 import YAML from "yaml"
-
+import type { ActionRead } from "@/client"
 import { cn } from "@/lib/utils"
+import { useWorkflow } from "@/providers/workflow"
+import { useWorkspace } from "@/providers/workspace"
 
 import {
   createAtKeyCompletion,
@@ -41,8 +40,8 @@ import {
   createPillClickHandler,
   createPillDeleteKeymap,
   createTemplatePillPlugin,
-  editingRangeField,
   EDITOR_STYLE,
+  editingRangeField,
   templatePillTheme,
 } from "./common"
 
@@ -234,7 +233,7 @@ export const YamlStyledEditor = React.forwardRef<
               YAML.parse(content)
             }
             setHasErrors(false)
-          } catch (error) {
+          } catch (_error) {
             setHasErrors(true)
           }
         }

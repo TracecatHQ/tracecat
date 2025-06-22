@@ -1,12 +1,13 @@
 "use client"
 
-import { useState } from "react"
-import { OrgMemberRead, UserRole } from "@/client"
-import { useAuth } from "@/providers/auth"
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
-
-import { getRelativeTime } from "@/lib/event-history"
-import { useOrgMembers } from "@/lib/hooks"
+import { useState } from "react"
+import type { OrgMemberRead, UserRole } from "@/client"
+import {
+  DataTable,
+  DataTableColumnHeader,
+  type DataTableToolbarProps,
+} from "@/components/data-table"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -43,11 +44,9 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { toast } from "@/components/ui/use-toast"
-import {
-  DataTable,
-  DataTableColumnHeader,
-  type DataTableToolbarProps,
-} from "@/components/data-table"
+import { getRelativeTime } from "@/lib/event-history"
+import { useOrgMembers } from "@/lib/hooks"
+import { useAuth } from "@/providers/auth"
 
 export function OrgMembersTable() {
   const [selectedMember, setSelectedMember] = useState<OrgMemberRead | null>(

@@ -1,14 +1,5 @@
 "use client"
 
-import React from "react"
-import {
-  CasePriority,
-  CaseSeverity,
-  CaseStatus,
-  CaseUpdate,
-  UserRead,
-} from "@/client"
-import { useWorkspace } from "@/providers/workspace"
 import { format, formatDistanceToNow } from "date-fns"
 import {
   ActivityIcon,
@@ -21,12 +12,13 @@ import {
   Plus,
   UserCircle2,
 } from "lucide-react"
-
-import { useGetCase, useUpdateCase } from "@/lib/hooks"
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-import { Skeleton } from "@/components/ui/skeleton"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import type {
+  CasePriority,
+  CaseSeverity,
+  CaseStatus,
+  CaseUpdate,
+  UserRead,
+} from "@/client"
 import { CaseActivityFeed } from "@/components/cases/case-activity-feed"
 import { CommentSection } from "@/components/cases/case-comments-section"
 import { CustomField } from "@/components/cases/case-panel-custom-fields"
@@ -40,6 +32,12 @@ import {
 import { CasePanelSummary } from "@/components/cases/case-panel-summary"
 import { CaseWorkflowTrigger } from "@/components/cases/case-workflow-trigger"
 import { AlertNotification } from "@/components/notifications"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { Skeleton } from "@/components/ui/skeleton"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { useGetCase, useUpdateCase } from "@/lib/hooks"
+import { useWorkspace } from "@/providers/workspace"
 
 interface CasePanelContentProps {
   caseId: string

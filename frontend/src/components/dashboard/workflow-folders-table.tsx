@@ -1,23 +1,38 @@
 "use client"
 
-import React, { useState } from "react"
+import { DotsHorizontalIcon } from "@radix-ui/react-icons"
+import type { Row } from "@tanstack/react-table"
+import { format, formatDistanceToNow } from "date-fns"
+import { CircleDot, FolderIcon, WorkflowIcon } from "lucide-react"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
-import {
+import React, { useState } from "react"
+import type {
   ApiError,
   FolderDirectoryItem,
   TagRead,
   WorkflowReadMinimal,
 } from "@/client"
-import { useAuth } from "@/providers/auth"
-import { useWorkspace } from "@/providers/workspace"
-import { DotsHorizontalIcon } from "@radix-ui/react-icons"
-import { Row } from "@tanstack/react-table"
-import { format, formatDistanceToNow } from "date-fns"
-import { CircleDot, FolderIcon, WorkflowIcon } from "lucide-react"
-
-import { DirectoryItem, useGetDirectoryItems } from "@/lib/hooks"
-import { capitalizeFirst, cn } from "@/lib/utils"
+import { CreateWorkflowButton } from "@/components/dashboard/create-workflow-button"
+import { DeleteWorkflowAlertDialog } from "@/components/dashboard/delete-workflow-dialog"
+import { FolderDeleteAlertDialog } from "@/components/dashboard/folder-delete-dialog"
+import { FolderMoveDialog } from "@/components/dashboard/folder-move-dialog"
+import { FolderRenameDialog } from "@/components/dashboard/folder-rename-dialog"
+import {
+  FolderViewToggle,
+  type ViewMode,
+} from "@/components/dashboard/folder-view-toggle"
+import {
+  FolderActions,
+  WorkflowActions,
+} from "@/components/dashboard/table-actions"
+import { ActiveDialog, NO_DATA } from "@/components/dashboard/table-common"
+import { WorkflowMoveDialog } from "@/components/dashboard/workflow-move-dialog"
+import {
+  DataTable,
+  DataTableColumnHeader,
+  type DataTableToolbarProps,
+} from "@/components/data-table"
 import { Badge } from "@/components/ui/badge"
 import {
   Breadcrumb,
@@ -38,26 +53,10 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { CreateWorkflowButton } from "@/components/dashboard/create-workflow-button"
-import { DeleteWorkflowAlertDialog } from "@/components/dashboard/delete-workflow-dialog"
-import { FolderDeleteAlertDialog } from "@/components/dashboard/folder-delete-dialog"
-import { FolderMoveDialog } from "@/components/dashboard/folder-move-dialog"
-import { FolderRenameDialog } from "@/components/dashboard/folder-rename-dialog"
-import {
-  FolderViewToggle,
-  ViewMode,
-} from "@/components/dashboard/folder-view-toggle"
-import {
-  FolderActions,
-  WorkflowActions,
-} from "@/components/dashboard/table-actions"
-import { ActiveDialog, NO_DATA } from "@/components/dashboard/table-common"
-import { WorkflowMoveDialog } from "@/components/dashboard/workflow-move-dialog"
-import {
-  DataTable,
-  DataTableColumnHeader,
-  DataTableToolbarProps,
-} from "@/components/data-table"
+import { type DirectoryItem, useGetDirectoryItems } from "@/lib/hooks"
+import { capitalizeFirst, cn } from "@/lib/utils"
+import { useAuth } from "@/providers/auth"
+import { useWorkspace } from "@/providers/workspace"
 
 export function WorkflowFoldersTable({
   view,

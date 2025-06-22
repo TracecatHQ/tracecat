@@ -1,13 +1,16 @@
 "use client"
 
+import {
+  BuildingIcon,
+  CircleUserRoundIcon,
+  type LucideIcon,
+} from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { useWorkspace } from "@/providers/workspace"
-import { BuildingIcon, CircleUserRoundIcon, LucideIcon } from "lucide-react"
-
-import { cn } from "@/lib/utils"
 import { buttonVariants } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
+import { cn } from "@/lib/utils"
+import { useWorkspace } from "@/providers/workspace"
 
 const accountNavItems: NavItem[] = [
   {

@@ -1,9 +1,9 @@
 "use client"
 
-import { useAppInfo } from "@/lib/hooks"
+import { OrgSettingsAppForm } from "@/components/organization/org-settings-app"
 import { Badge } from "@/components/ui/badge"
 import { Label } from "@/components/ui/label"
-import { OrgSettingsAppForm } from "@/components/organization/org-settings-app"
+import { useAppInfo } from "@/lib/hooks"
 
 export default function AppSettingsPage() {
   const { appInfo } = useAppInfo()

@@ -1,9 +1,7 @@
 "use client"
 
-import { useState } from "react"
 import { FolderIcon, LayoutIcon, TagIcon } from "lucide-react"
-
-import { cn } from "@/lib/utils"
+import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -17,6 +15,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { cn } from "@/lib/utils"
 
 export enum ViewMode {
   Tags = "tags",

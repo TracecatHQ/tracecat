@@ -1,5 +1,3 @@
-import { jsonSchemaToParams } from "@/lib/jsonschema"
-import type { TracecatJsonSchema } from "@/lib/schema"
 import {
   HoverCard,
   HoverCardContent,
@@ -13,6 +11,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { jsonSchemaToParams } from "@/lib/jsonschema"
+import type { TracecatJsonSchema } from "@/lib/schema"
 
 export function JSONSchemaTable({ schema }: { schema: TracecatJsonSchema }) {
   const params = jsonSchemaToParams(schema).sort((a, b) => {

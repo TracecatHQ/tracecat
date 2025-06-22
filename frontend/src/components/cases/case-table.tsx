@@ -1,16 +1,8 @@
 "use client"
 
+import type { Row } from "@tanstack/react-table"
 import { useCallback, useMemo, useState } from "react"
-import { CaseReadMinimal } from "@/client"
-import { useAuth } from "@/providers/auth"
-import { useCasePanelContext } from "@/providers/case-panel"
-import { useWorkspace } from "@/providers/workspace"
-import { type Row } from "@tanstack/react-table"
-
-import { getDisplayName } from "@/lib/auth"
-import { useDeleteCase, useListCases } from "@/lib/hooks"
-import { TooltipProvider } from "@/components/ui/tooltip"
-import { useToast } from "@/components/ui/use-toast"
+import type { CaseReadMinimal } from "@/client"
 import {
   PRIORITIES,
   SEVERITIES,
@@ -19,6 +11,13 @@ import {
 import { UNASSIGNED } from "@/components/cases/case-panel-selectors"
 import { columns } from "@/components/cases/case-table-columns"
 import { DataTable, type DataTableToolbarProps } from "@/components/data-table"
+import { TooltipProvider } from "@/components/ui/tooltip"
+import { useToast } from "@/components/ui/use-toast"
+import { getDisplayName } from "@/lib/auth"
+import { useDeleteCase, useListCases } from "@/lib/hooks"
+import { useAuth } from "@/providers/auth"
+import { useCasePanelContext } from "@/providers/case-panel"
+import { useWorkspace } from "@/providers/workspace"
 
 export default function CaseTable() {
   const { user } = useAuth()

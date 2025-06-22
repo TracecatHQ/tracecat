@@ -1,11 +1,12 @@
 "use client"
 
-import { SAMLSettingsUpdate } from "@/client"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
-
-import { useAppInfo, useOrgSamlSettings } from "@/lib/hooks"
+import type { SAMLSettingsUpdate } from "@/client"
+import { CopyButton } from "@/components/copy-button"
+import { CenteredSpinner } from "@/components/loading/spinner"
+import { AlertNotification } from "@/components/notifications"
 import { Button } from "@/components/ui/button"
 import {
   Form,
@@ -19,9 +20,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { TooltipProvider } from "@/components/ui/tooltip"
-import { CopyButton } from "@/components/copy-button"
-import { CenteredSpinner } from "@/components/loading/spinner"
-import { AlertNotification } from "@/components/notifications"
+import { useAppInfo, useOrgSamlSettings } from "@/lib/hooks"
 
 const ssoFormSchema = z.object({
   saml_enabled: z.boolean(),

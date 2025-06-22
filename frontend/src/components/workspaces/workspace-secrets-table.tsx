@@ -1,10 +1,15 @@
 "use client"
 
-import React, { useState } from "react"
-import { SecretReadMinimal } from "@/client"
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
-
-import { useWorkspaceSecrets } from "@/lib/hooks"
+import { useState } from "react"
+import type { SecretReadMinimal } from "@/client"
+import {
+  DataTable,
+  DataTableColumnHeader,
+  type DataTableToolbarProps,
+} from "@/components/data-table"
+import { CenteredSpinner } from "@/components/loading/spinner"
+import { AlertNotification } from "@/components/notifications"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -14,13 +19,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import {
-  DataTable,
-  DataTableColumnHeader,
-  type DataTableToolbarProps,
-} from "@/components/data-table"
-import { CenteredSpinner } from "@/components/loading/spinner"
-import { AlertNotification } from "@/components/notifications"
-import {
   DeleteSecretAlertDialog,
   DeleteSecretAlertDialogTrigger,
 } from "@/components/workspaces/delete-workspace-secret"
@@ -28,6 +26,7 @@ import {
   EditCredentialsDialog,
   EditCredentialsDialogTrigger,
 } from "@/components/workspaces/edit-workspace-secret"
+import { useWorkspaceSecrets } from "@/lib/hooks"
 
 export function WorkspaceSecretsTable() {
   const { secrets, secretsIsLoading, secretsError } = useWorkspaceSecrets()

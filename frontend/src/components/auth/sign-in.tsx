@@ -1,17 +1,18 @@
 "use client"
 
-import React, { useState } from "react"
+import { zodResolver } from "@hookform/resolvers/zod"
 import Image from "next/image"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { useAuth } from "@/providers/auth"
-import { zodResolver } from "@hookform/resolvers/zod"
 import TracecatIcon from "public/icon.png"
+import type React from "react"
+import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
-
-import { useAppInfo } from "@/lib/hooks"
-import { cn } from "@/lib/utils"
+import { GoogleOAuthButton } from "@/components/auth/oauth-buttons"
+import { SamlSSOButton } from "@/components/auth/saml"
+import { Icons } from "@/components/icons"
+import { CenteredSpinner } from "@/components/loading/spinner"
 import { Button } from "@/components/ui/button"
 import {
   CardContent,
@@ -30,10 +31,9 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { toast } from "@/components/ui/use-toast"
-import { GoogleOAuthButton } from "@/components/auth/oauth-buttons"
-import { SamlSSOButton } from "@/components/auth/saml"
-import { Icons } from "@/components/icons"
-import { CenteredSpinner } from "@/components/loading/spinner"
+import { useAppInfo } from "@/lib/hooks"
+import { cn } from "@/lib/utils"
+import { useAuth } from "@/providers/auth"
 
 export function SignIn({ className }: React.HTMLProps<HTMLDivElement>) {
   const { user } = useAuth()

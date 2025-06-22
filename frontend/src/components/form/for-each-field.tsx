@@ -1,6 +1,6 @@
 import { Plus, Trash2 } from "lucide-react"
 import { useFormContext } from "react-hook-form"
-
+import { ExpressionInput } from "@/components/editor/expression-input"
 import { Button } from "@/components/ui/button"
 import {
   FormControl,
@@ -8,7 +8,6 @@ import {
   FormItem,
   FormMessage,
 } from "@/components/ui/form"
-import { ExpressionInput } from "@/components/editor/expression-input"
 
 export function ForEachField() {
   const { control } = useFormContext()

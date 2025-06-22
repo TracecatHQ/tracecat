@@ -1,11 +1,8 @@
 "use client"
 
-import { useState } from "react"
 import { useRouter } from "next/navigation"
-import { TableReadMinimal } from "@/client"
-import { useWorkspace } from "@/providers/workspace"
-
-import { useDeleteTable } from "@/lib/hooks"
+import { useState } from "react"
+import type { TableReadMinimal } from "@/client"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -18,6 +15,8 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Input } from "@/components/ui/input"
 import { toast } from "@/components/ui/use-toast"
+import { useDeleteTable } from "@/lib/hooks"
+import { useWorkspace } from "@/providers/workspace"
 
 export function DeleteTableDialog({
   table,

@@ -1,16 +1,18 @@
 "use client"
 
-import { useState } from "react"
-import { CaseFieldCreate, casesCreateField, casesDeleteField } from "@/client"
-import { useWorkspace } from "@/providers/workspace"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { DatabaseIcon, TrashIcon } from "lucide-react"
+import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
-
-import { useCaseFields } from "@/lib/hooks"
-import { SqlTypeEnum } from "@/lib/tables"
+import {
+  type CaseFieldCreate,
+  casesCreateField,
+  casesDeleteField,
+} from "@/client"
+import { CenteredSpinner } from "@/components/loading/spinner"
+import { AlertNotification } from "@/components/notifications"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -49,8 +51,9 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { toast } from "@/components/ui/use-toast"
-import { CenteredSpinner } from "@/components/loading/spinner"
-import { AlertNotification } from "@/components/notifications"
+import { useCaseFields } from "@/lib/hooks"
+import { SqlTypeEnum } from "@/lib/tables"
+import { useWorkspace } from "@/providers/workspace"
 
 const caseFieldFormSchema = z.object({
   name: z

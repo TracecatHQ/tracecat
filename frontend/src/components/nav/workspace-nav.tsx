@@ -1,17 +1,15 @@
 "use client"
 
-import React from "react"
+import { ShieldAlertIcon, Table2Icon, WorkflowIcon } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { useWorkspace } from "@/providers/workspace"
-import { ShieldAlertIcon, Table2Icon, WorkflowIcon } from "lucide-react"
-
-import { cn } from "@/lib/utils"
 import {
   OrganizationNavButton,
   RegistryNavButton,
 } from "@/components/nav/nav-buttons"
 import { WorkspaceSelector } from "@/components/workspaces/workspace-selector"
+import { cn } from "@/lib/utils"
+import { useWorkspace } from "@/providers/workspace"
 
 export function WorkspaceNav() {
   const { workspaceId } = useWorkspace()

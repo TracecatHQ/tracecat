@@ -2,17 +2,6 @@
 
 import "react18-json-view/src/style.css"
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import Link from "next/link"
-import {
-  $JoinStrategy,
-  ActionUpdate,
-  ApiError,
-  ValidationResult,
-} from "@/client"
-import { useWorkflowBuilder } from "@/providers/builder"
-import { useWorkflow } from "@/providers/workflow"
-import { useWorkspace } from "@/providers/workspace"
 import { zodResolver } from "@hookform/resolvers/zod"
 import {
   AlertTriangleIcon,
@@ -24,23 +13,53 @@ import {
   LinkIcon,
   ListIcon,
   Loader2Icon,
-  LucideIcon,
+  type LucideIcon,
   MessagesSquare,
   Plus,
   SaveIcon,
   ShapesIcon,
   SplitIcon,
 } from "lucide-react"
+import Link from "next/link"
+import type React from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { FormProvider, useForm } from "react-hook-form"
-import { ImperativePanelHandle } from "react-resizable-panels"
+import type { ImperativePanelHandle } from "react-resizable-panels"
 import YAML from "yaml"
 import { z } from "zod"
-
-import { RequestValidationError, TracecatApiError } from "@/lib/errors"
-import { useAction, useGetRegistryAction, useOrgAppSettings } from "@/lib/hooks"
-import { PERMITTED_INTERACTION_ACTIONS } from "@/lib/interactions"
-import { isTracecatJsonSchema, TracecatJsonSchema } from "@/lib/schema"
-import { cn, slugify } from "@/lib/utils"
+import {
+  $JoinStrategy,
+  type ActionUpdate,
+  ApiError,
+  type ValidationResult,
+} from "@/client"
+import {
+  ControlledYamlField,
+  PolymorphicField,
+} from "@/components/builder/panel/action-panel-fields"
+import {
+  ForEachTooltip,
+  JoinStrategyTooltip,
+  MaxAttemptsTooltip,
+  RetryUntilTooltip,
+  RunIfTooltip,
+  StartDelayTooltip,
+  TimeoutTooltip,
+  WaitUntilTooltip,
+} from "@/components/builder/panel/action-panel-tooltips"
+import { ControlFlowField } from "@/components/builder/panel/control-flow-fields"
+import { YamlViewOnlyEditor } from "@/components/editor/codemirror/yaml-editor"
+import { ExpressionInput } from "@/components/editor/expression-input"
+import {
+  useYamlEditorContext,
+  YamlEditorProvider,
+} from "@/components/editor/yaml-editor-context"
+import { SectionErrorBoundary } from "@/components/error-boundaries"
+import { ForEachField } from "@/components/form/for-each-field"
+import { getIcon } from "@/components/icons"
+import { JSONSchemaTable } from "@/components/jsonschema-table"
+import { CenteredSpinner } from "@/components/loading/spinner"
+import { AlertNotification } from "@/components/notifications"
 import {
   Accordion,
   AccordionContent,
@@ -82,41 +101,21 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { ToggleTabOption, ToggleTabs } from "@/components/ui/toggle-tabs"
+import { type ToggleTabOption, ToggleTabs } from "@/components/ui/toggle-tabs"
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import {
-  ControlledYamlField,
-  PolymorphicField,
-} from "@/components/builder/panel/action-panel-fields"
-import {
-  ForEachTooltip,
-  JoinStrategyTooltip,
-  MaxAttemptsTooltip,
-  RetryUntilTooltip,
-  RunIfTooltip,
-  StartDelayTooltip,
-  TimeoutTooltip,
-  WaitUntilTooltip,
-} from "@/components/builder/panel/action-panel-tooltips"
-import { ControlFlowField } from "@/components/builder/panel/control-flow-fields"
-import { YamlViewOnlyEditor } from "@/components/editor/codemirror/yaml-editor"
-import { ExpressionInput } from "@/components/editor/expression-input"
-import {
-  useYamlEditorContext,
-  YamlEditorProvider,
-} from "@/components/editor/yaml-editor-context"
-import { SectionErrorBoundary } from "@/components/error-boundaries"
-import { ForEachField } from "@/components/form/for-each-field"
-import { getIcon } from "@/components/icons"
-import { JSONSchemaTable } from "@/components/jsonschema-table"
-import { CenteredSpinner } from "@/components/loading/spinner"
-import { AlertNotification } from "@/components/notifications"
-import { actionTypeToLabel } from "@/components/registry/icons"
 import { ValidationErrorView } from "@/components/validation-errors"
+import type { RequestValidationError, TracecatApiError } from "@/lib/errors"
+import { useAction, useGetRegistryAction, useOrgAppSettings } from "@/lib/hooks"
+import { PERMITTED_INTERACTION_ACTIONS } from "@/lib/interactions"
+import { isTracecatJsonSchema, type TracecatJsonSchema } from "@/lib/schema"
+import { cn, slugify } from "@/lib/utils"
+import { useWorkflowBuilder } from "@/providers/builder"
+import { useWorkflow } from "@/providers/workflow"
+import { useWorkspace } from "@/providers/workspace"
 
 // These are YAML strings
 const actionFormSchema = z.object({
@@ -227,7 +226,7 @@ const reconstructYamlFromForm = (
       indent: 2,
       lineWidth: -1, // Don't wrap lines
     })
-  } catch (error) {
+  } catch (_error) {
     // Fallback to clean YAML if original is unparseable.
     return YAML.stringify(formChanges)
   }
@@ -579,9 +578,6 @@ function ActionPanelContent({
     [inputMode, methods, action?.inputs, rawInputsYaml]
   )
 
-  const ActionIcon = registryAction
-    ? actionTypeToLabel[registryAction.type].icon
-    : Database
   const isInteractive = methods.watch("is_interactive")
   const interactionType = methods.watch("interaction.type")
 

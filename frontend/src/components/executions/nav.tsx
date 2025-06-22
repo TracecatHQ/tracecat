@@ -1,10 +1,5 @@
 "use client"
 
-import React from "react"
-import {
-  WorkflowExecutionReadMinimal,
-  workflowExecutionsTerminateWorkflowExecution,
-} from "@/client"
 import {
   AlarmClockOffIcon,
   CircleArrowRightIcon,
@@ -13,8 +8,12 @@ import {
   CircleX,
   CircleXIcon,
 } from "lucide-react"
-
-import { cn, undoSlugify } from "@/lib/utils"
+import type React from "react"
+import {
+  type WorkflowExecutionReadMinimal,
+  workflowExecutionsTerminateWorkflowExecution,
+} from "@/client"
+import NoContent from "@/components/no-content"
 import { buttonVariants } from "@/components/ui/button"
 import {
   HoverCard,
@@ -27,19 +26,18 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import NoContent from "@/components/no-content"
+import { cn, undoSlugify } from "@/lib/utils"
 
 import "react18-json-view/src/style.css"
 
+import { TriangleRightIcon } from "@radix-ui/react-icons"
 import Link from "next/link"
 import { useParams, usePathname, useRouter } from "next/navigation"
-import { useWorkspace } from "@/providers/workspace"
-import { TriangleRightIcon } from "@radix-ui/react-icons"
-
-import { parseExecutionId } from "@/lib/event-history"
+import { Spinner } from "@/components/loading/spinner"
 import { ToastAction } from "@/components/ui/toast"
 import { toast } from "@/components/ui/use-toast"
-import { Spinner } from "@/components/loading/spinner"
+import { parseExecutionId } from "@/lib/event-history"
+import { useWorkspace } from "@/providers/workspace"
 
 /**
  * The top-level view of workflow executions (shows each execution and its status)

@@ -1,26 +1,14 @@
 "use client"
 
-import React, { useEffect, useState } from "react"
-import { $TriggerType, TriggerType } from "@/client"
-import { useWorkflowBuilder } from "@/providers/builder"
-import { useWorkflow } from "@/providers/workflow"
 import {
   CalendarSearchIcon,
   FileInputIcon,
   MessagesSquare,
   ShapesIcon,
 } from "lucide-react"
-import { ImperativePanelHandle } from "react-resizable-panels"
-
-import {
-  useCompactWorkflowExecution,
-  useLastExecution,
-  useLocalStorage,
-  useOrgAppSettings,
-} from "@/lib/hooks"
-import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area"
-import { Separator } from "@/components/ui/separator"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { useEffect, useState } from "react"
+import type { ImperativePanelHandle } from "react-resizable-panels"
+import { $TriggerType, type TriggerType } from "@/client"
 import { ActionEvent } from "@/components/builder/events/events-selected-action"
 import { EventsSidebarEmpty } from "@/components/builder/events/events-sidebar-empty"
 import { WorkflowInteractions } from "@/components/builder/events/events-sidebar-interactions"
@@ -30,6 +18,17 @@ import {
 } from "@/components/builder/events/events-workflow"
 import { Spinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
+import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area"
+import { Separator } from "@/components/ui/separator"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import {
+  useCompactWorkflowExecution,
+  useLastExecution,
+  useLocalStorage,
+  useOrgAppSettings,
+} from "@/lib/hooks"
+import { useWorkflowBuilder } from "@/providers/builder"
+import { useWorkflow } from "@/providers/workflow"
 
 // Define the available trigger types for UI generation
 const AVAILABLE_TRIGGER_TYPES: readonly TriggerType[] = $TriggerType.enum
@@ -59,9 +58,10 @@ export function BuilderSidebarEvents() {
   const [activeTab, setActiveTab] =
     useState<EventsSidebarTabs>("workflow-events")
   const [open, setOpen] = useState(false)
-  const [selectedTriggerTypes, setSelectedTriggerTypes] = useLocalStorage<
-    TriggerType[]
-  >("selected-trigger-types", [...AVAILABLE_TRIGGER_TYPES])
+  const [selectedTriggerTypes] = useLocalStorage<TriggerType[]>(
+    "selected-trigger-types",
+    [...AVAILABLE_TRIGGER_TYPES]
+  )
 
   const { lastExecution, lastExecutionIsLoading, lastExecutionError } =
     useLastExecution({

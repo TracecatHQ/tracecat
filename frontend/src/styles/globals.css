@@ -115,8 +115,7 @@
   }
 
   /* Style the highlighted/selected suggestion */
-  .editor-wrapper
-    .monaco-editor
+  .editor-wrapper .monaco-editor
     .suggest-widget
     .monaco-list
     .monaco-list-row.focused {
@@ -125,8 +124,7 @@
   }
 
   /* Style the matching text highlight */
-  .editor-wrapper
-    .monaco-editor
+  .editor-wrapper .monaco-editor
     .suggest-widget
     .monaco-list
     .monaco-list-row.focused
@@ -136,8 +134,7 @@
   }
 
   /* Style the matching text in non-selected items */
-  .editor-wrapper
-    .monaco-editor
+  .editor-wrapper .monaco-editor
     .suggest-widget
     .monaco-list
     .monaco-list-row

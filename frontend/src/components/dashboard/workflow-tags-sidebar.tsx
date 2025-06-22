@@ -1,16 +1,13 @@
 "use client"
 
-import { useCallback, useState } from "react"
-import { useRouter } from "next/navigation"
-import { TagCreate, TagRead, TagUpdate } from "@/client"
-import { useWorkspace } from "@/providers/workspace"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { EllipsisIcon, PencilIcon, Plus, Tag, Trash2Icon } from "lucide-react"
+import { useRouter } from "next/navigation"
+import { useCallback, useState } from "react"
 import { useForm } from "react-hook-form"
 import z from "zod"
-
-import { useTags } from "@/lib/hooks"
-import { cn } from "@/lib/utils"
+import type { TagCreate, TagRead, TagUpdate } from "@/client"
+import { ColorPicker } from "@/components/color-picker"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -48,7 +45,9 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
-import { ColorPicker } from "@/components/color-picker"
+import { useTags } from "@/lib/hooks"
+import { cn } from "@/lib/utils"
+import { useWorkspace } from "@/providers/workspace"
 
 const createTagSchema = z.object({
   name: z

@@ -1,5 +1,5 @@
-import { PropsWithChildren } from "react"
 import { Sparkles } from "lucide-react"
+import type { PropsWithChildren } from "react"
 
 import { cn } from "@/lib/utils"
 

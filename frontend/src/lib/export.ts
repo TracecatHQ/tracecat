@@ -1,5 +1,5 @@
-import { WorkflowsExportWorkflowData } from "@/client"
 import { AxiosError } from "axios"
+import type { WorkflowsExportWorkflowData } from "@/client"
 
 import { client } from "@/lib/api"
 

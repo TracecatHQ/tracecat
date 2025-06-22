@@ -1,18 +1,16 @@
 "use client"
 
-import React, { useState } from "react"
+import { zodResolver } from "@hookform/resolvers/zod"
 import Image from "next/image"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { ApiError } from "@/client"
-import { useAuth } from "@/providers/auth"
-import { zodResolver } from "@hookform/resolvers/zod"
 import TracecatIcon from "public/icon.png"
+import type React from "react"
+import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
-
-import { RequestValidationError, TracecatApiError } from "@/lib/errors"
-import { cn } from "@/lib/utils"
+import { ApiError } from "@/client"
+import { Icons } from "@/components/icons"
 import { Button } from "@/components/ui/button"
 import {
   CardContent,
@@ -29,7 +27,9 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
-import { Icons } from "@/components/icons"
+import type { RequestValidationError, TracecatApiError } from "@/lib/errors"
+import { cn } from "@/lib/utils"
+import { useAuth } from "@/providers/auth"
 
 // Move type definition outside the function for reuse
 type EmailLoginValidationError = {

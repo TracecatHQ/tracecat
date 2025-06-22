@@ -4,17 +4,17 @@
  * This module contains shared functionality for template expression editing,
  * including pill rendering, validation, completion, and interaction logic.
  */
-import React from "react"
-import { EditorActionRead, EditorFunctionRead } from "@/client"
+import type React from "react"
 import { createRoot } from "react-dom/client"
+import type { EditorActionRead, EditorFunctionRead } from "@/client"
 
 import {
   actionCache,
   functionCache,
-  TemplateExpressionValidation,
+  type TemplateExpressionValidation,
 } from "@/components/editor/codemirror/common"
 
-function createTooltipContentJSX(
+function _createTooltipContentJSX(
   info: { validation: TemplateExpressionValidation; innerContent: string },
   workspaceId: string,
   workflowId: string | null
@@ -169,7 +169,7 @@ function TemplateTooltip({
 }
 
 // Helper function to render JSX to DOM element for CodeMirror tooltips
-function renderTooltipJSX(component: React.ReactElement): HTMLElement {
+function _renderTooltipJSX(component: React.ReactElement): HTMLElement {
   try {
     const container = document.createElement("div")
     const root = createRoot(container)

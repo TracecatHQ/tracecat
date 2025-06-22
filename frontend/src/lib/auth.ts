@@ -1,5 +1,5 @@
-import { UserRead, UserRole, WorkspaceMembershipRead } from "@/client"
 import { AxiosError } from "axios"
+import type { UserRead, UserRole, WorkspaceMembershipRead } from "@/client"
 
 import { client } from "@/lib/api"
 

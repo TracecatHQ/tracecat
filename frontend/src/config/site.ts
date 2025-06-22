@@ -1,6 +1,5 @@
-import { SiteConfig } from "@/types"
-
 import { env } from "@/env.mjs"
+import type { SiteConfig } from "@/types"
 
 export const siteConfig: SiteConfig = {
   name: "Tracecat",

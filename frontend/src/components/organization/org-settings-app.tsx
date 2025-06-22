@@ -3,8 +3,8 @@
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
-
-import { useOrgAppSettings } from "@/lib/hooks"
+import { CenteredSpinner } from "@/components/loading/spinner"
+import { AlertNotification } from "@/components/notifications"
 import { Button } from "@/components/ui/button"
 import {
   Form,
@@ -16,8 +16,7 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
-import { CenteredSpinner } from "@/components/loading/spinner"
-import { AlertNotification } from "@/components/notifications"
+import { useOrgAppSettings } from "@/lib/hooks"
 
 const appFormSchema = z.object({
   app_registry_validation_enabled: z.boolean(),

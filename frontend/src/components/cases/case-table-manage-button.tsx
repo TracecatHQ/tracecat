@@ -1,11 +1,8 @@
 "use client"
 
-import { useRouter } from "next/navigation"
-import { useWorkspace } from "@/providers/workspace"
 import { format } from "date-fns"
 import { BracesIcon, ChevronDownIcon, CirclePlusIcon } from "lucide-react"
-
-import { useCreateCase } from "@/lib/hooks"
+import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -13,6 +10,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { useCreateCase } from "@/lib/hooks"
+import { useWorkspace } from "@/providers/workspace"
 
 export function CaseTableInsertButton() {
   const router = useRouter()

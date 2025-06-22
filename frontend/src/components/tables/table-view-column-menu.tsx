@@ -1,10 +1,5 @@
 "use client"
 
-import { useState } from "react"
-import { useParams } from "next/navigation"
-import { ApiError, TableColumnRead } from "@/client"
-import { useAuth } from "@/providers/auth"
-import { useWorkspace } from "@/providers/workspace"
 import { zodResolver } from "@hookform/resolvers/zod"
 import {
   ChevronDownIcon,
@@ -13,11 +8,12 @@ import {
   Pencil,
   Trash2Icon,
 } from "lucide-react"
+import { useParams } from "next/navigation"
+import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
-
-import { useDeleteColumn, useUpdateColumn } from "@/lib/hooks"
-import { SqlTypeEnum } from "@/lib/tables"
+import { ApiError, type TableColumnRead } from "@/client"
+import { Spinner } from "@/components/loading/spinner"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -62,7 +58,10 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { toast } from "@/components/ui/use-toast"
-import { Spinner } from "@/components/loading/spinner"
+import { useDeleteColumn, useUpdateColumn } from "@/lib/hooks"
+import { SqlTypeEnum } from "@/lib/tables"
+import { useAuth } from "@/providers/auth"
+import { useWorkspace } from "@/providers/workspace"
 
 type TableViewColumnMenuType = "delete" | "edit" | "set-natural-key" | null
 

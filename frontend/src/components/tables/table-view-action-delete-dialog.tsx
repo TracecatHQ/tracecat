@@ -1,11 +1,8 @@
 "use client"
 
+import type { Row } from "@tanstack/react-table"
 import { useParams } from "next/navigation"
-import { TableRowRead } from "@/client"
-import { useWorkspace } from "@/providers/workspace"
-import { Row } from "@tanstack/react-table"
-
-import { useDeleteRow } from "@/lib/hooks"
+import type { TableRowRead } from "@/client"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -16,6 +13,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+
+import { useDeleteRow } from "@/lib/hooks"
+import { useWorkspace } from "@/providers/workspace"
 
 export function TableViewActionDeleteDialog({
   row,

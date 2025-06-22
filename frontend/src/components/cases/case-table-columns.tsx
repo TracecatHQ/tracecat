@@ -1,17 +1,9 @@
 "use client"
 
-import { CaseReadMinimal } from "@/client"
-import { ColumnDef } from "@tanstack/react-table"
+import type { ColumnDef } from "@tanstack/react-table"
 import { format, formatDistanceToNow } from "date-fns"
 import fuzzysort from "fuzzysort"
-
-import { User } from "@/lib/auth"
-import { Checkbox } from "@/components/ui/checkbox"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
+import type { CaseReadMinimal } from "@/client"
 import { CaseBadge } from "@/components/cases/case-badge"
 import {
   PRIORITIES,
@@ -24,6 +16,13 @@ import {
   UNASSIGNED,
 } from "@/components/cases/case-panel-selectors"
 import { DataTableColumnHeader } from "@/components/data-table"
+import { Checkbox } from "@/components/ui/checkbox"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
+import { User } from "@/lib/auth"
 
 export const columns: ColumnDef<CaseReadMinimal>[] = [
   {

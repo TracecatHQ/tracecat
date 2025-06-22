@@ -1,9 +1,7 @@
 "use client"
 
-import React from "react"
-import { SecretReadMinimal } from "@/client"
-
-import { useOrgSecrets } from "@/lib/hooks"
+import type React from "react"
+import type { SecretReadMinimal } from "@/client"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -15,6 +13,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
+import { useOrgSecrets } from "@/lib/hooks"
 
 export function DeleteOrgSecretAlertDialog({
   selectedSecret,

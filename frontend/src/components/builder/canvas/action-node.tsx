@@ -1,22 +1,10 @@
-import React, {
-  Fragment,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react"
-import Link from "next/link"
-import { ActionRead, actionsCreateAction, ValidationResult } from "@/client"
-import { useWorkflowBuilder } from "@/providers/builder"
-import { useWorkflow } from "@/providers/workflow"
 import { QuestionMarkIcon } from "@radix-ui/react-icons"
 import {
+  type Node,
+  type NodeProps,
   NodeToolbar,
   Position,
   useEdges,
-  type Node,
-  type NodeProps,
   type XYPosition,
 } from "@xyflow/react"
 import {
@@ -31,17 +19,30 @@ import {
   SquareArrowOutUpRightIcon,
   Trash2Icon,
 } from "lucide-react"
+import Link from "next/link"
+import React, {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react"
 import { FormProvider, useForm, useFormContext } from "react-hook-form"
 import YAML from "yaml"
-
 import {
-  useAction,
-  useGetRegistryAction,
-  useWorkflowManager,
-} from "@/lib/hooks"
-import { cn, slugify } from "@/lib/utils"
-import { CHILD_WORKFLOW_ACTION_TYPE } from "@/lib/workflow"
-import { useActionNodeZoomBreakpoint } from "@/hooks/canvas"
+  type ActionRead,
+  actionsCreateAction,
+  type ValidationResult,
+} from "@/client"
+import {
+  ActionSoruceSuccessHandle,
+  ActionSourceErrorHandle,
+  ActionTargetHandle,
+} from "@/components/builder/canvas/custom-handle"
+import { nodeStyles } from "@/components/builder/canvas/node-styles"
+import type { EventsSidebarRef } from "@/components/builder/events/events-sidebar"
+import { getIcon } from "@/components/icons"
 import { Badge } from "@/components/ui/badge"
 import {
   Card,
@@ -66,14 +67,16 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { toast, useToast } from "@/components/ui/use-toast"
+import { useActionNodeZoomBreakpoint } from "@/hooks/canvas"
 import {
-  ActionSoruceSuccessHandle,
-  ActionSourceErrorHandle,
-  ActionTargetHandle,
-} from "@/components/builder/canvas/custom-handle"
-import { nodeStyles } from "@/components/builder/canvas/node-styles"
-import { EventsSidebarRef } from "@/components/builder/events/events-sidebar"
-import { getIcon } from "@/components/icons"
+  useAction,
+  useGetRegistryAction,
+  useWorkflowManager,
+} from "@/lib/hooks"
+import { cn, slugify } from "@/lib/utils"
+import { CHILD_WORKFLOW_ACTION_TYPE } from "@/lib/workflow"
+import { useWorkflowBuilder } from "@/providers/builder"
+import { useWorkflow } from "@/providers/workflow"
 
 export type ActionNodeData = {
   id: string
