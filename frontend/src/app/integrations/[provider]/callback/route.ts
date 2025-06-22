@@ -13,7 +13,7 @@ export const GET = async (
   const state = request.nextUrl.searchParams.get("state")
   if (!request.nextUrl.searchParams.get("code") || !state) {
     console.error("Missing code or state in request")
-    return NextResponse.redirect(new URL("/auth/error"))
+    return NextResponse.redirect(new URL("/auth/error", request.url))
   }
 
   const workspaceId = state.split(":")[0]
@@ -40,12 +40,12 @@ export const GET = async (
   const cb = await response.json()
   if (!isIntegrationOauthCallback(cb)) {
     console.error("Invalid integration callback", cb)
-    return NextResponse.redirect(new URL("/auth/error"))
+    return NextResponse.redirect(new URL("/auth/error", request.url))
   }
   const { status, provider_id: providerId, redirect_url } = cb
   if (providerId !== provider) {
     console.error("Invalid integration provider", providerId, provider)
-    return NextResponse.redirect(new URL("/auth/error"))
+    return NextResponse.redirect(new URL("/auth/error", request.url))
   }
 
   console.log("Redirecing to", redirect_url)
