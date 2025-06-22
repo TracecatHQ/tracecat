@@ -157,7 +157,7 @@ async def oauth_callback(
     except ValidationError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid state format: {e}",
+            detail="Invalid state format",
         ) from e
 
     if (
