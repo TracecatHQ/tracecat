@@ -78,7 +78,7 @@ export default function IntegrationsPage() {
         selectedCategory === null ||
         (metadata.categories && metadata.categories.includes(selectedCategory))
       const matchesStatus =
-        selectedStatus === null || statusInfo.label === selectedStatus
+        selectedStatus === null || provider.integration_status === selectedStatus
 
       return matchesSearch && matchesCategory && matchesStatus
     })
