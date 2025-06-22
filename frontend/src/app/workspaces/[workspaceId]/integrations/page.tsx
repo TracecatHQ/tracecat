@@ -73,7 +73,7 @@ export default function IntegrationsPage() {
 
       const matchesSearch =
         metadata.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        metadata.description?.toLowerCase().includes(searchQuery.toLowerCase())
+        (metadata.description ?? "").toLowerCase().includes(searchQuery.toLowerCase())
       const matchesCategory =
         selectedCategory === null ||
         (metadata.categories && metadata.categories.includes(selectedCategory))
