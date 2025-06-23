@@ -27,6 +27,7 @@ jobs:
           version: latest
 
       - name: Run Biome
+        working-directory: frontend
         run: biome ci .
 
       # Typescrtip typechecking
