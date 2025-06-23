@@ -6,41 +6,44 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, cast
 
-from pydantic_core import to_json
 from temporalio import workflow
-from temporalio.exceptions import ApplicationError
 
-from tracecat.common import is_iterable
-from tracecat.concurrency import cooperative
-from tracecat.contexts import ctx_stream_id
-from tracecat.dsl.common import AdjDst, DSLInput, edge_components_from_dep
-from tracecat.dsl.enums import (
-    EdgeMarker,
-    EdgeType,
-    JoinStrategy,
-    PlatformAction,
-    Sentinel,
-    SkipStrategy,
-    StreamErrorHandlingStrategy,
-)
-from tracecat.dsl.models import (
-    ROOT_STREAM,
-    ActionErrorInfo,
-    ActionErrorInfoAdapter,
-    ActionStatement,
-    ExecutionContext,
-    GatherArgs,
-    ScatterArgs,
-    StreamID,
-    Task,
-    TaskExceptionInfo,
-    TaskResult,
-)
-from tracecat.expressions.common import ExprContext
-from tracecat.expressions.core import TemplateExpression
-from tracecat.expressions.eval import eval_templated_object
-from tracecat.logger import logger
-from tracecat.types.exceptions import TaskUnreachable
+with workflow.unsafe.imports_passed_through():
+    from pydantic_core import to_json
+    from temporalio import workflow
+    from temporalio.exceptions import ApplicationError
+
+    from tracecat.common import is_iterable
+    from tracecat.concurrency import cooperative
+    from tracecat.contexts import ctx_stream_id
+    from tracecat.dsl.common import AdjDst, DSLInput, edge_components_from_dep
+    from tracecat.dsl.enums import (
+        EdgeMarker,
+        EdgeType,
+        JoinStrategy,
+        PlatformAction,
+        Sentinel,
+        SkipStrategy,
+        StreamErrorHandlingStrategy,
+    )
+    from tracecat.dsl.models import (
+        ROOT_STREAM,
+        ActionErrorInfo,
+        ActionErrorInfoAdapter,
+        ActionStatement,
+        ExecutionContext,
+        GatherArgs,
+        ScatterArgs,
+        StreamID,
+        Task,
+        TaskExceptionInfo,
+        TaskResult,
+    )
+    from tracecat.expressions.common import ExprContext
+    from tracecat.expressions.core import TemplateExpression
+    from tracecat.expressions.eval import eval_templated_object
+    from tracecat.logger import logger
+    from tracecat.types.exceptions import TaskUnreachable
 
 
 @dataclass(frozen=True, slots=True)
