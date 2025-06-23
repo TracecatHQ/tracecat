@@ -23,10 +23,11 @@ jobs:
       - name: Setup Biome
         uses: biomejs/setup-biome@v2
         with:
+          working-dir: frontend/
           version: latest
 
       - name: Run Biome
-        run: biome ci frontend
+        run: biome ci .
 
       # Typescrtip typechecking
       - name: Setup Node.js
