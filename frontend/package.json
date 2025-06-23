@@ -97,8 +97,8 @@
     "zod": "^3.24.2"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.0.3",
-    "@biomejs/cli-darwin-arm64": "^2.0.3",
+    "@biomejs/biome": "2.0.4",
+    "@biomejs/cli-darwin-arm64": "^2.0.4",
     "@hey-api/openapi-ts": "^0.48.3",
     "@hookform/devtools": "^4.3.3",
     "@tailwindcss/typography": "^0.5.16",

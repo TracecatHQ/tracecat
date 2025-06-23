@@ -24,7 +24,7 @@ jobs:
         uses: biomejs/setup-biome@v2
         with:
           working-dir: frontend/
-          version: latest
+          version: 2.0.4
 
       - name: Run Biome
         working-directory: frontend
