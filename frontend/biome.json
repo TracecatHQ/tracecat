@@ -71,7 +71,7 @@
       "!**/public",
       "!**/node_modules",
       "!**/*.esm.js",
-      "!src/client/*"
+      "!src/client/**"
     ]
   },
   "javascript": {
