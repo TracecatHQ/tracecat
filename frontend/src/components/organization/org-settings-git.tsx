@@ -3,8 +3,9 @@
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
-
-import { useOrgGitSettings } from "@/lib/hooks"
+import { CenteredSpinner } from "@/components/loading/spinner"
+import { AlertNotification } from "@/components/notifications"
+import { CustomTagInput } from "@/components/tags-input"
 import { Button } from "@/components/ui/button"
 import {
   Form,
@@ -16,9 +17,7 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
-import { CenteredSpinner } from "@/components/loading/spinner"
-import { AlertNotification } from "@/components/notifications"
-import { CustomTagInput } from "@/components/tags-input"
+import { useOrgGitSettings } from "@/lib/hooks"
 
 const gitFormSchema = z.object({
   git_allowed_domains: z.array(

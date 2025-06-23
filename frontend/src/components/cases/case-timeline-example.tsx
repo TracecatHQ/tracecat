@@ -1,6 +1,5 @@
 "use client"
 
-import { useState } from "react"
 import { formatDistanceToNow } from "date-fns"
 import {
   AlertCircle,
@@ -14,6 +13,7 @@ import {
   Tag,
   Users,
 } from "lucide-react"
+import { useState } from "react"
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"

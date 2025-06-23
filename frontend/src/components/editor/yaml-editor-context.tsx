@@ -1,6 +1,7 @@
 "use client"
 
-import React, { createContext, useCallback, useContext, useRef } from "react"
+import type React from "react"
+import { createContext, useCallback, useContext, useRef } from "react"
 
 export interface YamlEditorCommitFunction {
   (): void

@@ -1,8 +1,5 @@
 "use client"
 
-import { useState } from "react"
-import Link from "next/link"
-import { useSearchParams } from "next/navigation"
 import {
   FileIcon,
   FolderIcon,
@@ -10,9 +7,9 @@ import {
   MoreHorizontalIcon,
   PlusIcon,
 } from "lucide-react"
-
-import { useFolders } from "@/lib/hooks"
-import { cn } from "@/lib/utils"
+import Link from "next/link"
+import { useSearchParams } from "next/navigation"
+import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -36,6 +33,8 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { useFolders } from "@/lib/hooks"
+import { cn } from "@/lib/utils"
 
 interface FolderItemProps {
   folderId: string

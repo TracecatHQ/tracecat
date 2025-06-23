@@ -4,24 +4,8 @@ import "@blocknote/core/fonts/inter.css"
 import "@blocknote/shadcn/style.css"
 import "@/components/cases/editor.css"
 
-import React, { useEffect } from "react"
-import {
-  AgentOutput,
-  EventFailure,
-  InteractionRead,
-  ModelRequest,
-  ModelResponse,
-  RetryPromptPart,
-  SystemPromptPart,
-  TextPart,
-  ToolCallPart,
-  ToolReturnPart,
-  UserPromptPart,
-} from "@/client"
-import { useAuth } from "@/providers/auth"
-import { useWorkflowBuilder } from "@/providers/builder"
 import { codeBlock } from "@blocknote/code-block"
-import { BlockNoteEditor } from "@blocknote/core"
+import type { BlockNoteEditor } from "@blocknote/core"
 import { useCreateBlockNote } from "@blocknote/react"
 import { BlockNoteView } from "@blocknote/shadcn"
 import {
@@ -38,18 +22,27 @@ import {
   SearchIcon,
   Undo2Icon,
 } from "lucide-react"
-
-import { SYSTEM_USER } from "@/lib/auth"
-import {
-  groupEventsByActionRef,
-  isAgentOutput,
-  parseStreamId,
-  WorkflowExecutionEventCompact,
-  WorkflowExecutionReadCompact,
-} from "@/lib/event-history"
-import { useGetRegistryAction } from "@/lib/hooks"
-import { getSpacedBlocks } from "@/lib/rich-text-editor"
-import { cn, reconstructActionType } from "@/lib/utils"
+import React, { useEffect } from "react"
+import type {
+  AgentOutput,
+  EventFailure,
+  InteractionRead,
+  ModelRequest,
+  ModelResponse,
+  RetryPromptPart,
+  SystemPromptPart,
+  TextPart,
+  ToolCallPart,
+  ToolReturnPart,
+  UserPromptPart,
+} from "@/client"
+import { getWorkflowEventIcon } from "@/components/builder/events/events-workflow"
+import { CaseUserAvatar } from "@/components/cases/case-panel-common"
+import { CodeBlock } from "@/components/code-block"
+import { getIcon } from "@/components/icons"
+import { JsonViewWithControls } from "@/components/json-viewer"
+import { AlertNotification } from "@/components/notifications"
+import { InlineDotSeparator } from "@/components/separator"
 import { Badge } from "@/components/ui/badge"
 import { Card } from "@/components/ui/card"
 import {
@@ -66,13 +59,19 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { getWorkflowEventIcon } from "@/components/builder/events/events-workflow"
-import { CaseUserAvatar } from "@/components/cases/case-panel-common"
-import { CodeBlock } from "@/components/code-block"
-import { getIcon } from "@/components/icons"
-import { JsonViewWithControls } from "@/components/json-viewer"
-import { AlertNotification } from "@/components/notifications"
-import { InlineDotSeparator } from "@/components/separator"
+import { SYSTEM_USER } from "@/lib/auth"
+import {
+  groupEventsByActionRef,
+  isAgentOutput,
+  parseStreamId,
+  type WorkflowExecutionEventCompact,
+  type WorkflowExecutionReadCompact,
+} from "@/lib/event-history"
+import { useGetRegistryAction } from "@/lib/hooks"
+import { getSpacedBlocks } from "@/lib/rich-text-editor"
+import { cn, reconstructActionType } from "@/lib/utils"
+import { useAuth } from "@/providers/auth"
+import { useWorkflowBuilder } from "@/providers/builder"
 
 type TabType = "input" | "result" | "interaction"
 

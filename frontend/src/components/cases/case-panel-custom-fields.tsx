@@ -1,6 +1,6 @@
-import { CaseCustomFieldRead, CaseUpdate } from "@/client"
 import { FormProvider, useForm, useFormContext } from "react-hook-form"
 import { z } from "zod"
+import type { CaseCustomFieldRead, CaseUpdate } from "@/client"
 
 import { Checkbox } from "@/components/ui/checkbox"
 import {

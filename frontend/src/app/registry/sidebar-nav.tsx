@@ -1,12 +1,11 @@
 "use client"
 
+import { LibraryBigIcon, type LucideIcon } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { LibraryBigIcon, LucideIcon } from "lucide-react"
-
-import { cn } from "@/lib/utils"
 import { buttonVariants } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
+import { cn } from "@/lib/utils"
 
 type NavItem = {
   title: string

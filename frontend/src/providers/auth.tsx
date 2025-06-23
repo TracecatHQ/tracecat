@@ -1,19 +1,23 @@
 "use client"
 
-import React, { createContext, ReactNode, useContext, useEffect } from "react"
-import { useRouter } from "next/navigation"
 import {
-  ApiError,
+  type MutateFunction,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query"
+import { useRouter } from "next/navigation"
+import { createContext, type ReactNode, useContext, useEffect } from "react"
+import {
+  type ApiError,
+  type AuthAuthDatabaseLoginData,
+  type AuthAuthDatabaseLoginResponse,
+  type AuthAuthDatabaseLogoutResponse,
+  type AuthRegisterRegisterData,
   authAuthDatabaseLogin,
-  AuthAuthDatabaseLoginData,
-  AuthAuthDatabaseLoginResponse,
   authAuthDatabaseLogout,
-  AuthAuthDatabaseLogoutResponse,
   authRegisterRegister,
-  AuthRegisterRegisterData,
-  UserRead,
+  type UserRead,
 } from "@/client"
-import { MutateFunction, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import { authConfig } from "@/config/auth"
 import { getCurrentUser, User } from "@/lib/auth"

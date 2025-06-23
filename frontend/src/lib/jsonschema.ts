@@ -1,8 +1,8 @@
 import {
   TRACECAT_COMPONENT_KEY,
-  TracecatJsonSchema,
-  TracecatJsonSchemaDefinition,
-  TracecatJsonSchemaType,
+  type TracecatJsonSchema,
+  type TracecatJsonSchemaDefinition,
+  type TracecatJsonSchemaType,
 } from "@/lib/schema"
 
 export interface JSONSchemaParam {

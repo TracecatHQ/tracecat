@@ -1,12 +1,5 @@
 "use client"
 
-import React from "react"
-import Link from "next/link"
-import { usePathname } from "next/navigation"
-import { ApiError } from "@/client"
-import { useWorkflowBuilder } from "@/providers/builder"
-import { useWorkflow } from "@/providers/workflow"
-import { useWorkspace } from "@/providers/workspace"
 import { zodResolver } from "@hookform/resolvers/zod"
 import {
   AlertTriangleIcon,
@@ -18,16 +11,16 @@ import {
   SquarePlay,
   WorkflowIcon,
 } from "lucide-react"
+import Link from "next/link"
+import { usePathname } from "next/navigation"
+import React from "react"
 import { useForm } from "react-hook-form"
 import YAML from "yaml"
 import { z } from "zod"
-
-import { TracecatApiError } from "@/lib/errors"
-import {
-  useCreateManualWorkflowExecution,
-  useOrgAppSettings,
-} from "@/lib/hooks"
-import { cn } from "@/lib/utils"
+import { ApiError } from "@/client"
+import { CodeEditor } from "@/components/editor/codemirror/code-editor"
+import { ExportMenuItem } from "@/components/export-workflow-dropdown-item"
+import { Spinner } from "@/components/loading/spinner"
 import { Badge } from "@/components/ui/badge"
 import {
   Breadcrumb,
@@ -61,10 +54,16 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { CodeEditor } from "@/components/editor/codemirror/code-editor"
-import { ExportMenuItem } from "@/components/export-workflow-dropdown-item"
-import { Spinner } from "@/components/loading/spinner"
 import { ValidationErrorView } from "@/components/validation-errors"
+import type { TracecatApiError } from "@/lib/errors"
+import {
+  useCreateManualWorkflowExecution,
+  useOrgAppSettings,
+} from "@/lib/hooks"
+import { cn } from "@/lib/utils"
+import { useWorkflowBuilder } from "@/providers/builder"
+import { useWorkflow } from "@/providers/workflow"
+import { useWorkspace } from "@/providers/workspace"
 
 export function BuilderNav() {
   const {

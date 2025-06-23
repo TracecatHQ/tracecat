@@ -59,7 +59,12 @@ just lint-fix
 
 # Individual components
 just lint-fix-app    # Python: ruff check . && ruff format .
-just lint-fix-ui     # Frontend: pnpm lint:fix && pnpm format:write
+just lint-fix-ui     # Frontend: pnpm check (Biome lint, format, and organize imports)
+
+# Frontend-specific Biome commands
+cd frontend && pnpm lint          # Biome lint
+cd frontend && pnpm format:write  # Biome format
+cd frontend && pnpm check         # Biome comprehensive check (lint + format + organize imports)
 
 # Type checking
 just mypy <path>     # MyPy type checking for specific path

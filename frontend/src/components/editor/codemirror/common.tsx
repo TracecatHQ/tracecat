@@ -4,23 +4,14 @@
  * This module contains shared functionality for template expression editing,
  * including pill rendering, validation, completion, and interaction logic.
  */
-import React from "react"
-import {
-  ActionRead,
-  EditorFunctionRead,
-  editorListFunctions,
-  editorValidateExpression,
-  ExpressionValidationResponse,
-  SecretReadMinimal,
-  secretsListSecrets,
-} from "@/client"
+
 import {
   autocompletion,
+  type Completion,
+  type CompletionContext,
+  type CompletionResult,
   closeBracketsKeymap,
-  Completion,
-  CompletionContext,
   completionKeymap,
-  CompletionResult,
   startCompletion,
 } from "@codemirror/autocomplete"
 import {
@@ -31,21 +22,21 @@ import {
   standardKeymap,
 } from "@codemirror/commands"
 import {
-  EditorState,
+  type EditorState,
+  type Range,
   StateEffect,
   StateField,
-  type Range,
 } from "@codemirror/state"
 import {
   Decoration,
-  DecorationSet,
+  type DecorationSet,
   EditorView,
   hoverTooltip,
-  KeyBinding,
+  type KeyBinding,
   keymap,
   ViewPlugin,
-  WidgetType,
   type ViewUpdate,
+  WidgetType,
 } from "@codemirror/view"
 import {
   AtSignIcon,
@@ -55,6 +46,15 @@ import {
   KeyIcon,
 } from "lucide-react"
 import { createRoot } from "react-dom/client"
+import {
+  type ActionRead,
+  type EditorFunctionRead,
+  type ExpressionValidationResponse,
+  editorListFunctions,
+  editorValidateExpression,
+  type SecretReadMinimal,
+  secretsListSecrets,
+} from "@/client"
 
 import { createTemplateRegex } from "@/lib/expressions"
 
@@ -593,7 +593,7 @@ export class TemplatePillPluginView {
       this.validationCache.set(expression, result)
       this.pendingValidations.delete(expression)
       return result
-    } catch (error) {
+    } catch (_error) {
       this.pendingValidations.delete(expression)
       return undefined
     }

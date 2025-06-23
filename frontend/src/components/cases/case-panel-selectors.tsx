@@ -1,17 +1,19 @@
 "use client"
 
-import React from "react"
-import {
+import { UserIcon } from "lucide-react"
+import type {
   CasePriority,
   CaseSeverity,
   CaseStatus,
   UserRead,
   WorkspaceMember,
 } from "@/client"
-import { UserIcon } from "lucide-react"
-
-import { User } from "@/lib/auth"
-import { cn } from "@/lib/utils"
+import { CaseBadge } from "@/components/cases/case-badge"
+import {
+  PRIORITIES,
+  SEVERITIES,
+  STATUSES,
+} from "@/components/cases/case-categories"
 import {
   Select,
   SelectContent,
@@ -19,13 +21,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { CaseBadge } from "@/components/cases/case-badge"
-import {
-  PRIORITIES,
-  SEVERITIES,
-  STATUSES,
-} from "@/components/cases/case-categories"
 import UserAvatar from "@/components/user-avatar"
+import { User } from "@/lib/auth"
+import { cn } from "@/lib/utils"
 
 interface StatusSelectProps {
   status: CaseStatus

@@ -1,4 +1,4 @@
-import { ReactFlowInstance } from "@xyflow/react"
+import type { ReactFlowInstance } from "@xyflow/react"
 
 import { pruneReactFlowInstance } from "@/lib/workflow"
 

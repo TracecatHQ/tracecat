@@ -1,5 +1,5 @@
-import { RegistryActionRead } from "@/client"
-import { LucideIcon, SquareFunctionIcon, ToyBrickIcon } from "lucide-react"
+import { type LucideIcon, SquareFunctionIcon, ToyBrickIcon } from "lucide-react"
+import type { RegistryActionRead } from "@/client"
 
 export const actionTypeToLabel: Record<
   RegistryActionRead["type"],

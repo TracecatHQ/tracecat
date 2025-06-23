@@ -1,14 +1,12 @@
 "use client"
 
-import React, { useEffect } from "react"
-import { FolderDirectoryItem } from "@/client"
-import { useWorkspace } from "@/providers/workspace"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { Pencil } from "lucide-react"
+import { useEffect } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
-
-import { useFolders } from "@/lib/hooks"
+import type { FolderDirectoryItem } from "@/client"
+import { Spinner } from "@/components/loading/spinner"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -29,7 +27,8 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
-import { Spinner } from "@/components/loading/spinner"
+import { useFolders } from "@/lib/hooks"
+import { useWorkspace } from "@/providers/workspace"
 
 const renameFolderSchema = z.object({
   name: z

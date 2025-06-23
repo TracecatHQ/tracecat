@@ -1,13 +1,11 @@
 "use client"
 
-import type React from "react"
-import { useCallback, useMemo, useRef, useState } from "react"
-import { TagInput as EmblorTagInput } from "emblor"
 import type { TagInputProps } from "emblor"
+import { TagInput as EmblorTagInput } from "emblor"
 import fuzzysort from "fuzzysort"
 import { ChevronDown, X } from "lucide-react"
-
-import { cn } from "@/lib/utils"
+import type React from "react"
+import { useCallback, useMemo, useRef, useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import {
   Command,
@@ -17,6 +15,7 @@ import {
 } from "@/components/ui/command"
 import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { cn } from "@/lib/utils"
 
 // Define the props we want to expose to consumers
 type CustomTagInputProps = Omit<

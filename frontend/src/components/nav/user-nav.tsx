@@ -1,8 +1,5 @@
 "use client"
 
-import Link from "next/link"
-import { useParams } from "next/navigation"
-import { useAuth } from "@/providers/auth"
 import {
   BookText,
   ExternalLink,
@@ -11,10 +8,9 @@ import {
   Settings,
   UsersRound,
 } from "lucide-react"
-
-import { siteConfig } from "@/config/site"
-import { userDefaults } from "@/config/user"
-import { useWorkspaceManager } from "@/lib/hooks"
+import Link from "next/link"
+import { useParams } from "next/navigation"
+import { Icons } from "@/components/icons"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -26,8 +22,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Icons } from "@/components/icons"
 import UserAvatar from "@/components/user-avatar"
+import { siteConfig } from "@/config/site"
+import { userDefaults } from "@/config/user"
+import { useWorkspaceManager } from "@/lib/hooks"
+import { useAuth } from "@/providers/auth"
 
 export default function UserNav() {
   const { user, logout } = useAuth()

@@ -1,18 +1,8 @@
 "use client"
 
-import React, { useState } from "react"
-import { SecretReadMinimal } from "@/client"
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
-
-import { useOrgSecrets } from "@/lib/hooks"
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+import { useState } from "react"
+import type { SecretReadMinimal } from "@/client"
 import { DataTable, DataTableColumnHeader } from "@/components/data-table"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
@@ -24,6 +14,15 @@ import {
   UpdateOrgSecretDialog,
   UpdateOrgSecretDialogTrigger,
 } from "@/components/organization/org-secret-update"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { useOrgSecrets } from "@/lib/hooks"
 
 export function OrgSecretsTable() {
   const { orgSecrets, orgSecretsIsLoading, orgSecretsError } = useOrgSecrets()

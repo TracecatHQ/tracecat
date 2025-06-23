@@ -55,7 +55,7 @@ describe("Expression Field Behavior", () => {
       // This would be testing the PolymorphicField logic
       // For a boolean field with an expression value:
       const fieldValue = "${{ ACTIONS.test.result }}"
-      const schemaType = "boolean"
+      const _schemaType = "boolean"
 
       // The logic should render as expression, not checkbox
       expect(isExpression(fieldValue)).toBe(true)

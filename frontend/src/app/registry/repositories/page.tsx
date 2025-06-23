@@ -1,11 +1,10 @@
 "use client"
 
-import { useAuth } from "@/providers/auth"
 import { RefreshCcw } from "lucide-react"
-
-import { useRegistryRepositoriesReload } from "@/lib/hooks"
-import { Button } from "@/components/ui/button"
 import { RegistryRepositoriesTable } from "@/components/registry/registry-repos-table"
+import { Button } from "@/components/ui/button"
+import { useRegistryRepositoriesReload } from "@/lib/hooks"
+import { useAuth } from "@/providers/auth"
 
 export default function RegistryRepositoriesPage() {
   const { user } = useAuth()

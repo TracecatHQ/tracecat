@@ -1,12 +1,11 @@
 "use client"
 
-import { Suspense, useEffect } from "react"
 import { useRouter } from "next/navigation"
-import { useAuth } from "@/providers/auth"
-
+import { Suspense, useEffect } from "react"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { DynamicNavbar } from "@/components/nav/dynamic-nav"
 import { OrganizationSidebarNav } from "@/components/organization/sidebar-nav"
+import { useAuth } from "@/providers/auth"
 
 export default function OrganizationLayout({
   children,

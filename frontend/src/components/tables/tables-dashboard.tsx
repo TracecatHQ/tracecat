@@ -1,17 +1,17 @@
 "use client"
 
-import React, { useCallback } from "react"
+import type { Row } from "@tanstack/react-table"
 import { useRouter } from "next/navigation"
-import { TableReadMinimal } from "@/client"
-import { useWorkspace } from "@/providers/workspace"
-import { Row } from "@tanstack/react-table"
-
-import { useListTables } from "@/lib/hooks"
+import { useCallback } from "react"
+import type { TableReadMinimal } from "@/client"
 import {
   DataTable,
   DataTableColumnHeader,
-  DataTableToolbarProps,
+  type DataTableToolbarProps,
 } from "@/components/data-table"
+
+import { useListTables } from "@/lib/hooks"
+import { useWorkspace } from "@/providers/workspace"
 
 export function TablesDashboard() {
   const router = useRouter()

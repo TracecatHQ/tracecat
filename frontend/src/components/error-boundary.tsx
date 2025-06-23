@@ -1,7 +1,7 @@
 "use client"
 
-import React, { Component, ReactNode } from "react"
 import { AlertTriangleIcon, RefreshCwIcon } from "lucide-react"
+import React, { Component, type ReactNode } from "react"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"

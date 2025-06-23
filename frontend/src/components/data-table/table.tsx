@@ -1,10 +1,9 @@
 "use client"
 
-import * as React from "react"
 import {
-  Column,
-  ColumnDef,
-  ColumnFiltersState,
+  type Column,
+  type ColumnDef,
+  type ColumnFiltersState,
   flexRender,
   getCoreRowModel,
   getFacetedRowModel,
@@ -12,15 +11,19 @@ import {
   getFilteredRowModel,
   getPaginationRowModel,
   getSortedRowModel,
-  Row,
-  SortingState,
-  TableState,
+  type Row,
+  type SortingState,
+  type TableState,
   useReactTable,
-  VisibilityState,
+  type VisibilityState,
 } from "@tanstack/react-table"
 import { AlertTriangleIcon } from "lucide-react"
-
-import { useLocalStorage } from "@/lib/hooks"
+import * as React from "react"
+import AuxClickMenu, {
+  type AuxClickMenuOptionProps,
+} from "@/components/aux-click-menu"
+import { DataTablePagination, DataTableToolbar } from "@/components/data-table"
+import { CenteredSpinner } from "@/components/loading/spinner"
 import {
   Table,
   TableBody,
@@ -29,13 +32,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import AuxClickMenu, {
-  AuxClickMenuOptionProps,
-} from "@/components/aux-click-menu"
-import { DataTablePagination, DataTableToolbar } from "@/components/data-table"
-import { CenteredSpinner } from "@/components/loading/spinner"
+import { useLocalStorage } from "@/lib/hooks"
 
-import { DataTableToolbarProps } from "./toolbar"
+import type { DataTableToolbarProps } from "./toolbar"
 
 export type TableCol<TData> = {
   table: ReturnType<typeof useReactTable<TData>>

@@ -1,16 +1,10 @@
 "use client"
 
-import React, { useCallback, useMemo, useState } from "react"
-import Link from "next/link"
-import { CaseRead, WorkflowReadMinimal } from "@/client"
-import { useWorkspace } from "@/providers/workspace"
 import { PlayIcon, SquareArrowOutUpRightIcon } from "lucide-react"
-
-import {
-  useCreateManualWorkflowExecution,
-  useLocalStorage,
-  useWorkflowManager,
-} from "@/lib/hooks"
+import Link from "next/link"
+import { useCallback, useMemo, useState } from "react"
+import type { CaseRead, WorkflowReadMinimal } from "@/client"
+import { JsonViewWithControls } from "@/components/json-viewer"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -36,7 +30,12 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Switch } from "@/components/ui/switch"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
-import { JsonViewWithControls } from "@/components/json-viewer"
+import {
+  useCreateManualWorkflowExecution,
+  useLocalStorage,
+  useWorkflowManager,
+} from "@/lib/hooks"
+import { useWorkspace } from "@/providers/workspace"
 
 interface CaseWorkflowTriggerProps {
   caseData: CaseRead

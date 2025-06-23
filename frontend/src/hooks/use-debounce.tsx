@@ -1,4 +1,4 @@
-import { Dispatch, SetStateAction, useEffect, useState } from "react"
+import { type Dispatch, type SetStateAction, useEffect, useState } from "react"
 
 // Ref: https://usehooks.com/useDebounce/
 export const useDebounce = <T extends string | number | object>(

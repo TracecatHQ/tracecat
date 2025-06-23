@@ -1,16 +1,15 @@
 "use client"
 
-import React from "react"
-
-import { Input } from "@/components/ui/input"
+import type React from "react"
 import {
   BaseErrorBoundary,
-  ErrorBoundaryProps,
-  ErrorInfo,
+  type ErrorBoundaryProps,
+  type ErrorInfo,
   FormFieldErrorFallback,
   MinimalErrorFallback,
   SectionErrorFallback,
 } from "@/components/error-boundary"
+import { Input } from "@/components/ui/input"
 
 // Component Error Boundary - for individual components
 export function ComponentErrorBoundary({

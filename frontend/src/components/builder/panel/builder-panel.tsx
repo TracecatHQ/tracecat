@@ -1,18 +1,17 @@
-import React, { useEffect } from "react"
-import { WorkflowRead } from "@/client"
-import { useWorkflowBuilder } from "@/providers/builder"
-import { useWorkflow } from "@/providers/workflow"
-import { Node } from "@xyflow/react"
+import type { Node } from "@xyflow/react"
 import { Search } from "lucide-react"
-
+import React, { useEffect } from "react"
+import type { WorkflowRead } from "@/client"
 import {
   ActionPanel,
-  ActionPanelRef,
+  type ActionPanelRef,
 } from "@/components/builder/panel/action-panel"
 import { TriggerPanel } from "@/components/builder/panel/trigger-panel"
 import { WorkflowPanel } from "@/components/builder/panel/workflow-panel"
 import { FormLoading } from "@/components/loading/form"
 import { AlertNotification } from "@/components/notifications"
+import { useWorkflowBuilder } from "@/providers/builder"
+import { useWorkflow } from "@/providers/workflow"
 
 export const BuilderPanel = React.forwardRef<ActionPanelRef, object>(() => {
   const { selectedNodeId, getNode } = useWorkflowBuilder()

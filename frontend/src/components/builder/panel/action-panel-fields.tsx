@@ -1,7 +1,5 @@
 "use client"
 
-import React, { useCallback, useMemo, useState } from "react"
-import type { ActionType, RegistryActionReadMinimal } from "@/client/types.gen"
 import fuzzysort from "fuzzysort"
 import {
   BracesIcon,
@@ -9,27 +7,28 @@ import {
   CodeIcon,
   InfoIcon,
   ListIcon,
-  LucideIcon,
+  type LucideIcon,
   TypeIcon,
   WorkflowIcon,
 } from "lucide-react"
+import { useCallback, useMemo, useState } from "react"
 import {
   Controller,
-  ControllerRenderProps,
-  FieldValues,
+  type ControllerRenderProps,
+  type FieldValues,
   useFormContext,
 } from "react-hook-form"
-
-import { isExpression } from "@/lib/expressions"
-import { useBuilderRegistryActions } from "@/lib/hooks"
-import { getType } from "@/lib/jsonschema"
+import type { ActionType, RegistryActionReadMinimal } from "@/client/types.gen"
+import { CodeEditor } from "@/components/editor/codemirror/code-editor"
+import { YamlStyledEditor } from "@/components/editor/codemirror/yaml-editor"
+import { ExpressionInput } from "@/components/editor/expression-input"
+import { getIcon } from "@/components/icons"
+import { type FieldTypeTab, PolyField } from "@/components/polymorphic-field"
 import {
-  ExpressionComponent,
-  getTracecatComponents,
-  TracecatComponentId,
-  TracecatEditorComponent,
-  TracecatJsonSchema,
-} from "@/lib/schema"
+  CustomTagInput,
+  MultiTagCommandInput,
+  type Suggestion,
+} from "@/components/tags-input"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
@@ -61,16 +60,16 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
-import { CodeEditor } from "@/components/editor/codemirror/code-editor"
-import { YamlStyledEditor } from "@/components/editor/codemirror/yaml-editor"
-import { ExpressionInput } from "@/components/editor/expression-input"
-import { getIcon } from "@/components/icons"
-import { FieldTypeTab, PolyField } from "@/components/polymorphic-field"
+import { isExpression } from "@/lib/expressions"
+import { useBuilderRegistryActions } from "@/lib/hooks"
+import { getType } from "@/lib/jsonschema"
 import {
-  CustomTagInput,
-  MultiTagCommandInput,
-  Suggestion,
-} from "@/components/tags-input"
+  type ExpressionComponent,
+  getTracecatComponents,
+  type TracecatComponentId,
+  type TracecatEditorComponent,
+  type TracecatJsonSchema,
+} from "@/lib/schema"
 
 export interface FormComponentProps {
   label: string

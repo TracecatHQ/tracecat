@@ -1,6 +1,5 @@
 "use client"
 
-import React from "react"
 import { useParams, usePathname } from "next/navigation"
 
 import { BuilderNav } from "@/components/nav/builder-nav"

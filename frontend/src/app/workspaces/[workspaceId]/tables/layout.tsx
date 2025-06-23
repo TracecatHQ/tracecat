@@ -1,10 +1,9 @@
 "use client"
 
 import { Suspense, useEffect } from "react"
-import { useWorkspace } from "@/providers/workspace"
-
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { TablesSidebar } from "@/components/tables/tables-side-nav"
+import { useWorkspace } from "@/providers/workspace"
 
 export default function TablesLayout({
   children,

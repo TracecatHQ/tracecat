@@ -1,21 +1,10 @@
 "use client"
 
-import React, { useMemo, useState } from "react"
-import { RegistryActionReadMinimal } from "@/client"
-import { useAuth } from "@/providers/auth"
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
-import { Row } from "@tanstack/react-table"
+import type { Row } from "@tanstack/react-table"
 import { CopyIcon, TrashIcon } from "lucide-react"
-
-import { useRegistryActions } from "@/lib/hooks"
-import { Button } from "@/components/ui/button"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import { toast } from "@/components/ui/use-toast"
+import { useMemo, useState } from "react"
+import type { RegistryActionReadMinimal } from "@/client"
 import {
   DataTable,
   DataTableColumnHeader,
@@ -27,6 +16,16 @@ import {
   DeleteRegistryActionAlertDialogTrigger,
 } from "@/components/registry/delete-registry-action"
 import { actionTypeToLabel } from "@/components/registry/icons"
+import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { toast } from "@/components/ui/use-toast"
+import { useRegistryActions } from "@/lib/hooks"
+import { useAuth } from "@/providers/auth"
 
 export function RegistryActionsTable() {
   const { user } = useAuth()

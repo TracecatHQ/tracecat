@@ -1,6 +1,10 @@
 import React from "react"
-import { DSLRunArgs, RunActionInput, WorkflowExecutionEvent } from "@/client"
 import JsonView from "react18-json-view"
+import type {
+  DSLRunArgs,
+  RunActionInput,
+  WorkflowExecutionEvent,
+} from "@/client"
 
 import {
   Accordion,
@@ -11,14 +15,23 @@ import {
 
 import "react18-json-view/src/style.css"
 
-import Link from "next/link"
-import { useParams } from "next/navigation"
 import {
   InfoIcon,
   SquareArrowOutUpRightIcon,
   TriangleAlert,
 } from "lucide-react"
-
+import Link from "next/link"
+import { useParams } from "next/navigation"
+import { CodeBlock } from "@/components/code-block"
+import { GenericWorkflowIcon, getIcon } from "@/components/icons"
+import { Badge } from "@/components/ui/badge"
+import { Label } from "@/components/ui/label"
+import { Switch } from "@/components/ui/switch"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import {
   ERROR_EVENT_TYPES,
   getRelativeTime,
@@ -29,16 +42,6 @@ import {
   parseExecutionId,
 } from "@/lib/event-history"
 import { cn } from "@/lib/utils"
-import { Badge } from "@/components/ui/badge"
-import { Label } from "@/components/ui/label"
-import { Switch } from "@/components/ui/switch"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
-import { CodeBlock } from "@/components/code-block"
-import { GenericWorkflowIcon, getIcon } from "@/components/icons"
 
 /**
  * Event history for a specific workflow execution

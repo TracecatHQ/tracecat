@@ -1,12 +1,5 @@
 "use client"
 
-import React from "react"
-import {
-  FolderDirectoryItem,
-  WorkflowDirectoryItem,
-  WorkflowReadMinimal,
-} from "@/client"
-import { useWorkspace } from "@/providers/workspace"
 import {
   Copy,
   FileJson2,
@@ -16,8 +9,15 @@ import {
   TagsIcon,
   Trash2,
 } from "lucide-react"
-
-import { useOrgAppSettings, useTags, useWorkflowManager } from "@/lib/hooks"
+import type {
+  FolderDirectoryItem,
+  WorkflowDirectoryItem,
+  WorkflowReadMinimal,
+} from "@/client"
+import { DeleteWorkflowAlertDialogTrigger } from "@/components/dashboard/delete-workflow-dialog"
+import { ViewMode } from "@/components/dashboard/folder-view-toggle"
+import { ActiveDialog } from "@/components/dashboard/table-common"
+import { ExportMenuItem } from "@/components/export-workflow-dropdown-item"
 import {
   DropdownMenuCheckboxItem,
   DropdownMenuGroup,
@@ -28,10 +28,8 @@ import {
   DropdownMenuSubTrigger,
 } from "@/components/ui/dropdown-menu"
 import { toast } from "@/components/ui/use-toast"
-import { DeleteWorkflowAlertDialogTrigger } from "@/components/dashboard/delete-workflow-dialog"
-import { ViewMode } from "@/components/dashboard/folder-view-toggle"
-import { ActiveDialog } from "@/components/dashboard/table-common"
-import { ExportMenuItem } from "@/components/export-workflow-dropdown-item"
+import { useOrgAppSettings, useTags, useWorkflowManager } from "@/lib/hooks"
+import { useWorkspace } from "@/providers/workspace"
 
 export function WorkflowActions({
   view,

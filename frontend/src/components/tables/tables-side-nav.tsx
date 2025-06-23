@@ -1,9 +1,5 @@
 "use client"
 
-import { useState } from "react"
-import { useParams, useRouter } from "next/navigation"
-import { TableReadMinimal } from "@/client"
-import { useAuth } from "@/providers/auth"
 import {
   CopyIcon,
   EllipsisIcon,
@@ -12,9 +8,12 @@ import {
   Table2Icon,
   Trash2Icon,
 } from "lucide-react"
-
-import { useListTables } from "@/lib/hooks"
-import { cn } from "@/lib/utils"
+import { useParams, useRouter } from "next/navigation"
+import { useState } from "react"
+import type { TableReadMinimal } from "@/client"
+import { CreateTableDialog } from "@/components/tables/table-create-dialog"
+import { DeleteTableDialog } from "@/components/tables/table-delete-dialog"
+import { TableEditDialog } from "@/components/tables/table-edit-dialog"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -22,9 +21,9 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { CreateTableDialog } from "@/components/tables/table-create-dialog"
-import { DeleteTableDialog } from "@/components/tables/table-delete-dialog"
-import { TableEditDialog } from "@/components/tables/table-edit-dialog"
+import { useListTables } from "@/lib/hooks"
+import { cn } from "@/lib/utils"
+import { useAuth } from "@/providers/auth"
 
 export function TablesSidebar({ workspaceId }: { workspaceId: string }) {
   const router = useRouter()

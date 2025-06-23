@@ -1,10 +1,8 @@
 "use client"
 
-import * as React from "react"
-import { WorkflowFolderRead } from "@/client"
 import { ChevronRight, Folder, FolderOpen } from "lucide-react"
-
-import { cn } from "@/lib/utils"
+import * as React from "react"
+import type { WorkflowFolderRead } from "@/client"
 import { Button } from "@/components/ui/button"
 import {
   Command,
@@ -13,6 +11,7 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command"
+import { cn } from "@/lib/utils"
 
 export type FileTreeItem = {
   name: string

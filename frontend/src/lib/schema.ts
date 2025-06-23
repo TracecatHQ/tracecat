@@ -1,9 +1,9 @@
-import { EditorComponent } from "@/client"
 import type {
   JSONSchema7,
   JSONSchema7Definition,
   JSONSchema7Type,
 } from "json-schema"
+import type { EditorComponent } from "@/client"
 
 /* expression component */
 

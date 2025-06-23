@@ -1,11 +1,10 @@
 "use client"
 
-import { Suspense } from "react"
 import Link from "next/link"
 import { usePathname, useSearchParams } from "next/navigation"
-import { useWorkspace } from "@/providers/workspace"
-
-import { cn } from "@/lib/utils"
+import { Suspense } from "react"
+import { CaseTableInsertButton } from "@/components/cases/case-table-manage-button"
+import { CenteredSpinner } from "@/components/loading/spinner"
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -13,8 +12,8 @@ import {
   BreadcrumbList,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
-import { CaseTableInsertButton } from "@/components/cases/case-table-manage-button"
-import { CenteredSpinner } from "@/components/loading/spinner"
+import { cn } from "@/lib/utils"
+import { useWorkspace } from "@/providers/workspace"
 
 function BreadcrumbNavigation() {
   const { workspaceId } = useWorkspace()

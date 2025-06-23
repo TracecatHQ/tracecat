@@ -3,11 +3,16 @@
  */
 
 import React from "react"
-import { Control, FieldValues, FormProvider, useForm } from "react-hook-form"
+import {
+  type Control,
+  type FieldValues,
+  FormProvider,
+  useForm,
+} from "react-hook-form"
 
 import {
   YamlStyledEditor,
-  YamlStyledEditorRef,
+  type YamlStyledEditorRef,
 } from "@/components/editor/codemirror/yaml-editor"
 
 // Mock CodeMirror components
@@ -108,7 +113,7 @@ describe("YamlStyledEditor Implementation", () => {
   it("should have the correct interface structure", () => {
     // This test verifies that the YamlStyledEditor has the expected ref interface
     const TestComponent = () => {
-      const methods = useForm<{ testField: any }>({
+      const methods = useForm<{ testField: Record<string, unknown> }>({
         defaultValues: { testField: { key: "value" } },
       })
       const ref = React.useRef<YamlStyledEditorRef>(null)

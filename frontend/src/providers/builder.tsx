@@ -1,28 +1,30 @@
 "use client"
 
+import {
+  type Edge,
+  type Node,
+  type ReactFlowInstance,
+  useOnSelectionChange,
+  useReactFlow,
+} from "@xyflow/react"
 import React, {
   createContext,
-  ReactNode,
-  SetStateAction,
+  type ReactNode,
+  type SetStateAction,
   useCallback,
   useContext,
   useEffect,
   useRef,
   useState,
 } from "react"
-import { useWorkflow } from "@/providers/workflow"
-import {
-  Edge,
-  Node,
-  ReactFlowInstance,
-  useOnSelectionChange,
-  useReactFlow,
-} from "@xyflow/react"
-
+import type {
+  NodeType,
+  WorkflowCanvasRef,
+} from "@/components/builder/canvas/canvas"
+import type { EventsSidebarRef } from "@/components/builder/events/events-sidebar"
+import type { ActionPanelRef } from "@/components/builder/panel/action-panel"
 import { pruneReactFlowInstance } from "@/lib/workflow"
-import { NodeType, WorkflowCanvasRef } from "@/components/builder/canvas/canvas"
-import { EventsSidebarRef } from "@/components/builder/events/events-sidebar"
-import { ActionPanelRef } from "@/components/builder/panel/action-panel"
+import { useWorkflow } from "@/providers/workflow"
 
 interface ReactFlowContextType {
   reactFlow: ReactFlowInstance

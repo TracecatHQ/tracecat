@@ -1,4 +1,3 @@
-import { CasePriority, CaseSeverity, CaseStatus } from "@/client"
 import {
   AlertTriangleIcon,
   CheckCircleIcon,
@@ -12,8 +11,9 @@ import {
   SignalMediumIcon,
   TrafficConeIcon,
 } from "lucide-react"
+import type { CasePriority, CaseSeverity, CaseStatus } from "@/client"
 
-import { CaseBadgeProps } from "@/components/cases/case-badge"
+import type { CaseBadgeProps } from "@/components/cases/case-badge"
 
 const palette = {
   gray: "bg-gray-100/70 border-gray-400/70 text-gray-500/80",

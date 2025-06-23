@@ -1,12 +1,11 @@
 "use client"
 
-import React, { useCallback } from "react"
 import { zodResolver } from "@hookform/resolvers/zod"
+import type React from "react"
+import { useCallback } from "react"
 
 import "@radix-ui/react-dialog"
 
-import { ApiError, ExpectedField, WorkflowRead, WorkflowUpdate } from "@/client"
-import { useWorkflow } from "@/providers/workflow"
 import {
   FileInputIcon,
   FileSliders,
@@ -19,8 +18,14 @@ import {
 } from "lucide-react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
-
-import { isRequestValidationErrorArray, TracecatApiError } from "@/lib/errors"
+import {
+  ApiError,
+  type ExpectedField,
+  type WorkflowRead,
+  type WorkflowUpdate,
+} from "@/client"
+import { ControlledYamlField } from "@/components/builder/panel/action-panel-fields"
+import { CopyButton } from "@/components/copy-button"
 import {
   Accordion,
   AccordionContent,
@@ -44,8 +49,11 @@ import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
-import { ControlledYamlField } from "@/components/builder/panel/action-panel-fields"
-import { CopyButton } from "@/components/copy-button"
+import {
+  isRequestValidationErrorArray,
+  type TracecatApiError,
+} from "@/lib/errors"
+import { useWorkflow } from "@/providers/workflow"
 
 const workflowUpdateFormSchema = z.object({
   title: z

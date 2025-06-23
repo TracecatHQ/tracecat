@@ -1,7 +1,7 @@
 "use client"
 
-import React from "react"
 import { InfoIcon } from "lucide-react"
+import type React from "react"
 
 import { FormLabel } from "@/components/ui/form"
 import {

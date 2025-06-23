@@ -1,20 +1,21 @@
-import React, { useMemo } from "react"
-import { ActionRead } from "@/client"
-import { useWorkflowBuilder } from "@/providers/builder"
 import {
-  Edge,
+  type Edge,
   getConnectedEdges,
   Handle,
-  Node,
+  type HandleProps,
+  type Node,
   Position,
   useNodeId,
   useStore,
-  type HandleProps,
 } from "@xyflow/react"
 import { GitBranch, Merge } from "lucide-react"
-
-import { compressActionsInString } from "@/lib/expressions"
-import { cn } from "@/lib/utils"
+import type React from "react"
+import { useMemo } from "react"
+import type { ActionRead } from "@/client"
+import {
+  ForEachEffect,
+  InteractionEffect,
+} from "@/components/builder/canvas/action-node-effect"
 import { Badge } from "@/components/ui/badge"
 import {
   Tooltip,
@@ -22,10 +23,9 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import {
-  ForEachEffect,
-  InteractionEffect,
-} from "@/components/builder/canvas/action-node-effect"
+import { compressActionsInString } from "@/lib/expressions"
+import { cn } from "@/lib/utils"
+import { useWorkflowBuilder } from "@/providers/builder"
 
 interface CustomHandleProps
   extends Omit<HandleProps, "isConnectable" | "id">,

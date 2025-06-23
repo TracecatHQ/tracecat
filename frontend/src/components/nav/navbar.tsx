@@ -1,11 +1,10 @@
 "use client"
 
-import React from "react"
 import Link from "next/link"
-
-import { TooltipProvider } from "@/components/ui/tooltip"
+import type React from "react"
 import { Icons } from "@/components/icons"
 import UserNav from "@/components/nav/user-nav"
+import { TooltipProvider } from "@/components/ui/tooltip"
 
 interface NavbarProps extends React.HTMLAttributes<HTMLDivElement> {
   children: React.ReactNode

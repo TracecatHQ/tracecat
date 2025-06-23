@@ -61,7 +61,7 @@ describe("Template Pill Click Behavior Fix", () => {
 
   describe("Edge cases", () => {
     it("should handle edge cases correctly", () => {
-      const templateRange = { from: 0, to: 5 }
+      const _templateRange = { from: 0, to: 5 }
 
       // Single character template at position 0
       const singleCharTemplate = { from: 0, to: 1 }

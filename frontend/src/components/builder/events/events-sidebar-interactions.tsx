@@ -1,4 +1,3 @@
-import { InteractionStatus } from "@/client"
 import {
   AlarmClockOffIcon,
   CircleCheck,
@@ -6,9 +5,8 @@ import {
   Ellipsis,
   MessagesSquare,
 } from "lucide-react"
-
-import { WorkflowExecutionReadCompact } from "@/lib/event-history"
-import { cn, undoSlugify } from "@/lib/utils"
+import type { InteractionStatus } from "@/client"
+import { Spinner } from "@/components/loading/spinner"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   Table,
@@ -23,7 +21,8 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { Spinner } from "@/components/loading/spinner"
+import type { WorkflowExecutionReadCompact } from "@/lib/event-history"
+import { cn, undoSlugify } from "@/lib/utils"
 
 export function WorkflowInteractions({
   execution,

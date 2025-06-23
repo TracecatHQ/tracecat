@@ -1,16 +1,15 @@
-import React from "react"
 import { CaretSortIcon } from "@radix-ui/react-icons"
-import { LucideIcon } from "lucide-react"
-
+import type { LucideIcon } from "lucide-react"
+import React from "react"
+import DecoratedHeader, {
+  type DecoratedHeaderProps,
+} from "@/components/decorated-header"
 import { Button } from "@/components/ui/button"
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible"
-import DecoratedHeader, {
-  DecoratedHeaderProps,
-} from "@/components/decorated-header"
 
 interface CollapsibleSectionProps extends DecoratedHeaderProps {
   icon?: LucideIcon

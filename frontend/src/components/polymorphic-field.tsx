@@ -1,13 +1,12 @@
 "use client"
 
+import { cva } from "class-variance-authority"
 import * as React from "react"
 import { useState } from "react"
-import { cva } from "class-variance-authority"
-
-import { TracecatComponentId } from "@/lib/schema"
-import { cn } from "@/lib/utils"
-import { Input, InputProps, inputVariants } from "@/components/ui/input"
+import { Input, type InputProps, inputVariants } from "@/components/ui/input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import type { TracecatComponentId } from "@/lib/schema"
+import { cn } from "@/lib/utils"
 
 /**
  * Configuration for a field type tab

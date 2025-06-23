@@ -1,15 +1,14 @@
 "use client"
 
-// Error components must be Client Components
-import { useEffect } from "react"
+import type { AxiosError } from "axios"
 import Image from "next/image"
 import { useRouter } from "next/navigation"
-import { ApiError } from "@/client"
-import { AxiosError } from "axios"
 import TracecatIcon from "public/icon.png"
-
+// Error components must be Client Components
+import { useEffect } from "react"
+import { ApiError } from "@/client"
+import { type AlertLevel, AlertNotification } from "@/components/notifications"
 import { Button } from "@/components/ui/button"
-import { AlertLevel, AlertNotification } from "@/components/notifications"
 
 type ErrorProps = Error & { digest?: string }
 

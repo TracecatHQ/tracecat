@@ -1,5 +1,3 @@
-import React from "react"
-import { ActionRead } from "@/client"
 import {
   AlertTriangle,
   ArrowRight,
@@ -7,6 +5,8 @@ import {
   MessagesSquare,
   Repeat,
 } from "lucide-react"
+import React from "react"
+import type { ActionRead } from "@/client"
 
 import { Label } from "@/components/ui/label"
 import {

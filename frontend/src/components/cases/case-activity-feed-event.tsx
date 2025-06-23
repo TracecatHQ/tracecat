@@ -1,4 +1,11 @@
 import {
+  BracesIcon,
+  type LucideIcon,
+  PencilIcon,
+  UserIcon,
+  UserXIcon,
+} from "lucide-react"
+import type {
   AssigneeChangedEventRead,
   ClosedEventRead,
   FieldChangedEventRead,
@@ -9,28 +16,20 @@ import {
   UpdatedEventRead,
 } from "@/client"
 import {
-  BracesIcon,
-  LucideIcon,
-  PencilIcon,
-  UserIcon,
-  UserXIcon,
-} from "lucide-react"
-
-import { User } from "@/lib/auth"
-import { cn } from "@/lib/utils"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
-import {
   PRIORITIES,
   SEVERITIES,
   STATUSES,
 } from "@/components/cases/case-categories"
 import { UserHoverCard } from "@/components/cases/case-panel-common"
 import { InlineDotSeparator } from "@/components/separator"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
+import type { User } from "@/lib/auth"
+import { cn } from "@/lib/utils"
 
 export function EventIcon({
   icon: Icon,

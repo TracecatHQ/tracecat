@@ -1,25 +1,19 @@
 "use client"
 
+import { closeBrackets } from "@codemirror/autocomplete"
+import { history } from "@codemirror/commands"
+import { bracketMatching, indentUnit } from "@codemirror/language"
+import { type Diagnostic, linter } from "@codemirror/lint"
+import { EditorState } from "@codemirror/state"
+import { EditorView, placeholder, type ViewUpdate } from "@codemirror/view"
+import CodeMirror from "@uiw/react-codemirror"
 /**
  * Expression Input - A single-line input that looks like shadcn/ui Input but has
  * template expression pill functionality backed by CodeMirror
  */
-import React, { useCallback, useMemo } from "react"
-import { ActionRead } from "@/client"
-import { useWorkflow } from "@/providers/workflow"
-import { useWorkspace } from "@/providers/workspace"
-import { closeBrackets } from "@codemirror/autocomplete"
-import { history } from "@codemirror/commands"
-import { bracketMatching, indentUnit } from "@codemirror/language"
-import { linter, type Diagnostic } from "@codemirror/lint"
-import { EditorState } from "@codemirror/state"
-import { EditorView, placeholder, type ViewUpdate } from "@codemirror/view"
-import CodeMirror from "@uiw/react-codemirror"
+import { useCallback, useMemo } from "react"
 import { useFormContext } from "react-hook-form"
-
-import { createTemplateRegex } from "@/lib/expressions"
-import { cn } from "@/lib/utils"
-import { Input } from "@/components/ui/input"
+import type { ActionRead } from "@/client"
 import {
   createAtKeyCompletion,
   createAutocomplete,
@@ -30,11 +24,16 @@ import {
   createPillClickHandler,
   createPillDeleteKeymap,
   createTemplatePillPlugin,
-  editingRangeField,
   EDITOR_STYLE,
+  editingRangeField,
   templatePillTheme,
 } from "@/components/editor/codemirror/common"
 import { ExpressionErrorBoundary } from "@/components/error-boundaries"
+import { Input } from "@/components/ui/input"
+import { createTemplateRegex } from "@/lib/expressions"
+import { cn } from "@/lib/utils"
+import { useWorkflow } from "@/providers/workflow"
+import { useWorkspace } from "@/providers/workspace"
 
 // Single-line expression linter
 function expressionLinter(view: EditorView): Diagnostic[] {
@@ -141,7 +140,7 @@ function ExpressionInputCore({
 
       // Handle non-string values with conversion
       let convertedValue: string
-      const originalType = typeof value
+      const _originalType = typeof value
 
       if (typeof value === "number" || typeof value === "boolean") {
         convertedValue = String(value)
@@ -149,7 +148,7 @@ function ExpressionInputCore({
         // Try to stringify as JSON with formatting
         try {
           convertedValue = JSON.stringify(value, null, 2)
-        } catch (jsonError) {
+        } catch (_jsonError) {
           // Fallback for objects that can't be JSON stringified
           convertedValue = String(value)
         }
