@@ -10,10 +10,10 @@ from temporalio.worker import Worker
 
 from tests.shared import TEST_WF_ID, generate_test_exec_id
 from tracecat.contexts import ctx_interaction
-from tracecat.dsl.common import DSLEntrypoint, DSLInput, DSLRunArgs
+from tracecat.dsl.common import RETRY_POLICIES, DSLEntrypoint, DSLInput, DSLRunArgs
 from tracecat.dsl.models import ActionStatement
 from tracecat.dsl.worker import get_activities, new_sandbox_runner
-from tracecat.dsl.workflow import DSLWorkflow, retry_policies
+from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.ee.interactions.enums import InteractionStatus, InteractionType
 from tracecat.ee.interactions.models import (
     InteractionContext,
@@ -114,7 +114,7 @@ async def test_workflow_interaction(svc_role: Role, temporal_client: Client):
                 run_args,
                 id=wf_exec_id,
                 task_queue=queue,
-                retry_policy=retry_policies["workflow:fail_fast"],
+                retry_policy=RETRY_POLICIES["workflow:fail_fast"],
                 execution_timeout=timedelta(seconds=10),
             )
             async with InteractionService.with_session(role=role) as svc:
