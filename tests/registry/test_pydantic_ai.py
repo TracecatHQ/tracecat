@@ -10,7 +10,7 @@ load_dotenv()
 
 # Skip tests if OpenAI API key is not available
 skip_if_no_openai_api_key = pytest.mark.skipif(
-    os.environ.get("OPENAI_API_KEY") is None,
+    not os.environ.get("OPENAI_API_KEY"),
     reason="OPENAI_API_KEY not available in environment variables",
 )
 
