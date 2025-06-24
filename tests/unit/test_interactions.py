@@ -6,14 +6,12 @@ from datetime import timedelta
 
 import pytest
 from temporalio.client import Client
-from temporalio.worker import Worker
 
 from tests.shared import TEST_WF_ID, generate_test_exec_id
 from tracecat.contexts import ctx_interaction
-from tracecat.dsl.common import DSLEntrypoint, DSLInput, DSLRunArgs
+from tracecat.dsl.common import RETRY_POLICIES, DSLEntrypoint, DSLInput, DSLRunArgs
 from tracecat.dsl.models import ActionStatement
-from tracecat.dsl.worker import get_activities, new_sandbox_runner
-from tracecat.dsl.workflow import DSLWorkflow, retry_policies
+from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.ee.interactions.enums import InteractionStatus, InteractionType
 from tracecat.ee.interactions.models import (
     InteractionContext,
@@ -70,7 +68,9 @@ def test_interaction_context() -> None:
 
 @pytest.mark.anyio
 @pytest.mark.integration
-async def test_workflow_interaction(svc_role: Role, temporal_client: Client):
+async def test_workflow_interaction(
+    svc_role: Role, temporal_client: Client, test_worker_factory
+):
     role = svc_role
     test_name = test_workflow_interaction.__name__
 
@@ -102,19 +102,13 @@ async def test_workflow_interaction(svc_role: Role, temporal_client: Client):
     queue = os.environ["TEMPORAL__CLUSTER_QUEUE"]
 
     try:
-        async with Worker(
-            temporal_client,
-            task_queue=queue,
-            activities=get_activities(),
-            workflows=[DSLWorkflow],
-            workflow_runner=new_sandbox_runner(),
-        ):
+        async with test_worker_factory(temporal_client, task_queue=queue):
             wf_handle = await temporal_client.start_workflow(
                 DSLWorkflow.run,
                 run_args,
                 id=wf_exec_id,
                 task_queue=queue,
-                retry_policy=retry_policies["workflow:fail_fast"],
+                retry_policy=RETRY_POLICIES["workflow:fail_fast"],
                 execution_timeout=timedelta(seconds=10),
             )
             async with InteractionService.with_session(role=role) as svc:

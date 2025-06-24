@@ -4,43 +4,51 @@ import asyncio
 from collections import defaultdict
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import Any, cast
 
-from pydantic_core import to_json
 from temporalio import workflow
-from temporalio.exceptions import ApplicationError
 
-from tracecat.common import is_iterable
-from tracecat.concurrency import cooperative
-from tracecat.contexts import ctx_stream_id
-from tracecat.dsl.common import AdjDst, DSLInput, edge_components_from_dep
-from tracecat.dsl.enums import (
-    EdgeMarker,
-    EdgeType,
-    JoinStrategy,
-    PlatformAction,
-    Sentinel,
-    SkipStrategy,
-    StreamErrorHandlingStrategy,
-)
-from tracecat.dsl.models import (
-    ROOT_STREAM,
-    ActionErrorInfo,
-    ActionErrorInfoAdapter,
-    ActionStatement,
-    ExecutionContext,
-    GatherArgs,
-    ScatterArgs,
-    StreamID,
-    Task,
-    TaskExceptionInfo,
-    TaskResult,
-)
-from tracecat.expressions.common import ExprContext
-from tracecat.expressions.core import TemplateExpression
-from tracecat.expressions.eval import eval_templated_object
-from tracecat.logger import logger
-from tracecat.types.exceptions import TaskUnreachable
+with workflow.unsafe.imports_passed_through():
+    from pydantic_core import to_json
+    from temporalio.exceptions import ApplicationError
+
+    from tracecat.common import is_iterable
+    from tracecat.concurrency import cooperative
+    from tracecat.contexts import ctx_stream_id
+    from tracecat.dsl.action import DSLActivities
+    from tracecat.dsl.common import (
+        RETRY_POLICIES,
+        AdjDst,
+        DSLInput,
+        edge_components_from_dep,
+    )
+    from tracecat.dsl.enums import (
+        EdgeMarker,
+        EdgeType,
+        JoinStrategy,
+        PlatformAction,
+        Sentinel,
+        SkipStrategy,
+        StreamErrorHandlingStrategy,
+    )
+    from tracecat.dsl.models import (
+        ROOT_STREAM,
+        ActionErrorInfo,
+        ActionErrorInfoAdapter,
+        ActionStatement,
+        ExecutionContext,
+        GatherArgs,
+        ScatterArgs,
+        StreamID,
+        Task,
+        TaskExceptionInfo,
+        TaskResult,
+    )
+    from tracecat.expressions.common import ExprContext
+    from tracecat.expressions.eval import eval_templated_object
+    from tracecat.logger import logger
+    from tracecat.types.exceptions import TaskUnreachable
 
 
 @dataclass(frozen=True, slots=True)
@@ -389,7 +397,7 @@ class DSLScheduler:
                 raise TaskUnreachable(f"Task {task} is unreachable")
 
             # 3) Check if the task should self-skip based on its `run_if` condition
-            if self._task_should_skip(task, stmt):
+            if await self._task_should_skip(task, stmt):
                 self.logger.info("Task should self-skip", task=task)
                 return await self._handle_skip_path(task, stmt)
 
@@ -579,14 +587,14 @@ class DSLScheduler:
             for dep_ref in deps
         )
 
-    def _task_should_skip(self, task: Task, stmt: ActionStatement) -> bool:
+    async def _task_should_skip(self, task: Task, stmt: ActionStatement) -> bool:
         """Check if a task should be skipped based on its `run_if` condition."""
         run_if = stmt.run_if
         if run_if is not None:
             context = self.get_context(task.stream_id)
-            expr = TemplateExpression(run_if, operand=context)
             self.logger.debug("`run_if` condition", run_if=run_if)
-            if not bool(expr.result()):
+            expr_result = await self.resolve_expression(run_if, context)
+            if not bool(expr_result):
                 self.logger.info("Task `run_if` condition was not met, skipped")
                 return True
         return False
@@ -895,8 +903,8 @@ class DSLScheduler:
             parent_scatter=parent_scatter,
         )
         # Close the execution stream regardless of whether we skipped our way to this point.
-        self.open_streams[parent_scatter] -= 1
         if is_skipping:
+            self.open_streams[parent_scatter] -= 1
             self.logger.debug("Skipped gather in execution stream", task=task)
             # Return early to avoid setting the result as null.
             await self._handle_gather_skip_stream(task, stmt, stream_id)
@@ -907,7 +915,13 @@ class DSLScheduler:
         # This means we must compute a return value for the gather.
         # We should only compute the items to store if we aren't skipping
         current_context = self.get_context(stream_id)
-        items = TemplateExpression(args.items, operand=current_context).result()
+        items = await self.resolve_expression(args.items, current_context)
+
+        # XXX(concurrency): It's important we only decrement open_streams after
+        # await block. If not, streams at the current level will observe 0
+        # for the parent open_streams when resumed, and will not close the
+        # stream prematurely.
+        self.open_streams[parent_scatter] -= 1
 
         # Once we have the item, we go down 1 level in the stream hierarchy
         # and set the item as the result of the action in that stream
@@ -931,9 +945,7 @@ class DSLScheduler:
                 result_typename=type(result).__name__,
             )
 
-        # Only add  if we didn't skip
         parent_action_context[gather_ref]["result"][stream_idx] = items
-        self.logger.debug("Set item as result", task=task)
 
         if self.open_streams[parent_scatter] == 0:
             await self._handle_gather_result(
@@ -1095,6 +1107,20 @@ class DSLScheduler:
             "Action not found in any stream", action_ref=action_ref, stream_id=stream_id
         )
         return None
+
+    async def resolve_expression(
+        self, expression: str, context: ExecutionContext
+    ) -> Any:
+        """Evaluate an expression."""
+        self.logger.trace(
+            "Resolving expression", expression=expression, context=context
+        )
+        return await workflow.execute_activity(
+            DSLActivities.evaluate_single_expression_activity,
+            args=(expression, context),
+            start_to_close_timeout=timedelta(seconds=10),
+            retry_policy=RETRY_POLICIES["activity:fail_fast"],
+        )
 
 
 def _is_error_info(detail: Any) -> bool:

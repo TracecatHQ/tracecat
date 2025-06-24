@@ -14,14 +14,13 @@ import temporalio.api.enums.v1
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
-from temporalio.worker import Worker
 
 from tests.shared import TEST_WF_ID, generate_test_exec_id
 from tracecat.dsl._converter import pydantic_data_converter
 from tracecat.dsl.action import DSLActivities
 from tracecat.dsl.common import DSLEntrypoint, DSLInput, DSLRunArgs
 from tracecat.dsl.models import ActionRetryPolicy, ActionStatement, RunActionInput
-from tracecat.dsl.worker import get_activities, new_sandbox_runner
+from tracecat.dsl.worker import get_activities
 from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.logger import logger
 from tracecat.types.auth import Role
@@ -45,7 +44,7 @@ async def env() -> AsyncGenerator[WorkflowEnvironment, None]:
 )
 @pytest.mark.anyio
 async def test_workflow_wait_until_future(
-    test_role: Role, env: WorkflowEnvironment, future_time: str
+    test_role: Role, env: WorkflowEnvironment, future_time: str, test_worker_factory
 ):
     """Test that wait_until with future date causes time skip."""
 
@@ -77,19 +76,16 @@ async def test_workflow_wait_until_future(
     activities.remove(DSLActivities.run_action_activity)
     activities.append(run_action_activity_mock)
 
-    async with Worker(
-        env.client,
-        task_queue="test-queue",
-        workflows=[DSLWorkflow],
-        activities=activities,
-        workflow_runner=new_sandbox_runner(),
+    task_queue = "test-queue"
+    async with test_worker_factory(
+        env.client, activities=activities, task_queue=task_queue
     ):
         start_time = await env.get_current_time()
         handle = await env.client.start_workflow(
             DSLWorkflow.run,
             DSLRunArgs(dsl=dsl, role=test_role, wf_id=TEST_WF_ID),
             id=generate_test_exec_id("test_workflow_wait_until_future"),
-            task_queue="test-queue",
+            task_queue=task_queue,
         )
         # Time skip 2 minutes
         await env.sleep(timedelta(hours=2))
@@ -106,7 +102,7 @@ async def test_workflow_wait_until_future(
 
 @pytest.mark.anyio
 async def test_workflow_retry_until_condition(
-    env: WorkflowEnvironment, test_role: Role
+    env: WorkflowEnvironment, test_role: Role, test_worker_factory
 ):
     """Test retry_until with a condition based on action result. No timers involved."""
 
@@ -146,18 +142,15 @@ async def test_workflow_retry_until_condition(
     activities.remove(DSLActivities.run_action_activity)
     activities.append(run_action_activity_mock)
 
-    async with Worker(
-        env.client,
-        task_queue="test-queue",
-        workflows=[DSLWorkflow],
-        activities=activities,
-        workflow_runner=new_sandbox_runner(),
+    task_queue = "test-queue"
+    async with test_worker_factory(
+        env.client, activities=activities, task_queue=task_queue
     ):
         result = await env.client.execute_workflow(
             DSLWorkflow.run,
             DSLRunArgs(dsl=dsl, role=test_role, wf_id=TEST_WF_ID),
             id=generate_test_exec_id("test_workflow_retry_until_condition"),
-            task_queue="test-queue",
+            task_queue=task_queue,
         )
 
         # Expect 3 activity executions
@@ -171,6 +164,7 @@ async def test_workflow_retry_until_condition(
 async def test_workflow_can_reschedule_at_tomorrow_9am(
     env: WorkflowEnvironment,
     test_role: Role,
+    test_worker_factory,
 ):
     """Test that a workflow can reschedule itself at 9am tomorrow a few times."""
 
@@ -209,18 +203,15 @@ async def test_workflow_can_reschedule_at_tomorrow_9am(
     activities.remove(DSLActivities.run_action_activity)
     activities.append(run_action_activity_mock)
 
-    async with Worker(
-        env.client,
-        task_queue="test-queue",
-        workflows=[DSLWorkflow],
-        activities=activities,
-        workflow_runner=new_sandbox_runner(),
+    task_queue = "test-queue"
+    async with test_worker_factory(
+        env.client, activities=activities, task_queue=task_queue
     ):
         handle = await env.client.start_workflow(
             DSLWorkflow.run,
             DSLRunArgs(dsl=dsl, role=test_role, wf_id=TEST_WF_ID),
             id=generate_test_exec_id("test_workflow_retry_until_condition"),
-            task_queue="test-queue",
+            task_queue=task_queue,
         )
         start_time = await env.get_current_time()
         # Duration until 9am tomorrow
@@ -273,6 +264,7 @@ async def test_workflow_can_reschedule_at_tomorrow_9am(
 async def test_workflow_waits_until_tomorrow_9am(
     env: WorkflowEnvironment,
     test_role: Role,
+    test_worker_factory,
 ):
     """Test retry_until with a condition based on action result. With wait_until involved.
 
@@ -310,19 +302,16 @@ async def test_workflow_waits_until_tomorrow_9am(
     activities.remove(DSLActivities.run_action_activity)
     activities.append(run_action_activity_mock)
 
-    async with Worker(
-        env.client,
-        task_queue="test-queue",
-        workflows=[DSLWorkflow],
-        activities=activities,
-        workflow_runner=new_sandbox_runner(),
+    task_queue = "test-queue"
+    async with test_worker_factory(
+        env.client, activities=activities, task_queue=task_queue
     ):
         start_time = await env.get_current_time()
         _ = await env.client.start_workflow(
             DSLWorkflow.run,
             DSLRunArgs(dsl=dsl, role=test_role, wf_id=TEST_WF_ID),
             id=generate_test_exec_id("test_workflow_retry_until_condition"),
-            task_queue="test-queue",
+            task_queue=task_queue,
         )
         # Duration until 9am tomorrow
         t = dateparser.parse(
@@ -354,6 +343,7 @@ async def test_workflow_retry_until_condition_with_wait_until(
     test_role: Role,
     wait_time: str,
     expected_delay: timedelta,
+    test_worker_factory,
 ):
     """Test retry_until with a condition based on action result. With wait_until involved.
 
@@ -396,19 +386,16 @@ async def test_workflow_retry_until_condition_with_wait_until(
     activities.remove(DSLActivities.run_action_activity)
     activities.append(run_action_activity_mock)
 
-    async with Worker(
-        env.client,
-        task_queue="test-queue",
-        workflows=[DSLWorkflow],
-        activities=activities,
-        workflow_runner=new_sandbox_runner(),
+    task_queue = "test-queue"
+    async with test_worker_factory(
+        env.client, activities=activities, task_queue=task_queue
     ):
         start_time = await env.get_current_time()
         handle = await env.client.start_workflow(
             DSLWorkflow.run,
             DSLRunArgs(dsl=dsl, role=test_role, wf_id=TEST_WF_ID),
             id=generate_test_exec_id("test_workflow_retry_until_condition"),
-            task_queue="test-queue",
+            task_queue=task_queue,
         )
         # Time skip expected delay plus 1 min buffer
         await env.sleep(expected_delay + timedelta(minutes=1))
@@ -448,6 +435,7 @@ async def test_workflow_wait_until_past(
     test_role: Role,
     monkeypatch: pytest.MonkeyPatch,
     past_time: str,
+    test_worker_factory,
 ):
     """Test that wait_until with past date skips timer."""
 
@@ -474,25 +462,22 @@ async def test_workflow_wait_until_past(
         ],
     )
 
-    async with Worker(
-        env.client,
-        task_queue="test-queue",
-        workflows=[DSLWorkflow],
-        activities=get_activities(),
-        workflow_runner=new_sandbox_runner(),
-    ):
+    task_queue = "test-queue"
+    async with test_worker_factory(env.client, task_queue=task_queue):
         await env.client.execute_workflow(
             DSLWorkflow.run,
             DSLRunArgs(dsl=dsl, role=test_role, wf_id=TEST_WF_ID),
             id=generate_test_exec_id("test_workflow_wait_until_past"),
-            task_queue="test-queue",
+            task_queue=task_queue,
         )
         # Assert that no sleeps occurred
         assert num_sleeps == 0
 
 
 @pytest.mark.anyio
-async def test_workflow_start_delay(env: WorkflowEnvironment, test_role: Role):
+async def test_workflow_start_delay(
+    env: WorkflowEnvironment, test_role: Role, test_worker_factory
+):
     """Test that start_delay creates appropriate timer."""
     delay_seconds = 3600  # 1 hour
 
@@ -524,19 +509,16 @@ async def test_workflow_start_delay(env: WorkflowEnvironment, test_role: Role):
     activities.remove(DSLActivities.run_action_activity)
     activities.append(run_action_activity_mock)
 
-    async with Worker(
-        env.client,
-        task_queue="test-queue",
-        workflows=[DSLWorkflow],
-        activities=activities,
-        workflow_runner=new_sandbox_runner(),
+    task_queue = "test-queue"
+    async with test_worker_factory(
+        env.client, activities=activities, task_queue=task_queue
     ):
         start_time = await env.get_current_time()
         handle = await env.client.start_workflow(
             DSLWorkflow.run,
             DSLRunArgs(dsl=dsl, role=test_role, wf_id=TEST_WF_ID),
             id=generate_test_exec_id("test_workflow_start_delay"),
-            task_queue="test-queue",
+            task_queue=task_queue,
         )
         # Time skip 1 hour
         await env.sleep(timedelta(hours=2))
@@ -557,7 +539,7 @@ async def test_workflow_start_delay(env: WorkflowEnvironment, test_role: Role):
 @pytest.mark.skip
 @pytest.mark.anyio
 async def test_workflow_wait_until_precedence(
-    env: WorkflowEnvironment, test_role: Role
+    env: WorkflowEnvironment, test_role: Role, test_worker_factory
 ):
     """Test that wait_until takes precedence over start_delay."""
     future_time = datetime.now(UTC) + timedelta(hours=1)
@@ -578,18 +560,14 @@ async def test_workflow_wait_until_precedence(
     )
 
     client = env.client
-    async with Worker(
-        client,
-        task_queue="test-queue",
-        workflows=[DSLWorkflow],
-        activities=[DSLActivities.parse_wait_until_activity],
-    ):
+    task_queue = "test-queue"
+    async with test_worker_factory(client, task_queue=task_queue):
         start_time = datetime.now(UTC)
         result = await client.execute_workflow(
             DSLWorkflow.run,
             DSLRunArgs(dsl=dsl, role=test_role, wf_id=TEST_WF_ID),
             id=generate_test_exec_id("test_workflow_wait_until_precedence"),
-            task_queue="test-queue",
+            task_queue=task_queue,
         )
         end_time = datetime.now(UTC)
 
@@ -600,7 +578,9 @@ async def test_workflow_wait_until_precedence(
 
 @pytest.mark.skip
 @pytest.mark.anyio
-async def test_workflow_invalid_wait_until(env: WorkflowEnvironment, test_role: Role):
+async def test_workflow_invalid_wait_until(
+    env: WorkflowEnvironment, test_role: Role, test_worker_factory
+):
     """Test that invalid wait_until date format raises error."""
     dsl = DSLInput(
         title="invalid_wait_until",
@@ -617,25 +597,21 @@ async def test_workflow_invalid_wait_until(env: WorkflowEnvironment, test_role: 
     )
 
     client = env.client
-    async with Worker(
-        client,
-        task_queue="test-queue",
-        workflows=[DSLWorkflow],
-        activities=[DSLActivities.parse_wait_until_activity],
-    ):
+    task_queue = "test-queue"
+    async with test_worker_factory(client, task_queue=task_queue):
         with pytest.raises(ApplicationError, match="Invalid wait until date"):
             await client.execute_workflow(
                 DSLWorkflow.run,
                 DSLRunArgs(dsl=dsl, role=test_role, wf_id=TEST_WF_ID),
                 id=generate_test_exec_id("test_workflow_invalid_wait_until"),
-                task_queue="test-queue",
+                task_queue=task_queue,
             )
 
 
 @pytest.mark.skip
 @pytest.mark.anyio
 async def test_workflow_retry_until_max_attempts(
-    env: WorkflowEnvironment, test_role: Role
+    env: WorkflowEnvironment, test_role: Role, test_worker_factory
 ):
     """Test retry_until with max attempts exceeded."""
     dsl = DSLInput(
@@ -657,24 +633,22 @@ async def test_workflow_retry_until_max_attempts(
     )
 
     client = env.client
-    async with Worker(
-        client,
-        task_queue="test-queue",
-        workflows=[DSLWorkflow],
-        activities=[DSLActivities.parse_wait_until_activity],
-    ):
+    task_queue = "test-queue"
+    async with test_worker_factory(client, task_queue=task_queue):
         with pytest.raises(ApplicationError, match="Maximum attempts exceeded"):
             await client.execute_workflow(
                 DSLWorkflow.run,
                 DSLRunArgs(dsl=dsl, role=test_role, wf_id=TEST_WF_ID),
                 id=generate_test_exec_id("test_workflow_retry_until_max_attempts"),
-                task_queue="test-queue",
+                task_queue=task_queue,
             )
 
 
 @pytest.mark.skip
 @pytest.mark.anyio
-async def test_workflow_retry_until_timeout(env: WorkflowEnvironment, test_role: Role):
+async def test_workflow_retry_until_timeout(
+    env: WorkflowEnvironment, test_role: Role, test_worker_factory
+):
     """Test retry_until with timeout exceeded."""
     dsl = DSLInput(
         title="retry_until_timeout",
@@ -695,25 +669,21 @@ async def test_workflow_retry_until_timeout(env: WorkflowEnvironment, test_role:
     )
 
     client = env.client
-    async with Worker(
-        client,
-        task_queue="test-queue",
-        workflows=[DSLWorkflow],
-        activities=[DSLActivities.parse_wait_until_activity],
-    ):
+    task_queue = "test-queue"
+    async with test_worker_factory(client, task_queue=task_queue):
         with pytest.raises(ApplicationError, match="Activity timeout"):
             await client.execute_workflow(
                 DSLWorkflow.run,
                 DSLRunArgs(dsl=dsl, role=test_role, wf_id=TEST_WF_ID),
                 id=generate_test_exec_id("test_workflow_retry_until_timeout"),
-                task_queue="test-queue",
+                task_queue=task_queue,
             )
 
 
 @pytest.mark.skip
 @pytest.mark.anyio
 async def test_workflow_multiple_timed_actions(
-    env: WorkflowEnvironment, test_role: Role
+    env: WorkflowEnvironment, test_role: Role, test_worker_factory
 ):
     """Test multiple actions with different timing behaviors."""
     future_time = datetime.now(UTC) + timedelta(minutes=30)
@@ -751,18 +721,14 @@ async def test_workflow_multiple_timed_actions(
     )
 
     client = env.client
-    async with Worker(
-        client,
-        task_queue="test-queue",
-        workflows=[DSLWorkflow],
-        activities=[DSLActivities.parse_wait_until_activity],
-    ):
+    task_queue = "test-queue"
+    async with test_worker_factory(client, task_queue=task_queue):
         start_time = datetime.now(UTC)
         result = await client.execute_workflow(
             DSLWorkflow.run,
             DSLRunArgs(dsl=dsl, role=test_role, wf_id=TEST_WF_ID),
             id=generate_test_exec_id("test_workflow_multiple_timed_actions"),
-            task_queue="test-queue",
+            task_queue=task_queue,
         )
         end_time = datetime.now(UTC)
 
@@ -776,7 +742,7 @@ async def test_workflow_multiple_timed_actions(
 @pytest.mark.skip
 @pytest.mark.anyio
 async def test_workflow_retry_until_time_condition(
-    env: WorkflowEnvironment, test_role: Role
+    env: WorkflowEnvironment, test_role: Role, test_worker_factory
 ):
     """Test retry_until with time-based condition."""
     target_time = datetime.now(UTC) + timedelta(minutes=5)
@@ -800,17 +766,13 @@ async def test_workflow_retry_until_time_condition(
     )
 
     client = env.client
-    async with Worker(
-        client,
-        task_queue="test-queue",
-        workflows=[DSLWorkflow],
-        activities=[DSLActivities.parse_wait_until_activity],
-    ):
+    task_queue = "test-queue"
+    async with test_worker_factory(client, task_queue=task_queue):
         result = await client.execute_workflow(
             DSLWorkflow.run,
             DSLRunArgs(dsl=dsl, role=test_role, wf_id=TEST_WF_ID),
             id=generate_test_exec_id("test_workflow_retry_until_time_condition"),
-            task_queue="test-queue",
+            task_queue=task_queue,
         )
 
         # Verify the final result time is after target time
@@ -821,7 +783,7 @@ async def test_workflow_retry_until_time_condition(
 @pytest.mark.skip
 @pytest.mark.anyio
 async def test_workflow_invalid_retry_until_expression(
-    env: WorkflowEnvironment, test_role: Role
+    env: WorkflowEnvironment, test_role: Role, test_worker_factory
 ):
     """Test that invalid retry_until expression raises error."""
     dsl = DSLInput(
@@ -843,12 +805,8 @@ async def test_workflow_invalid_retry_until_expression(
     )
 
     client = env.client
-    async with Worker(
-        client,
-        task_queue="test-queue",
-        workflows=[DSLWorkflow],
-        activities=[DSLActivities.parse_wait_until_activity],
-    ):
+    task_queue = "test-queue"
+    async with test_worker_factory(client, task_queue=task_queue):
         with pytest.raises(ApplicationError, match="Invalid retry_until expression"):
             await client.execute_workflow(
                 DSLWorkflow.run,
@@ -856,5 +814,5 @@ async def test_workflow_invalid_retry_until_expression(
                 id=generate_test_exec_id(
                     "test_workflow_invalid_retry_until_expression"
                 ),
-                task_queue="test-queue",
+                task_queue=task_queue,
             )

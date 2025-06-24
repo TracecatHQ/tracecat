@@ -19,6 +19,7 @@ from tracecat.db.engine import get_async_session_context_manager
 from tracecat.dsl.models import ActionErrorInfo, ActionStatement, RunActionInput
 from tracecat.executor.client import ExecutorClient
 from tracecat.expressions.common import ExprContext
+from tracecat.expressions.core import TemplateExpression
 from tracecat.logger import logger
 from tracecat.registry.actions.models import RegistryActionValidateResponse
 from tracecat.types.auth import Role
@@ -188,3 +189,13 @@ class DSLActivities:
             wait_until, settings={"TIMEZONE": "UTC", "RETURN_AS_TIMEZONE_AWARE": True}
         )
         return dt.isoformat() if dt else None
+
+    @staticmethod
+    @activity.defn
+    def evaluate_single_expression_activity(
+        expression: str,
+        operand: dict[str, Any],
+    ) -> Any:
+        """Synchronously evaluate an expression. Strip whitespace from the expression."""
+        expr = TemplateExpression(expression.strip(), operand=operand)
+        return expr.result()
