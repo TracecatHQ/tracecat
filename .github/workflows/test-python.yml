@@ -39,6 +39,28 @@ env:
   PYODIDE_VERSION: "0.27.6"
 
 jobs:
+  test-registry-install:
+    runs-on: blacksmith-4vcpu-ubuntu-2204
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.git-ref }}
+
+      - name: Set up Python 3.12
+        uses: useblacksmith/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Clone custom registry starter
+        run: |
+          git clone https://github.com/TracecatHQ/custom-integrations-starter-kit
+          cd custom-integrations-starter-kit
+          git checkout main
+
+      - name: Install dependencies
+        run: uv pip install ".[dev]"
+
   test-all:
     runs-on: blacksmith-4vcpu-ubuntu-2204
     timeout-minutes: 60
