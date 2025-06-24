@@ -75,6 +75,7 @@ UTILITY_ACTIONS = {
     "validate_trigger_inputs_activity",
     "validate_action_activity",
     "parse_wait_until_activity",
+    "evaluate_single_expression_activity",
     WorkflowsManagementService.resolve_workflow_alias_activity.__name__,
     WorkflowsManagementService.get_error_handler_workflow_id.__name__,
     InteractionService.create_interaction_activity.__name__,
