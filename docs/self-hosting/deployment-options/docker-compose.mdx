@@ -41,10 +41,10 @@ Use the commands listed below to download the required configuration files
 
 ```bash
 # 1. Download the env.sh installation script
-curl -o env.sh https://raw.githubusercontent.com/TracecatHQ/tracecat/0.36.21/env.sh
+curl -o env.sh https://raw.githubusercontent.com/TracecatHQ/tracecat/0.36.22/env.sh
 
 # 2. Download the .env.example template file (env.sh needs this to generate your .env file)
-curl -o .env.example https://raw.githubusercontent.com/TracecatHQ/tracecat/0.36.21/.env.example
+curl -o .env.example https://raw.githubusercontent.com/TracecatHQ/tracecat/0.36.22/.env.example
 
 # 3. Make the env.sh script executable and run it
 chmod +x env.sh && ./env.sh
@@ -81,13 +81,13 @@ Tracecat uses Caddy as a reverse proxy.
 You'll need to download the following `Caddyfile` to configure this service.
 
 ```bash
-curl -o Caddyfile https://raw.githubusercontent.com/TracecatHQ/tracecat/0.36.21/Caddyfile
+curl -o Caddyfile https://raw.githubusercontent.com/TracecatHQ/tracecat/0.36.22/Caddyfile
 ```
 
 ## Download Docker Compose File
 
 ```bash
-curl -o docker-compose.yml https://raw.githubusercontent.com/TracecatHQ/tracecat/0.36.21/docker-compose.yml
+curl -o docker-compose.yml https://raw.githubusercontent.com/TracecatHQ/tracecat/0.36.22/docker-compose.yml
 ```
 
 ## Start Tracecat
@@ -170,4 +170,4 @@ Please check the following:
 ## Next Steps
 - Log into Tracecat and build your first playbook. [View quickstart](/quickstart).
 - Tracecat comes with basic (email + password) authentication. Find out how to configure other authentication methods. [View docs](/self-hosting/authentication/overview).
-- Read inline comments in the generated `.env` file to better understand Tracecat's configurations. [View `.env.example` file](https://github.com/TracecatHQ/tracecat/blob/0.36.21/.env.example).
+- Read inline comments in the generated `.env` file to better understand Tracecat's configurations. [View `.env.example` file](https://github.com/TracecatHQ/tracecat/blob/0.36.22/.env.example).
