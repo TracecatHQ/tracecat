@@ -56,10 +56,9 @@ jobs:
         run: |
           git clone https://github.com/TracecatHQ/custom-integrations-starter-kit
           cd custom-integrations-starter-kit
-          git checkout main
 
       - name: Install dependencies
-        run: uv pip install ".[dev]"
+        run: uv --system pip install ".[dev]"
 
   test-all:
     runs-on: blacksmith-4vcpu-ubuntu-2204

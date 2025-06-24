@@ -37,7 +37,7 @@ dependencies = [
     "google-auth==2.37.0",
     "greenlet==3.0.3",
     "hatchling==1.27.0",
-    "httpx==0.27.2",
+    "httpx==0.28.1",
     "jsonpath_ng>=1.7.0,<1.8.0",
     "kubernetes==32.0.1",
     "lark==1.1.9",
