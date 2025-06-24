@@ -47,6 +47,13 @@ jobs:
         with:
           ref: ${{ github.event.inputs.git-ref }}
 
+      - name: Install uv
+        uses: useblacksmith/setup-uv@v4
+        with:
+          version: "0.4.20"
+          enable-cache: true
+          cache-dependency-glob: "pyproject.toml"
+
       - name: Set up Python 3.12
         uses: useblacksmith/setup-python@v6
         with:
