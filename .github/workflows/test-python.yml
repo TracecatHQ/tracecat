@@ -39,7 +39,7 @@ env:
   PYODIDE_VERSION: "0.27.6"
 
 jobs:
-  test-registry-install:
+  test-custom-registry-install:
     runs-on: blacksmith-4vcpu-ubuntu-2204
     timeout-minutes: 60
     steps:
@@ -65,7 +65,7 @@ jobs:
           cd custom-integrations-starter-kit
 
       - name: Install dependencies
-        run: uv --system pip install ".[dev]"
+        run: uv venv --python 3.12 && uv pip install ".[dev]"
 
   test-all:
     runs-on: blacksmith-4vcpu-ubuntu-2204
