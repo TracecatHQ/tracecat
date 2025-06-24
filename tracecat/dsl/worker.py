@@ -2,6 +2,7 @@ import asyncio
 import dataclasses
 import os
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 
 from temporalio import workflow
 from temporalio.worker import Worker
@@ -82,22 +83,29 @@ async def main() -> None:
             getattr(a, "__temporal_activity_definition").name for a in activities
         ],
     )
-    async with Worker(
-        client,
-        task_queue=os.environ.get("TEMPORAL__CLUSTER_QUEUE", "tracecat-task-queue"),
-        activities=activities,
-        workflows=[DSLWorkflow],
-        workflow_runner=new_sandbox_runner(),
-        interceptors=interceptors,
-        disable_eager_activity_execution=config.TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION,
-    ):
-        logger.info(
-            "Worker started, ctrl+c to exit",
+    threadpool_max_workers = int(
+        os.environ.get("TEMPORAL__THREADPOOL_MAX_WORKERS", 100)
+    )
+
+    with ThreadPoolExecutor(max_workers=threadpool_max_workers) as executor:
+        async with Worker(
+            client,
+            task_queue=os.environ.get("TEMPORAL__CLUSTER_QUEUE", "tracecat-task-queue"),
+            activities=activities,
+            workflows=[DSLWorkflow],
+            workflow_runner=new_sandbox_runner(),
+            interceptors=interceptors,
             disable_eager_activity_execution=config.TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION,
-        )
-        # Wait until interrupted
-        await interrupt_event.wait()
-        logger.info("Shutting down")
+            activity_executor=executor,
+        ):
+            logger.info(
+                "Worker started, ctrl+c to exit",
+                disable_eager_activity_execution=config.TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION,
+                threadpool_max_workers=threadpool_max_workers,
+            )
+            # Wait until interrupted
+            await interrupt_event.wait()
+            logger.info("Shutting down")
 
 
 if __name__ == "__main__":

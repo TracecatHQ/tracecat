@@ -903,8 +903,8 @@ class DSLScheduler:
             parent_scatter=parent_scatter,
         )
         # Close the execution stream regardless of whether we skipped our way to this point.
-        self.open_streams[parent_scatter] -= 1
         if is_skipping:
+            self.open_streams[parent_scatter] -= 1
             self.logger.debug("Skipped gather in execution stream", task=task)
             # Return early to avoid setting the result as null.
             await self._handle_gather_skip_stream(task, stmt, stream_id)
@@ -916,6 +916,12 @@ class DSLScheduler:
         # We should only compute the items to store if we aren't skipping
         current_context = self.get_context(stream_id)
         items = await self.resolve_expression(args.items, current_context)
+
+        # XXX(concurrency): It's important we only decrement open_streams after
+        # await block. If not, streams at the current level will observe 0
+        # for the parent open_streams when resumed, and will not close the
+        # stream prematurely.
+        self.open_streams[parent_scatter] -= 1
 
         # Once we have the item, we go down 1 level in the stream hierarchy
         # and set the item as the result of the action in that stream
@@ -939,9 +945,7 @@ class DSLScheduler:
                 result_typename=type(result).__name__,
             )
 
-        # Only add  if we didn't skip
         parent_action_context[gather_ref]["result"][stream_idx] = items
-        self.logger.debug("Set item as result", task=task)
 
         if self.open_streams[parent_scatter] == 0:
             await self._handle_gather_result(
