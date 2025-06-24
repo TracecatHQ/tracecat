@@ -12,7 +12,7 @@ from tracecat.expressions import patterns
 from tracecat.expressions.common import ExprContext, ExprOperand, ExprType
 from tracecat.expressions.parser.core import parser
 from tracecat.expressions.parser.evaluator import ExprEvaluator
-from tracecat.expressions.parser.validator import BaseExprValidator
+from tracecat.expressions.validator.validator import BaseExprValidator
 from tracecat.logger import logger
 from tracecat.parse import traverse_expressions
 from tracecat.types.exceptions import TracecatExpressionError
@@ -79,8 +79,9 @@ class Expression:
         self,
         visitor: BaseExprValidator,
         *,
-        loc: str | None = None,
+        loc: tuple[str | int, ...] | None = None,
         exclude: set[ExprType] | None = None,
+        ref: str | None = None,
     ) -> None:
         """Validate the expression."""
         # 1) Parse the expression into AST
@@ -93,7 +94,9 @@ class Expression:
         except TracecatExpressionError as e:
             return visitor.add(
                 status="error",
-                msg=f"[{loc or 'parser'}]\n\nError parsing expression `{self._expr}`\n\n{e}",
+                msg=str(e),
+                ref=ref,
+                loc=("parsing", self._expr),
             )
 
         # 2) Validate the AST
@@ -102,7 +105,9 @@ class Expression:
         except TracecatExpressionError as e:
             return visitor.add(
                 status="error",
-                msg=f"[{loc or 'validator'}]\n\nError validating expression `{self._expr}`\n\n{e}",
+                msg=str(e),
+                ref=ref,
+                loc=("validation", self._expr),
             )
 
     def extract(self, visitor: ExprExtractor) -> Mapping[ExprContext, set[str]]:

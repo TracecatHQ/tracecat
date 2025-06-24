@@ -1,18 +1,30 @@
 "use client"
 
-import React from "react"
-import { CasePriority, CaseSeverity, CaseStatus, CaseUpdate } from "@/client"
-import { useWorkspace } from "@/providers/workspace"
 import { format, formatDistanceToNow } from "date-fns"
-import { Braces, List, PlayCircle } from "lucide-react"
-
-import { useGetCase, useUpdateCase } from "@/lib/hooks"
-import { Badge } from "@/components/ui/badge"
-import { Skeleton } from "@/components/ui/skeleton"
+import {
+  ActivityIcon,
+  Braces,
+  List,
+  MessageCircleIcon,
+  Paperclip,
+  PaperclipIcon,
+  PlayCircle,
+  Plus,
+  UserCircle2,
+} from "lucide-react"
+import type {
+  CasePriority,
+  CaseSeverity,
+  CaseStatus,
+  CaseUpdate,
+  UserRead,
+} from "@/client"
+import { CaseActivityFeed } from "@/components/cases/case-activity-feed"
 import { CommentSection } from "@/components/cases/case-comments-section"
 import { CustomField } from "@/components/cases/case-panel-custom-fields"
 import { CasePanelDescription } from "@/components/cases/case-panel-description"
 import {
+  AssigneeSelect,
   PrioritySelect,
   SeveritySelect,
   StatusSelect,
@@ -20,13 +32,19 @@ import {
 import { CasePanelSummary } from "@/components/cases/case-panel-summary"
 import { CaseWorkflowTrigger } from "@/components/cases/case-workflow-trigger"
 import { AlertNotification } from "@/components/notifications"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { Skeleton } from "@/components/ui/skeleton"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { useGetCase, useUpdateCase } from "@/lib/hooks"
+import { useWorkspace } from "@/providers/workspace"
 
 interface CasePanelContentProps {
   caseId: string
 }
 
 export function CasePanelView({ caseId }: CasePanelContentProps) {
-  const { workspaceId } = useWorkspace()
+  const { workspaceId, workspace } = useWorkspace()
   const { caseData, caseDataIsLoading, caseDataError } = useGetCase({
     caseId,
     workspaceId,
@@ -88,6 +106,13 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
     await updateCase(params)
   }
 
+  const handleAssigneeChange = async (newAssignee?: UserRead | null) => {
+    const params: Partial<CaseUpdate> = {
+      assignee_id: newAssignee?.id || null,
+    }
+    await updateCase(params)
+  }
+
   const customFields = caseData.fields.filter((field) => !field.reserved)
   return (
     <div className="flex h-full flex-col overflow-auto px-6">
@@ -121,12 +146,82 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
           <div className="space-y-2">
             <CasePanelDescription caseData={caseData} updateCase={updateCase} />
           </div>
-
-          <CommentSection caseId={caseId} workspaceId={workspaceId} />
+          <Tabs defaultValue="comments" className="w-full">
+            <div className="w-full border-b">
+              <TabsList className="h-8 justify-start rounded-none bg-transparent p-0">
+                <TabsTrigger
+                  className="flex h-full min-w-24 items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                  value="comments"
+                >
+                  <MessageCircleIcon className="mr-2 size-4" />
+                  <span>Comments</span>
+                </TabsTrigger>
+                <TabsTrigger
+                  className="flex h-full min-w-24 items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                  value="activity"
+                >
+                  <ActivityIcon className="mr-2 size-4" />
+                  <span>Activity</span>
+                </TabsTrigger>
+                <TabsTrigger
+                  className="flex h-full min-w-24 items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                  value="attachments"
+                >
+                  <PaperclipIcon className="mr-2 size-4" />
+                  <span>Attachments</span>
+                </TabsTrigger>
+              </TabsList>
+            </div>
+            <TabsContent value="comments" className="p-4">
+              <CommentSection caseId={caseId} workspaceId={workspaceId} />
+            </TabsContent>
+            <TabsContent value="activity" className="p-4">
+              <CaseActivityFeed caseId={caseId} workspaceId={workspaceId} />
+            </TabsContent>
+            <TabsContent value="attachments" className="p-4">
+              <div className="flex size-full flex-col items-center justify-center">
+                <div className="flex flex-col items-center gap-4 p-6 text-center">
+                  <div className="rounded-full bg-muted p-3">
+                    <Paperclip className="size-6 text-muted-foreground" />
+                  </div>
+                  <div className="space-y-1">
+                    <h4 className="text-sm font-semibold">
+                      No attachments yet
+                    </h4>
+                    <p className="text-xs text-muted-foreground">
+                      Get started by adding your first attachment
+                    </p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full gap-1.5"
+                    disabled
+                  >
+                    <Plus className="size-4" />
+                    Add Attachment
+                  </Button>
+                </div>
+              </div>
+            </TabsContent>
+          </Tabs>
         </div>
 
         {/* Right column - Details & Custom Fields */}
         <div className="col-span-3 space-y-6">
+          <div className="bg-card p-4">
+            <h3 className="mb-3 flex items-center text-sm font-semibold text-muted-foreground">
+              <UserCircle2 className="mr-2 size-4" />
+              Assigned To
+            </h3>
+            <div className="space-y-4">
+              <AssigneeSelect
+                assignee={caseData.assignee}
+                workspaceMembers={workspace?.members ?? []}
+                onValueChange={handleAssigneeChange}
+              />
+            </div>
+          </div>
           <div className="bg-card p-4">
             <h3 className="mb-3 flex items-center text-sm font-semibold text-muted-foreground">
               <List className="mr-2 size-4" />

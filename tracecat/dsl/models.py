@@ -2,12 +2,20 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Literal, TypedDict
+from functools import cached_property
+from typing import Any, ClassVar, Literal, NotRequired, Required, Self, TypedDict
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    TypeAdapter,
+    field_validator,
+    model_validator,
+)
+from pydantic_core import CoreSchema, core_schema
 
 from tracecat.dsl.constants import DEFAULT_ACTION_TIMEOUT
-from tracecat.dsl.enums import JoinStrategy
+from tracecat.dsl.enums import JoinStrategy, StreamErrorHandlingStrategy
 from tracecat.ee.interactions.models import ActionInteraction, InteractionContext
 from tracecat.expressions.common import ExprContext
 from tracecat.expressions.validation import ExpressionStr, RequiredExpressionStr
@@ -26,16 +34,16 @@ ExecutionContext = dict[ExprContext, Any]
 """Workflow execution context."""
 
 
-class TaskResult(TypedDict, total=False):
+class TaskResult[TResult: Any, TError: Any](TypedDict):
     """Result of executing a DSL node."""
 
-    result: Any
-    result_typename: str
-    error: Any | None
-    error_typename: str | None
-    interaction: Any | None
-    interaction_id: str | None
-    interaction_type: str | None
+    result: Required[TResult]
+    result_typename: Required[str]
+    error: NotRequired[TError]
+    error_typename: NotRequired[str]
+    interaction: NotRequired[Any]
+    interaction_id: NotRequired[str]
+    interaction_type: NotRequired[str]
 
 
 @dataclass(frozen=True)
@@ -60,6 +68,9 @@ class ActionErrorInfo:
     def format(self, loc: str = "run_action") -> str:
         locator = f"{self.expr_context}.{self.ref} -> {loc}"
         return f"[{locator}] (Attempt {self.attempt})\n\n{self.message}"
+
+
+ActionErrorInfoAdapter = TypeAdapter(ActionErrorInfo)
 
 
 class ActionRetryPolicy(BaseModel):
@@ -214,6 +225,100 @@ class RunContext(BaseModel):
         return WorkflowUUID.new(v)
 
 
+type SkipToken = Literal["skip"]
+
+
+class StreamID(str):
+    """Hierarchical stream identifier: 'scatter_1:2/scatter_2:0'"""
+
+    __stream_sep: ClassVar[str] = "/"
+    __idx_sep: ClassVar[str] = ":"
+
+    @classmethod
+    def new(
+        cls, scope: str, index: int | SkipToken, *, base_stream_id: Self | None = None
+    ) -> Self:
+        """Create a stream ID for an inherited scatter item.
+
+        Args:
+            scope: The scope name for the stream.
+            index: The index or skip token for the stream.
+            base_stream_id: The base stream ID to append to, if any.
+
+        Returns:
+            Self: A new StreamID instance.
+        """
+        new_stream = cls(f"{scope}{cls.__idx_sep}{index}")
+        if base_stream_id is None:
+            return new_stream
+        return cls(f"{base_stream_id}{cls.__stream_sep}{new_stream}")
+
+    @classmethod
+    def skip(cls, scope: str, *, base_stream_id: Self | None = None) -> Self:
+        """Create a stream ID for a skipped scatter.
+
+        Args:
+            scope: The scope name for the stream.
+            base_stream_id: The base stream ID to append to, if any.
+
+        Returns:
+            Self: A new StreamID instance representing a skipped scatter.
+        """
+        return cls.new(scope, "skip", base_stream_id=base_stream_id)
+
+    @cached_property
+    def streams(self) -> list[str]:
+        """Get the list of streams in the stream ID.
+
+        Returns:
+            list[str]: The split stream segments.
+        """
+        return self.split(self.__stream_sep)
+
+    @cached_property
+    def leaf(self) -> tuple[str, int | SkipToken]:
+        """Get the leaf stream ID.
+
+        Returns:
+            tuple[str, int | SkipToken]: The scope and index/skip token of the leaf.
+
+        Raises:
+            ValueError: If the stream ID is invalid.
+        """
+        scope, index, *rest = self.streams[-1].split(self.__idx_sep)
+        if rest:
+            raise ValueError(f"Invalid stream ID: {self}")
+        return scope, int(index) if index != "skip" else "skip"
+
+    @classmethod
+    def __get_pydantic_core_schema__(
+        cls,
+        _source_type: object,
+        _handler: object,
+    ) -> CoreSchema:
+        """
+        Generate Pydantic core schema for validation and serialization.
+
+        This simplified version uses only the plain validator and serializer for str,
+        as StreamID is a subclass of str and does not require union or instance checks.
+
+        Returns:
+            CoreSchema: The Pydantic core schema for StreamID.
+        """
+        return core_schema.json_or_python_schema(
+            json_schema=core_schema.no_info_plain_validator_function(cls),
+            python_schema=core_schema.no_info_plain_validator_function(cls),
+            serialization=core_schema.plain_serializer_function_ser_schema(
+                str,
+                return_schema=core_schema.str_schema(),
+                when_used="json",
+            ),
+        )
+
+
+ROOT_STREAM = StreamID.new("<root>", 0)
+
+
 class RunActionInput(BaseModel):
     """This object contains all the information needed to execute an action."""
 
@@ -222,6 +327,7 @@ class RunActionInput(BaseModel):
     run_context: RunContext
     # This gets passed in from the worker
     interaction_context: InteractionContext | None = None
+    stream_id: StreamID = ROOT_STREAM
 
 
 class DSLExecutionError(TypedDict, total=False):
@@ -243,4 +349,32 @@ class DSLExecutionError(TypedDict, total=False):
 @dataclass(frozen=True)
 class TaskExceptionInfo:
     exception: Exception
-    details: ActionErrorInfo | None = None
+    details: ActionErrorInfo
+
+
+@dataclass(frozen=True, slots=True)
+class Task:
+    """Stream-aware task instance"""
+
+    ref: str
+    """The task action reference"""
+    stream_id: StreamID
+    """The stream ID of the task"""
+
+
+class ScatterArgs(BaseModel):
+    collection: ExpressionStr | list[Any] = Field(
+        ..., description="The collection to scatter"
+    )
+
+
+class GatherArgs(BaseModel):
+    """Arguments for gather operations"""
+
+    items: ExpressionStr = Field(..., description="The jsonpath to select items from")
+    drop_nulls: bool = Field(
+        default=False, description="Whether to drop null values from the final result"
+    )
+    error_strategy: StreamErrorHandlingStrategy = Field(
+        default=StreamErrorHandlingStrategy.PARTITION
+    )

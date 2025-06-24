@@ -1,0 +1,34 @@
+type: action
+definition:
+  title: Lookup user by email
+  description: Get an Okta user by email.
+  display_group: Okta
+  doc_url: https://developer.okta.com/docs/api/openapi/okta-management/management/tag/User/#tag/User/operation/listUsers
+  namespace: tools.okta
+  name: lookup_user_by_email
+  secrets:
+    - name: okta
+      keys: ["OKTA_API_TOKEN"]
+  expects:
+    email:
+      type: str
+      description: Email of an existing user.
+    base_url:
+      type: str
+      description: Okta organization URL.
+  steps:
+    - ref: search_query
+      action: core.transform.reshape
+      args:
+        value: profile.email eq "${{ inputs.email }}"
+    - ref: search_user_by_email
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/api/v1/users
+        method: GET
+        headers:
+          Authorization: "SSWS ${{ SECRETS.okta.OKTA_API_TOKEN }}"
+        params:
+          search: ${{ steps.search_query.result }}
+  # core.http_request returns data, headers, and status_code
+  returns: ${{ steps.search_user_by_email.result.data[0] }}

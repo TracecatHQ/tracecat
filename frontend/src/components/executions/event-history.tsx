@@ -1,23 +1,22 @@
 "use client"
 
-import React from "react"
-import { WorkflowEventType, WorkflowExecutionEvent } from "@/client"
 import {
   AlarmClockOffIcon,
   BookCheckIcon,
-  CalendarCheck,
+  CalendarCheckIcon,
   CircleArrowRightIcon,
   CircleCheck,
   CircleDotIcon,
   CircleMinusIcon,
-  CircleX,
-  GlobeIcon,
-  Play,
+  CircleXIcon,
+  PlayIcon,
   WorkflowIcon,
 } from "lucide-react"
-
-import { useWorkflowExecution } from "@/lib/hooks"
-import { cn, undoSlugify } from "@/lib/utils"
+import type React from "react"
+import type { WorkflowEventType, WorkflowExecutionEvent } from "@/client"
+import { CenteredSpinner } from "@/components/loading/spinner"
+import NoContent from "@/components/no-content"
+import { AlertNotification } from "@/components/notifications"
 import { Badge } from "@/components/ui/badge"
 import { Button, buttonVariants } from "@/components/ui/button"
 import {
@@ -25,9 +24,8 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { CenteredSpinner } from "@/components/loading/spinner"
-import NoContent from "@/components/no-content"
-import { AlertNotification } from "@/components/notifications"
+import { useWorkflowExecution } from "@/lib/hooks"
+import { cn, undoSlugify } from "@/lib/utils"
 
 import "react18-json-view/src/style.css"
 
@@ -148,15 +146,21 @@ function getEventHistoryIcon(eventType: WorkflowEventType, className?: string) {
   switch (eventType) {
     /* === Workflow Execution Events === */
     case "WORKFLOW_EXECUTION_STARTED":
-      return <GlobeIcon className={cn("stroke-emerald-500", className)} />
+      return (
+        <WorkflowIcon
+          className={cn("fill-white stroke-sky-500/80", className)}
+        />
+      )
     case "WORKFLOW_EXECUTION_COMPLETED":
       return (
-        <CircleCheck
-          className={cn("fill-emerald-500 stroke-white", className)}
+        <WorkflowIcon
+          className={cn("fill-white stroke-emerald-500", className)}
         />
       )
     case "WORKFLOW_EXECUTION_FAILED":
-      return <CircleX className={cn("fill-rose-500 stroke-white", className)} />
+      return (
+        <CircleXIcon className={cn("fill-rose-500 stroke-white", className)} />
+      )
     case "WORKFLOW_EXECUTION_CANCELED":
       return (
         <CircleMinusIcon
@@ -172,7 +176,7 @@ function getEventHistoryIcon(eventType: WorkflowEventType, className?: string) {
     case "WORKFLOW_EXECUTION_CONTINUED_AS_NEW":
       return (
         <CircleArrowRightIcon
-          className={cn("fill-blue-500 stroke-white", className)}
+          className={cn("fill-sky-500/80 stroke-white", className)}
         />
       )
     case "WORKFLOW_EXECUTION_TIMED_OUT":
@@ -191,37 +195,41 @@ function getEventHistoryIcon(eventType: WorkflowEventType, className?: string) {
       )
     case "CHILD_WORKFLOW_EXECUTION_STARTED":
       return (
-        <Play
-          className={cn("fill-violet-400/80 stroke-violet-400/80", className)}
+        <WorkflowIcon
+          className={cn("fill-orange-200/50 stroke-orange-500/70", className)}
         />
       )
     case "CHILD_WORKFLOW_EXECUTION_COMPLETED":
       return (
         <CircleCheck
-          className={cn("fill-violet-400/80 stroke-white", className)}
+          className={cn("fill-emerald-500 stroke-white", className)}
         />
       )
     case "CHILD_WORKFLOW_EXECUTION_FAILED":
-      return <CircleX className={cn("fill-rose-500 stroke-white", className)} />
+      return (
+        <CircleXIcon className={cn("fill-rose-500 stroke-white", className)} />
+      )
     /* === Activity Task Events === */
     case "ACTIVITY_TASK_SCHEDULED":
       return (
-        <CalendarCheck
+        <CalendarCheckIcon
           className={cn("fill-orange-200/50 stroke-orange-500/70", className)}
         />
       )
     case "ACTIVITY_TASK_STARTED":
       return (
-        <Play className={cn("fill-sky-500/80 stroke-sky-500/80", className)} />
+        <PlayIcon className={cn("fill-white stroke-sky-500/80", className)} />
       )
     case "ACTIVITY_TASK_COMPLETED":
       return (
         <CircleCheck
-          className={cn("fill-sky-500/80 stroke-white", className)}
+          className={cn("fill-emerald-500 stroke-white", className)}
         />
       )
     case "ACTIVITY_TASK_FAILED":
-      return <CircleX className={cn("fill-rose-500 stroke-white", className)} />
+      return (
+        <CircleXIcon className={cn("fill-rose-500 stroke-white", className)} />
+      )
     case "ACTIVITY_TASK_TIMED_OUT":
       return (
         <AlarmClockOffIcon
@@ -237,12 +245,14 @@ function getEventHistoryIcon(eventType: WorkflowEventType, className?: string) {
       )
     case "WORKFLOW_EXECUTION_UPDATE_REJECTED":
       return (
-        <CircleX className={cn("fill-indigo-500/50 stroke-white", className)} />
+        <CircleXIcon
+          className={cn("fill-indigo-500/50 stroke-white", className)}
+        />
       )
     case "WORKFLOW_EXECUTION_UPDATE_COMPLETED":
       return (
         <CircleCheck
-          className={cn("fill-indigo-500/50 stroke-white", className)}
+          className={cn("fill-emerald-500/50 stroke-white", className)}
         />
       )
 

@@ -1,0 +1,33 @@
+type: action
+definition:
+  name: lookup_ip_address
+  namespace: tools.abuseipdb
+  title: Lookup IP address
+  description: Lookup an IP address in AbuseIPDB.
+  display_group: AbuseIPDB
+  doc_url: https://docs.abuseipdb.com/#check-endpoint
+  secrets:
+    - name: abuseipdb
+      keys:
+        - ABUSEIPDB_API_KEY
+  expects:
+    ip_address:
+      type: str
+      description: IP address to lookup.
+    max_age_in_days:
+      type: int
+      description: Maximum age of the IP address in days.
+      default: 30
+  steps:
+    - ref: lookup_ip_address
+      action: core.http_request
+      args:
+        url: https://api.abuseipdb.com/api/v2/check
+        method: GET
+        headers:
+          Key: ${{ SECRETS.abuseipdb.ABUSEIPDB_API_KEY }}
+        params:
+          ipAddress: ${{ inputs.ip_address }}
+          verbose: true
+          maxAgeInDays: ${{ inputs.max_age_in_days }}
+  returns: ${{ steps.lookup_ip_address.result.data }}

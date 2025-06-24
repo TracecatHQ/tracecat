@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import uuid
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Literal
 
@@ -12,9 +14,9 @@ from tracecat.dsl.models import ActionStatement, DSLConfig
 from tracecat.expressions.expectations import ExpectedField
 from tracecat.identifiers import OwnerID, WorkspaceID
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowIDShort, WorkflowUUID
-from tracecat.registry.actions.models import RegistryActionValidateResponse
 from tracecat.tags.models import TagRead
 from tracecat.types.auth import Role
+from tracecat.validation.models import ValidationResult
 from tracecat.webhooks.models import WebhookRead
 from tracecat.workflow.actions.models import ActionRead
 
@@ -39,7 +41,15 @@ class WorkflowRead(BaseModel):
     error_handler: str | None = None
 
 
+class WorkflowDefinitionReadMinimal(BaseModel):
+    id: str
+    version: int
+    created_at: datetime
+
+
 class WorkflowReadMinimal(BaseModel):
+    """Minimal version of WorkflowRead model for list endpoints."""
+
     id: WorkflowIDShort
     title: str
     description: str
@@ -51,6 +61,8 @@ class WorkflowReadMinimal(BaseModel):
     tags: list[TagRead] | None = None
     alias: str | None = None
     error_handler: str | None = None
+    latest_definition: WorkflowDefinitionReadMinimal | None = None
+    folder_id: uuid.UUID | None = None
 
 
 class WorkflowUpdate(BaseModel):
@@ -170,7 +182,7 @@ class WorkflowCommitResponse(BaseModel):
     workflow_id: WorkflowIDShort
     status: Literal["success", "failure"]
     message: str
-    errors: list[RegistryActionValidateResponse] | None = None
+    errors: list[ValidationResult] | None = None
     metadata: dict[str, Any] | None = None
 
     def to_orjson(self, status_code: int) -> ORJSONResponse:
@@ -181,4 +193,17 @@ class WorkflowCommitResponse(BaseModel):
 
 class WorkflowDSLCreateResponse(BaseModel):
     workflow: Workflow | None = None
-    errors: list[RegistryActionValidateResponse] | None = None
+    errors: list[ValidationResult] | None = None
+
+
+@dataclass
+class WorkflowDefinitionMinimal:
+    """Workflow definition metadata domain model."""
+
+    id: str
+    version: int
+    created_at: datetime
+
+
+class WorkflowMoveToFolder(BaseModel):
+    folder_path: str | None = None

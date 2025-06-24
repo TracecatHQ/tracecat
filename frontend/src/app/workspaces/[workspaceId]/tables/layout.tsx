@@ -1,10 +1,9 @@
 "use client"
 
-import { Suspense } from "react"
-import { useWorkspace } from "@/providers/workspace"
-
+import { Suspense, useEffect } from "react"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { TablesSidebar } from "@/components/tables/tables-side-nav"
+import { useWorkspace } from "@/providers/workspace"
 
 export default function TablesLayout({
   children,
@@ -12,6 +11,11 @@ export default function TablesLayout({
   children: React.ReactNode
 }) {
   const { workspaceId } = useWorkspace()
+
+  useEffect(() => {
+    document.title = `Tables`
+  }, [])
+
   return (
     <div className="container grid h-full grid-cols-6 gap-8 py-16">
       <div className="col-span-1">

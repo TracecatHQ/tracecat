@@ -1,31 +1,30 @@
 "use client"
 
+import {
+  type Edge,
+  type Node,
+  type ReactFlowInstance,
+  useOnSelectionChange,
+  useReactFlow,
+} from "@xyflow/react"
 import React, {
   createContext,
-  ReactNode,
-  SetStateAction,
+  type ReactNode,
+  type SetStateAction,
   useCallback,
   useContext,
   useEffect,
   useRef,
   useState,
 } from "react"
-import { useWorkflow } from "@/providers/workflow"
-import {
-  Edge,
-  Node,
-  ReactFlowInstance,
-  useOnSelectionChange,
-  useReactFlow,
-} from "@xyflow/react"
-
-import { pruneGraphObject } from "@/lib/workflow"
-import {
+import type {
   NodeType,
   WorkflowCanvasRef,
-} from "@/components/workbench/canvas/canvas"
-import { EventsSidebarRef } from "@/components/workbench/events/events-sidebar"
-import { ActionPanelRef } from "@/components/workbench/panel/action-panel"
+} from "@/components/builder/canvas/canvas"
+import type { EventsSidebarRef } from "@/components/builder/events/events-sidebar"
+import type { ActionPanelRef } from "@/components/builder/panel/action-panel"
+import { pruneReactFlowInstance } from "@/lib/workflow"
+import { useWorkflow } from "@/providers/workflow"
 
 interface ReactFlowContextType {
   reactFlow: ReactFlowInstance
@@ -46,6 +45,8 @@ interface ReactFlowContextType {
   expandSidebarAndFocusEvents: () => void
   selectedActionEventRef?: string
   setSelectedActionEventRef: React.Dispatch<SetStateAction<string | undefined>>
+  currentExecutionId: string | null
+  setCurrentExecutionId: React.Dispatch<SetStateAction<string | null>>
 }
 
 const ReactFlowInteractionsContext = createContext<
@@ -69,25 +70,29 @@ export const WorkflowBuilderProvider: React.FC<
   const [isSidebarCollapsed, setIsSidebarCollapsed] = React.useState(false)
   const [isActionPanelCollapsed, setIsActionPanelCollapsed] =
     React.useState(false)
+  const [currentExecutionId, setCurrentExecutionId] = useState<string | null>(
+    null
+  )
   const canvasRef = useRef<WorkflowCanvasRef>(null)
   const sidebarRef = useRef<EventsSidebarRef>(null)
   const actionPanelRef = useRef<ActionPanelRef>(null)
 
   useEffect(() => {
     setSelectedNodeId(null)
+    setCurrentExecutionId(null)
   }, [workflowId])
 
   const setReactFlowNodes = useCallback(
     (nodes: Node[] | ((nodes: Node[]) => Node[])) => {
       reactFlowInstance.setNodes(nodes)
-      updateWorkflow({ object: pruneGraphObject(reactFlowInstance) })
+      updateWorkflow({ object: pruneReactFlowInstance(reactFlowInstance) })
     },
     [workflowId, reactFlowInstance]
   )
   const setReactFlowEdges = useCallback(
     (edges: Edge[] | ((edges: Edge[]) => Edge[])) => {
       reactFlowInstance.setEdges(edges)
-      updateWorkflow({ object: pruneGraphObject(reactFlowInstance) })
+      updateWorkflow({ object: pruneReactFlowInstance(reactFlowInstance) })
     },
     [workflowId, reactFlowInstance]
   )
@@ -160,6 +165,8 @@ export const WorkflowBuilderProvider: React.FC<
       actionPanelRef,
       isActionPanelCollapsed,
       toggleActionPanel,
+      currentExecutionId,
+      setCurrentExecutionId,
     }),
     [
       workflowId,
@@ -179,6 +186,8 @@ export const WorkflowBuilderProvider: React.FC<
       actionPanelRef,
       isActionPanelCollapsed,
       toggleActionPanel,
+      currentExecutionId,
+      setCurrentExecutionId,
     ]
   )
 

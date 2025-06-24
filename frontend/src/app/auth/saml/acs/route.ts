@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server"
+import { type NextRequest, NextResponse } from "next/server"
 
 import { buildUrl } from "@/lib/ss-utils"
 
@@ -12,6 +12,7 @@ export async function POST(request: NextRequest) {
   // Parse the form data from the request
   const formData = await request.formData()
   const samlResponse = formData.get("SAMLResponse")
+  const relayState = formData.get("RelayState")
 
   // Get redirect
   const resp = await fetch(buildUrl("/info"))
@@ -28,10 +29,23 @@ export async function POST(request: NextRequest) {
   const backendFormData = new FormData()
   backendFormData.append("SAMLResponse", samlResponse)
 
+  // Forward RelayState if present
+  if (relayState) {
+    backendFormData.append("RelayState", relayState)
+  }
+
   // Forward the request to the FastAPI backend
+  const headers = {
+    "x-tracecat-service-key": process.env.TRACECAT__SERVICE_KEY!,
+    "x-tracecat-role-type": "service",
+    "x-tracecat-role-service-id": "tracecat-ui",
+    "x-tracecat-role-access-level": "BASIC",
+  }
+  console.log("Headers", headers)
   const backendResponse = await fetch(backendUrl.toString(), {
     method: "POST",
     body: backendFormData,
+    headers: headers,
   })
 
   if (!backendResponse.ok) {

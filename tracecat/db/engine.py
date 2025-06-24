@@ -6,7 +6,6 @@ from typing import Literal
 import boto3
 from botocore.exceptions import ClientError
 from loguru import logger
-from sqlalchemy import Engine
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -15,7 +14,6 @@ from tracecat import config
 # Global so we don't create more than one engine per process.
 # Outside of being best practice, this is needed so we can properly pool
 # connections and not create a new pool on every request
-_engine: Engine | None = None
 _async_engine: AsyncEngine | None = None
 
 

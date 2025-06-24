@@ -10,7 +10,8 @@ Objectives
 
 import asyncio
 import os
-from collections.abc import AsyncGenerator, Mapping
+import re
+from collections.abc import AsyncGenerator, Callable, Mapping
 from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
@@ -19,7 +20,8 @@ from typing import Any, Literal
 import pytest
 import yaml
 from pydantic import SecretStr
-from temporalio.client import Client, WorkflowFailureError
+from temporalio.api.enums.v1.workflow_pb2 import ParentClosePolicy
+from temporalio.client import Client, WorkflowExecutionStatus, WorkflowFailureError
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ActivityError, ApplicationError
 from temporalio.worker import Worker
@@ -32,21 +34,33 @@ from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.schemas import Workflow
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import (
+    RETRY_POLICIES,
     DSLEntrypoint,
     DSLInput,
     DSLRunArgs,
 )
-from tracecat.dsl.enums import LoopStrategy
+from tracecat.dsl.enums import (
+    JoinStrategy,
+    LoopStrategy,
+    StreamErrorHandlingStrategy,
+    WaitStrategy,
+)
 from tracecat.dsl.models import (
     ActionStatement,
     DSLConfig,
     ExecutionContext,
+    GatherArgs,
     RunActionInput,
+    ScatterArgs,
 )
-from tracecat.dsl.worker import get_activities, new_sandbox_runner
-from tracecat.dsl.workflow import DSLWorkflow, retry_policies
+from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.expressions.common import ExprContext
-from tracecat.identifiers.workflow import WorkflowExecutionID, WorkflowID, WorkflowUUID
+from tracecat.identifiers.workflow import (
+    WF_EXEC_ID_PATTERN,
+    WorkflowExecutionID,
+    WorkflowID,
+    WorkflowUUID,
+)
 from tracecat.logger import logger
 from tracecat.secrets.models import SecretCreate, SecretKeyValue
 from tracecat.secrets.service import SecretsService
@@ -139,17 +153,13 @@ def runtime_config() -> DSLConfig:
     ids=lambda x: x,
 )
 @pytest.mark.anyio
-async def test_workflow_can_run_from_yaml(dsl, test_role, temporal_client):
+async def test_workflow_can_run_from_yaml(
+    dsl, test_role, temporal_client, test_worker_factory
+):
     test_name = f"test_workflow_can_run_from_yaml-{dsl.title}"
     wf_exec_id = generate_test_exec_id(test_name)
     # Run workflow
-    async with Worker(
-        temporal_client,
-        task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-        activities=get_activities(),
-        workflows=[DSLWorkflow],
-        workflow_runner=new_sandbox_runner(),
-    ):
+    async with test_worker_factory(temporal_client):
         result = await temporal_client.execute_workflow(
             DSLWorkflow.run,
             DSLRunArgs(dsl=dsl, role=ctx_role.get(), wf_id=TEST_WF_ID),
@@ -177,7 +187,9 @@ def assert_respectful_exec_order(dsl: DSLInput, final_context: ExecutionContext)
     ids=lambda x: x,
 )
 @pytest.mark.anyio
-async def test_workflow_ordering_is_correct(dsl, test_role, temporal_client):
+async def test_workflow_ordering_is_correct(
+    dsl, test_role, temporal_client, test_worker_factory
+):
     """We need to test that the ordering of the workflow tasks is correct."""
 
     # Connect client
@@ -185,13 +197,7 @@ async def test_workflow_ordering_is_correct(dsl, test_role, temporal_client):
     wf_exec_id = generate_test_exec_id(test_name)
 
     # Run a worker for the activities and workflow
-    async with Worker(
-        temporal_client,
-        task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-        activities=get_activities(),
-        workflows=[DSLWorkflow],
-        workflow_runner=new_sandbox_runner(),
-    ):
+    async with test_worker_factory(temporal_client):
         result = await temporal_client.execute_workflow(
             DSLWorkflow.run,
             DSLRunArgs(dsl=dsl, role=ctx_role.get(), wf_id=TEST_WF_ID),
@@ -226,7 +232,7 @@ async def test_workflow_ordering_is_correct(dsl, test_role, temporal_client):
 )
 @pytest.mark.anyio
 async def test_workflow_completes_and_correct(
-    dsl_with_expected, test_role, runtime_config
+    dsl_with_expected, test_role, runtime_config, test_worker_factory
 ):
     dsl, expected = dsl_with_expected
     test_name = f"test_correctness_execution-{dsl.title}"
@@ -234,13 +240,7 @@ async def test_workflow_completes_and_correct(
 
     client = await get_temporal_client()
     # Run a worker for the activities and workflow
-    async with Worker(
-        client,
-        task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-        activities=get_activities(),
-        workflows=[DSLWorkflow],
-        workflow_runner=new_sandbox_runner(),
-    ):
+    async with test_worker_factory(client):
         result = await client.execute_workflow(
             DSLWorkflow.run,
             DSLRunArgs(
@@ -265,19 +265,13 @@ async def test_workflow_completes_and_correct(
 @pytest.mark.parametrize("dsl", ["stress_adder_tree"], indirect=True, ids=lambda x: x)
 @pytest.mark.slow
 @pytest.mark.anyio
-async def test_stress_workflow(dsl, test_role):
+async def test_stress_workflow(dsl, test_role, test_worker_factory):
     """Test that we can have multiple executions of the same workflow running at the same time."""
     test_name = f"test_stress_workflow-{dsl.title}"
     client = await get_temporal_client()
 
     tasks: list[asyncio.Task] = []
-    async with Worker(
-        client,
-        task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-        activities=get_activities(),
-        workflows=[DSLWorkflow],
-        workflow_runner=new_sandbox_runner(),
-    ):
+    async with test_worker_factory(client):
         async with asyncio.TaskGroup() as tg:
             # We can have multiple executions of the same workflow running at the same time
             for i in range(100):
@@ -300,7 +294,9 @@ async def test_stress_workflow(dsl, test_role):
 @pytest.mark.parametrize("runs", [10, 100])
 @pytest.mark.slow
 @pytest.mark.anyio
-async def test_stress_workflow_correctness(runs, test_role, temporal_client):
+async def test_stress_workflow_correctness(
+    runs, test_role, temporal_client, test_worker_factory
+):
     """Test that we can have multiple executions of the same workflow running at the same time."""
     test_name = test_stress_workflow_correctness.__name__
     dsl = DSLInput(
@@ -351,15 +347,7 @@ async def test_stress_workflow_correctness(runs, test_role, temporal_client):
         }
     )
 
-    async with Worker(
-        temporal_client,
-        task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-        activities=get_activities(),
-        workflows=[DSLWorkflow],
-        workflow_runner=new_sandbox_runner(),
-        max_concurrent_activities=1000,
-        max_concurrent_workflow_tasks=1000,
-    ):
+    async with test_worker_factory(temporal_client):
         async with GatheringTaskGroup() as tg:
             # We can have multiple executions of the same workflow running at the same time
             for i in range(runs):
@@ -386,7 +374,9 @@ async def test_stress_workflow_correctness(runs, test_role, temporal_client):
 
 
 @pytest.mark.anyio
-async def test_workflow_set_environment_correct(test_role, temporal_client):
+async def test_workflow_set_environment_correct(
+    test_role, temporal_client, test_worker_factory
+):
     test_name = f"{test_workflow_set_environment_correct.__name__}"
     test_description = (
         "Test that we can set the runtime environment for a workflow."
@@ -426,25 +416,21 @@ async def test_workflow_set_environment_correct(test_role, temporal_client):
     )
 
     queue = os.environ["TEMPORAL__CLUSTER_QUEUE"]
-    async with Worker(
-        temporal_client,
-        task_queue=queue,
-        activities=get_activities(),
-        workflows=[DSLWorkflow],
-        workflow_runner=new_sandbox_runner(),
-    ):
+    async with test_worker_factory(temporal_client):
         result = await temporal_client.execute_workflow(
             DSLWorkflow.run,
             run_args,
             id=wf_exec_id,
             task_queue=queue,
-            retry_policy=retry_policies["workflow:fail_fast"],
+            retry_policy=RETRY_POLICIES["workflow:fail_fast"],
         )
     assert result == "__TEST_ENVIRONMENT__"
 
 
 @pytest.mark.anyio
-async def test_workflow_override_environment_correct(test_role, temporal_client):
+async def test_workflow_override_environment_correct(
+    test_role, temporal_client, test_worker_factory
+):
     test_name = f"{test_workflow_override_environment_correct.__name__}"
     test_description = (
         "Test that we can override the runtime environment for a workflow from its run_args."
@@ -485,25 +471,21 @@ async def test_workflow_override_environment_correct(test_role, temporal_client)
     )
 
     queue = os.environ["TEMPORAL__CLUSTER_QUEUE"]
-    async with Worker(
-        temporal_client,
-        task_queue=queue,
-        activities=get_activities(),
-        workflows=[DSLWorkflow],
-        workflow_runner=new_sandbox_runner(),
-    ):
+    async with test_worker_factory(temporal_client):
         result = await temporal_client.execute_workflow(
             DSLWorkflow.run,
             run_args,
             id=wf_exec_id,
             task_queue=queue,
-            retry_policy=retry_policies["workflow:fail_fast"],
+            retry_policy=RETRY_POLICIES["workflow:fail_fast"],
         )
     assert result == "__CORRECT_ENVIRONMENT__"
 
 
 @pytest.mark.anyio
-async def test_workflow_default_environment_correct(test_role, temporal_client):
+async def test_workflow_default_environment_correct(
+    test_role, temporal_client, test_worker_factory
+):
     test_name = f"{test_workflow_default_environment_correct.__name__}"
     test_description = (
         "Test that we can set the default runtime environment for a workflow."
@@ -542,19 +524,13 @@ async def test_workflow_default_environment_correct(test_role, temporal_client):
     )
 
     queue = os.environ["TEMPORAL__CLUSTER_QUEUE"]
-    async with Worker(
-        temporal_client,
-        task_queue=queue,
-        activities=get_activities(),
-        workflows=[DSLWorkflow],
-        workflow_runner=new_sandbox_runner(),
-    ):
+    async with test_worker_factory(temporal_client):
         result = await temporal_client.execute_workflow(
             DSLWorkflow.run,
             run_args,
             id=wf_exec_id,
             task_queue=queue,
-            retry_policy=retry_policies["workflow:fail_fast"],
+            retry_policy=RETRY_POLICIES["workflow:fail_fast"],
         )
     assert result == "default"
 
@@ -587,27 +563,24 @@ async def _create_and_commit_workflow(
         return workflow
 
 
-async def _run_workflow(client: Client, wf_exec_id: str, run_args: DSLRunArgs):
-    queue = os.environ["TEMPORAL__CLUSTER_QUEUE"]
-    async with Worker(
-        client,
-        task_queue=queue,
-        activities=get_activities(),
-        workflows=[DSLWorkflow],
-        workflow_runner=new_sandbox_runner(),
-    ):
-        result = await client.execute_workflow(
+async def _run_workflow(
+    wf_exec_id: str,
+    run_args: DSLRunArgs,
+    worker: Worker,
+):
+    async with worker:
+        result = await worker.client.execute_workflow(
             DSLWorkflow.run,
             run_args,
             id=wf_exec_id,
-            task_queue=queue,
-            retry_policy=retry_policies["workflow:fail_fast"],
+            task_queue=worker.task_queue,
+            retry_policy=RETRY_POLICIES["workflow:fail_fast"],
         )
     return result
 
 
 @pytest.mark.anyio
-async def test_child_workflow_success(test_role, temporal_client):
+async def test_child_workflow_success(test_role, temporal_client, test_worker_factory):
     test_name = f"{test_child_workflow_success.__name__}"
     wf_exec_id = generate_test_exec_id(test_name)
     # Child
@@ -672,7 +645,13 @@ async def test_child_workflow_success(test_role, temporal_client):
         role=test_role,
         wf_id=TEST_WF_ID,
     )
-    result = await _run_workflow(temporal_client, wf_exec_id, run_args)
+    logger.info(
+        "Running workflow",
+        wf_exec_id=wf_exec_id,
+        t=type(test_worker_factory),
+    )
+    worker = test_worker_factory(temporal_client)
+    result = await _run_workflow(wf_exec_id, run_args, worker)
 
     expected = {
         "ACTIONS": {
@@ -688,7 +667,9 @@ async def test_child_workflow_success(test_role, temporal_client):
 
 
 @pytest.mark.anyio
-async def test_child_workflow_context_passing(test_role, temporal_client):
+async def test_child_workflow_context_passing(
+    test_role, temporal_client, test_worker_factory
+):
     # Setup
     test_name = f"{test_child_workflow_context_passing.__name__}"
     wf_exec_id = generate_test_exec_id(test_name)
@@ -770,7 +751,8 @@ async def test_child_workflow_context_passing(test_role, temporal_client):
         },
     )
 
-    result = await _run_workflow(temporal_client, wf_exec_id, run_args)
+    worker = test_worker_factory(temporal_client)
+    result = await _run_workflow(wf_exec_id, run_args, worker)
     # Parent expected
     expected = {
         "ACTIONS": {
@@ -848,6 +830,7 @@ async def test_child_workflow_loop(
     child_dsl: DSLInput,
     loop_strategy: LoopStrategy,
     loop_kwargs: dict[str, Any],
+    test_worker_factory: Callable[[Client], Worker],
 ):
     # Setup
     test_name = test_child_workflow_loop.__name__
@@ -894,7 +877,8 @@ async def test_child_workflow_loop(
         },
     )
 
-    result = await _run_workflow(temporal_client, wf_exec_id, run_args)
+    worker = test_worker_factory(temporal_client)
+    result = await _run_workflow(wf_exec_id, run_args, worker)
     # Parent expected
     expected = {
         "ACTIONS": {
@@ -933,7 +917,10 @@ async def test_child_workflow_loop(
 # Test workflow alias
 @pytest.mark.anyio
 async def test_single_child_workflow_alias(
-    test_role: Role, temporal_client: Client, child_dsl: DSLInput
+    test_role: Role,
+    temporal_client: Client,
+    child_dsl: DSLInput,
+    test_worker_factory: Callable[[Client], Worker],
 ):
     test_name = test_single_child_workflow_alias.__name__
     wf_exec_id = generate_test_exec_id(test_name)
@@ -973,7 +960,8 @@ async def test_single_child_workflow_alias(
         role=test_role,
         wf_id=WorkflowUUID.new("wf-00000000000000000000000000000002"),
     )
-    result = await _run_workflow(temporal_client, wf_exec_id, run_args)
+    worker = test_worker_factory(temporal_client)
+    result = await _run_workflow(wf_exec_id, run_args, worker)
     # Parent expected
     assert result == {"data": "Test", "index": 0}
 
@@ -1009,6 +997,7 @@ async def test_child_workflow_alias_with_loop(
     alias: str,
     loop_strategy: LoopStrategy,
     loop_kwargs: dict[str, Any],
+    test_worker_factory: Callable[[Client], Worker],
 ):
     """Test that child workflows can be executed using aliases."""
     test_name = test_single_child_workflow_alias.__name__
@@ -1052,7 +1041,8 @@ async def test_child_workflow_alias_with_loop(
         wf_id=WorkflowUUID.new("wf-00000000000000000000000000000002"),
         trigger_inputs="__EXPECTED_DATA__",
     )
-    result = await _run_workflow(temporal_client, wf_exec_id, run_args)
+    worker = test_worker_factory(temporal_client)
+    result = await _run_workflow(wf_exec_id, run_args, worker)
     # Parent expected
     assert result == [
         {
@@ -1080,7 +1070,7 @@ async def test_child_workflow_alias_with_loop(
 
 @pytest.mark.anyio
 async def test_single_child_workflow_override_environment_correct(
-    test_role, temporal_client
+    test_role, temporal_client, test_worker_factory
 ):
     test_name = f"{test_single_child_workflow_override_environment_correct.__name__}"
     test_description = (
@@ -1143,7 +1133,8 @@ async def test_single_child_workflow_override_environment_correct(
         wf_id=TEST_WF_ID,
     )
 
-    result = await _run_workflow(temporal_client, wf_exec_id, run_args)
+    worker = test_worker_factory(temporal_client)
+    result = await _run_workflow(wf_exec_id, run_args, worker)
     expected = {
         "ACTIONS": {
             "parent": {
@@ -1159,7 +1150,7 @@ async def test_single_child_workflow_override_environment_correct(
 
 @pytest.mark.anyio
 async def test_multiple_child_workflow_override_environment_correct(
-    test_role, temporal_client
+    test_role, temporal_client, test_worker_factory
 ):
     test_name = f"{test_multiple_child_workflow_override_environment_correct.__name__}"
     test_description = (
@@ -1222,7 +1213,8 @@ async def test_multiple_child_workflow_override_environment_correct(
         wf_id=TEST_WF_ID,
     )
 
-    result = await _run_workflow(temporal_client, wf_exec_id, run_args)
+    worker = test_worker_factory(temporal_client)
+    result = await _run_workflow(wf_exec_id, run_args, worker)
     expected = {
         "ACTIONS": {
             "parent": {
@@ -1238,7 +1230,7 @@ async def test_multiple_child_workflow_override_environment_correct(
 
 @pytest.mark.anyio
 async def test_single_child_workflow_environment_has_correct_default(
-    test_role, temporal_client
+    test_role, temporal_client, test_worker_factory
 ):
     test_name = f"{test_single_child_workflow_environment_has_correct_default.__name__}"
     test_description = (
@@ -1301,7 +1293,8 @@ async def test_single_child_workflow_environment_has_correct_default(
         wf_id=TEST_WF_ID,
     )
 
-    result = await _run_workflow(temporal_client, wf_exec_id, run_args)
+    worker = test_worker_factory(temporal_client)
+    result = await _run_workflow(wf_exec_id, run_args, worker)
     expected = {
         "ACTIONS": {
             "parent": {
@@ -1317,7 +1310,7 @@ async def test_single_child_workflow_environment_has_correct_default(
 
 @pytest.mark.anyio
 async def test_multiple_child_workflow_environments_have_correct_defaults(
-    test_role, temporal_client
+    test_role, temporal_client, test_worker_factory
 ):
     test_name = (
         f"{test_multiple_child_workflow_environments_have_correct_defaults.__name__}"
@@ -1386,7 +1379,8 @@ async def test_multiple_child_workflow_environments_have_correct_defaults(
         wf_id=TEST_WF_ID,
     )
 
-    result = await _run_workflow(temporal_client, wf_exec_id, run_args)
+    worker = test_worker_factory(temporal_client)
+    result = await _run_workflow(wf_exec_id, run_args, worker)
     expected = {
         "ACTIONS": {
             "parent": {
@@ -1406,7 +1400,7 @@ async def test_multiple_child_workflow_environments_have_correct_defaults(
 
 @pytest.mark.anyio
 async def test_single_child_workflow_get_correct_secret_environment(
-    test_role, temporal_client
+    test_role, temporal_client, test_worker_factory
 ):
     # We need to set this on the API server, as we run it in a separate process
     # monkeysession.setattr(config, "TRACECAT__UNSAFE_DISABLE_SM_MASKING", True)
@@ -1490,7 +1484,8 @@ async def test_single_child_workflow_get_correct_secret_environment(
         wf_id=TEST_WF_ID,
     )
 
-    result = await _run_workflow(temporal_client, wf_exec_id, run_args)
+    worker = test_worker_factory(temporal_client)
+    result = await _run_workflow(wf_exec_id, run_args, worker)
     expected = {
         "ACTIONS": {
             "parent": {
@@ -1508,7 +1503,9 @@ async def test_single_child_workflow_get_correct_secret_environment(
 
 
 @pytest.mark.anyio
-async def test_pull_based_workflow_fetches_latest_version(temporal_client, test_role):
+async def test_pull_based_workflow_fetches_latest_version(
+    temporal_client, test_role, test_worker_factory
+):
     """Test that a pull-based workflow fetches the latest version after being updated.
 
     Steps
@@ -1567,7 +1564,8 @@ async def test_pull_based_workflow_fetches_latest_version(temporal_client, test_
         # NOTE: Not setting dsl here to make it pull based
         # Not setting schedule_id here to make it use the passed in trigger inputs
     )
-    result = await _run_workflow(temporal_client, f"{wf_exec_id}:first", run_args)
+    worker = test_worker_factory(temporal_client)
+    result = await _run_workflow(f"{wf_exec_id}:first", run_args, worker)
 
     assert result == "__EXPECTED_FIRST_RESULT__"
 
@@ -1600,7 +1598,8 @@ async def test_pull_based_workflow_fetches_latest_version(temporal_client, test_
             workflow_id=workflow_id, dsl=second_dsl
         )
 
-    result = await _run_workflow(temporal_client, f"{wf_exec_id}:second", run_args)
+    worker = test_worker_factory(temporal_client)
+    result = await _run_workflow(f"{wf_exec_id}:second", run_args, worker)
     assert result == "__EXPECTED_SECOND_RESULT__"
 
 
@@ -1615,13 +1614,12 @@ PARTIAL_DIVISION_BY_ZERO_ERROR = {
         "\n"
         "[evaluator] Evaluation failed at node:\n"
         "```\n"
-        "binary_op\n"
+        "div_op\n"
         "  literal\t1\n"
-        "  /\n"
         "  literal\t0\n"
         "\n"
         "```\n"
-        'Reason: Error trying to process rule "binary_op":\n'
+        'Reason: Error trying to process rule "div_op":\n'
         "\n"
         "Cannot divide by zero\n"
         "\n"
@@ -2047,20 +2045,16 @@ def _get_test_id(test_case):
     ids=_get_test_id,
 )
 @pytest.mark.anyio
-async def test_workflow_error_path(test_role, runtime_config, dsl_data, expected):
+async def test_workflow_error_path(
+    test_role, runtime_config, dsl_data, expected, test_worker_factory
+):
     dsl = DSLInput(**dsl_data)
     test_name = f"test_workflow_error-{dsl.title}"
     wf_exec_id = generate_test_exec_id(test_name)
 
     client = await get_temporal_client()
     # Run a worker for the activities and workflow
-    async with Worker(
-        client,
-        task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-        activities=get_activities(),
-        workflows=[DSLWorkflow],
-        workflow_runner=new_sandbox_runner(),
-    ):
+    async with test_worker_factory(client):
         result = await client.execute_workflow(
             DSLWorkflow.run,
             DSLRunArgs(
@@ -2084,7 +2078,9 @@ async def test_workflow_error_path(test_role, runtime_config, dsl_data, expected
 
 
 @pytest.mark.anyio
-async def test_workflow_join_unreachable(test_role, runtime_config):
+async def test_workflow_join_unreachable(
+    test_role, runtime_config, test_worker_factory
+):
     """Test join strategy behavior with unreachable nodes.
 
     Args:
@@ -2134,13 +2130,7 @@ async def test_workflow_join_unreachable(test_role, runtime_config):
     wf_exec_id = generate_test_exec_id(test_name)
     client = await get_temporal_client()
 
-    async with Worker(
-        client,
-        task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-        activities=get_activities(),
-        workflows=[DSLWorkflow],
-        workflow_runner=new_sandbox_runner(),
-    ):
+    async with test_worker_factory(client):
         with pytest.raises(TemporalError):
             await client.execute_workflow(
                 DSLWorkflow.run,
@@ -2164,7 +2154,9 @@ async def test_workflow_join_unreachable(test_role, runtime_config):
 
 
 @pytest.mark.anyio
-async def test_workflow_multiple_entrypoints(test_role, runtime_config):
+async def test_workflow_multiple_entrypoints(
+    test_role, runtime_config, test_worker_factory
+):
     """Test workflow behavior with multiple entrypoints.
 
     Args:
@@ -2218,13 +2210,7 @@ async def test_workflow_multiple_entrypoints(test_role, runtime_config):
     wf_exec_id = generate_test_exec_id(test_name)
     client = await get_temporal_client()
 
-    async with Worker(
-        client,
-        task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-        activities=get_activities(),
-        workflows=[DSLWorkflow],
-        workflow_runner=new_sandbox_runner(),
-    ):
+    async with test_worker_factory(client):
         result = await client.execute_workflow(
             DSLWorkflow.run,
             DSLRunArgs(
@@ -2257,6 +2243,7 @@ async def test_workflow_runs_template_for_each(
     runtime_config,
     temporal_client,
     db_session_with_repo,
+    test_worker_factory,
 ):
     """Test workflow behavior with for_each.
 
@@ -2341,13 +2328,7 @@ async def test_workflow_runs_template_for_each(
     test_name = f"test_workflow_for_each-{dsl.title}"
     wf_exec_id = generate_test_exec_id(test_name)
 
-    async with Worker(
-        temporal_client,
-        task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-        activities=get_activities(),
-        workflows=[DSLWorkflow],
-        workflow_runner=new_sandbox_runner(),
-    ):
+    async with test_worker_factory(temporal_client):
         result = await temporal_client.execute_workflow(
             DSLWorkflow.run,
             DSLRunArgs(
@@ -2494,6 +2475,7 @@ def assert_error_handler_initiated_correctly(
     handler_wf: Workflow,
     failing_wf_id: WorkflowID,
     failing_wf_exec_id: WorkflowExecutionID,
+    workspace_id: str,
 ) -> WorkflowExecutionEvent[RunActionInput]:
     # # 5.1 Find the event where the error handler was called
     evt = next(
@@ -2529,9 +2511,16 @@ def assert_error_handler_initiated_correctly(
     )
 
     # Check that the error handler received the correct error context
+    match = re.match(WF_EXEC_ID_PATTERN, failing_wf_exec_id)
+    if not match:
+        pytest.fail(f"Invalid workflow execution ID: {failing_wf_exec_id}")
+    wf_id_short = WorkflowUUID.new(failing_wf_id).short()
+    exec_id = match.group("execution_id")
+    wf_exec_url = f"http://localhost/workspaces/{workspace_id}/workflows/{wf_id_short}/executions/{exec_id}"
+
     assert group.action_input.trigger_inputs == {
-        "errors": {
-            "failing_action": {
+        "errors": [
+            {
                 "attempt": 1,
                 "expr_context": "ACTIONS",
                 "message": (
@@ -2540,12 +2529,11 @@ def assert_error_handler_initiated_correctly(
                     "TracecatExpressionError: Error evaluating expression `1/0`\n\n"
                     "[evaluator] Evaluation failed at node:\n"
                     "```\n"
-                    "binary_op\n"
+                    "div_op\n"
                     "  literal\t1\n"
-                    "  /\n"
                     "  literal\t0\n\n"
                     "```\n"
-                    'Reason: Error trying to process rule "binary_op":\n\n'
+                    'Reason: Error trying to process rule "div_op":\n\n'
                     "Cannot divide by zero\n\n"
                     "\n"
                     "------------------------------\n"
@@ -2556,7 +2544,7 @@ def assert_error_handler_initiated_correctly(
                 "ref": "failing_action",
                 "type": "ExecutorClientError",
             }
-        },
+        ],
         "handler_wf_id": str(WorkflowUUID.new(handler_wf.id)),
         "message": (
             "Workflow failed with 1 task exception(s)\n\n"
@@ -2567,12 +2555,11 @@ def assert_error_handler_initiated_correctly(
             "TracecatExpressionError: Error evaluating expression `1/0`\n\n"
             "[evaluator] Evaluation failed at node:\n"
             "```\n"
-            "binary_op\n"
+            "div_op\n"
             "  literal\t1\n"
-            "  /\n"
             "  literal\t0\n\n"
             "```\n"
-            'Reason: Error trying to process rule "binary_op":\n\n'
+            'Reason: Error trying to process rule "div_op":\n\n'
             "Cannot divide by zero\n\n"
             "\n"
             "------------------------------\n"
@@ -2581,6 +2568,9 @@ def assert_error_handler_initiated_correctly(
             "Line: 73"
         ),
         "orig_wf_exec_id": failing_wf_exec_id,
+        "orig_wf_exec_url": wf_exec_url,
+        "orig_wf_title": "Division by zero",
+        "trigger_type": "manual",
         "orig_wf_id": str(failing_wf_id),
     }
     return evt
@@ -2635,6 +2625,7 @@ async def test_workflow_error_handler_success(
     mode: Literal["id", "alias"],
     error_handler_wf_and_dsl: ErrorHandlerWfAndDslT,
     failing_dsl: DSLInput,
+    test_worker_factory,
 ):
     """
     Test that the error handler can capture errors.
@@ -2647,6 +2638,10 @@ async def test_workflow_error_handler_success(
     4.Check that the error handler is called
     5. Check that the error handler has the correct context
     """
+
+    workspace_id = test_role.workspace_id
+    if workspace_id is None:
+        raise ValueError("Workspace ID is not set")
 
     # 1. Create an error handler
     handler_dsl = error_handler_wf_and_dsl.dsl
@@ -2671,7 +2666,8 @@ async def test_workflow_error_handler_success(
         wf_id=TEST_WF_ID,
     )
     with pytest.raises(WorkflowFailureError) as exc_info:
-        _ = await _run_workflow(temporal_client, wf_exec_id, run_args)
+        worker = test_worker_factory(temporal_client)
+        _ = await _run_workflow(wf_exec_id, run_args, worker)
     assert str(exc_info.value) == "Workflow execution failed"
 
     # Check temporal event history
@@ -2689,6 +2685,7 @@ async def test_workflow_error_handler_success(
         handler_wf=handler_wf,
         failing_wf_id=TEST_WF_ID,
         failing_wf_exec_id=wf_exec_id,
+        workspace_id=str(workspace_id),
     )
 
     # 6. Verify that the error handler started and completed
@@ -2733,6 +2730,7 @@ async def test_workflow_error_handler_invalid_handler_fail_no_match(
     failing_dsl: DSLInput,
     id_or_alias: str,
     expected_err_msg: str,
+    test_worker_factory,
 ):
     """
     Test that the error handler fails with an invalid error handler that has no matching workflow
@@ -2755,7 +2753,8 @@ async def test_workflow_error_handler_invalid_handler_fail_no_match(
         wf_id=TEST_WF_ID,
     )
     with pytest.raises(WorkflowFailureError) as exc_info:
-        _ = await _run_workflow(temporal_client, wf_exec_id, run_args)
+        worker = test_worker_factory(temporal_client)
+        _ = await _run_workflow(wf_exec_id, run_args, worker)
     assert str(exc_info.value) == "Workflow execution failed"
     cause0 = exc_info.value.cause
     assert isinstance(cause0, ActivityError)
@@ -2767,7 +2766,7 @@ async def test_workflow_error_handler_invalid_handler_fail_no_match(
 @pytest.mark.anyio
 @pytest.mark.integration
 async def test_workflow_lookup_table_success(
-    test_role: Role, temporal_client: Client, test_admin_role: Role
+    test_role: Role, temporal_client: Client, test_admin_role: Role, test_worker_factory
 ):
     """
     Test that a workflow can lookup a table
@@ -2814,7 +2813,8 @@ async def test_workflow_lookup_table_success(
         role=test_role,
         wf_id=TEST_WF_ID,
     )
-    result = await _run_workflow(temporal_client, wf_exec_id, run_args)
+    worker = test_worker_factory(temporal_client)
+    result = await _run_workflow(wf_exec_id, run_args, worker)
     assert "number" in result
     assert result["number"] == 1
 
@@ -2822,7 +2822,7 @@ async def test_workflow_lookup_table_success(
 @pytest.mark.anyio
 @pytest.mark.integration
 async def test_workflow_lookup_table_missing_value(
-    test_role: Role, temporal_client: Client, test_admin_role: Role
+    test_role: Role, temporal_client: Client, test_admin_role: Role, test_worker_factory
 ):
     """
     Test that a workflow returns None when looking up a non-existent value in a table.
@@ -2872,14 +2872,15 @@ async def test_workflow_lookup_table_missing_value(
         role=test_role,
         wf_id=TEST_WF_ID,
     )
-    result = await _run_workflow(temporal_client, wf_exec_id, run_args)
+    worker = test_worker_factory(temporal_client)
+    result = await _run_workflow(wf_exec_id, run_args, worker)
     assert result is None
 
 
 @pytest.mark.anyio
 @pytest.mark.integration
 async def test_workflow_insert_table_row_success(
-    test_role: Role, temporal_client: Client, test_admin_role: Role
+    test_role: Role, temporal_client: Client, test_admin_role: Role, test_worker_factory
 ):
     """
     Test that a workflow can insert a row into a table.
@@ -2926,7 +2927,8 @@ async def test_workflow_insert_table_row_success(
         role=test_role,
         wf_id=TEST_WF_ID,
     )
-    result = await _run_workflow(temporal_client, wf_exec_id, run_args)
+    worker = test_worker_factory(temporal_client)
+    result = await _run_workflow(wf_exec_id, run_args, worker)
 
     # Verify the result indicates success
     assert result is not None
@@ -2945,7 +2947,7 @@ async def test_workflow_insert_table_row_success(
 @pytest.mark.anyio
 @pytest.mark.integration
 async def test_workflow_table_actions_in_loop(
-    test_role: Role, temporal_client: Client, test_admin_role: Role
+    test_role: Role, temporal_client: Client, test_admin_role: Role, test_worker_factory
 ):
     """
     Test that a workflow can perform table operations in a loop.
@@ -3026,7 +3028,8 @@ async def test_workflow_table_actions_in_loop(
         role=test_role,
         wf_id=TEST_WF_ID,
     )
-    result = await _run_workflow(temporal_client, wf_exec_id, run_args)
+    worker = test_worker_factory(temporal_client)
+    result = await _run_workflow(wf_exec_id, run_args, worker)
 
     # Verify the results
     assert result is not None
@@ -3056,3 +3059,1707 @@ async def test_workflow_table_actions_in_loop(
     for i, row in enumerate(sorted(rows, key=lambda r: r["number"]), 1):
         assert row["number"] == i
         assert row["squared"] == i * i
+
+
+@pytest.mark.anyio
+@pytest.mark.integration
+async def test_workflow_detached_child_workflow(
+    test_role: Role, temporal_client: Client, test_worker_factory
+):
+    """
+    Test that a workflow can detach a child workflow.
+    Logic:
+    1. Parent workflow creates child workflow
+    2. Terminate parent workflow
+    3. Child workflow runs to completion
+    4. Verify child workflow completed successfully
+    """
+    test_name = f"{test_workflow_detached_child_workflow.__name__}"
+    wf_exec_id = generate_test_exec_id(test_name)
+    # Child
+    child_dsl = DSLInput(
+        title="Test child workflow detached",
+        description="Test child workflow detached",
+        entrypoint=DSLEntrypoint(ref="a"),
+        actions=[
+            ActionStatement(
+                ref="a",
+                action="core.transform.reshape",
+                args={
+                    "value": "${{ TRIGGER + 1000 }}",
+                },
+                start_delay=2,
+            ),
+        ],
+        inputs={},
+        returns="${{ ACTIONS.a.result }}",
+    )
+
+    child_workflow = await _create_and_commit_workflow(child_dsl, test_role)
+    # Parent
+    parent_dsl = DSLInput(
+        title="Parent",
+        description="Test parent workflow can call child correctly",
+        entrypoint=DSLEntrypoint(ref="parent"),
+        actions=[
+            ActionStatement(
+                ref="parent",
+                action="core.workflow.execute",
+                for_each="${{ for var.x in [1,2,3] }}",
+                args={
+                    "workflow_id": child_workflow.id,
+                    "trigger_inputs": "${{ var.x }}",
+                    "wait_strategy": WaitStrategy.DETACH.value,
+                    "timeout": "123",
+                },
+            ),
+        ],
+    )
+    run_args = DSLRunArgs(
+        dsl=parent_dsl,
+        role=test_role,
+        wf_id=TEST_WF_ID,
+    )
+    worker = test_worker_factory(temporal_client)
+    async with worker:
+        parent_handle = await temporal_client.start_workflow(
+            DSLWorkflow.run,
+            run_args,
+            id=wf_exec_id,
+            task_queue=worker.task_queue,
+            retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+        )
+        # Wait for parent completion
+        await parent_handle.result()
+        desc = await parent_handle.describe()
+        pending_children = desc.raw_description.pending_children
+        assert len(pending_children) == 3
+        async with GatheringTaskGroup() as tg:
+            for child in sorted(pending_children, key=lambda c: c.initiated_id):
+                logger.info("child", child=child)
+                child_handle = temporal_client.get_workflow_handle_for(
+                    DSLWorkflow.run, child.workflow_id
+                )
+                child_desc = await child_handle.describe()
+                assert (
+                    child.parent_close_policy
+                    == ParentClosePolicy.PARENT_CLOSE_POLICY_ABANDON
+                ), (
+                    f"Child {child.workflow_id} has parent close policy {child.parent_close_policy}"
+                )
+                assert child_desc.status == WorkflowExecutionStatus.RUNNING, (
+                    f"Child {child.workflow_id} is not running"
+                )
+
+                tg.create_task(child_handle.result())
+
+        results = tg.results()
+        assert results == [1001, 1002, 1003]
+
+
+@pytest.mark.anyio
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    "dsl,expected",
+    [
+        # 1. Single scatter-reshape-gather (original)
+        pytest.param(
+            DSLInput(
+                title="Single scatter-gather",
+                description="Test single scatter-gather",
+                entrypoint=DSLEntrypoint(ref="scatter"),
+                actions=[
+                    # This doesn't output any result
+                    ActionStatement(
+                        ref="scatter",
+                        action="core.transform.scatter",
+                        args=ScatterArgs(
+                            collection="${{ [1,2, 3] }}",
+                        ).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="reshape",
+                        action="core.transform.reshape",
+                        depends_on=["scatter"],
+                        args={"value": "${{ FN.add(ACTIONS.scatter.result, 1) }}"},
+                    ),
+                    ActionStatement(
+                        ref="gather",
+                        action="core.transform.gather",
+                        depends_on=["reshape"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.reshape.result }}",
+                        ).model_dump(),
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {"gather": {"result": [2, 3, 4], "result_typename": "list"}},
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="basic-for-loop",
+        ),
+        pytest.param(
+            DSLInput(
+                title="Single scatter-gather with surrounding actions",
+                description="Test single scatter-gather with surrounding actions",
+                entrypoint=DSLEntrypoint(ref="a"),
+                actions=[
+                    # This doesn't output any result
+                    ActionStatement(
+                        ref="a",
+                        action="core.transform.reshape",
+                        args={"value": [1, 2, 3]},
+                    ),
+                    ActionStatement(
+                        ref="scatter",
+                        action="core.transform.scatter",
+                        depends_on=["a"],
+                        args=ScatterArgs(
+                            collection="${{ ACTIONS.a.result }}",
+                        ).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="b",
+                        action="core.transform.reshape",
+                        depends_on=["scatter"],
+                        args={"value": "${{ FN.add(ACTIONS.scatter.result, 1) }}"},
+                    ),
+                    ActionStatement(
+                        ref="gather",
+                        action="core.transform.gather",
+                        depends_on=["b"],
+                        args=GatherArgs(items="${{ ACTIONS.b.result }}").model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="c",
+                        action="core.transform.reshape",
+                        depends_on=["gather"],
+                        args={"value": "${{ ACTIONS.gather.result }}"},
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    "a": {"result": [1, 2, 3], "result_typename": "list"},
+                    "gather": {"result": [2, 3, 4], "result_typename": "list"},
+                    "c": {"result": [2, 3, 4], "result_typename": "list"},
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="scatter-gather-with-surrounding-actions",
+        ),
+        # 2. Nested scatter-gather (original)
+        pytest.param(
+            DSLInput(
+                title="Nested scatter-gather",
+                description="Test nested scatter-gather",
+                entrypoint=DSLEntrypoint(ref="scatter"),
+                actions=[
+                    # This doesn't output any result
+                    ActionStatement(
+                        ref="scatter",
+                        action="core.transform.scatter",
+                        args=ScatterArgs(
+                            collection="${{ [[1,2], [3,4]] }}",
+                        ).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="scatter2",
+                        action="core.transform.scatter",
+                        depends_on=["scatter"],
+                        args=ScatterArgs(
+                            collection="${{ ACTIONS.scatter.result }}",
+                        ).model_dump(),
+                    ),
+                    # Go parallel
+                    ActionStatement(
+                        ref="reshape",
+                        action="core.transform.reshape",
+                        depends_on=["scatter2"],
+                        args={"value": "${{ FN.add(ACTIONS.scatter2.result, 1) }}"},
+                    ),
+                    ActionStatement(
+                        ref="reshape2",
+                        action="core.transform.reshape",
+                        depends_on=["scatter2"],
+                        args={"value": "${{ FN.add(ACTIONS.scatter2.result, 2) }}"},
+                    ),
+                    # How do we now handle the parallel execution streams?
+                    ActionStatement(
+                        ref="gather",
+                        action="core.transform.gather",
+                        depends_on=["reshape", "reshape2"],
+                        args=GatherArgs(
+                            # When an execution stream hits an gather matching
+                            # the current
+                            # This will grab the result of the reshape action
+                            # in its execution scope
+                            items="${{ ACTIONS.reshape.result }}",
+                        ).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="gather2",
+                        action="core.transform.gather",
+                        depends_on=["gather"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.gather.result }}"
+                        ).model_dump(),
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    "gather2": {"result": [[2, 3], [4, 5]], "result_typename": "list"}
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="nested-for-loop",
+        ),
+        # 3. Scatter-Gather followed by Scatter-Gather (original)
+        pytest.param(
+            DSLInput(
+                title="Scatter-Gather followed by Scatter-Gather",
+                description="Test two sequential scatter-gather blocks",
+                entrypoint=DSLEntrypoint(ref="scatter1"),
+                actions=[
+                    # First scatter-gather block
+                    ActionStatement(
+                        ref="scatter1",
+                        action="core.transform.scatter",
+                        args=ScatterArgs(
+                            collection="${{ [10, 20] }}",
+                        ).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="reshape1",
+                        action="core.transform.reshape",
+                        depends_on=["scatter1"],
+                        args={"value": "${{ FN.add(ACTIONS.scatter1.result, 1) }}"},
+                    ),
+                    ActionStatement(
+                        ref="gather1",
+                        action="core.transform.gather",
+                        depends_on=["reshape1"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.reshape1.result }}"
+                        ).model_dump(),
+                    ),
+                    # Second scatter-gather block, using result of first
+                    ActionStatement(
+                        ref="scatter2",
+                        action="core.transform.scatter",
+                        depends_on=["gather1"],
+                        args=ScatterArgs(
+                            collection="${{ ACTIONS.gather1.result }}",
+                        ).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="reshape2",
+                        action="core.transform.reshape",
+                        depends_on=["scatter2"],
+                        args={"value": "${{ FN.add(ACTIONS.scatter2.result, 100) }}"},
+                    ),
+                    ActionStatement(
+                        ref="gather2",
+                        action="core.transform.gather",
+                        depends_on=["reshape2"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.reshape2.result }}"
+                        ).model_dump(),
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    # First block: [10, 20] -> [11, 21]
+                    # Second block: [11, 21] -> [111, 121]
+                    "gather1": {"result": [11, 21], "result_typename": "list"},
+                    "gather2": {"result": [111, 121], "result_typename": "list"},
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="sequential-scatter-gather",
+        ),
+        # Parallel scatter/gather blocks, then join
+        pytest.param(
+            DSLInput(
+                title="Parallel Scatter-Gather blocks joined",
+                description=(
+                    "Test two scatter/reshape/gather blocks running in parallel, "
+                    "then joined in a final action. The structure is: "
+                ),
+                entrypoint=DSLEntrypoint(ref="start"),
+                actions=[
+                    # Start splits into two parallel scatters
+                    ActionStatement(
+                        ref="ex1",
+                        action="core.transform.scatter",
+                        args=ScatterArgs(
+                            collection="${{ [1, 2] }}",
+                        ).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="ex2",
+                        action="core.transform.scatter",
+                        args=ScatterArgs(
+                            collection="${{ [10, 20] }}",
+                        ).model_dump(),
+                    ),
+                    # Reshape in each branch
+                    ActionStatement(
+                        ref="a",
+                        action="core.transform.reshape",
+                        depends_on=["ex1"],
+                        args={"value": "${{ FN.mul(ACTIONS.ex1.result, 2) }}"},
+                    ),
+                    ActionStatement(
+                        ref="b",
+                        action="core.transform.reshape",
+                        depends_on=["ex2"],
+                        args={"value": "${{ FN.add(ACTIONS.ex2.result, 5) }}"},
+                    ),
+                    # Gather in each branch
+                    ActionStatement(
+                        ref="im1",
+                        action="core.transform.gather",
+                        depends_on=["a"],
+                        args=GatherArgs(items="${{ ACTIONS.a.result }}").model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="im2",
+                        action="core.transform.gather",
+                        depends_on=["b"],
+                        args=GatherArgs(items="${{ ACTIONS.b.result }}").model_dump(),
+                    ),
+                    # Join both results in C
+                    ActionStatement(
+                        ref="c",
+                        action="core.transform.reshape",
+                        depends_on=["im1", "im2"],
+                        args={
+                            "value": "${{ ACTIONS.im1.result + ACTIONS.im2.result }}"
+                        },
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    # ex1: [1,2] -> A: [2,4] -> im1: [2,4]
+                    # ex2: [10,20] -> B: [15,25] -> im2: [15,25]
+                    # C: [2,4,15,25]
+                    "im1": {"result": [2, 4], "result_typename": "list"},
+                    "im2": {"result": [15, 25], "result_typename": "list"},
+                    "c": {"result": [2, 4, 15, 25], "result_typename": "list"},
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="parallel-scatter-gather-join",
+        ),
+        # 4. Scatter followed by gather directly (no action in between)
+        pytest.param(
+            DSLInput(
+                title="Scatter then Gather (no intermediate action)",
+                description="Test scatter followed by gather directly",
+                entrypoint=DSLEntrypoint(ref="scatter"),
+                actions=[
+                    ActionStatement(
+                        ref="scatter",
+                        action="core.transform.scatter",
+                        args=ScatterArgs(
+                            collection="${{ [5, 6, 7] }}",
+                        ).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="gather",
+                        action="core.transform.gather",
+                        depends_on=["scatter"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.scatter.result }}"
+                        ).model_dump(),
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {"gather": {"result": [5, 6, 7], "result_typename": "list"}},
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="scatter-gather-direct",
+        ),
+        # 5. Scatter -> reshape (run_if even) -> gather
+        pytest.param(
+            DSLInput(
+                title="Scatter-reshape (even only) then gather",
+                description="Test scatter, reshape only if even, then gather",
+                entrypoint=DSLEntrypoint(ref="scatter"),
+                actions=[
+                    ActionStatement(
+                        ref="scatter",
+                        action="core.transform.scatter",
+                        args=ScatterArgs(
+                            collection="${{ [1, 2, 3, 4, 5, 6] }}",
+                        ).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="reshape",
+                        action="core.transform.reshape",
+                        depends_on=["scatter"],
+                        # Only run reshape if the value is even
+                        run_if="${{ FN.mod(ACTIONS.scatter.result, 2) == 0 }}",
+                        args={"value": "${{ FN.mul(ACTIONS.scatter.result, 10) }}"},
+                    ),
+                    ActionStatement(
+                        ref="gather",
+                        action="core.transform.gather",
+                        depends_on=["reshape"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.reshape.result }}"
+                        ).model_dump(),
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    # Only even numbers: 2, 4, 6 -> 20, 40, 60
+                    # Unset values are automatically removed
+                    "gather": {
+                        "result": [20, 40, 60],
+                        "result_typename": "list",
+                    }
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="scatter-reshape-even-gather",
+        ),
+        # 6. Scatter -> reshape (run_if even) -> gather with drop_nulls
+        pytest.param(
+            DSLInput(
+                title="Scatter-reshape (even only) then gather with drop_nulls",
+                description="Test scatter, reshape only if even, then gather with drop_nulls",
+                entrypoint=DSLEntrypoint(ref="scatter"),
+                actions=[
+                    ActionStatement(
+                        ref="scatter",
+                        action="core.transform.scatter",
+                        args=ScatterArgs(
+                            collection="${{ [1, 2, 3, 4, 5, 6] }}",
+                        ).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="reshape",
+                        action="core.transform.reshape",
+                        depends_on=["scatter"],
+                        # Only run reshape if the value is even
+                        run_if="${{ FN.mod(ACTIONS.scatter.result, 2) == 0 }}",
+                        args={"value": "${{ FN.mul(ACTIONS.scatter.result, 10) }}"},
+                    ),
+                    ActionStatement(
+                        ref="gather",
+                        action="core.transform.gather",
+                        depends_on=["reshape"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.reshape.result }}",
+                            drop_nulls=True,
+                        ).model_dump(),
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    # Only even numbers: 2, 4, 6 -> 20, 40, 60
+                    # Everything else is dropped
+                    "gather": {
+                        "result": [20, 40, 60],
+                        "result_typename": "list",
+                    }
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="scatter-reshape-even-gather-drop-nulls",
+        ),
+        pytest.param(
+            DSLInput(
+                title="Scatter-reshape (even only) with Nones, then gather with drop_nulls",
+                description="Test scatter with Nones, reshape only if even, then gather with drop_nulls only",
+                entrypoint=DSLEntrypoint(ref="scatter"),
+                actions=[
+                    ActionStatement(
+                        ref="scatter",
+                        action="core.transform.scatter",
+                        args=ScatterArgs(
+                            # Data with Nones in the collection
+                            collection="${{ [1, None, None, 2, 3, None, 4, 5, 6, None] }}",
+                        ).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="reshape",
+                        action="core.transform.reshape",
+                        depends_on=["scatter"],
+                        args={"value": "${{ ACTIONS.scatter.result }}"},
+                    ),
+                    ActionStatement(
+                        ref="gather",
+                        action="core.transform.gather",
+                        depends_on=["reshape"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.reshape.result }}",
+                            drop_nulls=True,
+                        ).model_dump(),
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    # Skip all nulls
+                    "gather": {
+                        "result": [1, 2, 3, 4, 5, 6],
+                        "result_typename": "list",
+                    }
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="scatter-reshape-even-gather-drop-nulls-with-nones",
+        ),
+        # New test: A -> scatter -> B -> gather -> C, all reshapes, skip scatter, expect only A to run
+        pytest.param(
+            DSLInput(
+                title="Skip scatter directly, only first action (a) runs",
+                description="Test that if scatter is skipped, only a runs and downstream tasks are not executed.",
+                entrypoint=DSLEntrypoint(ref="a"),
+                actions=[
+                    ActionStatement(
+                        ref="a",
+                        action="core.transform.reshape",
+                        args={"value": "${{ 42 }}"},
+                    ),
+                    # SKIPPED
+                    # ======== Block 1 ========
+                    ActionStatement(
+                        ref="scatter",
+                        action="core.transform.scatter",
+                        depends_on=["a"],
+                        # Always skip scatter
+                        run_if="${{ False }}",
+                        args=ScatterArgs(
+                            collection="${{ [1, 2, 3] }}",
+                        ).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="b",
+                        action="core.transform.reshape",
+                        depends_on=["scatter"],
+                        args={"value": "${{ ACTIONS.scatter.result }}"},
+                    ),
+                    ActionStatement(
+                        ref="gather",
+                        action="core.transform.gather",
+                        depends_on=["b"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.b.result }}",
+                        ).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="c",
+                        action="core.transform.reshape",
+                        depends_on=["gather"],
+                        args={"value": "${{ ACTIONS.gather.result }}"},
+                    ),
+                    # ======== End Block 1 ========
+                    # Block 1 s houldn't run
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    "a": {
+                        "result": 42,
+                        "result_typename": "int",
+                    }
+                    # No other actions should have run
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="skip-scatter-directly-only-first-runs",
+        ),
+        # --- NEW TEST CASE: scatter -> a (run_if False) -> gather, expect empty array ---
+        pytest.param(
+            DSLInput(
+                title="scatter->a(run_if False)->gather, all skipped, expect empty array",
+                description=(
+                    "Test that if all iterations of an action after scatter are skipped (run_if False), "
+                    "the gather action receives only unset values and thus returns an empty array."
+                ),
+                entrypoint=DSLEntrypoint(ref="scatter"),
+                actions=[
+                    ActionStatement(
+                        ref="scatter",
+                        action="core.transform.scatter",
+                        args=ScatterArgs(collection=[1, 2, 3]).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="a",
+                        action="core.transform.reshape",
+                        depends_on=["scatter"],
+                        run_if="${{ False }}",
+                        args={"value": "${{ ACTIONS.scatter.result }}"},
+                    ),
+                    ActionStatement(
+                        ref="gather",
+                        action="core.transform.gather",
+                        depends_on=["a"],
+                        args=GatherArgs(items="${{ ACTIONS.a.result }}").model_dump(),
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    "gather": {
+                        "result": [],
+                        "result_typename": "list",
+                    }
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="skip-all-in-scatter",
+        ),
+        # Mixed Collection Scenarios
+        # 1. Parallel branches with different collection sizes
+        pytest.param(
+            DSLInput(
+                title="Parallel branches with different collection sizes",
+                description="Test parallel scatter-gather with collections of different lengths",
+                entrypoint=DSLEntrypoint(ref="start"),
+                actions=[
+                    # Branch A: 3 items
+                    ActionStatement(
+                        ref="scatter_a",
+                        action="core.transform.scatter",
+                        args=ScatterArgs(collection=[1, 2, 3]).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="process_a",
+                        action="core.transform.reshape",
+                        depends_on=["scatter_a"],
+                        args={"value": "${{ ACTIONS.scatter_a.result * 10 }}"},
+                    ),
+                    ActionStatement(
+                        ref="gather_a",
+                        action="core.transform.gather",
+                        depends_on=["process_a"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.process_a.result }}"
+                        ).model_dump(),
+                    ),
+                    # Branch B: 2 items
+                    ActionStatement(
+                        ref="scatter_b",
+                        action="core.transform.scatter",
+                        args=ScatterArgs(collection=[100, 200]).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="process_b",
+                        action="core.transform.reshape",
+                        depends_on=["scatter_b"],
+                        args={"value": "${{ ACTIONS.scatter_b.result + 5 }}"},
+                    ),
+                    ActionStatement(
+                        ref="gather_b",
+                        action="core.transform.gather",
+                        depends_on=["process_b"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.process_b.result }}"
+                        ).model_dump(),
+                    ),
+                    # Join both branches
+                    ActionStatement(
+                        ref="join",
+                        action="core.transform.reshape",
+                        depends_on=["gather_a", "gather_b"],
+                        args={
+                            "value": "${{ ACTIONS.gather_a.result + ACTIONS.gather_b.result }}"
+                        },
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    "gather_a": {"result": [10, 20, 30], "result_typename": "list"},
+                    "gather_b": {"result": [105, 205], "result_typename": "list"},
+                    "join": {
+                        "result": [10, 20, 30, 105, 205],
+                        "result_typename": "list",
+                    },
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="parallel-different-sizes",
+        ),
+        # 2. Mixed data types preservation
+        pytest.param(
+            DSLInput(
+                title="Mixed data types preservation",
+                description="Test scatter-gather with different data types",
+                entrypoint=DSLEntrypoint(ref="scatter"),
+                actions=[
+                    ActionStatement(
+                        ref="scatter",
+                        action="core.transform.scatter",
+                        args=ScatterArgs(
+                            collection=[1, "hello", {"key": "value"}, None, [1, 2]]
+                        ).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="identity",
+                        action="core.transform.reshape",
+                        depends_on=["scatter"],
+                        args={"value": "${{ ACTIONS.scatter.result }}"},
+                    ),
+                    ActionStatement(
+                        ref="gather",
+                        action="core.transform.gather",
+                        depends_on=["identity"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.identity.result }}"
+                        ).model_dump(),
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    "gather": {
+                        "result": [1, "hello", {"key": "value"}, None, [1, 2]],
+                        "result_typename": "list",
+                    }
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="mixed-data-types",
+        ),
+        # 3. Variable nesting depths
+        pytest.param(
+            DSLInput(
+                title="Variable nesting depths",
+                description="Test scatter-gather with collections of inconsistent nesting",
+                entrypoint=DSLEntrypoint(ref="outer_scatter"),
+                actions=[
+                    # Outer scatter with mixed nesting
+                    ActionStatement(
+                        ref="outer_scatter",
+                        action="core.transform.scatter",
+                        args=ScatterArgs(
+                            collection=[
+                                [1, 2],  # 2D array
+                                [[3, 4], [5, 6]],  # 3D array
+                                7,  # scalar
+                                [],  # empty array
+                            ]
+                        ).model_dump(),
+                    ),
+                    # Process each item based on its type
+                    ActionStatement(
+                        ref="process_item",
+                        action="core.transform.reshape",
+                        depends_on=["outer_scatter"],
+                        args={"value": "${{ ACTIONS.outer_scatter.result }}"},
+                    ),
+                    ActionStatement(
+                        ref="outer_gather",
+                        action="core.transform.gather",
+                        depends_on=["process_item"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.process_item.result }}"
+                        ).model_dump(),
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    "outer_gather": {
+                        "result": [[1, 2], [[3, 4], [5, 6]], 7, []],
+                        "result_typename": "list",
+                    }
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="variable-nesting-depths",
+        ),
+        # 4. Empty and non-empty collections in parallel
+        pytest.param(
+            DSLInput(
+                title="Empty and non-empty parallel branches",
+                description="Test parallel scatter-gather where one branch has empty collection",
+                entrypoint=DSLEntrypoint(ref="start"),
+                actions=[
+                    # Branch A: Non-empty collection
+                    ActionStatement(
+                        ref="scatter_nonempty",
+                        action="core.transform.scatter",
+                        args=ScatterArgs(collection=[1, 2, 3]).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="process_nonempty",
+                        action="core.transform.reshape",
+                        depends_on=["scatter_nonempty"],
+                        args={"value": "${{ ACTIONS.scatter_nonempty.result * 2 }}"},
+                    ),
+                    ActionStatement(
+                        ref="gather_nonempty",
+                        action="core.transform.gather",
+                        depends_on=["process_nonempty"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.process_nonempty.result }}"
+                        ).model_dump(),
+                    ),
+                    # Branch B: Empty collection
+                    ActionStatement(
+                        ref="scatter_empty",
+                        action="core.transform.scatter",
+                        args=ScatterArgs(collection=[]).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="process_empty",
+                        action="core.transform.reshape",
+                        depends_on=["scatter_empty"],
+                        args={"value": "${{ ACTIONS.scatter_empty.result + 100 }}"},
+                    ),
+                    ActionStatement(
+                        ref="gather_empty",
+                        action="core.transform.gather",
+                        depends_on=["process_empty"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.process_empty.result }}"
+                        ).model_dump(),
+                    ),
+                    # Final merge - only non-empty branch should contribute
+                    ActionStatement(
+                        ref="final_merge",
+                        action="core.transform.reshape",
+                        depends_on=["gather_nonempty", "gather_empty"],
+                        args={
+                            "value": "${{ ACTIONS.gather_nonempty.result + ACTIONS.gather_empty.result }}"
+                        },
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    "gather_nonempty": {"result": [2, 4, 6], "result_typename": "list"},
+                    "gather_empty": {"result": [], "result_typename": "list"},
+                    "final_merge": {"result": [2, 4, 6], "result_typename": "list"},
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="empty-nonempty-parallel",
+        ),
+        # 5. Collections with different lengths in nested scatter
+        # This test case demonstrates a nested scatter-gather pattern where the outer scatter
+        # iterates over a list of lists, each with a different length. The workflow is as follows:
+        # 1. "outer_scatter" splits the input into three parallel branches: [1], [2, 3], and [4, 5, 6].
+        # 2. For each branch, "inner_scatter" further scatters the inner list, so each number is processed independently.
+        # 3. "double_value" doubles each number in the inner scatter.
+        # 4. "inner_gather" collects the doubled values for each outer branch, resulting in:
+        #    - [2] for [1]
+        #    - [4, 6] for [2, 3]
+        #    - [8, 10, 12] for [4, 5, 6]
+        # 5. "outer_gather" collects the results from all outer branches, producing a list of lists.
+        # The expected result is a nested list where each sublist contains the doubled values of the original inner list.
+        pytest.param(
+            DSLInput(
+                title="Nested scatter with varying inner collection sizes",
+                description="Test nested scatter where inner collections have different sizes",
+                entrypoint=DSLEntrypoint(ref="outer_scatter"),
+                actions=[
+                    ActionStatement(
+                        ref="outer_scatter",
+                        action="core.transform.scatter",
+                        args=ScatterArgs(
+                            collection=[
+                                [1],  # 1 item
+                                [2, 3],  # 2 items
+                                [4, 5, 6],  # 3 items
+                            ]
+                        ).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="inner_scatter",
+                        action="core.transform.scatter",
+                        depends_on=["outer_scatter"],
+                        args=ScatterArgs(
+                            collection="${{ ACTIONS.outer_scatter.result }}"
+                        ).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="double_value",
+                        action="core.transform.reshape",
+                        depends_on=["inner_scatter"],
+                        args={"value": "${{ ACTIONS.inner_scatter.result * 2 }}"},
+                    ),
+                    ActionStatement(
+                        ref="inner_gather",
+                        action="core.transform.gather",
+                        depends_on=["double_value"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.double_value.result }}"
+                        ).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="outer_gather",
+                        action="core.transform.gather",
+                        depends_on=["inner_gather"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.inner_gather.result }}"
+                        ).model_dump(),
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    "outer_gather": {
+                        # Explanation:
+                        # - The first sublist [1] is doubled to [2]
+                        # - The second sublist [2, 3] is doubled to [4, 6]
+                        # - The third sublist [4, 5, 6] is doubled to [8, 10, 12]
+                        # The gather operation preserves the nested structure.
+                        "result": [[2], [4, 6], [8, 10, 12]],
+                        "result_typename": "list",
+                    }
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="nested-varying-sizes",
+        ),
+        # 6. Mixed empty and non-empty in nested structure
+        pytest.param(
+            DSLInput(
+                title="Mixed empty/non-empty in nested scatter",
+                description="Test nested scatter with mix of empty and non-empty inner collections",
+                entrypoint=DSLEntrypoint(ref="outer_scatter"),
+                actions=[
+                    ActionStatement(
+                        ref="outer_scatter",
+                        action="core.transform.scatter",
+                        args=ScatterArgs(
+                            collection=[
+                                [1, 2],  # Non-empty
+                                [],  # Empty
+                                [3],  # Non-empty
+                            ]
+                        ).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="inner_scatter",
+                        action="core.transform.scatter",
+                        depends_on=["outer_scatter"],
+                        args=ScatterArgs(
+                            collection="${{ ACTIONS.outer_scatter.result }}"
+                        ).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="process_inner",
+                        action="core.transform.reshape",
+                        depends_on=["inner_scatter"],
+                        args={"value": "${{ ACTIONS.inner_scatter.result + 10 }}"},
+                    ),
+                    ActionStatement(
+                        ref="inner_gather",
+                        action="core.transform.gather",
+                        depends_on=["process_inner"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.process_inner.result }}"
+                        ).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="outer_gather",
+                        action="core.transform.gather",
+                        depends_on=["inner_gather"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.inner_gather.result }}"
+                        ).model_dump(),
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    "outer_gather": {
+                        "result": [[11, 12], [], [13]],
+                        "result_typename": "list",
+                    }
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="nested-mixed-empty-nonempty",
+        ),
+        # Empty collection scatter
+        pytest.param(
+            DSLInput(
+                title="Scatter empty collection",
+                # Improved explanation:
+                # This test verifies the correct behavior when the 'scatter' action receives an empty collection.
+                # The expected behavior is:
+                # - The 'scatter' action should not produce any execution streams, as there are no items to process.
+                # - The 'gather' action, which depends on 'scatter', should be executed in the global context.
+                # - The result of 'gather' should be an empty list, since there were no items to aggregate.
+                # - No other actions should run, and the workflow should complete successfully.
+                description=(
+                    "Test that when an empty collection is provided to the 'scatter' action, "
+                    "no execution streams are created and the dependent 'gather' action "
+                    "returns an empty list as its result. This ensures that the workflow "
+                    "handles empty collections gracefully and does not fail or produce "
+                    "unexpected results."
+                ),
+                entrypoint=DSLEntrypoint(ref="scatter"),
+                actions=[
+                    ActionStatement(
+                        ref="scatter",
+                        action="core.transform.scatter",
+                        args=ScatterArgs(collection=[]).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="gather",
+                        action="core.transform.gather",
+                        depends_on=["scatter"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.scatter.result }}"
+                        ).model_dump(),
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    "gather": {
+                        "result": [],
+                        "result_typename": "list",
+                    }
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="scatter-empty-collection",
+        ),
+        pytest.param(
+            DSLInput(
+                title="Scatter empty collection with actions between",
+                description="Test that an empty collection is scatterd and then gatherd with actions between",
+                entrypoint=DSLEntrypoint(ref="scatter"),
+                actions=[
+                    ActionStatement(
+                        ref="scatter",
+                        action="core.transform.scatter",
+                        args=ScatterArgs(collection=[]).model_dump(),
+                    ),
+                    # This should skip
+                    ActionStatement(
+                        ref="reshape",
+                        action="core.transform.reshape",
+                        depends_on=["scatter"],
+                        args={"value": "${{ ACTIONS.scatter.result }}"},
+                    ),
+                    # This should return an empty list
+                    ActionStatement(
+                        ref="gather",
+                        action="core.transform.gather",
+                        depends_on=["reshape"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.reshape.result }}"
+                        ).model_dump(),
+                    ),
+                    # Continue with a reshape
+                    ActionStatement(
+                        ref="reshape2",
+                        action="core.transform.reshape",
+                        depends_on=["gather"],
+                        args={"value": "${{ ACTIONS.gather.result }}"},
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    "gather": {"result": [], "result_typename": "list"},
+                    "reshape2": {"result": [], "result_typename": "list"},
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="scatter-empty-collection-between",
+        ),
+        pytest.param(
+            DSLInput(
+                title="Nested scatter with empty collection inside",
+                description=(
+                    "Test correct handling of an empty collection in a nested scatter scenario. "
+                    "The workflow first scatters a non-empty collection ([1, 2, 3]) at the top level (scatter1). "
+                    "For each item, it attempts a second-level scatter (scatter2) with an empty collection. "
+                    "Since scatter2's collection is empty, all downstream actions (reshape, gather2) in that branch "
+                    "should be skipped for every item. The test verifies that the skip logic is correctly propagated, "
+                    "and that the outer gather (gather1) collects the original items from scatter1, resulting in [1, 2, 3]. "
+                    "reshape2 then operates on this result. Only actions in the main execution stream (gather1, reshape2) "
+                    "should appear in the final ACTIONS context; skipped actions (reshape, gather2) should not."
+                ),
+                entrypoint=DSLEntrypoint(ref="scatter"),
+                actions=[
+                    # Level 1: Scatter a non-empty collection
+                    ActionStatement(
+                        ref="scatter1",
+                        action="core.transform.scatter",
+                        args=ScatterArgs(collection=[1, 2, 3]).model_dump(),
+                    ),
+                    # Level 2: This scatter is nested and its collection is empty,
+                    # so all downstream actions in this branch should be skipped.
+                    ActionStatement(
+                        ref="scatter2",
+                        action="core.transform.scatter",
+                        depends_on=["scatter1"],
+                        args=ScatterArgs(collection=[]).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="reshape",
+                        action="core.transform.reshape",
+                        depends_on=["scatter2"],
+                        args={"value": "${{ ACTIONS.scatter2.result }}"},
+                    ),
+                    # This gather is downstream of the skipped scatter2/reshape,
+                    # so it should also be skipped.
+                    ActionStatement(
+                        ref="gather2",
+                        action="core.transform.gather",
+                        depends_on=["reshape"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.reshape.result }}"
+                        ).model_dump(),
+                    ),
+                    # This gather collects the results from the outer scatter1.
+                    ActionStatement(
+                        ref="gather1",
+                        action="core.transform.gather",
+                        depends_on=["gather2"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.scatter1.result }}"
+                        ).model_dump(),
+                    ),
+                    # Final reshape, should operate on the result of gather1.
+                    ActionStatement(
+                        ref="reshape2",
+                        action="core.transform.reshape",
+                        depends_on=["gather1"],
+                        args={"value": "${{ ACTIONS.gather1.result }}"},
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    "gather1": {
+                        "result": [1, 2, 3],
+                        "result_typename": "list",
+                    },  # The outer gather collects the original items.
+                    # Only reshape2 is present because reshape (and thus gather2) are skipped.
+                    "reshape2": {
+                        "result": [1, 2, 3],
+                        "result_typename": "list",
+                    },
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="nested-scatter-empty-collection-inside",
+        ),
+        pytest.param(
+            DSLInput(
+                title="2D scatter with DAG inside",
+                description=(
+                    "Test correct handling of a DAG inside an scatter. "
+                    "The workflow first scatters a non-empty collection ([1, 2, 3]) at the top level (scatter1). "
+                    "For each item, it attempts a second-level scatter (scatter2) with an empty collection. "
+                    "Since scatter2's collection is empty, all downstream actions (reshape, gather2) in that branch "
+                    "should be skipped for every item."
+                ),
+                entrypoint=DSLEntrypoint(ref="scatter"),
+                actions=[
+                    ActionStatement(
+                        ref="scatter1",
+                        action="core.transform.scatter",
+                        args=ScatterArgs(
+                            collection=[
+                                [1, 2],
+                                [3, 4],
+                            ]
+                        ).model_dump(),
+                    ),
+                    ActionStatement(
+                        ref="scatter2",
+                        action="core.transform.scatter",
+                        depends_on=["scatter1"],
+                        args=ScatterArgs(
+                            collection="${{ ACTIONS.scatter1.result }}"
+                        ).model_dump(),
+                    ),
+                    # DAG here, parallel condition handling
+                    # ======= Block 1 =======
+                    ActionStatement(
+                        ref="is_one",
+                        action="core.transform.reshape",
+                        depends_on=["scatter2"],
+                        run_if="${{ ACTIONS.scatter2.result == 1 }}",
+                        args={"value": "${{ ACTIONS.scatter2.result }}"},
+                    ),
+                    ActionStatement(
+                        ref="is_two",
+                        action="core.transform.reshape",
+                        depends_on=["scatter2"],
+                        run_if="${{ ACTIONS.scatter2.result == 2 }}",
+                        args={"value": "${{ ACTIONS.scatter2.result }}"},
+                    ),
+                    ActionStatement(
+                        ref="is_three",
+                        action="core.transform.reshape",
+                        depends_on=["scatter2"],
+                        run_if="${{ ACTIONS.scatter2.result == 3 }}",
+                        args={"value": "${{ ACTIONS.scatter2.result }}"},
+                    ),
+                    # ======= End Block 1 =======
+                    # Block 1 only allows 1, 2, 3 past.
+                    # We can apply join_strategy like how we would in global streams.
+                    ActionStatement(
+                        ref="gather2",
+                        action="core.transform.gather",
+                        depends_on=["is_one", "is_two", "is_three"],
+                        join_strategy=JoinStrategy.ANY,
+                        args=GatherArgs(
+                            items="${{ ACTIONS.is_one.result || ACTIONS.is_two.result || ACTIONS.is_three.result }}"
+                        ).model_dump(),
+                    ),
+                    # This gather collects the results from the outer scatter1.
+                    ActionStatement(
+                        ref="gather1",
+                        action="core.transform.gather",
+                        depends_on=["gather2"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.gather2.result }}"
+                        ).model_dump(),
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    "gather1": {
+                        "result": [[1, 2], [3]],
+                        "result_typename": "list",
+                    },
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="2d-scatter-dag-inside",
+        ),
+        # 1D version: single-level scatter with DAG inside, all downstream actions should be skipped if scatter2 is empty
+        pytest.param(
+            DSLInput(
+                title="1D scatter with multiple parallel conditions",
+                description=(
+                    "Test correct handling of a DAG inside a single-level scatter. "
+                    "The workflow scatters a non-empty collection ([1, 2, 3]) at the top level (scatter1). "
+                    "For each item, it attempts a second-level scatter (scatter2) with an empty collection. "
+                    "Since scatter2's collection is empty, all downstream actions (reshape, gather2) in that branch "
+                    "should be skipped for every item."
+                ),
+                entrypoint=DSLEntrypoint(ref="scatter"),
+                actions=[
+                    ActionStatement(
+                        ref="scatter1",
+                        action="core.transform.scatter",
+                        args=ScatterArgs(collection=[1, 2, 3, 4]).model_dump(),
+                    ),
+                    # DAG here, parallel condition handling
+                    ActionStatement(
+                        ref="is_one",
+                        action="core.transform.reshape",
+                        depends_on=["scatter1"],
+                        run_if="${{ ACTIONS.scatter1.result == 1 }}",
+                        args={"value": "${{ ACTIONS.scatter1.result }}"},
+                    ),
+                    ActionStatement(
+                        ref="is_two",
+                        action="core.transform.reshape",
+                        depends_on=["scatter1"],
+                        run_if="${{ ACTIONS.scatter1.result == 2 }}",
+                        args={"value": "${{ ACTIONS.scatter1.result }}"},
+                    ),
+                    # Join
+                    ActionStatement(
+                        ref="join",
+                        action="core.transform.reshape",
+                        depends_on=["is_one", "is_two"],
+                        join_strategy=JoinStrategy.ANY,
+                        args={
+                            "value": "${{ ACTIONS.is_one.result || ACTIONS.is_two.result }}"
+                        },
+                    ),
+                    # This gather collects the results from the outer scatter1.
+                    ActionStatement(
+                        ref="gather1",
+                        action="core.transform.gather",
+                        depends_on=["join"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.join.result }}"
+                        ).model_dump(),
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    "gather1": {
+                        "result": [1, 2],
+                        "result_typename": "list",
+                    },
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="1d-scatter-multi-condition",
+        ),
+        pytest.param(
+            DSLInput(
+                title="Errors inside, partition",
+                description=(
+                    "Gracefully handle errors. With the default error handling,"
+                    " we apply the default error handling strategy -- which is to partition"
+                    " the results and errors into .result and .error"
+                ),
+                entrypoint=DSLEntrypoint(ref="scatter"),
+                actions=[
+                    ActionStatement(
+                        ref="scatter1",
+                        action="core.transform.scatter",
+                        args=ScatterArgs(collection=[1, 2]).model_dump(),
+                    ),
+                    # DAG here, parallel condition handling
+                    ActionStatement(
+                        ref="throw",
+                        action="core.transform.reshape",
+                        depends_on=["scatter1"],
+                        args={"value": "${{ 1/0 }}"},
+                    ),
+                    # This gather collects the results from the outer scatter1.
+                    ActionStatement(
+                        ref="gather1",
+                        action="core.transform.gather",
+                        depends_on=["throw"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.throw.result }}"
+                        ).model_dump(),
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    "gather1": {
+                        "result": [],
+                        "result_typename": "list",
+                        "error": [
+                            {
+                                "ref": "throw",
+                                "message": "There was an error in the executor when calling action 'core.transform.reshape'.\n\n\nTracecatExpressionError: Error evaluating expression `1/0`\n\n[evaluator] Evaluation failed at node:\n```\ndiv_op\n  literal\t1\n  literal\t0\n\n```\nReason: Error trying to process rule \"div_op\":\n\nCannot divide by zero\n\n\n------------------------------\nFile: /app/tracecat/expressions/core.py\nFunction: result\nLine: 73",
+                                "type": "ExecutorClientError",
+                                "expr_context": "ACTIONS",
+                                "attempt": 1,
+                            },
+                            {
+                                "ref": "throw",
+                                "message": "There was an error in the executor when calling action 'core.transform.reshape'.\n\n\nTracecatExpressionError: Error evaluating expression `1/0`\n\n[evaluator] Evaluation failed at node:\n```\ndiv_op\n  literal\t1\n  literal\t0\n\n```\nReason: Error trying to process rule \"div_op\":\n\nCannot divide by zero\n\n\n------------------------------\nFile: /app/tracecat/expressions/core.py\nFunction: result\nLine: 73",
+                                "type": "ExecutorClientError",
+                                "expr_context": "ACTIONS",
+                                "attempt": 1,
+                            },
+                        ],
+                        "error_typename": "list",
+                    },
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="basic-error-handling-partition",
+        ),
+        pytest.param(
+            DSLInput(
+                title="Errors inside, drop",
+                description=(
+                    "Gracefully handle errors. With the default error handling,"
+                    " we apply the default error handling strategy -- which is to partition"
+                    " the results and errors into .result and .error"
+                ),
+                entrypoint=DSLEntrypoint(ref="scatter"),
+                actions=[
+                    ActionStatement(
+                        ref="scatter1",
+                        action="core.transform.scatter",
+                        args=ScatterArgs(collection=[1, 2]).model_dump(),
+                    ),
+                    # DAG here, parallel condition handling
+                    ActionStatement(
+                        ref="throw",
+                        action="core.transform.reshape",
+                        depends_on=["scatter1"],
+                        args={"value": "${{ 1/0 }}"},
+                    ),
+                    # This gather collects the results from the outer scatter1.
+                    ActionStatement(
+                        ref="gather1",
+                        action="core.transform.gather",
+                        depends_on=["throw"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.throw.result }}",
+                            error_strategy=StreamErrorHandlingStrategy.DROP,
+                        ).model_dump(),
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    "gather1": {
+                        "result": [],
+                        "result_typename": "list",
+                    },
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="basic-error-handling-drop",
+        ),
+        pytest.param(
+            DSLInput(
+                title="Errors inside, include",
+                description=(
+                    "Gracefully handle errors. With the default error handling,"
+                    " we apply the default error handling strategy -- which is to partition"
+                    " the results and errors into .result and .error"
+                ),
+                entrypoint=DSLEntrypoint(ref="scatter"),
+                actions=[
+                    ActionStatement(
+                        ref="scatter1",
+                        action="core.transform.scatter",
+                        args=ScatterArgs(collection=[1, 2]).model_dump(),
+                    ),
+                    # DAG here, parallel condition handling
+                    ActionStatement(
+                        ref="throw",
+                        action="core.transform.reshape",
+                        depends_on=["scatter1"],
+                        args={"value": "${{ 1/0 }}"},
+                    ),
+                    # This gather collects the results from the outer scatter1.
+                    ActionStatement(
+                        ref="gather1",
+                        action="core.transform.gather",
+                        depends_on=["throw"],
+                        args=GatherArgs(
+                            items="${{ ACTIONS.throw.result }}",
+                            error_strategy=StreamErrorHandlingStrategy.INCLUDE,
+                        ).model_dump(),
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    "gather1": {
+                        "result": [
+                            {
+                                "ref": "throw",
+                                "message": "There was an error in the executor when calling action 'core.transform.reshape'.\n\n\nTracecatExpressionError: Error evaluating expression `1/0`\n\n[evaluator] Evaluation failed at node:\n```\ndiv_op\n  literal\t1\n  literal\t0\n\n```\nReason: Error trying to process rule \"div_op\":\n\nCannot divide by zero\n\n\n------------------------------\nFile: /app/tracecat/expressions/core.py\nFunction: result\nLine: 73",
+                                "type": "ExecutorClientError",
+                                "expr_context": "ACTIONS",
+                                "attempt": 1,
+                            },
+                            {
+                                "ref": "throw",
+                                "message": "There was an error in the executor when calling action 'core.transform.reshape'.\n\n\nTracecatExpressionError: Error evaluating expression `1/0`\n\n[evaluator] Evaluation failed at node:\n```\ndiv_op\n  literal\t1\n  literal\t0\n\n```\nReason: Error trying to process rule \"div_op\":\n\nCannot divide by zero\n\n\n------------------------------\nFile: /app/tracecat/expressions/core.py\nFunction: result\nLine: 73",
+                                "type": "ExecutorClientError",
+                                "expr_context": "ACTIONS",
+                                "attempt": 1,
+                            },
+                        ],
+                        "result_typename": "list",
+                    },
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="basic-error-handling-include",
+        ),
+        # Test: a -> scatter -> b -> gather, where b accesses a's data
+        pytest.param(
+            DSLInput(
+                title="Hierarchical stream variable lookup: a -> scatter -> b -> gather",
+                description=(
+                    "Test that a value produced before a scatter can be accessed by a reshape inside the scatter, "
+                    "and then gathered. This validates hierarchical stream variable lookup."
+                ),
+                entrypoint=DSLEntrypoint(ref="gather1"),
+                actions=[
+                    # a: produce a value
+                    ActionStatement(
+                        ref="a",
+                        action="core.transform.reshape",
+                        args={"value": 42},
+                    ),
+                    # scatter: scatter over a collection
+                    ActionStatement(
+                        ref="scatter1",
+                        action="core.transform.scatter",
+                        depends_on=["a"],
+                        args=ScatterArgs(collection=[1, 2, 3]).model_dump(),
+                    ),
+                    # b: inside scatter, access a's value and add to item
+                    ActionStatement(
+                        ref="b",
+                        action="core.transform.reshape",
+                        depends_on=["scatter1"],
+                        args={
+                            "value": "${{ ACTIONS.a.result + ACTIONS.scatter1.result }}"
+                        },
+                    ),
+                    # gather: collect results from b
+                    ActionStatement(
+                        ref="gather1",
+                        action="core.transform.gather",
+                        depends_on=["b"],
+                        args=GatherArgs(items="${{ ACTIONS.b.result }}").model_dump(),
+                    ),
+                ],
+            ),
+            {
+                "ACTIONS": {
+                    "a": {
+                        "result": 42,
+                        "result_typename": "int",
+                    },
+                    "gather1": {
+                        "result": [43, 44, 45],
+                        "result_typename": "list",
+                    },
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="scope-shadowing-stream-lookup",
+        ),
+    ],
+)
+async def test_workflow_scatter_gather(
+    test_role: Role,
+    temporal_client: Client,
+    test_worker_factory: Callable[[Client], Worker],
+    dsl: DSLInput,
+    expected: ExecutionContext,
+):
+    """
+    Test that a workflow can scatter a collection.
+    """
+    test_name = f"{test_workflow_scatter_gather.__name__}"
+    wf_exec_id = generate_test_exec_id(test_name)
+    run_args = DSLRunArgs(dsl=dsl, role=test_role, wf_id=TEST_WF_ID)
+    queue = os.environ["TEMPORAL__CLUSTER_QUEUE"]
+
+    async with test_worker_factory(temporal_client):
+        result = await temporal_client.execute_workflow(
+            DSLWorkflow.run,
+            run_args,
+            id=wf_exec_id,
+            task_queue=queue,
+            retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+        )
+        assert result == expected
+
+
+@pytest.mark.anyio
+async def test_workflow_env_and_trigger_access_in_stream(
+    test_role: Role, temporal_client: Client, test_worker_factory
+) -> None:
+    """
+    Test that ENV and TRIGGER contexts are accessible from inside a stream.
+    The workflow is: scatter -> a -> gather, where 'a' is a reshape returning
+    ENV.workflow.execution_id and TRIGGER.data. TRIGGER data is passed in DSLRunArgs.
+    """
+    # Prepare test TRIGGER data and expected execution_id
+    trigger_data = {"foo": "bar", "num": 123}
+    test_name = f"{test_workflow_env_and_trigger_access_in_stream.__name__}"
+    wf_exec_id = generate_test_exec_id(test_name)
+
+    # Define the DSL workflow
+    dsl = DSLInput(
+        title="ENV and TRIGGER context access in stream",
+        description="Test ENV and TRIGGER context access from inside a stream",
+        entrypoint=DSLEntrypoint(ref="scatter"),
+        actions=[
+            ActionStatement(
+                ref="scatter",
+                action="core.transform.scatter",
+                args=ScatterArgs(collection=[1, 2, 3]).model_dump(),
+            ),
+            ActionStatement(
+                ref="a",
+                action="core.transform.reshape",
+                depends_on=["scatter"],
+                args={
+                    # Return both ENV.workflow.execution_id and TRIGGER.data as a dict
+                    "value": "${{ {'exec_id': ENV.workflow.execution_id, 'trigger': TRIGGER} }}"
+                },
+            ),
+            ActionStatement(
+                ref="gather",
+                action="core.transform.gather",
+                depends_on=["a"],
+                args=GatherArgs(items="${{ ACTIONS.a.result }}").model_dump(),
+            ),
+        ],
+    )
+
+    # Prepare expected result
+    expected = {
+        "ACTIONS": {
+            "gather": {
+                "result": [
+                    {"exec_id": wf_exec_id, "trigger": trigger_data},
+                    {"exec_id": wf_exec_id, "trigger": trigger_data},
+                    {"exec_id": wf_exec_id, "trigger": trigger_data},
+                ],
+                "result_typename": "list",
+            },
+        },
+        "INPUTS": {},
+        "TRIGGER": trigger_data,
+    }
+
+    queue = os.environ["TEMPORAL__CLUSTER_QUEUE"]
+
+    # Run the workflow and check the result
+    async with test_worker_factory(temporal_client):
+        run_args = DSLRunArgs(
+            dsl=dsl,
+            role=test_role,
+            wf_id=TEST_WF_ID,
+            trigger_inputs=trigger_data,
+        )
+        result = await temporal_client.execute_workflow(
+            DSLWorkflow.run,
+            run_args,
+            id=wf_exec_id,
+            task_queue=queue,
+            retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+        )
+        assert result == expected

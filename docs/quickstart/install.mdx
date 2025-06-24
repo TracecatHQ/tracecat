@@ -3,12 +3,13 @@ title: Installation
 icon: download
 ---
 
-import DeploymentNote from '/snippets/deployment-note.mdx';
-import PublicUrlNote from '/snippets/public-url-note.mdx';
+import DeploymentNote from "/snippets/deployment-note.mdx";
+import PublicUrlNote from "/snippets/public-url-note.mdx";
+import BasicAuthWarning from "/snippets/basic-auth-warning.mdx";
 
 <Info>
-  The following is a quickstart guide.
-  Need more help? Check out Tracecat's full [self-hosting guide](/self-hosting/overview).
+  The following is a quickstart guide. Need more help? Check out Tracecat's full
+  [self-hosting guide](/self-hosting/overview).
 </Info>
 
 Tracecat supports three deployment options:
@@ -23,17 +24,19 @@ Tracecat supports three deployment options:
 
 Deploy a local Tracecat stack using Docker Compose. View step-by-step instructions [here](https://docs.tracecat.com/self-hosting/deployment-options/docker-compose).
 
+<BasicAuthWarning />
+
 ```bash
-# 1. Setup .env configs and secrets
-curl -o env.sh https://raw.githubusercontent.com/TracecatHQ/tracecat/0.32.0/env.sh
-curl -o .env.example https://raw.githubusercontent.com/TracecatHQ/tracecat/0.32.0/.env.example
+# 1. Setup .env configs and secrets (you'll be prompted for superadmin email)
+curl -o env.sh https://raw.githubusercontent.com/TracecatHQ/tracecat/0.37.2/env.sh
+curl -o .env.example https://raw.githubusercontent.com/TracecatHQ/tracecat/0.37.2/.env.example
 chmod +x env.sh && ./env.sh
 
 # 2. Download Caddyfile
-curl -o Caddyfile https://raw.githubusercontent.com/TracecatHQ/tracecat/0.32.0/Caddyfile
+curl -o Caddyfile https://raw.githubusercontent.com/TracecatHQ/tracecat/0.37.2/Caddyfile
 
 # 3. Download Docker Compose file
-curl -o docker-compose.yml https://raw.githubusercontent.com/TracecatHQ/tracecat/0.32.0/docker-compose.yml
+curl -o docker-compose.yml https://raw.githubusercontent.com/TracecatHQ/tracecat/0.37.2/docker-compose.yml
 
 # Run Tracecat
 docker compose up -d
@@ -42,7 +45,7 @@ docker compose up -d
 <PublicUrlNote />
 
 Check out the generated `.env` file to better understand Tracecat's configurations.
-You can also view the template `.env.example` file [here](https://github.com/TracecatHQ/tracecat/blob/0.32.0/.env.example).
+You can also view the template `.env.example` file [here](https://github.com/TracecatHQ/tracecat/blob/0.37.2/.env.example).
 
 ### AWS Fargate
 
@@ -50,9 +53,7 @@ You can also view the template `.env.example` file [here](https://github.com/Tra
 
 ```bash
 # Download Terraform files
-# from https://github.com/TracecatHQ/tracecat/tree/main/deployments/aws
-git clone https://github.com/TracecatHQ/tracecat.git
-cd tracecat/deployments/aws
+git clone https://github.com/TracecatHQ/terraform-fargate
 
 # Create and add encryption keys to AWS Secrets Manager
 ./scripts/create-aws-secrets.sh

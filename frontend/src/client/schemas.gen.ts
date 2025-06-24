@@ -100,6 +100,66 @@ export const $ActionCreate = {
       minLength: 1,
       title: "Title",
     },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    inputs: {
+      type: "string",
+      maxLength: 300000,
+      title: "Inputs",
+      default: "",
+    },
+    control_flow: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/ActionControlFlow",
+        },
+        {
+          type: "null",
+        },
+      ],
+      mode: "json",
+    },
+    is_interactive: {
+      type: "boolean",
+      title: "Is Interactive",
+      default: false,
+    },
+    interaction: {
+      anyOf: [
+        {
+          oneOf: [
+            {
+              $ref: "#/components/schemas/ResponseInteraction",
+            },
+            {
+              $ref: "#/components/schemas/ApprovalInteraction",
+            },
+          ],
+          description: "An interaction configuration",
+          discriminator: {
+            propertyName: "type",
+            mapping: {
+              approval: "#/components/schemas/ApprovalInteraction",
+              response: "#/components/schemas/ResponseInteraction",
+            },
+          },
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Interaction",
+    },
   },
   type: "object",
   required: ["workflow_id", "type", "title"],
@@ -166,6 +226,11 @@ export const $ActionRead = {
       ],
       title: "Interaction",
     },
+    ref: {
+      type: "string",
+      title: "Ref",
+      readOnly: true,
+    },
   },
   type: "object",
   required: [
@@ -176,6 +241,7 @@ export const $ActionRead = {
     "status",
     "inputs",
     "is_interactive",
+    "ref",
   ],
   title: "ActionRead",
 } as const
@@ -405,6 +471,24 @@ export const $ActionStep = {
   title: "ActionStep",
 } as const
 
+export const $ActionType = {
+  properties: {
+    component_id: {
+      type: "string",
+      const: "action-type",
+      title: "Component Id",
+      default: "action-type",
+    },
+    multiple: {
+      type: "boolean",
+      title: "Multiple",
+      default: false,
+    },
+  },
+  type: "object",
+  title: "ActionType",
+} as const
+
 export const $ActionUpdate = {
   properties: {
     title: {
@@ -502,6 +586,131 @@ export const $ActionUpdate = {
   title: "ActionUpdate",
 } as const
 
+export const $ActionValidationResult = {
+  properties: {
+    type: {
+      type: "string",
+      const: "action",
+      title: "Type",
+      default: "action",
+    },
+    status: {
+      type: "string",
+      enum: ["success", "error"],
+      title: "Status",
+    },
+    msg: {
+      type: "string",
+      title: "Msg",
+      default: "",
+    },
+    detail: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/ValidationDetail",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Detail",
+    },
+    ref: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Ref",
+    },
+    action_type: {
+      type: "string",
+      title: "Action Type",
+    },
+    validated_args: {
+      anyOf: [
+        {
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Validated Args",
+    },
+  },
+  type: "object",
+  required: ["status", "action_type"],
+  title: "ActionValidationResult",
+  description: "Result of validating a registry action's arguments.",
+} as const
+
+export const $AgentOutput = {
+  properties: {
+    output: {
+      title: "Output",
+    },
+    files: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "string",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Files",
+    },
+    message_history: {
+      items: {
+        oneOf: [
+          {
+            $ref: "#/components/schemas/ModelRequest",
+          },
+          {
+            $ref: "#/components/schemas/ModelResponse",
+          },
+        ],
+        discriminator: {
+          propertyName: "kind",
+          mapping: {
+            request: "#/components/schemas/ModelRequest",
+            response: "#/components/schemas/ModelResponse",
+          },
+        },
+      },
+      type: "array",
+      title: "Message History",
+    },
+    duration: {
+      type: "number",
+      title: "Duration",
+    },
+    usage: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/Usage",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+  },
+  type: "object",
+  required: ["output", "message_history", "duration"],
+  title: "AgentOutput",
+} as const
+
 export const $AppSettingsRead = {
   properties: {
     app_registry_validation_enabled: {
@@ -516,12 +725,22 @@ export const $AppSettingsRead = {
       type: "boolean",
       title: "App Interactions Enabled",
     },
+    app_workflow_export_enabled: {
+      type: "boolean",
+      title: "App Workflow Export Enabled",
+    },
+    app_create_workspace_on_register: {
+      type: "boolean",
+      title: "App Create Workspace On Register",
+    },
   },
   type: "object",
   required: [
     "app_registry_validation_enabled",
     "app_executions_query_limit",
     "app_interactions_enabled",
+    "app_workflow_export_enabled",
+    "app_create_workspace_on_register",
   ],
   title: "AppSettingsRead",
   description: "Settings for the app.",
@@ -546,6 +765,19 @@ export const $AppSettingsUpdate = {
       type: "boolean",
       title: "App Interactions Enabled",
       description: "Whether app interactions are enabled.",
+      default: false,
+    },
+    app_workflow_export_enabled: {
+      type: "boolean",
+      title: "App Workflow Export Enabled",
+      description: "Whether workflow exports are enabled.",
+      default: true,
+    },
+    app_create_workspace_on_register: {
+      type: "boolean",
+      title: "App Create Workspace On Register",
+      description:
+        "Whether to automatically create a workspace when a user signs up.",
       default: false,
     },
   },
@@ -611,6 +843,94 @@ export const $ApprovalInteraction = {
   required: ["type"],
   title: "ApprovalInteraction",
   description: "Configuration for an approval interaction.",
+} as const
+
+export const $AssigneeChangedEventRead = {
+  properties: {
+    wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
+    },
+    type: {
+      type: "string",
+      const: "assignee_changed",
+      title: "Type",
+      default: "assignee_changed",
+    },
+    old: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Old",
+    },
+    new: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "New",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+      description: "The user who performed the action.",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "The timestamp of the event.",
+    },
+  },
+  type: "object",
+  required: ["old", "new", "created_at"],
+  title: "AssigneeChangedEventRead",
+  description: "Event for when a case assignee is changed.",
+} as const
+
+export const $AudioUrl = {
+  properties: {
+    url: {
+      type: "string",
+      title: "Url",
+    },
+    kind: {
+      type: "string",
+      const: "audio-url",
+      title: "Kind",
+      default: "audio-url",
+    },
+  },
+  type: "object",
+  required: ["url"],
+  title: "AudioUrl",
 } as const
 
 export const $AuthSettingsRead = {
@@ -690,6 +1010,54 @@ export const $AuthSettingsUpdate = {
   title: "AuthSettingsUpdate",
 } as const
 
+export const $BinaryContent = {
+  properties: {
+    data: {
+      type: "string",
+      format: "binary",
+      title: "Data",
+    },
+    media_type: {
+      anyOf: [
+        {
+          type: "string",
+          enum: ["audio/wav", "audio/mpeg"],
+        },
+        {
+          type: "string",
+          enum: ["image/jpeg", "image/png", "image/gif", "image/webp"],
+        },
+        {
+          type: "string",
+          enum: [
+            "application/pdf",
+            "text/plain",
+            "text/csv",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "text/html",
+            "text/markdown",
+            "application/vnd.ms-excel",
+          ],
+        },
+        {
+          type: "string",
+        },
+      ],
+      title: "Media Type",
+    },
+    kind: {
+      type: "string",
+      const: "binary",
+      title: "Kind",
+      default: "binary",
+    },
+  },
+  type: "object",
+  required: ["data", "media_type"],
+  title: "BinaryContent",
+} as const
+
 export const $Body_auth_reset_forgot_password = {
   properties: {
     email: {
@@ -725,9 +1093,13 @@ export const $Body_auth_sso_acs = {
       type: "string",
       title: "Saml Response",
     },
+    relay_state: {
+      type: "string",
+      title: "Relay State",
+    },
   },
   type: "object",
-  required: ["saml_response"],
+  required: ["saml_response", "relay_state"],
   title: "Body_auth-sso_acs",
 } as const
 
@@ -972,6 +1344,18 @@ export const $CaseCreate = {
       ],
       title: "Fields",
     },
+    assignee_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Assignee Id",
+    },
   },
   type: "object",
   required: ["summary", "description", "status", "priority", "severity"],
@@ -1025,6 +1409,78 @@ export const $CaseCustomFieldRead = {
     "value",
   ],
   title: "CaseCustomFieldRead",
+} as const
+
+export const $CaseEventRead = {
+  oneOf: [
+    {
+      $ref: "#/components/schemas/CreatedEventRead",
+    },
+    {
+      $ref: "#/components/schemas/ClosedEventRead",
+    },
+    {
+      $ref: "#/components/schemas/ReopenedEventRead",
+    },
+    {
+      $ref: "#/components/schemas/UpdatedEventRead",
+    },
+    {
+      $ref: "#/components/schemas/StatusChangedEventRead",
+    },
+    {
+      $ref: "#/components/schemas/PriorityChangedEventRead",
+    },
+    {
+      $ref: "#/components/schemas/SeverityChangedEventRead",
+    },
+    {
+      $ref: "#/components/schemas/FieldChangedEventRead",
+    },
+    {
+      $ref: "#/components/schemas/AssigneeChangedEventRead",
+    },
+  ],
+  title: "CaseEventRead",
+  description: "Base read model for all event types.",
+  discriminator: {
+    propertyName: "type",
+    mapping: {
+      assignee_changed: "#/components/schemas/AssigneeChangedEventRead",
+      case_closed: "#/components/schemas/ClosedEventRead",
+      case_created: "#/components/schemas/CreatedEventRead",
+      case_reopened: "#/components/schemas/ReopenedEventRead",
+      case_updated: "#/components/schemas/UpdatedEventRead",
+      fields_changed: "#/components/schemas/FieldChangedEventRead",
+      priority_changed: "#/components/schemas/PriorityChangedEventRead",
+      severity_changed: "#/components/schemas/SeverityChangedEventRead",
+      status_changed: "#/components/schemas/StatusChangedEventRead",
+    },
+  },
+} as const
+
+export const $CaseEventsWithUsers = {
+  properties: {
+    events: {
+      items: {
+        $ref: "#/components/schemas/CaseEventRead",
+      },
+      type: "array",
+      title: "Events",
+      description: "The events for the case.",
+    },
+    users: {
+      items: {
+        $ref: "#/components/schemas/UserRead",
+      },
+      type: "array",
+      title: "Users",
+      description: "The users for the case.",
+    },
+  },
+  type: "object",
+  required: ["events", "users"],
+  title: "CaseEventsWithUsers",
 } as const
 
 export const $CaseFieldCreate = {
@@ -1231,6 +1687,16 @@ export const $CaseRead = {
       type: "array",
       title: "Fields",
     },
+    assignee: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/UserRead",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
   },
   type: "object",
   required: [
@@ -1281,6 +1747,16 @@ export const $CaseReadMinimal = {
     },
     severity: {
       $ref: "#/components/schemas/CaseSeverity",
+    },
+    assignee: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/UserRead",
+        },
+        {
+          type: "null",
+        },
+      ],
     },
   },
   type: "object",
@@ -1403,56 +1879,138 @@ export const $CaseUpdate = {
       ],
       title: "Fields",
     },
-  },
-  type: "object",
-  title: "CaseUpdate",
-} as const
-
-export const $CreateWorkspaceMembershipParams = {
-  properties: {
-    user_id: {
-      type: "string",
-      format: "uuid4",
-      title: "User Id",
-    },
-  },
-  type: "object",
-  required: ["user_id"],
-  title: "CreateWorkspaceMembershipParams",
-} as const
-
-export const $CreateWorkspaceParams = {
-  properties: {
-    name: {
-      type: "string",
-      maxLength: 100,
-      minLength: 1,
-      title: "Name",
-    },
-    settings: {
+    assignee_id: {
       anyOf: [
         {
-          additionalProperties: {
-            type: "string",
-          },
-          type: "object",
+          type: "string",
+          format: "uuid",
         },
         {
           type: "null",
         },
       ],
-      title: "Settings",
-    },
-    owner_id: {
-      type: "string",
-      format: "uuid",
-      title: "Owner Id",
-      default: "00000000-0000-0000-0000-000000000000",
+      title: "Assignee Id",
     },
   },
   type: "object",
-  required: ["name"],
-  title: "CreateWorkspaceParams",
+  title: "CaseUpdate",
+} as const
+
+export const $ClosedEventRead = {
+  properties: {
+    wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
+    },
+    type: {
+      type: "string",
+      const: "case_closed",
+      title: "Type",
+      default: "case_closed",
+    },
+    old: {
+      $ref: "#/components/schemas/CaseStatus",
+    },
+    new: {
+      $ref: "#/components/schemas/CaseStatus",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+      description: "The user who performed the action.",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "The timestamp of the event.",
+    },
+  },
+  type: "object",
+  required: ["old", "new", "created_at"],
+  title: "ClosedEventRead",
+  description: "Event for when a case is closed.",
+} as const
+
+export const $Code = {
+  properties: {
+    component_id: {
+      type: "string",
+      const: "code",
+      title: "Component Id",
+      default: "code",
+    },
+    lang: {
+      type: "string",
+      enum: ["yaml", "python"],
+      title: "Lang",
+      default: "python",
+    },
+  },
+  type: "object",
+  title: "Code",
+} as const
+
+export const $CreatedEventRead = {
+  properties: {
+    wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
+    },
+    type: {
+      type: "string",
+      const: "case_created",
+      title: "Type",
+      default: "case_created",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+      description: "The user who performed the action.",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "The timestamp of the event.",
+    },
+  },
+  type: "object",
+  required: ["created_at"],
+  title: "CreatedEventRead",
+  description: "Event for when a case is created.",
 } as const
 
 export const $DSLConfig_Input = {
@@ -1684,6 +2242,74 @@ export const $DSLRunArgs = {
   title: "DSLRunArgs",
 } as const
 
+export const $DSLValidationResult = {
+  properties: {
+    type: {
+      type: "string",
+      const: "dsl",
+      title: "Type",
+      default: "dsl",
+    },
+    status: {
+      type: "string",
+      enum: ["success", "error"],
+      title: "Status",
+    },
+    msg: {
+      type: "string",
+      title: "Msg",
+      default: "",
+    },
+    detail: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/ValidationDetail",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Detail",
+    },
+    ref: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Ref",
+    },
+  },
+  type: "object",
+  required: ["status"],
+  title: "DSLValidationResult",
+  description: "Result of validating a generic input.",
+} as const
+
+export const $DocumentUrl = {
+  properties: {
+    url: {
+      type: "string",
+      title: "Url",
+    },
+    kind: {
+      type: "string",
+      const: "document-url",
+      title: "Kind",
+      default: "document-url",
+    },
+  },
+  type: "object",
+  required: ["url"],
+  title: "DocumentUrl",
+} as const
+
 export const $EditorActionRead = {
   properties: {
     type: {
@@ -1702,6 +2328,61 @@ export const $EditorActionRead = {
   type: "object",
   required: ["type", "ref", "description"],
   title: "EditorActionRead",
+} as const
+
+export const $EditorComponent = {
+  oneOf: [
+    {
+      $ref: "#/components/schemas/Text",
+    },
+    {
+      $ref: "#/components/schemas/Code",
+    },
+    {
+      $ref: "#/components/schemas/Select",
+    },
+    {
+      $ref: "#/components/schemas/TextArea",
+    },
+    {
+      $ref: "#/components/schemas/Integer",
+    },
+    {
+      $ref: "#/components/schemas/Float",
+    },
+    {
+      $ref: "#/components/schemas/Toggle",
+    },
+    {
+      $ref: "#/components/schemas/Yaml",
+    },
+    {
+      $ref: "#/components/schemas/TagInput",
+    },
+    {
+      $ref: "#/components/schemas/ActionType",
+    },
+    {
+      $ref: "#/components/schemas/WorkflowAlias",
+    },
+  ],
+  title: "EditorComponent",
+  discriminator: {
+    propertyName: "component_id",
+    mapping: {
+      "action-type": "#/components/schemas/ActionType",
+      code: "#/components/schemas/Code",
+      float: "#/components/schemas/Float",
+      integer: "#/components/schemas/Integer",
+      select: "#/components/schemas/Select",
+      "tag-input": "#/components/schemas/TagInput",
+      text: "#/components/schemas/Text",
+      "text-area": "#/components/schemas/TextArea",
+      toggle: "#/components/schemas/Toggle",
+      "workflow-alias": "#/components/schemas/WorkflowAlias",
+      yaml: "#/components/schemas/Yaml",
+    },
+  },
 } as const
 
 export const $EditorFunctionRead = {
@@ -1751,6 +2432,43 @@ export const $EditorParamRead = {
   title: "EditorParamRead",
 } as const
 
+export const $ErrorDetails = {
+  properties: {
+    type: {
+      type: "string",
+      title: "Type",
+    },
+    loc: {
+      items: {
+        anyOf: [
+          {
+            type: "integer",
+          },
+          {
+            type: "string",
+          },
+        ],
+      },
+      type: "array",
+      title: "Loc",
+    },
+    msg: {
+      type: "string",
+      title: "Msg",
+    },
+    input: {
+      title: "Input",
+    },
+    ctx: {
+      type: "object",
+      title: "Ctx",
+    },
+  },
+  type: "object",
+  required: ["type", "loc", "msg", "input"],
+  title: "ErrorDetails",
+} as const
+
 export const $ErrorModel = {
   properties: {
     detail: {
@@ -1796,7 +2514,7 @@ export const $EventFailure = {
   title: "EventFailure",
 } as const
 
-export const $EventGroup = {
+export const $EventGroup_TypeVar_ = {
   properties: {
     event_id: {
       type: "integer",
@@ -1932,7 +2650,7 @@ export const $EventGroup = {
     "udf_key",
     "action_input",
   ],
-  title: "EventGroup",
+  title: "EventGroup[TypeVar]",
 } as const
 
 export const $ExpectedField = {
@@ -1982,6 +2700,296 @@ export const $ExprContext = {
   ],
   title: "ExprContext",
   description: "Expression contexts.",
+} as const
+
+export const $ExprType = {
+  type: "string",
+  enum: [
+    "generic",
+    "action",
+    "secret",
+    "function",
+    "input",
+    "env",
+    "local_vars",
+    "literal",
+    "typecast",
+    "iterator",
+    "ternary",
+    "trigger",
+    "template_action_step",
+    "template_action_input",
+  ],
+  title: "ExprType",
+} as const
+
+export const $ExprValidationResult = {
+  properties: {
+    type: {
+      type: "string",
+      const: "expression",
+      title: "Type",
+      default: "expression",
+    },
+    status: {
+      type: "string",
+      enum: ["success", "error"],
+      title: "Status",
+    },
+    msg: {
+      type: "string",
+      title: "Msg",
+      default: "",
+    },
+    detail: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/ValidationDetail",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Detail",
+    },
+    ref: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Ref",
+    },
+    expression: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Expression",
+    },
+    expression_type: {
+      $ref: "#/components/schemas/ExprType",
+    },
+  },
+  type: "object",
+  required: ["status", "expression_type"],
+  title: "ExprValidationResult",
+  description: "Result of visiting an expression node.",
+} as const
+
+export const $ExpressionValidationRequest = {
+  properties: {
+    expression: {
+      type: "string",
+      title: "Expression",
+    },
+  },
+  type: "object",
+  required: ["expression"],
+  title: "ExpressionValidationRequest",
+} as const
+
+export const $ExpressionValidationResponse = {
+  properties: {
+    is_valid: {
+      type: "boolean",
+      title: "Is Valid",
+    },
+    errors: {
+      items: {
+        $ref: "#/components/schemas/ValidationError",
+      },
+      type: "array",
+      title: "Errors",
+      default: [],
+    },
+    tokens: {
+      items: {
+        $ref: "#/components/schemas/SyntaxToken",
+      },
+      type: "array",
+      title: "Tokens",
+      default: [],
+    },
+  },
+  type: "object",
+  required: ["is_valid"],
+  title: "ExpressionValidationResponse",
+} as const
+
+export const $FieldChangedEventRead = {
+  properties: {
+    wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
+    },
+    type: {
+      type: "string",
+      const: "fields_changed",
+      title: "Type",
+      default: "fields_changed",
+    },
+    changes: {
+      items: {
+        $ref: "#/components/schemas/FieldDiff",
+      },
+      type: "array",
+      title: "Changes",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+      description: "The user who performed the action.",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "The timestamp of the event.",
+    },
+  },
+  type: "object",
+  required: ["changes", "created_at"],
+  title: "FieldChangedEventRead",
+  description: "Event for when a case field is changed.",
+} as const
+
+export const $FieldDiff = {
+  properties: {
+    field: {
+      type: "string",
+      title: "Field",
+    },
+    old: {
+      title: "Old",
+    },
+    new: {
+      title: "New",
+    },
+  },
+  type: "object",
+  required: ["field", "old", "new"],
+  title: "FieldDiff",
+} as const
+
+export const $Float = {
+  properties: {
+    component_id: {
+      type: "string",
+      const: "float",
+      title: "Component Id",
+      default: "float",
+    },
+    min_val: {
+      anyOf: [
+        {
+          type: "number",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Min Val",
+    },
+    max_val: {
+      anyOf: [
+        {
+          type: "number",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Val",
+    },
+    step: {
+      type: "number",
+      title: "Step",
+      default: 0.1,
+    },
+  },
+  type: "object",
+  title: "Float",
+} as const
+
+export const $FolderDirectoryItem = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    path: {
+      type: "string",
+      title: "Path",
+    },
+    owner_id: {
+      type: "string",
+      format: "uuid",
+      title: "Owner Id",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+    type: {
+      type: "string",
+      const: "folder",
+      title: "Type",
+    },
+    num_items: {
+      type: "integer",
+      title: "Num Items",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "name",
+    "path",
+    "owner_id",
+    "created_at",
+    "updated_at",
+    "type",
+    "num_items",
+  ],
+  title: "FolderDirectoryItem",
 } as const
 
 export const $GetWorkflowDefinitionActivityInputs = {
@@ -2108,6 +3116,64 @@ export const $HTTPValidationError = {
   title: "HTTPValidationError",
 } as const
 
+export const $ImageUrl = {
+  properties: {
+    url: {
+      type: "string",
+      title: "Url",
+    },
+    kind: {
+      type: "string",
+      const: "image-url",
+      title: "Kind",
+      default: "image-url",
+    },
+  },
+  type: "object",
+  required: ["url"],
+  title: "ImageUrl",
+} as const
+
+export const $Integer = {
+  properties: {
+    component_id: {
+      type: "string",
+      const: "integer",
+      title: "Component Id",
+      default: "integer",
+    },
+    min_val: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Min Val",
+    },
+    max_val: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Val",
+    },
+    step: {
+      type: "integer",
+      title: "Step",
+      default: 1,
+    },
+  },
+  type: "object",
+  title: "Integer",
+} as const
+
 export const $InteractionCategory = {
   type: "string",
   enum: ["slack"],
@@ -2167,6 +3233,107 @@ export const $InteractionInput = {
     "Input for the workflow interaction handler. This is used on the client side.",
 } as const
 
+export const $InteractionRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+    type: {
+      $ref: "#/components/schemas/InteractionType",
+    },
+    status: {
+      $ref: "#/components/schemas/InteractionStatus",
+    },
+    request_payload: {
+      anyOf: [
+        {
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Request Payload",
+    },
+    response_payload: {
+      anyOf: [
+        {
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Response Payload",
+    },
+    expires_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Expires At",
+    },
+    wf_exec_id: {
+      type: "string",
+      pattern:
+        "(?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\\w-]+|sch-[0-9a-f]{32}-.*))",
+      title: "Wf Exec Id",
+    },
+    actor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Actor",
+    },
+    action_ref: {
+      type: "string",
+      title: "Action Ref",
+    },
+    action_type: {
+      type: "string",
+      title: "Action Type",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "created_at",
+    "updated_at",
+    "type",
+    "status",
+    "request_payload",
+    "response_payload",
+    "wf_exec_id",
+    "actor",
+    "action_ref",
+    "action_type",
+  ],
+  title: "InteractionRead",
+  description: "Model for reading an interaction.",
+} as const
+
 export const $InteractionResult = {
   properties: {
     message: {
@@ -2190,31 +3357,9 @@ export const $InteractionResult = {
     "Output for the workflow interaction handler. This is used on the client side.",
 } as const
 
-export const $InteractionState = {
-  properties: {
-    type: {
-      $ref: "#/components/schemas/InteractionType",
-    },
-    action_ref: {
-      type: "string",
-      title: "Action Ref",
-    },
-    status: {
-      $ref: "#/components/schemas/InteractionStatus",
-    },
-    data: {
-      type: "object",
-      title: "Data",
-    },
-  },
-  type: "object",
-  required: ["type", "action_ref", "status"],
-  title: "InteractionState",
-} as const
-
 export const $InteractionStatus = {
   type: "string",
-  enum: ["idle", "pending", "completed"],
+  enum: ["idle", "pending", "error", "timed_out", "completed"],
   title: "InteractionStatus",
 } as const
 
@@ -2228,6 +3373,114 @@ export const $JoinStrategy = {
   type: "string",
   enum: ["any", "all"],
   title: "JoinStrategy",
+} as const
+
+export const $ModelRequest = {
+  properties: {
+    parts: {
+      items: {
+        oneOf: [
+          {
+            $ref: "#/components/schemas/SystemPromptPart",
+          },
+          {
+            $ref: "#/components/schemas/UserPromptPart",
+          },
+          {
+            $ref: "#/components/schemas/ToolReturnPart",
+          },
+          {
+            $ref: "#/components/schemas/RetryPromptPart",
+          },
+        ],
+        discriminator: {
+          propertyName: "part_kind",
+          mapping: {
+            "retry-prompt": "#/components/schemas/RetryPromptPart",
+            "system-prompt": "#/components/schemas/SystemPromptPart",
+            "tool-return": "#/components/schemas/ToolReturnPart",
+            "user-prompt": "#/components/schemas/UserPromptPart",
+          },
+        },
+      },
+      type: "array",
+      title: "Parts",
+    },
+    instructions: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Instructions",
+    },
+    kind: {
+      type: "string",
+      const: "request",
+      title: "Kind",
+      default: "request",
+    },
+  },
+  type: "object",
+  required: ["parts"],
+  title: "ModelRequest",
+} as const
+
+export const $ModelResponse = {
+  properties: {
+    parts: {
+      items: {
+        oneOf: [
+          {
+            $ref: "#/components/schemas/TextPart",
+          },
+          {
+            $ref: "#/components/schemas/ToolCallPart",
+          },
+        ],
+        discriminator: {
+          propertyName: "part_kind",
+          mapping: {
+            text: "#/components/schemas/TextPart",
+            "tool-call": "#/components/schemas/ToolCallPart",
+          },
+        },
+      },
+      type: "array",
+      title: "Parts",
+    },
+    usage: {
+      $ref: "#/components/schemas/Usage",
+    },
+    model_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Model Name",
+    },
+    timestamp: {
+      type: "string",
+      format: "date-time",
+      title: "Timestamp",
+    },
+    kind: {
+      type: "string",
+      const: "response",
+      title: "Kind",
+      default: "response",
+    },
+  },
+  type: "object",
+  required: ["parts"],
+  title: "ModelResponse",
 } as const
 
 export const $OAuth2AuthorizeResponse = {
@@ -2344,6 +3597,58 @@ export const $OrgMemberRead = {
     "last_login_at",
   ],
   title: "OrgMemberRead",
+} as const
+
+export const $PriorityChangedEventRead = {
+  properties: {
+    wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
+    },
+    type: {
+      type: "string",
+      const: "priority_changed",
+      title: "Type",
+      default: "priority_changed",
+    },
+    old: {
+      $ref: "#/components/schemas/CasePriority",
+    },
+    new: {
+      $ref: "#/components/schemas/CasePriority",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+      description: "The user who performed the action.",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "The timestamp of the event.",
+    },
+  },
+  type: "object",
+  required: ["old", "new", "created_at"],
+  title: "PriorityChangedEventRead",
+  description: "Event for when a case priority is changed.",
 } as const
 
 export const $ReceiveInteractionResponse = {
@@ -3048,42 +4353,6 @@ export const $RegistryActionUpdate = {
   description: "API update model for a registered action.",
 } as const
 
-export const $RegistryActionValidateResponse = {
-  properties: {
-    ok: {
-      type: "boolean",
-      title: "Ok",
-    },
-    message: {
-      type: "string",
-      title: "Message",
-    },
-    detail: {
-      anyOf: [
-        {},
-        {
-          type: "null",
-        },
-      ],
-      title: "Detail",
-    },
-    action_ref: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Action Ref",
-    },
-  },
-  type: "object",
-  required: ["ok", "message"],
-  title: "RegistryActionValidateResponse",
-} as const
-
 export const $RegistryActionValidationErrorInfo = {
   properties: {
     type: {
@@ -3349,6 +4618,58 @@ export const $RegistrySecret = {
   title: "RegistrySecret",
 } as const
 
+export const $ReopenedEventRead = {
+  properties: {
+    wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
+    },
+    type: {
+      type: "string",
+      const: "case_reopened",
+      title: "Type",
+      default: "case_reopened",
+    },
+    old: {
+      $ref: "#/components/schemas/CaseStatus",
+    },
+    new: {
+      $ref: "#/components/schemas/CaseStatus",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+      description: "The user who performed the action.",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "The timestamp of the event.",
+    },
+  },
+  type: "object",
+  required: ["old", "new", "created_at"],
+  title: "ReopenedEventRead",
+  description: "Event for when a case is reopened.",
+} as const
+
 export const $ResponseInteraction = {
   properties: {
     type: {
@@ -3375,6 +4696,54 @@ export const $ResponseInteraction = {
   description: "Configuration for a response interaction.",
 } as const
 
+export const $RetryPromptPart = {
+  properties: {
+    content: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/ErrorDetails",
+          },
+          type: "array",
+        },
+        {
+          type: "string",
+        },
+      ],
+      title: "Content",
+    },
+    tool_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tool Name",
+    },
+    tool_call_id: {
+      type: "string",
+      title: "Tool Call Id",
+    },
+    timestamp: {
+      type: "string",
+      format: "date-time",
+      title: "Timestamp",
+    },
+    part_kind: {
+      type: "string",
+      const: "retry-prompt",
+      title: "Part Kind",
+      default: "retry-prompt",
+    },
+  },
+  type: "object",
+  required: ["content"],
+  title: "RetryPromptPart",
+} as const
+
 export const $Role = {
   properties: {
     type: {
@@ -3393,6 +4762,16 @@ export const $Role = {
         },
       ],
       title: "Workspace Id",
+    },
+    workspace_role: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/WorkspaceRole",
+        },
+        {
+          type: "null",
+        },
+      ],
     },
     user_id: {
       anyOf: [
@@ -3413,13 +4792,14 @@ export const $Role = {
     service_id: {
       type: "string",
       enum: [
-        "tracecat-runner",
         "tracecat-api",
+        "tracecat-bootstrap",
         "tracecat-cli",
+        "tracecat-executor",
+        "tracecat-runner",
         "tracecat-schedule-runner",
         "tracecat-service",
-        "tracecat-executor",
-        "tracecat-bootstrap",
+        "tracecat-ui",
       ],
       title: "Service Id",
     },
@@ -3477,6 +4857,11 @@ export const $RunActionInput = {
           type: "null",
         },
       ],
+    },
+    stream_id: {
+      type: "string",
+      title: "Stream Id",
+      default: "<root>:0",
     },
   },
   type: "object",
@@ -4261,6 +5646,101 @@ Secret types
 - \`oauth2\`: OAuth2 Client Credentials (TBC)`,
 } as const
 
+export const $SecretValidationDetail = {
+  properties: {
+    environment: {
+      type: "string",
+      title: "Environment",
+    },
+    secret_name: {
+      type: "string",
+      title: "Secret Name",
+    },
+  },
+  type: "object",
+  required: ["environment", "secret_name"],
+  title: "SecretValidationDetail",
+  description: "Detail of a secret validation result.",
+} as const
+
+export const $SecretValidationResult = {
+  properties: {
+    type: {
+      type: "string",
+      const: "secret",
+      title: "Type",
+      default: "secret",
+    },
+    status: {
+      type: "string",
+      enum: ["success", "error"],
+      title: "Status",
+    },
+    msg: {
+      type: "string",
+      title: "Msg",
+      default: "",
+    },
+    detail: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/SecretValidationDetail",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    ref: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Ref",
+    },
+  },
+  type: "object",
+  required: ["status"],
+  title: "SecretValidationResult",
+  description: "Result of validating credentials.",
+} as const
+
+export const $Select = {
+  properties: {
+    component_id: {
+      type: "string",
+      const: "select",
+      title: "Component Id",
+      default: "select",
+    },
+    options: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Options",
+    },
+    multiple: {
+      type: "boolean",
+      title: "Multiple",
+      default: false,
+    },
+  },
+  type: "object",
+  title: "Select",
+} as const
+
 export const $SessionRead = {
   properties: {
     id: {
@@ -4289,6 +5769,58 @@ export const $SessionRead = {
   title: "SessionRead",
 } as const
 
+export const $SeverityChangedEventRead = {
+  properties: {
+    wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
+    },
+    type: {
+      type: "string",
+      const: "severity_changed",
+      title: "Type",
+      default: "severity_changed",
+    },
+    old: {
+      $ref: "#/components/schemas/CaseSeverity",
+    },
+    new: {
+      $ref: "#/components/schemas/CaseSeverity",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+      description: "The user who performed the action.",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "The timestamp of the event.",
+    },
+  },
+  type: "object",
+  required: ["old", "new", "created_at"],
+  title: "SeverityChangedEventRead",
+  description: "Event for when a case severity is changed.",
+} as const
+
 export const $SpecialUserID = {
   type: "string",
   enum: ["current"],
@@ -4310,6 +5842,116 @@ export const $SqlType = {
   ],
   title: "SqlType",
   description: "Supported SQL types.",
+} as const
+
+export const $StatusChangedEventRead = {
+  properties: {
+    wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
+    },
+    type: {
+      type: "string",
+      const: "status_changed",
+      title: "Type",
+      default: "status_changed",
+    },
+    old: {
+      $ref: "#/components/schemas/CaseStatus",
+    },
+    new: {
+      $ref: "#/components/schemas/CaseStatus",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+      description: "The user who performed the action.",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "The timestamp of the event.",
+    },
+  },
+  type: "object",
+  required: ["old", "new", "created_at"],
+  title: "StatusChangedEventRead",
+  description: "Event for when a case status is changed.",
+} as const
+
+export const $SyntaxToken = {
+  properties: {
+    type: {
+      type: "string",
+      title: "Type",
+    },
+    value: {
+      type: "string",
+      title: "Value",
+    },
+    start: {
+      type: "integer",
+      title: "Start",
+    },
+    end: {
+      type: "integer",
+      title: "End",
+    },
+  },
+  type: "object",
+  required: ["type", "value", "start", "end"],
+  title: "SyntaxToken",
+} as const
+
+export const $SystemPromptPart = {
+  properties: {
+    content: {
+      type: "string",
+      title: "Content",
+    },
+    timestamp: {
+      type: "string",
+      format: "date-time",
+      title: "Timestamp",
+    },
+    dynamic_ref: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Dynamic Ref",
+    },
+    part_kind: {
+      type: "string",
+      const: "system-prompt",
+      title: "Part Kind",
+      default: "system-prompt",
+    },
+  },
+  type: "object",
+  required: ["content"],
+  title: "SystemPromptPart",
 } as const
 
 export const $TableColumnCreate = {
@@ -4535,14 +6177,6 @@ export const $TableRowInsert = {
       title: "Upsert",
       default: false,
     },
-    natural_keys: {
-      items: {
-        type: "string",
-      },
-      type: "array",
-      title: "Natural Keys",
-      description: "The columns of the table to use for upsert",
-    },
   },
   type: "object",
   required: ["data"],
@@ -4651,6 +6285,19 @@ export const $TagCreate = {
   required: ["name"],
   title: "TagCreate",
   description: "Model for creating new tags with validation.",
+} as const
+
+export const $TagInput = {
+  properties: {
+    component_id: {
+      type: "string",
+      const: "tag-input",
+      title: "Component Id",
+      default: "tag-input",
+    },
+  },
+  type: "object",
+  title: "TagInput",
 } as const
 
 export const $TagRead = {
@@ -4879,6 +6526,84 @@ export const $TemplateActionDefinition = {
   title: "TemplateActionDefinition",
 } as const
 
+export const $TemplateActionExprValidationResult = {
+  properties: {
+    type: {
+      type: "string",
+      const: "action_template",
+      title: "Type",
+      default: "action_template",
+    },
+    status: {
+      type: "string",
+      enum: ["success", "error"],
+      title: "Status",
+    },
+    msg: {
+      type: "string",
+      title: "Msg",
+      default: "",
+    },
+    detail: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/ValidationDetail",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Detail",
+    },
+    ref: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Ref",
+    },
+    expression: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Expression",
+    },
+    expression_type: {
+      $ref: "#/components/schemas/ExprType",
+    },
+    loc: {
+      items: {
+        anyOf: [
+          {
+            type: "string",
+          },
+          {
+            type: "integer",
+          },
+        ],
+      },
+      type: "array",
+      title: "Loc",
+    },
+  },
+  type: "object",
+  required: ["status", "expression_type", "loc"],
+  title: "TemplateActionExprValidationResult",
+  description: "Result of visiting an expression node.",
+} as const
+
 export const $TemplateActionValidationErrorType = {
   type: "string",
   enum: [
@@ -4888,6 +6613,146 @@ export const $TemplateActionValidationErrorType = {
     "EXPRESSION_VALIDATION_ERROR",
   ],
   title: "TemplateActionValidationErrorType",
+} as const
+
+export const $Text = {
+  properties: {
+    component_id: {
+      type: "string",
+      const: "text",
+      title: "Component Id",
+      default: "text",
+    },
+  },
+  type: "object",
+  title: "Text",
+} as const
+
+export const $TextArea = {
+  properties: {
+    component_id: {
+      type: "string",
+      const: "text-area",
+      title: "Component Id",
+      default: "text-area",
+    },
+    rows: {
+      type: "integer",
+      title: "Rows",
+      default: 4,
+    },
+    placeholder: {
+      type: "string",
+      title: "Placeholder",
+      default: "",
+    },
+  },
+  type: "object",
+  title: "TextArea",
+} as const
+
+export const $TextPart = {
+  properties: {
+    content: {
+      type: "string",
+      title: "Content",
+    },
+    part_kind: {
+      type: "string",
+      const: "text",
+      title: "Part Kind",
+      default: "text",
+    },
+  },
+  type: "object",
+  required: ["content"],
+  title: "TextPart",
+} as const
+
+export const $Toggle = {
+  properties: {
+    label_on: {
+      type: "string",
+      title: "Label On",
+      default: "On",
+    },
+    label_off: {
+      type: "string",
+      title: "Label Off",
+      default: "Off",
+    },
+    component_id: {
+      type: "string",
+      const: "toggle",
+      title: "Component Id",
+      default: "toggle",
+    },
+  },
+  type: "object",
+  title: "Toggle",
+} as const
+
+export const $ToolCallPart = {
+  properties: {
+    tool_name: {
+      type: "string",
+      title: "Tool Name",
+    },
+    args: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "object",
+        },
+      ],
+      title: "Args",
+    },
+    tool_call_id: {
+      type: "string",
+      title: "Tool Call Id",
+    },
+    part_kind: {
+      type: "string",
+      const: "tool-call",
+      title: "Part Kind",
+      default: "tool-call",
+    },
+  },
+  type: "object",
+  required: ["tool_name", "args"],
+  title: "ToolCallPart",
+} as const
+
+export const $ToolReturnPart = {
+  properties: {
+    tool_name: {
+      type: "string",
+      title: "Tool Name",
+    },
+    content: {
+      title: "Content",
+    },
+    tool_call_id: {
+      type: "string",
+      title: "Tool Call Id",
+    },
+    timestamp: {
+      type: "string",
+      format: "date-time",
+      title: "Timestamp",
+    },
+    part_kind: {
+      type: "string",
+      const: "tool-return",
+      title: "Part Kind",
+      default: "tool-return",
+    },
+  },
+  type: "object",
+  required: ["tool_name", "content", "tool_call_id"],
+  title: "ToolReturnPart",
 } as const
 
 export const $Trigger = {
@@ -4919,26 +6784,124 @@ export const $TriggerType = {
   description: "Trigger type for a workflow execution.",
 } as const
 
-export const $UpdateWorkspaceParams = {
+export const $UpdatedEventRead = {
   properties: {
-    name: {
+    wf_exec_id: {
       anyOf: [
         {
           type: "string",
-          maxLength: 100,
-          minLength: 1,
         },
         {
           type: "null",
         },
       ],
-      title: "Name",
+      title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
     },
-    settings: {
+    type: {
+      type: "string",
+      const: "case_updated",
+      title: "Type",
+      default: "case_updated",
+    },
+    field: {
+      type: "string",
+      const: "summary",
+      title: "Field",
+    },
+    old: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Old",
+    },
+    new: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "New",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+      description: "The user who performed the action.",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "The timestamp of the event.",
+    },
+  },
+  type: "object",
+  required: ["field", "old", "new", "created_at"],
+  title: "UpdatedEventRead",
+  description: "Event for when a case is updated.",
+} as const
+
+export const $Usage = {
+  properties: {
+    requests: {
+      type: "integer",
+      title: "Requests",
+      default: 0,
+    },
+    request_tokens: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Request Tokens",
+    },
+    response_tokens: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Response Tokens",
+    },
+    total_tokens: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Tokens",
+    },
+    details: {
       anyOf: [
         {
           additionalProperties: {
-            type: "string",
+            type: "integer",
           },
           type: "object",
         },
@@ -4946,11 +6909,11 @@ export const $UpdateWorkspaceParams = {
           type: "null",
         },
       ],
-      title: "Settings",
+      title: "Details",
     },
   },
   type: "object",
-  title: "UpdateWorkspaceParams",
+  title: "Usage",
 } as const
 
 export const $UserCreate = {
@@ -5000,10 +6963,6 @@ export const $UserCreate = {
       title: "Is Verified",
       default: false,
     },
-    role: {
-      $ref: "#/components/schemas/UserRole",
-      default: "basic",
-    },
     first_name: {
       anyOf: [
         {
@@ -5030,6 +6989,58 @@ export const $UserCreate = {
   type: "object",
   required: ["email", "password"],
   title: "UserCreate",
+} as const
+
+export const $UserPromptPart = {
+  properties: {
+    content: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          items: {
+            anyOf: [
+              {
+                type: "string",
+              },
+              {
+                $ref: "#/components/schemas/ImageUrl",
+              },
+              {
+                $ref: "#/components/schemas/AudioUrl",
+              },
+              {
+                $ref: "#/components/schemas/DocumentUrl",
+              },
+              {
+                $ref: "#/components/schemas/VideoUrl",
+              },
+              {
+                $ref: "#/components/schemas/BinaryContent",
+              },
+            ],
+          },
+          type: "array",
+        },
+      ],
+      title: "Content",
+    },
+    timestamp: {
+      type: "string",
+      format: "date-time",
+      title: "Timestamp",
+    },
+    part_kind: {
+      type: "string",
+      const: "user-prompt",
+      title: "Part Kind",
+      default: "user-prompt",
+    },
+  },
+  type: "object",
+  required: ["content"],
+  title: "UserPromptPart",
 } as const
 
 export const $UserRead = {
@@ -5206,6 +7217,43 @@ export const $UserUpdate = {
   title: "UserUpdate",
 } as const
 
+export const $ValidationDetail = {
+  properties: {
+    type: {
+      type: "string",
+      title: "Type",
+    },
+    msg: {
+      type: "string",
+      title: "Msg",
+    },
+    loc: {
+      anyOf: [
+        {
+          items: {
+            anyOf: [
+              {
+                type: "integer",
+              },
+              {
+                type: "string",
+              },
+            ],
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Loc",
+    },
+  },
+  type: "object",
+  required: ["type", "msg"],
+  title: "ValidationDetail",
+} as const
+
 export const $ValidationError = {
   properties: {
     loc: {
@@ -5236,15 +7284,75 @@ export const $ValidationError = {
   title: "ValidationError",
 } as const
 
+export const $ValidationResult = {
+  oneOf: [
+    {
+      $ref: "#/components/schemas/DSLValidationResult",
+    },
+    {
+      $ref: "#/components/schemas/SecretValidationResult",
+    },
+    {
+      $ref: "#/components/schemas/ExprValidationResult",
+    },
+    {
+      $ref: "#/components/schemas/TemplateActionExprValidationResult",
+    },
+    {
+      $ref: "#/components/schemas/ActionValidationResult",
+    },
+  ],
+  title: "ValidationResult",
+  discriminator: {
+    propertyName: "type",
+    mapping: {
+      action: "#/components/schemas/ActionValidationResult",
+      action_template:
+        "#/components/schemas/TemplateActionExprValidationResult",
+      dsl: "#/components/schemas/DSLValidationResult",
+      expression: "#/components/schemas/ExprValidationResult",
+      secret: "#/components/schemas/SecretValidationResult",
+    },
+  },
+} as const
+
+export const $VideoUrl = {
+  properties: {
+    url: {
+      type: "string",
+      title: "Url",
+    },
+    kind: {
+      type: "string",
+      const: "video-url",
+      title: "Kind",
+      default: "video-url",
+    },
+  },
+  type: "object",
+  required: ["url"],
+  title: "VideoUrl",
+} as const
+
+export const $WaitStrategy = {
+  type: "string",
+  enum: ["wait", "detach"],
+  title: "WaitStrategy",
+} as const
+
 export const $WebhookCreate = {
   properties: {
     status: {
       $ref: "#/components/schemas/WebhookStatus",
       default: "offline",
     },
-    method: {
-      $ref: "#/components/schemas/WebhookMethod",
-      default: "POST",
+    methods: {
+      items: {
+        $ref: "#/components/schemas/WebhookMethod",
+      },
+      type: "array",
+      title: "Methods",
+      description: "Methods to allow",
     },
     entrypoint_ref: {
       anyOf: [
@@ -5310,8 +7418,13 @@ export const $WebhookRead = {
       type: "object",
       title: "Filters",
     },
-    method: {
-      $ref: "#/components/schemas/WebhookMethod",
+    methods: {
+      items: {
+        $ref: "#/components/schemas/WebhookMethod",
+      },
+      type: "array",
+      title: "Methods",
+      description: "Methods to allow",
     },
     workflow_id: {
       type: "string",
@@ -5329,7 +7442,6 @@ export const $WebhookRead = {
     "secret",
     "status",
     "filters",
-    "method",
     "workflow_id",
     "url",
   ],
@@ -5353,15 +7465,19 @@ export const $WebhookUpdate = {
         },
       ],
     },
-    method: {
+    methods: {
       anyOf: [
         {
-          $ref: "#/components/schemas/WebhookMethod",
+          items: {
+            $ref: "#/components/schemas/WebhookMethod",
+          },
+          type: "array",
         },
         {
           type: "null",
         },
       ],
+      title: "Methods",
     },
     entrypoint_ref: {
       anyOf: [
@@ -5377,6 +7493,19 @@ export const $WebhookUpdate = {
   },
   type: "object",
   title: "WebhookUpdate",
+} as const
+
+export const $WorkflowAlias = {
+  properties: {
+    component_id: {
+      type: "string",
+      const: "workflow-alias",
+      title: "Component Id",
+      default: "workflow-alias",
+    },
+  },
+  type: "object",
+  title: "WorkflowAlias",
 } as const
 
 export const $WorkflowCommitResponse = {
@@ -5399,7 +7528,7 @@ export const $WorkflowCommitResponse = {
       anyOf: [
         {
           items: {
-            $ref: "#/components/schemas/RegistryActionValidateResponse",
+            $ref: "#/components/schemas/ValidationResult",
           },
           type: "array",
         },
@@ -5483,6 +7612,157 @@ Shouldn'ts
 Relationships
 -------------
 - 1 Workflow to many WorkflowDefinitions`,
+} as const
+
+export const $WorkflowDefinitionReadMinimal = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+    },
+    version: {
+      type: "integer",
+      title: "Version",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+  },
+  type: "object",
+  required: ["id", "version", "created_at"],
+  title: "WorkflowDefinitionReadMinimal",
+} as const
+
+export const $WorkflowDirectoryItem = {
+  properties: {
+    id: {
+      type: "string",
+      pattern: "wf_[0-9a-zA-Z]+",
+      title: "Id",
+    },
+    title: {
+      type: "string",
+      title: "Title",
+    },
+    description: {
+      type: "string",
+      title: "Description",
+    },
+    status: {
+      type: "string",
+      title: "Status",
+    },
+    icon_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Icon Url",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+    version: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Version",
+    },
+    tags: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/TagRead",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tags",
+    },
+    alias: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Alias",
+    },
+    error_handler: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Error Handler",
+    },
+    latest_definition: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/WorkflowDefinitionReadMinimal",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    folder_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Folder Id",
+    },
+    type: {
+      type: "string",
+      const: "workflow",
+      title: "Type",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "title",
+    "description",
+    "status",
+    "icon_url",
+    "created_at",
+    "updated_at",
+    "version",
+    "type",
+  ],
+  title: "WorkflowDirectoryItem",
 } as const
 
 export const $WorkflowEventType = {
@@ -5593,7 +7873,7 @@ export const $WorkflowExecutionEvent = {
     event_group: {
       anyOf: [
         {
-          $ref: "#/components/schemas/EventGroup",
+          $ref: "#/components/schemas/EventGroup_TypeVar_",
         },
         {
           type: "null",
@@ -5661,7 +7941,7 @@ export const $WorkflowExecutionEvent = {
   title: "WorkflowExecutionEvent",
 } as const
 
-export const $WorkflowExecutionEventCompact = {
+export const $WorkflowExecutionEventCompact_Any_Union_AgentOutput__Any__ = {
   properties: {
     source_event_id: {
       type: "integer",
@@ -5711,16 +7991,13 @@ export const $WorkflowExecutionEventCompact = {
       title: "Action Ref",
     },
     action_input: {
-      anyOf: [
-        {},
-        {
-          type: "null",
-        },
-      ],
       title: "Action Input",
     },
     action_result: {
       anyOf: [
+        {
+          $ref: "#/components/schemas/AgentOutput",
+        },
         {},
         {
           type: "null",
@@ -5737,6 +8014,11 @@ export const $WorkflowExecutionEventCompact = {
           type: "null",
         },
       ],
+    },
+    stream_id: {
+      type: "string",
+      title: "Stream Id",
+      default: "<root>:0",
     },
     child_wf_exec_id: {
       anyOf: [
@@ -5767,6 +8049,16 @@ export const $WorkflowExecutionEventCompact = {
       ],
       title: "Loop Index",
     },
+    child_wf_wait_strategy: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/WaitStrategy",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
   },
   type: "object",
   required: [
@@ -5777,8 +8069,7 @@ export const $WorkflowExecutionEventCompact = {
     "action_name",
     "action_ref",
   ],
-  title: "WorkflowExecutionEventCompact",
-  description: "A compact representation of a workflow execution event.",
+  title: "WorkflowExecutionEventCompact[Any, Union[AgentOutput, Any]]",
 } as const
 
 export const $WorkflowExecutionEventStatus = {
@@ -5792,6 +8083,7 @@ export const $WorkflowExecutionEventStatus = {
     "TERMINATED",
     "TIMED_OUT",
     "UNKNOWN",
+    "DETACHED",
   ],
   title: "WorkflowExecutionEventStatus",
 } as const
@@ -5878,6 +8170,9 @@ export const $WorkflowExecutionRead = {
       ],
       title: "Parent Wf Exec Id",
     },
+    trigger_type: {
+      $ref: "#/components/schemas/TriggerType",
+    },
     events: {
       items: {
         $ref: "#/components/schemas/WorkflowExecutionEvent",
@@ -5886,15 +8181,12 @@ export const $WorkflowExecutionRead = {
       title: "Events",
       description: "The events in the workflow execution",
     },
-    interaction_states: {
-      additionalProperties: {
-        $ref: "#/components/schemas/InteractionState",
+    interactions: {
+      items: {
+        $ref: "#/components/schemas/InteractionRead",
       },
-      propertyNames: {
-        format: "uuid",
-      },
-      type: "object",
-      title: "Interaction States",
+      type: "array",
+      title: "Interactions",
       description: "The interactions in the workflow execution",
     },
   },
@@ -5907,12 +8199,13 @@ export const $WorkflowExecutionRead = {
     "workflow_type",
     "task_queue",
     "history_length",
+    "trigger_type",
     "events",
   ],
   title: "WorkflowExecutionRead",
 } as const
 
-export const $WorkflowExecutionReadCompact = {
+export const $WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__ = {
   properties: {
     id: {
       type: "string",
@@ -5994,23 +8287,23 @@ export const $WorkflowExecutionReadCompact = {
       ],
       title: "Parent Wf Exec Id",
     },
+    trigger_type: {
+      $ref: "#/components/schemas/TriggerType",
+    },
     events: {
       items: {
-        $ref: "#/components/schemas/WorkflowExecutionEventCompact",
+        $ref: "#/components/schemas/WorkflowExecutionEventCompact_Any_Union_AgentOutput__Any__",
       },
       type: "array",
       title: "Events",
       description: "Compact events in the workflow execution",
     },
-    interaction_states: {
-      additionalProperties: {
-        $ref: "#/components/schemas/InteractionState",
+    interactions: {
+      items: {
+        $ref: "#/components/schemas/InteractionRead",
       },
-      propertyNames: {
-        format: "uuid",
-      },
-      type: "object",
-      title: "Interaction States",
+      type: "array",
+      title: "Interactions",
       description: "The interactions in the workflow execution",
     },
   },
@@ -6023,9 +8316,10 @@ export const $WorkflowExecutionReadCompact = {
     "workflow_type",
     "task_queue",
     "history_length",
+    "trigger_type",
     "events",
   ],
-  title: "WorkflowExecutionReadCompact",
+  title: "WorkflowExecutionReadCompact[Any, Union[AgentOutput, Any]]",
 } as const
 
 export const $WorkflowExecutionReadMinimal = {
@@ -6110,6 +8404,9 @@ export const $WorkflowExecutionReadMinimal = {
       ],
       title: "Parent Wf Exec Id",
     },
+    trigger_type: {
+      $ref: "#/components/schemas/TriggerType",
+    },
   },
   type: "object",
   required: [
@@ -6120,6 +8417,7 @@ export const $WorkflowExecutionReadMinimal = {
     "workflow_type",
     "task_queue",
     "history_length",
+    "trigger_type",
   ],
   title: "WorkflowExecutionReadMinimal",
 } as const
@@ -6140,6 +8438,125 @@ export const $WorkflowExecutionTerminate = {
   },
   type: "object",
   title: "WorkflowExecutionTerminate",
+} as const
+
+export const $WorkflowFolderCreate = {
+  properties: {
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    parent_path: {
+      type: "string",
+      title: "Parent Path",
+      default: "/",
+    },
+  },
+  type: "object",
+  required: ["name"],
+  title: "WorkflowFolderCreate",
+} as const
+
+export const $WorkflowFolderDelete = {
+  properties: {
+    recursive: {
+      type: "boolean",
+      title: "Recursive",
+      default: false,
+    },
+  },
+  type: "object",
+  title: "WorkflowFolderDelete",
+} as const
+
+export const $WorkflowFolderMove = {
+  properties: {
+    new_parent_path: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "New Parent Path",
+    },
+  },
+  type: "object",
+  title: "WorkflowFolderMove",
+} as const
+
+export const $WorkflowFolderRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    path: {
+      type: "string",
+      title: "Path",
+    },
+    owner_id: {
+      type: "string",
+      format: "uuid",
+      title: "Owner Id",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: ["id", "name", "path", "owner_id", "created_at", "updated_at"],
+  title: "WorkflowFolderRead",
+} as const
+
+export const $WorkflowFolderUpdate = {
+  properties: {
+    name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Name",
+    },
+  },
+  type: "object",
+  title: "WorkflowFolderUpdate",
+} as const
+
+export const $WorkflowMoveToFolder = {
+  properties: {
+    folder_path: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Folder Path",
+    },
+  },
+  type: "object",
+  title: "WorkflowMoveToFolder",
 } as const
 
 export const $WorkflowRead = {
@@ -6376,6 +8793,28 @@ export const $WorkflowReadMinimal = {
       ],
       title: "Error Handler",
     },
+    latest_definition: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/WorkflowDefinitionReadMinimal",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    folder_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Folder Id",
+    },
   },
   type: "object",
   required: [
@@ -6389,6 +8828,7 @@ export const $WorkflowReadMinimal = {
     "version",
   ],
   title: "WorkflowReadMinimal",
+  description: "Minimal version of WorkflowRead model for list endpoints.",
 } as const
 
 export const $WorkflowTagCreate = {
@@ -6560,6 +9000,40 @@ export const $WorkflowUpdate = {
   title: "WorkflowUpdate",
 } as const
 
+export const $WorkspaceCreate = {
+  properties: {
+    name: {
+      type: "string",
+      maxLength: 100,
+      minLength: 1,
+      title: "Name",
+    },
+    settings: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "string",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Settings",
+    },
+    owner_id: {
+      type: "string",
+      format: "uuid",
+      title: "Owner Id",
+      default: "00000000-0000-0000-0000-000000000000",
+    },
+  },
+  type: "object",
+  required: ["name"],
+  title: "WorkspaceCreate",
+} as const
+
 export const $WorkspaceMember = {
   properties: {
     user_id: {
@@ -6594,16 +9068,43 @@ export const $WorkspaceMember = {
       format: "email",
       title: "Email",
     },
-    role: {
+    org_role: {
       $ref: "#/components/schemas/UserRole",
+    },
+    workspace_role: {
+      $ref: "#/components/schemas/WorkspaceRole",
     },
   },
   type: "object",
-  required: ["user_id", "first_name", "last_name", "email", "role"],
+  required: [
+    "user_id",
+    "first_name",
+    "last_name",
+    "email",
+    "org_role",
+    "workspace_role",
+  ],
   title: "WorkspaceMember",
 } as const
 
-export const $WorkspaceMembershipResponse = {
+export const $WorkspaceMembershipCreate = {
+  properties: {
+    user_id: {
+      type: "string",
+      format: "uuid4",
+      title: "User Id",
+    },
+    role: {
+      $ref: "#/components/schemas/WorkspaceRole",
+      default: "editor",
+    },
+  },
+  type: "object",
+  required: ["user_id"],
+  title: "WorkspaceMembershipCreate",
+} as const
+
+export const $WorkspaceMembershipRead = {
   properties: {
     user_id: {
       type: "string",
@@ -6615,34 +9116,33 @@ export const $WorkspaceMembershipResponse = {
       format: "uuid4",
       title: "Workspace Id",
     },
+    role: {
+      $ref: "#/components/schemas/WorkspaceRole",
+    },
   },
   type: "object",
-  required: ["user_id", "workspace_id"],
-  title: "WorkspaceMembershipResponse",
+  required: ["user_id", "workspace_id", "role"],
+  title: "WorkspaceMembershipRead",
 } as const
 
-export const $WorkspaceMetadataResponse = {
+export const $WorkspaceMembershipUpdate = {
   properties: {
-    id: {
-      type: "string",
-      format: "uuid4",
-      title: "Id",
-    },
-    name: {
-      type: "string",
-      title: "Name",
-    },
-    n_members: {
-      type: "integer",
-      title: "N Members",
+    role: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/WorkspaceRole",
+        },
+        {
+          type: "null",
+        },
+      ],
     },
   },
   type: "object",
-  required: ["id", "name", "n_members"],
-  title: "WorkspaceMetadataResponse",
+  title: "WorkspaceMembershipUpdate",
 } as const
 
-export const $WorkspaceResponse = {
+export const $WorkspaceRead = {
   properties: {
     id: {
       type: "string",
@@ -6686,7 +9186,81 @@ export const $WorkspaceResponse = {
   },
   type: "object",
   required: ["id", "name", "owner_id", "n_members", "members"],
-  title: "WorkspaceResponse",
+  title: "WorkspaceRead",
+} as const
+
+export const $WorkspaceReadMinimal = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid4",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    n_members: {
+      type: "integer",
+      title: "N Members",
+    },
+  },
+  type: "object",
+  required: ["id", "name", "n_members"],
+  title: "WorkspaceReadMinimal",
+} as const
+
+export const $WorkspaceRole = {
+  type: "string",
+  enum: ["editor", "admin"],
+  title: "WorkspaceRole",
+} as const
+
+export const $WorkspaceUpdate = {
+  properties: {
+    name: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 100,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Name",
+    },
+    settings: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "string",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Settings",
+    },
+  },
+  type: "object",
+  title: "WorkspaceUpdate",
+} as const
+
+export const $Yaml = {
+  properties: {
+    component_id: {
+      type: "string",
+      const: "yaml",
+      title: "Component Id",
+      default: "yaml",
+    },
+  },
+  type: "object",
+  title: "Yaml",
 } as const
 
 export const $login = {
@@ -6695,7 +9269,7 @@ export const $login = {
       anyOf: [
         {
           type: "string",
-          pattern: "password",
+          pattern: "^password$",
         },
         {
           type: "null",

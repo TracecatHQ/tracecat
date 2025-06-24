@@ -1,12 +1,13 @@
 """Generic interface for Slack SDK."""
 
-from itertools import zip_longest
-from typing import Annotated, Any, cast
+from typing import Annotated, Any, Literal, cast
+import asyncio
 
 from pydantic import Field
 from slack_sdk.web.async_client import AsyncWebClient
+from slack_sdk.errors import SlackApiError
 from slack_sdk.web.async_slack_response import AsyncSlackResponse
-from slugify import slugify
+from slack_sdk.webhook.async_client import AsyncWebhookClient
 
 from tracecat_registry import RegistrySecret, registry, secrets
 
@@ -80,9 +81,50 @@ async def call_paginated_method(
     client = AsyncWebClient(token=bot_token)
     members = []
     params = params or {}
+    key = None
     async for page in await getattr(client, sdk_method)(**params, limit=limit):
-        members.extend(page.data.get("members", []))
+        data = page.data
+        if not key:
+            key = [k for k in data.keys() if isinstance(data[k], list)][0]
+        members.extend(data[key])
     return members
+
+
+### Other utilities
+
+
+@registry.register(
+    default_title="Lookup many users by email",
+    description="Lookup users by emails. Returns a list of users found and a list of users not found.",
+    display_group="Slack",
+    doc_url="https://api.slack.com/methods/users.lookupByEmail",
+    namespace="tools.slack",
+    secrets=[slack_secret],
+)
+async def lookup_users_by_email(
+    emails: Annotated[list[str], Field(..., description="List of user emails.")],
+) -> dict[str, list[dict[str, Any] | str]]:
+    bot_token = secrets.get("SLACK_BOT_TOKEN")
+    client = AsyncWebClient(token=bot_token)
+
+    async def lookup_single_email(email: str) -> tuple[bool, dict[str, Any] | str]:
+        try:
+            result = await client.users_lookupByEmail(email=email)
+            return True, cast(dict[str, Any], result.data)["user"]
+        except SlackApiError as e:
+            if e.response["error"] == "users_not_found":
+                return False, email
+            else:
+                raise e
+
+    # Process all emails concurrently
+    results = await asyncio.gather(*[lookup_single_email(email) for email in emails])
+
+    # Separate results into found and not found
+    found = [data for found_flag, data in results if found_flag]
+    not_found = [data for found_flag, data in results if not found_flag]
+
+    return {"found": found, "not_found": not_found}
 
 
 ### Block utilities
@@ -99,19 +141,21 @@ async def call_paginated_method(
 )
 def format_fields(
     fields: Annotated[
-        list[dict[str, Any]],
+        list[dict[str, str]],
         Field(
             ...,
-            description='Mapping of field names and values (e.g. `[{"status": "critical"}, {"role": "admin"}]`)',
+            description=(
+                "List of JSONs with `field` and `value` keys."
+                " E.g. `[{'field': 'status', 'value': 'critical'}, {'field': 'role', 'value': 'admin'}]`."
+            ),
         ),
     ],
     block_id: Annotated[
         str | None,
-        Field(..., description="Block ID. If None, defaults to `tc-fields`."),
+        Field(..., description="Block ID. If None, defaults to `tc_fields`."),
     ] = None,
 ) -> dict[str, Any]:
-    fields_pairs = [d.popitem() for d in fields]
-    fields_str = "\n".join([f">*{k}*: {v}" for k, v in fields_pairs])
+    fields_str = "\n".join([f"> *{x['field']}*: {x['value']}" for x in fields])
     block_id = block_id or "tc_fields"
     block = {
         "type": "section",
@@ -122,7 +166,7 @@ def format_fields(
 
 
 @registry.register(
-    default_title="Format fields context",
+    default_title="Format fields as context",
     description="Format fields into a context block with optional images per field.",
     display_group="Slack",
     doc_url="https://api.slack.com/reference/block-kit/blocks#context",
@@ -134,36 +178,35 @@ def format_fields_context(
         Field(
             ...,
             description=(
-                'Mapping of field names and values (e.g. `[{"status": "critical"}, {"role": "admin"}]`).'
-                'Include an `image_url` key per field to display an image (e.g. `[{"status": "critical", "image_url": "https://example.com/image.png"}]`).'
+                "List of JSONs with `field`, `value`, and `image_url` (optional) keys."
+                " E.g. `[{'field': 'status', 'value': 'critical', 'image_url': 'https://example.com/image.png'}, {'field': 'role', 'value': 'admin']`."
             ),
         ),
     ],
     block_id: Annotated[
         str | None,
-        Field(..., description="Block ID. If None, defaults to `tc-links`."),
+        Field(..., description="Block ID. If None, defaults to `tc_fields_context`."),
     ] = None,
 ) -> dict[str, Any]:
     block_id = block_id or "tc_fields_context"
     elements = []
     for field in fields:
-        image_url = field.pop("image_url", None)
-        k, v = field.popitem()
-        text = f"{k}: *{v}*"
-        if image_url:
-            elements.append(
+        element = {
+            "type": "mrkdwn",
+            "text": f"*{field['field']}*: {field['value']}",
+        }
+        if "image_url" in field:
+            element = [
                 {
                     "type": "image",
-                    "image_url": image_url,
-                    "alt_text": text,
-                }
-            )
-        elements.append(
-            {
-                "type": "mrkdwn",
-                "text": text,
-            }
-        )
+                    "image_url": field["image_url"],
+                    "alt_text": f"{field['field']} {field['value']}",
+                },
+                element,
+            ]
+            elements.extend(element)
+        else:
+            elements.append(element)
     block = {"type": "context", "elements": elements, "block_id": block_id}
     return block
 
@@ -177,39 +220,29 @@ def format_fields_context(
 )
 def format_links(
     links: Annotated[
-        list[str],
+        list[dict[str, str]],
         Field(
             ...,
-            description='List of links (e.g. ["https://www.google.com", "https://www.yahoo.com"])',
+            description=(
+                "List of JSONs with `url` and `text` (optional) keys."
+                " E.g. `[{'url': 'https://www.google.com', 'text': 'Google'}, {'url': 'https://www.yahoo.com'}]`."
+            ),
         ),
     ],
-    labels: Annotated[
-        list[str] | None,
-        Field(
-            ..., description="Labels for the links. If None, defaults to the link text."
-        ),
-    ] = None,
     max_length: Annotated[
         int,
         Field(..., description="Maximum length of the links."),
     ] = 75,
     block_id: Annotated[
         str | None,
-        Field(..., description="Block ID. If None, defaults to `tc-links`."),
+        Field(..., description="Block ID. If None, defaults to `tc_links`."),
     ] = None,
 ) -> dict[str, Any]:
     block_id = block_id or "tc_links"
-    if labels:
-        try:
-            formatted_links = [
-                f"<{link}|{label}>" for link, label in zip(links, labels, strict=False)
-            ]
-        except ValueError as e:
-            raise ValueError(
-                f"`labels` and `links` must have the same length. Got {len(labels)} labels and {len(links)} links."
-            ) from e
-    else:
-        formatted_links = [f"<{link}|{link[:max_length]}>" for link in links]
+    formatted_links = [
+        f"<{link['url']}|{link.get('text', link['url'][:max_length])}>"
+        for link in links
+    ]
     block = {
         "type": "context",
         "elements": [{"type": "mrkdwn", "text": "\n".join(formatted_links)}],
@@ -219,60 +252,69 @@ def format_links(
 
 
 @registry.register(
-    default_title="Format choices",
-    description="Format a list of choices into an interactive block of buttons.",
+    default_title="Format buttons",
+    description="Format a list of buttons into a block.",
     display_group="Slack",
-    doc_url="https://api.slack.com/reference/block-kit/blocks#actions",
+    doc_url="https://api.slack.com/reference/block-kit/block-elements#button",
     namespace="tools.slack_blocks",
 )
-def format_choices(
-    labels: Annotated[
-        list[str],
+def format_buttons(
+    buttons: Annotated[
+        list[dict[str, str]],
         Field(
             ...,
-            description='Unique display names for each input (e.g. ["Yes", "No"]). Max 75 characters per label.',
+            description=(
+                "List of JSONs with `text`, `action_id` (optional), and `value` with `style` (optional) or `url` keys."
+                " See examples: https://api.slack.com/reference/block-kit/block-elements#button__examples"
+            ),
         ),
     ],
-    values: Annotated[
-        list[str] | None,
-        Field(
-            ...,
-            description='Unique values for each input (e.g. ["yes", "no"]). If None, defaults to a slugified version of the label.',
-        ),
-    ] = None,
-    button_ids: Annotated[
-        list[str] | None,
-        Field(
-            ...,
-            description='Unique identifiers for each input (e.g. ["yes", "no"]). Max 255 characters per identifier.',
-        ),
-    ] = None,
     block_id: Annotated[
         str | None,
-        Field(..., description="Block ID. If None, defaults to `tc-choices`."),
+        Field(..., description="Block ID. If None, defaults to `tc_buttons`."),
     ] = None,
 ) -> dict[str, Any]:
-    block_id = block_id or "tc_choices"
-    if not values:
-        values = [slugify(label) for label in labels]
-    if not button_ids:
-        button_ids = [slugify(label) for label in labels]
-    buttons = [
-        {
-            "type": "button",
-            "text": {"type": "plain_text", "emoji": True, "text": input},
-            "value": value,
-        }
-        for input, value in zip(labels, values, strict=False)
-    ]
-    buttons = [
-        {
-            **button,
-            "action_id": button_id,
-        }
-        for button, button_id in zip(buttons, button_ids, strict=False)
-    ]
-    block = {"type": "actions", "elements": buttons, "block_id": block_id}
+    block_id = block_id or "tc_buttons"
+    elements = []
+    for button in buttons:
+        if "url" in button:
+            try:
+                element = {
+                    "type": "button",
+                    "text": {
+                        "type": "plain_text",
+                        "emoji": True,
+                        "text": button["text"],
+                    },
+                    "url": button["url"],
+                }
+            except KeyError as e:
+                raise ValueError(
+                    f"Expected `text` and `url` keys in button. Got button: {button}"
+                ) from e
+        else:
+            try:
+                element = {
+                    "type": "button",
+                    "text": {
+                        "type": "plain_text",
+                        "emoji": True,
+                        "text": button["text"],
+                    },
+                    "value": button["value"],
+                }
+            except KeyError as e:
+                raise ValueError(
+                    f"Expected `text` and `value` keys in button. Got button: {button}"
+                ) from e
+            if "style" in button:
+                element["style"] = button["style"]
+
+        if "action_id" in button:
+            element["action_id"] = button["action_id"]
+
+        elements.append(element)
+    block = {"type": "actions", "elements": elements, "block_id": block_id}
     return block
 
 
@@ -292,10 +334,6 @@ def format_text_input(
         bool,
         Field(..., description="Whether the input should be multiline."),
     ] = False,
-    dispatch_action: Annotated[
-        bool,
-        Field(..., description="Whether pressing Enter submits the input."),
-    ] = False,
     min_length: Annotated[
         int | None,
         Field(..., description="Min length of the text input. Defaults to 1."),
@@ -304,11 +342,20 @@ def format_text_input(
         int | None,
         Field(..., description="Max length of the text input. Defaults to 255."),
     ] = None,
+    dispatch_action: Annotated[
+        bool,
+        Field(..., description="Whether pressing Enter submits the input."),
+    ] = False,
+    action_id: Annotated[
+        str | None,
+        Field(..., description="Action ID. If None, defaults to `tc_text_input`."),
+    ] = None,
     block_id: Annotated[
         str | None,
-        Field(..., description="Block ID. If None, defaults to `tc-text-input`."),
+        Field(..., description="Block ID. If None, defaults to `tc_text_input`."),
     ] = None,
 ) -> dict[str, Any]:
+    action_id = action_id or "tc_text_input"
     block_id = block_id or "tc_text_input"
     min_length = min_length or 1
     max_length = max_length or 255
@@ -318,7 +365,7 @@ def format_text_input(
         "label": {"type": "plain_text", "emoji": True, "text": prompt},
         "element": {
             "type": "plain_text_input",
-            "action_id": block_id,
+            "action_id": action_id,
             "multiline": multiline,
             "min_length": min_length,
             "max_length": max_length,
@@ -330,67 +377,175 @@ def format_text_input(
 
 
 @registry.register(
-    default_title="Format overflow menu",
-    description="Format a list of choices into an overflow menu element.",
+    default_title="Format rich text input",
+    description="Format a rich text input block.",
     display_group="Slack",
-    doc_url="https://api.slack.com/reference/block-kit/block-elements#overflow",
-    namespace="tools.slack_elements",
+    doc_url="https://api.slack.com/reference/block-kit/block-elements#rich_text_input",
+    namespace="tools.slack_blocks",
 )
-def format_overflow_menu(
-    labels: Annotated[
-        list[str],
-        Field(..., description="List of labels for the overflow menu."),
+def format_rich_text_input(
+    prompt: Annotated[
+        str,
+        Field(..., description="Prompt to ask the user."),
     ],
-    values: Annotated[
-        list[str] | None,
-        Field(
-            ...,
-            description="List of values for the overflow menu. If None, defaults to a slugified version of the label.",
-        ),
+    initial_value: Annotated[
+        str | None,
+        Field(..., description="Initial value of the rich text input."),
     ] = None,
-    urls: Annotated[
-        list[str] | None,
+    placeholder: Annotated[
+        str | None,
+        Field(..., description="Placeholder text for the rich text input."),
+    ] = None,
+    dispatch_action: Annotated[
+        bool,
+        Field(..., description="Whether pressing Enter submits the input."),
+    ] = False,
+    action_id: Annotated[
+        str | None,
+        Field(..., description="Action ID. If None, defaults to `tc_rich_text_input`."),
+    ] = None,
+    block_id: Annotated[
+        str | None,
+        Field(..., description="Block ID. If None, defaults to `tc_rich_text_input`."),
+    ] = None,
+) -> dict[str, Any]:
+    action_id = action_id or "tc_rich_text_input"
+    block_id = block_id or "tc_rich_text_input"
+
+    text_input = {
+        "type": "rich_text_input",
+        "action_id": action_id,
+        "dispatch_action_config": {"trigger_actions_on": ["on_enter_pressed"]},
+    }
+    if initial_value:
+        text_input["initial_value"] = initial_value
+    if placeholder:
+        text_input["placeholder"] = {"type": "plain_text", "text": placeholder}
+
+    block = {
+        "type": "input",
+        "label": {"type": "plain_text", "emoji": True, "text": prompt},
+        "element": text_input,
+        "block_id": block_id,
+        "dispatch_action": dispatch_action,
+    }
+    return block
+
+
+@registry.register(
+    default_title="Format dropdowns",
+    description="Format a single-select block of dropdowns as an accessory.",
+    display_group="Slack",
+    doc_url="https://api.slack.com/reference/block-kit/block-elements#select",
+    namespace="tools.slack_blocks",
+)
+def format_dropdown(
+    prompt: Annotated[
+        str,
+        Field(..., description="Prompt to ask the user."),
+    ],
+    options: Annotated[
+        list[dict[str, str]],
         Field(
             ...,
-            description="List of URLs for the overflow menu. If None, no URLs will be linked.",
+            description=(
+                "List of JSONs with `label` and `value` keys."
+                " E.g. `[{'label': 'Option 1', 'value': 'option_1'}, {'label': 'Option 2', 'value': 'option_2'}]`."
+            ),
+        ),
+    ],
+    initial_option: Annotated[
+        dict[str, str] | None,
+        Field(
+            ...,
+            description="Initial option to select. If None, defaults to the first option.",
         ),
     ] = None,
     action_id: Annotated[
         str | None,
-        Field(..., description="Action ID. If None, defaults to `tc-overflow-menu`."),
+        Field(..., description="Action ID. If None, defaults to `tc_dropdown`."),
+    ] = None,
+    block_id: Annotated[
+        str | None,
+        Field(..., description="Block ID. If None, defaults to `tc_dropdown`."),
     ] = None,
 ) -> dict[str, Any]:
-    action_id = action_id or "tc_overflow_menu"
+    action_id = action_id or "tc_dropdown"
+    block_id = block_id or "tc_dropdown"
 
-    if values and len(values) != len(labels):
-        raise ValueError(
-            f"`labels` and `values` must have the same length. Got {len(labels)} values and {len(values)} values."
+    option_elements = []
+    for option in options:
+        label, value = option["label"], option["value"]
+        option_elements.append(
+            {
+                "text": {"type": "plain_text", "text": label, "emoji": True},
+                "value": value,
+            }
         )
 
-    if not values:
-        values = [slugify(label) for label in labels]
-
-    if urls:
-        options = [
-            {
-                "text": {"type": "plain_text", "emoji": True, "text": label},
-                "value": value,
-                "url": url,
-            }
-            for label, value, url in zip_longest(labels, values, urls)
-        ]
-    else:
-        options = [
-            {
-                "text": {"type": "plain_text", "emoji": True, "text": label},
-                "value": value,
-            }
-            for label, value in zip(labels, values, strict=False)
-        ]
-
     block = {
-        "type": "overflow",
-        "options": options,
-        "action_id": action_id,
+        "type": "section",
+        "text": {"type": "mrkdwn", "text": prompt},
+        "block_id": block_id,
+        "accessory": {
+            "type": "static_select",
+            "action_id": action_id,
+            "options": option_elements,
+        },
     }
+    if initial_option:
+        block["accessory"]["initial_option"] = initial_option
+
     return block
+
+
+### Webhook client for response_url
+
+
+@registry.register(
+    default_title="Post response",
+    description="Post messsage back to Slack interaction via `response_url`.",
+    display_group="Slack",
+    doc_url="https://api.slack.com/interactivity/handling#message_responses",
+    namespace="tools.slack_sdk",
+)
+async def post_response(
+    url: Annotated[str, Field(..., description="Webhook URL.")],
+    text: Annotated[
+        str | None,
+        Field(..., description="Text to send to the webhook."),
+    ] = None,
+    blocks: Annotated[
+        list[dict[str, Any]] | None,
+        Field(..., description="Blocks to send to the webhook."),
+    ] = None,
+    response_type: Annotated[
+        Literal["in_channel", "ephemeral"],
+        Field(..., description="Response type. Defaults to `ephemeral`."),
+    ] = "ephemeral",
+    replace_original: Annotated[
+        bool,
+        Field(..., description="Whether to replace the original message."),
+    ] = False,
+    thread_ts: Annotated[
+        str | None,
+        Field(
+            ...,
+            description="Thread timestamp. If None, defaults to the current timestamp.",
+        ),
+    ] = None,
+) -> dict[str, Any]:
+    client = AsyncWebhookClient(url=url)
+    body = {
+        "text": text,
+        "blocks": blocks,
+        "response_type": response_type,
+        "replace_original": replace_original,
+    }
+    if thread_ts:
+        body["thread_ts"] = thread_ts
+    response = await client.send_dict(body)
+    return {
+        "status_code": response.status_code,
+        "body": response.body,
+    }

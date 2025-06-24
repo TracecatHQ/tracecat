@@ -3,6 +3,11 @@
 const nextConfig = {
   reactStrictMode: true, // Default to true; overridden in development
   output: "standalone", // Ensure standalone output for production
+  experimental: {
+    serverActions: {
+      allowedOrigins: ["login.microsoftonline.com"],
+    },
+  },
   generateBuildId: async () => {
     // Return a unique identifier for each build.
     return Date.now().toString()

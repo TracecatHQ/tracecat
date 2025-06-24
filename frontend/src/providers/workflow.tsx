@@ -1,34 +1,32 @@
 "use client"
 
-import React, {
-  createContext,
-  ReactNode,
-  SetStateAction,
-  useCallback,
-  useContext,
-  useEffect,
-  useState,
-} from "react"
 import {
-  ApiError,
-  RegistryActionValidateResponse,
-  WorkflowCommitResponse,
-  WorkflowRead,
-  workflowsCommitWorkflow,
-  workflowsGetWorkflow,
-  workflowsUpdateWorkflow,
-  WorkflowUpdate,
-} from "@/client"
-import {
-  MutateFunction,
+  type MutateFunction,
   useMutation,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query"
 import { AlertTriangleIcon } from "lucide-react"
-
-import { TracecatApiError } from "@/lib/errors"
+import type React from "react"
+import {
+  createContext,
+  type ReactNode,
+  type SetStateAction,
+  useContext,
+  useState,
+} from "react"
+import {
+  type ApiError,
+  type ValidationResult,
+  type WorkflowCommitResponse,
+  type WorkflowRead,
+  type WorkflowUpdate,
+  workflowsCommitWorkflow,
+  workflowsGetWorkflow,
+  workflowsUpdateWorkflow,
+} from "@/client"
 import { toast } from "@/components/ui/use-toast"
+import type { TracecatApiError } from "@/lib/errors"
 
 type WorkflowContextType = {
   workflow: WorkflowRead | null
@@ -36,8 +34,6 @@ type WorkflowContextType = {
   workflowId: string | null
   isLoading: boolean
   error: Error | null
-  isOnline: boolean
-  setIsOnline: (isOnline: boolean) => void
   commitWorkflow: MutateFunction<
     WorkflowCommitResponse,
     ApiError,
@@ -45,10 +41,8 @@ type WorkflowContextType = {
     unknown
   >
   updateWorkflow: MutateFunction<void, ApiError, WorkflowUpdate, unknown>
-  validationErrors: RegistryActionValidateResponse[] | null
-  setValidationErrors: React.Dispatch<
-    SetStateAction<RegistryActionValidateResponse[] | null>
-  >
+  validationErrors: ValidationResult[] | null
+  setValidationErrors: React.Dispatch<SetStateAction<ValidationResult[] | null>>
 }
 type TracecatErrorMessage = {
   type?: string
@@ -70,7 +64,7 @@ export function WorkflowProvider({
 }) {
   const queryClient = useQueryClient()
   const [validationErrors, setValidationErrors] = useState<
-    RegistryActionValidateResponse[] | null
+    ValidationResult[] | null
   >(null)
 
   // Queries
@@ -170,29 +164,6 @@ export function WorkflowProvider({
     },
   })
 
-  // Other state
-  const [isOnlineVisual, setIsOnlineVisual] = useState<boolean>(
-    workflow?.status === "online"
-  )
-  useEffect(() => {
-    if (workflow?.status) {
-      setIsOnlineVisual(workflow.status === "online")
-    }
-  }, [workflow?.status])
-
-  const setIsOnline = useCallback(
-    async (isOnline: boolean) => {
-      await workflowsUpdateWorkflow({
-        workspaceId,
-        workflowId,
-        requestBody: {
-          status: isOnline ? "online" : "offline",
-        },
-      }),
-        setIsOnlineVisual(isOnline)
-    },
-    [workflowId]
-  )
   return (
     <WorkflowContext.Provider
       value={{
@@ -201,8 +172,6 @@ export function WorkflowProvider({
         workflowId,
         isLoading,
         error,
-        isOnline: isOnlineVisual,
-        setIsOnline,
         commitWorkflow,
         updateWorkflow,
         validationErrors,

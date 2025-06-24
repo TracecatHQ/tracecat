@@ -5,6 +5,7 @@ from sqlmodel import select
 
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.models import UserRead
+from tracecat.authz.models import WorkspaceRole
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.schemas import User
 from tracecat.types.auth import AccessLevel, Role
@@ -18,13 +19,19 @@ async def search_user(
     role: Role = RoleACL(
         allow_user=True,
         allow_service=False,
-        require_workspace="no",
-        min_access_level=AccessLevel.ADMIN,
+        require_workspace="optional",
     ),
     email: EmailStr | None = Query(None),
     session: AsyncDBSession,
 ) -> UserRead:
     """Create new user."""
+    # Either an org admin or workspace admin
+    if not (
+        role.access_level == AccessLevel.ADMIN
+        or role.workspace_role == WorkspaceRole.ADMIN
+    ):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+
     if not email:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

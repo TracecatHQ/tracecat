@@ -1,10 +1,8 @@
 "use client"
 
 import { useRouter } from "next/navigation"
-import { useAuth } from "@/providers/auth"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
-
 import {
   Form,
   FormControl,
@@ -13,6 +11,7 @@ import {
   FormLabel,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
+import { useAuth } from "@/providers/auth"
 
 const profileSchema = z.object({
   email: z.string().email(),
@@ -28,8 +27,8 @@ export default function ProfileSettingsPage() {
   const form = useForm<ProfileFormData>({
     defaultValues: {
       email: user?.email ?? "",
-      firstName: user?.first_name ?? "",
-      lastName: user?.last_name ?? "",
+      firstName: user?.firstName ?? "",
+      lastName: user?.lastName ?? "",
     },
   })
 

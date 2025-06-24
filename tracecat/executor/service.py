@@ -238,16 +238,28 @@ async def run_action_from_input(input: RunActionInput, role: Role) -> Any:
         )
         mask_values = None
     else:
-        # Safety: Secret context leaves are all strings
-        mask_values = {s for _, s in traverse_leaves(secrets)}
+        # Safety: Extract complete secret values for masking, not individual characters
+        mask_values = set()
+        for _, secret_value in traverse_leaves(secrets):
+            # Convert non-string values to strings for masking
+            if secret_value is not None:
+                secret_str = str(secret_value)
+                # Only mask non-empty string values that are longer than 1 character
+                # to avoid masking individual characters that might appear in regular text
+                if len(secret_str) > 1:
+                    mask_values.add(secret_str)
+                # Also mask the original value if it's already a string
+                if isinstance(secret_value, str) and len(secret_value) > 1:
+                    mask_values.add(secret_value)
 
     # When we're here, we've populated the task arguments with shared context values
 
+    # Note: Do not log task.args here as it may contain templated secrets
     log.info(
         "Run action",
         task_ref=task.ref,
         action_name=action_name,
-        args=task.args,
+        # Removed args=task.args to prevent secret leakage
     )
 
     context = input.exec_context.copy()
@@ -498,7 +510,6 @@ def iter_for_each(
     # In the future, we may have other sources of action-local expressions
     # XXX: ENV is the only context that should be shared
     patched_context = context.copy() if patch else create_default_execution_context()
-    logger.trace("Context before patch", patched_context=patched_context)
 
     # Create a generator that zips the iterables together
     for i, items in enumerate(zip(*iterators, strict=False)):
@@ -509,9 +520,7 @@ def iter_for_each(
                 path=assign_context + iterator_path,
                 value=iterator_value,
             )
-        logger.trace("Patched context", patched_context=patched_context)
         patched_args = evaluate_templated_args(task=task, context=patched_context)
-        logger.trace("Patched args", patched_args=patched_args)
         yield patched_args
 
 

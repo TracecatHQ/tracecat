@@ -1,0 +1,50 @@
+type: action
+definition:
+  title: Lookup agents by operating system
+  description: Find all SentinelOne agents filtered by operating system type, name, revision, and version information.
+  display_group: SentinelOne
+  doc_url: https://<base_url>/api-doc/api-details?category=agents&api=get-agents
+  namespace: tools.sentinel_one
+  name: lookup_agent_os
+  secrets:
+    - name: sentinel_one
+      keys: ["SENTINEL_ONE_API_TOKEN"]
+  expects:
+    base_url:
+      type: str
+      description: SentinelOne console base URL (e.g., https://your-tenant.sentinelone.net)
+    os_types:
+      type: list[str]
+      description: OS types to include (e.g., windows, linux, macos, windows_legacy)
+    os_name:
+      type: str
+      description: Free-text filter by OS full name (optional)
+      default: ""
+    os_revision:
+      type: str
+      description: OS revision filter (optional)
+      default: ""
+    os_version_contains:
+      type: list[str]
+      description: Free-text filter by OS full name and version (supports multiple values)
+      default: []
+    limit:
+      type: int
+      description: Maximum number of agents to return (1-1000)
+      default: 100
+  steps:
+    - ref: lookup_agents
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/web/api/v2.1/agents
+        method: GET
+        timeout: 60
+        headers:
+          Authorization: ApiToken ${{ SECRETS.sentinel_one.SENTINEL_ONE_API_TOKEN }}
+          Content-Type: application/json
+        params:
+          osTypes: ${{ inputs.os_types }}
+          osVersion__contains: ${{ inputs.os_version_contains if inputs.os_version_contains else [] }}
+          query: ${{ inputs.os_name if inputs.os_name else None }}
+          limit: ${{ inputs.limit }}
+  returns: ${{ steps.lookup_agents.result }}

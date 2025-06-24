@@ -1,5 +1,5 @@
 ---
-title: Core Actions
+title: Core actions
 description: Building blocks of Tracecat workflows and action templates.
 icon: cube
 ---
@@ -11,155 +11,273 @@ import SecretsExample from '/snippets/secrets-example.mdx'
 </Tip>
 
 <Note>
-  The docs below only cover the `core` namespace.
-  For information on `core.transform` and `core.workflow`, check out the tutorials on [Data Transforms](/tutorials/data-transforms) and [Child Workflows](/tutorials/child-workflows).
+  This tutorial covers the four most commonly used core actions: `core.transform.reshape`, `core.http_request`, `core.http_poll`, and `core.script.run_python`.
+
+  To learn about the other core actions, check out the following tutorials:
+  - [Script actions](/quickstart/script-actions)
+  - [Data transforms](/tutorials/data-transforms)
+  - [Scatter-gather](/tutorials/scatter-gather)
+  - [Child workflows](/tutorials/child-workflows)
+  - [Wait until](/tutorials/wait-retry-until)
 </Note>
 
 Core actions are the building blocks of Tracecat workflows and action templates.
 All core actions are under the `core` namespace.
 They are distinct from pre-built integrations in the `tools` namespace, which are pre-configured for specific 3rd-party tools.
 
-There are three sub-namespaces under `core`:
+There are five sub-namespaces under `core`:
 
 - `core`
 - `core.transform`
 - `core.workflow`
+- `core.require`
+- `core.script`
 
 `core` actions are the most commonly used actions in Tracecat.
 They include:
 
 | Name | Display Name | Description |
 | --- | --- | --- |
+| `core.transform.reshape` | `Reshape` | Reshape and manipulate data. |
+| `core.transform.scatter` | `Scatter` | Split a list of data into individual items. |
+| `core.transform.gather` | `Gather` | Merge scattered data back into a single list. |
 | `core.http_request` | `HTTP Request` | Make a HTTP request. |
 | `core.http_poll` | `HTTP Polling` | Poll a REST API until a condition is met. |
-| `core.ai_action` | `AI Action` | Prompt a LLM (e.g. OpenAI, self-hosted) to take an action. |
+| `core.script.run_python` | `Run Python script` | Execute custom Python code in a secure sandbox. |
 
-## HTTP Request
+## Reshape
 
-The `core.http_request` action supports `GET`, `POST`, `PUT`, `PATCH`, and `DELETE` requests.
+Reshape is a simple action that takes a single input `value` (e.g. a string, number, or object),
+evaluates any [expressions and functions](/quickstart/expressions), and returns the result.
 
-- To make a `GET` request with query parameters, specify the `params` field.
-- To make a `POST`, `PUT`, or `PATCH` request with:
-  - JSON encoded body, specify the `payload` field.
-  - Form-encoded data, specify the `form_data` field.
-- To make a request with a custom HTTP headers, specify the `headers` field.
+![Reshape](/img/quickstart/core-actions/reshape.png)
 
-**Examples**
+The following examples show common use-cases and inputs for the `Reshape` action.
 
 <CodeGroup>
-  ```yaml GET
-  url: https://api.open-meteo.com/v1/forecast
-  method: GET
-  params:
-    latitude: 37.773972
-    longitude: -122.431297
-    current: temperature_2m,precipitation_probability
+  ```php Basic usage
+  # Get one value from a previous action
+  value: ${{ ACTIONS.get_user.result.data.user.name }}
+
+  # Get multiple values from a previous action
+  value:
+    name: ${{ ACTIONS.get_user.result.data.user.name }}
+    email: ${{ ACTIONS.get_user.result.data.user.email }}
+
+  # Get data from the trigger
+  value: ${{ TRIGGER.data.user }}
   ```
 
-  ```yaml POST
-  url: https://api.urlscan.io/v1/scan
-  method: POST
-  headers:
-    API-Key: ${{ SECRETS.urlscan.URLSCAN_API_KEY }}
-    Content-Type: application/json
-  payload:
-    url: https://example.com
-    visibility: private
+  ```php Hardcode values
+  # Hardcode a value
+  value: "John Doe"
+
+  ## Hardcode list of values
+  value:
+    - "John Doe"
+    - "Jane Doe"
+
+  ## Hardcode object
+  value:
+    name: "John Doe"
+    email: "john.doe@example.com"
+  ```
+
+  ```php With inline functions
+  # ACTIONS, TRIGGER, and FN are all available in the reshape action
+  value:
+    email: ${{ ACTIONS.get_user.result.data.user.name || "No email found" }}
+    ip_version: ${{ FN.check_ip_version(ACTIONS.get_user.result.data.user.ip) }}
+    iso_datetime: ${{ FN.to_isoformat(ACTIONS.get_user.result.data.user.created_at) }}
   ```
 </CodeGroup>
 
-## Polling HTTP Request
 
-Tracecat makes it easy to poll APIs with long-running operations using the `core.http_poll` action.
-To configure the `core.http_poll` action, you'll need to specify one of the following inputs:
+<Tip>
+  Use the `Reshape` action to:
+  - Hardcode values
+  - Rename data fields
+  - Store data from previous actions or the trigger into a value or object
+  - Transform data using [inline functions](/quickstart/expressions#fn-context)
 
-- `poll_retry_codes`: List of status codes on which the action will retry.
-- `poll_condition`: A Python lambda function string that determines whether to retry.
+  This action is one of the most commonly used and powerful action in Tracecat.
+  Check out the [functions cheatsheet](/quickstart/functions) for a list of all the available functions.
+</Tip>
 
-If the operation doesn't poll on a status code, `poll_condition` is required.
-It is a Python lambda function string that determines whether to retry based on:
-- `headers`: The HTTP headers of the response.
-- `data`: The JSON decoded response body.
+## HTTP Request
 
-For example, to poll on a response body containing `"status"` until it equals `"complete"`, you can specify the following:
+Perform an HTTP request to a given URL.
 
-```yaml
-poll_condition: "lambda x: x['data']['status'] == 'complete'"
-```
+**Parameters**
 
-You can further configure the polling behavior via the optional inputs:
+- `url` (HttpUrl, required): The destination of the HTTP request.
+- `method` (Literal["GET", "POST", "PUT", "PATCH", "DELETE"], required): HTTP request method.
+- `headers` (dict[str, str], optional): HTTP request headers.
+- `params` (dict[str, Any], optional): URL query parameters.
+- `payload` (dict[str, Any] | list[Any], optional): JSON serializable data in request body (POST, PUT, and PATCH).
+- `form_data` (dict[str, Any], optional): Form encoded data in request body (POST, PUT, and PATCH).
+- `files` (dict[str, str | FileUploadData], optional): Files to upload using multipart/form-data.
+    - The dictionary key is the **form field name** for the file (e.g., `"file"`, `"attachment1"`).
+    - The value can be:
+        1.  A simple **base64 encoded string** representing the file content. In this case, the `form_field_name` will also be used as the filename in the `Content-Disposition` header.
+        2.  A **dictionary (`FileUploadData`)** with the following keys:
++            - `filename` (str): The actual filename to be sent in the `Content-Disposition` header (e.g., `"mydocument.pdf"`). If not provided or empty, the `form_field_name` will be used.
+            - `content_base64` (str, required): The base64 encoded string of the file content.
+            - `content_type` (str, optional): The MIME type of the file (e.g., `"application/pdf"`, `"image/png"`). If not provided, `httpx` will attempt to guess it.
+- `auth` (dict[str, str], optional): Basic auth credentials with `username` and `password` keys.
+- `timeout` (float, optional, default: 10.0): Timeout in seconds.
+- `follow_redirects` (bool, optional, default: False): Follow HTTP redirects.
+- `max_redirects` (int, optional, default: 20): Maximum number of redirects.
+- `verify_ssl` (bool, optional, default: True): Verify SSL certificates.
 
-- `poll_interval`: Seconds between polling attempts. Defaults to exponential wait.
-- `poll_max_attempts`: Maximum number of polling attempts. Defaults to 10.
+**File Upload Examples (`files` parameter):**
 
-<Accordion title="Example: URLScan" icon="globe">
-  URLScan uses a two-step process to get a threat intelligence report on a URL:
+1.  **Simple Base64 Upload (filename defaults to form field name):**
 
-  1. Call the `/scan` endpoint to submit the URL for scanning.
-  2. Poll the `/result` endpoint repeatedly until the status code changes from `404` to `200`.
+    ```yaml
+    actions:
+      - name: Upload Text File
+        provider: core
+        action: http_request
+        params:
+          url: https://httpbin.org/post
+          method: POST
+          files: {"my_text_file.txt": "{{ FN.to_base64(\"Hello, this is the file content!\") }}"}
+    ```
 
-  <Steps>
-    <Step title="Create URLScan secret">
-      Add URLScan API key to Tracecat's built-in secrets manager.
+2.  **Upload with Custom Filename and Content Type (using `FileUploadData` dict):**
 
-      <SecretsExample />
+    ```yaml
+    actions:
+      - name: Upload PDF Document
+        provider: core
+        action: http_request
+        params:
+          url: https://httpbin.org/post
+          method: POST
+          files: {
+            "document_field":
+              filename: "Annual Report.pdf"
+              content_base64: "{{ FN.to_base64(ACTIONS.file_content.result.data) }}"
+              content_type: "application/pdf"
+          }
+    ```
 
-    </Step>
-    <Step title="Call /scan endpoint">
-      Add the `core.http_request` action to your workflow.
-      Rename it to `Submit URL` and configure it with the following inputs:
+3.  **Multiple File Uploads (mixed simple and detailed):**
 
-      ```yaml
-      url: https://urlscan.io/api/v1/scan/
-      method: POST
-      headers:
-        API-key: ${{ SECRETS.urlscan.URLSCAN_API_KEY }}
-      payload:
-        url: https://crowdstrikebluescreen.com
-        visibility: private
-      ```
+    ```yaml
+    actions:
+      - name: Upload Multiple Attachments
+        provider: core
+        action: http_request
+        params:
+          url: https://httpbin.org/post
+          method: POST
+          form_data: # Can be combined with files
+            user_id: "user123"
+          files: {
+            "main_image.png": "{{ FN.to_base64(ACTIONS.file_content.result.data) }}"
+            "additional_notes": # Detailed
+              filename: "notes.txt"
+              content_base64: "{{ FN.to_base64(\"Some notes here.\") }}"
+              content_type: "text/plain"
+          }
+    ```
 
-      ![Scan URL](/img/quickstart/core-actions/scan-url.png)
-    </Step>
-    <Step title="Poll /result endpoint">
-      Add the `core.http_poll` action to your workflow.
-      Rename it to `Get result` and configure it with the following inputs:
+**Returns**
 
-      ```yaml
-      url: https://urlscan.io/api/v1/result/${{ ACTIONS.scan_url.result.data.uuid }}
-      method: GET
-      poll_retry_codes: [404]
-      headers:
-        API-key: ${{ SECRETS.urlscan.URLSCAN_API_KEY }}
-      ```
+`HTTPResponse` (dict):
 
-      ![Get URLScan result](/img/quickstart/core-actions/get-urlscan-result.png)
-    </Step>
-    <Step title="Run workflow">
-      Run the workflow to submit the URL for scanning and get the threat intelligence report.
-      Under the hood, `Get result` calls the `/result` endpoint repeatedly until the status code is `200`.
+- `status_code` (int)
+- `headers` (dict)
+- `data` (str | dict | list | None)
 
-      <Tabs>
-        <Tab title="Events">
-          ![View URLScan run](/img/quickstart/core-actions/view-urlscan-run.png)
-        </Tab>
-        <Tab title="Scan URL result">
-          ![View scan URL result](/img/quickstart/core-actions/view-scan-url-result.png)
-        </Tab>
-        <Tab title="Get result result">
-          ![View urlscan result](/img/quickstart/core-actions/view-urlscan-result.png)
-        </Tab>
-      </Tabs>
-    </Step>
-  </Steps>
-</Accordion>
+## HTTP Polling
 
-## AI Action
+Perform an HTTP request to a given URL with polling.
 
-<Note>
-  Tracecat supports self-hosted LLMs such as `llama`, `mistral`, and `deepseek`.
-  Check out the [self-hosted LLM](/self-hosting/llms) deployment guide to learn how to set it up.
-</Note>
+**Parameters**
 
-🚧 The AI action is currently under heavy development.
-Please contact us on [Discord](https://discord.gg/n3GF4qxFU8) for up-to-date information and usage examples.
+- Accepts all parameters from `core.http_request` **except for the `files` parameter.** `core.http_poll` does not support file uploads.
+- `poll_retry_codes` (int | list[int], optional): Status codes on which the action will retry. If not specified, `poll_condition` must be provided.
+- `poll_interval` (float, optional): Interval in seconds between polling attempts. If not specified, defaults to polling with exponential wait.
+- `poll_max_attempts` (int, optional, default: 10): Maximum number of polling attempts. If set to 0, the action will poll indefinitely (until timeout).
+- `poll_condition` (str, optional): User defined condition that determines whether to retry. The condition is a Python lambda function string. If not specified, `poll_retry_codes` must be provided.
+
+**Returns**
+
+`HTTPResponse` (dict) - same as `core.http_request`.
+
+## Tutorial: URLScan
+
+URLScan uses a two-step process to get a threat intelligence report on a URL:
+
+1. Call the `/scan` endpoint to submit the URL for scanning.
+2. Poll the `/result` endpoint repeatedly until the status code changes from `404` to `200`.
+3. Uses a reshape to extract the maliciousness score and categories from the response body.
+
+<Steps>
+  <Step title="Create URLScan secret">
+    Add URLScan API key to Tracecat's built-in secrets manager.
+
+    <SecretsExample />
+
+  </Step>
+  <Step title="Call /scan endpoint">
+    Add the `core.http_request` action to your workflow.
+    Rename it to `Submit URL` and configure it with the following inputs:
+
+    ```yaml
+    url: https://urlscan.io/api/v1/scan/
+    method: POST
+    headers:
+      API-key: ${{ SECRETS.urlscan.URLSCAN_API_KEY }}
+    payload:
+      url: https://crowdstrikebluescreen.com
+      visibility: private
+    ```
+
+    ![Scan URL](/img/quickstart/core-actions/scan-url.png)
+  </Step>
+  <Step title="Poll /result endpoint">
+    Add the `core.http_poll` action to your workflow.
+    Rename it to `Get result` and configure it with the following inputs:
+
+    ```yaml
+    url: https://urlscan.io/api/v1/result/${{ ACTIONS.scan_url.result.data.uuid }}
+    method: GET
+    poll_retry_codes: [404]
+    headers:
+      API-key: ${{ SECRETS.urlscan.URLSCAN_API_KEY }}
+    ```
+
+    ![Get URLScan result](/img/quickstart/core-actions/get-urlscan-result.png)
+  </Step>
+  <Step title="Get final verdict">
+    Configure the reshape action to extract the maliciousness scores and categories from the response body.
+
+    ```yaml
+    value:
+      verdict: ${{ ACTIONS.lookup_url.result.data.verdicts.urlscan.malicious }}
+      score: ${{ ACTIONS.lookup_url.result.data.verdicts.urlscan.score }}
+    ```
+
+    ![View final verdict](/img/quickstart/core-actions/view-final-verdict.png)
+  </Step>
+  <Step title="Run workflow">
+    Run the workflow to submit the URL for scanning and get the threat intelligence report.
+    Under the hood, `Get result` calls the `/result` endpoint repeatedly until the status code is `200`.
+
+    <Tabs>
+      <Tab title="Events">
+        ![View URLScan run](/img/quickstart/core-actions/view-urlscan-run.png)
+      </Tab>
+      <Tab title="Scan URL result">
+        ![View scan URL result](/img/quickstart/core-actions/view-scan-url-result.png)
+      </Tab>
+      <Tab title="Get result">
+        ![View urlscan result](/img/quickstart/core-actions/view-urlscan-result.png)
+      </Tab>
+    </Tabs>
+  </Step>
+</Steps>

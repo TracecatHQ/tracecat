@@ -113,8 +113,6 @@ async def prepare_git_url(role: Role | None = None) -> GitUrl | None:
     # Handle the git repo
     url = await get_setting_cached(
         "git_repo_url",
-        # TODO: Deprecate in future version
-        default=config.TRACECAT__REMOTE_REPOSITORY_URL,
     )
     if not url or not isinstance(url, str):
         logger.debug("No git URL found")

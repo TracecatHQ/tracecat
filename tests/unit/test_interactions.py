@@ -6,24 +6,25 @@ from datetime import timedelta
 
 import pytest
 from temporalio.client import Client
-from temporalio.worker import Worker
 
 from tests.shared import TEST_WF_ID, generate_test_exec_id
 from tracecat.contexts import ctx_interaction
-from tracecat.dsl.common import DSLEntrypoint, DSLInput, DSLRunArgs
+from tracecat.dsl.common import RETRY_POLICIES, DSLEntrypoint, DSLInput, DSLRunArgs
 from tracecat.dsl.models import ActionStatement
-from tracecat.dsl.worker import get_activities, new_sandbox_runner
-from tracecat.dsl.workflow import DSLWorkflow, retry_policies
+from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.ee.interactions.enums import InteractionStatus, InteractionType
 from tracecat.ee.interactions.models import (
     InteractionContext,
     InteractionInput,
     ResponseInteraction,
 )
+from tracecat.ee.interactions.service import InteractionService
 from tracecat.expressions.functions import get_interaction
 from tracecat.identifiers.workflow import WorkflowUUID, generate_exec_id
 from tracecat.logger import logger
 from tracecat.types.auth import Role
+
+pytestmark = pytest.mark.usefixtures("db")
 
 
 @contextmanager
@@ -67,7 +68,10 @@ def test_interaction_context() -> None:
 
 @pytest.mark.anyio
 @pytest.mark.integration
-async def test_workflow_interaction(test_role: Role, temporal_client: Client):
+async def test_workflow_interaction(
+    svc_role: Role, temporal_client: Client, test_worker_factory
+):
+    role = svc_role
     test_name = test_workflow_interaction.__name__
 
     # Create table with a number column
@@ -94,44 +98,40 @@ async def test_workflow_interaction(test_role: Role, temporal_client: Client):
 
     # Run the workflow
     wf_exec_id = generate_test_exec_id(test_name) + str(uuid.uuid4())
-    run_args = DSLRunArgs(dsl=dsl, role=test_role, wf_id=TEST_WF_ID)
+    run_args = DSLRunArgs(dsl=dsl, role=role, wf_id=TEST_WF_ID)
     queue = os.environ["TEMPORAL__CLUSTER_QUEUE"]
 
     try:
-        async with Worker(
-            temporal_client,
-            task_queue=queue,
-            activities=get_activities(),
-            workflows=[DSLWorkflow],
-            workflow_runner=new_sandbox_runner(),
-        ):
+        async with test_worker_factory(temporal_client, task_queue=queue):
             wf_handle = await temporal_client.start_workflow(
                 DSLWorkflow.run,
                 run_args,
                 id=wf_exec_id,
                 task_queue=queue,
-                retry_policy=retry_policies["workflow:fail_fast"],
+                retry_policy=RETRY_POLICIES["workflow:fail_fast"],
                 execution_timeout=timedelta(seconds=10),
             )
-            # Handling the interaction state
-            while True:
-                await asyncio.sleep(0.1)
-                # Let's query the interaction state
-                interaction_state = await wf_handle.query(
-                    DSLWorkflow.get_interaction_states
-                )
-                if not interaction_state:
-                    continue
-                # Loop until we get a pending interaction
-                assert len(interaction_state) == 1
-                interaction_id = list(interaction_state.keys())[0]
-                state = interaction_state[interaction_id]
-                # No data yet, but correctly formed
-                assert state.data == {}
-                assert state.action_ref == "a"
-                if state.status == InteractionStatus.PENDING:
-                    break
-                assert state.status == InteractionStatus.IDLE
+            async with InteractionService.with_session(role=role) as svc:
+                # Handling the interaction state
+                while True:
+                    await asyncio.sleep(0.1)
+                    # Let's query the interaction state
+                    if interactions := await svc.list_interactions(
+                        wf_exec_id=wf_exec_id
+                    ):
+                        # Loop until we get a pending interaction
+                        assert len(interactions) == 1
+                        interaction = interactions[0]
+                        # NOTE: We need to refresh the interaction to get the latest state
+                        # Since we're still inside the transaction
+                        await svc.session.refresh(interaction)
+                        interaction_id = interaction.id
+                        assert interaction.action_ref == "a"
+                        assert interaction.response_payload is None
+                        if interaction.status == InteractionStatus.PENDING:
+                            # Pending -> we have started waiting for a response
+                            break
+                        assert interaction.status == InteractionStatus.IDLE
 
             # Now, manually update the workflow to add an interaction
             input = InteractionInput(

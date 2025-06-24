@@ -1,0 +1,17 @@
+---
+description:
+globs:
+alwaysApply: true
+---
+- Always ask clarifying questions when you don't have full context or understanding of a task or question.
+- If you use the Linear MCP tool to create issues, you must add the label `ai-generated`to the issue.
+
+## Git Commit Messages
+
+When generating git commit messages:
+- Always use a conventional commit prefix (feat, refactor, fix, docs, chore, etc.)
+- Keep the main message under 50 characters INCLUDING the prefix
+- Use imperative mood after the prefix
+- Be specific but concise
+- No periods at the end
+- Format: 'prefix: message'

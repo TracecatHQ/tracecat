@@ -1,0 +1,54 @@
+type: action
+definition:
+  title: Search events
+  description: Search events from Splunk. Uses bearer token authentication.
+  display_group: Splunk
+  doc_url: https://docs.splunk.com/Documentation/Splunk/9.4.1/RESTREF/RESTsearch#search.2Fjobs
+  name: search_events
+  namespace: tools.splunk
+  secrets:
+    - name: splunk
+      keys:
+        - SPLUNK_API_KEY
+  expects:
+    query:
+      type: str
+      description: Splunk (Splunk Query Language) search query.
+    start_time:
+      type: datetime
+      description: Start time for the search.
+    end_time:
+      type: datetime
+      description: End time for the search.
+    limit:
+      type: int
+      description: Maximum number of events to return.
+    adhoc_search_level:
+      type: str
+      description: Adhoc search level.
+      default: fast
+    base_url:
+      type: str
+      description: Splunk base URL (e.g. https://localhost:8089).
+    verify_ssl:
+      type: bool
+      description: Whether to verify SSL certificates.
+      default: true
+  steps:
+    - ref: search_job
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/services/search/jobs
+        method: POST
+        verify_ssl: ${{ inputs.verify_ssl }}
+        headers:
+          Authorization: Bearer ${{ SECRETS.splunk.SPLUNK_API_KEY }}
+        form_data:
+          search: ${{ inputs.query }}
+          earliest_time: ${{ inputs.start_time }}
+          latest_time: ${{ inputs.end_time }}
+          adhoc_search_level: ${{ inputs.adhoc_search_level }}
+          exec_mode: oneshot
+          output_mode: json
+          max_count: ${{ inputs.limit }}
+  returns: ${{ steps.search_job.result }}

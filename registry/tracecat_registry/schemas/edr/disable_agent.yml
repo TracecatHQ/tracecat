@@ -1,0 +1,3 @@
+agent_id:
+  type: str
+  description: ID of the agent to enable.

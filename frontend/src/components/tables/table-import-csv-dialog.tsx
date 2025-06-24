@@ -1,17 +1,13 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
-import { useParams } from "next/navigation"
-import { ApiError, TableRead } from "@/client"
-import { useWorkspace } from "@/providers/workspace"
 import { zodResolver } from "@hookform/resolvers/zod"
-import { DialogProps } from "@radix-ui/react-dialog"
+import type { DialogProps } from "@radix-ui/react-dialog"
+import { useParams } from "next/navigation"
+import { useCallback, useEffect, useState } from "react"
 import { FormProvider, useForm, useFormContext } from "react-hook-form"
 import { z } from "zod"
-
-import { TracecatApiError } from "@/lib/errors"
-import { useGetTable, useImportCsv } from "@/lib/hooks"
-import { CsvPreviewData, getCsvPreview } from "@/lib/tables"
+import { ApiError, type TableRead } from "@/client"
+import { Spinner } from "@/components/loading/spinner"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -36,9 +32,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
 import { toast } from "@/components/ui/use-toast"
-import { Spinner } from "@/components/loading/spinner"
-import { Table, TableCell, TableBody, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import type { TracecatApiError } from "@/lib/errors"
+import { useGetTable, useImportCsv } from "@/lib/hooks"
+import { type CsvPreviewData, getCsvPreview } from "@/lib/tables"
+import { useWorkspace } from "@/providers/workspace"
 
 const BYTES_PER_MB = 1024 * 1024
 const FILE_SIZE_LIMIT_MB = 5
@@ -77,9 +83,13 @@ export function TableImportCsvDialog({
   open,
   onOpenChange,
 }: TableImportCsvDialogProps) {
-  const { tableId } = useParams<{ tableId: string }>()
+  const params = useParams<{ tableId: string }>()
+  const tableId = params?.tableId
   const { workspaceId } = useWorkspace()
-  const { table } = useGetTable({ tableId, workspaceId })
+  const { table } = useGetTable({
+    tableId: tableId ?? "",
+    workspaceId,
+  })
   const { importCsv, importCsvIsPending } = useImportCsv()
 
   const [isUploading, setIsUploading] = useState(false)
@@ -126,7 +136,7 @@ export function TableImportCsvDialog({
           file,
           column_mapping: JSON.stringify(columnMapping),
         },
-        tableId,
+        tableId: tableId ?? "",
         workspaceId,
       })
       toast({
@@ -285,56 +295,62 @@ interface CsvPreviewProps {
 }
 
 function CsvPreview({ csvData }: CsvPreviewProps) {
-
   return (
     <div className="space-y-4">
       <div className="text-sm font-medium">Preview (first 5 rows)</div>
-      <div className="rounded border max-h-60 overflow-auto">
+      <div className="max-h-60 overflow-auto rounded border">
         <Table className="min-w-full table-fixed">
           <TableHeader>
             <TableRow>
               {csvData.headers.map((header) => {
                 return (
-                <TableHead
-                  key={header}
-                  className="whitespace-nowrap sticky top-0 bg-muted/50 min-w-[160px]"
-                >
-                  {header}
-                </TableHead>
-              )})}
+                  <TableHead
+                    key={header}
+                    className="sticky top-0 min-w-[160px] whitespace-nowrap bg-muted/50"
+                  >
+                    {header}
+                  </TableHead>
+                )
+              })}
             </TableRow>
           </TableHeader>
           <TableBody>
             {csvData.preview.map((row, i) => {
               return (
-              <TableRow key={i}>
-                {csvData.headers.map((header) => {
-                  const cellValue = row[header];
-                  const isObject = typeof cellValue === 'object' && cellValue !== null;
-                  let displayValue;
-                  if (isObject) {
-                    const jsonString = JSON.stringify(cellValue);
-                    if (jsonString.length > 30) {
-                      displayValue = jsonString.substring(0, 27) + "...";
+                <TableRow key={i}>
+                  {csvData.headers.map((header) => {
+                    const cellValue = row[header]
+                    const isObject =
+                      typeof cellValue === "object" && cellValue !== null
+                    let displayValue
+                    if (isObject) {
+                      const jsonString = JSON.stringify(cellValue)
+                      if (jsonString.length > 30) {
+                        displayValue = jsonString.substring(0, 27) + "..."
+                      } else {
+                        displayValue = jsonString
+                      }
                     } else {
-                      displayValue = jsonString;
+                      displayValue = String(cellValue || "")
                     }
-                  } else {
-                    displayValue = String(cellValue || '');
-                  }
 
-
-                  return (
-                  <TableCell
-                    key={header}
-                    className="truncate min-w-[160px]"
-                    title={isObject ? JSON.stringify(cellValue) : String(cellValue || '')}
-                  >
-                    {displayValue}
-                  </TableCell>
-                )})}
-              </TableRow>
-            )})}
+                    return (
+                      <TableCell
+                        key={header}
+                        className="min-w-[160px] truncate"
+                        title={
+                          isObject
+                            ? JSON.stringify(cellValue)
+                            : String(cellValue || "")
+                        }
+                      >
+                        {displayValue}
+                      </TableCell>
+                    )
+                  })}
+                </TableRow>
+              )
+            })}
           </TableBody>
         </Table>
       </div>

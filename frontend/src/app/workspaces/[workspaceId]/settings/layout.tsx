@@ -1,12 +1,10 @@
+import type { Metadata } from "next"
 import { Suspense } from "react"
-import { Metadata } from "next"
-
-import { CenteredSpinner } from "@/components/loading/spinner"
 import { SidebarNav } from "@/app/workspaces/[workspaceId]/settings/sidebar-nav"
+import { CenteredSpinner } from "@/components/loading/spinner"
 
 export const metadata: Metadata = {
-  title: "Workspace Settings",
-  description: "Workspace Settings",
+  title: "Settings | Workspace",
 }
 
 export default async function WorkspaceSettingsLayout({

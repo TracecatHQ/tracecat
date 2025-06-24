@@ -30,20 +30,20 @@ dependencies = [
     "colorlog==6.8.2",
     "cryptography==44.0.1",
     "dateparser>=1.2.1,<1.3.0",
+    "defusedxml==0.7.1",
     "email-validator>=2.0.0",
-    "fastapi-users[sqlalchemy,oauth]==13.0.0",
-    "fastapi==0.111.0",
+    "fastapi-users[sqlalchemy,oauth]==14.0.1",
+    "fastapi[standard]==0.115.12",
     "google-auth==2.37.0",
     "greenlet==3.0.3",
     "hatchling==1.27.0",
-    "httpx==0.27.2",
+    "httpx==0.28.1",
     "jsonpath_ng>=1.7.0,<1.8.0",
     "kubernetes==32.0.1",
     "lark==1.1.9",
     "loguru==0.7.2",
+    "minio==7.2.15",
     "msal==1.31.1",
-    "ollama==0.4.7",
-    "openai==1.66.3",
     "orjson==3.10.3",
     "paramiko==3.5.0",
     "phonenumbers==8.13.55",
@@ -60,7 +60,7 @@ dependencies = [
     "tenacity==8.3.0",
     "tomli==2.2.1",
     "uv==0.4.10",
-    "uvicorn==0.29.0",
+    "uvicorn>=0.33.0,<0.34",
     "virtualenv==20.27.0",
 ]
 dynamic = ["version"]
@@ -121,6 +121,7 @@ log_level = "ERROR"
 log_cli = true
 log_cli_level = "ERROR"
 markers = [
+    "anyio: marks tests as requiring the anyio pytest plugin",
     "webtest: marks tests that require the web",
     "slow: marks tests as slow",
     "dbtest: marks tests that make database calls",

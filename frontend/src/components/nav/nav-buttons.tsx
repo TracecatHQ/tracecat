@@ -1,10 +1,10 @@
 "use client"
 
+import { BuildingIcon, ChevronLeftIcon, LibraryBigIcon } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { BuildingIcon, ChevronLeftIcon, LibraryBigIcon } from "lucide-react"
-
 import { cn } from "@/lib/utils"
+import { useAuth } from "@/providers/auth"
 
 export function RegistryNavButton() {
   const pathname = usePathname()
@@ -24,6 +24,10 @@ export function RegistryNavButton() {
 
 export function OrganizationNavButton() {
   const pathname = usePathname()
+  const { user } = useAuth()
+  if (!user?.isPrivileged()) {
+    return null
+  }
   return (
     <Link
       href={"/organization"}

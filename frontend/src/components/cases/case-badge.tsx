@@ -1,9 +1,9 @@
-import React, { PropsWithChildren } from "react"
-import { CasePriority, CaseSeverity, CaseStatus } from "@/client"
-import { LucideIcon } from "lucide-react"
-
-import { cn } from "@/lib/utils"
+import type { LucideIcon } from "lucide-react"
+import type React from "react"
+import type { PropsWithChildren } from "react"
+import type { CasePriority, CaseSeverity, CaseStatus } from "@/client"
 import { Badge } from "@/components/ui/badge"
+import { cn } from "@/lib/utils"
 
 type CaseBadgeValue = CaseStatus | CasePriority | CaseSeverity
 export interface CaseBadgeProps<T extends CaseBadgeValue>

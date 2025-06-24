@@ -24,8 +24,22 @@ from tracecat.common import is_iterable
 from tracecat.contexts import ctx_interaction
 from tracecat.ee.interactions.models import InteractionContext
 from tracecat.expressions.formatters import tabulate
-from tracecat.expressions.ioc_extractors.email import extract_emails
-from tracecat.expressions.ioc_extractors.ip import extract_ipv4
+from tracecat.expressions.ioc_extractors import (
+    extract_asns,
+    extract_cves,
+    extract_domains,
+    extract_emails,
+    extract_ip,
+    extract_ipv4,
+    extract_ipv6,
+    extract_mac,
+    extract_md5,
+    extract_sha1,
+    extract_sha256,
+    extract_sha512,
+    extract_urls,
+    normalize_email,
+)
 from tracecat.parse import unescape_string
 
 
@@ -287,22 +301,22 @@ def compact(x: list[Any]) -> list[Any]:
 
 
 def is_in(item: Any, container: Sequence[Any]) -> bool:
-    """Check if item exists in container."""
+    """Check if item exists in a sequence."""
     return item in container
 
 
 def not_in(item: Any, container: Sequence[Any]) -> bool:
-    """Check if item does not exist in container."""
+    """Check if item does not exist in a sequence."""
     return item not in container
 
 
 def is_empty(x: Sequence[Any]) -> bool:
-    """Check if sequence is empty."""
+    """Check if sequence has length 0."""
     return len(x) == 0
 
 
 def not_empty(x: Sequence[Any]) -> bool:
-    """Check if sequence is not empty."""
+    """Check if sequence has length greater than 0."""
     return len(x) > 0
 
 
@@ -355,6 +369,21 @@ def create_range(start: int, end: int, step: int = 1) -> range:
 # NOTE: Use "object" in docstrings to align to Javascript / JSON terminology.
 
 
+def is_json(x: str) -> bool:
+    """Check if a string is valid JSON.
+
+    Args:
+        x: The string to check.
+
+    Returns:
+    """
+    try:
+        orjson.loads(x)
+        return True
+    except orjson.JSONDecodeError:
+        return False
+
+
 def index_by_key(
     x: list[dict[str, Any]],
     field_key: str,
@@ -386,6 +415,11 @@ def dict_values(x: dict[Any, Any]) -> list[Any]:
     return list(x.values())
 
 
+def zip_map(x: list[str], y: list[str]) -> dict[str, str]:
+    """Zip two arrays into list of key-value pairs, then convert into mapping."""
+    return dict(zip(x, y, strict=False))
+
+
 def map_dict_keys(x: dict[str, Any], keys: dict[str, str]) -> dict[str, Any]:
     """Map keys in an object to new keys."""
     try:
@@ -408,10 +442,7 @@ def prettify_json(x: Any) -> str:
 
 
 def to_datetime(x: Any, timezone: str | None = None) -> datetime:
-    """Convert to timezone-aware datetime object from timestamp (in seconds), ISO 8601 string or existing datetime.
-
-    Supports timezone-aware datetime objects if IANA timezone is provided.
-    """
+    """Convert to timezone-aware datetime object from timestamp (in seconds), ISO 8601 string or existing datetime."""
     tzinfo = None
     if timezone:
         tzinfo = zoneinfo.ZoneInfo(timezone)
@@ -491,8 +522,10 @@ def to_timestamp(x: datetime | str, unit: str = "s") -> int:
     return int(ts)
 
 
-def from_timestamp(x: int, unit: str = "s") -> datetime:
-    """Convert integer timestamp in milliseconds ('ms') or seconds ('s') to datetime."""
+def from_timestamp(x: float | int | str, unit: str = "s") -> datetime:
+    """Convert timestamp in milliseconds ('ms') or seconds ('s') to datetime."""
+    if isinstance(x, str):
+        x = float(x)
     if unit == "ms":
         dt = datetime.fromtimestamp(x / 1000, UTC)
     else:
@@ -733,11 +766,11 @@ def weeks_between(start: datetime | str, end: datetime | str) -> float:
     return (end - start).total_seconds() / 604800
 
 
-def to_isoformat(x: datetime | str) -> str:
+def to_isoformat(x: datetime | str, timespec: str = "auto") -> str:
     """Convert datetime to ISO format string."""
     if isinstance(x, str):
         x = to_datetime(x)
-    return x.isoformat()
+    return x.isoformat(timespec=timespec)
 
 
 def now() -> datetime:
@@ -888,6 +921,8 @@ _FUNCTION_MAPPING = {
     "is_null": is_null,
     "less_than_or_equal": less_than_or_equal,
     "less_than": less_than,
+    "is_not_equal": not_equal,  # alias for not_equal
+    "is_not_null": not_null,  # alias for not_null
     "not_equal": not_equal,
     "not_null": not_null,
     # Regex
@@ -903,8 +938,11 @@ _FUNCTION_MAPPING = {
     "is_in": is_in,
     "length": len,
     "not_empty": not_empty,
+    "is_not_empty": not_empty,  # alias for not_empty
     "not_in": not_in,
+    "is_not_in": not_in,  # alias for not_in
     "unique": unique,
+    "zip_map": zip_map,  # Inspired by Terraform: https://developer.hashicorp.com/terraform/language/functions/zipmap
     # Math
     "add": add,
     "sub": sub,
@@ -932,12 +970,13 @@ _FUNCTION_MAPPING = {
     "or": or_,
     "not": not_,
     # Type conversion
-    "serialize_json": serialize_json,
+    "is_json": is_json,
     "deserialize_json": orjson.loads,
-    "serialize_yaml": serialize_yaml,
+    "deserialize_ndjson": deserialize_ndjson,
     "deserialize_yaml": deserialize_yaml,
     "prettify_json": prettify_json,
-    "deserialize_ndjson": deserialize_ndjson,
+    "serialize_json": serialize_json,
+    "serialize_yaml": serialize_yaml,
     # Time related
     "datetime": create_datetime,
     "days_between": days_between,
@@ -986,8 +1025,20 @@ _FUNCTION_MAPPING = {
     # Interaction
     "get_interaction": get_interaction,
     # IOC extractors
+    "extract_asns": extract_asns,
+    "extract_cves": extract_cves,
+    "extract_domains": extract_domains,
     "extract_emails": extract_emails,
+    "extract_md5": extract_md5,
+    "extract_sha1": extract_sha1,
+    "extract_sha256": extract_sha256,
+    "extract_sha512": extract_sha512,
+    "extract_ip": extract_ip,
     "extract_ipv4": extract_ipv4,
+    "extract_ipv6": extract_ipv6,
+    "extract_mac": extract_mac,
+    "extract_urls": extract_urls,
+    "normalize_email": normalize_email,
 }
 
 OPERATORS = {

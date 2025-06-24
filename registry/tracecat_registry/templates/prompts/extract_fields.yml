@@ -1,0 +1,255 @@
+type: action
+definition:
+  title: Extract important fields
+  description: >
+    Returns `system_prompt` and `prompt`.
+    Extract important fields from an alert.
+  display_group: Prompts
+  namespace: prompts.secops
+  name: extract_fields
+  expects:
+    input:
+      type: dict[str, any]
+      description: Alert to extract important fields from.
+    backstory:
+      type: str
+      description: >
+        What are the alerts about? Where did they come from?
+        What is the organization?
+    role:
+      type: str
+      description: >
+        Who is the analyst examining these alerts?
+        What is their role? For what organization?
+    example_responses:
+      type: list[dict[str, any]] | None
+      description: >
+        Example responses from the model to improve the quality of the output.
+        Must fit the structured output schema. See `few_shot` step for an example.
+      default: null
+  steps:
+    - ref: few_shot
+      action: core.transform.reshape
+      args:
+        value: [
+          {
+            "thoughts": [
+              "Initial observation: According to the alert summary, this is a login attempt from an unusual IP address",
+              "The alert context includes information that this user is a high-value target"
+            ],
+            "important_fields": [
+              {
+                "name": "source_ip",
+                "value": "192.168.1.1",
+                "description": "IP address where the login attempt originated",
+                "information_type": "where",
+                "is_potential_ioc": true,
+                "ioc_type": "ip_address",
+                "reasoning": "This IP is from a different country than the user normally accesses from, which is suspicious and warrants further investigation for potential unauthorized access."
+              },
+              {
+                "name": "username",
+                "value": "jdoe",
+                "description": "Username associated with the login attempt",
+                "information_type": "who",
+                "is_potential_ioc": false,
+                "reasoning": "Understanding the user's role and typical behavior is crucial for assessing the alert's validity, even if the username itself isn't an IOC in this context."
+              }
+            ]
+          },
+          {
+            "thoughts": [
+              "EDR alert indicates malware detection.",
+              "The signature name 'Generic.Malware.SFL.12345' suggests it's a known malicious file.",
+              "Need to identify key components of the detection for further action."
+            ],
+            "important_fields": [
+              {
+                "name": "hostname",
+                "value": "desktop-jh7",
+                "description": "The endpoint where the malware was detected.",
+                "information_type": "where",
+                "is_potential_ioc": true,
+                "ioc_type": "hostname",
+                "reasoning": "Identifies the potentially compromised machine, crucial for containment, remediation, and further host-based investigation."
+              },
+              {
+                "name": "process_name",
+                "value": "svchost.exe",
+                "description": "The process associated with the malware detection.",
+                "information_type": "what",
+                "is_potential_ioc": true,
+                "ioc_type": "process_name",
+                "reasoning": "Though svchost.exe is a system process, its association with a malware signature makes it a key indicator requiring detailed process analysis."
+              },
+              {
+                "name": "signature_name",
+                "value": "Generic.Malware.SFL.12345",
+                "description": "The malware signature identified by the EDR.",
+                "information_type": "what",
+                "is_potential_ioc": true,
+                "ioc_type": "other",
+                "reasoning": "Confirms the malicious nature of the activity and is vital for threat intelligence lookups and understanding malware capabilities."
+              }
+            ]
+          },
+          {
+            "thoughts": [
+              "SIEM alert for multiple failed login attempts.",
+              "25 failures in 5 minutes for 'svc_backup' is highly suspicious.",
+              "Likely a brute-force or password spraying attack. Key fields are the target account, source, and attacked system."
+            ],
+            "important_fields": [
+              {
+                "name": "username",
+                "value": "svc_backup",
+                "description": "The account targeted by the failed login attempts.",
+                "information_type": "who",
+                "is_potential_ioc": true,
+                "ioc_type": "username",
+                "reasoning": "Service accounts are often targeted due to potentially high privileges; its compromise could be severe. This requires checks on its status and activity."
+              },
+              {
+                "name": "source_ip",
+                "value": "203.0.113.45",
+                "description": "The IP address from which the failed login attempts originated.",
+                "information_type": "where",
+                "is_potential_ioc": true,
+                "ioc_type": "ip_address",
+                "reasoning": "External IP attempting multiple failed logins is a strong indicator of an attack and needs reputation/geolocation checks."
+              },
+              {
+                "name": "target_system",
+                "value": "server_db_01",
+                "description": "The system targeted by the login attempts.",
+                "information_type": "where",
+                "is_potential_ioc": true,
+                "ioc_type": "hostname",
+                "reasoning": "Identifies the asset under attack; important for assessing potential impact and prioritizing response based on system criticality."
+              },
+              {
+                "name": "attempt_count",
+                "value": "25",
+                "description": "Number of failed login attempts.",
+                "information_type": "what",
+                "is_potential_ioc": false,
+                "reasoning": "High number of attempts over a short period strongly indicates an automated attack rather than human error, adding context to the severity."
+              }
+            ]
+          }
+        ]
+    - ref: response_format
+      action: core.transform.reshape
+      args:
+        value:
+          type: json_schema
+          name: important_fields
+          strict: true
+          schema:
+            type: object
+            required:
+              - thoughts
+              - important_fields
+            additionalProperties: false
+            properties:
+              thoughts:
+                type: array
+                items:
+                  type: string
+              important_fields:
+                type: array
+                items:
+                  type: object
+                  required:
+                    - name
+                    - value
+                    - description
+                    - information_type
+                    - is_potential_ioc
+                    - reasoning
+                  additionalProperties: false
+                  properties:
+                    name:
+                      type: string
+                    value:
+                      type: string
+                    description:
+                      type: string
+                    information_type:
+                      type: string
+                      enum:
+                        - who
+                        - what
+                        - when
+                        - where
+                        - why
+                        - how
+                    is_potential_ioc:
+                      type: boolean
+                    ioc_type:
+                      type: ["string", "null"]
+                      enum: [ip_address, domain, url, email, file_hash, username, hostname, process_name, cve_id, other, "null"]
+                      description: "Type of Indicator of Compromise, if applicable. Required if is_potential_ioc is true."
+                    reasoning:
+                      type: string
+    - ref: system_prompt
+      action: core.transform.reshape
+      args:
+        value: >
+          <backstory>
+          ${{ inputs.backstory }}
+          </backstory>
+
+          <role>
+          ${{ inputs.role }}
+          </role>
+
+          <instructions>
+          Approach this analysis systematically:
+          1. First review the entire alert to understand the full context.
+          2. Identify fields that are crucial for understanding the event or could indicate malicious activity.
+          3. For each identified field, extract its `name` and actual `value` from the alert.
+          4. Provide a `description` of what the field represents and its `information_type` (who, what, when, where, why, how).
+          5. Determine if the field `is_potential_ioc`. If true, you MUST specify its `ioc_type`.
+          6. Explain your `reasoning` for why this field is important in the context of the alert and for potential downstream investigation.
+          7. Capture your overall thought process, initial hypotheses, and any uncertainties in the main `thoughts` array.
+          </instructions>
+
+          <guidance>
+          - You must extract specific, actual values from the alert for each field.
+          - Your analysis should be critical, considering the provided backstory and your role.
+          - If `is_potential_ioc` is true, you MUST provide an `ioc_type`.
+          - `reasoning` should explain the significance of the field itself and why it might be relevant for investigation, without detailing *how* to investigate.
+          - Ensure your output is formatted as JSON that strictly adheres to the schema presented in the `<response_schema>` section.
+          </guidance>
+
+          <response_schema>
+          Your output must be a single JSON object matching the following schema:
+          ```json
+          ${{ steps.response_format.result }}
+          ```
+          </response_schema>
+
+          <examples>
+          Here are some examples of how to structure your response based on different alerts:
+          ${{ inputs.example_responses || steps.few_shot.result }}
+          </examples>
+
+          <task>
+          Carefully analyze the provided alert using the context (alert data, backstory, and your role).
+          Your main objectives are:
+          1. Identify and extract important fields from the alert.
+          2. For each important field, provide its `name`, `value`, `description`, `information_type`, state if it `is_potential_ioc` (including `ioc_type` if true), and explain your `reasoning`.
+          3. Document your overall `thoughts` on the analysis, including your initial assessment and any notable ambiguities.
+          </task>
+    - ref: prompt
+      action: core.transform.reshape
+      args:
+        value: |
+          <alert>
+          ${{ inputs.input }}
+          </alert>
+  returns:
+    system_prompt: ${{ steps.system_prompt.result }}
+    prompt: ${{ steps.prompt.result }}
+    response_format: ${{ steps.response_format.result }}

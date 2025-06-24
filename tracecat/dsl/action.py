@@ -18,6 +18,8 @@ from tracecat.contexts import ctx_logger, ctx_run
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.dsl.models import ActionErrorInfo, ActionStatement, RunActionInput
 from tracecat.executor.client import ExecutorClient
+from tracecat.expressions.common import ExprContext
+from tracecat.expressions.core import TemplateExpression
 from tracecat.logger import logger
 from tracecat.registry.actions.models import RegistryActionValidateResponse
 from tracecat.types.auth import Role
@@ -68,6 +70,7 @@ class DSLActivities:
                     session=session,
                     action_name=input.task.action,
                     args=input.task.args,
+                    action_ref=input.task.ref,
                 )
 
                 if result.status == "error":
@@ -81,6 +84,12 @@ class DSLActivities:
             raise RegistryError(
                 f"Action {input.task.action!r} not found in registry",
             ) from e
+
+    @staticmethod
+    @activity.defn
+    async def noop_gather_action_activity(input: RunActionInput, role: Role) -> Any:
+        """No-op gather action activity."""
+        return input.exec_context.get(ExprContext.ACTIONS, {}).get(input.task.ref)
 
     @staticmethod
     @activity.defn
@@ -106,8 +115,8 @@ class DSLActivities:
 
         act_info = activity.info()
         act_attempt = act_info.attempt
-        log.info(
-            "Run action activity",
+        log.debug(
+            "Action activity details",
             task=task,
             attempt=act_attempt,
             retry_policy=task.retry_policy,
@@ -120,7 +129,7 @@ class DSLActivities:
             ):
                 with attempt_manager:
                     log.info(
-                        "Tenacity retrying",
+                        "Begin action attempt",
                         attempt_number=attempt_manager.retry_state.attempt_number,
                     )
                     client = ExecutorClient(role=role)
@@ -180,3 +189,13 @@ class DSLActivities:
             wait_until, settings={"TIMEZONE": "UTC", "RETURN_AS_TIMEZONE_AWARE": True}
         )
         return dt.isoformat() if dt else None
+
+    @staticmethod
+    @activity.defn
+    def evaluate_single_expression_activity(
+        expression: str,
+        operand: dict[str, Any],
+    ) -> Any:
+        """Synchronously evaluate an expression. Strip whitespace from the expression."""
+        expr = TemplateExpression(expression.strip(), operand=operand)
+        return expr.result()

@@ -1,9 +1,9 @@
 "use client"
 
-import { useAppInfo } from "@/lib/hooks"
+import { OrgSettingsAppForm } from "@/components/organization/org-settings-app"
 import { Badge } from "@/components/ui/badge"
 import { Label } from "@/components/ui/label"
-import { OrgSettingsAppForm } from "@/components/organization/org-settings-app"
+import { useAppInfo } from "@/lib/hooks"
 
 export default function AppSettingsPage() {
   const { appInfo } = useAppInfo()
@@ -23,7 +23,7 @@ export default function AppSettingsPage() {
 
         <div className="mb-4 flex flex-row items-center justify-between rounded-lg border p-4">
           <div className="space-y-0.5">
-            <Label>Application Version</Label>
+            <Label>Application version</Label>
           </div>
           <Badge variant="secondary" className="text-xs text-muted-foreground">
             {appInfo?.version ?? "Unknown"}

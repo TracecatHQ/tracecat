@@ -1,0 +1,41 @@
+type: action
+definition:
+  title: Lookup agents by MAC address
+  description: Find all SentinelOne agents by MAC address (network interface physical address or gateway MAC).
+  display_group: SentinelOne
+  doc_url: https://<base_url>/api-doc/api-details?category=agents&api=get-agents
+  namespace: tools.sentinel_one
+  name: lookup_agent_mac_addr
+  secrets:
+    - name: sentinel_one
+      keys: ["SENTINEL_ONE_API_TOKEN"]
+  expects:
+    base_url:
+      type: str
+      description: SentinelOne console base URL (e.g., https://your-tenant.sentinelone.net)
+    mac_address:
+      type: str
+      description: MAC address to search for (supports partial matches, e.g., "aa:0f" or "41:")
+    search_gateway_mac:
+      type: bool
+      description: Whether to also search gateway MAC addresses
+      default: false
+    limit:
+      type: int
+      description: Maximum number of agents to return (1-1000)
+      default: 100
+  steps:
+    - ref: lookup_agents
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/web/api/v2.1/agents
+        method: GET
+        timeout: 60
+        headers:
+          Authorization: ApiToken ${{ SECRETS.sentinel_one.SENTINEL_ONE_API_TOKEN }}
+          Content-Type: application/json
+        params:
+          networkInterfacePhysical__contains: ${{ inputs.mac_address }}
+          networkInterfaceGatewayMacAddress__contains: ${{ inputs.mac_address if inputs.search_gateway_mac else None }}
+          limit: ${{ inputs.limit }}
+  returns: ${{ steps.lookup_agents.result }}

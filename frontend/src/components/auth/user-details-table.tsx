@@ -1,6 +1,6 @@
 "use client"
 
-import { UserRead } from "@/client"
+import type { UserRead } from "@/client"
 
 import {
   Table,

@@ -70,13 +70,14 @@ TableColumnID = UUID4
 TableRowID = UUID4
 
 InternalServiceID = Literal[
-    "tracecat-runner",
     "tracecat-api",
+    "tracecat-bootstrap",
     "tracecat-cli",
+    "tracecat-executor",
+    "tracecat-runner",
     "tracecat-schedule-runner",
     "tracecat-service",
-    "tracecat-executor",
-    "tracecat-bootstrap",
+    "tracecat-ui",
 ]
 
 __all__ = [

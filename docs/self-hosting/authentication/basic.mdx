@@ -5,8 +5,8 @@ icon: keyboard
 ---
 
 <Warning>
-  Basic auth should only be used for local development.
-  For production, use [Google OAuth](/self-hosting/authentication/google-oauth) or [SAML SSO](/self-hosting/authentication/saml-sso).
+  In production, use [Google OAuth](/self-hosting/authentication/google-oauth) or [SAML SSO](/self-hosting/authentication/saml-sso).
+  Basic auth is meant for local development only.
 </Warning>
 
 # Configuration
@@ -15,7 +15,6 @@ In your `.env` file, make sure you have the following environment variables set:
 
 ```bash
 TRACECAT__AUTH_TYPES=basic
-TRACECAT__SETTING_OVERRIDE_AUTH_BASIC_ENABLED=true
 ```
 
 ## Sign-up

@@ -1,20 +1,16 @@
 "use client"
 
-import React, { useEffect, useState } from "react"
-import { usePathname, useRouter } from "next/navigation"
-import {
-  ApiError,
-  CreateWorkspaceParams,
-  WorkspaceMetadataResponse,
-} from "@/client"
-import { useAuth } from "@/providers/auth"
-import { useWorkspace } from "@/providers/workspace"
 import { CaretSortIcon, CheckIcon } from "@radix-ui/react-icons"
 import { KeyRoundIcon, PlusCircleIcon } from "lucide-react"
+import { usePathname, useRouter } from "next/navigation"
+import type React from "react"
+import { useEffect, useState } from "react"
 import { useForm } from "react-hook-form"
-
-import { useWorkspaceManager } from "@/lib/hooks"
-import { cn } from "@/lib/utils"
+import {
+  ApiError,
+  type WorkspaceCreate,
+  type WorkspaceReadMinimal,
+} from "@/client"
 import { Button } from "@/components/ui/button"
 import {
   Command,
@@ -48,16 +44,19 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
+import { useWorkspaceManager } from "@/lib/hooks"
+import { cn } from "@/lib/utils"
+import { useAuth } from "@/providers/auth"
+import { useWorkspace } from "@/providers/workspace"
 
 export function WorkspaceSelector(props: React.HTMLAttributes<HTMLElement>) {
   const { user } = useAuth()
-  const isAdmin = user?.is_superuser || user?.role === "admin"
   const { workspaceId, workspaceLoading, workspaceError } = useWorkspace()
   const { workspaces, workspacesError, workspacesLoading, setLastWorkspaceId } =
     useWorkspaceManager()
   const [open, setOpen] = useState(false)
   const [currWorkspace, setCurrWorkspace] = useState<
-    WorkspaceMetadataResponse | undefined
+    WorkspaceReadMinimal | undefined
   >()
   const pathname = usePathname()
   const router = useRouter()
@@ -94,7 +93,7 @@ export function WorkspaceSelector(props: React.HTMLAttributes<HTMLElement>) {
             role="combobox"
             aria-label="Load a workspace..."
             aria-expanded={open}
-            className="flex-1 justify-between md:min-w-[150px] md:max-w-[200px] lg:min-w-[250px] lg:max-w-[300px]"
+            className="h-8 flex-1 justify-between md:min-w-[150px] md:max-w-[200px] lg:min-w-[250px] lg:max-w-[300px]"
           >
             {currWorkspace?.name || "Select a workspace..."}
             <CaretSortIcon className="ml-2 size-4 shrink-0 opacity-50" />
@@ -109,6 +108,7 @@ export function WorkspaceSelector(props: React.HTMLAttributes<HTMLElement>) {
                 {workspaces?.map((ws) => (
                   <CommandItem
                     key={ws.id}
+                    value={ws.id}
                     onSelect={() => {
                       setCurrWorkspace(ws)
                       // replace /workspaces/<ws-id>/... with /workspaces/<new-ws-id>/...
@@ -132,7 +132,7 @@ export function WorkspaceSelector(props: React.HTMLAttributes<HTMLElement>) {
                   </CommandItem>
                 ))}
               </CommandGroup>
-              {isAdmin && (
+              {user?.isPrivileged() && (
                 <>
                   <CommandSeparator />
                   <CommandGroup heading="Management">
@@ -166,13 +166,13 @@ function CreateWorkspaceForm({
   setOpen: (open: boolean) => void
 }) {
   const { createWorkspace } = useWorkspaceManager()
-  const methods = useForm<CreateWorkspaceParams>({
+  const methods = useForm<WorkspaceCreate>({
     defaultValues: {
       name: "",
     },
   })
 
-  const onSubmit = async (values: CreateWorkspaceParams) => {
+  const onSubmit = async (values: WorkspaceCreate) => {
     console.log("Creating workspace", values)
     try {
       await createWorkspace(values)

@@ -3,9 +3,8 @@ from __future__ import annotations
 import asyncio
 import datetime
 import json
-import uuid
 from collections import OrderedDict
-from collections.abc import AsyncGenerator, Awaitable
+from collections.abc import AsyncGenerator, Awaitable, Sequence
 from typing import Any
 
 from temporalio.api.enums.v1 import EventType
@@ -26,23 +25,23 @@ from temporalio.service import RPCError
 
 from tracecat import config
 from tracecat.contexts import ctx_role
+from tracecat.db.schemas import Interaction
 from tracecat.dsl.client import get_temporal_client
-from tracecat.dsl.common import DSLInput, DSLRunArgs
-from tracecat.dsl.models import TriggerInputs
+from tracecat.dsl.common import RETRY_POLICIES, DSLInput, DSLRunArgs
+from tracecat.dsl.models import Task, TriggerInputs
 from tracecat.dsl.validation import validate_trigger_inputs
-from tracecat.dsl.workflow import DSLWorkflow, retry_policies
-from tracecat.ee.interactions.models import InteractionInput, InteractionState
+from tracecat.dsl.workflow import DSLWorkflow
+from tracecat.ee.interactions.models import InteractionInput
+from tracecat.ee.interactions.service import InteractionService
 from tracecat.identifiers import UserID
 from tracecat.identifiers.workflow import (
-    ExecutionUUID,
     WorkflowExecutionID,
     WorkflowID,
-    WorkflowUUID,
     generate_exec_id,
 )
 from tracecat.logger import logger
 from tracecat.types.auth import Role
-from tracecat.types.exceptions import TracecatServiceError, TracecatValidationError
+from tracecat.types.exceptions import TracecatValidationError
 from tracecat.workflow.executions.common import (
     HISTORY_TO_WF_EVENT_TYPE,
     build_query,
@@ -58,6 +57,7 @@ from tracecat.workflow.executions.enums import (
     TemporalSearchAttr,
     TriggerType,
     WorkflowEventType,
+    WorkflowExecutionEventStatus,
 )
 from tracecat.workflow.executions.models import (
     EventFailure,
@@ -91,10 +91,10 @@ class WorkflowExecutionsService:
     async def query_interaction_states(
         self,
         wf_exec_id: WorkflowExecutionID,
-    ) -> dict[uuid.UUID, InteractionState]:
+    ) -> Sequence[Interaction]:
         """Query the interaction states for a workflow execution."""
-        handle = self.handle(wf_exec_id)
-        return await handle.query(DSLWorkflow.get_interaction_states)
+        async with InteractionService.with_session(role=self.role) as svc:
+            return await svc.list_interactions(wf_exec_id=wf_exec_id)
 
     async def query_executions(
         self,
@@ -128,39 +128,13 @@ class WorkflowExecutionsService:
         self, wf_exec_id: WorkflowExecutionID, _include_legacy: bool = True
     ) -> WorkflowExecution | None:
         self.logger.info("Getting workflow execution", wf_exec_id=wf_exec_id)
-
-        # For every ID that comes in, we try both new and legacy
-        # This is a new ID, so we can just query it
-        # This is the new query
-        parts = [f"WorkflowId = '{wf_exec_id}'"]
-        if _include_legacy:
-            # For backwards compatibility, include the legacy format as well
-            # Involves:
-            # - Replacing the slash with a colon
-            # - Turn all segments into legacy versions
-            try:
-                wf, ex = wf_exec_id.split("/", 1)
-            except ValueError as e:
-                raise TracecatServiceError("Invalid workflow execution ID") from e
-
-            wf_id = WorkflowUUID.new(wf)
-            legacy_wf_id = wf_id.to_legacy()
-
-            # Get suffix
-            if ex.startswith("sch-"):
-                # It's a schedule. Only have legacy format
-                legacy_wf_exec_id = f"{legacy_wf_id}:{ex}"
-                parts.append(f"WorkflowId = '{legacy_wf_exec_id}'")
-            else:
-                # It's a workflow execution (exec)
-                ex_id = ExecutionUUID.new(ex)
-                legacy_ex_id = ex_id.to_legacy()
-                legacy_wf_exec_id = f"{legacy_wf_id}:{legacy_ex_id}"
-                parts.append(f"WorkflowId = '{legacy_wf_exec_id}'")
-        query = " OR ".join(parts)
-        self.logger.debug("Querying executions", query=query)
-        it = self._client.list_workflows(query=query)
-        return await anext(it, None)
+        handle = self.handle(wf_exec_id)
+        try:
+            return await handle.describe()
+        except RPCError as e:
+            if "not found" in str(e).lower():
+                return None
+            raise
 
     async def list_executions(
         self,
@@ -234,7 +208,10 @@ class WorkflowExecutionsService:
                     continue
                 wf_event_type = HISTORY_TO_WF_EVENT_TYPE[event.event_type]
                 source.curr_event_type = wf_event_type
-                source.status = wf_event_type.to_status()
+                if source.status != WorkflowExecutionEventStatus.DETACHED:
+                    # Only overwrite the status if it's not already set to DETACHED
+                    # If it's DETACHED the status remains unchanged
+                    source.status = wf_event_type.to_status()
                 if is_start_event(event):
                     source.start_time = event.event_time.ToDatetime(datetime.UTC)
                 if is_close_event(event):
@@ -244,10 +221,11 @@ class WorkflowExecutionsService:
                     source.action_error = EventFailure.from_history_event(event)
         # For the resultant values, if there are duplicate source action_refs,
         #  we should merge them into a single event.
-        finalRef2events: dict[str, WorkflowExecutionEventCompact] = {}
+        task2events: dict[Task, WorkflowExecutionEventCompact] = {}
         for event in id2event.values():
-            if event.action_ref in finalRef2events:
-                group_event = finalRef2events[event.action_ref]
+            task = Task(ref=event.action_ref, stream_id=event.stream_id)
+            if task in task2events:
+                group_event = task2events[task]
                 group_event.child_wf_count += 1
                 # Take the min start time
                 if group_event.start_time and event.start_time:
@@ -267,18 +245,16 @@ class WorkflowExecutionsService:
                 ):
                     group_event.action_result.append(event.action_result)
             else:
-                finalRef2events[event.action_ref] = event
+                task2events[task] = event
                 # There's an edge case where a direct child wf invocation and a single looped child wf invocation
                 # is ambiguous - how do we tell whether we should wrap the result in a list or not?
                 # We use Temporal memo to store the loop index, so we can detect this case
                 # If the loop index is None, it means it was a direct child wf invocation
                 # Otherwise, it was a looped child wf invocation
                 if event.loop_index is not None:
-                    finalRef2events[event.action_ref].action_result = [
-                        event.action_result
-                    ]
+                    task2events[task].action_result = [event.action_result]
 
-        return list(finalRef2events.values())
+        return list(task2events.values())
 
     async def list_workflow_execution_events(
         self,
@@ -608,14 +584,19 @@ class WorkflowExecutionsService:
 
         Note: This method schedules the workflow execution and returns immediately.
         """
+        wf_exec_id = generate_exec_id(wf_id)
         coro = self.create_workflow_execution(
-            dsl=dsl, wf_id=wf_id, payload=payload, trigger_type=trigger_type
+            dsl=dsl,
+            wf_id=wf_id,
+            payload=payload,
+            trigger_type=trigger_type,
+            wf_exec_id=wf_exec_id,
         )
         _ = asyncio.create_task(coro)
         return WorkflowExecutionCreateResponse(
             message="Workflow execution started",
             wf_id=wf_id,
-            wf_exec_id=generate_exec_id(wf_id),
+            wf_exec_id=wf_exec_id,
         )
 
     async def create_workflow_execution(
@@ -625,6 +606,7 @@ class WorkflowExecutionsService:
         wf_id: WorkflowID,
         payload: TriggerInputs | None = None,
         trigger_type: TriggerType = TriggerType.MANUAL,
+        wf_exec_id: WorkflowExecutionID | None = None,
     ) -> WorkflowDispatchResponse:
         """Create a new workflow execution.
 
@@ -636,11 +618,13 @@ class WorkflowExecutionsService:
             raise TracecatValidationError(
                 validation_result.msg, detail=validation_result.detail
             )
+        if wf_exec_id is None:
+            wf_exec_id = generate_exec_id(wf_id)
 
         return await self._dispatch_workflow(
             dsl=dsl,
             wf_id=wf_id,
-            wf_exec_id=generate_exec_id(wf_id),
+            wf_exec_id=wf_exec_id,
             trigger_inputs=payload,
             trigger_type=trigger_type,
         )
@@ -689,7 +673,7 @@ class WorkflowExecutionsService:
                 ),
                 id=wf_exec_id,
                 task_queue=config.TEMPORAL__CLUSTER_QUEUE,
-                retry_policy=retry_policies["workflow:fail_fast"],
+                retry_policy=RETRY_POLICIES["workflow:fail_fast"],
                 # We don't currently differentiate between exec and run timeout as we fail fast for workflows
                 execution_timeout=datetime.timedelta(seconds=dsl.config.timeout),
                 search_attributes=search_attrs,

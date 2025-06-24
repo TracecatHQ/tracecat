@@ -1,0 +1,9 @@
+device_id:
+  type: str
+  description: ID of a managed device.
+
+scan_type:
+  type: str
+  description: Type of scan to perform.
+  enum: ["quick", "full", "custom", "memory", "registry"]
+  default: "full"

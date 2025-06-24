@@ -3,10 +3,12 @@ import {
   BoxesIcon,
   BoxIcon,
   Building2Icon,
+  Code,
   Cpu,
   Globe,
   ListChecks,
   Mail,
+  MergeIcon,
   MessageCircleMore,
   MessageCirclePlus,
   RefreshCcw,
@@ -14,6 +16,7 @@ import {
   ShieldAlert,
   ShieldPlus,
   Sparkles,
+  SplitIcon,
   Table,
   WandSparkles,
   WorkflowIcon,
@@ -245,6 +248,18 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
         <Blend {...rest} />
       </div>
     ),
+    "core.transform.scatter": ({ className, ...rest }) => (
+      <div className={cn(basicIconsCommon, "bg-fuchsia-200/70", className)}>
+        {/* Rotate 180deg to appear upside down */}
+        <SplitIcon style={{ transform: "rotate(90deg)" }} {...rest} />
+      </div>
+    ),
+    "core.transform.gather": ({ className, ...rest }) => (
+      <div className={cn(basicIconsCommon, "bg-fuchsia-200/70", className)}>
+        {/* Rotate 180deg to appear upside down */}
+        <MergeIcon style={{ transform: "rotate(90deg)" }} {...rest} />
+      </div>
+    ),
     "core.cases": ({ className, ...rest }) => (
       <div className={cn(basicIconsCommon, "bg-rose-100", className)}>
         <ShieldAlert {...rest} />
@@ -279,6 +294,11 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     "core.send_email_smtp": ({ className, ...rest }) => (
       <div className={cn(basicIconsCommon, "bg-lime-100", className)}>
         <Send {...rest} />
+      </div>
+    ),
+    "core.script": ({ className, ...rest }) => (
+      <div className={cn(basicIconsCommon, "bg-purple-100", className)}>
+        <Code {...rest} />
       </div>
     ),
     /* AI subnamespace */

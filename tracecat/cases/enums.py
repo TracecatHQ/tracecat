@@ -55,3 +55,17 @@ class CaseStatus(StrEnum):
     RESOLVED = "resolved"
     CLOSED = "closed"
     OTHER = "other"
+
+
+class CaseEventType(StrEnum):
+    """Case activity type values."""
+
+    CASE_CREATED = "case_created"
+    CASE_UPDATED = "case_updated"
+    CASE_CLOSED = "case_closed"
+    CASE_REOPENED = "case_reopened"
+    PRIORITY_CHANGED = "priority_changed"
+    SEVERITY_CHANGED = "severity_changed"
+    STATUS_CHANGED = "status_changed"
+    FIELDS_CHANGED = "fields_changed"
+    ASSIGNEE_CHANGED = "assignee_changed"

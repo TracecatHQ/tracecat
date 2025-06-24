@@ -1,19 +1,17 @@
 "use client"
 
-import React from "react"
-import { useParams } from "next/navigation"
-import { TableColumnRead, TableRead, TableRowRead } from "@/client"
-import { useWorkspace } from "@/providers/workspace"
-import { CellContext, ColumnDef } from "@tanstack/react-table"
-import { KeyIcon } from "lucide-react"
-
-import { useListRows } from "@/lib/hooks"
-import { Button } from "@/components/ui/button"
-import { TooltipProvider } from "@/components/ui/tooltip"
+import type { CellContext, ColumnDef } from "@tanstack/react-table"
+import { DatabaseZapIcon } from "lucide-react"
+import React, { useEffect } from "react"
+import type { TableColumnRead, TableRead, TableRowRead } from "@/client"
 import { DataTable } from "@/components/data-table"
 import { JsonViewWithControls } from "@/components/json-viewer"
 import { TableViewAction } from "@/components/tables/table-view-action"
 import { TableViewColumnMenu } from "@/components/tables/table-view-column-menu"
+import { Button } from "@/components/ui/button"
+import { TooltipProvider } from "@/components/ui/tooltip"
+import { useListRows } from "@/lib/hooks"
+import { useWorkspace } from "@/providers/workspace"
 
 function CollapsibleText({ text }: { text: string }) {
   const [isExpanded, setIsExpanded] = React.useState(false)
@@ -76,13 +74,22 @@ function CollapsibleText({ text }: { text: string }) {
   )
 }
 
-export function DatabaseTable({ table: { columns } }: { table: TableRead }) {
-  const { tableId } = useParams<{ tableId: string }>()
+export function DatabaseTable({
+  table: { id, name, columns },
+}: {
+  table: TableRead
+}) {
   const { workspaceId } = useWorkspace()
   const { rows, rowsIsLoading, rowsError } = useListRows({
-    tableId,
+    tableId: id,
     workspaceId,
   })
+
+  useEffect(() => {
+    if (id) {
+      document.title = `${name} | Tables`
+    }
+  }, [id, name])
 
   type CellT = CellContext<TableRowRead, TableColumnRead>
   const allColumns: ColumnDef<TableRowRead, TableColumnRead>[] = [
@@ -96,8 +103,8 @@ export function DatabaseTable({ table: { columns } }: { table: TableRead }) {
           <span className="lowercase text-muted-foreground">{column.type}</span>
           {column.is_index && (
             <span className="inline-flex items-center rounded-full bg-green-100 px-1.5 py-0.5 text-xs font-medium text-green-800 dark:bg-green-900 dark:text-green-100">
-              <KeyIcon className="mr-1 size-3" />
-              Key
+              <DatabaseZapIcon className="mr-1 size-3" />
+              Index
             </span>
           )}
           <TableViewColumnMenu column={column} />

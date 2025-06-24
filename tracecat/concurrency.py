@@ -1,5 +1,5 @@
 import asyncio
-from collections.abc import Callable, Coroutine
+from collections.abc import AsyncGenerator, Awaitable, Callable, Iterable
 from concurrent.futures import Future, ProcessPoolExecutor
 from typing import Any, TypeVar, override
 
@@ -10,7 +10,7 @@ from tracecat.logger import logger
 T = TypeVar("T")
 
 
-def apartial(coro: Coroutine[T], /, *bind_args, **bind_kwargs):
+def apartial[T](coro: Callable[..., Awaitable[T]], /, *bind_args, **bind_kwargs):
     async def wrapped(*args, **kwargs):
         keywords = {**bind_kwargs, **kwargs}
         return await coro(*bind_args, *args, **keywords)
@@ -36,9 +36,6 @@ class GatheringTaskGroup[T: Any](asyncio.TaskGroup):
         return [task.result() for task in self.__tasks]
 
 
-F = TypeVar("F", bound=Callable[..., Any])
-
-
 def _run_serialized_fn(ser_fn: bytes, /, *args: Any, **kwargs: Any) -> Any:
     # NOTE: This is the raw function
     fn: Callable[..., Any] = cloudpickle.loads(ser_fn)
@@ -56,11 +53,27 @@ def _run_serialized_fn(ser_fn: bytes, /, *args: Any, **kwargs: Any) -> Any:
 
 
 class CloudpickleProcessPoolExecutor(ProcessPoolExecutor):
-    T = TypeVar("T")
-
     @override
-    def submit(self, fn: F, /, *args: Any, **kwargs: Any) -> Future[T]:
+    def submit(
+        self, fn: Callable[..., Any], /, *args: Any, **kwargs: Any
+    ) -> Future[Any]:
         # We need to pass the role to the function running in the child process
         logger.info("Serializing function")
         ser_fn = cloudpickle.dumps(fn)
         return super().submit(_run_serialized_fn, ser_fn, *args, **kwargs)
+
+
+async def cooperative[T](
+    it: Iterable[T], *, delay: float = 0
+) -> AsyncGenerator[T, None]:
+    """Yield items from an iterable in a cooperative manner.
+
+    This is useful for yielding back to the event loop to avoid Temporal deadlock.
+
+    Args:
+        it: The iterable to yield items from.
+        duration: The duration to sleep between yielding items.
+    """
+    for item in it:
+        yield item
+        await asyncio.sleep(delay)

@@ -1,0 +1,14 @@
+---
+description:
+globs: *.ts,*.tsx
+alwaysApply: false
+---
+---
+globs: *.ts
+---
+- Use kebab-case for file names
+- Use camelCase for function and variable names
+- Use UPPERCASE_SNAKE_CASE for hardcoded constants
+- Prefer `function foo()` over `const foo = () =>`
+- Use named exports over default exports, e.g (`export const variable ...`, `export function `)
+- Prefer `Title case example` over `Title Case Example` for components like buttons etc.

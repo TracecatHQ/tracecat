@@ -2,6 +2,7 @@ import asyncio
 import dataclasses
 import os
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 
 from temporalio import workflow
 from temporalio.worker import Worker
@@ -13,11 +14,13 @@ from temporalio.worker.workflow_sandbox import (
 with workflow.unsafe.imports_passed_through():
     import sentry_sdk
 
+    from tracecat import config
     from tracecat.dsl.action import DSLActivities
     from tracecat.dsl.client import get_temporal_client
     from tracecat.dsl.interceptor import SentryInterceptor
     from tracecat.dsl.validation import validate_trigger_inputs_activity
     from tracecat.dsl.workflow import DSLWorkflow
+    from tracecat.ee.interactions.service import InteractionService
     from tracecat.logger import logger
     from tracecat.workflow.management.definitions import (
         get_workflow_definition_activity,
@@ -59,6 +62,7 @@ def get_activities() -> list[Callable]:
         *WorkflowSchedulesService.get_activities(),
         validate_trigger_inputs_activity,
         *WorkflowsManagementService.get_activities(),
+        *InteractionService.get_activities(),
     ]
 
 
@@ -79,18 +83,29 @@ async def main() -> None:
             getattr(a, "__temporal_activity_definition").name for a in activities
         ],
     )
-    async with Worker(
-        client,
-        task_queue=os.environ.get("TEMPORAL__CLUSTER_QUEUE", "tracecat-task-queue"),
-        activities=activities,
-        workflows=[DSLWorkflow],
-        workflow_runner=new_sandbox_runner(),
-        interceptors=interceptors,
-    ):
-        logger.info("Worker started, ctrl+c to exit")
-        # Wait until interrupted
-        await interrupt_event.wait()
-        logger.info("Shutting down")
+    threadpool_max_workers = int(
+        os.environ.get("TEMPORAL__THREADPOOL_MAX_WORKERS", 100)
+    )
+
+    with ThreadPoolExecutor(max_workers=threadpool_max_workers) as executor:
+        async with Worker(
+            client,
+            task_queue=os.environ.get("TEMPORAL__CLUSTER_QUEUE", "tracecat-task-queue"),
+            activities=activities,
+            workflows=[DSLWorkflow],
+            workflow_runner=new_sandbox_runner(),
+            interceptors=interceptors,
+            disable_eager_activity_execution=config.TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION,
+            activity_executor=executor,
+        ):
+            logger.info(
+                "Worker started, ctrl+c to exit",
+                disable_eager_activity_execution=config.TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION,
+                threadpool_max_workers=threadpool_max_workers,
+            )
+            # Wait until interrupted
+            await interrupt_event.wait()
+            logger.info("Shutting down")
 
 
 if __name__ == "__main__":

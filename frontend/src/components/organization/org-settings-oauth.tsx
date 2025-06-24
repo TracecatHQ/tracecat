@@ -1,11 +1,11 @@
 "use client"
 
-import { OAuthSettingsUpdate } from "@/client"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
-
-import { useAppInfo, useOrgOAuthSettings } from "@/lib/hooks"
+import type { OAuthSettingsUpdate } from "@/client"
+import { CenteredSpinner } from "@/components/loading/spinner"
+import { AlertNotification } from "@/components/notifications"
 import { Button } from "@/components/ui/button"
 import {
   Form,
@@ -16,8 +16,7 @@ import {
   FormLabel,
 } from "@/components/ui/form"
 import { Switch } from "@/components/ui/switch"
-import { CenteredSpinner } from "@/components/loading/spinner"
-import { AlertNotification } from "@/components/notifications"
+import { useAppInfo, useOrgOAuthSettings } from "@/lib/hooks"
 
 const authFormSchema = z.object({
   oauth_google_enabled: z.boolean(),

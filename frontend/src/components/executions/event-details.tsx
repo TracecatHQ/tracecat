@@ -1,6 +1,10 @@
 import React from "react"
-import { DSLRunArgs, RunActionInput, WorkflowExecutionEvent } from "@/client"
 import JsonView from "react18-json-view"
+import type {
+  DSLRunArgs,
+  RunActionInput,
+  WorkflowExecutionEvent,
+} from "@/client"
 
 import {
   Accordion,
@@ -11,14 +15,23 @@ import {
 
 import "react18-json-view/src/style.css"
 
-import Link from "next/link"
-import { useParams } from "next/navigation"
 import {
   InfoIcon,
   SquareArrowOutUpRightIcon,
   TriangleAlert,
 } from "lucide-react"
-
+import Link from "next/link"
+import { useParams } from "next/navigation"
+import { CodeBlock } from "@/components/code-block"
+import { GenericWorkflowIcon, getIcon } from "@/components/icons"
+import { Badge } from "@/components/ui/badge"
+import { Label } from "@/components/ui/label"
+import { Switch } from "@/components/ui/switch"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import {
   ERROR_EVENT_TYPES,
   getRelativeTime,
@@ -29,16 +42,6 @@ import {
   parseExecutionId,
 } from "@/lib/event-history"
 import { cn } from "@/lib/utils"
-import { Badge } from "@/components/ui/badge"
-import { Label } from "@/components/ui/label"
-import { Switch } from "@/components/ui/switch"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
-import { CodeBlock } from "@/components/code-block"
-import { GenericWorkflowIcon, getIcon } from "@/components/icons"
 
 /**
  * Event history for a specific workflow execution
@@ -227,18 +230,18 @@ export function EventGeneralInfo({ event }: { event: WorkflowExecutionEvent }) {
           text={formattedEventType}
           className={cn(
             "bg-gray-100/80",
-            ERROR_EVENT_TYPES.includes(event_type) && "bg-rose-100",
-            event_type == "WORKFLOW_EXECUTION_STARTED" && "bg-emerald-100",
-            event_type == "WORKFLOW_EXECUTION_COMPLETED" && "bg-emerald-200",
-            event_type == "ACTIVITY_TASK_SCHEDULED" && "bg-amber-100",
+            ERROR_EVENT_TYPES.includes(event_type) && "bg-rose-200",
+            event_type == "WORKFLOW_EXECUTION_STARTED" && "bg-sky-200/70",
+            event_type == "WORKFLOW_EXECUTION_COMPLETED" && "bg-emerald-200/70",
+            event_type == "ACTIVITY_TASK_SCHEDULED" && "bg-amber-200/70",
             event_type == "ACTIVITY_TASK_STARTED" && "bg-sky-200/70",
-            event_type == "ACTIVITY_TASK_COMPLETED" && "bg-sky-200/70",
+            event_type == "ACTIVITY_TASK_COMPLETED" && "bg-emerald-200/70",
             event_type == "START_CHILD_WORKFLOW_EXECUTION_INITIATED" &&
-              "bg-amber-100",
+              "bg-amber-200/70",
             event_type == "CHILD_WORKFLOW_EXECUTION_STARTED" &&
-              "bg-violet-200/70",
+              "bg-amber-200/70",
             event_type == "CHILD_WORKFLOW_EXECUTION_COMPLETED" &&
-              "bg-violet-200/70",
+              "bg-emerald-200/70",
             event_type == "CHILD_WORKFLOW_EXECUTION_FAILED" && "bg-rose-200"
           )}
         />

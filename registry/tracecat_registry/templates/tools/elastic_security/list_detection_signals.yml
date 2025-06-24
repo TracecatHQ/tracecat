@@ -1,0 +1,58 @@
+type: action
+definition:
+  title: List detection alerts
+  description: Query for Elastic Security detection alerts.
+  display_group: Elastic Security
+  doc_url: https://www.elastic.co/docs/api/doc/kibana/v8/operation/operation-searchalerts
+  namespace: tools.elastic_security
+  name: list_detection_signals
+  secrets:
+    - name: elastic_security
+      keys: ["ELASTIC_API_KEY"]
+  expects:
+    start_time:
+      type: datetime
+      description: Start time for the query (inclusive).
+    end_time:
+      type: datetime
+      description: End time for the query (exclusive).
+    query:
+      type: str | dict[str, any] | None
+      description: Elastic JSON query DSL. If specified, overrides `start_time` and `end_time`.
+      default: null
+    limit:
+      type: int
+      description: Maximum number of alerts to return.
+      default: 100
+    base_url:
+      type: str
+      description: Kibana endpoint URL (e.g. https://localhost:5601).
+  steps:
+    - ref: search_query
+      action: core.transform.reshape
+      args:
+        value:
+          bool:
+            filter:
+              - range:
+                  "@timestamp":
+                    gte: ${{ inputs.start_time }}
+                    lt: ${{ inputs.end_time }}
+            # Exclude building block alerts to reduce noise
+            must_not:
+              - exists:
+                  field: kibana.alert.building_block_type
+    - ref: query_detection_alerts
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/api/detection_engine/signals/search
+        method: POST
+        headers:
+          kbn-xsrf: kibana
+          Authorization: ApiKey ${{ SECRETS.elastic_security.ELASTIC_API_KEY }}
+        payload:
+          start: ${{ inputs.start_time }}
+          end: ${{ inputs.end_time }}
+          query: ${{ inputs.query || steps.search_query.result }}
+          size: ${{ inputs.limit }}
+  returns: ${{ steps.query_detection_alerts.result }}

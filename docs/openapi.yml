@@ -45,6 +45,15 @@ paths:
           - type: string
             pattern: wf-[0-9a-f]{32}
           title: Workflow Id
+      - name: echo
+        in: query
+        required: false
+        schema:
+          type: boolean
+          description: Echo the request payload back to the caller
+          default: false
+          title: Echo
+        description: Echo the request payload back to the caller
       - name: content-type
         in: header
         required: false
@@ -112,6 +121,61 @@ paths:
             application/json:
               schema:
                 title: Response Public-Incoming Webhook Wait
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /webhooks/{workflow_id}/{secret}/interactions/{category}:
+    post:
+      tags:
+      - public
+      summary: Receive Interaction
+      description: "Process incoming workflow interactions from external services.\n\
+        \nArgs:\n    workflow_id: ID of the workflow to interact with\n    payload:\
+        \ Raw interaction payload from the external service\n    category: Category\
+        \ of interaction (e.g., slack)\n\nReturns:\n    Response confirming the interaction\
+        \ was processed\n\nRaises:\n    HTTPException: If payload is invalid or workflow\
+        \ interaction fails"
+      operationId: public-receive_interaction
+      parameters:
+      - name: category
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/InteractionCategory'
+      - name: secret
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Secret
+      - name: workflow_id
+        in: path
+        required: true
+        schema:
+          anyOf:
+          - type: string
+            pattern: wf_[0-9a-zA-Z]+
+          - type: string
+            pattern: wf-[0-9a-f]{32}
+          title: Workflow Id
+      - name: content-type
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Content-Type
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReceiveInteractionResponse'
         '422':
           description: Validation Error
           content:
@@ -520,9 +584,7 @@ paths:
         content:
           multipart/form-data:
             schema:
-              allOf:
-              - $ref: '#/components/schemas/Body_workflows-create_workflow'
-              title: Body
+              $ref: '#/components/schemas/Body_workflows-create_workflow'
       responses:
         '201':
           description: Successful Response
@@ -891,7 +953,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/UpsertWebhookParams'
+              $ref: '#/components/schemas/WebhookCreate'
       responses:
         '201':
           description: Successful Response
@@ -937,7 +999,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/WebhookResponse'
+                $ref: '#/components/schemas/WebhookRead'
         '422':
           description: Validation Error
           content:
@@ -977,7 +1039,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/UpsertWebhookParams'
+              $ref: '#/components/schemas/WebhookUpdate'
       responses:
         '204':
           description: Successful Response
@@ -3775,6 +3837,495 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /cases:
+    get:
+      tags:
+      - cases
+      summary: List Cases
+      description: List all cases.
+      operationId: cases-list_cases
+      security:
+      - APIKeyCookie: []
+      - APIKeyHeader: []
+      parameters:
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CaseReadMinimal'
+                title: Response Cases-List Cases
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - cases
+      summary: Create Case
+      description: Create a new case.
+      operationId: cases-create_case
+      security:
+      - APIKeyCookie: []
+      - APIKeyHeader: []
+      parameters:
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CaseCreate'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /cases/{case_id}:
+    get:
+      tags:
+      - cases
+      summary: Get Case
+      description: Get a specific case.
+      operationId: cases-get_case
+      security:
+      - APIKeyCookie: []
+      - APIKeyHeader: []
+      parameters:
+      - name: case_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Case Id
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CaseRead'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    patch:
+      tags:
+      - cases
+      summary: Update Case
+      description: Update a case.
+      operationId: cases-update_case
+      security:
+      - APIKeyCookie: []
+      - APIKeyHeader: []
+      parameters:
+      - name: case_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Case Id
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CaseUpdate'
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - cases
+      summary: Delete Case
+      description: Delete a case.
+      operationId: cases-delete_case
+      security:
+      - APIKeyCookie: []
+      - APIKeyHeader: []
+      parameters:
+      - name: case_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Case Id
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /cases/{case_id}/comments:
+    get:
+      tags:
+      - cases
+      summary: List Comments
+      description: List all comments for a case.
+      operationId: cases-list_comments
+      security:
+      - APIKeyCookie: []
+      - APIKeyHeader: []
+      parameters:
+      - name: case_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Case Id
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CaseCommentRead'
+                title: Response Cases-List Comments
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - cases
+      summary: Create Comment
+      description: Create a new comment on a case.
+      operationId: cases-create_comment
+      security:
+      - APIKeyCookie: []
+      - APIKeyHeader: []
+      parameters:
+      - name: case_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Case Id
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CaseCommentCreate'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /cases/{case_id}/comments/{comment_id}:
+    patch:
+      tags:
+      - cases
+      summary: Update Comment
+      description: Update an existing comment.
+      operationId: cases-update_comment
+      security:
+      - APIKeyCookie: []
+      - APIKeyHeader: []
+      parameters:
+      - name: case_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Case Id
+      - name: comment_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Comment Id
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CaseCommentUpdate'
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - cases
+      summary: Delete Comment
+      description: Delete a comment.
+      operationId: cases-delete_comment
+      security:
+      - APIKeyCookie: []
+      - APIKeyHeader: []
+      parameters:
+      - name: case_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Case Id
+      - name: comment_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Comment Id
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /case-fields:
+    get:
+      tags:
+      - cases
+      summary: List Fields
+      description: List all case fields.
+      operationId: cases-list_fields
+      security:
+      - APIKeyCookie: []
+      - APIKeyHeader: []
+      parameters:
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CaseFieldRead'
+                title: Response Cases-List Fields
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - cases
+      summary: Create Field
+      description: Create a new case field.
+      operationId: cases-create_field
+      security:
+      - APIKeyCookie: []
+      - APIKeyHeader: []
+      parameters:
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CaseFieldCreate'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /case-fields/{field_id}:
+    patch:
+      tags:
+      - cases
+      summary: Update Field
+      description: Update a case field.
+      operationId: cases-update_field
+      security:
+      - APIKeyCookie: []
+      - APIKeyHeader: []
+      parameters:
+      - name: field_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Field Id
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CaseFieldUpdate'
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - cases
+      summary: Delete Field
+      description: Delete a case field.
+      operationId: cases-delete_field
+      security:
+      - APIKeyCookie: []
+      - APIKeyHeader: []
+      parameters:
+      - name: field_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Field Id
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /users/me:
     get:
       tags:
@@ -4362,8 +4913,7 @@ components:
           - type: 'null'
           title: For Each
         join_strategy:
-          allOf:
-          - $ref: '#/components/schemas/JoinStrategy'
+          $ref: '#/components/schemas/JoinStrategy'
           default: all
         retry_policy:
           $ref: '#/components/schemas/ActionRetryPolicy'
@@ -4428,6 +4978,22 @@ components:
           title: Inputs
         control_flow:
           $ref: '#/components/schemas/ActionControlFlow'
+        is_interactive:
+          type: boolean
+          title: Is Interactive
+        interaction:
+          anyOf:
+          - oneOf:
+            - $ref: '#/components/schemas/ResponseInteraction'
+            - $ref: '#/components/schemas/ApprovalInteraction'
+            description: An interaction configuration
+            discriminator:
+              propertyName: type
+              mapping:
+                approval: '#/components/schemas/ApprovalInteraction'
+                response: '#/components/schemas/ResponseInteraction'
+          - type: 'null'
+          title: Interaction
       type: object
       required:
       - id
@@ -4436,6 +5002,7 @@ components:
       - description
       - status
       - inputs
+      - is_interactive
       title: ActionRead
     ActionReadMinimal:
       properties:
@@ -4459,6 +5026,9 @@ components:
         status:
           type: string
           title: Status
+        is_interactive:
+          type: boolean
+          title: Is Interactive
       type: object
       required:
       - id
@@ -4467,6 +5037,7 @@ components:
       - title
       - description
       - status
+      - is_interactive
       title: ActionReadMinimal
     ActionRetryPolicy:
       properties:
@@ -4515,6 +5086,20 @@ components:
           type: array
           title: Depends On
           description: Task dependencies
+        interaction:
+          anyOf:
+          - oneOf:
+            - $ref: '#/components/schemas/ResponseInteraction'
+            - $ref: '#/components/schemas/ApprovalInteraction'
+            description: An interaction configuration
+            discriminator:
+              propertyName: type
+              mapping:
+                approval: '#/components/schemas/ApprovalInteraction'
+                response: '#/components/schemas/ResponseInteraction'
+          - type: 'null'
+          title: Interaction
+          description: Whether the action is interactive.
         run_if:
           anyOf:
           - type: string
@@ -4531,8 +5116,7 @@ components:
           title: For Each
           description: Iterate over a list of items and run the task for each item.
         retry_policy:
-          allOf:
-          - $ref: '#/components/schemas/ActionRetryPolicy'
+          $ref: '#/components/schemas/ActionRetryPolicy'
           description: Retry policy for the action.
         start_delay:
           type: number
@@ -4548,8 +5132,7 @@ components:
           description: Wait until a specific date and time before starting. Overrides
             `start_delay` if both are provided.
         join_strategy:
-          allOf:
-          - $ref: '#/components/schemas/JoinStrategy'
+          $ref: '#/components/schemas/JoinStrategy'
           description: The strategy to use when joining on this task. By default,
             all branches must complete successfully before the join task can complete.
           default: all
@@ -4598,13 +5181,32 @@ components:
           title: Status
         inputs:
           type: string
-          maxLength: 10000
+          maxLength: 300000
           title: Inputs
           default: ''
         control_flow:
           anyOf:
           - $ref: '#/components/schemas/ActionControlFlow'
           - type: 'null'
+          mode: json
+        is_interactive:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Is Interactive
+        interaction:
+          anyOf:
+          - oneOf:
+            - $ref: '#/components/schemas/ResponseInteraction'
+            - $ref: '#/components/schemas/ApprovalInteraction'
+            description: An interaction configuration
+            discriminator:
+              propertyName: type
+              mapping:
+                approval: '#/components/schemas/ApprovalInteraction'
+                response: '#/components/schemas/ResponseInteraction'
+          - type: 'null'
+          title: Interaction
       type: object
       title: ActionUpdate
     AppSettingsRead:
@@ -4612,9 +5214,17 @@ components:
         app_registry_validation_enabled:
           type: boolean
           title: App Registry Validation Enabled
+        app_executions_query_limit:
+          type: integer
+          title: App Executions Query Limit
+        app_interactions_enabled:
+          type: boolean
+          title: App Interactions Enabled
       type: object
       required:
       - app_registry_validation_enabled
+      - app_executions_query_limit
+      - app_interactions_enabled
       title: AppSettingsRead
       description: Settings for the app.
     AppSettingsUpdate:
@@ -4624,9 +5234,58 @@ components:
           title: App Registry Validation Enabled
           description: Whether registry validation is enabled.
           default: false
+        app_executions_query_limit:
+          type: integer
+          title: App Executions Query Limit
+          description: The maximum number of executions to return in a single query.
+          default: 100
+        app_interactions_enabled:
+          type: boolean
+          title: App Interactions Enabled
+          description: Whether app interactions are enabled.
+          default: false
       type: object
       title: AppSettingsUpdate
       description: Settings for OAuth authentication.
+    ApprovalInteraction:
+      properties:
+        type:
+          type: string
+          const: approval
+          title: Type
+        timeout:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Timeout
+          description: The timeout for the interaction in seconds.
+        required_approvers:
+          type: integer
+          title: Required Approvers
+          description: Number of approvers required before the action can proceed.
+          default: 1
+        approver_groups:
+          items:
+            type: string
+          type: array
+          title: Approver Groups
+          description: List of groups that are allowed to approve this action.
+        message:
+          type: string
+          title: Message
+          description: Custom message to display to approvers.
+          default: ''
+        approve_if:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Approve If
+          description: Condition to approve the action.
+      type: object
+      required:
+      - type
+      title: ApprovalInteraction
+      description: Configuration for an approval interaction.
     AuthSettingsRead:
       properties:
         auth_basic_enabled:
@@ -4765,6 +5424,11 @@ components:
             maxLength: 1000
           - type: 'null'
           title: Description
+        use_workflow_id:
+          type: boolean
+          title: Use Workflow Id
+          description: Use the workflow ID if it is provided in the YAML file
+          default: false
         file:
           anyOf:
           - type: string
@@ -4773,6 +5437,405 @@ components:
           title: File
       type: object
       title: Body_workflows-create_workflow
+    CaseCommentCreate:
+      properties:
+        content:
+          type: string
+          maxLength: 5000
+          minLength: 1
+          title: Content
+        parent_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Parent Id
+      type: object
+      required:
+      - content
+      title: CaseCommentCreate
+    CaseCommentRead:
+      properties:
+        id:
+          type: string
+          format: uuid
+          title: Id
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+        updated_at:
+          type: string
+          format: date-time
+          title: Updated At
+        content:
+          type: string
+          title: Content
+        parent_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Parent Id
+        user:
+          anyOf:
+          - $ref: '#/components/schemas/UserRead'
+          - type: 'null'
+        last_edited_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Last Edited At
+      type: object
+      required:
+      - id
+      - created_at
+      - updated_at
+      - content
+      title: CaseCommentRead
+    CaseCommentUpdate:
+      properties:
+        content:
+          anyOf:
+          - type: string
+            maxLength: 5000
+            minLength: 1
+          - type: 'null'
+          title: Content
+        parent_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Parent Id
+      type: object
+      title: CaseCommentUpdate
+    CaseCreate:
+      properties:
+        summary:
+          type: string
+          title: Summary
+        description:
+          type: string
+          title: Description
+        status:
+          $ref: '#/components/schemas/CaseStatus'
+        priority:
+          $ref: '#/components/schemas/CasePriority'
+        severity:
+          $ref: '#/components/schemas/CaseSeverity'
+        fields:
+          anyOf:
+          - type: object
+          - type: 'null'
+          title: Fields
+      type: object
+      required:
+      - summary
+      - description
+      - status
+      - priority
+      - severity
+      title: CaseCreate
+    CaseCustomFieldRead:
+      properties:
+        id:
+          type: string
+          title: Id
+        type:
+          $ref: '#/components/schemas/SqlType'
+        description:
+          type: string
+          title: Description
+        nullable:
+          type: boolean
+          title: Nullable
+        default:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Default
+        reserved:
+          type: boolean
+          title: Reserved
+        value:
+          title: Value
+      type: object
+      required:
+      - id
+      - type
+      - description
+      - nullable
+      - default
+      - reserved
+      - value
+      title: CaseCustomFieldRead
+    CaseFieldCreate:
+      properties:
+        name:
+          type: string
+          maxLength: 100
+          minLength: 1
+          title: Name
+          description: The name of the column
+        type:
+          $ref: '#/components/schemas/SqlType'
+          maxLength: 100
+          minLength: 1
+          description: The SQL type of the column
+        nullable:
+          type: boolean
+          title: Nullable
+          default: true
+        default:
+          anyOf:
+          - {}
+          - type: 'null'
+          title: Default
+      type: object
+      required:
+      - name
+      - type
+      title: CaseFieldCreate
+      description: Create a new case field.
+    CaseFieldRead:
+      properties:
+        id:
+          type: string
+          title: Id
+        type:
+          $ref: '#/components/schemas/SqlType'
+        description:
+          type: string
+          title: Description
+        nullable:
+          type: boolean
+          title: Nullable
+        default:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Default
+        reserved:
+          type: boolean
+          title: Reserved
+      type: object
+      required:
+      - id
+      - type
+      - description
+      - nullable
+      - default
+      - reserved
+      title: CaseFieldRead
+      description: Read model for a case field.
+    CaseFieldUpdate:
+      properties:
+        name:
+          anyOf:
+          - type: string
+            maxLength: 100
+            minLength: 1
+          - type: 'null'
+          title: Name
+          description: The name of the column
+        type:
+          anyOf:
+          - $ref: '#/components/schemas/SqlType'
+            maxLength: 100
+            minLength: 1
+          - type: 'null'
+          description: The SQL type of the column
+        nullable:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Nullable
+          description: Whether the column can be null
+        default:
+          anyOf:
+          - {}
+          - type: 'null'
+          title: Default
+          description: The default value of the column
+        is_index:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Is Index
+          description: Whether the column is an index
+      type: object
+      title: CaseFieldUpdate
+      description: Update a case field.
+    CasePriority:
+      type: string
+      enum:
+      - unknown
+      - low
+      - medium
+      - high
+      - critical
+      - other
+      title: CasePriority
+      description: "Case priority values aligned with urgency levels.\n\nValues:\n\
+        \    UNKNOWN (0): No priority is assigned\n    LOW (1): Application or personal\
+        \ procedure is unusable, where a workaround is available or a repair is possible\n\
+        \    MEDIUM (2): Non-critical function or procedure is unusable or hard to\
+        \ use causing operational disruptions with no direct impact on a service's\
+        \ availability. A workaround is available\n    HIGH (3): Critical functionality\
+        \ or network access is interrupted, degraded or unusable, having a severe\
+        \ impact on services availability. No acceptable alternative is possible\n\
+        \    CRITICAL (4): Interruption making a critical functionality inaccessible\
+        \ or a complete network interruption causing a severe impact on services availability.\
+        \ There is no possible alternative\n    OTHER (99): The priority is not normalized"
+    CaseRead:
+      properties:
+        id:
+          type: string
+          format: uuid
+          title: Id
+        short_id:
+          type: string
+          title: Short Id
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+        updated_at:
+          type: string
+          format: date-time
+          title: Updated At
+        summary:
+          type: string
+          title: Summary
+        status:
+          $ref: '#/components/schemas/CaseStatus'
+        priority:
+          $ref: '#/components/schemas/CasePriority'
+        severity:
+          $ref: '#/components/schemas/CaseSeverity'
+        description:
+          type: string
+          title: Description
+        fields:
+          items:
+            $ref: '#/components/schemas/CaseCustomFieldRead'
+          type: array
+          title: Fields
+      type: object
+      required:
+      - id
+      - short_id
+      - created_at
+      - updated_at
+      - summary
+      - status
+      - priority
+      - severity
+      - description
+      - fields
+      title: CaseRead
+    CaseReadMinimal:
+      properties:
+        id:
+          type: string
+          format: uuid
+          title: Id
+        short_id:
+          type: string
+          title: Short Id
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+        updated_at:
+          type: string
+          format: date-time
+          title: Updated At
+        summary:
+          type: string
+          title: Summary
+        status:
+          $ref: '#/components/schemas/CaseStatus'
+        priority:
+          $ref: '#/components/schemas/CasePriority'
+        severity:
+          $ref: '#/components/schemas/CaseSeverity'
+      type: object
+      required:
+      - id
+      - short_id
+      - created_at
+      - updated_at
+      - summary
+      - status
+      - priority
+      - severity
+      title: CaseReadMinimal
+    CaseSeverity:
+      type: string
+      enum:
+      - unknown
+      - informational
+      - low
+      - medium
+      - high
+      - critical
+      - fatal
+      - other
+      title: CaseSeverity
+      description: "Case severity values aligned with OCSF severity values.\n\nValues:\n\
+        \    UNKNOWN (0): The event/finding severity is unknown\n    INFORMATIONAL\
+        \ (1): Informational message. No action required\n    LOW (2): The user decides\
+        \ if action is needed\n    MEDIUM (3): Action is required but the situation\
+        \ is not serious at this time\n    HIGH (4): Action is required immediately\n\
+        \    CRITICAL (5): Action is required immediately and the scope is broad\n\
+        \    FATAL (6): An error occurred but it is too late to take remedial action\n\
+        \    OTHER (99): The event/finding severity is not mapped"
+    CaseStatus:
+      type: string
+      enum:
+      - unknown
+      - new
+      - in_progress
+      - on_hold
+      - resolved
+      - closed
+      - other
+      title: CaseStatus
+      description: Case status values aligned with OCSF Incident Finding status.
+    CaseUpdate:
+      properties:
+        summary:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Summary
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Description
+        status:
+          anyOf:
+          - $ref: '#/components/schemas/CaseStatus'
+          - type: 'null'
+        priority:
+          anyOf:
+          - $ref: '#/components/schemas/CasePriority'
+          - type: 'null'
+        severity:
+          anyOf:
+          - $ref: '#/components/schemas/CaseSeverity'
+          - type: 'null'
+        fields:
+          anyOf:
+          - type: object
+          - type: 'null'
+          title: Fields
+      type: object
+      title: CaseUpdate
     CreateWorkspaceMembershipParams:
       properties:
         user_id:
@@ -4952,8 +6015,7 @@ components:
           - $ref: '#/components/schemas/RunContext'
           - type: 'null'
         runtime_config:
-          allOf:
-          - $ref: '#/components/schemas/DSLConfig-Output'
+          $ref: '#/components/schemas/DSLConfig-Output'
           description: Runtime configuration that can be set on workflow entry. Note
             that this can override the default config in DSLInput.
         timeout:
@@ -5096,6 +6158,8 @@ components:
           - $ref: '#/components/schemas/RunActionInput'
           - $ref: '#/components/schemas/DSLRunArgs'
           - $ref: '#/components/schemas/GetWorkflowDefinitionActivityInputs'
+          - $ref: '#/components/schemas/InteractionResult'
+          - $ref: '#/components/schemas/InteractionInput'
           title: Action Input
         action_result:
           anyOf:
@@ -5114,8 +6178,7 @@ components:
           title: Start Delay
           default: 0.0
         join_strategy:
-          allOf:
-          - $ref: '#/components/schemas/JoinStrategy'
+          $ref: '#/components/schemas/JoinStrategy'
           default: all
         related_wf_exec_id:
           anyOf:
@@ -5235,6 +6298,103 @@ components:
           title: Detail
       type: object
       title: HTTPValidationError
+    InteractionCategory:
+      type: string
+      enum:
+      - slack
+      title: InteractionCategory
+    InteractionContext:
+      properties:
+        interaction_id:
+          type: string
+          format: uuid
+          title: Interaction Id
+        execution_id:
+          type: string
+          pattern: (?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\w-]+|sch-[0-9a-f]{32}-.*))
+          title: Execution Id
+        action_ref:
+          type: string
+          title: Action Ref
+      type: object
+      required:
+      - interaction_id
+      - execution_id
+      - action_ref
+      title: InteractionContext
+      description: The context of the interaction.
+    InteractionInput:
+      properties:
+        interaction_id:
+          type: string
+          format: uuid
+          title: Interaction Id
+        execution_id:
+          type: string
+          pattern: (?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\w-]+|sch-[0-9a-f]{32}-.*))
+          title: Execution Id
+        action_ref:
+          type: string
+          title: Action Ref
+        data:
+          type: object
+          title: Data
+      type: object
+      required:
+      - interaction_id
+      - execution_id
+      - action_ref
+      - data
+      title: InteractionInput
+      description: Input for the workflow interaction handler. This is used on the
+        client side.
+    InteractionResult:
+      properties:
+        message:
+          type: string
+          title: Message
+        detail:
+          anyOf:
+          - {}
+          - type: 'null'
+          title: Detail
+      type: object
+      required:
+      - message
+      title: InteractionResult
+      description: Output for the workflow interaction handler. This is used on the
+        client side.
+    InteractionState:
+      properties:
+        type:
+          $ref: '#/components/schemas/InteractionType'
+        action_ref:
+          type: string
+          title: Action Ref
+        status:
+          $ref: '#/components/schemas/InteractionStatus'
+        data:
+          type: object
+          title: Data
+      type: object
+      required:
+      - type
+      - action_ref
+      - status
+      title: InteractionState
+    InteractionStatus:
+      type: string
+      enum:
+      - idle
+      - pending
+      - completed
+      title: InteractionStatus
+    InteractionType:
+      type: string
+      enum:
+      - approval
+      - response
+      title: InteractionType
     JoinStrategy:
       type: string
       enum:
@@ -5319,6 +6479,15 @@ components:
       - is_verified
       - last_login_at
       title: OrgMemberRead
+    ReceiveInteractionResponse:
+      properties:
+        message:
+          type: string
+          title: Message
+      type: object
+      required:
+      - message
+      title: ReceiveInteractionResponse
     RegistryActionCreate:
       properties:
         name:
@@ -5360,10 +6529,15 @@ components:
         interface:
           $ref: '#/components/schemas/RegistryActionInterface'
         implementation:
-          anyOf:
+          oneOf:
           - $ref: '#/components/schemas/RegistryActionTemplateImpl-Input'
           - $ref: '#/components/schemas/RegistryActionUDFImpl'
           title: Implementation
+          discriminator:
+            propertyName: type
+            mapping:
+              template: '#/components/schemas/RegistryActionTemplateImpl-Input'
+              udf: '#/components/schemas/RegistryActionUDFImpl'
         default_title:
           anyOf:
           - type: string
@@ -5405,8 +6579,7 @@ components:
           title: Deprecated
           description: Marks action as deprecated along with message
         options:
-          allOf:
-          - $ref: '#/components/schemas/RegistryActionOptions'
+          $ref: '#/components/schemas/RegistryActionOptions'
           description: The options for the action
         repository_id:
           type: string
@@ -5421,6 +6594,7 @@ components:
       - type
       - origin
       - interface
+      - implementation
       - repository_id
       title: RegistryActionCreate
       description: API create model for a registered action.
@@ -5485,10 +6659,15 @@ components:
         interface:
           $ref: '#/components/schemas/RegistryActionInterface'
         implementation:
-          anyOf:
+          oneOf:
           - $ref: '#/components/schemas/RegistryActionTemplateImpl-Output'
           - $ref: '#/components/schemas/RegistryActionUDFImpl'
           title: Implementation
+          discriminator:
+            propertyName: type
+            mapping:
+              template: '#/components/schemas/RegistryActionTemplateImpl-Output'
+              udf: '#/components/schemas/RegistryActionUDFImpl'
         default_title:
           anyOf:
           - type: string
@@ -5530,14 +6709,18 @@ components:
           title: Deprecated
           description: Marks action as deprecated along with message
         options:
-          allOf:
-          - $ref: '#/components/schemas/RegistryActionOptions'
+          $ref: '#/components/schemas/RegistryActionOptions'
           description: The options for the action
         repository_id:
           type: string
           format: uuid4
           title: Repository Id
           description: The repository id
+        id:
+          type: string
+          format: uuid4
+          title: Id
+          description: The registry action id
         action:
           type: string
           title: Action
@@ -5556,13 +6739,20 @@ components:
       - type
       - origin
       - interface
+      - implementation
       - repository_id
+      - id
       - action
       - is_template
       title: RegistryActionRead
       description: API read model for a registered action.
     RegistryActionReadMinimal:
       properties:
+        id:
+          type: string
+          format: uuid4
+          title: Id
+          description: The registry action id
         name:
           type: string
           title: Name
@@ -5605,6 +6795,7 @@ components:
           readOnly: true
       type: object
       required:
+      - id
       - name
       - description
       - namespace
@@ -5616,12 +6807,12 @@ components:
     RegistryActionTemplateImpl-Input:
       properties:
         type:
+          type: string
           const: template
           title: Type
           default: template
         template_action:
-          allOf:
-          - $ref: '#/components/schemas/TemplateAction-Input'
+          $ref: '#/components/schemas/TemplateAction-Input'
           description: The template action
       type: object
       required:
@@ -5630,12 +6821,12 @@ components:
     RegistryActionTemplateImpl-Output:
       properties:
         type:
+          type: string
           const: template
           title: Type
           default: template
         template_action:
-          allOf:
-          - $ref: '#/components/schemas/TemplateAction-Output'
+          $ref: '#/components/schemas/TemplateAction-Output'
           description: The template action
       type: object
       required:
@@ -5644,6 +6835,7 @@ components:
     RegistryActionUDFImpl:
       properties:
         type:
+          type: string
           const: udf
           title: Type
           default: udf
@@ -5697,8 +6889,14 @@ components:
           description: Update the interface of the action
         implementation:
           anyOf:
-          - $ref: '#/components/schemas/RegistryActionTemplateImpl-Input'
-          - $ref: '#/components/schemas/RegistryActionUDFImpl'
+          - oneOf:
+            - $ref: '#/components/schemas/RegistryActionTemplateImpl-Input'
+            - $ref: '#/components/schemas/RegistryActionUDFImpl'
+            discriminator:
+              propertyName: type
+              mapping:
+                template: '#/components/schemas/RegistryActionTemplateImpl-Input'
+                udf: '#/components/schemas/RegistryActionUDFImpl'
           - type: 'null'
           title: Implementation
           description: Update the implementation of the action
@@ -5954,6 +7152,23 @@ components:
       required:
       - name
       title: RegistrySecret
+    ResponseInteraction:
+      properties:
+        type:
+          type: string
+          const: response
+          title: Type
+        timeout:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Timeout
+          description: The timeout for the interaction in seconds.
+      type: object
+      required:
+      - type
+      title: ResponseInteraction
+      description: Configuration for a response interaction.
     Role:
       properties:
         type:
@@ -5975,8 +7190,7 @@ components:
           - type: 'null'
           title: User Id
         access_level:
-          allOf:
-          - $ref: '#/components/schemas/AccessLevel'
+          $ref: '#/components/schemas/AccessLevel'
           default: 0
         service_id:
           type: string
@@ -6010,10 +7224,16 @@ components:
         task:
           $ref: '#/components/schemas/ActionStatement'
         exec_context:
+          propertyNames:
+            $ref: '#/components/schemas/ExprContext'
           type: object
           title: Exec Context
         run_context:
           $ref: '#/components/schemas/RunContext'
+        interaction_context:
+          anyOf:
+          - $ref: '#/components/schemas/InteractionContext'
+          - type: 'null'
       type: object
       required:
       - task
@@ -6317,8 +7537,7 @@ components:
     SecretCreate:
       properties:
         type:
-          allOf:
-          - $ref: '#/components/schemas/SecretType'
+          $ref: '#/components/schemas/SecretType'
           default: custom
         name:
           type: string
@@ -6558,16 +7777,15 @@ components:
       title: SessionRead
     SpecialUserID:
       type: string
-      const: current
+      enum:
+      - current
       title: SpecialUserID
       description: A sentinel user ID that represents the current user.
-    SqlType-Output:
+    SqlType:
       type: string
       enum:
       - TEXT
-      - VARCHAR
       - INTEGER
-      - BIGINT
       - DECIMAL
       - BOOLEAN
       - TIMESTAMP
@@ -6585,8 +7803,7 @@ components:
           title: Name
           description: The name of the column
         type:
-          allOf:
-          - $ref: '#/components/schemas/tracecat__tables__enums__SqlType__1'
+          $ref: '#/components/schemas/SqlType'
           maxLength: 100
           minLength: 1
           description: The SQL type of the column
@@ -6615,7 +7832,7 @@ components:
           type: string
           title: Name
         type:
-          $ref: '#/components/schemas/SqlType-Output'
+          $ref: '#/components/schemas/SqlType'
         nullable:
           type: boolean
           title: Nullable
@@ -6625,6 +7842,10 @@ components:
           - {}
           - type: 'null'
           title: Default
+        is_index:
+          type: boolean
+          title: Is Index
+          default: false
       type: object
       required:
       - id
@@ -6644,8 +7865,7 @@ components:
           description: The name of the column
         type:
           anyOf:
-          - allOf:
-            - $ref: '#/components/schemas/tracecat__tables__enums__SqlType__1'
+          - $ref: '#/components/schemas/SqlType'
             maxLength: 100
             minLength: 1
           - type: 'null'
@@ -6662,6 +7882,12 @@ components:
           - type: 'null'
           title: Default
           description: The default value of the column
+        is_index:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Is Index
+          description: Whether the column is an index
       type: object
       title: TableColumnUpdate
       description: Update model for a table column.
@@ -6725,6 +7951,16 @@ components:
         data:
           type: object
           title: Data
+        upsert:
+          type: boolean
+          title: Upsert
+          default: false
+        natural_keys:
+          items:
+            type: string
+          type: array
+          title: Natural Keys
+          description: The columns of the table to use for upsert
       type: object
       required:
       - data
@@ -6849,6 +8085,7 @@ components:
     TemplateAction-Input:
       properties:
         type:
+          type: string
           const: action
           title: Type
           default: action
@@ -6861,6 +8098,7 @@ components:
     TemplateAction-Output:
       properties:
         type:
+          type: string
           const: action
           title: Type
           default: action
@@ -7004,31 +8242,6 @@ components:
           title: Settings
       type: object
       title: UpdateWorkspaceParams
-    UpsertWebhookParams:
-      properties:
-        status:
-          anyOf:
-          - type: string
-            enum:
-            - online
-            - offline
-          - type: 'null'
-          title: Status
-        entrypoint_ref:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Entrypoint Ref
-        method:
-          anyOf:
-          - type: string
-            enum:
-            - GET
-            - POST
-          - type: 'null'
-          title: Method
-      type: object
-      title: UpsertWebhookParams
     UserCreate:
       properties:
         email:
@@ -7057,8 +8270,7 @@ components:
           title: Is Verified
           default: false
         role:
-          allOf:
-          - $ref: '#/components/schemas/UserRole'
+          $ref: '#/components/schemas/UserRole'
           default: basic
         first_name:
           anyOf:
@@ -7195,7 +8407,27 @@ components:
       - msg
       - type
       title: ValidationError
-    WebhookResponse:
+    WebhookCreate:
+      properties:
+        status:
+          $ref: '#/components/schemas/WebhookStatus'
+          default: offline
+        method:
+          $ref: '#/components/schemas/WebhookMethod'
+          default: POST
+        entrypoint_ref:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Entrypoint Ref
+      type: object
+      title: WebhookCreate
+    WebhookMethod:
+      type: string
+      enum:
+      - GET
+      - POST
+    WebhookRead:
       properties:
         created_at:
           type: string
@@ -7216,11 +8448,7 @@ components:
           type: string
           title: Secret
         status:
-          type: string
-          enum:
-          - online
-          - offline
-          title: Status
+          $ref: '#/components/schemas/WebhookStatus'
         entrypoint_ref:
           anyOf:
           - type: string
@@ -7230,11 +8458,7 @@ components:
           type: object
           title: Filters
         method:
-          type: string
-          enum:
-          - GET
-          - POST
-          title: Method
+          $ref: '#/components/schemas/WebhookMethod'
         workflow_id:
           type: string
           title: Workflow Id
@@ -7251,7 +8475,29 @@ components:
       - method
       - workflow_id
       - url
-      title: WebhookResponse
+      title: WebhookRead
+    WebhookStatus:
+      type: string
+      enum:
+      - online
+      - offline
+    WebhookUpdate:
+      properties:
+        status:
+          anyOf:
+          - $ref: '#/components/schemas/WebhookStatus'
+          - type: 'null'
+        method:
+          anyOf:
+          - $ref: '#/components/schemas/WebhookMethod'
+          - type: 'null'
+        entrypoint_ref:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Entrypoint Ref
+      type: object
+      title: WebhookUpdate
     WorkflowCommitResponse:
       properties:
         workflow_id:
@@ -7352,6 +8598,24 @@ components:
         -------------
 
         - 1 Workflow to many WorkflowDefinitions'
+    WorkflowDefinitionReadMinimal:
+      properties:
+        id:
+          type: string
+          title: Id
+        version:
+          type: integer
+          title: Version
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+      type: object
+      required:
+      - id
+      - version
+      - created_at
+      title: WorkflowDefinitionReadMinimal
     WorkflowEventType:
       type: string
       enum:
@@ -7375,6 +8639,10 @@ components:
       - CHILD_WORKFLOW_EXECUTION_TERMINATED
       - START_CHILD_WORKFLOW_EXECUTION_INITIATED
       - CHILD_WORKFLOW_EXECUTION_TIMED_OUT
+      - WORKFLOW_EXECUTION_SIGNALED
+      - WORKFLOW_EXECUTION_UPDATE_ACCEPTED
+      - WORKFLOW_EXECUTION_UPDATE_REJECTED
+      - WORKFLOW_EXECUTION_UPDATE_COMPLETED
       title: WorkflowEventType
       description: The event types we care about.
     WorkflowExecutionCreate:
@@ -7407,6 +8675,8 @@ components:
           type: string
           pattern: (?P<workflow_id>wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/](?P<execution_id>(exec_[0-9a-zA-Z]+|exec-[\w-]+|sch-[0-9a-f]{32}-.*))
           title: Wf Exec Id
+        payload:
+          title: Payload
       type: object
       required:
       - message
@@ -7607,6 +8877,14 @@ components:
           type: array
           title: Events
           description: The events in the workflow execution
+        interaction_states:
+          additionalProperties:
+            $ref: '#/components/schemas/InteractionState'
+          propertyNames:
+            format: uuid
+          type: object
+          title: Interaction States
+          description: The interactions in the workflow execution
       type: object
       required:
       - id
@@ -7679,6 +8957,14 @@ components:
           type: array
           title: Events
           description: Compact events in the workflow execution
+        interaction_states:
+          additionalProperties:
+            $ref: '#/components/schemas/InteractionState'
+          propertyNames:
+            format: uuid
+          type: object
+          title: Interaction States
+          description: The interactions in the workflow execution
       type: object
       required:
       - id
@@ -7799,7 +9085,7 @@ components:
           - type: 'null'
           title: Version
         webhook:
-          $ref: '#/components/schemas/WebhookResponse'
+          $ref: '#/components/schemas/WebhookRead'
         schedules:
           items:
             $ref: '#/components/schemas/Schedule'
@@ -7902,6 +9188,10 @@ components:
           - type: string
           - type: 'null'
           title: Error Handler
+        latest_definition:
+          anyOf:
+          - $ref: '#/components/schemas/WorkflowDefinitionReadMinimal'
+          - type: 'null'
       type: object
       required:
       - id
@@ -8133,24 +9423,6 @@ components:
       - username
       - password
       title: Body_auth-auth:database.login
-    tracecat__tables__enums__SqlType__1:
-      type: string
-      enum:
-      - TEXT
-      - VARCHAR
-      - INTEGER
-      - BIGINT
-      - DECIMAL
-      - BOOLEAN
-      - TIMESTAMP
-      - TIMESTAMPTZ
-      - JSONB
-      - UUID
-      title: SqlType
-      description: Supported SQL types.
-    tracecat__tables__enums__SqlType__2:
-      $ref: '#/components/schemas/tracecat__tables__enums__SqlType__1'
-      minLength: 1
   securitySchemes:
     APIKeyCookie:
       type: apiKey

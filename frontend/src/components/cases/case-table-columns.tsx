@@ -1,24 +1,57 @@
 "use client"
 
-import { CaseReadMinimal } from "@/client"
-import { ColumnDef } from "@tanstack/react-table"
+import type { ColumnDef } from "@tanstack/react-table"
 import { format, formatDistanceToNow } from "date-fns"
 import fuzzysort from "fuzzysort"
-
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
+import type { CaseReadMinimal } from "@/client"
 import { CaseBadge } from "@/components/cases/case-badge"
 import {
   PRIORITIES,
   SEVERITIES,
   STATUSES,
 } from "@/components/cases/case-categories"
+import {
+  AssignedUser,
+  NoAssignee,
+  UNASSIGNED,
+} from "@/components/cases/case-panel-selectors"
 import { DataTableColumnHeader } from "@/components/data-table"
+import { Checkbox } from "@/components/ui/checkbox"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
+import { User } from "@/lib/auth"
 
 export const columns: ColumnDef<CaseReadMinimal>[] = [
+  {
+    id: "select",
+    header: ({ table }) => (
+      <Checkbox
+        className="border-foreground/50"
+        checked={
+          table.getIsAllPageRowsSelected() ||
+          (table.getIsSomePageRowsSelected() && "indeterminate")
+        }
+        onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
+        aria-label="Select all"
+      />
+    ),
+    cell: ({ row }) => (
+      <div onClick={(e) => e.stopPropagation()}>
+        <Checkbox
+          className="border-foreground/50"
+          checked={row.getIsSelected()}
+          onCheckedChange={(value) => row.toggleSelected(!!value)}
+          aria-label="Select row"
+        />
+      </div>
+    ),
+    enableSorting: false,
+    enableHiding: false,
+  },
+
   {
     accessorKey: "short_id",
     header: ({ column }) => (
@@ -61,7 +94,7 @@ export const columns: ColumnDef<CaseReadMinimal>[] = [
     ),
     cell: ({ row }) => {
       const status = row.getValue<CaseReadMinimal["status"]>("status")
-      const props = STATUSES.find((s) => s.value === status)
+      const props = STATUSES[status]
       if (!props) {
         return null
       }
@@ -69,7 +102,7 @@ export const columns: ColumnDef<CaseReadMinimal>[] = [
       return <CaseBadge {...props} />
     },
     filterFn: (row, id, value) => {
-      return value.includes(row.getValue<CaseReadMinimal["id"]>(id))
+      return value.includes(row.getValue<CaseReadMinimal["status"]>("status"))
     },
   },
   {
@@ -82,12 +115,14 @@ export const columns: ColumnDef<CaseReadMinimal>[] = [
       if (!priority) {
         return null
       }
-      const props = PRIORITIES.find((p) => p.value === priority)!
+      const props = PRIORITIES[priority]
 
       return <CaseBadge {...props} />
     },
     filterFn: (row, id, value) => {
-      return value.includes(row.getValue<CaseReadMinimal["id"]>(id))
+      return value.includes(
+        row.getValue<CaseReadMinimal["priority"]>("priority")
+      )
     },
   },
   {
@@ -101,7 +136,7 @@ export const columns: ColumnDef<CaseReadMinimal>[] = [
         return null
       }
 
-      const props = SEVERITIES.find((s) => s.value === severity)
+      const props = SEVERITIES[severity]
       if (!props) {
         return null
       }
@@ -109,7 +144,9 @@ export const columns: ColumnDef<CaseReadMinimal>[] = [
       return <CaseBadge {...props} />
     },
     filterFn: (row, id, value) => {
-      return value.includes(row.getValue<CaseReadMinimal["id"]>(id))
+      return value.includes(
+        row.getValue<CaseReadMinimal["severity"]>("severity")
+      )
     },
   },
   {
@@ -136,7 +173,8 @@ export const columns: ColumnDef<CaseReadMinimal>[] = [
       )
     },
     filterFn: (row, id, value) => {
-      return value.includes(row.getValue<CaseReadMinimal["id"]>(id))
+      const dateStr = row.getValue<CaseReadMinimal["created_at"]>("created_at")
+      return value.includes(dateStr)
     },
   },
   {
@@ -163,7 +201,33 @@ export const columns: ColumnDef<CaseReadMinimal>[] = [
       )
     },
     filterFn: (row, id, value) => {
-      return value.includes(row.getValue<CaseReadMinimal["id"]>(id))
+      const dateStr = row.getValue<CaseReadMinimal["updated_at"]>("updated_at")
+      return value.includes(dateStr)
+    },
+  },
+  {
+    id: "Assignee",
+    accessorKey: "assignee",
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Assignee" />
+    ),
+    cell: ({ getValue }) => {
+      const user = getValue<CaseReadMinimal["assignee"]>()
+      if (!user) {
+        return <NoAssignee text="Not assigned" className="text-xs" />
+      }
+
+      return <AssignedUser user={new User(user)} className="text-xs" />
+    },
+    filterFn: (row, id, value) => {
+      const assignee = row.getValue<CaseReadMinimal["assignee"]>("assignee")
+      if (!assignee) {
+        // Handle unassigned case
+        return value.includes(UNASSIGNED)
+      }
+      const user = new User(assignee)
+      const displayName = user.getDisplayName()
+      return value.includes(displayName)
     },
   },
 ]

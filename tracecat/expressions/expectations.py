@@ -4,8 +4,10 @@ from typing import Any, Union
 
 from lark import Lark, Transformer, v_args
 from pydantic import BaseModel, ConfigDict, Field, create_model
+from pydantic_core import to_jsonable_python
 
 from tracecat.logger import logger
+from tracecat.registry.fields import get_components_for_union_type, type_drop_null
 
 type_grammar = r"""
 ?type: primitive_type
@@ -89,7 +91,7 @@ class TypeTransformer(Transformer):
     @v_args(inline=True)
     def union_type(self, *types) -> type:
         logger.trace("Union type:", types=types)
-        return Union[types]  # noqa: UP007
+        return Union[types]  # type: ignore # noqa: UP007
 
     @v_args(inline=True)
     def reference_type(self, name) -> str:
@@ -149,7 +151,7 @@ def create_expectation_model(
         validated_field_info = ExpectedField.model_validate(field_info)
 
         # Extract metadata
-        field_type = parse_type(validated_field_info.type, field_name)
+        field_type: type = parse_type(validated_field_info.type, field_name)
         description = validated_field_info.description
 
         if description:
@@ -161,6 +163,17 @@ def create_expectation_model(
         else:
             # Use ... (ellipsis) to indicate a required field in Pydantic
             field_info_kwargs["default"] = ...
+
+        # Handle Tracecat component annotations
+        # Check if the field type has component annotations
+        # Get the default UI for the field
+        non_null_field_type = type_drop_null(field_type)
+        components = get_components_for_union_type(non_null_field_type)
+
+        # Add components to field metadata if they exist
+        if components:
+            jsonschema_extra = field_info_kwargs.setdefault("json_schema_extra", {})
+            jsonschema_extra["x-tracecat-component"] = to_jsonable_python(components)
 
         field = Field(**field_info_kwargs)
         fields[field_name] = (field_type, field)

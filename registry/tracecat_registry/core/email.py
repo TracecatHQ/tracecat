@@ -2,7 +2,6 @@
 # XXX(WARNING): Do not import __future__ annotations from typing
 # This will cause class types to be resolved as strings
 
-import json
 import re
 import smtplib
 import socket
@@ -12,7 +11,6 @@ from email.message import EmailMessage
 from typing import Annotated, Any, Literal
 
 import nh3
-from tracecat.config import TRACECAT__ALLOWED_EMAIL_ATTRIBUTES
 from typing_extensions import Doc
 
 from tracecat_registry import RegistrySecret, registry, secrets
@@ -45,6 +43,7 @@ def _build_email_message(
     reply_to: str | list[str] | None = None,
     headers: dict[str, str] | None = None,
     sender_prefix: str | None = None,
+    allowed_attributes: dict[str, list[str]] | None = None,
 ) -> EmailMessage:
     msg = EmailMessage()
 
@@ -55,13 +54,11 @@ def _build_email_message(
         msg.add_alternative(
             "This email requires an HTML viewer to display properly.", subtype="plain"
         )
-        if TRACECAT__ALLOWED_EMAIL_ATTRIBUTES:
-            ALLOWED_ATTRIBUTES = deepcopy(nh3.ALLOWED_ATTRIBUTES)
-            for tag, attributes in json.loads(
-                TRACECAT__ALLOWED_EMAIL_ATTRIBUTES
-            ).items():
-                ALLOWED_ATTRIBUTES[tag] = set(attributes)
-            sanitized_body = nh3.clean(body, attributes=ALLOWED_ATTRIBUTES)
+        if allowed_attributes:
+            attrs = deepcopy(nh3.ALLOWED_ATTRIBUTES)
+            for tag, attributes in allowed_attributes.items():
+                attrs[tag] = set(attributes)
+            sanitized_body = nh3.clean(body, attributes=attrs)
         else:
             sanitized_body = nh3.clean(body)
         msg.add_alternative(sanitized_body, subtype="html")
@@ -97,9 +94,9 @@ def _build_email_message(
 
 
 @registry.register(
-    namespace="core",
+    default_title="Send email (SMTP)",
     description="Perform a send email action using SMTP",
-    default_title="Send Email (SMTP)",
+    namespace="core",
     secrets=[smtp_secret],
 )
 def send_email_smtp(
@@ -168,6 +165,13 @@ def send_email_smtp(
         bool,
         Doc("Ignore SSL certificate errors"),
     ] = False,
+    allowed_attributes: Annotated[
+        dict[str, list[str]] | None,
+        Doc(
+            "Key-value pairs of allowed attributes to add to the email body. "
+            "e.g. {'*': ['style']}. This allows all tags to have a style attribute"
+        ),
+    ] = None,
 ) -> dict[str, Any]:
     """Run a send email action.
 
@@ -200,6 +204,7 @@ def send_email_smtp(
         sender_prefix=sender_prefix,
         sender=sender,
         subject=subject,
+        allowed_attributes=allowed_attributes,
     )
 
     context = ssl.create_default_context()

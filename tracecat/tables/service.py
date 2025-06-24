@@ -1,5 +1,5 @@
-import re
 from collections.abc import Mapping, Sequence
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
@@ -10,7 +10,7 @@ from asyncpg.exceptions import (
     UndefinedTableError,
 )
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy.exc import DBAPIError, IntegrityError, ProgrammingError
+from sqlalchemy.exc import DBAPIError, IntegrityError, NoResultFound, ProgrammingError
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 from tenacity import (
@@ -67,7 +67,8 @@ class BaseTablesService(BaseService):
     ) -> str:
         """Get the full table name for a table."""
         schema_name = self._get_schema_name(workspace_id)
-        return f'"{schema_name}".{table_name}'
+        sanitized_table_name = self._sanitize_identifier(table_name)
+        return f'"{schema_name}".{sanitized_table_name}'
 
     def _workspace_id(self) -> WorkspaceUUID:
         """Get the workspace ID for the current role."""
@@ -107,51 +108,28 @@ class BaseTablesService(BaseService):
 
         return table
 
-    async def get_index(self, table: Table) -> dict[str, bool]:
-        """Check which columns are natural keys by directly querying PostgreSQL indexes."""
+    async def get_index(self, table: Table) -> list[str]:
+        """Get columns that have unique constraints."""
         schema_name = self._get_schema_name()
         conn = await self.session.connection()
 
-        # Query directly from pg_indexes to find unique indexes
-        query = sa.text("""
-            SELECT
-                i.indexname,
-                i.indexdef
-            FROM
-                pg_indexes i
-            WHERE
-                i.schemaname = :schema AND
-                i.tablename = :table AND
-                i.indexdef LIKE '%UNIQUE INDEX%'
-        """)
+        def inspect_indexes(
+            sync_conn: sa.Connection,
+        ) -> Sequence[sa.engine.interfaces.ReflectedIndex]:
+            inspector = sa.inspect(sync_conn)
+            indexes = inspector.get_indexes(table.name, schema=schema_name)
+            return indexes
 
-        # Execute the query with named parameters
-        result = await conn.execute(query, {"schema": schema_name, "table": table.name})
-
-        # Get index information
-        indexes = result.fetchall()
-
-        # Extract column names from index definitions
-        natural_key_columns = set()
-        for idx_name, idx_def in indexes:
-            # Check if this is a natural key index (follows our uq_table_column pattern)
-            if idx_name.startswith(f"uq_{table.name}_"):
-                # Extract column name from index definition
-                # Format is typically: CREATE UNIQUE INDEX uq_table_column ON schema.table (column)
-
-                column_match = re.search(r"\(([^)]+)\)", idx_def)
-                if column_match:
-                    # Get the column names, handling potential multi-column indexes
-                    columns = [c.strip() for c in column_match.group(1).split(",")]
-                    if len(columns) == 1:  # Only single-column indexes are natural keys
-                        natural_key_columns.add(columns[0])
-
-        # Return a dictionary mapping column names to their natural key status
-        result_dict = {
-            column.name: column.name in natural_key_columns for column in table.columns
-        }
-
-        return result_dict
+        indexes = await conn.run_sync(inspect_indexes)
+        # Assume only single column indexes
+        index_names = [
+            index["column_names"][0]
+            for index in indexes
+            if len(index["column_names"]) == 1
+            and isinstance(index["column_names"][0], str)
+        ]
+        self.logger.info("Found unique index column", columns=index_names)
+        return index_names
 
     async def get_table_by_name(self, table_name: str) -> Table:
         """Get a lookup table by name.
@@ -247,10 +225,11 @@ class BaseTablesService(BaseService):
             try:
                 conn = await self.session.connection()
                 old_full_table_name = self._full_table_name(table.name)
+                sanitized_new_name = self._sanitize_identifier(new_name)
                 await conn.execute(
                     sa.DDL(
                         "ALTER TABLE %s RENAME TO %s",
-                        (old_full_table_name, new_name),
+                        (old_full_table_name, sanitized_new_name),
                     )
                 )
             except ProgrammingError as e:
@@ -379,8 +358,10 @@ class BaseTablesService(BaseService):
         conn = await self.session.connection()
         is_index = set_fields.pop("is_index", False)
 
+        # Create index if requested
         if is_index:
-            await self.create_unique_index(column.table, [column.name])
+            await self.create_unique_index(column.table, column.name)
+
         # Handle physical column changes if name or type is being updated
         if "name" in set_fields or "type" in set_fields:
             old_name = self._sanitize_identifier(column.name)
@@ -390,30 +371,61 @@ class BaseTablesService(BaseService):
             if not is_valid_sql_type(new_type):
                 raise ValueError(f"Invalid type: {new_type}")
 
-            # Build ALTER COLUMN statement
-            alter_stmts = []
+            # Build ALTER COLUMN statement using safe DDL construction
             if "name" in set_fields:
-                alter_stmts.append(f"RENAME COLUMN {old_name} TO {new_name}")
+                await conn.execute(
+                    sa.DDL(
+                        "ALTER TABLE %s RENAME COLUMN %s TO %s",
+                        (full_table_name, old_name, new_name),
+                    )
+                )
             if "type" in set_fields:
-                alter_stmts.append(f"ALTER COLUMN {new_name} TYPE {new_type}")
+                await conn.execute(
+                    sa.DDL(
+                        "ALTER TABLE %s ALTER COLUMN %s TYPE %s",
+                        (full_table_name, new_name, new_type),
+                    )
+                )
             if "nullable" in set_fields:
                 constraint = (
                     "DROP NOT NULL" if set_fields["nullable"] else "SET NOT NULL"
                 )
-                alter_stmts.append(f'ALTER COLUMN "{new_name}" {constraint}')
+                await conn.execute(
+                    sa.DDL(
+                        # SAFE f-string: constraint is a controlled literal string ("DROP NOT NULL" or "SET NOT NULL")
+                        # No user input is interpolated here - only predefined SQL keywords
+                        f"ALTER TABLE %s ALTER COLUMN %s {constraint}",
+                        (full_table_name, new_name),
+                    )
+                )
             if "default" in set_fields:
                 updated_default = set_fields["default"]
                 if updated_default is None:
-                    alter_stmts.append(f'ALTER COLUMN "{new_name}" DROP DEFAULT')
-                else:
-                    alter_stmts.append(
-                        f"ALTER COLUMN \"{new_name}\" SET DEFAULT '{updated_default}'"
+                    await conn.execute(
+                        sa.DDL(
+                            "ALTER TABLE %s ALTER COLUMN %s DROP DEFAULT",
+                            (full_table_name, new_name),
+                        )
                     )
-
-            # Execute all ALTER statements
-            self.logger.info("Updating column", stmts=alter_stmts)
-            for stmt in alter_stmts:
-                await conn.execute(sa.DDL(f"ALTER TABLE {full_table_name} {stmt}"))
+                else:
+                    # SECURITY NOTE: PostgreSQL DDL does not support parameter binding for DEFAULT clauses.
+                    # We must use string interpolation here, but it's SAFE because:
+                    # 1. handle_default_value() sanitizes and properly formats the value based on SQL type
+                    # 2. It applies proper quoting, escaping, and type casting (e.g., 'value'::text, 123, true)
+                    # 3. The function validates the SQL type and rejects invalid inputs
+                    # 4. This is the ONLY way to set DEFAULT values in PostgreSQL DDL statements
+                    formatted_default = handle_default_value(
+                        SqlType(new_type if "type" in set_fields else column.type),
+                        updated_default,
+                    )
+                    await conn.execute(
+                        sa.DDL(
+                            # SAFE f-string: formatted_default is pre-sanitized by handle_default_value()
+                            # Other parameters (table/column names) still use secure parameter binding
+                            f"ALTER TABLE %s ALTER COLUMN %s SET DEFAULT {formatted_default}",
+                            (full_table_name, new_name),
+                        )
+                    )
 
         # Update the column metadata
         for key, value in set_fields.items():
@@ -423,22 +435,23 @@ class BaseTablesService(BaseService):
         return column
 
     @require_access_level(AccessLevel.ADMIN)
-    async def create_unique_index(self, table: Table, column_names: list[str]) -> None:
+    async def create_unique_index(self, table: Table, column_name: str) -> None:
         """Create a unique index on specified columns."""
+
+        # Check if another index already exists
+        index = await self.get_index(table)
+        if len(index) > 0:
+            raise ValueError("Table cannot have multiple unique indexes")
+
         # Get the fully qualified table name with schema
         full_table_name = self._full_table_name(table.name)
 
         # Sanitize column names to prevent SQL injection
-        sanitized_columns = [self._sanitize_identifier(col) for col in column_names]
+        sanitized_column = self._sanitize_identifier(column_name)
 
         # Create a descriptive name for the index
         # Format: uq_[table_name]_[col1]_[col2]_etc
-        if len(sanitized_columns) == 1:
-            # This is the pattern expected by _enrich_columns_with_natural_key_info
-            index_name = f"uq_{table.name}_{sanitized_columns[0]}"
-        else:
-            # Use a different prefix for multi-column indexes
-            index_name = "multiuq_{}_{}".format(table.name, "_".join(sanitized_columns))
+        index_name = f"uq_{table.name}_{sanitized_column}"
 
         # Get database connection
         conn = await self.session.connection()
@@ -450,7 +463,7 @@ class BaseTablesService(BaseService):
                 (
                     index_name,  # Name of the index
                     full_table_name,  # Table to create index on
-                    ", ".join(sanitized_columns),  # Column(s) to index
+                    sanitized_column,  # Column to index
                 ),
             )
         )
@@ -485,10 +498,11 @@ class BaseTablesService(BaseService):
     ) -> Sequence[Mapping[str, Any]]:
         """List all rows in a table."""
         schema_name = self._get_schema_name()
+        sanitized_table_name = self._sanitize_identifier(table.name)
         conn = await self.session.connection()
         stmt = (
             sa.select("*")
-            .select_from(sa.table(table.name, schema=schema_name))
+            .select_from(sa.table(sanitized_table_name, schema=schema_name))
             .limit(limit)
             .offset(offset)
         )
@@ -498,10 +512,11 @@ class BaseTablesService(BaseService):
     async def get_row(self, table: Table, row_id: UUID) -> Any:
         """Get a row by ID."""
         schema_name = self._get_schema_name()
+        sanitized_table_name = self._sanitize_identifier(table.name)
         conn = await self.session.connection()
         stmt = (
             sa.select("*")
-            .select_from(sa.table(table.name, schema=schema_name))
+            .select_from(sa.table(sanitized_table_name, schema=schema_name))
             .where(sa.column("id") == row_id)
         )
         result = await conn.execute(stmt)
@@ -539,6 +554,7 @@ class BaseTablesService(BaseService):
         cols = []
 
         table_name_for_logging = table.name
+        sanitized_table_name = self._sanitize_identifier(table.name)
 
         for col, value in row_data.items():
             value_clauses[col] = to_sql_clause(
@@ -548,38 +564,43 @@ class BaseTablesService(BaseService):
 
         if not upsert:
             stmt = (
-                sa.insert(sa.table(table.name, *cols, schema=schema_name))
+                sa.insert(sa.table(sanitized_table_name, *cols, schema=schema_name))
                 .values(**value_clauses)
                 .returning(sa.text("*"))
             )
         else:
             # For upsert operations
-            table_obj = sa.table(table.name, *cols, schema=schema_name)
+            table_obj = sa.table(sanitized_table_name, *cols, schema=schema_name)
             pg_stmt = insert(table_obj)
             pg_stmt = pg_stmt.values(**value_clauses)
 
-            # Determine which columns to use for conflict resolution
-            natural_keys = params.natural_keys
+            # Get columns with unique constraints for conflict resolution
+            index = await self.get_index(table)
+
+            # Check if we have any unique columns to use for conflict resolution
+            if not index:
+                raise ValueError("Table must have at least one unique index for upsert")
+
+            if len(index) > 1:
+                raise ValueError(
+                    "Table cannot have multiple unique indexes. This is an unexpected error. Please contact support."
+                )
 
             # Ensure all conflict keys are actually in the data
-            if not all(key in value_clauses for key in natural_keys):
-                raise ValueError("All natural keys must be present in the data")
-
-            # Check if the conflict keys have corresponding columns defined
-            if not natural_keys:
-                raise ValueError("No natural keys specified for upsert")
+            if not all(key in value_clauses for key in index):
+                raise ValueError("Data to upsert must contain the unique index column")
 
             # Define what gets updated on conflict
             update_dict = {
                 col: pg_stmt.excluded[col]
                 for col in value_clauses.keys()
-                if col not in natural_keys  # Don't update the conflict keys
+                if col not in index  # Don't update the unique columns
             }
 
             try:
                 # Complete the statement with on_conflict_do_update
                 stmt = pg_stmt.on_conflict_do_update(
-                    index_elements=natural_keys, set_=update_dict
+                    index_elements=index, set_=update_dict
                 ).returning(sa.text("*"))
 
                 result = await conn.execute(stmt)
@@ -591,25 +612,21 @@ class BaseTablesService(BaseService):
                 original_error = e
                 while (cause := e.__cause__) is not None:
                     e = cause
-
-                # Check for specific error about missing unique constraint
-                if "there is no unique or exclusion constraint" in str(e):
-                    self.logger.warning(
-                        "No unique index found for upsert conflict keys",
-                        natural_keys=natural_keys,
-                        table_name=table_name_for_logging,
-                    )
-                    raise ValueError(
-                        "Cannot upsert on columns. Create a unique index first with create_unique_index()"
-                    ) from original_error
-                elif "violates unique constraint" in str(e):
+                if "violates unique constraint" in str(e):
                     self.logger.warning(
                         "Trying to insert duplicate values",
-                        natural_keys=natural_keys,
+                        index=index,
                         table_name=table_name_for_logging,
                     )
                     raise ValueError(
-                        "Please check for duplicate values before inserting in key column"
+                        "Please check for duplicate values in the unique index columns"
+                    ) from original_error
+                elif (
+                    "no unique or exclusion constraint matching the ON CONFLICT"
+                    in str(e)
+                ):
+                    raise ValueError(
+                        "Please check that the unique index columns are present in the data"
                     ) from original_error
                 raise
 
@@ -659,9 +676,10 @@ class BaseTablesService(BaseService):
         conn = await self.session.connection()
 
         # Build update statement using SQLAlchemy
+        sanitized_table_name = self._sanitize_identifier(table.name)
         cols = [sa.column(self._sanitize_identifier(k)) for k in data.keys()]
         stmt = (
-            sa.update(sa.table(table.name, *cols, schema=schema_name))
+            sa.update(sa.table(sanitized_table_name, *cols, schema=schema_name))
             .where(sa.column("id") == row_id)
             .values(**data)
             .returning(sa.text("*"))
@@ -672,7 +690,7 @@ class BaseTablesService(BaseService):
 
         try:
             row = result.mappings().one()
-        except sa.exc.NoResultFound:
+        except NoResultFound:
             raise TracecatNotFoundError(
                 f"Row {row_id} not found in table {table.name}"
             ) from None
@@ -683,13 +701,12 @@ class BaseTablesService(BaseService):
     async def delete_row(self, table: Table, row_id: UUID) -> None:
         """Delete a row from the table."""
         schema_name = self._get_schema_name()
+        sanitized_table_name = self._sanitize_identifier(table.name)
         conn = await self.session.connection()
-        table_clause = sa.table(table.name, schema=schema_name)
+        table_clause = sa.table(sanitized_table_name, schema=schema_name)
         stmt = sa.delete(table_clause).where(sa.column("id") == row_id)
         await conn.execute(stmt)
         await self.session.flush()
-
-    "Lookups"
 
     @retry(
         retry=retry_if_exception_type(_RETRYABLE_DB_EXCEPTIONS),
@@ -710,11 +727,12 @@ class BaseTablesService(BaseService):
             raise ValueError("Values and column names must have the same length")
 
         schema_name = self._get_schema_name()
+        sanitized_table_name = self._sanitize_identifier(table_name)
 
         cols = [sa.column(self._sanitize_identifier(c)) for c in columns]
         stmt = (
             sa.select(sa.text("*"))
-            .select_from(sa.table(table_name, schema=schema_name))
+            .select_from(sa.table(sanitized_table_name, schema=schema_name))
             .where(
                 sa.and_(
                     *[col == value for col, value in zip(cols, values, strict=True)]
@@ -763,6 +781,134 @@ class BaseTablesService(BaseService):
                 )
                 raise
 
+    async def search_rows(
+        self,
+        table: Table,
+        *,
+        search_term: str | None = None,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
+        updated_before: datetime | None = None,
+        updated_after: datetime | None = None,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        """Search rows in a table with optional text search and filtering.
+
+        Args:
+            table: The table to search in
+            search_term: Text to search for across all text and JSONB columns
+            start_time: Filter records created after this time
+            end_time: Filter records created before this time
+            updated_before: Filter records updated before this time
+            updated_after: Filter records updated after this time
+            limit: Maximum number of rows to return
+            offset: Number of rows to skip
+
+        Returns:
+            List of matching rows as dictionaries
+
+        Raises:
+            TracecatNotFoundError: If the table does not exist
+            ValueError: If search parameters are invalid
+        """
+        schema_name = self._get_schema_name()
+        sanitized_table_name = self._sanitize_identifier(table.name)
+        conn = await self.session.connection()
+
+        # Build the base query
+        stmt = sa.select(sa.text("*")).select_from(
+            sa.table(sanitized_table_name, schema=schema_name)
+        )
+
+        # Build WHERE conditions
+        where_conditions = []
+
+        # Add text search conditions
+        if search_term:
+            # Validate search term to prevent abuse
+            if len(search_term) > 1000:
+                raise ValueError("Search term cannot exceed 1000 characters")
+            if "\x00" in search_term:
+                raise ValueError("Search term cannot contain null bytes")
+
+            # Get all text-searchable columns (TEXT and JSONB types)
+            searchable_columns = [
+                col.name
+                for col in table.columns
+                if col.type in (SqlType.TEXT.value, SqlType.JSONB.value)
+            ]
+
+            if searchable_columns:
+                # Use SQLAlchemy's concat function for proper parameter binding
+                search_pattern = sa.func.concat("%", search_term, "%")
+                search_conditions = []
+                for col_name in searchable_columns:
+                    sanitized_col = self._sanitize_identifier(col_name)
+                    if col_name in [
+                        c.name for c in table.columns if c.type == SqlType.JSONB.value
+                    ]:
+                        # For JSONB columns, convert to text for searching
+                        search_conditions.append(
+                            sa.func.cast(sa.column(sanitized_col), sa.TEXT).ilike(
+                                search_pattern
+                            )
+                        )
+                    else:
+                        # For TEXT columns, search directly
+                        search_conditions.append(
+                            sa.column(sanitized_col).ilike(search_pattern)
+                        )
+                where_conditions.append(sa.or_(*search_conditions))
+            else:
+                # No searchable columns found, search_term will have no effect
+                self.logger.warning(
+                    "No searchable columns found for text search",
+                    table=table.name,
+                    search_term=search_term,
+                )
+
+        # Add date filters
+        if start_time:
+            where_conditions.append(sa.column("created_at") >= start_time)
+        if end_time:
+            where_conditions.append(sa.column("created_at") <= end_time)
+        if updated_after:
+            where_conditions.append(sa.column("updated_at") >= updated_after)
+        if updated_before:
+            where_conditions.append(sa.column("updated_at") <= updated_before)
+
+        # Apply WHERE conditions if any
+        if where_conditions:
+            stmt = stmt.where(sa.and_(*where_conditions))
+
+        # Apply limit and offset
+        if limit is not None:
+            stmt = stmt.limit(limit)
+        if offset > 0:
+            stmt = stmt.offset(offset)
+
+        try:
+            result = await conn.execute(stmt)
+            return [dict(row) for row in result.mappings().all()]
+        except ProgrammingError as e:
+            while (cause := e.__cause__) is not None:
+                e = cause
+            if isinstance(e, UndefinedTableError):
+                raise TracecatNotFoundError(
+                    f"Table '{table.name}' does not exist"
+                ) from e
+            raise ValueError(str(e)) from e
+        except Exception as e:
+            self.logger.error(
+                "Unexpected DB exception occurred during search",
+                kind=type(e).__name__,
+                error=str(e),
+                table=table.name,
+                schema=schema_name,
+            )
+            raise
+
     async def batch_insert_rows(
         self,
         table: Table,
@@ -799,12 +945,15 @@ class BaseTablesService(BaseService):
 
         # Create sanitized column list
         cols = [sa.column(self._sanitize_identifier(k)) for k in all_columns]
+        sanitized_table_name = self._sanitize_identifier(table.name)
 
         # Start transaction
         conn = await self.session.connection()
 
         # Build multi-row insert statement without returning clause
-        stmt = sa.insert(sa.table(table.name, *cols, schema=schema_name)).values(rows)
+        stmt = sa.insert(
+            sa.table(sanitized_table_name, *cols, schema=schema_name)
+        ).values(rows)
 
         try:
             # Execute insert and get rowcount directly
@@ -893,7 +1042,7 @@ class TableEditorService(BaseService):
         role: Role | None = None,
     ):
         super().__init__(session, role)
-        self.table_name = table_name
+        self.table_name = sanitize_identifier(table_name)
         self.schema_name = schema_name
 
     def _full_table_name(self) -> str:
@@ -973,31 +1122,63 @@ class TableEditorService(BaseService):
         set_fields = params.model_dump(exclude_unset=True)
         conn = await self.session.connection()
 
-        statements = []
         new_name = column_name
+        full_table_name = self._full_table_name()
+
+        # Execute ALTER statements using safe DDL construction
         if "name" in set_fields:
             new_name = sanitize_identifier(set_fields["name"])
-            statements.append(f"RENAME COLUMN {column_name} TO {new_name}")
+            await conn.execute(
+                sa.DDL(
+                    "ALTER TABLE %s RENAME COLUMN %s TO %s",
+                    (full_table_name, column_name, new_name),
+                )
+            )
         if "type" in set_fields:
             new_type = set_fields["type"]
-            statements.append(f"ALTER COLUMN {new_name} TYPE {new_type}")
+            await conn.execute(
+                sa.DDL(
+                    "ALTER TABLE %s ALTER COLUMN %s TYPE %s",
+                    (full_table_name, new_name, new_type),
+                )
+            )
         if "nullable" in set_fields:
             constraint = "DROP NOT NULL" if set_fields["nullable"] else "SET NOT NULL"
-            statements.append(f'ALTER COLUMN "{new_name}" {constraint}')
+            await conn.execute(
+                sa.DDL(
+                    # SAFE f-string: constraint is a controlled literal string ("DROP NOT NULL" or "SET NOT NULL")
+                    # No user input is interpolated here - only predefined SQL keywords
+                    f"ALTER TABLE %s ALTER COLUMN %s {constraint}",
+                    (full_table_name, new_name),
+                )
+            )
         if "default" in set_fields:
             updated_default = set_fields["default"]
             if updated_default is None:
-                statements.append(f'ALTER COLUMN "{new_name}" DROP DEFAULT')
-            else:
-                statements.append(
-                    f"ALTER COLUMN \"{new_name}\" SET DEFAULT '{updated_default}'"
+                await conn.execute(
+                    sa.DDL(
+                        "ALTER TABLE %s ALTER COLUMN %s DROP DEFAULT",
+                        (full_table_name, new_name),
+                    )
                 )
-
-        # Execute all ALTER statements
-        self.logger.info("Updating column", stmts=statements)
-        full_table_name = self._full_table_name()
-        for stmt in statements:
-            await conn.execute(sa.DDL(f"ALTER TABLE {full_table_name} {stmt}"))
+            else:
+                # SECURITY NOTE: PostgreSQL DDL does not support parameter binding for DEFAULT clauses.
+                # We must use string interpolation here, but it's SAFE because:
+                # 1. handle_default_value() sanitizes and properly formats the value based on SQL type
+                # 2. It applies proper quoting, escaping, and type casting (e.g., 'value'::text, 123, true)
+                # 3. The function validates the SQL type and rejects invalid inputs
+                # 4. This is the ONLY way to set DEFAULT values in PostgreSQL DDL statements
+                formatted_default = handle_default_value(
+                    SqlType(set_fields.get("type", "TEXT")), updated_default
+                )
+                await conn.execute(
+                    sa.DDL(
+                        # SAFE f-string: formatted_default is pre-sanitized by handle_default_value()
+                        # Other parameters (table/column names) still use secure parameter binding
+                        f"ALTER TABLE %s ALTER COLUMN %s SET DEFAULT {formatted_default}",
+                        (full_table_name, new_name),
+                    )
+                )
 
         await self.session.flush()
 
@@ -1106,7 +1287,7 @@ class TableEditorService(BaseService):
 
         try:
             row = result.mappings().one()
-        except sa.exc.NoResultFound:
+        except NoResultFound:
             raise TracecatNotFoundError(
                 f"Row {row_id} not found in table {self.table_name}"
             ) from None

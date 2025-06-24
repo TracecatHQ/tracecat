@@ -29,6 +29,7 @@ services:
       TRACECAT__AUTH_ALLOWED_DOMAINS: ${TRACECAT__AUTH_ALLOWED_DOMAINS}
       TRACECAT__AUTH_MIN_PASSWORD_LENGTH: ${TRACECAT__AUTH_MIN_PASSWORD_LENGTH}
       TRACECAT__AUTH_TYPES: ${TRACECAT__AUTH_TYPES}
+      TRACECAT__AUTH_SUPERADMIN_EMAIL: ${TRACECAT__AUTH_SUPERADMIN_EMAIL}
       TRACECAT__DB_ENCRYPTION_KEY: ${TRACECAT__DB_ENCRYPTION_KEY} # Sensitive
       TRACECAT__DB_SSLMODE: ${TRACECAT__DB_SSLMODE}
       TRACECAT__DB_URI: ${TRACECAT__DB_URI} # Sensitive
@@ -36,9 +37,7 @@ services:
       TRACECAT__PUBLIC_API_URL: ${TRACECAT__PUBLIC_API_URL}
       TRACECAT__PUBLIC_APP_URL: ${TRACECAT__PUBLIC_APP_URL}
       TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY} # Sensitive
-      TRACECAT__SETTING_OVERRIDE_SAML_ENABLED: ${TRACECAT__SETTING_OVERRIDE_SAML_ENABLED}
       TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET} # Sensitive
-      TRACECAT__TRUSTED_DOCKER_IMAGES: ${TRACECAT__TRUSTED_DOCKER_IMAGES}
       OAUTH_CLIENT_ID: ${OAUTH_CLIENT_ID}
       OAUTH_CLIENT_SECRET: ${OAUTH_CLIENT_SECRET}
       USER_AUTH_SECRET: ${USER_AUTH_SECRET}
@@ -52,10 +51,6 @@ services:
       TEMPORAL__API_KEY: ${TEMPORAL__API_KEY}
       # Migrations
       RUN_MIGRATIONS: "true"
-      # Remote registry
-      TRACECAT__ALLOWED_GIT_DOMAINS: ${TRACECAT__ALLOWED_GIT_DOMAINS}
-      TRACECAT__REMOTE_REPOSITORY_PACKAGE_NAME: ${TRACECAT__REMOTE_REPOSITORY_PACKAGE_NAME}
-      TRACECAT__REMOTE_REPOSITORY_URL: ${TRACECAT__REMOTE_REPOSITORY_URL}
       # Local registry
       TRACECAT__LOCAL_REPOSITORY_PATH: ${TRACECAT__LOCAL_REPOSITORY_PATH}
       TRACECAT__LOCAL_REPOSITORY_ENABLED: ${TRACECAT__LOCAL_REPOSITORY_ENABLED}
@@ -65,7 +60,7 @@ services:
       - ./alembic:/app/alembic
       - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
     depends_on:
-      - executor
+      - temporal
 
   worker:
     build:
@@ -99,6 +94,9 @@ services:
       - ./registry:/app/registry
       - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
     command: ["python", "tracecat/dsl/worker.py"]
+    depends_on:
+      - api
+      - temporal
 
   executor:
     build:
@@ -120,12 +118,7 @@ services:
       TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY} # Sensitive
       TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET} # Sensitive
       # Registry
-      TRACECAT__ALLOWED_GIT_DOMAINS: ${TRACECAT__ALLOWED_GIT_DOMAINS}
-      TRACECAT__REMOTE_REPOSITORY_URL: ${TRACECAT__REMOTE_REPOSITORY_URL}
-      TRACECAT__REMOTE_REPOSITORY_PACKAGE_NAME: ${TRACECAT__REMOTE_REPOSITORY_PACKAGE_NAME}
       TRACECAT__UNSAFE_DISABLE_SM_MASKING: ${TRACECAT__UNSAFE_DISABLE_SM_MASKING:-false}
-      # Email
-      TRACECAT__ALLOWED_EMAIL_ATTRIBUTES: ${TRACECAT__ALLOWED_EMAIL_ATTRIBUTES}
       # Local registry
       TRACECAT__LOCAL_REPOSITORY_PATH: ${TRACECAT__LOCAL_REPOSITORY_PATH}
       TRACECAT__LOCAL_REPOSITORY_ENABLED: ${TRACECAT__LOCAL_REPOSITORY_ENABLED}
@@ -145,8 +138,12 @@ services:
         "8000",
         "--reload",
       ]
+    depends_on:
+      - temporal
 
   ui:
+    # image: ghcr.io/tracecathq/tracecat-ui:${TRACECAT__IMAGE_TAG:-0.36.6}
+    # container_name: ui
     build:
       context: ./frontend
       dockerfile: Dockerfile
@@ -155,7 +152,10 @@ services:
         NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
         NEXT_SERVER_API_URL: ${NEXT_SERVER_API_URL}
         NODE_ENV: ${NODE_ENV}
-    container_name: ui
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/.next:/app/.next
+      - ./frontend/node_modules:/app/node_modules
     restart: unless-stopped
     ports:
       - 3000:3000
@@ -166,13 +166,10 @@ services:
       NEXT_PUBLIC_AUTH_TYPES: ${TRACECAT__AUTH_TYPES}
       NEXT_SERVER_API_URL: ${NEXT_SERVER_API_URL}
       NODE_ENV: ${NODE_ENV}
+      TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY}
+    attach: false
     depends_on:
       - api
-    volumes:
-      - ./frontend/src:/app/src
-      - ./frontend/.next:/app/.next
-      - ./frontend/node_modules:/app/node_modules
-    attach: false
 
   postgres_db:
     image: postgres:16

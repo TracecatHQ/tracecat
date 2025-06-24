@@ -1,24 +1,19 @@
 "use client"
 
-import { useState } from "react"
-import { useParams } from "next/navigation"
-import { ApiError, TableColumnRead } from "@/client"
-import { useAuth } from "@/providers/auth"
-import { useWorkspace } from "@/providers/workspace"
 import { zodResolver } from "@hookform/resolvers/zod"
 import {
   ChevronDownIcon,
   CopyIcon,
-  KeyIcon,
+  DatabaseZapIcon,
   Pencil,
   Trash2Icon,
 } from "lucide-react"
+import { useParams } from "next/navigation"
+import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
-
-import { userIsPrivileged } from "@/lib/auth"
-import { useDeleteColumn, useUpdateColumn } from "@/lib/hooks"
-import { SqlTypeEnum } from "@/lib/tables"
+import { ApiError, type TableColumnRead } from "@/client"
+import { Spinner } from "@/components/loading/spinner"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -63,7 +58,10 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { toast } from "@/components/ui/use-toast"
-import { Spinner } from "@/components/loading/spinner"
+import { useDeleteColumn, useUpdateColumn } from "@/lib/hooks"
+import { SqlTypeEnum } from "@/lib/tables"
+import { useAuth } from "@/providers/auth"
+import { useWorkspace } from "@/providers/workspace"
 
 type TableViewColumnMenuType = "delete" | "edit" | "set-natural-key" | null
 
@@ -72,7 +70,6 @@ export function TableViewColumnMenu({ column }: { column: TableColumnRead }) {
   const { tableId } = useParams<{ tableId?: string }>()
   const [activeType, setActiveType] = useState<TableViewColumnMenuType>(null)
   const onOpenChange = () => setActiveType(null)
-  const isPrivileged = userIsPrivileged(user)
 
   return (
     <>
@@ -104,7 +101,7 @@ export function TableViewColumnMenu({ column }: { column: TableColumnRead }) {
             <CopyIcon className="mr-2 size-3 group-hover/item:text-accent-foreground" />
             Copy name
           </DropdownMenuItem>
-          {isPrivileged && (
+          {user?.isPrivileged() && (
             <>
               <DropdownMenuItem
                 className="py-1 text-xs text-foreground/80"
@@ -114,8 +111,8 @@ export function TableViewColumnMenu({ column }: { column: TableColumnRead }) {
                 }}
                 disabled={column.is_index}
               >
-                <KeyIcon className="mr-2 size-3 group-hover/item:text-accent-foreground" />
-                {column.is_index ? "Natural Key" : "Make natural key"}
+                <DatabaseZapIcon className="mr-2 size-3 group-hover/item:text-accent-foreground" />
+                {column.is_index ? "Unique index" : "Create unique index"}
               </DropdownMenuItem>
               <DropdownMenuItem
                 className="py-1 text-xs text-foreground/80"
@@ -426,10 +423,11 @@ function TableColumnIndexDialog({
       <AlertDialog open={open} onOpenChange={onOpenChange}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Column is already a Natural Key</AlertDialogTitle>
+            <AlertDialogTitle>
+              Column is already a unique index
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              Column <b>{column.name}</b> is already a natural key with a unique
-              index.
+              Column <b>{column.name}</b> is already a unique index.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -454,13 +452,13 @@ function TableColumnIndexDialog({
       })
 
       toast({
-        title: "Natural key created",
-        description: "Column is now a natural key.",
+        title: "Created unique index",
+        description: "Column is now a unique index.",
       })
 
       onOpenChange()
     } catch (error) {
-      console.error("Error creating natural key:", error)
+      console.error("Error creating unique index:", error)
     }
   }
 
@@ -475,11 +473,10 @@ function TableColumnIndexDialog({
     >
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Create Natural Key</AlertDialogTitle>
+          <AlertDialogTitle>Create unique index</AlertDialogTitle>
           <AlertDialogDescription>
-            Are you sure you want to make column <b>{column.name}</b> a natural
-            key? This will create a unique index on the column, making it usable
-            for upsert operations.
+            Are you sure you want to make column <b>{column.name}</b> a unique
+            index? This enables upsert operations on the table.
             <br />
             <br />
             <strong>Requirements:</strong>
@@ -504,8 +501,8 @@ function TableColumnIndexDialog({
               </>
             ) : (
               <>
-                <KeyIcon className="mr-2 size-4" />
-                Create Natural Key
+                <DatabaseZapIcon className="mr-2 size-4" />
+                Create unique index
               </>
             )}
           </AlertDialogAction>

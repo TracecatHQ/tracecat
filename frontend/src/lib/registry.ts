@@ -1,4 +1,4 @@
-import {
+import type {
   RegistryActionTemplateImpl_Output,
   RegistryActionUDFImpl,
 } from "@/client"

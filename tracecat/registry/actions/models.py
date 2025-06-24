@@ -29,8 +29,9 @@ from tracecat.types.exceptions import (
     TracecatValidationError,
 )
 from tracecat.validation.models import (
+    ActionValidationResult,
     TemplateActionExprValidationResult,
-    ValidationResult,
+    ValidationDetail,
 )
 
 ArgsClsT = TypeVar("ArgsClsT", bound=type[BaseModel])
@@ -482,25 +483,21 @@ class RegistryActionUpdate(BaseModel):
         )
 
 
-class RegistryActionValidate(BaseModel):
-    args: dict[str, Any]
-
-
 class RegistryActionValidateResponse(BaseModel):
     ok: bool
     message: str
-    detail: Any | None = None
+    detail: list[ValidationDetail] | None = None
     action_ref: str | None = None
 
     @staticmethod
     def from_validation_result(
-        result: ValidationResult,
+        result: ActionValidationResult,
     ) -> RegistryActionValidateResponse:
         return RegistryActionValidateResponse(
             ok=result.status == "success",
             message=result.msg,
             # Dump this to get subclass-specific fields
-            detail=result.model_dump(include={"detail"}, exclude_none=True),
+            detail=result.detail,
             action_ref=result.ref,
         )
 
@@ -515,7 +512,7 @@ class RegistryActionValidateResponse(BaseModel):
         return RegistryActionValidateResponse(
             ok=False,
             message=f"Schema validation error: {exc.title}",
-            detail=exc.errors(),
+            detail=ValidationDetail.list_from_pydantic(exc),
         )
 
 
@@ -619,5 +616,5 @@ class RegistryActionValidationErrorInfo(BaseModel):
             type=TemplateActionValidationErrorType.EXPRESSION_VALIDATION_ERROR,
             details=[v.msg],
             is_template=is_template,
-            loc_primary=v.loc,
+            loc_primary=".".join(map(str, v.loc)),
         )

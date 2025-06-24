@@ -1,16 +1,13 @@
 from __future__ import annotations
 
-import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import (
     Annotated,
     Any,
-    Generic,
     Literal,
     NotRequired,
     TypedDict,
-    TypeVar,
     cast,
 )
 
@@ -22,18 +19,24 @@ from google.protobuf.json_format import MessageToDict
 from pydantic import BaseModel, ConfigDict, Field, PlainSerializer
 from temporalio.client import WorkflowExecution, WorkflowExecutionStatus
 
-from tracecat.dsl.common import ChildWorkflowMemo, DSLRunArgs
-from tracecat.dsl.enums import JoinStrategy, PlatformAction
+from tracecat.dsl.common import (
+    ChildWorkflowMemo,
+    DSLRunArgs,
+    get_trigger_type_from_search_attr,
+)
+from tracecat.dsl.enums import JoinStrategy, PlatformAction, WaitStrategy
 from tracecat.dsl.models import (
+    ROOT_STREAM,
     ActionErrorInfo,
     ActionRetryPolicy,
     RunActionInput,
+    StreamID,
     TriggerInputs,
 )
 from tracecat.ee.interactions.models import (
     InteractionInput,
+    InteractionRead,
     InteractionResult,
-    InteractionState,
 )
 from tracecat.identifiers import WorkflowExecutionID, WorkflowID
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID
@@ -46,6 +49,7 @@ from tracecat.workflow.executions.common import (
     is_utility_activity,
 )
 from tracecat.workflow.executions.enums import (
+    TriggerType,
     WorkflowEventType,
     WorkflowExecutionEventStatus,
 )
@@ -88,6 +92,7 @@ class WorkflowExecutionBase(BaseModel):
     task_queue: str
     history_length: int = Field(..., description="Number of events in the history")
     parent_wf_exec_id: WorkflowExecutionID | None = None
+    trigger_type: TriggerType
 
 
 class WorkflowExecutionReadMinimal(WorkflowExecutionBase):
@@ -104,6 +109,9 @@ class WorkflowExecutionReadMinimal(WorkflowExecutionBase):
             task_queue=execution.task_queue,
             history_length=execution.history_length,
             parent_wf_exec_id=execution.parent_id,
+            trigger_type=get_trigger_type_from_search_attr(
+                execution.typed_search_attributes, execution.id
+            ),
         )
 
 
@@ -111,18 +119,18 @@ class WorkflowExecutionRead(WorkflowExecutionBase):
     events: list[WorkflowExecutionEvent] = Field(
         ..., description="The events in the workflow execution"
     )
-    interaction_states: dict[uuid.UUID, InteractionState] = Field(
-        default_factory=dict,
+    interactions: list[InteractionRead] = Field(
+        default_factory=list,
         description="The interactions in the workflow execution",
     )
 
 
-class WorkflowExecutionReadCompact(WorkflowExecutionBase):
-    events: list[WorkflowExecutionEventCompact] = Field(
+class WorkflowExecutionReadCompact[TInput: Any, TResult: Any](WorkflowExecutionBase):
+    events: list[WorkflowExecutionEventCompact[TInput, TResult]] = Field(
         ..., description="Compact events in the workflow execution"
     )
-    interaction_states: dict[uuid.UUID, InteractionState] = Field(
-        default_factory=dict,
+    interactions: list[InteractionRead] = Field(
+        default_factory=list,
         description="The interactions in the workflow execution",
     )
 
@@ -132,17 +140,16 @@ def destructure_slugified_namespace(s: str, delimiter: str = "__") -> tuple[str,
     return (".".join(stem), leaf)
 
 
-EventInput = TypeVar(
-    "EventInput",
-    RunActionInput,
-    DSLRunArgs,
-    GetWorkflowDefinitionActivityInputs,
-    InteractionResult,
-    InteractionInput,
+EventInput = (
+    RunActionInput
+    | DSLRunArgs
+    | GetWorkflowDefinitionActivityInputs
+    | InteractionResult
+    | InteractionInput
 )
 
 
-class EventGroup(BaseModel, Generic[EventInput]):
+class EventGroup[T: EventInput](BaseModel):
     event_id: int
     udf_namespace: str
     udf_name: str
@@ -151,7 +158,7 @@ class EventGroup(BaseModel, Generic[EventInput]):
     action_ref: str | None = None
     action_title: str | None = None
     action_description: str | None = None
-    action_input: EventInput
+    action_input: T
     action_result: Any | None = None
     current_attempt: int | None = None
     retry_policy: ActionRetryPolicy = Field(default_factory=ActionRetryPolicy)
@@ -294,13 +301,13 @@ class EventFailure(BaseModel):
         )
 
 
-class WorkflowExecutionEvent(BaseModel, Generic[EventInput]):
+class WorkflowExecutionEvent[T: EventInput](BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
     event_id: int
     event_time: datetime
     event_type: WorkflowEventType
     task_id: int
-    event_group: EventGroup[EventInput] | None = Field(
+    event_group: EventGroup[T] | None = Field(
         default=None,
         description="The action group of the event. We use this to keep track of what events are related to each other.",
     )
@@ -311,7 +318,7 @@ class WorkflowExecutionEvent(BaseModel, Generic[EventInput]):
     workflow_timeout: float | None = None
 
 
-class WorkflowExecutionEventCompact(BaseModel):
+class WorkflowExecutionEventCompact[TInput: Any, TResult: Any](BaseModel):
     """A compact representation of a workflow execution event."""
 
     source_event_id: int
@@ -324,12 +331,14 @@ class WorkflowExecutionEventCompact(BaseModel):
     status: WorkflowExecutionEventStatus
     action_name: str
     action_ref: str
-    action_input: Any | None = None
-    action_result: Any | None = None
+    action_input: TInput | None = None
+    action_result: TResult | None = None
     action_error: EventFailure | None = None
+    stream_id: StreamID = ROOT_STREAM
     child_wf_exec_id: WorkflowExecutionID | None = None
     child_wf_count: int = 0
     loop_index: int | None = None
+    child_wf_wait_strategy: WaitStrategy | None = None
 
     @staticmethod
     def from_source_event(
@@ -379,6 +388,7 @@ class WorkflowExecutionEventCompact(BaseModel):
             action_name=task.action,
             action_ref=task.ref,
             action_input=task.args,
+            stream_id=action_input.stream_id,
         )
 
     @staticmethod
@@ -401,7 +411,27 @@ class WorkflowExecutionEventCompact(BaseModel):
 
         attrs = event.start_child_workflow_execution_initiated_event_attributes
         wf_exec_id = cast(WorkflowExecutionID, attrs.workflow_id)
-        memo = ChildWorkflowMemo.from_temporal(attrs.memo)
+        try:
+            memo = ChildWorkflowMemo.from_temporal(attrs.memo)
+        except Exception as e:
+            logger.error("Error parsing child workflow memo", error=e)
+            raise e
+
+        if (
+            attrs.parent_close_policy
+            == temporalio.api.enums.v1.ParentClosePolicy.PARENT_CLOSE_POLICY_ABANDON
+            and memo.wait_strategy == WaitStrategy.DETACH
+        ):
+            status = WorkflowExecutionEventStatus.DETACHED
+        else:
+            status = WorkflowExecutionEventStatus.SCHEDULED
+        logger.info(
+            "Child workflow initiated event",
+            status=status,
+            wf_exec_id=wf_exec_id,
+            memo=memo,
+        )
+
         input_data = extract_first(attrs.input)
         dsl_run_args = DSLRunArgs(**input_data)
 
@@ -409,12 +439,14 @@ class WorkflowExecutionEventCompact(BaseModel):
             source_event_id=event.event_id,
             schedule_time=event.event_time.ToDatetime(UTC),
             curr_event_type=HISTORY_TO_WF_EVENT_TYPE[event.event_type],
-            status=WorkflowExecutionEventStatus.SCHEDULED,
+            status=status,
             action_name=PlatformAction.CHILD_WORKFLOW_EXECUTE.value,
             action_ref=memo.action_ref,
             action_input=dsl_run_args.trigger_inputs,
             child_wf_exec_id=wf_exec_id,
             loop_index=memo.loop_index,
+            child_wf_wait_strategy=memo.wait_strategy,
+            stream_id=memo.stream_id,
         )
 
     @staticmethod
@@ -469,7 +501,10 @@ class ErrorHandlerWorkflowInput:
     handler_wf_id: WorkflowID
     orig_wf_id: WorkflowID
     orig_wf_exec_id: WorkflowExecutionID
-    errors: dict[str, ActionErrorInfo] | None
+    orig_wf_title: str
+    trigger_type: TriggerType
+    errors: list[ActionErrorInfo] | None = None
+    orig_wf_exec_url: str | None = None
 
 
 class ReceiveInteractionResponse(BaseModel):

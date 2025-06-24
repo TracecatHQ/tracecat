@@ -1,10 +1,9 @@
 "use client"
 
-import * as React from "react"
 import {
-  Column,
-  ColumnDef,
-  ColumnFiltersState,
+  type Column,
+  type ColumnDef,
+  type ColumnFiltersState,
   flexRender,
   getCoreRowModel,
   getFacetedRowModel,
@@ -12,15 +11,19 @@ import {
   getFilteredRowModel,
   getPaginationRowModel,
   getSortedRowModel,
-  Row,
-  SortingState,
-  TableState,
+  type Row,
+  type SortingState,
+  type TableState,
   useReactTable,
-  VisibilityState,
+  type VisibilityState,
 } from "@tanstack/react-table"
 import { AlertTriangleIcon } from "lucide-react"
-
-import { useLocalStorage } from "@/lib/hooks"
+import * as React from "react"
+import AuxClickMenu, {
+  type AuxClickMenuOptionProps,
+} from "@/components/aux-click-menu"
+import { DataTablePagination, DataTableToolbar } from "@/components/data-table"
+import { CenteredSpinner } from "@/components/loading/spinner"
 import {
   Table,
   TableBody,
@@ -29,13 +32,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import AuxClickMenu, {
-  AuxClickMenuOptionProps,
-} from "@/components/aux-click-menu"
-import { DataTablePagination, DataTableToolbar } from "@/components/data-table"
-import { CenteredSpinner } from "@/components/loading/spinner"
+import { useLocalStorage } from "@/lib/hooks"
 
-import { DataTableToolbarProps } from "./toolbar"
+import type { DataTableToolbarProps } from "./toolbar"
 
 export type TableCol<TData> = {
   table: ReturnType<typeof useReactTable<TData>>
@@ -45,15 +44,17 @@ interface DataTableProps<TData, TValue> {
   columns: ColumnDef<TData, TValue>[]
   data?: TData[]
   onClickRow?: (row: Row<TData>) => () => void
-  toolbarProps?: DataTableToolbarProps
+  toolbarProps?: DataTableToolbarProps<TData>
   tableHeaderAuxOptions?: AuxClickMenuOptionProps<TableCol<TData>>[]
   isLoading?: boolean
-  error?: Error
+  error?: Error | null
   emptyMessage?: string
   errorMessage?: string
   showSelectedRows?: boolean
   initialSortingState?: SortingState
+  initialColumnVisibility?: VisibilityState
   tableId?: string
+  onDeleteRows?: (selectedRows: Row<TData>[]) => void
 }
 
 export function DataTable<TData, TValue>({
@@ -68,12 +69,15 @@ export function DataTable<TData, TValue>({
   errorMessage,
   showSelectedRows = false,
   initialSortingState: initialSorting = [],
+  initialColumnVisibility,
   tableId,
+  onDeleteRows,
 }: DataTableProps<TData, TValue>) {
   const [tableState, setTableState] = useLocalStorage<Partial<TableState>>(
     `table-state:${tableId}`,
     {
       sorting: initialSorting,
+      columnVisibility: initialColumnVisibility,
     }
   )
 
@@ -126,7 +130,13 @@ export function DataTable<TData, TValue>({
   return (
     <div>
       <div className="space-y-4">
-        {toolbarProps && <DataTableToolbar table={table} {...toolbarProps} />}
+        {toolbarProps && (
+          <DataTableToolbar
+            table={table}
+            {...toolbarProps}
+            onDeleteRows={onDeleteRows}
+          />
+        )}
         <div className="rounded-md border">
           <Table>
             <TableHeader>
@@ -185,7 +195,7 @@ function TableContents<TData>({
   errorMessage = "Failed to fetch data",
 }: {
   isLoading?: boolean
-  error?: Error
+  error?: Error | null
   table: ReturnType<typeof useReactTable<TData>>
   colSpan: number
   onClickRow?: (row: Row<TData>) => () => void

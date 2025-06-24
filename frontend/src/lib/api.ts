@@ -1,6 +1,6 @@
-import { OpenAPI } from "@/client"
 import axios from "axios"
 import { env } from "next-runtime-env"
+import { OpenAPI } from "@/client"
 
 import { isServer } from "@/lib/utils"
 

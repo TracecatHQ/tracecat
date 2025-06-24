@@ -17,6 +17,7 @@ from tracecat.ee.interactions.models import InteractionInput
 from tracecat.identifiers.workflow import AnyWorkflowIDPath
 from tracecat.logger import logger
 from tracecat.types.auth import Role
+from tracecat.webhooks.models import NDJSON_CONTENT_TYPES
 
 
 async def validate_incoming_webhook(
@@ -55,12 +56,12 @@ async def validate_incoming_webhook(
                 detail="Webhook is offline",
             )
 
-        if webhook.method.lower() != request.method.lower():
+        if request.method.lower() not in webhook.normalized_methods:
             logger.info("Method does not match")
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
+                status_code=status.HTTP_405_METHOD_NOT_ALLOWED,
                 detail="Request method not allowed",
-            )
+            ) from None
 
         ctx_role.set(
             Role(
@@ -83,6 +84,7 @@ async def validate_workflow_definition(
             select(WorkflowDefinition)
             .where(WorkflowDefinition.workflow_id == workflow_id)
             .order_by(col(WorkflowDefinition.version).desc())
+            .limit(1)
         )
         defn = result.first()
         if not defn:
@@ -92,18 +94,20 @@ async def validate_workflow_definition(
                 " Please commit your changes to the workflow and try again.",
             )
 
-        # Check if the workflow is active
-
-        if defn.workflow.status == "offline":
-            logger.info("Workflow is offline")
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Workflow is offline",
-            )
-
         # If we are here, all checks have passed
         validated_defn = WorkflowDefinition.model_validate(defn)
         return validated_defn
+
+
+def parse_content_type(content_type: str) -> tuple[str, dict[str, str]]:
+    """Parse Content-Type header into media type and parameters."""
+    mime_type, *params = content_type.strip().split(";")
+    metadata = {}
+    for param in params:
+        if "=" in param:
+            key, value = param.strip().split("=", 1)
+            metadata[key] = value.strip('"')
+    return mime_type.strip(), metadata
 
 
 async def parse_webhook_payload(
@@ -124,38 +128,42 @@ async def parse_webhook_payload(
     if not body:
         return None
 
-    match content_type:
-        case "application/x-ndjson" | "application/jsonlines" | "application/jsonl":
-            # Newline delimited json
-            try:
-                lines = body.splitlines()
-                result = [orjson.loads(line) for line in lines]
-            except orjson.JSONDecodeError as e:
-                logger.error("Failed to parse ndjson payload", error=e)
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Invalid ndjson payload",
-                ) from e
-        case "application/x-www-form-urlencoded":
-            try:
-                form_data = await request.form()
-                result = dict(form_data)
-            except Exception as e:
-                logger.error("Failed to parse form data payload", error=e)
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Invalid form data payload",
-                ) from e
-        case _:
-            # Interpret everything else as json
-            try:
-                result = orjson.loads(body)
-            except orjson.JSONDecodeError as e:
-                logger.error("Failed to parse json payload", error=e)
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Invalid json payload",
-                ) from e
+    # Parse the media type from Content-Type header
+    mime_type = ""
+    if content_type:
+        mime_type, _ = parse_content_type(content_type)
+
+    if mime_type in NDJSON_CONTENT_TYPES:
+        # Newline delimited json
+        try:
+            lines = body.splitlines()
+            result = [orjson.loads(line) for line in lines]
+        except orjson.JSONDecodeError as e:
+            logger.error("Failed to parse ndjson payload", error=e)
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid ndjson payload",
+            ) from e
+    elif mime_type == "application/x-www-form-urlencoded":
+        try:
+            form_data = await request.form()
+            result = dict(form_data)
+        except Exception as e:
+            logger.error("Failed to parse form data payload", error=e)
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid form data payload",
+            ) from e
+    else:
+        # Interpret everything else as json
+        try:
+            result = orjson.loads(body)
+        except orjson.JSONDecodeError as e:
+            logger.error("Failed to parse json payload", error=e)
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid json payload",
+            ) from e
 
     return cast(TriggerInputs, result)
 

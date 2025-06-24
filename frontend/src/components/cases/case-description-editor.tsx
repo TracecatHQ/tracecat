@@ -2,7 +2,7 @@
 
 import { codeBlock } from "@blocknote/code-block"
 import {
-  DefaultReactSuggestionItem,
+  type DefaultReactSuggestionItem,
   DragHandleMenu,
   getDefaultReactSlashMenuItems,
   RemoveBlockItem,
@@ -24,9 +24,9 @@ import "@blocknote/core/fonts/inter.css"
 import "@blocknote/shadcn/style.css"
 import "./editor.css"
 
-import { useEffect } from "react"
-import { BlockNoteEditor, filterSuggestionItems } from "@blocknote/core"
+import { type BlockNoteEditor, filterSuggestionItems } from "@blocknote/core"
 import { Trash2Icon } from "lucide-react"
+import { useEffect } from "react"
 
 import { getSpacedBlocks } from "@/lib/rich-text-editor"
 import { cn } from "@/lib/utils"

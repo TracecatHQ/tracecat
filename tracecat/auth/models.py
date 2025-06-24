@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 from enum import StrEnum
-from typing import Any
+from typing import Any, Self
 
 from fastapi_users import schemas
 from pydantic import UUID4, BaseModel, EmailStr
@@ -25,9 +25,19 @@ class UserRead(schemas.BaseUser[uuid.UUID]):
     last_name: str | None = None
     settings: dict[str, Any]
 
+    @classmethod
+    def system(cls) -> Self:
+        return cls(
+            id=uuid.uuid4(),
+            email="system@tracecat.com",
+            role=UserRole.ADMIN,
+            first_name="System",
+            last_name="",
+            settings={},
+        )
+
 
 class UserCreate(schemas.BaseUserCreate):
-    role: UserRole = UserRole.BASIC
     first_name: str | None = None
     last_name: str | None = None
 

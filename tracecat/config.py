@@ -32,10 +32,11 @@ TRACECAT__LOOP_MAX_BATCH_SIZE = int(os.environ.get("TRACECAT__LOOP_MAX_BATCH_SIZ
 
 # TODO: Set this as an environment variable
 TRACECAT__SERVICE_ROLES_WHITELIST = [
-    "tracecat-runner",
     "tracecat-api",
     "tracecat-cli",
+    "tracecat-runner",
     "tracecat-schedule-runner",
+    "tracecat-ui",
 ]
 TRACECAT__DEFAULT_USER_ID = uuid.UUID(int=0)
 TRACECAT__DEFAULT_ORG_ID = uuid.UUID(int=0)
@@ -95,6 +96,8 @@ TRACECAT__AUTH_MIN_PASSWORD_LENGTH = int(
     os.environ.get("TRACECAT__AUTH_MIN_PASSWORD_LENGTH") or 12
 )
 
+TRACECAT__AUTH_SUPERADMIN_EMAIL = os.environ.get("TRACECAT__AUTH_SUPERADMIN_EMAIL")
+"""Email address that is allowed to become the first superuser. If not set, the first user logic is disabled for security."""
 
 # OAuth Login Flow
 # Used for both Google OAuth2 and OIDC flows
@@ -113,9 +116,45 @@ USER_AUTH_SECRET = os.environ.get("USER_AUTH_SECRET", "")
 SAML_PUBLIC_ACS_URL = f"{TRACECAT__PUBLIC_APP_URL}/auth/saml/acs"
 
 SAML_IDP_METADATA_URL = os.environ.get("SAML_IDP_METADATA_URL")
-"""Deprecated: This config has been moved into the settings service"""
+"""Sets the default SAML metadata URL for cold start."""
+
+SAML_ALLOW_UNSOLICITED = (
+    os.environ.get("SAML_ALLOW_UNSOLICITED", "true").lower() == "true"
+)
+"""Whether to allow unsolicited SAML responses."""
+
+SAML_AUTHN_REQUESTS_SIGNED = (
+    os.environ.get("SAML_AUTHN_REQUESTS_SIGNED", "true").lower() == "true"
+)
+"""Whether to require signed SAML authentication requests."""
+
+SAML_SIGNED_ASSERTIONS = (
+    os.environ.get("SAML_SIGNED_ASSERTIONS", "true").lower() == "true"
+)
+"""Whether to require signed SAML assertions."""
+
+SAML_SIGNED_RESPONSES = (
+    os.environ.get("SAML_SIGNED_RESPONSES", "true").lower() == "true"
+)
+"""Whether to require signed SAML responses."""
+
+SAML_ACCEPTED_TIME_DIFF = int(os.environ.get("SAML_ACCEPTED_TIME_DIFF", "3"))
+"""The time difference in seconds for SAML authentication."""
 
 XMLSEC_BINARY_PATH = os.environ.get("XMLSEC_BINARY_PATH", "/usr/bin/xmlsec1")
+
+SAML_CA_CERTS = os.environ.get("SAML_CA_CERTS")
+"""Base64 encoded CA certificates for validating self-signed certificates."""
+
+SAML_VERIFY_SSL_ENTITY = (
+    os.environ.get("SAML_VERIFY_SSL_ENTITY", "true").lower() == "true"
+)
+"""Whether to verify SSL certificates for general SAML entity operations."""
+
+SAML_VERIFY_SSL_METADATA = (
+    os.environ.get("SAML_VERIFY_SSL_METADATA", "true").lower() == "true"
+)
+"""Whether to verify SSL certificates for SAML metadata operations."""
 
 # === CORS config === #
 # NOTE: If you are using Tracecat self-hosted, please replace with your
@@ -144,6 +183,12 @@ TEMPORAL__TASK_TIMEOUT = os.environ.get("TEMPORAL__TASK_TIMEOUT")
 TEMPORAL__METRICS_PORT = os.environ.get("TEMPORAL__METRICS_PORT")
 """Port for the Temporal metrics server."""
 
+
+TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION = os.environ.get(
+    "TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION", "true"
+).lower() in ("true", "1")
+"""Disable eager activity execution for Temporal workflows."""
+
 # Secrets manager config
 TRACECAT__UNSAFE_DISABLE_SM_MASKING = os.environ.get(
     "TRACECAT__UNSAFE_DISABLE_SM_MASKING",
@@ -163,25 +208,6 @@ TRACECAT__ALLOWED_GIT_DOMAINS = set(
         "TRACECAT__ALLOWED_GIT_DOMAINS", "github.com,gitlab.com,bitbucket.org"
     ).split(",")
 )
-"""Deprecated: This config has been moved into the settings service"""
-# If you wish to use a remote registry, set the URL here
-# If the url is unset, this will be set to None
-TRACECAT__REMOTE_REPOSITORY_URL = (
-    os.environ.get("TRACECAT__REMOTE_REPOSITORY_URL") or None
-)
-"""Deprecated: This config has been moved into the settings service"""
-TRACECAT__REMOTE_REPOSITORY_PACKAGE_NAME = os.getenv(
-    "TRACECAT__REMOTE_REPOSITORY_PACKAGE_NAME"
-)
-"""If not provided, the package name will be inferred from the git remote URL.
-
-Deprecated: This config has been moved into the settings service
-"""
-
-# === Email settings === #
-TRACECAT__ALLOWED_EMAIL_ATTRIBUTES = os.environ.get(
-    "TRACECAT__ALLOWED_EMAIL_ATTRIBUTES"
-)
 
 # === Local registry === #
 TRACECAT__LOCAL_REPOSITORY_ENABLED = os.getenv(
@@ -189,6 +215,15 @@ TRACECAT__LOCAL_REPOSITORY_ENABLED = os.getenv(
 ).lower() in ("1", "true")
 TRACECAT__LOCAL_REPOSITORY_PATH = os.getenv("TRACECAT__LOCAL_REPOSITORY_PATH")
 TRACECAT__LOCAL_REPOSITORY_CONTAINER_PATH = "/app/local_registry"
+
+# === Python Script Execution === #
+TRACECAT__PYODIDE_VERSION = os.environ.get("PYODIDE_VERSION", "0.27.6")
+"""Version of Pyodide to use for Python script execution in WebAssembly sandbox."""
+
+TRACECAT__NODE_MODULES_DIR = os.environ.get(
+    "NODE_MODULES_DIR", "/home/apiuser/.local/lib/node_modules"
+)
+"""Directory where Node.js modules are installed for Deno/Pyodide execution."""
 
 # === Rate Limiting === #
 TRACECAT__RATE_LIMIT_ENABLED = (
@@ -219,14 +254,39 @@ TRACECAT__RATE_LIMIT_BY_ENDPOINT = (
 )
 """Whether to rate limit by endpoint."""
 
-TRACECAT__TRUSTED_DOCKER_IMAGES = (
-    (images := os.environ.get("TRACECAT__TRUSTED_DOCKER_IMAGES", ""))
-    and images.split(",")
-) or []
-"""List of trusted docker images.
-If not provided, no images will be trusted.
-"""
 TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES = int(
-    os.environ.get("TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES", 128_000)
+    os.environ.get("TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES", 1024 * 1024)
 )
-"""The maximum size of a payload in bytes the executor can return."""
+"""The maximum size of a payload in bytes the executor can return. Defaults to 1MB"""
+
+TRACECAT__MAX_FILE_SIZE_BYTES = int(
+    os.environ.get("TRACECAT__MAX_FILE_SIZE_BYTES", 20 * 1024 * 1024)  # Default 20MB
+)
+"""The maximum size for file handling (e.g., uploads, downloads) in bytes. Defaults to 20MB."""
+
+TRACECAT__MAX_UPLOAD_FILES_COUNT = int(
+    os.environ.get("TRACECAT__MAX_UPLOAD_FILES_COUNT", 5)
+)
+"""The maximum number of files that can be uploaded at once. Defaults to 5."""
+
+TRACECAT__MAX_AGGREGATE_UPLOAD_SIZE_BYTES = int(
+    os.environ.get("TRACECAT__MAX_AGGREGATE_UPLOAD_SIZE_BYTES", 100 * 1024 * 1024)
+)
+"""The maximum size of the aggregate upload size in bytes. Defaults to 100MB."""
+
+# === System PATH config === #
+TRACECAT__SYSTEM_PATH = os.environ.get(
+    "TRACECAT__SYSTEM_PATH", "/usr/local/bin:/usr/bin:/bin"
+)
+"""System PATH for subprocess execution. Includes common binary locations."""
+
+# === Concurrency Limits === #
+TRACECAT__S3_CONCURRENCY_LIMIT = int(
+    os.environ.get("TRACECAT__S3_CONCURRENCY_LIMIT", 50)
+)
+"""Maximum number of concurrent S3 operations to prevent resource exhaustion. Defaults to 50."""
+
+TRACECAT__MAX_ROWS_CLIENT_POSTGRES = int(
+    os.environ.get("TRACECAT__MAX_ROWS_CLIENT_POSTGRES", 1000)
+)
+"""Maximum number of rows that can be returned from PostgreSQL client queries. Defaults to 1,000."""

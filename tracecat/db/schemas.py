@@ -13,7 +13,9 @@ from sqlmodel import UUID, Field, Relationship, SQLModel, UniqueConstraint
 
 from tracecat import config
 from tracecat.auth.models import UserRole
+from tracecat.authz.models import WorkspaceRole
 from tracecat.cases.enums import (
+    CaseEventType,
     CasePriority,
     CaseSeverity,
     CaseStatus,
@@ -23,6 +25,7 @@ from tracecat.db.adapter import (
     SQLModelBaseOAuthAccount,
     SQLModelBaseUserDB,
 )
+from tracecat.ee.interactions.enums import InteractionStatus, InteractionType
 from tracecat.identifiers import OwnerID, action, id_factory
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
@@ -69,6 +72,11 @@ class Membership(SQLModel, table=True):
 
     user_id: UUID4 = Field(foreign_key="user.id", primary_key=True)
     workspace_id: UUID4 = Field(foreign_key="workspace.id", primary_key=True)
+    role: WorkspaceRole = Field(
+        default=WorkspaceRole.EDITOR,
+        description="User's role in this workspace",
+        nullable=False,
+    )
 
 
 class Ownership(SQLModel, table=True):
@@ -92,7 +100,7 @@ class Ownership(SQLModel, table=True):
 
 class Workspace(Resource, table=True):
     id: UUID4 = Field(default_factory=uuid.uuid4, nullable=False, unique=True)
-    name: str = Field(..., unique=True, index=True, nullable=False)
+    name: str = Field(..., index=True, nullable=False)
     settings: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
     members: list["User"] = Relationship(
         back_populates="workspaces",
@@ -114,6 +122,13 @@ class Workspace(Resource, table=True):
         },
     )
     tags: list["Tag"] = Relationship(
+        back_populates="owner",
+        sa_relationship_kwargs={
+            "cascade": "all, delete",
+            **DEFAULT_SA_RELATIONSHIP_KWARGS,
+        },
+    )
+    folders: list["WorkflowFolder"] = Relationship(
         back_populates="owner",
         sa_relationship_kwargs={
             "cascade": "all, delete",
@@ -148,6 +163,10 @@ class User(SQLModelBaseUserDB, table=True):
         link_model=Membership,
         sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
     )
+    assigned_cases: list["Case"] = Relationship(
+        back_populates="assignee",
+        sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
+    )
     access_tokens: list["AccessToken"] = Relationship(
         back_populates="user",
         sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
@@ -159,6 +178,31 @@ class AccessToken(SQLModelBaseAccessToken, table=True):
     user: "User" = Relationship(
         back_populates="access_tokens",
         sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
+    )
+
+
+class SAMLRequestData(SQLModel, table=True):
+    """Stores SAML request data for validating responses.
+
+    This replaces the disk cache to support distributed environments like Fargate.
+    """
+
+    __tablename__: str = "saml_request_data"
+
+    id: str = Field(primary_key=True, description="SAML Request ID")
+    relay_state: str = Field(nullable=False)
+    expires_at: datetime = Field(
+        sa_type=TIMESTAMP(timezone=True),  # type: ignore
+        nullable=False,
+        description="Timestamp when this request data expires",
+    )
+    created_at: datetime = Field(
+        default_factory=datetime.now,
+        sa_type=TIMESTAMP(timezone=True),  # type: ignore
+        sa_column_kwargs={
+            "server_default": func.now(),
+            "nullable": False,
+        },
     )
 
 
@@ -181,6 +225,9 @@ class BaseSecret(Resource):
     environment: str = Field(default=DEFAULT_SECRETS_ENVIRONMENT, nullable=False)
     # Use sa_type over sa_column for inheritance
     tags: dict[str, str] | None = Field(sa_type=JSONB)
+
+    def __repr__(self) -> str:
+        return f"BaseSecret(name={self.name}, owner_id={self.owner_id}, environment={self.environment})"
 
 
 class OrganizationSecret(BaseSecret, table=True):
@@ -242,6 +289,57 @@ class WorkflowTag(SQLModel, table=True):
 
     tag_id: UUID4 = Field(foreign_key="tag.id", primary_key=True)
     workflow_id: uuid.UUID = Field(foreign_key="workflow.id", primary_key=True)
+
+
+class WorkflowFolder(Resource, table=True):
+    """Folder for organizing workflows.
+
+    Uses materialized path pattern for hierarchical structure.
+    Path format: "/parent/child/" where each segment is the folder name.
+    Root folders have path "/foldername/".
+    """
+
+    __tablename__: str = "workflow_folder"
+    __table_args__ = (
+        UniqueConstraint("path", "owner_id", name="uq_workflow_folder_path_owner"),
+    )
+    # Owner (workspace)
+    owner_id: OwnerID = Field(
+        sa_column=Column(UUID, ForeignKey("workspace.id", ondelete="CASCADE"))
+    )
+    id: uuid.UUID = Field(
+        default_factory=uuid.uuid4, nullable=False, unique=True, index=True
+    )
+    name: str = Field(..., description="Display name of the folder")
+    path: str = Field(index=True, description="Full materialized path: /parent/child/")
+
+    # Relationships
+    owner: "Workspace" = Relationship(back_populates="folders")
+    workflows: list["Workflow"] = Relationship(
+        back_populates="folder",
+        sa_relationship_kwargs={
+            "cascade": "all, delete-orphan",
+            **DEFAULT_SA_RELATIONSHIP_KWARGS,
+        },
+    )
+
+    @property
+    def parent_path(self) -> str:
+        """Get the parent path of this folder."""
+        if self.path == "/":
+            return "/"
+
+        # Remove trailing slash, split by slashes, remove the last segment, join back
+        path_parts = self.path.rstrip("/").split("/")
+        if len(path_parts) <= 2:  # Root level folder like "/folder/"
+            return "/"
+
+        return "/".join(path_parts[:-1]) + "/"
+
+    @property
+    def is_root(self) -> bool:
+        """Check if this is a root-level folder."""
+        return self.path.count("/") <= 2  # "/foldername/" has two slashes
 
 
 class Tag(Resource, table=True):
@@ -332,6 +430,12 @@ class Workflow(Resource, table=True):
         sa_column=Column(UUID, ForeignKey("workspace.id", ondelete="CASCADE"))
     )
     owner: Workspace | None = Relationship(back_populates="workflows")
+    # Folder
+    folder_id: uuid.UUID | None = Field(
+        default=None,
+        sa_column=Column(UUID, ForeignKey("workflow_folder.id", ondelete="CASCADE")),
+    )
+    folder: WorkflowFolder | None = Relationship(back_populates="workflows")
     # Relationships
     actions: list["Action"] | None = Relationship(
         back_populates="workflow",
@@ -374,7 +478,9 @@ class Webhook(Resource, table=True):
         default_factory=id_factory("wh"), nullable=False, unique=True, index=True
     )
     status: str = "offline"  # "online" or "offline"
-    method: str = "POST"
+    methods: list[str] = Field(
+        default_factory=lambda: ["POST"], sa_column=Column(JSONB, nullable=False)
+    )
     filters: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
 
     # Relationships
@@ -398,6 +504,11 @@ class Webhook(Resource, table=True):
     def url(self) -> str:
         short_wf_id = WorkflowUUID.make_short(self.workflow_id)
         return f"{config.TRACECAT__PUBLIC_API_URL}/webhooks/{short_wf_id}/{self.secret}"
+
+    @computed_field
+    @property
+    def normalized_methods(self) -> tuple[str, ...]:
+        return tuple(m.lower() for m in self.methods)
 
 
 class Schedule(Resource, table=True):
@@ -726,6 +837,24 @@ class Case(Resource, table=True):
             **DEFAULT_SA_RELATIONSHIP_KWARGS,
         },
     )
+    events: list["CaseEvent"] = Relationship(
+        back_populates="case",
+        sa_relationship_kwargs={
+            "cascade": "all, delete",
+            **DEFAULT_SA_RELATIONSHIP_KWARGS,
+        },
+    )
+    assignee_id: uuid.UUID | None = Field(
+        default=None,
+        description="The ID of the user who is assigned to the case.",
+        sa_column=Column(UUID, ForeignKey("user.id", ondelete="SET NULL")),
+    )
+    assignee: User | None = Relationship(
+        back_populates="assigned_cases",
+        sa_relationship_kwargs={
+            **DEFAULT_SA_RELATIONSHIP_KWARGS,
+        },
+    )
 
 
 class CaseComment(Resource, table=True):
@@ -761,3 +890,86 @@ class CaseComment(Resource, table=True):
         )
     )
     case: Case = Relationship(back_populates="comments")
+
+
+class CaseEvent(Resource, table=True):
+    """A activity record for a case.
+
+    Uses a tagged union pattern where the 'type' field indicates the kind of activity,
+    and the 'data' field contains variant-specific information for that activity type.
+    """
+
+    __tablename__: str = "case_event"
+
+    id: uuid.UUID = Field(
+        default_factory=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    type: CaseEventType = Field(..., description="The type of event")
+    # Variant-specific data for this activity type
+    data: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=Column(JSONB),
+        description="Variant-specific data for this event type",
+    )
+    user_id: uuid.UUID | None = Field(
+        default=None,
+        description="The ID of the user who made the event. If null, the event is system generated.",
+    )
+    # Relationships
+    case_id: uuid.UUID = Field(
+        sa_column=Column(
+            UUID,
+            ForeignKey("cases.id", ondelete="CASCADE"),
+            nullable=False,
+        )
+    )
+    case: Case = Relationship(back_populates="events")
+
+
+class Interaction(Resource, table=True):
+    """Database model for storing workflow interaction state.
+
+    This table stores the state of interactions within workflows, allowing us
+    to query them without relying on Temporal's event replay.
+    """
+
+    __tablename__: str = "interaction"
+
+    id: uuid.UUID = Field(
+        default_factory=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    wf_exec_id: str = Field(index=True, description="Workflow execution ID")
+    action_ref: str = Field(description="Reference to the action step in the DSL")
+    action_type: str = Field(description="Type of action")
+    type: InteractionType = Field(description="Type of interaction")
+    status: InteractionStatus = Field(
+        default=InteractionStatus.PENDING,
+        index=True,
+        description="Status of the interaction",
+    )
+    request_payload: dict[str, Any] | None = Field(
+        default=None,
+        sa_column=Column(JSONB),
+        description="Data sent for the interaction",
+    )
+    response_payload: dict[str, Any] | None = Field(
+        default=None,
+        sa_column=Column(JSONB),
+        description="Data received from the interaction",
+    )
+    expires_at: datetime | None = Field(
+        default=None,
+        nullable=True,
+        description="Timestamp for when the interaction expires",
+    )
+    actor: str | None = Field(
+        default=None,
+        nullable=True,
+        description="ID of the user/actor who responded",
+    )

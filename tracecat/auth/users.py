@@ -1,6 +1,6 @@
 import contextlib
 import uuid
-from collections.abc import AsyncGenerator, Sequence
+from collections.abc import AsyncGenerator, Iterable, Sequence
 from datetime import UTC, datetime
 from typing import Annotated, cast
 
@@ -30,12 +30,15 @@ from fastapi_users.exceptions import (
 from fastapi_users.openapi import OpenAPIResponseType
 from pydantic import EmailStr
 from sqlalchemy.ext.asyncio import AsyncSession as SQLAlchemyAsyncSession
-from sqlmodel import select
+from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession as SQLModelAsyncSession
 
 from tracecat import config
 from tracecat.api.common import bootstrap_role
 from tracecat.auth.models import UserCreate, UserRole, UserUpdate
+from tracecat.authz.models import WorkspaceRole
+from tracecat.authz.service import MembershipService
+from tracecat.contexts import ctx_role
 from tracecat.db.adapter import (
     SQLModelAccessTokenDatabaseAsync,
     SQLModelUserDatabaseAsync,
@@ -44,10 +47,20 @@ from tracecat.db.engine import get_async_session, get_async_session_context_mana
 from tracecat.db.schemas import AccessToken, OAuthAccount, User
 from tracecat.logger import logger
 from tracecat.settings.service import get_setting
+from tracecat.types.auth import AccessLevel, system_role
+from tracecat.workspaces.models import WorkspaceMembershipCreate
+from tracecat.workspaces.service import WorkspaceService
 
 
-class InvalidDomainException(FastAPIUsersException):
-    """Exception raised on registration with an invalid domain."""
+class InvalidEmailException(FastAPIUsersException):
+    """Exception raised on registration with an invalid email."""
+
+    def __init__(self) -> None:
+        super().__init__("Please enter a valid email address.")
+
+
+class PermissionsException(FastAPIUsersException):
+    """Exception raised on permissions error."""
 
 
 class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
@@ -59,6 +72,37 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         self.logger = logger.bind(unit="UserManager")
         self.role = bootstrap_role()
 
+    async def update(
+        self,
+        user_update: UserUpdate,
+        user: User,
+        safe: bool = False,
+        request: Request | None = None,
+    ):
+        """Update a user with user privileges."""
+        # NOTE(security): Prevent unprivileged users from changing role or is_superuser fields
+        blacklist = ("role", "is_superuser")
+        set_fields = user_update.model_fields_set
+
+        role = ctx_role.get()
+        is_unprivileged = role is not None and role.access_level != AccessLevel.ADMIN
+        if not role or (
+            # Not admin and trying to change role or is_superuser
+            is_unprivileged and any(field in set_fields for field in blacklist)
+        ):
+            raise PermissionsException("Operation not permitted")
+
+        return await super().update(user_update, user, safe=True, request=request)
+
+    async def admin_update(
+        self,
+        user_update: UserUpdate,
+        user: User,
+        request: Request | None = None,
+    ):
+        """Update a user with admin privileges. This is only used to bootstrap the first user."""
+        return await super().update(user_update, user, safe=False, request=request)
+
     async def validate_password(self, password: str, user: User) -> None:
         if len(password) < config.TRACECAT__AUTH_MIN_PASSWORD_LENGTH:
             raise InvalidPasswordException(
@@ -66,15 +110,35 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
             )
 
     async def validate_email(self, email: str) -> None:
+        # Check if this is attempting to be the first user (superadmin)
+        async with get_async_session_context_manager() as session:
+            users = await list_users(session=session)
+            if len(users) == 0:  # This would be the first user
+                # Only allow registration if this is the designated superadmin email
+                if not config.TRACECAT__AUTH_SUPERADMIN_EMAIL:
+                    self.logger.error(
+                        "No superadmin email configured, but attempting first user registration"
+                    )
+                    raise InvalidEmailException()
+                if email != config.TRACECAT__AUTH_SUPERADMIN_EMAIL:
+                    self.logger.error(
+                        "First user registration attempted with non-superadmin email",
+                        attempted_email=email,
+                        expected_email=config.TRACECAT__AUTH_SUPERADMIN_EMAIL,
+                    )
+                    raise InvalidEmailException()
+                self.logger.info(
+                    "Allowing first user registration for superadmin email", email=email
+                )
+                return
+
+        # For non-first users, apply normal domain validation
         allowed_domains = cast(
             list[str] | None,
-            await get_setting(
-                "auth_allowed_email_domains",
-                role=self.role,
-                # TODO: Deprecate in future version
-                default=list(config.TRACECAT__AUTH_ALLOWED_DOMAINS),
-            ),
-        )
+            await get_setting("auth_allowed_email_domains", role=self.role),
+            # Allow overriding of empty list
+        ) or list(config.TRACECAT__AUTH_ALLOWED_DOMAINS)
+        self.logger.debug("Allowed domains", allowed_domains=allowed_domains)
         validate_email(email=email, allowed_domains=allowed_domains)
 
     async def oauth_callback(
@@ -110,7 +174,11 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         request: Request | None = None,
     ) -> User:
         await self.validate_email(user_create.email)
-        return await super().create(user_create, safe, request)
+        try:
+            return await super().create(user_create, safe, request)
+        except UserAlreadyExists:
+            # NOTE(security): Bypass fastapi users exception handler
+            raise InvalidEmailException() from None
 
     async def on_after_login(
         self,
@@ -135,14 +203,59 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
     ) -> None:
         self.logger.info(f"User {user.id} has registered.")
 
-        # If the user is the first in the org to sign up, make them a superuser
+        # Check if this user should be promoted to superuser
         async with get_async_session_context_manager() as session:
             users = await list_users(session=session)
-            if len(users) == 1:
-                # This is the only user in the org, make them the superuser
+            superadmin_email = config.TRACECAT__AUTH_SUPERADMIN_EMAIL
+            if len(users) == 1 and superadmin_email and user.email == superadmin_email:
+                # This is the first user and matches the designated superadmin email
                 update_params = UserUpdate(is_superuser=True, role=UserRole.ADMIN)
-                await self.update(user_update=update_params, user=user)
-                self.logger.info("Promoted user to superuser", user=user.email)
+                # NOTE(security): Bypass safety to create sueradmin
+                await self.admin_update(user_update=update_params, user=user)
+                self.logger.info("First user promoted to superadmin", email=user.email)
+
+            elif len(users) > 1 and await get_setting(
+                "app_create_workspace_on_register", default=True
+            ):
+                # Check if we should auto-create a workspace for the user
+                self.logger.info("Creating workspace for new user", user=user.email)
+                try:
+                    # Determine workspace name
+                    if user.first_name:
+                        workspace_name = f"{user.first_name}'s Workspace"
+                    else:
+                        # Remove domain from email to use as workspace name
+                        email_username = user.email.split("@")[0]
+                        workspace_name = f"{email_username}'s Workspace"
+
+                    # Create workspace with the system role
+                    sys_role = system_role()
+                    ws_svc = WorkspaceService(session, role=sys_role)
+                    workspace = await ws_svc.create_workspace(
+                        name=workspace_name, users=[user]
+                    )
+                    # Add user to workspace as a workspace admin
+                    membership_svc = MembershipService(session, role=sys_role)
+                    await membership_svc.create_membership(
+                        workspace_id=workspace.id,
+                        params=WorkspaceMembershipCreate(
+                            user_id=user.id, role=WorkspaceRole.ADMIN
+                        ),
+                    )
+                    self.logger.info(
+                        "Created workspace for new user",
+                        workspace_id=workspace.id,
+                        workspace_name=workspace_name,
+                        user_id=user.id,
+                        user_email=user.email,
+                    )
+                except Exception as e:
+                    self.logger.error(
+                        "Failed to create workspace for new user",
+                        error=str(e),
+                        user_id=user.id,
+                        user_email=user.email,
+                    )
 
     async def on_after_forgot_password(
         self, user: User, token: str, request: Request | None = None
@@ -173,6 +286,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         :param is_verified_by_default: If True, set is_verified flag for new users. Defaults to True.
         :return: A user.
         """
+        await self.validate_email(email)
         try:
             user = await self.get_by_email(email)
             if not associate_by_email:
@@ -193,7 +307,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
 
 
 async def get_user_db(session: SQLAlchemyAsyncSession = Depends(get_async_session)):
-    yield SQLAlchemyUserDatabase(session, User, OAuthAccount)
+    yield SQLAlchemyUserDatabase(session, User, OAuthAccount)  # type: ignore
 
 
 async def get_access_token_db(
@@ -326,6 +440,18 @@ async def list_users(*, session: SQLModelAsyncSession) -> Sequence[User]:
     return result.all()
 
 
+async def search_users(
+    *,
+    session: SQLModelAsyncSession,
+    user_ids: Iterable[uuid.UUID] | None = None,
+) -> Sequence[User]:
+    statement = select(User)
+    if user_ids:
+        statement = statement.where(col(User.id).in_(user_ids))
+    result = await session.exec(statement)
+    return result.all()
+
+
 def validate_email(
     email: EmailStr, *, allowed_domains: list[str] | None = None
 ) -> None:
@@ -334,4 +460,4 @@ def validate_email(
     logger.info(f"Domain: {domain}")
 
     if allowed_domains and domain not in allowed_domains:
-        raise InvalidDomainException(f"You cannot register with the domain {domain!r}")
+        raise InvalidEmailException()

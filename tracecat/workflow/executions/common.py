@@ -5,6 +5,7 @@ import temporalio.api.common.v1
 from temporalio.api.enums.v1 import EventType
 from temporalio.api.history.v1 import HistoryEvent
 
+from tracecat.ee.interactions.service import InteractionService
 from tracecat.identifiers import UserID, WorkflowID
 from tracecat.logger import logger
 from tracecat.workflow.executions.enums import (
@@ -74,8 +75,11 @@ UTILITY_ACTIONS = {
     "validate_trigger_inputs_activity",
     "validate_action_activity",
     "parse_wait_until_activity",
+    "evaluate_single_expression_activity",
     WorkflowsManagementService.resolve_workflow_alias_activity.__name__,
     WorkflowsManagementService.get_error_handler_workflow_id.__name__,
+    InteractionService.create_interaction_activity.__name__,
+    InteractionService.update_interaction_activity.__name__,
 }
 
 
@@ -148,7 +152,7 @@ def extract_payload(payload: temporalio.api.common.v1.Payloads, index: int = 0) 
     try:
         return orjson.loads(raw_data)
     except orjson.JSONDecodeError as e:
-        logger.warning(
+        logger.debug(
             "Failed to decode JSON data, attemping to decode as string",
             raw_data=raw_data,
             e=e,
@@ -157,7 +161,7 @@ def extract_payload(payload: temporalio.api.common.v1.Payloads, index: int = 0) 
     try:
         return raw_data.decode()
     except UnicodeDecodeError:
-        logger.warning("Failed to decode data as string, returning raw bytes")
+        logger.debug("Failed to decode data as string, returning raw bytes")
         return raw_data
 
 
@@ -181,17 +185,25 @@ def build_query(
             legacy_wf_id = workflow_id.to_legacy()
             wf_id_query += f" OR WorkflowId STARTS_WITH '{legacy_wf_id}'"
         query.append(f"({wf_id_query})")
+    trigger_type_query = []
     if trigger_types:
-        if len(trigger_types) == 1:
-            query.append(
-                f"{TemporalSearchAttr.TRIGGER_TYPE.value} = '{trigger_types.pop().value}'"
-            )
-        else:
-            query.append(
-                f"{TemporalSearchAttr.TRIGGER_TYPE.value} IN ({', '.join(f"'{t.value}'" for t in trigger_types)})"
-            )
-    if triggered_by_user_id is not None:
-        query.append(
-            f"{TemporalSearchAttr.TRIGGERED_BY_USER_ID.value} = '{str(triggered_by_user_id)}'"
-        )
+        for trigger_type in trigger_types:
+            if trigger_type == TriggerType.MANUAL:
+                # Manual trigger type is a special case that requires a user ID
+                if triggered_by_user_id is not None:
+                    trigger_type_query.append(
+                        f"({TemporalSearchAttr.TRIGGER_TYPE.value} = '{TriggerType.MANUAL}' AND {TemporalSearchAttr.TRIGGERED_BY_USER_ID.value} = '{str(triggered_by_user_id)}')"
+                    )
+                else:
+                    logger.warning(
+                        "Manual trigger type specified but no user ID provided. This is likely a bug.",
+                        workflow_id=workflow_id,
+                    )
+            else:
+                # All other trigger types are simple
+                trigger_type_query.append(
+                    f"({TemporalSearchAttr.TRIGGER_TYPE.value} = '{trigger_type.value}')"
+                )
+        if trigger_type_query:
+            query.append(f"({' OR '.join(trigger_type_query)})")
     return " AND ".join(query)

@@ -1,38 +1,56 @@
-import { useEffect, useState } from "react"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import Cookies from "js-cookie"
+import { AlertTriangleIcon, CircleCheck } from "lucide-react"
 import { useRouter } from "next/navigation"
+import { useEffect, useState } from "react"
 import {
-  ActionRead,
+  type ActionRead,
+  type ActionsDeleteActionData,
+  type ActionUpdate,
+  type ApiError,
+  type AppSettingsRead,
+  type AuthSettingsRead,
+  actionsDeleteAction,
   actionsGetAction,
   actionsUpdateAction,
-  ActionUpdate,
-  ApiError,
-  AppSettingsRead,
-  AuthSettingsRead,
-  CaseCommentCreate,
-  CaseCommentRead,
-  CaseCommentUpdate,
-  CaseFieldRead,
-  CaseRead,
-  CaseReadMinimal,
+  type CaseCommentCreate,
+  type CaseCommentRead,
+  type CaseCommentUpdate,
+  type CaseCreate,
+  type CaseEventsWithUsers,
+  type CaseFieldRead,
+  type CaseRead,
+  type CaseReadMinimal,
+  type CasesGetCaseData,
+  type CasesListCasesData,
+  type CasesListCommentsData,
+  type CaseUpdate,
+  casesCreateCase,
   casesCreateComment,
+  casesDeleteCase,
   casesDeleteComment,
   casesGetCase,
-  CasesGetCaseData,
   casesListCases,
-  CasesListCasesData,
   casesListComments,
-  CasesListCommentsData,
+  casesListEventsWithUsers,
   casesListFields,
   casesUpdateCase,
   casesUpdateComment,
-  CaseUpdate,
-  CreateWorkspaceParams,
-  GitSettingsRead,
-  OAuthSettingsRead,
+  type FolderDirectoryItem,
+  foldersCreateFolder,
+  foldersDeleteFolder,
+  foldersGetDirectory,
+  foldersListFolders,
+  foldersMoveFolder,
+  foldersUpdateFolder,
+  type GitSettingsRead,
+  type OAuthSettingsRead,
+  type OrganizationDeleteOrgMemberData,
+  type OrganizationDeleteSessionData,
+  type OrganizationUpdateOrgMemberData,
+  type OrgMemberRead,
   organizationDeleteOrgMember,
-  OrganizationDeleteOrgMemberData,
   organizationDeleteSession,
-  OrganizationDeleteSessionData,
   organizationListOrgMembers,
   organizationListSessions,
   organizationSecretsCreateOrgSecret,
@@ -40,129 +58,131 @@ import {
   organizationSecretsListOrgSecrets,
   organizationSecretsUpdateOrgSecretById,
   organizationUpdateOrgMember,
-  OrganizationUpdateOrgMemberData,
-  OrgMemberRead,
-  RegistryActionCreate,
-  RegistryActionRead,
-  RegistryActionReadMinimal,
+  type RegistryActionCreate,
+  type RegistryActionRead,
+  type RegistryActionReadMinimal,
+  type RegistryActionsDeleteRegistryActionData,
+  type RegistryActionsUpdateRegistryActionData,
+  type RegistryRepositoriesDeleteRegistryRepositoryData,
+  type RegistryRepositoriesSyncRegistryRepositoryData,
+  type RegistryRepositoryErrorDetail,
+  type RegistryRepositoryReadMinimal,
   registryActionsCreateRegistryAction,
   registryActionsDeleteRegistryAction,
-  RegistryActionsDeleteRegistryActionData,
   registryActionsGetRegistryAction,
   registryActionsListRegistryActions,
   registryActionsUpdateRegistryAction,
-  RegistryActionsUpdateRegistryActionData,
   registryRepositoriesDeleteRegistryRepository,
-  RegistryRepositoriesDeleteRegistryRepositoryData,
   registryRepositoriesListRegistryRepositories,
   registryRepositoriesReloadRegistryRepositories,
   registryRepositoriesSyncRegistryRepository,
-  RegistryRepositoriesSyncRegistryRepositoryData,
-  RegistryRepositoryErrorDetail,
-  RegistryRepositoryReadMinimal,
-  SAMLSettingsRead,
-  Schedule,
+  type SAMLSettingsRead,
+  type Schedule,
+  type SchedulesCreateScheduleData,
+  type SchedulesDeleteScheduleData,
+  type SchedulesUpdateScheduleData,
+  type SecretCreate,
+  type SecretReadMinimal,
+  type SecretUpdate,
+  type SessionRead,
+  type SettingsUpdateAppSettingsData,
+  type SettingsUpdateAuthSettingsData,
+  type SettingsUpdateGitSettingsData,
+  type SettingsUpdateOauthSettingsData,
+  type SettingsUpdateSamlSettingsData,
   schedulesCreateSchedule,
-  SchedulesCreateScheduleData,
   schedulesDeleteSchedule,
-  SchedulesDeleteScheduleData,
   schedulesListSchedules,
   schedulesUpdateSchedule,
-  SchedulesUpdateScheduleData,
-  SecretCreate,
-  SecretReadMinimal,
   secretsCreateSecret,
   secretsDeleteSecretById,
   secretsListSecrets,
   secretsUpdateSecretById,
-  SecretUpdate,
-  SessionRead,
   settingsGetAppSettings,
   settingsGetAuthSettings,
   settingsGetGitSettings,
   settingsGetOauthSettings,
   settingsGetSamlSettings,
   settingsUpdateAppSettings,
-  SettingsUpdateAppSettingsData,
   settingsUpdateAuthSettings,
-  SettingsUpdateAuthSettingsData,
   settingsUpdateGitSettings,
-  SettingsUpdateGitSettingsData,
   settingsUpdateOauthSettings,
-  SettingsUpdateOauthSettingsData,
   settingsUpdateSamlSettings,
-  SettingsUpdateSamlSettingsData,
-  TableRead,
-  TableReadMinimal,
-  TableRowRead,
+  type TableRead,
+  type TableReadMinimal,
+  type TableRowRead,
+  type TablesBatchInsertRowsData,
+  type TablesCreateColumnData,
+  type TablesCreateTableData,
+  type TablesCreateTableResponse,
+  type TablesDeleteColumnData,
+  type TablesDeleteRowData,
+  type TablesDeleteTableData,
+  type TablesGetTableData,
+  type TablesImportCsvData,
+  type TablesInsertRowData,
+  type TablesListRowsData,
+  type TablesListTablesData,
+  type TablesUpdateColumnData,
+  type TablesUpdateTableData,
+  type TagRead,
+  type TagsCreateTagData,
+  type TagsDeleteTagData,
+  type TagsUpdateTagData,
+  type TriggerType,
   tablesBatchInsertRows,
-  TablesBatchInsertRowsData,
   tablesCreateColumn,
-  TablesCreateColumnData,
   tablesCreateTable,
-  TablesCreateTableData,
-  TablesCreateTableResponse,
   tablesDeleteColumn,
-  TablesDeleteColumnData,
   tablesDeleteRow,
-  TablesDeleteRowData,
   tablesDeleteTable,
-  TablesDeleteTableData,
   tablesGetTable,
-  TablesGetTableData,
   tablesImportCsv,
-  TablesImportCsvData,
   tablesInsertRow,
-  TablesInsertRowData,
   tablesListRows,
-  TablesListRowsData,
   tablesListTables,
-  TablesListTablesData,
   tablesUpdateColumn,
-  TablesUpdateColumnData,
   tablesUpdateTable,
-  TablesUpdateTableData,
-  TagRead,
   tagsCreateTag,
-  TagsCreateTagData,
   tagsDeleteTag,
-  TagsDeleteTagData,
   tagsListTags,
   tagsUpdateTag,
-  TagsUpdateTagData,
   triggersUpdateWebhook,
+  type UserUpdate,
   usersUsersPatchCurrentUser,
-  UserUpdate,
-  WebhookUpdate,
-  WorkflowExecutionCreate,
-  WorkflowExecutionRead,
-  WorkflowExecutionReadCompact,
-  WorkflowExecutionReadMinimal,
+  type WebhookUpdate,
+  type WorkflowDirectoryItem,
+  type WorkflowExecutionCreate,
+  type WorkflowExecutionRead,
+  type WorkflowExecutionReadMinimal,
+  type WorkflowFolderCreate,
+  type WorkflowFolderRead,
+  type WorkflowReadMinimal,
+  type WorkflowsAddTagData,
+  type WorkflowsCreateWorkflowData,
+  type WorkflowsMoveWorkflowToFolderData,
+  type WorkflowsRemoveTagData,
+  type WorkspaceCreate,
   workflowExecutionsCreateWorkflowExecution,
   workflowExecutionsGetWorkflowExecution,
   workflowExecutionsGetWorkflowExecutionCompact,
   workflowExecutionsListWorkflowExecutions,
-  WorkflowReadMinimal,
   workflowsAddTag,
-  WorkflowsAddTagData,
   workflowsCreateWorkflow,
-  WorkflowsCreateWorkflowData,
   workflowsDeleteWorkflow,
   workflowsListWorkflows,
+  workflowsMoveWorkflowToFolder,
   workflowsRemoveTag,
-  WorkflowsRemoveTagData,
   workspacesCreateWorkspace,
   workspacesDeleteWorkspace,
   workspacesListWorkspaces,
 } from "@/client"
-import { useWorkspace } from "@/providers/workspace"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import Cookies from "js-cookie"
-import { AlertTriangleIcon, CircleCheck } from "lucide-react"
+import { toast } from "@/components/ui/use-toast"
 
 import { getBaseUrl } from "@/lib/api"
-import { retryHandler, TracecatApiError } from "@/lib/errors"
-import { toast } from "@/components/ui/use-toast"
+import { retryHandler, type TracecatApiError } from "@/lib/errors"
+import type { WorkflowExecutionReadCompact } from "@/lib/event-history"
+import { useWorkspace } from "@/providers/workspace"
 
 interface AppInfo {
   version: string
@@ -184,7 +204,7 @@ export function useAppInfo() {
       const resp = await fetch(getBaseUrl() + "/info")
       try {
         return await resp.json()
-      } catch (error) {
+      } catch (_error) {
         throw new Error(
           "Unable to fetch authentication settings. This could be a network issue with the Tracecat API."
         )
@@ -214,7 +234,7 @@ export function useLocalStorage<T>(
 export function useAction(
   actionId: string,
   workspaceId: string,
-  workflowId: string
+  workflowId: string | null
 ) {
   const [isSaving, setIsSaving] = useState(false)
   const queryClient = useQueryClient()
@@ -223,6 +243,7 @@ export function useAction(
     isLoading: actionIsLoading,
     error: actionError,
   } = useQuery<ActionRead, Error>({
+    enabled: !!workflowId,
     queryKey: ["action", actionId, workflowId],
     queryFn: async ({ queryKey }) => {
       const [, actionId, workflowId] = queryKey as [string, string, string]
@@ -264,6 +285,24 @@ export function useAction(
   }
 }
 
+export function useDeleteAction() {
+  const queryClient = useQueryClient()
+  const { mutateAsync: deleteAction } = useMutation({
+    mutationFn: async (params: ActionsDeleteActionData) =>
+      await actionsDeleteAction(params),
+    onSuccess: (_, variables) => {
+      const { actionId, workspaceId } = variables
+      queryClient.invalidateQueries({
+        queryKey: ["actions", actionId, workspaceId],
+      })
+    },
+    onError: (error) => {
+      console.error("Failed to delete action:", error)
+    },
+  })
+  return { deleteAction }
+}
+
 export function useUpdateWebhook(workspaceId: string, workflowId: string) {
   const queryClient = useQueryClient()
   const mutation = useMutation({
@@ -291,6 +330,7 @@ export function useUpdateWebhook(workspaceId: string, workflowId: string) {
 
 interface WorkflowFilter {
   tag?: string[]
+  folderId?: string
 }
 
 export function useWorkflowManager(filter?: WorkflowFilter) {
@@ -354,6 +394,7 @@ export function useWorkflowManager(filter?: WorkflowFilter) {
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["workflows"] })
+      queryClient.invalidateQueries({ queryKey: ["directory-items"] })
       toast({
         title: "Deleted workflow",
         description: "Your workflow has been deleted successfully.",
@@ -407,6 +448,23 @@ export function useWorkflowManager(filter?: WorkflowFilter) {
       })
     },
   })
+
+  // Move workflow
+  const { mutateAsync: moveWorkflow } = useMutation({
+    mutationFn: async (params: WorkflowsMoveWorkflowToFolderData) =>
+      await workflowsMoveWorkflowToFolder(params),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["directory-items"] })
+    },
+    onError: (error: TracecatApiError) => {
+      console.error("Failed to move workflow:", error)
+      toast({
+        title: "Error moving workflow",
+        description: error.body.detail + ". Please try again.",
+      })
+    },
+  })
+
   return {
     workflows,
     workflowsLoading,
@@ -415,6 +473,7 @@ export function useWorkflowManager(filter?: WorkflowFilter) {
     deleteWorkflow,
     addWorkflowTag,
     removeWorkflowTag,
+    moveWorkflow,
   }
 }
 
@@ -434,7 +493,7 @@ export function useWorkspaceManager() {
 
   // Create workspace
   const { mutateAsync: createWorkspace } = useMutation({
-    mutationFn: async (params: CreateWorkspaceParams) =>
+    mutationFn: async (params: WorkspaceCreate) =>
       await workspacesCreateWorkspace({
         requestBody: params,
       }),
@@ -582,6 +641,7 @@ export function useCompactWorkflowExecution(workflowExecutionId?: string) {
     isLoading: executionIsLoading,
     error: executionError,
   } = useQuery<WorkflowExecutionReadCompact | null, ApiError>({
+    enabled: !!workflowExecutionId,
     queryKey: ["compact-workflow-execution", workflowExecutionId],
     queryFn: async () => {
       if (!workflowExecutionId) return null
@@ -590,17 +650,29 @@ export function useCompactWorkflowExecution(workflowExecutionId?: string) {
         executionId: encodeURIComponent(workflowExecutionId),
       })
     },
-    retry: retryHandler,
-    staleTime: 0,
-    refetchInterval(query) {
+    // Add retry logic for potential 404s when the execution hasn't been fully registered
+    retry: (failureCount, error) => error?.status === 404 && failureCount < 10,
+    retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 4000),
+    // Use more dynamic polling interval based on execution status
+    refetchInterval: (query) => {
+      // If we don't have data yet, poll more frequently
+      // if (!query.state.data) {
+      //   return 1000
+      // }
+
+      // Adjust polling based on workflow status
       switch (query.state.data?.status) {
         case "RUNNING":
+          console.log("Running, polling every 1000ms")
           return 1000
         default:
           return false
       }
     },
+    // Don't cache stale data in this context
+    // staleTime: 0,
   })
+
   return {
     execution,
     executionIsLoading,
@@ -608,82 +680,101 @@ export function useCompactWorkflowExecution(workflowExecutionId?: string) {
   }
 }
 
-export function useManualWorkflowExecution(
-  workflowId: string,
-  options?: {
-    refetchInterval?: number
-  }
-) {
+export function useCreateManualWorkflowExecution(workflowId: string) {
   const queryClient = useQueryClient()
   const { workspaceId } = useWorkspace()
 
-  const { mutateAsync: createExecution, isPending: createExecutionIsPending } =
-    useMutation({
-      mutationFn: async (params: WorkflowExecutionCreate) => {
-        return await workflowExecutionsCreateWorkflowExecution({
-          workspaceId,
-          requestBody: params,
-        })
-      },
-      onSuccess: ({ wf_exec_id, message }) => {
-        // Immediately update the last-manual-execution query cache with the new execution
-        toast({
-          title: `Workflow run started`,
-          description: `${wf_exec_id} ${message}`,
-        })
-        queryClient.setQueryData<WorkflowExecutionReadMinimal>(
-          ["last-manual-execution", workflowId],
-          {
-            id: wf_exec_id,
-            run_id: "pending",
-            start_time: new Date().toISOString(),
-            status: "RUNNING",
-            workflow_type: "DSLWorkflow",
-            task_queue: "default",
-            history_length: 0,
-          }
-        )
+  const {
+    mutateAsync: createExecution,
+    isPending: createExecutionIsPending,
+    error: createExecutionError,
+  } = useMutation({
+    mutationFn: async (params: WorkflowExecutionCreate) => {
+      return await workflowExecutionsCreateWorkflowExecution({
+        workspaceId,
+        requestBody: params,
+      })
+    },
+    onSuccess: async ({ wf_exec_id, message }) => {
+      toast({
+        title: `Workflow run started`,
+        description: `${wf_exec_id} ${message}`,
+      })
 
-        // Then trigger a background refetch to get the complete data
-        queryClient.refetchQueries({
-          queryKey: ["last-manual-execution"],
-        })
-        queryClient.refetchQueries({
-          queryKey: ["last-manual-execution", workflowId],
-        })
-      },
-    })
+      // Still invalidate queries for compatibility with other components
+      await queryClient.refetchQueries({
+        queryKey: ["last-manual-execution"],
+      })
+      await queryClient.refetchQueries({
+        queryKey: ["last-manual-execution", workflowId],
+      })
+      await queryClient.refetchQueries({
+        queryKey: ["compact-workflow-execution"],
+      })
+      await queryClient.refetchQueries({
+        queryKey: ["compact-workflow-execution", wf_exec_id],
+      })
+    },
+    onError: (error: TracecatApiError<Record<string, string>>) => {
+      switch (error.status) {
+        case 400:
+          console.error("Invalid workflow trigger inputs", error)
+          return toast({
+            title: "Invalid workflow trigger inputs",
+            description: "Please hover over the run button for details.",
+          })
+        default:
+          console.error("Unexpected error starting workflow", error)
+          return toast({
+            title: "Unexpected error starting workflow",
+            description: "Please check the run logs for more information",
+          })
+      }
+    },
+  })
 
-  // Last execution
+  return {
+    createExecution,
+    createExecutionIsPending,
+    createExecutionError,
+  }
+}
+
+export function useLastExecution({
+  workflowId,
+  triggerTypes,
+}: {
+  workflowId?: string | null
+  triggerTypes: TriggerType[]
+}) {
+  const { workspaceId } = useWorkspace()
   const {
     data: lastExecution,
     isLoading: lastExecutionIsLoading,
     error: lastExecutionError,
-  } = useQuery<WorkflowExecutionReadMinimal | null, Error>({
-    queryKey: ["last-manual-execution", workflowId],
+  } = useQuery<WorkflowExecutionReadMinimal | null, TracecatApiError>({
+    enabled: !!workflowId,
+    queryKey: ["last-execution", workflowId, triggerTypes?.sort().join(",")],
     queryFn: async () => {
       const executions = await workflowExecutionsListWorkflowExecutions({
         workspaceId,
         workflowId,
-        trigger: ["manual"],
         limit: 1,
         userId: "current",
+        trigger: triggerTypes,
       })
 
       return executions.length > 0 ? executions[0] : null
     },
-    staleTime: 0,
-    ...options,
   })
 
   return {
     lastExecution,
     lastExecutionIsLoading,
     lastExecutionError,
-    createExecution,
-    createExecutionIsPending,
   }
 }
+
 export function useSchedules(workflowId: string) {
   const queryClient = useQueryClient()
   const { workspaceId } = useWorkspace()
@@ -807,17 +898,20 @@ export function useWorkspaceSecrets() {
     },
     onError: (error: TracecatApiError) => {
       switch (error.status) {
+        case 403:
+          return toast({
+            title: "Forbidden",
+            description: "You cannot create secrets in this workspace.",
+          })
         case 409:
-          console.error("Secret already exists", error)
-          toast({
+          return toast({
             title: "Secret already exists",
             description:
               "Secrets with the same name and environment are not supported.",
           })
-          break
         default:
           console.error("Failed to create secret", error)
-          toast({
+          return toast({
             title: "Failed to add new secret",
             description: "Please contact support for help.",
           })
@@ -846,12 +940,20 @@ export function useWorkspaceSecrets() {
       })
       queryClient.invalidateQueries({ queryKey: ["workspace-secrets"] })
     },
-    onError: (error) => {
-      console.error("Failed to update secret", error)
-      toast({
-        title: "Failed to update secret",
-        description: "An error occurred while updating the secret.",
-      })
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 403:
+          return toast({
+            title: "Forbidden",
+            description: "You cannot update secrets in this workspace.",
+          })
+        default:
+          console.error("Failed to update secret", error)
+          return toast({
+            title: "Failed to update secret",
+            description: "An error occurred while updating the secret.",
+          })
+      }
     },
   })
 
@@ -866,12 +968,20 @@ export function useWorkspaceSecrets() {
         description: "Secret deleted successfully.",
       })
     },
-    onError: (error) => {
-      console.error("Failed to delete credentials", error)
-      toast({
-        title: "Failed to delete secret",
-        description: "An error occurred while deleting the secret.",
-      })
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 403:
+          return toast({
+            title: "Forbidden",
+            description: "You cannot delete secrets in this workspace.",
+          })
+        default:
+          console.error("Failed to delete secret", error)
+          return toast({
+            title: "Failed to delete secret",
+            description: "An error occurred while deleting the secret.",
+          })
+      }
     },
   })
 
@@ -1049,13 +1159,13 @@ export function useUserManager() {
 
 /* Registry Actions */
 // For selector node
-export function useWorkbenchRegistryActions(versions?: string[]) {
+export function useBuilderRegistryActions(versions?: string[]) {
   const {
     data: registryActions,
     isLoading: registryActionsIsLoading,
     error: registryActionsError,
   } = useQuery<RegistryActionReadMinimal[]>({
-    queryKey: ["workbench_registry_actions", versions],
+    queryKey: ["builder_registry_actions", versions],
     queryFn: async () => {
       return await registryActionsListRegistryActions()
     },
@@ -1269,7 +1379,7 @@ export function useRegistryRepositories() {
     onError: (error: TracecatApiError) => {
       switch (error.status) {
         case 400:
-          toast({
+          return toast({
             title: "Couldn't sync repository",
             description: (
               <div className="flex items-start gap-2">
@@ -1278,10 +1388,14 @@ export function useRegistryRepositories() {
               </div>
             ),
           })
-          break
+        case 403:
+          return toast({
+            title: "Forbidden",
+            description: "You are not authorized to perform this action",
+          })
         case 422:
           const { message } = error.body.detail as RegistryRepositoryErrorDetail
-          toast({
+          return toast({
             title: "Repository validation failed",
             description: (
               <div className="flex items-start gap-2">
@@ -1290,9 +1404,8 @@ export function useRegistryRepositories() {
               </div>
             ),
           })
-          break
         default:
-          toast({
+          return toast({
             title: "Unexpected error syncing repositories",
             description: (
               <div className="flex items-start gap-2">
@@ -1303,7 +1416,6 @@ export function useRegistryRepositories() {
             ),
           })
       }
-      return error
     },
   })
 
@@ -1749,8 +1861,8 @@ export function useOrgAppSettings() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["org-app-settings"] })
       toast({
-        title: "Updated App settings",
-        description: "App settings updated successfully.",
+        title: "Updated application settings",
+        description: "Application settings updated successfully.",
       })
     },
     onError: (error: TracecatApiError) => {
@@ -1762,10 +1874,10 @@ export function useOrgAppSettings() {
           })
           break
         default:
-          console.error("Failed to update App settings", error)
+          console.error("Failed to update application settings", error)
           toast({
-            title: "Failed to update App settings",
-            description: `An error occurred while updating the App settings: ${error.body.detail}`,
+            title: "Failed to update application settings",
+            description: `An error occurred while updating the application settings: ${error.body.detail}`,
           })
       }
     },
@@ -1798,6 +1910,21 @@ export function useRegistryRepositoriesReload() {
         title: "Reloaded repositories",
         description: "Repositories reloaded successfully.",
       })
+    },
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 403:
+          return toast({
+            title: "Forbidden",
+            description: "You are not authorized to perform this action",
+          })
+        default:
+          console.error("Failed to reload repositories", error)
+          return toast({
+            title: "Failed to reload repositories",
+            description: `An error occurred while reloading the repositories: ${error.body.detail}`,
+          })
+      }
     },
   })
 
@@ -1832,8 +1959,8 @@ export function useOrgAuthSettings() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["org-auth-settings"] })
       toast({
-        title: "Updated Auth settings",
-        description: "Auth settings updated successfully.",
+        title: "Updated authentication settings",
+        description: "Authentication settings updated successfully.",
       })
     },
     onError: (error: TracecatApiError) => {
@@ -1845,10 +1972,10 @@ export function useOrgAuthSettings() {
           })
           break
         default:
-          console.error("Failed to update auth settings", error)
+          console.error("Failed to update authentication settings", error)
           toast({
-            title: "Failed to update auth settings",
-            description: `An error occurred while updating the auth settings: ${error.body.detail}`,
+            title: "Failed to update authentication settings",
+            description: `An error occurred while updating the authentication settings: ${error.body.detail}`,
           })
       }
     },
@@ -2147,23 +2274,26 @@ export function useUpdateColumn() {
       })
     },
     onError: (error: TracecatApiError, variables) => {
-      // Check if this was a natural key operation
+      // Check if this was a unique index operation
       const isIndexOperation = !!variables.requestBody?.is_index
 
       if (isIndexOperation) {
-        // Handle natural key specific errors
+        // Handle unique index specific errors
         if (error.status === 409) {
           toast({
-            title: "Error creating natural key",
+            title: "Error creating unique index",
             description:
               "Column contains duplicate values. All values must be unique.",
-            variant: "destructive",
+          })
+        } else if (error.status === 400) {
+          toast({
+            title: "Error creating unique index",
+            description: String(error.body.detail),
           })
         } else {
           toast({
-            title: "Error creating natural key",
+            title: "Error creating unique index",
             description: error.message || "An unexpected error occurred",
-            variant: "destructive",
           })
         }
       } else {
@@ -2180,7 +2310,6 @@ export function useUpdateColumn() {
             toast({
               title: "Error updating column",
               description: error.message || "An unexpected error occurred",
-              variant: "destructive",
             })
             break
         }
@@ -2274,7 +2403,7 @@ export function useInsertRow() {
     onError: (error: TracecatApiError, variables) => {
       if (error.status === 409) {
         toast({
-          title: "Duplicate Value Error",
+          title: "Duplicate value error",
           description:
             "Cannot insert duplicate values in a unique column. Please use unique values.",
           variant: "destructive",
@@ -2383,6 +2512,37 @@ export function useGetCase({ caseId, workspaceId }: CasesGetCaseData) {
   }
 }
 
+export function useCreateCase(workspaceId: string) {
+  const queryClient = useQueryClient()
+  const {
+    mutateAsync: createCase,
+    isPending: createCaseIsPending,
+    error: createCaseError,
+  } = useMutation({
+    mutationFn: async (params: CaseCreate) =>
+      await casesCreateCase({ workspaceId, requestBody: params }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["cases"] })
+      toast({
+        title: "Case created",
+        description: "New case created successfully",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      toast({
+        title: "Error creating case",
+        description: `An error occurred while creating the case: ${error.body.detail}`,
+      })
+    },
+  })
+
+  return {
+    createCase,
+    createCaseIsPending,
+    createCaseError,
+  }
+}
+
 export function useUpdateCase({
   workspaceId,
   caseId,
@@ -2405,6 +2565,9 @@ export function useUpdateCase({
       })
       queryClient.invalidateQueries({
         queryKey: ["case", caseId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["case-events", caseId, workspaceId],
       })
     },
     onError: (error: TracecatApiError) => {
@@ -2429,6 +2592,45 @@ export function useUpdateCase({
     updateCase,
     updateCaseIsPending,
     updateCaseError,
+  }
+}
+
+export function useDeleteCase({ workspaceId }: { workspaceId: string }) {
+  const queryClient = useQueryClient()
+
+  const {
+    mutateAsync: deleteCase,
+    isPending: deleteCaseIsPending,
+    error: deleteCaseError,
+  } = useMutation({
+    mutationFn: async (caseId: string) =>
+      await casesDeleteCase({ workspaceId, caseId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["cases", workspaceId],
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 403:
+          return toast({
+            title: "Forbidden",
+            description: "You cannot perform this action",
+          })
+        default:
+          console.error("Error deleting case", error)
+          return toast({
+            title: "Error deleting case",
+            description: `An error occurred while deleting the case: ${error.body.detail}`,
+          })
+      }
+    },
+  })
+
+  return {
+    deleteCase,
+    deleteCaseIsPending,
+    deleteCaseError,
   }
 }
 
@@ -2616,5 +2818,288 @@ export function useGetWorkflows(workspaceId: string) {
     workflows,
     workflowsLoading,
     workflowsError,
+  }
+}
+
+export function useFolders(workspaceId: string) {
+  const queryClient = useQueryClient()
+
+  // List folders
+  const {
+    data: folders,
+    isLoading: foldersIsLoading,
+    error: foldersError,
+  } = useQuery<WorkflowFolderRead[]>({
+    queryKey: ["folders", workspaceId],
+    queryFn: async () => await foldersListFolders({ workspaceId }),
+  })
+
+  // Get folder by parent path
+  const {
+    data: subFolders,
+    isLoading: subFoldersIsLoading,
+    error: subFoldersError,
+    refetch: refetchSubFolders,
+  } = useQuery<WorkflowFolderRead[]>({
+    queryKey: ["folders", workspaceId, "parent"],
+    queryFn: async () =>
+      await foldersListFolders({
+        workspaceId,
+        parentPath: "/",
+      }),
+    enabled: !!workspaceId,
+  })
+
+  // Create folder
+  const {
+    mutateAsync: createFolder,
+    isPending: createFolderIsPending,
+    error: createFolderError,
+  } = useMutation({
+    mutationFn: async (params: WorkflowFolderCreate) =>
+      await foldersCreateFolder({
+        workspaceId,
+        requestBody: params,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["folders", workspaceId] })
+      queryClient.invalidateQueries({ queryKey: ["directory-items"] })
+      toast({
+        title: "Created folder",
+        description: (
+          <div className="flex items-center space-x-2">
+            <CircleCheck className="size-4 fill-emerald-500 stroke-white" />
+            <span>Folder created successfully.</span>
+          </div>
+        ),
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 409:
+          console.error("Error creating folder", error)
+          return toast({
+            title: "Error creating folder",
+            description:
+              "A folder with this name already exists at this location.",
+          })
+        case 403:
+          return toast({
+            title: "Forbidden",
+            description: "You cannot perform this action",
+          })
+        default:
+          console.error("Failed to create folder", error)
+          return toast({
+            title: "Failed to create folder",
+            description: `An error occurred while creating the folder: ${error.body.detail}`,
+          })
+      }
+    },
+  })
+
+  // Update folder
+  const {
+    mutateAsync: updateFolder,
+    isPending: updateFolderIsPending,
+    error: updateFolderError,
+  } = useMutation({
+    mutationFn: async ({
+      folderId,
+      name,
+    }: {
+      folderId: string
+      name: string
+    }) =>
+      await foldersUpdateFolder({
+        folderId,
+        workspaceId,
+        requestBody: { name },
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["folders", workspaceId] })
+      queryClient.invalidateQueries({ queryKey: ["directory-items"] })
+      toast({
+        title: "Updated folder",
+        description: "Folder updated successfully.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 409:
+          console.error("Error updating folder", error)
+          toast({
+            title: "Error updating folder",
+            description:
+              "A folder with this name already exists at this location.",
+          })
+          break
+        default:
+          console.error("Error updating folder", error)
+          toast({
+            title: "Error updating folder",
+            description: `An error occurred while updating the folder: ${error.body.detail}`,
+          })
+          break
+      }
+    },
+  })
+
+  // Move folder
+  const {
+    mutateAsync: moveFolder,
+    isPending: moveFolderIsPending,
+    error: moveFolderError,
+  } = useMutation({
+    mutationFn: async ({
+      folderId,
+      newParentPath,
+    }: {
+      folderId: string
+      newParentPath: string | null
+    }) =>
+      await foldersMoveFolder({
+        folderId,
+        workspaceId,
+        requestBody: { new_parent_path: newParentPath },
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["folders", workspaceId] })
+      queryClient.invalidateQueries({ queryKey: ["directory-items"] })
+      toast({
+        title: "Moved folder",
+        description: "Folder moved successfully.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      console.error("Error moving folder", error)
+      toast({
+        title: "Error moving folder",
+        description: `An error occurred while moving the folder: ${error.body.detail}`,
+      })
+    },
+  })
+
+  // Delete folder
+  const {
+    mutateAsync: deleteFolder,
+    isPending: deleteFolderIsPending,
+    error: deleteFolderError,
+  } = useMutation({
+    mutationFn: async ({
+      folderId,
+      recursive = false,
+    }: {
+      folderId: string
+      recursive?: boolean
+    }) =>
+      await foldersDeleteFolder({
+        folderId,
+        workspaceId,
+        requestBody: { recursive },
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["folders", workspaceId] })
+      queryClient.invalidateQueries({ queryKey: ["directory-items"] })
+      toast({
+        title: "Deleted folder",
+        description: "Folder deleted successfully.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 400:
+          toast({
+            title: "Cannot delete folder",
+            description: String(error.body.detail),
+          })
+          break
+        case 403:
+          toast({
+            title: "Forbidden",
+            description: "You cannot perform this action",
+          })
+          break
+        default:
+          console.error("Error deleting folder", error)
+          toast({
+            title: "Failed to delete folder",
+            description: `An error occurred while deleting the folder: ${error.body.detail}`,
+          })
+          break
+      }
+    },
+  })
+
+  return {
+    // List
+    folders,
+    foldersIsLoading,
+    foldersError,
+    // List subfolders
+    subFolders,
+    subFoldersIsLoading,
+    subFoldersError,
+    refetchSubFolders,
+    // Create
+    createFolder,
+    createFolderIsPending,
+    createFolderError,
+    // Update
+    updateFolder,
+    updateFolderIsPending,
+    updateFolderError,
+    // Move
+    moveFolder,
+    moveFolderIsPending,
+    moveFolderError,
+    // Delete
+    deleteFolder,
+    deleteFolderIsPending,
+    deleteFolderError,
+  }
+}
+
+export type DirectoryItem = FolderDirectoryItem | WorkflowDirectoryItem
+export function useGetDirectoryItems(path: string, workspaceId?: string) {
+  const {
+    data: directoryItems,
+    isLoading: directoryItemsIsLoading,
+    error: directoryItemsError,
+  } = useQuery<DirectoryItem[], ApiError>({
+    enabled: !!workspaceId,
+    queryKey: ["directory-items", path],
+    queryFn: async () =>
+      await foldersGetDirectory({ path, workspaceId: workspaceId ?? "" }),
+  })
+
+  return {
+    directoryItems,
+    directoryItemsIsLoading,
+    directoryItemsError,
+  }
+}
+
+export function useCaseEvents({
+  caseId,
+  workspaceId,
+}: {
+  caseId: string
+  workspaceId: string
+}) {
+  const {
+    data: caseEvents,
+    isLoading: caseEventsIsLoading,
+    error: caseEventsError,
+  } = useQuery<CaseEventsWithUsers, TracecatApiError>({
+    queryKey: ["case-events", caseId, workspaceId],
+    queryFn: async () =>
+      await casesListEventsWithUsers({ caseId, workspaceId }),
+  })
+
+  return {
+    caseEvents,
+    caseEventsIsLoading,
+    caseEventsError,
   }
 }

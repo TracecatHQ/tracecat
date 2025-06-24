@@ -1,0 +1,33 @@
+type: action
+definition:
+  title: Delete resource
+  description: Delete a resource in a Kubernetes cluster.
+  display_group: Kubernetes
+  doc_url: https://kubernetes.io/docs/reference/generated/kubectl/kubectl-commands#delete
+  namespace: ee.kubernetes
+  name: delete
+  expects:
+    name:
+      type: str
+      description: Name of the resource to delete.
+    namespace:
+      type: str
+      description: Namespace to delete the resource from.
+    resource:
+      type: str
+      description: Resource type to delete.
+    dry_run:
+      type: bool
+      description: Whether to dry run the delete client-side.
+      default: false
+  steps:
+    - ref: delete_resource
+      action: ee.kubernetes.run_command
+      args:
+        command:
+          - delete
+          - ${{ inputs.resource }}
+          - ${{ inputs.name }}
+        namespace: ${{ inputs.namespace }}
+        dry_run: ${{ inputs.dry_run }}
+  returns: ${{ steps.delete_resource.result }}

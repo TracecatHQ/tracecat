@@ -1,8 +1,10 @@
+from datetime import datetime
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from typing_extensions import Doc
 
+from tracecat.config import TRACECAT__MAX_ROWS_CLIENT_POSTGRES
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.models import (
     CaseCreate,
@@ -50,7 +52,7 @@ StatusType = Literal[
 
 
 @registry.register(
-    default_title="Create Case",
+    default_title="Create case",
     display_group="Cases",
     description="Create a new case.",
     namespace="core.cases",
@@ -96,7 +98,7 @@ async def create_case(
 
 
 @registry.register(
-    default_title="Update Case",
+    default_title="Update case",
     display_group="Cases",
     description="Update an existing case.",
     namespace="core.cases",
@@ -157,7 +159,7 @@ async def update_case(
 
 
 @registry.register(
-    default_title="Create Case Comment",
+    default_title="Create case comment",
     display_group="Cases",
     description="Add a comment to an existing case.",
     namespace="core.cases",
@@ -193,7 +195,7 @@ async def create_comment(
 
 
 @registry.register(
-    default_title="Update Case Comment",
+    default_title="Update case comment",
     display_group="Cases",
     description="Update an existing case comment.",
     namespace="core.cases",
@@ -229,7 +231,7 @@ async def update_comment(
 
 
 @registry.register(
-    default_title="Get Case",
+    default_title="Get case",
     display_group="Cases",
     description="Get details of a specific case by ID.",
     namespace="core.cases",
@@ -282,16 +284,16 @@ async def get_case(
 
 
 @registry.register(
-    default_title="List Cases",
+    default_title="List cases",
     display_group="Cases",
     description="List all cases.",
     namespace="core.cases",
 )
 async def list_cases(
     limit: Annotated[
-        int | None,
+        int,
         Doc("Maximum number of cases to return."),
-    ] = None,
+    ] = 100,
     order_by: Annotated[
         Literal["created_at", "updated_at", "priority", "severity", "status"] | None,
         Doc("The field to order the cases by."),
@@ -301,6 +303,11 @@ async def list_cases(
         Doc("The direction to order the cases by."),
     ] = None,
 ) -> list[dict[str, Any]]:
+    if limit > TRACECAT__MAX_ROWS_CLIENT_POSTGRES:
+        raise ValueError(
+            f"Limit cannot be greater than {TRACECAT__MAX_ROWS_CLIENT_POSTGRES}"
+        )
+
     async with CasesService.with_session() as service:
         cases = await service.list_cases(limit=limit, order_by=order_by, sort=sort)
     return [
@@ -319,7 +326,93 @@ async def list_cases(
 
 
 @registry.register(
-    default_title="List Case Comments",
+    default_title="Search cases",
+    display_group="Cases",
+    description="Search cases based on various criteria.",
+    namespace="core.cases",
+)
+async def search_cases(
+    search_term: Annotated[
+        str | None,
+        Doc("Text to search for in case summary and description."),
+    ] = None,
+    status: Annotated[
+        StatusType | None,
+        Doc("Filter by case status."),
+    ] = None,
+    priority: Annotated[
+        PriorityType | None,
+        Doc("Filter by case priority."),
+    ] = None,
+    severity: Annotated[
+        SeverityType | None,
+        Doc("Filter by case severity."),
+    ] = None,
+    start_time: Annotated[
+        datetime | None,
+        Doc("Filter cases created after this time."),
+    ] = None,
+    end_time: Annotated[
+        datetime | None,
+        Doc("Filter cases created before this time."),
+    ] = None,
+    updated_before: Annotated[
+        datetime | None,
+        Doc("Filter cases updated before this time."),
+    ] = None,
+    updated_after: Annotated[
+        datetime | None,
+        Doc("Filter cases updated after this time."),
+    ] = None,
+    order_by: Annotated[
+        Literal["created_at", "updated_at", "priority", "severity", "status"] | None,
+        Doc("The field to order the cases by."),
+    ] = None,
+    sort: Annotated[
+        Literal["asc", "desc"] | None,
+        Doc("The direction to order the cases by."),
+    ] = None,
+    limit: Annotated[
+        int,
+        Doc("Maximum number of cases to return."),
+    ] = 100,
+) -> list[dict[str, Any]]:
+    if limit > TRACECAT__MAX_ROWS_CLIENT_POSTGRES:
+        raise ValueError(
+            f"Limit cannot be greater than {TRACECAT__MAX_ROWS_CLIENT_POSTGRES}"
+        )
+
+    async with CasesService.with_session() as service:
+        cases = await service.search_cases(
+            search_term=search_term,
+            status=CaseStatus(status) if status else None,
+            priority=CasePriority(priority) if priority else None,
+            severity=CaseSeverity(severity) if severity else None,
+            limit=limit,
+            order_by=order_by,
+            sort=sort,
+            start_time=start_time,
+            end_time=end_time,
+            updated_before=updated_before,
+            updated_after=updated_after,
+        )
+    return [
+        CaseReadMinimal(
+            id=case.id,
+            created_at=case.created_at,
+            updated_at=case.updated_at,
+            short_id=f"CASE-{case.case_number:04d}",
+            summary=case.summary,
+            status=case.status,
+            priority=case.priority,
+            severity=case.severity,
+        ).model_dump(mode="json")
+        for case in cases
+    ]
+
+
+@registry.register(
+    default_title="List case comments",
     display_group="Cases",
     description="List all comments for a case.",
     namespace="core.cases",
@@ -346,3 +439,30 @@ async def list_comments(
         result.append(comment_data)
 
     return result
+
+
+@registry.register(
+    default_title="Assign user to case",
+    display_group="Cases",
+    description="Assign a user to an existing case.",
+    namespace="core.cases",
+)
+async def assign_user(
+    case_id: Annotated[
+        str,
+        Doc("The ID of the case to assign a user to."),
+    ],
+    assignee_id: Annotated[
+        str,
+        Doc("The ID of the user to assign to the case."),
+    ],
+) -> dict[str, Any]:
+    async with CasesService.with_session() as service:
+        case = await service.get_case(UUID(case_id))
+        if not case:
+            raise ValueError(f"Case with ID {case_id} not found")
+
+        updated_case = await service.update_case(
+            case, CaseUpdate(assignee_id=UUID(assignee_id))
+        )
+    return updated_case.model_dump()

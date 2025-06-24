@@ -1,0 +1,10 @@
+# https://d3fend.mitre.org/technique/d3f:FileHashFiltering/
+file_hash:
+  type: str
+  description: The file hash to block.
+
+scope:
+  type: str
+  description: Scope of the block rule.
+  enum: ["global", "site", "group", "agent"]
+  default: "global"

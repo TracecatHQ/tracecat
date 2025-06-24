@@ -26,7 +26,7 @@ from tracecat.auth.router import router as users_router
 from tracecat.auth.saml import router as saml_router
 from tracecat.auth.users import (
     FastAPIUsersException,
-    InvalidDomainException,
+    InvalidEmailException,
     auth_backend,
     fastapi_users,
 )
@@ -37,7 +37,7 @@ from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.editor.router import router as editor_router
 from tracecat.logger import logger
-from tracecat.middleware import RequestLoggingMiddleware
+from tracecat.middleware import AuthorizationCacheMiddleware, RequestLoggingMiddleware
 from tracecat.middleware.security import SecurityHeadersMiddleware
 from tracecat.organization.router import router as org_router
 from tracecat.registry.actions.router import router as registry_actions_router
@@ -54,6 +54,9 @@ from tracecat.types.exceptions import TracecatException
 from tracecat.webhooks.router import router as webhook_router
 from tracecat.workflow.actions.router import router as workflow_actions_router
 from tracecat.workflow.executions.router import router as workflow_executions_router
+from tracecat.workflow.management.folders.router import (
+    router as workflow_folders_router,
+)
 from tracecat.workflow.management.router import router as workflow_management_router
 from tracecat.workflow.schedules.router import router as schedules_router
 from tracecat.workflow.tags.router import router as workflow_tags_router
@@ -121,7 +124,7 @@ def fastapi_users_auth_exception_handler(request: Request, exc: FastAPIUsersExce
         path=request.url.path,
     )
     match exc:
-        case InvalidDomainException():
+        case InvalidEmailException():
             status_code = status.HTTP_400_BAD_REQUEST
         case _:
             status_code = status.HTTP_401_UNAUTHORIZED
@@ -182,6 +185,7 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(tables_router)
     app.include_router(cases_router)
     app.include_router(case_fields_router)
+    app.include_router(workflow_folders_router)
     app.include_router(
         fastapi_users.get_users_router(UserRead, UserUpdate),
         prefix="/users",
@@ -254,8 +258,11 @@ def create_app(**kwargs) -> FastAPI:
     )
 
     # Middleware
+    # Add authorization cache middleware first so it's available for all requests
+    app.add_middleware(AuthorizationCacheMiddleware)
     app.add_middleware(RequestLoggingMiddleware)
-    app.add_middleware(SecurityHeadersMiddleware)
+    if config.TRACECAT__APP_ENV != "development":
+        app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=allow_origins,

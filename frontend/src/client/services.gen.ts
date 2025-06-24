@@ -52,18 +52,39 @@ import type {
   CasesListCasesResponse,
   CasesListCommentsData,
   CasesListCommentsResponse,
+  CasesListEventsWithUsersData,
+  CasesListEventsWithUsersResponse,
   CasesListFieldsData,
   CasesListFieldsResponse,
+  CasesSearchCasesData,
+  CasesSearchCasesResponse,
   CasesUpdateCaseData,
   CasesUpdateCaseResponse,
   CasesUpdateCommentData,
   CasesUpdateCommentResponse,
   CasesUpdateFieldData,
   CasesUpdateFieldResponse,
+  EditorFieldSchemaResponse,
   EditorListActionsData,
   EditorListActionsResponse,
   EditorListFunctionsData,
   EditorListFunctionsResponse,
+  EditorValidateExpressionData,
+  EditorValidateExpressionResponse,
+  FoldersCreateFolderData,
+  FoldersCreateFolderResponse,
+  FoldersDeleteFolderData,
+  FoldersDeleteFolderResponse,
+  FoldersGetDirectoryData,
+  FoldersGetDirectoryResponse,
+  FoldersGetFolderData,
+  FoldersGetFolderResponse,
+  FoldersListFoldersData,
+  FoldersListFoldersResponse,
+  FoldersMoveFolderData,
+  FoldersMoveFolderResponse,
+  FoldersUpdateFolderData,
+  FoldersUpdateFolderResponse,
   OrganizationDeleteOrgMemberData,
   OrganizationDeleteOrgMemberResponse,
   OrganizationDeleteSessionData,
@@ -83,6 +104,8 @@ import type {
   OrganizationUpdateOrgMemberData,
   OrganizationUpdateOrgMemberResponse,
   PublicCheckHealthResponse,
+  PublicIncomingWebhook1Data,
+  PublicIncomingWebhook1Response,
   PublicIncomingWebhookData,
   PublicIncomingWebhookResponse,
   PublicIncomingWebhookWaitData,
@@ -236,6 +259,8 @@ import type {
   WorkflowsListTagsResponse,
   WorkflowsListWorkflowsData,
   WorkflowsListWorkflowsResponse,
+  WorkflowsMoveWorkflowToFolderData,
+  WorkflowsMoveWorkflowToFolderResponse,
   WorkflowsRemoveTagData,
   WorkflowsRemoveTagResponse,
   WorkflowsUpdateWorkflowData,
@@ -258,6 +283,8 @@ import type {
   WorkspacesSearchWorkspacesData,
   WorkspacesSearchWorkspacesResponse,
   WorkspacesUpdateWorkspaceData,
+  WorkspacesUpdateWorkspaceMembershipData,
+  WorkspacesUpdateWorkspaceMembershipResponse,
   WorkspacesUpdateWorkspaceResponse,
 } from "./types.gen"
 
@@ -270,9 +297,11 @@ import type {
  * @param data The data for the request.
  * @param data.secret
  * @param data.workflowId
- * @param data.echo Echo the request payload back to the caller
+ * @param data.echo Echo back to the caller
+ * @param data.emptyEcho Return an empty response. Assumes `echo` to be `True`.
+ * @param data.vendor Vendor specific webhook verification. Supported vendors: `okta`.
  * @param data.contentType
- * @returns WorkflowExecutionCreateResponse Successful Response
+ * @returns unknown Successful Response
  * @throws ApiError
  */
 export const publicIncomingWebhook = (
@@ -290,6 +319,48 @@ export const publicIncomingWebhook = (
     },
     query: {
       echo: data.echo,
+      empty_echo: data.emptyEcho,
+      vendor: data.vendor,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Incoming Webhook
+ * Webhook endpoint to trigger a workflow.
+ *
+ * This is an external facing endpoint is used to trigger a workflow by sending a webhook request.
+ * The workflow is identified by the `path` parameter, which is equivalent to the workflow id.
+ * @param data The data for the request.
+ * @param data.secret
+ * @param data.workflowId
+ * @param data.echo Echo back to the caller
+ * @param data.emptyEcho Return an empty response. Assumes `echo` to be `True`.
+ * @param data.vendor Vendor specific webhook verification. Supported vendors: `okta`.
+ * @param data.contentType
+ * @returns unknown Successful Response
+ * @throws ApiError
+ */
+export const publicIncomingWebhook1 = (
+  data: PublicIncomingWebhook1Data
+): CancelablePromise<PublicIncomingWebhook1Response> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/webhooks/{workflow_id}/{secret}",
+    path: {
+      secret: data.secret,
+      workflow_id: data.workflowId,
+    },
+    headers: {
+      "content-type": data.contentType,
+    },
+    query: {
+      echo: data.echo,
+      empty_echo: data.emptyEcho,
+      vendor: data.vendor,
     },
     errors: {
       422: "Validation Error",
@@ -379,7 +450,7 @@ export const publicReceiveInteraction = (
  * ------------
  * - Basic: Can list workspaces where they are a member.
  * - Admin: Can list all workspaces regardless of membership.
- * @returns WorkspaceMetadataResponse Successful Response
+ * @returns WorkspaceReadMinimal Successful Response
  * @throws ApiError
  */
 export const workspacesListWorkspaces =
@@ -399,7 +470,7 @@ export const workspacesListWorkspaces =
  * - Admin: Can create a workspace for any user.
  * @param data The data for the request.
  * @param data.requestBody
- * @returns WorkspaceMetadataResponse Successful Response
+ * @returns WorkspaceReadMinimal Successful Response
  * @throws ApiError
  */
 export const workspacesCreateWorkspace = (
@@ -421,7 +492,7 @@ export const workspacesCreateWorkspace = (
  * Return Workflow as title, description, list of Action JSONs, adjacency list of Action IDs.
  * @param data The data for the request.
  * @param data.name
- * @returns WorkspaceMetadataResponse Successful Response
+ * @returns WorkspaceReadMinimal Successful Response
  * @throws ApiError
  */
 export const workspacesSearchWorkspaces = (
@@ -444,7 +515,7 @@ export const workspacesSearchWorkspaces = (
  * Return Workflow as title, description, list of Action JSONs, adjacency list of Action IDs.
  * @param data The data for the request.
  * @param data.workspaceId
- * @returns WorkspaceResponse Successful Response
+ * @returns WorkspaceRead Successful Response
  * @throws ApiError
  */
 export const workspacesGetWorkspace = (
@@ -516,7 +587,7 @@ export const workspacesDeleteWorkspace = (
  * List memberships of a workspace.
  * @param data The data for the request.
  * @param data.workspaceId
- * @returns WorkspaceMembershipResponse Successful Response
+ * @returns WorkspaceMembershipRead Successful Response
  * @throws ApiError
  */
 export const workspacesListWorkspaceMemberships = (
@@ -561,12 +632,40 @@ export const workspacesCreateWorkspaceMembership = (
 }
 
 /**
+ * Update Workspace Membership
+ * Update a workspace membership for a user.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.userId
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const workspacesUpdateWorkspaceMembership = (
+  data: WorkspacesUpdateWorkspaceMembershipData
+): CancelablePromise<WorkspacesUpdateWorkspaceMembershipResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/workspaces/{workspace_id}/memberships/{user_id}",
+    path: {
+      workspace_id: data.workspaceId,
+      user_id: data.userId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * Get Workspace Membership
  * Get a workspace membership for a user.
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.userId
- * @returns WorkspaceMembershipResponse Successful Response
+ * @returns WorkspaceMembershipRead Successful Response
  * @throws ApiError
  */
 export const workspacesGetWorkspaceMembership = (
@@ -954,6 +1053,38 @@ export const triggersUpdateWebhook = (
 }
 
 /**
+ * Move Workflow To Folder
+ * Move a workflow to a different folder.
+ *
+ * If folder_id is null, the workflow will be moved to the root (no folder).
+ * @param data The data for the request.
+ * @param data.workflowId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const workflowsMoveWorkflowToFolder = (
+  data: WorkflowsMoveWorkflowToFolderData
+): CancelablePromise<WorkflowsMoveWorkflowToFolderResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workflows/{workflow_id}/move",
+    path: {
+      workflow_id: data.workflowId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * List Workflow Executions
  * List all workflow executions.
  * @param data The data for the request.
@@ -1043,7 +1174,7 @@ export const workflowExecutionsGetWorkflowExecution = (
  * @param data The data for the request.
  * @param data.executionId
  * @param data.workspaceId
- * @returns WorkflowExecutionReadCompact Successful Response
+ * @returns WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__ Successful Response
  * @throws ApiError
  */
 export const workflowExecutionsGetWorkflowExecutionCompact = (
@@ -1807,6 +1938,7 @@ export const tagsDeleteTag = (
  * Create new user.
  * @param data The data for the request.
  * @param data.email
+ * @param data.workspaceId
  * @returns UserRead Successful Response
  * @throws ApiError
  */
@@ -1818,6 +1950,7 @@ export const usersSearchUser = (
     url: "/users/search",
     query: {
       email: data.email,
+      workspace_id: data.workspaceId,
     },
     errors: {
       422: "Validation Error",
@@ -1965,6 +2098,48 @@ export const editorListActions = (
     },
   })
 }
+
+/**
+ * Validate Expression
+ * LSP endpoint for validating template expressions using the Lark grammar.
+ *
+ * This endpoint provides syntax validation and token information for syntax highlighting
+ * of template expressions like: ACTIONS.step1.result, SECRETS.api_key, etc.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns ExpressionValidationResponse Successful Response
+ * @throws ApiError
+ */
+export const editorValidateExpression = (
+  data: EditorValidateExpressionData
+): CancelablePromise<EditorValidateExpressionResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/editor/expressions/validate",
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Field Schema
+ * @returns EditorComponent Successful Response
+ * @throws ApiError
+ */
+export const editorFieldSchema =
+  (): CancelablePromise<EditorFieldSchemaResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/editor/field-schema",
+    })
+  }
 
 /**
  * Reload Registry Repositories
@@ -2973,6 +3148,43 @@ export const casesCreateCase = (
 }
 
 /**
+ * Search Cases
+ * Search cases based on various criteria.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.searchTerm Text to search for in case summary and description
+ * @param data.status Filter by case status
+ * @param data.priority Filter by case priority
+ * @param data.severity Filter by case severity
+ * @param data.limit Maximum number of cases to return
+ * @param data.orderBy Field to order the cases by
+ * @param data.sort Direction to sort (asc or desc)
+ * @returns CaseReadMinimal Successful Response
+ * @throws ApiError
+ */
+export const casesSearchCases = (
+  data: CasesSearchCasesData
+): CancelablePromise<CasesSearchCasesResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/cases/search",
+    query: {
+      search_term: data.searchTerm,
+      status: data.status,
+      priority: data.priority,
+      severity: data.severity,
+      limit: data.limit,
+      order_by: data.orderBy,
+      sort: data.sort,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * Get Case
  * Get a specific case.
  * @param data The data for the request.
@@ -3175,6 +3387,33 @@ export const casesDeleteComment = (
 }
 
 /**
+ * List Events With Users
+ * List all users for a case.
+ * @param data The data for the request.
+ * @param data.caseId
+ * @param data.workspaceId
+ * @returns CaseEventsWithUsers Successful Response
+ * @throws ApiError
+ */
+export const casesListEventsWithUsers = (
+  data: CasesListEventsWithUsersData
+): CancelablePromise<CasesListEventsWithUsersResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/cases/{case_id}/events",
+    path: {
+      case_id: data.caseId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * List Fields
  * List all case fields.
  * @param data The data for the request.
@@ -3274,6 +3513,204 @@ export const casesDeleteField = (
     query: {
       workspace_id: data.workspaceId,
     },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Directory
+ * Get directory items (workflows and folders) in the given path.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.path Folder path
+ * @returns unknown Successful Response
+ * @throws ApiError
+ */
+export const foldersGetDirectory = (
+  data: FoldersGetDirectoryData
+): CancelablePromise<FoldersGetDirectoryResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/folders/directory",
+    query: {
+      path: data.path,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Folders
+ * List folders under the specified parent path.
+ *
+ * If parent_path is not provided, returns root-level folders.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.parentPath Parent folder path
+ * @returns WorkflowFolderRead Successful Response
+ * @throws ApiError
+ */
+export const foldersListFolders = (
+  data: FoldersListFoldersData
+): CancelablePromise<FoldersListFoldersResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/folders",
+    query: {
+      parent_path: data.parentPath,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Folder
+ * Create a new folder.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns WorkflowFolderRead Successful Response
+ * @throws ApiError
+ */
+export const foldersCreateFolder = (
+  data: FoldersCreateFolderData
+): CancelablePromise<FoldersCreateFolderResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/folders",
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Folder
+ * Get folder details by ID.
+ * @param data The data for the request.
+ * @param data.folderId
+ * @param data.workspaceId
+ * @returns WorkflowFolderRead Successful Response
+ * @throws ApiError
+ */
+export const foldersGetFolder = (
+  data: FoldersGetFolderData
+): CancelablePromise<FoldersGetFolderResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/folders/{folder_id}",
+    path: {
+      folder_id: data.folderId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Folder
+ * Update a folder (rename).
+ * @param data The data for the request.
+ * @param data.folderId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns WorkflowFolderRead Successful Response
+ * @throws ApiError
+ */
+export const foldersUpdateFolder = (
+  data: FoldersUpdateFolderData
+): CancelablePromise<FoldersUpdateFolderResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/folders/{folder_id}",
+    path: {
+      folder_id: data.folderId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Folder
+ * Delete a folder.
+ *
+ * If recursive=true, deletes all subfolders and moves the contained workflows to root.
+ * If recursive=false (default), fails if the folder contains any subfolders or workflows.
+ * @param data The data for the request.
+ * @param data.folderId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const foldersDeleteFolder = (
+  data: FoldersDeleteFolderData
+): CancelablePromise<FoldersDeleteFolderResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/folders/{folder_id}",
+    path: {
+      folder_id: data.folderId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Move Folder
+ * Move a folder to a new parent folder.
+ * @param data The data for the request.
+ * @param data.folderId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns WorkflowFolderRead Successful Response
+ * @throws ApiError
+ */
+export const foldersMoveFolder = (
+  data: FoldersMoveFolderData
+): CancelablePromise<FoldersMoveFolderResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/folders/{folder_id}/move",
+    path: {
+      folder_id: data.folderId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
     errors: {
       422: "Validation Error",
     },
@@ -3600,6 +4037,7 @@ export const authOauthGoogleDatabaseCallback = (
 
 /**
  * Saml:Database.Login
+ * Initiate SAML login flow
  * @returns SAMLDatabaseLoginResponse Successful Response
  * @throws ApiError
  */

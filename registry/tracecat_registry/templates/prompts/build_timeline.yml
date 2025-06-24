@@ -1,0 +1,266 @@
+type: action
+definition:
+  title: Build timeline (Prompt)
+  description: Generates system and user prompts for building a timeline of events and a Mermaid diagram of relationships.
+  display_group: Prompts
+  namespace: prompts.secops
+  name: build_timeline
+  expects:
+    input:
+      type: list[dict[str, any]]
+      description: A list of event objects (dictionaries) to build a timeline from.
+    backstory:
+      type: str
+      description: >
+        What are the events or alerts about? Where did they come from?
+        What is the organization?
+    role:
+      type: str
+      description: >
+        Who is the analyst examining these events or alerts?
+        What is their role? For what organization?
+    example_responses:
+      type: list[dict[str, any]] | None
+      description: >
+        A list of example JSON responses from the model to improve the quality of the output.
+        Each item must fit the structured output schema. See `few_shot` step for default examples.
+      default: null
+  steps:
+    - ref: few_shot
+      action: core.transform.reshape
+      args:
+        value: [
+          # Example 1: Data Exfiltration Attempt
+          {
+            "thoughts": [
+              "These events appear to be related to a possible data exfiltration attempt.",
+              "There are several key entities involved: user123, the file server (file-server-01), and an external IP (203.0.113.42).",
+              "The events occur in a clear sequence that suggests reconnaissance followed by access and potential exfiltration."
+            ],
+            "timeline": [
+              {
+                "timestamp": "2023-06-15T08:32:45Z",
+                "actor_id": "user123",
+                "actor_type": "employee_user",
+                "user_agent": "Chrome 115.0.5790.110",
+                "event_action": "login",
+                "event_outcome": "success",
+                "event_description": "User user123 logged in from an unusual IP address 203.0.113.42.",
+                "event_details": {
+                  "source_ip": "203.0.113.42",
+                  "location_assessment": "Potentially unusual, requires verification.",
+                  "authentication_method": "password"
+                }
+              },
+              {
+                "timestamp": "2023-06-15T08:45:12Z",
+                "actor_id": "user123",
+                "actor_type": "employee_user",
+                "user_agent": "Chrome 115.0.5790.110",
+                "event_action": "file_access",
+                "event_outcome": "success",
+                "event_description": "User user123 accessed a sensitive file share 'financial_reports' on 'file-server-01'.",
+                "event_details": {
+                  "target_resource": "financial_reports",
+                  "target_server": "file-server-01",
+                  "access_type": "read",
+                  "file_count": 15
+                }
+              }
+            ],
+            "relationships": "graph TD\n    User123[User: user123] -->|logged in from| IP[IP: 203.0.113.42];\n    User123 -->|accessed| Files[Share: financial_reports];\n    Files -->|hosted on| Server[Server: file-server-01];\n    IP -.->|may indicate external access to| CorpNetwork[Network: Corporate Network];"
+          },
+          # Example 2: Phishing to Malware Execution
+          {
+            "thoughts": [
+              "This sequence of events strongly suggests a successful phishing attack leading to malware execution on DESKTOP-JD1.",
+              "User jane.doe received an email with a suspicious attachment, which was subsequently executed.",
+              "The malware then made an outbound network connection to 198.51.100.78, possibly a C2 server.",
+              "EDR confirmed malware detection, identifying the threat as Trojan.GenericKD.321."
+            ],
+            "timeline": [
+              {
+                "timestamp": "2023-11-01T10:05:00Z",
+                "actor_id": "attacker@evil.com",
+                "actor_type": "external_attacker",
+                "user_agent": "Unknown Email Client/Server",
+                "event_action": "email_sent",
+                "event_outcome": "delivered",
+                "event_description": "Phishing email sent from attacker@evil.com to jane.doe@example.com with malicious attachment 'invoice_C123.pdf.exe'.",
+                "event_details": {
+                  "recipient": "jane.doe@example.com",
+                  "subject": "Urgent Invoice C123",
+                  "attachments": ["invoice_C123.pdf.exe"]
+                }
+              },
+              {
+                "timestamp": "2023-11-01T10:15:22Z",
+                "actor_id": "jane.doe",
+                "actor_type": "employee_user",
+                "user_agent": "outlook.exe",
+                "event_action": "file_execution",
+                "event_outcome": "success",
+                "event_description": "User jane.doe executed malicious attachment 'invoice_C123.pdf.exe' from Outlook on DESKTOP-JD1.",
+                "event_details": {
+                  "hostname": "DESKTOP-JD1",
+                  "process_name": "invoice_C123.pdf.exe",
+                  "parent_process": "outlook.exe"
+                }
+              },
+              {
+                "timestamp": "2023-11-01T10:15:30Z",
+                "actor_id": "invoice_C123.pdf.exe (on DESKTOP-JD1)",
+                "actor_type": "malware_process",
+                "user_agent": "invoice_C123.pdf.exe",
+                "event_action": "network_connection_initiated",
+                "event_outcome": "allowed",
+                "event_description": "Malware process 'invoice_C123.pdf.exe' initiated an outbound TCP connection to 198.51.100.78:443.",
+                "event_details": {
+                  "hostname": "DESKTOP-JD1",
+                  "destination_ip": "198.51.100.78",
+                  "destination_port": 443,
+                  "protocol": "TCP"
+                }
+              },
+              {
+                "timestamp": "2023-11-01T10:16:00Z",
+                "actor_id": "EDR Agent (on DESKTOP-JD1)",
+                "actor_type": "security_tool",
+                "user_agent": "EDR Agent Version X.Y.Z",
+                "event_action": "malware_detection_alert",
+                "event_outcome": "detected",
+                "event_description": "EDR detected Trojan.GenericKD.321 (file: invoice_C123.pdf.exe) on DESKTOP-JD1.",
+                "event_details": {
+                  "hostname": "DESKTOP-JD1",
+                  "signature_detected": "Trojan.GenericKD.321",
+                  "filename": "C:\\Users\\jane.doe\\Downloads\\invoice_C123.pdf.exe"
+                }
+              }
+            ],
+            "relationships": "graph TD\n    Attacker[Email: attacker@evil.com] -- sent_phishing_to --> JaneDoeEmail[Recipient: jane.doe@example.com];\n    JaneDoeUser[User: jane.doe] -- executed_on_host --> Host[Host: DESKTOP-JD1];\n    JaneDoeEmail -- received_by --> JaneDoeUser;\n    Outlook[Process: outlook.exe on Host] -- launched --> MalwareProcess[Process: invoice_C123.pdf.exe on Host];\n    MalwareProcess -- initiated_connection_to --> ExternalIP[IP: 198.51.100.78];\n    EDR[Tool: EDR on Host] -- detected_malware --> MalwareProcess;"
+          }
+        ]
+    - ref: response_format
+      action: core.transform.reshape
+      args:
+        value:
+          type: json_schema
+          name: timeline_analysis
+          strict: true
+          schema:
+            type: object
+            required:
+              - thoughts
+              - timeline
+              - relationships
+            additionalProperties: false
+            properties:
+              thoughts:
+                type: array
+                items:
+                  type: string
+              timeline:
+                type: array
+                items:
+                  type: object
+                  required:
+                    - timestamp
+                    - actor_id
+                    - actor_type
+                    - user_agent
+                    - event_action
+                    - event_outcome
+                    - event_description
+                    - event_details
+                  additionalProperties: false
+                  properties:
+                    timestamp:
+                      type: string
+                    actor_id:
+                      type: string
+                    actor_type:
+                      type: string
+                    user_agent:
+                      type: string
+                    event_action:
+                      type: string
+                    event_outcome:
+                      type: string
+                    event_description:
+                      type: string
+                    event_details:
+                      type: object
+              relationships:
+                type: string
+                description: >
+                  A string containing the Mermaid flowchart diagram content,
+                  starting with `graph TD ...`, illustrating connections between key entities.
+    - ref: system_prompt
+      action: core.transform.reshape
+      args:
+        value: >
+          You are an expert security analyst tasked with building a comprehensive timeline of events.
+
+          <backstory>
+          ${{ inputs.backstory }}
+          </backstory>
+
+          <role>
+          ${{ inputs.role }}
+          </role>
+
+          <instructions>
+          Approach this timeline construction systematically:
+          1. Review all provided raw events to understand the full scope.
+          2. Organize events chronologically based on their timestamps. Standardize timestamps if possible (e.g., to ISO 8601 in UTC).
+          3. For each event, identify key entities (users, hosts, IPs, processes, files) and their roles.
+          4. Extract and normalize crucial information for each timeline event: `timestamp`, `actor_id`, `actor_type`, `user_agent`, `event_action`, `event_outcome`, a concise `event_description`, and specific `event_details`.
+          5. Identify significant relationships between these entities across multiple events.
+          6. Synthesize your findings into a Mermaid graph diagram to visualize these relationships.
+          7. Formulate analytical `thoughts` about observed patterns, sequences, or potential threat actor tactics/techniques.
+          </instructions>
+
+          <response_schema>
+          Your response must be a single JSON object strictly adhering to the following schema. Pay close attention to required fields and data types for each part of the response:
+          `thoughts`: Your analytical observations.
+          `timeline`: A chronologically ordered array of structured event objects.
+          `relationships`: A string containing a Mermaid flowchart diagram (starting with `graph TD`).
+
+          The detailed JSON schema for your output is:
+          ```json
+          ${{ steps.response_format.result }}
+          ```
+          </response_schema>
+
+          <guidance>
+          - You MUST use actual timestamps and details derived from the provided raw input events.
+          - Ensure the `timeline` array reflects the correct chronological sequence of activities.
+          - The `event_description` for each timeline event should be a concise, informative single sentence.
+          - The `actor_id` should clearly identify the primary entity causing the event.
+          - `actor_type` should be chosen from a consistent set of types (e.g., employee_user, service_account, system_process, external_attacker, malware_process, security_tool).
+          - The Mermaid diagram in `relationships` should clearly depict connections between key entities (users, IPs, hosts, significant processes/files).
+          - Your entire output must be formatted as a single valid JSON object.
+          </guidance>
+
+          <examples>
+          Here are some examples of the expected JSON output format:
+          ${{ inputs.example_responses || steps.few_shot.result }}
+          </examples>
+
+          <task>
+          Based on the provided raw events, the backstory, and your role, build a comprehensive timeline analysis. Your output must be a single JSON object containing:
+          1. `thoughts`: Your analytical insights into the sequence and nature of events.
+          2. `timeline`: A chronologically ordered list of structured events, where each event includes `timestamp`, `actor_id`, `actor_type`, `user_agent`, `event_action`, `event_outcome`, `event_description`, and `event_details`.
+          3. `relationships`: A Mermaid flowchart diagram (as a string) illustrating the connections between key entities involved in the events.
+          </task>
+    - ref: prompt
+      action: core.transform.reshape
+      args:
+        value: |
+          <raw_events_to_analyze>
+          ${{ inputs.input }}
+          </raw_events_to_analyze>
+  returns:
+    system_prompt: ${{ steps.system_prompt.result }}
+    prompt: ${{ steps.prompt.result }}
+    response_format: ${{ steps.response_format.result }}

@@ -14,9 +14,6 @@ By the end of this tutorial, you'll learn how to:
 - Call REST APIs via the `core.http_request` action
 - Trigger workflows manually via the UI
 - Add secrets to your workflows
-- Define if-conditions in your workflows
-- Define any / all conditions in your workflows
-- Run actions in a loop
 
 ## Prerequisites
 
@@ -92,7 +89,7 @@ By the end of this tutorial, you'll learn how to:
     </Tabs>
   </Accordion>
   <Accordion title="View supported action inputs" icon="list">
-    You can view the required and optional inputs for an action under the `Input Schema` section.
+    You can view the required and optional inputs for an action under the `Input schema` section.
     ![View input schema](/img/quickstart/tutorial/view-input-schema.png)
   </Accordion>
 </AccordionGroup>
@@ -134,155 +131,11 @@ Find out more in Tracecat's [core actions](/integrations/core) and [tools](/inte
   </Step>
 </Steps>
 
-## If-conditions
-
-<Tip>
-  View all supported binary operators (e.g. `==`, `>`,`in`) in the [functions cheatsheet](/cheatsheets/functions).
-</Tip>
-
-Every action can be turned into a conditional action.
-Under the `If condition / Loops` tab, you can specify a condition that determines whether the action should be executed.
-
-For example, to run the `Get result` action only if the URL submission was successful, go to the `If condition / Loops` tab and specify the following in the `Run if` input:
-
-```php
-${{ ACTIONS.scan_url.result.data.message == "Submission successful" }}
-```
-
-![Run if](/img/quickstart/tutorial/run-if.png)
-
-**Examples**
-
-<Note>
-  Conditional expressions are one of the most powerful features in Tracecat.
-  Combine binary operators and in-line functions to express complex conditions with ease.
-</Note>
-
-Here are examples of commonly used conditional expressions.
-
-<CodeGroup>
-  ```php Boolean Checks
-  # Check if condition is True
-  ${{ bool(ACTIONS.is_enabled.result) }}
-
-  # Check if condition is False
-  ${{ bool(ACTIONS.is_locked.result) }}
-
-  # Note: If the condition is already truthy
-  # or falsy there's no need to use bool()
-  ${{ ACTIONS.is_enabled.result }}
-  ```
-
-  ```php Basic Comparison
-  # Equal to
-  ${{ ACTIONS.user_role.result == "admin" }}
-
-  # Not equal to
-  ${{ ACTIONS.environment.result != "production" }}
-
-  # Greater than
-  ${{ ACTIONS.failed_attempts.result > 5 }}
-
-  # Less than
-  ${{ ACTIONS.response_time.result < 1000 }}
-
-  # Greater than or equal to
-  ${{ ACTIONS.cpu_usage.result >= 90 }}
-
-  # Less than or equal to
-  ${{ ACTIONS.memory_usage.result <= 80 }}
-  ```
-
-  ```php List Operations
-  # Check if value is in list
-  ${{ ACTIONS.ip_address.result in ['192.168.1.1', '10.0.0.1'] }}
-
-  # Check if value is not in list
-  ${{ ACTIONS.status.result not in ['error', 'failed', 'timeout'] }}
-
-  # Check if value is in dynamic list
-  ${{ ACTIONS.alert.severity in ACTIONS.get_critical_levels.result }}
-  ```
-
-  ```php Identity Checks
-  # Check if value is None/null
-  ${{ ACTIONS.optional_field.result == None }}
-
-  # Check if value is not None/null
-  ${{ ACTIONS.required_field.result != None }}
-  ```
-</CodeGroup>
-
-You can also combine multiple conditions using the `&&` and `||` operators:
-
-```php Combined Conditions
-# Check if user is admin and CPU usage is high
-${{ ACTIONS.user_role.result == "admin" && ACTIONS.cpu_usage.result >= 90 }}
-
-# Check if either memory or CPU usage is critical
-${{ ACTIONS.memory_usage.result >= 95 || ACTIONS.cpu_usage.result >= 95 }}
-```
-
-## Any / All Conditions
-
-Consider the case where you have multiple upstream actions that connect to one downstream joining node.
-You can control whether the joining node should run if `all` or `any` of the upstream actions succeed or fail.
-
-Configure this by going to the `If condition / Loops` tab of the joining node and setting the `join_strategy` option to `all` or `any`.
-
-![Join strategy](/img/quickstart/tutorial/join-strategy.png)
-
-## Loops
-
-Every action can be turned into a looped action.
-Under the `If condition / Loops` tab, you can specify loop expressions to iterate over a list of items and run the action for each item.
-
-<Tip>
-  You can loop over any list of items in your workflow context.
-  For example, it can be a list of file hashes in a previous action `ACTIONS.some_intel_feed.result.data.malware_samples` or a list of items received via webhook in `TRIGGER`.
-</Tip>
-
-**Example**
-
-<Steps>
-  <Step title="Define the loop">
-    Define a loop expression using the `${{ for var.some_variable_name in some_list }}` syntax.
-    The variable name can be anything you want, but we recommend using a name that makes sense for the items in the list.
-
-    In this example, we iterate through a list of numbers send via webhook in `TRIGGER`.
-
-    ```php
-    ${{ for var.number in TRIGGER.numbers }}
-    ```
-
-    ![Define loop expression](/img/quickstart/tutorial/loop-expression.png)
-  </Step>
-  <Step title="Use the loop variable">
-    Go back to the action's `Inputs` tab.
-    You can now use the loop variable in the action's inputs using the `${{ var.some_variable_name }}` syntax.
-    During the workflow run, each `var.some_variable_name` in the loop expression is replaced with the current item in the list.
-
-    In this example, we use the loop variable in `core.transform.reshape` action to iterate through a list of numbers and add one to each number.
-
-    ```php
-    value: ${{ var.number + 1 }}
-    ```
-
-    ![Add one to variable](/img/quickstart/tutorial/add-one-to-variable.png)
-  </Step>
-  <Step title="Run workflow">
-    Run the workflow via UI with the payload `{"numbers": [1, 2, 3]}` to see the loop in action.
-
-    The `core.transform.reshape` action will be executed three times with `var.number` being `1`, `2`, and `3` respectively and the output will be `[2, 3, 4]`.
-
-    ![Run workflow](/img/quickstart/tutorial/run-loop-workflow.png)
-  </Step>
-</Steps>
-
 ## What next?
 
-- Learn about Tracecat's [core actions](/integrations/core).
-- Learn how to trigger workflows via [webhooks and schedules](/tutorials/workflow-triggers).
-- Learn how to reference data from actions and webhooks using [expressions](/quickstart/expressions).
-- Learn how to build and sync your own [custom integrations](/tutorials/custom-integrations]) from a private Git repository.
+- Learn about Tracecat's [core actions](/quickstart/core-actions).
+- Configure [control flow](/quickstart/control-flow) with if-conditions, looped actions, and branching logic.
+- Get data from actions and webhooks using [expressions](/quickstart/expressions).
+- Trigger workflows via [webhooks and schedules](/tutorials/workflow-triggers).
+- Build and sync your own [custom integrations](/tutorials/custom-integrations) from a private Git repository.
 - Join our [Discord community](https://discord.gg/n3GF4qxFU8) for ideas and support.

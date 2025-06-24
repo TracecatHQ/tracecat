@@ -1,13 +1,19 @@
+from typing import Any
+
 import temporalio.service
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy.exc import NoResultFound
 from sqlmodel import col, select
+from sqlmodel.ext.asyncio.session import AsyncSession
+from tracecat_registry.integrations.agents.builder import AgentOutput
 
 from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.auth.enums import SpecialUserID
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.schemas import WorkflowDefinition
-from tracecat.dsl.common import DSLInput
+from tracecat.dsl.common import DSLInput, get_trigger_type_from_search_attr
+from tracecat.ee.interactions.models import InteractionRead
+from tracecat.ee.interactions.service import InteractionService
 from tracecat.identifiers import UserID
 from tracecat.identifiers.workflow import OptionalAnyWorkflowIDQuery, WorkflowUUID
 from tracecat.logger import logger
@@ -26,6 +32,35 @@ from tracecat.workflow.executions.models import (
 from tracecat.workflow.executions.service import WorkflowExecutionsService
 
 router = APIRouter(prefix="/workflow-executions", tags=["workflow-executions"])
+
+
+async def _list_interactions(
+    session: AsyncSession,
+    execution_id: UnquotedExecutionID,
+) -> list[InteractionRead]:
+    if await get_setting("app_interactions_enabled", default=False):
+        svc = InteractionService(session=session)
+        interactions = await svc.list_interactions(wf_exec_id=execution_id)
+        return [
+            InteractionRead(
+                id=interaction.id,
+                wf_exec_id=interaction.wf_exec_id,
+                type=interaction.type,
+                status=interaction.status,
+                request_payload=interaction.request_payload,
+                response_payload=interaction.response_payload,
+                expires_at=interaction.expires_at,
+                created_at=interaction.created_at,
+                updated_at=interaction.updated_at,
+                actor=interaction.actor,
+                action_ref=interaction.action_ref,
+                action_type=interaction.action_type,
+            )
+            for interaction in interactions
+        ]
+    else:
+        logger.debug("Interactions are disabled, skipping interaction states")
+        return []
 
 
 @router.get("")
@@ -61,7 +96,9 @@ async def list_workflow_executions(
 
 @router.get("/{execution_id}")
 async def get_workflow_execution(
-    role: WorkspaceUserRole, execution_id: UnquotedExecutionID
+    role: WorkspaceUserRole,
+    execution_id: UnquotedExecutionID,
+    session: AsyncDBSession,
 ) -> WorkflowExecutionRead:
     """Get a workflow execution."""
     logger.debug("Getting workflow execution", execution_id=execution_id)
@@ -74,12 +111,7 @@ async def get_workflow_execution(
         )
     logger.info("Getting workflow execution events", execution_id=execution.id)
     events = await service.list_workflow_execution_events(execution.id)
-    if await get_setting("app_interactions_enabled"):
-        logger.info("Interactions are enabled, querying interaction states")
-        interaction_states = await service.query_interaction_states(execution.id)
-    else:
-        logger.info("Interactions are disabled, skipping interaction states")
-        interaction_states = {}
+    interactions = await _list_interactions(session, execution.id)
     return WorkflowExecutionRead(
         id=execution.id,
         run_id=execution.run_id,
@@ -91,7 +123,10 @@ async def get_workflow_execution(
         task_queue=execution.task_queue,
         history_length=execution.history_length,
         events=events,
-        interaction_states=interaction_states,
+        interactions=interactions,
+        trigger_type=get_trigger_type_from_search_attr(
+            execution.typed_search_attributes, execution.id
+        ),
     )
 
 
@@ -99,7 +134,8 @@ async def get_workflow_execution(
 async def get_workflow_execution_compact(
     role: WorkspaceUserRole,
     execution_id: UnquotedExecutionID,
-) -> WorkflowExecutionReadCompact:
+    session: AsyncDBSession,
+) -> WorkflowExecutionReadCompact[Any, AgentOutput | Any]:
     """Get a workflow execution."""
     service = await WorkflowExecutionsService.connect(role=role)
     execution = await service.get_execution(execution_id)
@@ -110,12 +146,7 @@ async def get_workflow_execution_compact(
         )
 
     compact_events = await service.list_workflow_execution_events_compact(execution_id)
-    if await get_setting("app_interactions_enabled"):
-        logger.info("Interactions are enabled, querying interaction states")
-        interaction_states = await service.query_interaction_states(execution_id)
-    else:
-        logger.info("Interactions are disabled, skipping interaction states")
-        interaction_states = {}
+    interactions = await _list_interactions(session, execution_id)
     return WorkflowExecutionReadCompact(
         id=execution.id,
         parent_wf_exec_id=execution.parent_id,
@@ -128,7 +159,10 @@ async def get_workflow_execution_compact(
         task_queue=execution.task_queue,
         history_length=execution.history_length,
         events=compact_events,
-        interaction_states=interaction_states,
+        interactions=interactions,
+        trigger_type=get_trigger_type_from_search_attr(
+            execution.typed_search_attributes, execution.id
+        ),
     )
 
 

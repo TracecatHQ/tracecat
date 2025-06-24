@@ -1,4 +1,4 @@
-import { ApiError } from "@/client"
+import type { ApiError } from "@/client"
 
 export interface TracecatApiError<T = unknown> extends ApiError {
   readonly body: {

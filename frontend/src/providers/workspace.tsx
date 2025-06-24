@@ -1,31 +1,46 @@
 "use client"
 
-import React, { createContext, ReactNode, useContext } from "react"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { createContext, type ReactNode, useContext } from "react"
 import {
-  ApiError,
-  UpdateWorkspaceParams,
-  usersUsersPatchUser,
-  UsersUsersPatchUserData,
-  WorkspaceResponse,
+  type ApiError,
+  type WorkspaceMembershipRead,
+  type WorkspaceRead,
+  type WorkspacesCreateWorkspaceMembershipData,
+  type WorkspacesCreateWorkspaceMembershipResponse,
+  type WorkspacesUpdateWorkspaceMembershipData,
+  type WorkspacesUpdateWorkspaceMembershipResponse,
+  type WorkspaceUpdate,
   workspacesCreateWorkspaceMembership,
   workspacesDeleteWorkspaceMembership,
   workspacesGetWorkspace,
+  workspacesGetWorkspaceMembership,
   workspacesUpdateWorkspace,
+  workspacesUpdateWorkspaceMembership,
 } from "@/client"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-
-import { retryHandler, TracecatApiError } from "@/lib/errors"
 import { toast } from "@/components/ui/use-toast"
+
+import { retryHandler, type TracecatApiError } from "@/lib/errors"
+import { useAuth } from "@/providers/auth"
 
 type WorkspaceContextType = {
   workspaceId: string
-  workspace: WorkspaceResponse | undefined
+  workspace: WorkspaceRead | undefined
   workspaceLoading: boolean
   workspaceError: ApiError | null
-  addWorkspaceMember: (userId: string) => Promise<unknown>
+  updateWorkspace: (params: WorkspaceUpdate) => Promise<unknown>
+  // Memberships
+  addWorkspaceMembership: (
+    params: WorkspacesCreateWorkspaceMembershipData
+  ) => Promise<WorkspacesCreateWorkspaceMembershipResponse>
+  addWorkspaceMembershipIsPending: boolean
   removeWorkspaceMember: (userId: string) => Promise<unknown>
-  updateWorkspaceMember: (params: UsersUsersPatchUserData) => Promise<unknown>
-  updateWorkspace: (params: UpdateWorkspaceParams) => Promise<unknown>
+  updateWorkspaceMembership: (
+    params: WorkspacesUpdateWorkspaceMembershipData
+  ) => Promise<WorkspacesUpdateWorkspaceMembershipResponse>
+  updateWorkspaceMembershipIsPending: boolean
+  membership: WorkspaceMembershipRead | undefined
+  membershipLoading: boolean
 }
 
 const WorkspaceContext = createContext<WorkspaceContextType | undefined>(
@@ -44,6 +59,8 @@ export function WorkspaceProvider({
   workspaceId: string
   children: ReactNode
 }) {
+  const { user } = useAuth()
+  const userId = user?.id ?? ""
   const queryClient = useQueryClient()
 
   // Get workspace
@@ -51,7 +68,7 @@ export function WorkspaceProvider({
     data: workspace,
     isLoading: workspaceLoading,
     error: workspaceError,
-  } = useQuery<WorkspaceResponse | undefined, ApiError>({
+  } = useQuery<WorkspaceRead | undefined, ApiError>({
     queryKey: ["workspace", workspaceId],
     queryFn: async () => {
       if (!workspaceId) {
@@ -64,7 +81,7 @@ export function WorkspaceProvider({
 
   // Update workspace
   const { mutateAsync: updateWorkspace } = useMutation({
-    mutationFn: async (params: UpdateWorkspaceParams) =>
+    mutationFn: async (params: WorkspaceUpdate) =>
       await workspacesUpdateWorkspace({
         workspaceId,
         requestBody: params,
@@ -87,18 +104,16 @@ export function WorkspaceProvider({
   })
 
   // Add member to workspace
-  const { mutateAsync: addWorkspaceMember } = useMutation<
-    unknown,
-    ApiError,
-    string
+  const {
+    mutateAsync: addWorkspaceMembership,
+    isPending: addWorkspaceMembershipIsPending,
+  } = useMutation<
+    WorkspacesCreateWorkspaceMembershipResponse,
+    TracecatApiError,
+    WorkspacesCreateWorkspaceMembershipData
   >({
-    mutationFn: async (userId: string) =>
-      await workspacesCreateWorkspaceMembership({
-        workspaceId,
-        requestBody: {
-          user_id: userId,
-        },
-      }),
+    mutationFn: async (params: WorkspacesCreateWorkspaceMembershipData) =>
+      await workspacesCreateWorkspaceMembership(params),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["workspace", workspaceId] })
       toast({
@@ -132,10 +147,57 @@ export function WorkspaceProvider({
     },
   })
 
+  // Get membership
+  const { data: membership, isLoading: membershipLoading } = useQuery<
+    WorkspaceMembershipRead,
+    ApiError
+  >({
+    queryKey: ["membership", workspaceId, userId],
+    queryFn: async () =>
+      await workspacesGetWorkspaceMembership({
+        workspaceId,
+        userId,
+      }),
+    retry: retryHandler,
+    enabled: !!userId,
+  })
+
+  // Update member in workspace
+  const {
+    mutateAsync: updateWorkspaceMembership,
+    isPending: updateWorkspaceMembershipIsPending,
+  } = useMutation({
+    mutationFn: async (params: WorkspacesUpdateWorkspaceMembershipData) =>
+      await workspacesUpdateWorkspaceMembership(params),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["workspace", workspaceId] })
+      queryClient.invalidateQueries({ queryKey: ["membership", workspaceId] })
+      toast({
+        title: "Successfully updated member in workspace",
+        description: "Updated member in workspace",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 403:
+          toast({
+            title: "Forbidden",
+            description: "You cannot perform this action",
+          })
+          break
+        default:
+          toast({
+            title: "Failed to update member in workspace",
+            description: `${error.status}. Could not update member in workspace. Please try again.`,
+          })
+      }
+    },
+  })
+
   // Remove member from workspace
   const { mutateAsync: removeWorkspaceMember } = useMutation<
     unknown,
-    ApiError,
+    TracecatApiError,
     string
   >({
     mutationFn: async (userId: string) =>
@@ -150,38 +212,8 @@ export function WorkspaceProvider({
         description: "Removed user from workspace",
       })
     },
-    onError: (error) => {
-      console.error("Failed to remove user from workspace:", error)
-      toast({
-        title: "Failed to remove user from workspace:",
-        description: "Could not remove user from workspace. Please try again.",
-        variant: "destructive",
-      })
-    },
-  })
-
-  // Update a user (admin)
-  const { mutateAsync: updateWorkspaceMember } = useMutation({
-    mutationFn: async (params: UsersUsersPatchUserData) =>
-      await usersUsersPatchUser(params),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["user"] })
-      queryClient.invalidateQueries({ queryKey: ["auth"] })
-      queryClient.invalidateQueries({ queryKey: ["workspace", workspaceId] })
-      toast({
-        title: "Updated workspace member",
-        description: "Workspace member updated successfully.",
-      })
-    },
     onError: (error: TracecatApiError) => {
       switch (error.status) {
-        case 400:
-          console.error("Error updating user", error)
-          toast({
-            title: "Error updating user",
-            description: String(error.body.detail),
-          })
-          break
         case 403:
           toast({
             title: "Forbidden",
@@ -189,14 +221,14 @@ export function WorkspaceProvider({
           })
           break
         default:
-          console.error("Failed to update user", error)
           toast({
-            title: "Failed to update user",
-            description: `An error occurred while updating the user: ${error.body.detail}`,
+            title: "Failed to remove user from workspace",
+            description: `${error.status}. Could not remove user from workspace. Please try again.`,
           })
       }
     },
   })
+
   return (
     <WorkspaceContext.Provider
       value={{
@@ -204,10 +236,14 @@ export function WorkspaceProvider({
         workspace,
         workspaceLoading,
         workspaceError,
-        addWorkspaceMember,
+        addWorkspaceMembership,
+        addWorkspaceMembershipIsPending,
         removeWorkspaceMember,
-        updateWorkspaceMember,
+        updateWorkspaceMembership,
+        updateWorkspaceMembershipIsPending,
         updateWorkspace,
+        membership,
+        membershipLoading,
       }}
     >
       {children}

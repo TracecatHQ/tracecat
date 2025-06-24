@@ -1,0 +1,57 @@
+type: action
+definition:
+  title: Create PersistentVolumeClaim
+  description: Create a PersistentVolumeClaim (PVC) in a Kubernetes cluster.
+  display_group: Kubernetes
+  doc_url: https://kubernetes.io/docs/reference/generated/kubectl/kubectl-commands#create
+  namespace: ee.kubernetes
+  name: create_pvc
+  expects:
+    name:
+      type: str
+      description: Name of the persistent volume claim.
+    namespace:
+      type: str
+      description: Namespace to create the persistent volume claim in.
+    size:
+      type: str
+      description: Size of the persistent volume claim.
+      default: "2Mi"
+    storage_class:
+      type: str | None
+      description: Storage class of the persistent volume claim.
+      default: null
+    access_modes:
+      type: list[str]
+      description: Access modes of the persistent volume claim.
+      default: ["ReadWriteOnce"]
+    dry_run:
+      type: bool
+      description: Whether to dry run the create client-side.
+      default: false
+  steps:
+    - ref: pvc_manifest
+      action: core.transform.reshape
+      args:
+        value:
+          apiVersion: v1
+          kind: PersistentVolumeClaim
+          metadata:
+            name: ${{ inputs.name }}
+          spec:
+            accessModes: ${{ inputs.access_modes }}
+            storageClassName: ${{ inputs.storage_class }}
+            resources:
+              requests:
+                storage: ${{ inputs.size }}
+    - ref: create_pvc
+      action: ee.kubernetes.run_command
+      args:
+        command:
+          - "create"
+          - "-f"
+          - "-"
+        namespace: ${{ inputs.namespace }}
+        dry_run: ${{ inputs.dry_run }}
+        stdin: ${{ FN.serialize_json(steps.pvc_manifest.result) }}
+  returns: ${{ steps.create_pvc.result }}

@@ -1,0 +1,32 @@
+type: action
+definition:
+  title: Initiate scan
+  description: Initiate a scan on SentinelOne agents.
+  display_group: SentinelOne
+  doc_url: https://<base_url>/api-doc/api-details?category=agents&api=post-agents-actions-initiate-scan
+  namespace: tools.sentinel_one
+  name: initiate_scan
+  secrets:
+    - name: sentinel_one
+      keys: ["SENTINEL_ONE_API_TOKEN"]
+  expects:
+    device_id:
+      type: str
+      description: ID of the agent/device to scan.
+    base_url:
+      type: str
+      description: SentinelOne tenant URL.
+  steps:
+    - ref: initiate_scan
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/web/api/v2.1/agents/actions/initiate-scan
+        method: POST
+        timeout: 60
+        headers:
+          Authorization: "ApiToken ${{ SECRETS.sentinel_one.SENTINEL_ONE_API_TOKEN }}"
+          Content-Type: "application/json"
+        payload:
+          filter:
+            ids: ["${{ inputs.device_id }}"]
+  returns: ${{ steps.initiate_scan.result }}

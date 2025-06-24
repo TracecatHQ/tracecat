@@ -1,19 +1,18 @@
 "use client"
 
+import { ReactFlowProvider } from "@xyflow/react"
+import { LogOut } from "lucide-react"
 import Image from "next/image"
 import { useParams } from "next/navigation"
+import TracecatIcon from "public/icon.png"
+import { CenteredSpinner } from "@/components/loading/spinner"
+import { DynamicNavbar } from "@/components/nav/dynamic-nav"
+import { Button } from "@/components/ui/button"
+import { useWorkspaceManager } from "@/lib/hooks"
 import { useAuth } from "@/providers/auth"
 import { WorkflowBuilderProvider } from "@/providers/builder"
 import { WorkflowProvider } from "@/providers/workflow"
 import { WorkspaceProvider } from "@/providers/workspace"
-import { ReactFlowProvider } from "@xyflow/react"
-import { LogOut } from "lucide-react"
-import TracecatIcon from "public/icon.png"
-
-import { useWorkspaceManager } from "@/lib/hooks"
-import { Button } from "@/components/ui/button"
-import { CenteredSpinner } from "@/components/loading/spinner"
-import { DynamicNavbar } from "@/components/nav/dynamic-nav"
 
 export default function WorkspaceLayout({
   children,

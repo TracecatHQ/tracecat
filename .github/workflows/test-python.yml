@@ -35,42 +35,133 @@ permissions:
 
 env:
   UV_SYSTEM_PYTHON: 1
+  DENO_VERSION: "2.3.5"
+  PYODIDE_VERSION: "0.27.6"
 
 jobs:
-  test-all:
-    runs-on: ubuntu-latest-4-cores
+  test-custom-registry-install:
+    runs-on: blacksmith-4vcpu-ubuntu-2204
     timeout-minutes: 60
-    strategy:
-      matrix:
-        test_group:
-          - unit
-          - registry
-          - integration
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.inputs.git-ref }}
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
+        uses: useblacksmith/setup-uv@v4
+        with:
+          version: "0.4.20"
+
+      - name: Set up Python 3.12
+        uses: useblacksmith/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Clone custom registry starter
+        run: |
+          git clone https://github.com/TracecatHQ/custom-integrations-starter-kit
+          cd custom-integrations-starter-kit
+
+      - name: Install dependencies
+        run: uv venv --python 3.12 && uv pip install ".[dev]"
+
+  test-all:
+    runs-on: blacksmith-4vcpu-ubuntu-2204
+    timeout-minutes: 60
+    strategy:
+      matrix:
+        test_group:
+          - unit
+          - registry
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.git-ref }}
+
+      - name: Install uv
+        uses: useblacksmith/setup-uv@v4
         with:
           version: "0.4.20"
           enable-cache: true
           cache-dependency-glob: "pyproject.toml"
 
       - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+        uses: useblacksmith/setup-python@v6
         with:
           python-version: "3.12"
 
+      - name: Install Deno
+        uses: denoland/setup-deno@v2.0.3
+        with:
+          deno-version: ${{ env.DENO_VERSION }}
+
+      - name: Cache Deno dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.deno
+            ~/.cache/deno
+            node_modules
+          key: ${{ runner.os }}-deno-${{ env.DENO_VERSION }}-pyodide-${{ env.PYODIDE_VERSION }}
+
+      - name: Warm up Pyodide
+        run: |
+          # Create a simple script to pre-cache pyodide
+          mkdir -p node_modules
+          cat > warmup.js << 'EOF'
+          import { loadPyodide } from "npm:pyodide@${{ env.PYODIDE_VERSION }}";
+
+          async function main() {
+            console.log("Loading Pyodide...");
+            const pyodide = await loadPyodide();
+            console.log("Pyodide loaded successfully");
+            console.log("Python version:", await pyodide.runPythonAsync("import sys; sys.version"));
+          }
+
+          main().catch(console.error);
+          EOF
+
+          # Run with minimal permissions
+          deno run -N -R=node_modules -W=node_modules --node-modules-dir=auto warmup.js
+
+          # Set environment variables for tests
+          echo "DENO_DIR=$HOME/.deno" >> $GITHUB_ENV
+          echo "NODE_MODULES_DIR=$(pwd)/node_modules" >> $GITHUB_ENV
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+
+      - name: Install system dependencies
+        run: |
+          # Install ripgrep for grep integration tests
+          sudo apt-get update
+          sudo apt-get install -y ripgrep
+
+          # Install kubectl
+          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          chmod +x kubectl
+          sudo mv kubectl /usr/local/bin/
+          kubectl version --client
+
+      - name: Install kind
+        run: |
+          curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.20.0/kind-linux-amd64
+          chmod +x ./kind
+          sudo mv ./kind /usr/local/bin/kind
+          kind version
+
+      - name: Create kind cluster
+        run: |
+          kind create cluster --name tracecat-ci
+          kubectl cluster-info --context kind-tracecat-ci
+          kubectl get nodes
 
       - name: Run environment setup script
         run: |
           echo "y
           localhost
-          n" | bash env.sh
+          n
+          test@tracecat.com" | bash env.sh
 
       - name: Start core Docker services
         env:
@@ -85,4 +176,7 @@ jobs:
       - name: Run tests
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          SLACK_CHANNEL_ID: ${{ secrets.SLACK_CHANNEL_ID }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          TRACECAT__SYSTEM_PATH: "/usr/local/bin:/usr/bin:/bin"
         run: uv run pytest tests/${{ matrix.test_group }} -ra

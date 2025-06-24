@@ -21,6 +21,8 @@
               "quickstart/admin",
               "quickstart/tutorial",
               "quickstart/core-actions",
+              "quickstart/script-actions",
+              "quickstart/control-flow",
               "quickstart/expressions",
               "quickstart/secrets"
             ]
@@ -30,8 +32,9 @@
             "pages": [
               "tutorials/workflow-triggers",
               "tutorials/child-workflows",
-              "tutorials/explode-implode",
               "tutorials/data-transforms",
+              "tutorials/scatter-gather",
+              "tutorials/wait-retry-until",
               "tutorials/custom-integrations",
               "tutorials/alert-on-failure"
             ]
@@ -71,7 +74,7 @@
               "integrations/action-templates",
               "integrations/python-udfs",
               "integrations/development",
-              "integrations/best-practices"
+              "integrations/openapi-converter"
             ]
           }
         ]

@@ -10,7 +10,7 @@ from tracecat.expressions.core import Expression, TemplateExpression
 T = TypeVar("T", str, list[Any], dict[str, Any])
 
 
-def _eval_templated_obj_rec(obj: T, operator: Callable[[str], Any]) -> T:
+def _eval_templated_obj_rec[T](obj: T, operator: Callable[[str], Any]) -> T:
     """Process jsonpaths in strings, lists, and dictionaries."""
     match obj:
         case str():

@@ -1,0 +1,37 @@
+type: action
+definition:
+  title: Execute command in pod
+  description: Execute commands in a pod.
+  display_group: Kubernetes
+  doc_url: https://kubernetes.io/docs/reference/generated/kubectl/kubectl-commands#exec
+  namespace: ee.kubernetes
+  name: exec
+  expects:
+    pod:
+      type: str
+      description: Name of the pod to execute the command in.
+    command:
+      type: list[str]
+      description: Command to execute in the pod.
+    namespace:
+      type: str
+      description: Namespace of the pod.
+    container:
+      type: str | None
+      description: >
+        Name of the container to execute the command in.
+        If not provided, the first container in the pod will be used.
+      default: null
+  steps:
+    - ref: exec_command
+      action: ee.kubernetes.run_command
+      args:
+        command:
+          - "exec"
+          - ${{ inputs.pod }}
+          - "-c"
+          - ${{ inputs.container || "" }}
+          - "--"
+        namespace: ${{ inputs.namespace }}
+        args: ${{ inputs.command }}
+  returns: ${{ steps.exec_command.result }}

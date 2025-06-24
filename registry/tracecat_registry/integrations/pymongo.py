@@ -5,6 +5,7 @@ from typing import Annotated, Any
 from pydantic import Field
 from pymongo import MongoClient
 from pymongo.cursor import Cursor
+from pydantic_core import to_jsonable_python
 
 from tracecat_registry import RegistrySecret, registry, secrets
 
@@ -71,4 +72,5 @@ async def execute_operation(
     elif isinstance(result, dict) and "_id" in result:
         result["_id"] = str(result["_id"])
 
-    return result
+    # Ensure that the result is JSON serializable
+    return to_jsonable_python(result)

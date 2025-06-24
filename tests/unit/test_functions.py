@@ -932,9 +932,36 @@ def test_create_range(start: int, end: int, step: int, expected: list[int]) -> N
             "ms",
             datetime(2023, 1, 1, 0, 0, tzinfo=UTC),
         ),  # Same time in milliseconds
+        (
+            1609459200.5,
+            "s",
+            datetime(2021, 1, 1, 0, 0, 0, 500000, tzinfo=UTC),
+        ),  # Float timestamp (0.5 seconds after midnight)
+        (
+            1609459200500,
+            "ms",
+            datetime(2021, 1, 1, 0, 0, 0, 500000, tzinfo=UTC),
+        ),  # Float timestamp in milliseconds
+        (
+            "1609459200",
+            "s",
+            datetime(2021, 1, 1, 0, 0, tzinfo=UTC),
+        ),  # String timestamp
+        (
+            "1609459200.5",
+            "s",
+            datetime(2021, 1, 1, 0, 0, 0, 500000, tzinfo=UTC),
+        ),  # String float timestamp
+        (
+            "1609459200500",
+            "ms",
+            datetime(2021, 1, 1, 0, 0, 0, 500000, tzinfo=UTC),
+        ),  # String timestamp in milliseconds
     ],
 )
-def test_from_timestamp(input_val: int, unit: str, expected: datetime) -> None:
+def test_from_timestamp(
+    input_val: float | int | str, unit: str, expected: datetime
+) -> None:
     assert from_timestamp(input_val, unit) == expected
 
 

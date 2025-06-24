@@ -1,7 +1,7 @@
-import React, { ComponentPropsWithoutRef } from "react"
 import { ExclamationTriangleIcon } from "@radix-ui/react-icons"
 import { cva, type VariantProps } from "class-variance-authority"
 import { AlertCircleIcon, CheckCheckIcon } from "lucide-react"
+import React, { type ComponentPropsWithoutRef } from "react"
 
 import { cn } from "@/lib/utils"
 

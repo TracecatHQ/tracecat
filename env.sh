@@ -35,15 +35,6 @@ dotenv_replace() {
 
 echo -e "${YELLOW}Creating .env...${NC}"
 
-# Check that docker exists and is running
-if !  docker ps &> /dev/null
-then
-    echo -e "${RED}Docker could not be found. Please check if installed and running.${NC}"
-    exit
-fi
-
-
-
 # If .env exists, ask user if they want to overwrite it
 if [ -f .env ]; then
     read -p "A .env file already exists. Do you want to overwrite it? (y/n) " -n 1 -r
@@ -75,9 +66,9 @@ signing_secret=$(openssl rand -hex 32)
 
 
 echo -e "${YELLOW}Generating a Fernet encryption key for the database...${NC}"
-db_fernet_key=$(docker run --rm python:3.12-slim-bookworm /bin/bash -c "\
-    pip install cryptography >/dev/null 2>&1; \
-    python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'")
+
+# Use a cross-platform base64 command (works on both Linux and macOS)
+db_fernet_key=$(openssl rand 32 | base64 | tr -d '\n' | tr '+/' '-_')
 
 echo -e "${YELLOW}Creating new .env from .env.example...${NC}"
 cp .env.example .env
@@ -136,6 +127,22 @@ while true; do
     esac
 done
 
+# Prompt user for superadmin email
+echo -e "${YELLOW}Setting up first user (superadmin)...${NC}"
+while true; do
+    read -p "Enter email address for the first user (superadmin): " superadmin_email
+    if [[ -z "$superadmin_email" ]]; then
+        echo -e "${RED}Email address cannot be empty. Please enter a valid email address.${NC}"
+        continue
+    fi
+    # Basic email validation
+    if [[ "$superadmin_email" =~ ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$ ]]; then
+        break
+    else
+        echo -e "${RED}Please enter a valid email address.${NC}"
+    fi
+done
+
 # Update environment variables
 dotenv_replace "TRACECAT__APP_ENV" "$env_mode" "$env_file"
 dotenv_replace "NODE_ENV" "$env_mode" "$env_file"
@@ -143,9 +150,11 @@ dotenv_replace "NEXT_PUBLIC_APP_ENV" "$env_mode" "$env_file"
 dotenv_replace "PUBLIC_API_URL" "http://${new_ip}/api/" "$env_file"
 dotenv_replace "PUBLIC_APP_URL" "http://${new_ip}" "$env_file"
 dotenv_replace "TRACECAT__DB_SSLMODE" "$ssl_mode" "$env_file"
+dotenv_replace "TRACECAT__AUTH_SUPERADMIN_EMAIL" "$superadmin_email" "$env_file"
 
 # Remove duplicate entries and leading/trailing commas
 new_origins=$(echo "$new_origins" | tr ',' '\n' | sort -u | tr '\n' ',' | sed 's/^,//;s/,$//')
 dotenv_replace "TRACECAT__ALLOW_ORIGINS" "$new_origins" "$env_file"
 
 echo -e "${GREEN}Environment file created successfully.${NC}"
+echo -e "${GREEN}First user (superadmin) email set to: ${superadmin_email}${NC}"

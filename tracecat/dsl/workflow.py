@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import itertools
 import json
+import re
 import uuid
 from collections.abc import Generator, Iterable
 from datetime import UTC, datetime, timedelta
@@ -23,25 +24,39 @@ with workflow.unsafe.imports_passed_through():
     import jsonpath_ng.lexer  # noqa
     import jsonpath_ng.parser  # noqa
     import tracecat_registry  # noqa
-    from pydantic import TypeAdapter, ValidationError
+    from pydantic import ValidationError
 
-    from tracecat import identifiers
+    from tracecat import config, identifiers
     from tracecat.concurrency import GatheringTaskGroup
-    from tracecat.contexts import ctx_interaction, ctx_logger, ctx_role, ctx_run
+    from tracecat.contexts import (
+        ctx_interaction,
+        ctx_logger,
+        ctx_role,
+        ctx_run,
+        ctx_stream_id,
+    )
     from tracecat.dsl.action import (
         DSLActivities,
         ValidateActionActivityInput,
     )
     from tracecat.dsl.common import (
+        RETRY_POLICIES,
         ChildWorkflowMemo,
         DSLInput,
         DSLRunArgs,
         ExecuteChildWorkflowArgs,
         dsl_execution_error_from_exception,
+        get_trigger_type,
     )
-    from tracecat.dsl.enums import FailStrategy, LoopStrategy, PlatformAction
+    from tracecat.dsl.enums import (
+        FailStrategy,
+        LoopStrategy,
+        PlatformAction,
+        WaitStrategy,
+    )
     from tracecat.dsl.models import (
         ActionErrorInfo,
+        ActionErrorInfoAdapter,
         ActionStatement,
         DSLConfig,
         DSLEnvironment,
@@ -49,6 +64,7 @@ with workflow.unsafe.imports_passed_through():
         ExecutionContext,
         RunActionInput,
         RunContext,
+        StreamID,
         TaskResult,
         TriggerInputs,
     )
@@ -58,26 +74,22 @@ with workflow.unsafe.imports_passed_through():
         validate_trigger_inputs_activity,
     )
     from tracecat.ee.interactions.decorators import maybe_interactive
-    from tracecat.ee.interactions.models import (
-        InteractionInput,
-        InteractionResult,
-        InteractionState,
-    )
+    from tracecat.ee.interactions.models import InteractionInput, InteractionResult
     from tracecat.ee.interactions.service import InteractionManager
     from tracecat.executor.service import evaluate_templated_args, iter_for_each
     from tracecat.expressions.common import ExprContext
+    from tracecat.expressions.core import extract_expressions
     from tracecat.expressions.eval import eval_templated_object
     from tracecat.identifiers.workflow import WorkflowExecutionID, WorkflowID
     from tracecat.logger import logger
     from tracecat.types.exceptions import (
-        TracecatCredentialsError,
-        TracecatDSLError,
         TracecatException,
         TracecatExpressionError,
         TracecatNotFoundError,
         TracecatValidationError,
     )
-    from tracecat.validation.models import ValidationResult
+    from tracecat.validation.models import DSLValidationResult
+    from tracecat.workflow.executions.enums import TriggerType
     from tracecat.workflow.executions.models import ErrorHandlerWorkflowInput
     from tracecat.workflow.management.definitions import (
         get_workflow_definition_activity,
@@ -90,42 +102,6 @@ with workflow.unsafe.imports_passed_through():
     )
     from tracecat.workflow.schedules.models import GetScheduleActivityInputs
     from tracecat.workflow.schedules.service import WorkflowSchedulesService
-
-
-non_retryable_error_types = [
-    # General
-    Exception.__name__,
-    TypeError.__name__,
-    ValueError.__name__,
-    RuntimeError.__name__,
-    # Pydantic
-    ValidationError.__name__,
-    # Tracecat
-    TracecatException.__name__,
-    TracecatExpressionError.__name__,
-    TracecatValidationError.__name__,
-    TracecatDSLError.__name__,
-    TracecatCredentialsError.__name__,
-    # Temporal
-    ApplicationError.__name__,
-    ChildWorkflowError.__name__,
-    FailureError.__name__,
-]
-
-
-retry_policies = {
-    "activity:fail_fast": RetryPolicy(
-        # XXX: Do not set max attempts to 0, it will default to unlimited
-        maximum_attempts=1,
-        non_retryable_error_types=non_retryable_error_types,
-    ),
-    "activity:fail_slow": RetryPolicy(maximum_attempts=6),
-    "workflow:fail_fast": RetryPolicy(
-        # XXX: Do not set max attempts to 0, it will default to unlimited
-        maximum_attempts=1,
-        non_retryable_error_types=non_retryable_error_types,
-    ),
-}
 
 
 @workflow.defn
@@ -168,13 +144,8 @@ class DSLWorkflow:
 
         self.interactions = InteractionManager(self)
 
-    @workflow.query
-    def get_interaction_states(self) -> dict[uuid.UUID, InteractionState]:
-        """Get the interaction states."""
-        return self.interactions.states
-
     @workflow.update
-    def interaction_handler(self, input: InteractionInput) -> InteractionResult:
+    async def interaction_handler(self, input: InteractionInput) -> InteractionResult:
         """Handle interactions from the workflow and return a result."""
         return self.interactions.handle_interaction(input)
 
@@ -182,6 +153,11 @@ class DSLWorkflow:
     def validate_interaction_handler(self, input: InteractionInput) -> None:
         """Validate the interaction handler."""
         return self.interactions.validate_interaction(input)
+
+    def get_context(self, stream_id: StreamID | None = None) -> ExecutionContext:
+        """Get the current execution context."""
+        sid = stream_id or ctx_stream_id.get()
+        return self.scheduler.streams[sid]
 
     @workflow.run
     async def run(self, args: DSLRunArgs) -> Any:
@@ -224,20 +200,38 @@ class DSLWorkflow:
             if e.details:
                 err_info_map = e.details[0]
                 self.logger.info("Raising error info", err_info_data=err_info_map)
-                ta = TypeAdapter(ActionErrorInfo)
-                errors = {
-                    ref: ta.validate_python(data) for ref, data in err_info_map.items()
-                }
+                if not isinstance(err_info_map, dict):
+                    logger.error(
+                        "Unexpected error info object",
+                        err_info_map=err_info_map,
+                        type=type(err_info_map).__name__,
+                    )
+                    # TODO: There's likely a nicer way to gracefully handle this
+                    # instead of a sentinel error value
+                    errors = [
+                        ActionErrorInfo(
+                            ref="N/A",
+                            message=f"Unexpected error info object of type {type(err_info_map).__name__}: {err_info_map}",
+                            type=type(err_info_map).__name__,
+                        )
+                    ]
+                else:
+                    errors = [
+                        ActionErrorInfoAdapter.validate_python(data)
+                        for data in err_info_map.values()
+                    ]
             else:
                 errors = None
 
+            trigger_type = get_trigger_type(workflow.info())
             try:
                 err_run_args = await self._prepare_error_handler_workflow(
-                    handler_wf_id,
                     message=e.message,
                     handler_wf_id=handler_wf_id,
                     orig_wf_id=args.wf_id,
                     orig_wf_exec_id=self.wf_exec_id,
+                    orig_dsl=self.dsl,
+                    trigger_type=TriggerType(trigger_type),
                     errors=errors,
                 )
                 await self._run_error_handler_workflow(err_run_args)
@@ -323,6 +317,7 @@ class DSLWorkflow:
             ) from e
 
         # Prepare user facing context
+
         self.context: ExecutionContext = {
             ExprContext.ACTIONS: {},
             ExprContext.INPUTS: self.dsl.inputs,
@@ -333,6 +328,7 @@ class DSLWorkflow:
                     "dispatch_type": self.dispatch_type,
                     "execution_id": self.wf_exec_id,
                     "run_id": self.wf_run_id,
+                    "trigger_type": get_trigger_type(wf_info),
                 },
                 environment=self.runtime_config.environment,
                 variables={},
@@ -358,7 +354,7 @@ class DSLWorkflow:
         )
 
         self.scheduler = DSLScheduler(
-            executor=self.execute_task,  # type: ignore
+            executor=self.execute_task,
             dsl=self.dsl,
             context=self.context,
         )
@@ -453,6 +449,8 @@ class DSLWorkflow:
 
     async def execute_task(self, task: ActionStatement) -> Any:
         """Execute a task and manage the results."""
+        if task.action == PlatformAction.TRANSFORM_GATHER:
+            return await self._noop_gather_action(task)
         if task.retry_policy.retry_until:
             return await self._execute_task_until_condition(task)
         return await self._execute_task(task)
@@ -500,8 +498,8 @@ class DSLWorkflow:
             - If we have both, the wait_until timer will take precedence
         2. Decide whether we're running a child workflow or not
         """
-
-        logger.info("Begin task execution", task_ref=task.ref)
+        stream_id = ctx_stream_id.get()
+        logger.info("Begin task execution", task_ref=task.ref, stream_id=stream_id)
         task_result = TaskResult(result=None, result_typename=type(None).__name__)
 
         try:
@@ -579,7 +577,8 @@ class DSLWorkflow:
             raise ApplicationError(msg, non_retryable=True, type=err_type) from e
         finally:
             logger.trace("Setting action result", task_result=task_result)
-            self.context[ExprContext.ACTIONS][task.ref] = task_result  # type: ignore
+            context = self.get_context(stream_id)
+            context[ExprContext.ACTIONS][task.ref] = task_result
         return task_result
 
     ERROR_TYPE_TO_MESSAGE = {
@@ -604,7 +603,7 @@ class DSLWorkflow:
             # At this point,
             # Child run args
             # Task args here refers to the args passed to the child
-            args = evaluate_templated_args(task, context=self.context)
+            args = evaluate_templated_args(task, context=self.get_context())
             self.logger.trace(
                 "Executing child workflow",
                 child_run_args=child_run_args,
@@ -754,7 +753,7 @@ class DSLWorkflow:
             WorkflowsManagementService.resolve_workflow_alias_activity,
             arg=activity_inputs,
             start_to_close_timeout=self.start_to_close_timeout,
-            retry_policy=retry_policies["activity:fail_fast"],
+            retry_policy=RETRY_POLICIES["activity:fail_fast"],
         )
         if not wf_id:
             raise ValueError(f"Workflow alias {wf_alias} not found")
@@ -774,12 +773,12 @@ class DSLWorkflow:
             get_workflow_definition_activity,
             arg=activity_inputs,
             start_to_close_timeout=self.start_to_close_timeout,
-            retry_policy=retry_policies["activity:fail_slow"],
+            retry_policy=RETRY_POLICIES["activity:fail_slow"],
         )
 
     async def _validate_trigger_inputs(
         self, trigger_inputs: TriggerInputs
-    ) -> ValidationResult:
+    ) -> DSLValidationResult:
         """Validate trigger inputs.
 
         Note
@@ -787,6 +786,10 @@ class DSLWorkflow:
         Not sure why we can't just run the function directly here.
         Pydantic throws an invalid JsonSchema error when we do so.
         """
+        if not self.dsl.entrypoint.expects:
+            return DSLValidationResult(
+                status="success", msg="No trigger inputs expected"
+            )
 
         validation_result = await workflow.execute_activity(
             validate_trigger_inputs_activity,
@@ -795,7 +798,7 @@ class DSLWorkflow:
                 trigger_inputs=trigger_inputs,
             ),
             start_to_close_timeout=self.start_to_close_timeout,
-            retry_policy=retry_policies["activity:fail_fast"],
+            retry_policy=RETRY_POLICIES["activity:fail_fast"],
         )
         return validation_result
 
@@ -820,7 +823,7 @@ class DSLWorkflow:
             WorkflowSchedulesService.get_schedule_activity,
             arg=activity_inputs,
             start_to_close_timeout=self.start_to_close_timeout,
-            retry_policy=retry_policies["activity:fail_fast"],
+            retry_policy=RETRY_POLICIES["activity:fail_fast"],
         )
         return schedule_read.inputs
 
@@ -829,7 +832,7 @@ class DSLWorkflow:
             DSLActivities.validate_action_activity,
             arg=ValidateActionActivityInput(role=self.role, task=task),
             start_to_close_timeout=self.start_to_close_timeout,
-            retry_policy=retry_policies["activity:fail_fast"],
+            retry_policy=RETRY_POLICIES["activity:fail_fast"],
         )
         if not result.ok:
             raise ApplicationError(
@@ -881,14 +884,57 @@ class DSLWorkflow:
             runtime_config=runtime_config,
         )
 
-    async def _run_action(self, task: ActionStatement) -> Any:
+    async def _noop_gather_action(self, task: ActionStatement) -> Any:
+        # Parent stream
+        stream_id = ctx_stream_id.get()
+        new_action_context: dict[str, Any] = {}
+        action_ref = task.ref
+        self.logger.debug(
+            "Noop gather action", action_ref=action_ref, stream_id=stream_id
+        )
+        res = self.scheduler.get_stream_aware_action_result(action_ref, stream_id)
+        new_action_context[action_ref] = res
+
+        new_context = {**self.context, ExprContext.ACTIONS: new_action_context}
+
         arg = RunActionInput(
             task=task,
             run_context=self.run_context,
-            exec_context=self.context,
+            exec_context=new_context,
             interaction_context=ctx_interaction.get(),
+            stream_id=stream_id,
         )
-        self.logger.debug("Running action", action=task.action)
+
+        return await workflow.execute_activity(
+            DSLActivities.noop_gather_action_activity,
+            args=(arg, self.role),
+            start_to_close_timeout=timedelta(
+                seconds=task.start_delay + task.retry_policy.timeout
+            ),
+            retry_policy=RetryPolicy(
+                maximum_attempts=task.retry_policy.max_attempts,
+            ),
+        )
+
+    async def _run_action(self, task: ActionStatement) -> Any:
+        # XXX(perf): We shouldn't pass the full execution context to the activity
+        # We should only keep the contexts that are needed for the action
+        stream_id = ctx_stream_id.get()
+        expr_ctxs = extract_expressions(task.model_dump())
+        new_action_context: dict[str, Any] = {}
+        for action_ref in expr_ctxs[ExprContext.ACTIONS]:
+            res = self.scheduler.get_stream_aware_action_result(action_ref, stream_id)
+            new_action_context[action_ref] = res
+
+        new_context = {**self.context, ExprContext.ACTIONS: new_action_context}
+
+        arg = RunActionInput(
+            task=task,
+            run_context=self.run_context,
+            exec_context=new_context,
+            interaction_context=ctx_interaction.get(),
+            stream_id=stream_id,
+        )
 
         return await workflow.execute_activity(
             DSLActivities.run_action_activity,
@@ -904,23 +950,57 @@ class DSLWorkflow:
     async def _run_child_workflow(
         self, task: ActionStatement, run_args: DSLRunArgs, loop_index: int | None = None
     ) -> Any:
-        self.logger.info("Running child workflow", run_args=run_args)
         wf_exec_id = identifiers.workflow.generate_exec_id(run_args.wf_id)
         wf_info = workflow.info()
+        # XXX(safety): This has been validated in prepare_child_workflow
+        args = ExecuteChildWorkflowArgs.model_construct(**task.args)
         # Use Temporal memo to store the action ref in the child workflow run
-        memo = ChildWorkflowMemo(action_ref=task.ref, loop_index=loop_index)
-        return await workflow.execute_child_workflow(
-            DSLWorkflow.run,
-            run_args,
-            id=wf_exec_id,
-            retry_policy=retry_policies["workflow:fail_fast"],
-            # Propagate the parent workflow attributes to the child workflow
-            task_queue=wf_info.task_queue,
-            execution_timeout=wf_info.execution_timeout,
-            task_timeout=wf_info.task_timeout,
-            memo=memo.model_dump(),
-            search_attributes=wf_info.typed_search_attributes,
+        stream_id = ctx_stream_id.get()
+        memo = ChildWorkflowMemo(
+            action_ref=task.ref,
+            loop_index=loop_index,
+            wait_strategy=args.wait_strategy,
+            stream_id=stream_id,
+        ).model_dump()
+        self.logger.info(
+            "Running child workflow",
+            wait_strategy=args.wait_strategy,
+            memo=memo,
         )
+
+        match args.wait_strategy:
+            case WaitStrategy.DETACH:
+                child_wf_handle = await workflow.start_child_workflow(
+                    DSLWorkflow.run,
+                    run_args,
+                    id=wf_exec_id,
+                    retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+                    # Propagate the parent workflow attributes to the child workflow
+                    task_queue=wf_info.task_queue,
+                    execution_timeout=wf_info.execution_timeout,
+                    task_timeout=wf_info.task_timeout,
+                    memo=memo,
+                    search_attributes=wf_info.typed_search_attributes,
+                    # DETACH specific options
+                    # Abandon the child workflow if the parent is cancelled
+                    parent_close_policy=workflow.ParentClosePolicy.ABANDON,
+                )
+                result = child_wf_handle.id
+            case _:
+                # WAIT and all other strategies
+                result = await workflow.execute_child_workflow(
+                    DSLWorkflow.run,
+                    run_args,
+                    id=wf_exec_id,
+                    retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+                    # Propagate the parent workflow attributes to the child workflow
+                    task_queue=wf_info.task_queue,
+                    execution_timeout=wf_info.execution_timeout,
+                    task_timeout=wf_info.task_timeout,
+                    memo=memo,
+                    search_attributes=wf_info.typed_search_attributes,
+                )
+        return result
 
     async def _get_error_handler_workflow_id(
         self, args: DSLRunArgs
@@ -934,18 +1014,19 @@ class DSLWorkflow:
             WorkflowsManagementService.get_error_handler_workflow_id,
             arg=GetErrorHandlerWorkflowIDActivityInputs(args=args, role=self.role),
             start_to_close_timeout=args.timeout,
-            retry_policy=retry_policies["activity:fail_fast"],
+            retry_policy=RETRY_POLICIES["activity:fail_fast"],
         )
 
     async def _prepare_error_handler_workflow(
         self,
-        wf_id: WorkflowID,
         *,
         message: str,
         handler_wf_id: WorkflowID,
         orig_wf_id: WorkflowID,
         orig_wf_exec_id: WorkflowExecutionID,
-        errors: dict[str, ActionErrorInfo] | None = None,
+        orig_dsl: DSLInput,
+        trigger_type: TriggerType,
+        errors: list[ActionErrorInfo] | None = None,
     ) -> DSLRunArgs:
         """Grab a workflow definition and create error handler workflow run args"""
 
@@ -965,17 +1046,37 @@ class DSLWorkflow:
         )
         self.logger.debug("Runtime config", runtime_config=runtime_config)
 
+        url = None
+        if match := re.match(identifiers.workflow.WF_EXEC_ID_PATTERN, orig_wf_exec_id):
+            if self.role.workspace_id is None:
+                logger.warning("Workspace ID is required to create error handler URL")
+            else:
+                try:
+                    workflow_id = identifiers.workflow.WorkflowUUID.new(
+                        match.group("workflow_id")
+                    ).short()
+                    exec_id = match.group("execution_id")
+                    url = (
+                        f"{config.TRACECAT__PUBLIC_APP_URL}/workspaces/{self.role.workspace_id}"
+                        f"/workflows/{workflow_id}/executions/{exec_id}"
+                    )
+                except Exception as e:
+                    logger.error("Error parsing workflow execution ID", error=e)
+
         return DSLRunArgs(
             role=self.role,
             dsl=dsl,
-            wf_id=wf_id,
+            wf_id=handler_wf_id,
             parent_run_context=ctx_run.get(),
             trigger_inputs=ErrorHandlerWorkflowInput(
                 message=message,
-                handler_wf_id=wf_id,
+                handler_wf_id=handler_wf_id,
                 orig_wf_id=orig_wf_id,
                 orig_wf_exec_id=orig_wf_exec_id,
+                orig_wf_exec_url=url,
+                orig_wf_title=orig_dsl.title,
                 errors=errors,
+                trigger_type=trigger_type,
             ),
             runtime_config=runtime_config,
         )
@@ -987,14 +1088,19 @@ class DSLWorkflow:
         self.logger.info("Running error handler workflow", args=args)
         wf_exec_id = identifiers.workflow.generate_exec_id(args.wf_id)
         wf_info = workflow.info()
+        if args.dsl is None:
+            raise ValueError("DSL is required to run error handler workflow")
+        # Use Temporal memo to store the action ref in the child workflow run
+        memo = ChildWorkflowMemo(action_ref=identifiers.action.ref(args.dsl.title))
         await workflow.execute_child_workflow(
             DSLWorkflow.run,
             args,
             id=wf_exec_id,
-            retry_policy=retry_policies["workflow:fail_fast"],
+            retry_policy=RETRY_POLICIES["workflow:fail_fast"],
             # Propagate the parent workflow attributes to the child workflow
             task_queue=wf_info.task_queue,
             execution_timeout=wf_info.execution_timeout,
             task_timeout=wf_info.task_timeout,
+            memo=memo.model_dump(),
             search_attributes=wf_info.typed_search_attributes,
         )

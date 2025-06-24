@@ -1,12 +1,21 @@
 "use client"
 
-import React, { useMemo, useState } from "react"
-import { RegistryActionReadMinimal } from "@/client"
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
-import { Row } from "@tanstack/react-table"
+import type { Row } from "@tanstack/react-table"
 import { CopyIcon, TrashIcon } from "lucide-react"
-
-import { useRegistryActions } from "@/lib/hooks"
+import { useMemo, useState } from "react"
+import type { RegistryActionReadMinimal } from "@/client"
+import {
+  DataTable,
+  DataTableColumnHeader,
+  type DataTableToolbarProps,
+} from "@/components/data-table"
+import { getIcon } from "@/components/icons"
+import {
+  DeleteRegistryActionAlertDialog,
+  DeleteRegistryActionAlertDialogTrigger,
+} from "@/components/registry/delete-registry-action"
+import { actionTypeToLabel } from "@/components/registry/icons"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -15,75 +24,70 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { toast } from "@/components/ui/use-toast"
-import {
-  DataTable,
-  DataTableColumnHeader,
-  type DataTableToolbarProps,
-} from "@/components/data-table"
-import {
-  DeleteRegistryActionAlertDialog,
-  DeleteRegistryActionAlertDialogTrigger,
-} from "@/components/registry/delete-registry-action"
+import { useRegistryActions } from "@/lib/hooks"
+import { useAuth } from "@/providers/auth"
 
 export function RegistryActionsTable() {
+  const { user } = useAuth()
   const { registryActions, registryActionsIsLoading, registryActionsError } =
     useRegistryActions()
   const [selectedAction, setSelectedAction] =
     useState<RegistryActionReadMinimal | null>(null)
 
   // Create a memoized version of the toolbar props
-  const toolbarProps: DataTableToolbarProps = useMemo(() => {
-    // Extract unique namespace values from the data
-    const namespaceOptions = Array.from(
-      new Set(registryActions?.map((action) => action.namespace))
-    )
-      .sort() // Sort namespaces alphabetically
-      .map((namespace) => ({
-        label: namespace,
-        value: namespace,
-      }))
-    const typeOptions = Array.from(
-      new Set(registryActions?.map((action) => action.type))
-    )
-      .sort() // Sort types alphabetically
-      .map((type) => ({
-        label: type,
-        value: type,
-      }))
+  const toolbarProps: DataTableToolbarProps<RegistryActionReadMinimal> =
+    useMemo(() => {
+      // Extract unique namespace values from the data
+      const namespaceOptions = Array.from(
+        new Set(registryActions?.map((action) => action.namespace))
+      )
+        .sort() // Sort namespaces alphabetically
+        .map((namespace) => ({
+          label: namespace,
+          value: namespace,
+        }))
+      const typeOptions = Array.from(
+        new Set(registryActions?.map((action) => action.type))
+      )
+        .sort() // Sort types alphabetically
+        .map((type) => ({
+          label: type,
+          value: type,
+        }))
 
-    const originOptions = Array.from(
-      new Set(registryActions?.map((action) => action.origin))
-    )
-      .sort() // Sort types alphabetically
-      .map((origin) => ({
-        label: origin,
-        value: origin,
-      }))
+      const originOptions = Array.from(
+        new Set(registryActions?.map((action) => action.origin))
+      )
+        .sort() // Sort types alphabetically
+        .map((origin) => ({
+          label: origin,
+          value: origin,
+        }))
 
-    return {
-      filterProps: {
-        placeholder: "Search actions...",
-        column: "default_title",
-      },
-      fields: [
-        {
-          column: "type",
-          title: "Type",
-          options: typeOptions,
+      return {
+        filterProps: {
+          placeholder: "Search actions...",
+          column: "default_title",
         },
-        {
-          column: "namespace",
-          title: "Namespace",
-          options: namespaceOptions,
-        },
-        {
-          column: "origin",
-          title: "Origin",
-          options: originOptions,
-        },
-      ],
-    }
-  }, [registryActions])
+        fields: [
+          {
+            column: "type",
+            title: "Type",
+            options: typeOptions,
+          },
+          {
+            column: "namespace",
+            title: "Namespace",
+            options: namespaceOptions,
+          },
+          {
+            column: "origin",
+            title: "Origin",
+            options: originOptions,
+          },
+        ],
+      }
+    }, [registryActions])
 
   const handleOnClickRow = (row: Row<RegistryActionReadMinimal>) => () => {
     // Link to workflow detail page
@@ -132,8 +136,11 @@ export function RegistryActionsTable() {
               />
             ),
             cell: ({ row }) => (
-              <div className="font-mono text-xs tracking-tight text-foreground/80">
-                {row.original.action}
+              <div className="flex items-center gap-2">
+                {getIcon(row.original.action, { className: "size-6 border" })}
+                <div className="text-xs text-foreground/80">
+                  {row.original.action}
+                </div>
               </div>
             ),
             enableSorting: true,
@@ -182,9 +189,13 @@ export function RegistryActionsTable() {
               />
             ),
             cell: ({ row }) => {
+              const type =
+                row.getValue<RegistryActionReadMinimal["type"]>("type")
+              const { label, icon: Icon } = actionTypeToLabel[type]
               return (
-                <div className="text-xs text-foreground/80">
-                  {row.getValue<RegistryActionReadMinimal["type"]>("type")}
+                <div className="flex items-center gap-2 text-xs text-foreground/80">
+                  <Icon className="size-3" />
+                  {label}
                 </div>
               )
             },
@@ -240,21 +251,25 @@ export function RegistryActionsTable() {
                       <CopyIcon className="mr-2 size-4" />
                       <span>Copy action name</span>
                     </DropdownMenuItem>
-                    <DeleteRegistryActionAlertDialogTrigger asChild>
-                      <DropdownMenuItem
-                        className="text-xs text-rose-500 focus:text-rose-600"
-                        onClick={() => {
-                          setSelectedAction(row.original)
-                          console.debug(
-                            "Selected action to delete",
-                            row.original
-                          )
-                        }}
-                      >
-                        <TrashIcon className="mr-2 size-4 text-rose-500" />
-                        <span className="text-rose-500">Delete action</span>
-                      </DropdownMenuItem>
-                    </DeleteRegistryActionAlertDialogTrigger>
+                    {user?.isOrgAdmin() && (
+                      <>
+                        <DeleteRegistryActionAlertDialogTrigger asChild>
+                          <DropdownMenuItem
+                            className="text-xs text-rose-500 focus:text-rose-600"
+                            onClick={() => {
+                              setSelectedAction(row.original)
+                              console.debug(
+                                "Selected action to delete",
+                                row.original
+                              )
+                            }}
+                          >
+                            <TrashIcon className="mr-2 size-4 text-rose-500" />
+                            <span className="text-rose-500">Delete action</span>
+                          </DropdownMenuItem>
+                        </DeleteRegistryActionAlertDialogTrigger>
+                      </>
+                    )}
                   </DropdownMenuContent>
                 </DropdownMenu>
               )

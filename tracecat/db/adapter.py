@@ -1,3 +1,4 @@
+# ruff: noqa
 """FastAPI Users database adapter for SQLModel.
 
 Adapted from https://github.com/fastapi-users/fastapi-users-db-sqlmodel for our internal use
@@ -20,7 +21,7 @@ from sqlmodel import AutoString, Field, SQLModel, func, select
 
 
 class SQLModelBaseUserDB(SQLModel):
-    __tablename__ = "user"
+    __tablename__: str = "user"
 
     model_config: ConfigDict = ConfigDict(from_attributes=True)
     id: UUID4 = Field(default_factory=uuid.uuid4, primary_key=True, nullable=False)
@@ -40,7 +41,7 @@ class SQLModelBaseUserDB(SQLModel):
 
 
 class SQLModelBaseOAuthAccount(SQLModel):
-    __tablename__ = "oauthaccount"
+    __tablename__: str = "oauthaccount"
 
     model_config: ConfigDict = ConfigDict(from_attributes=True)
     id: UUID4 = Field(default_factory=uuid.uuid4, primary_key=True)
@@ -53,7 +54,7 @@ class SQLModelBaseOAuthAccount(SQLModel):
     account_email: str = Field(nullable=False)
 
 
-class SQLModelUserDatabaseAsync(Generic[UP, ID], BaseUserDatabase[UP, ID]):
+class SQLModelUserDatabaseAsync(BaseUserDatabase[UP, ID]):
     """
     Database adapter for SQLModel working purely asynchronously.
 
@@ -140,7 +141,10 @@ class SQLModelUserDatabaseAsync(Generic[UP, ID], BaseUserDatabase[UP, ID]):
         return user
 
     async def update_oauth_account(
-        self, user: UP, oauth_account: OAP, update_dict: dict[str, Any]
+        self,
+        user: UP,
+        oauth_account: OAP,  # type: ignore
+        update_dict: dict[str, Any],
     ) -> UP:
         if self.oauth_account_model is None:
             raise NotImplementedError()
@@ -154,7 +158,7 @@ class SQLModelUserDatabaseAsync(Generic[UP, ID], BaseUserDatabase[UP, ID]):
 
 
 class SQLModelBaseAccessToken(SQLModel):
-    __tablename__ = "accesstoken"
+    __tablename__: str = "accesstoken"
 
     model_config: ConfigDict = ConfigDict(from_attributes=True)
     token: str = Field(

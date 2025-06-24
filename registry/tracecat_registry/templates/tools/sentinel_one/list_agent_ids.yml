@@ -1,0 +1,37 @@
+type: action
+definition:
+  title: List agent IDs
+  description: Get a simple list of SentinelOne agent IDs.
+  display_group: SentinelOne
+  doc_url: https://<base_url>/api-doc/api-details?category=agents&api=get-agents
+  namespace: tools.sentinel_one
+  name: list_agent_ids
+  secrets:
+    - name: sentinel_one
+      keys: ["SENTINEL_ONE_API_TOKEN"]
+  expects:
+    limit:
+      type: int
+      description: The maximum number of agents to return.
+      default: 1000
+    base_url:
+      type: str
+      description: SentinelOne tenant URL.
+  steps:
+    - ref: query_agents
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/web/api/v2.1/agents
+        method: GET
+        timeout: 60
+        headers:
+          Authorization: "ApiToken ${{ SECRETS.sentinel_one.SENTINEL_ONE_API_TOKEN }}"
+        params:
+          limit: ${{ inputs.limit }}
+    - ref: extract_ids
+      action: core.transform.apply
+      args:
+        value: ${{ steps.query_agents.result.data.data }}
+        python_lambda: >
+          lambda agents: [agent['id'] for agent in agents]
+  returns: ${{ steps.extract_ids.result }}

@@ -1,11 +1,10 @@
 "use client"
 
-import { useWorkspace } from "@/providers/workspace"
-
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { AddWorkspaceMember } from "@/components/workspaces/add-workspace-member"
 import { WorkspaceMembersTable } from "@/components/workspaces/workspace-members-table"
+import { useWorkspace } from "@/providers/workspace"
 
 export default function WorkspaceMembersPage() {
   const { workspace, workspaceError, workspaceLoading } = useWorkspace()

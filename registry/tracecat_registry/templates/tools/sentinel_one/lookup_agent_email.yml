@@ -1,0 +1,37 @@
+type: action
+definition:
+  title: Lookup agents by email
+  description: Find all SentinelOne agents associated with a user email address.
+  display_group: SentinelOne
+  doc_url: https://<base_url>/api-doc/api-details?category=agents&api=get-agents
+  namespace: tools.sentinel_one
+  name: lookup_agent_email
+  secrets:
+    - name: sentinel_one
+      keys: ["SENTINEL_ONE_API_TOKEN"]
+  expects:
+    email:
+      type: str
+      description: Email address to search for in agent user fields.
+    limit:
+      type: int
+      description: The maximum number of agents to return.
+      default: 100
+    base_url:
+      type: str
+      description: SentinelOne tenant URL.
+  steps:
+    - ref: query_agents
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/web/api/v2.1/agents
+        method: GET
+        timeout: 60
+        headers:
+          Authorization: "ApiToken ${{ SECRETS.sentinel_one.SENTINEL_ONE_API_TOKEN }}"
+        params:
+          limit: ${{ inputs.limit }}
+          lastLoggedInUserName__contains: ${{ inputs.email }}
+          adUserName__contains: ${{ inputs.email }}
+          query: ${{ inputs.email }}
+  returns: ${{ steps.query_agents.result }}

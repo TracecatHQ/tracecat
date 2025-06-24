@@ -1,11 +1,9 @@
 "use client"
 
-import React from "react"
 import { CheckCheckIcon, CopyIcon } from "lucide-react"
+import React from "react"
 import JsonView from "react18-json-view"
-import { NodeMeta } from "react18-json-view/dist/types"
-
-import { cn } from "@/lib/utils"
+import type { NodeMeta } from "react18-json-view/dist/types"
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -15,6 +13,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
+import { cn } from "@/lib/utils"
 
 import "react18-json-view/src/style.css"
 
@@ -84,6 +83,7 @@ interface JsonViewWithControlsProps {
   defaultTab?: JsonViewWithControlsTabs
   showControls?: boolean
   copyPrefix?: string
+  className?: string
 }
 
 export function JsonViewWithControls({
@@ -92,6 +92,7 @@ export function JsonViewWithControls({
   defaultTab = "flat",
   showControls = true,
   copyPrefix,
+  className,
 }: JsonViewWithControlsProps): JSX.Element {
   const [isExpanded, setIsExpanded] = React.useState(defaultExpanded)
 
@@ -122,25 +123,47 @@ export function JsonViewWithControls({
   )
 
   return (
-    <div className="w-full space-y-2 overflow-x-auto">
+    <div
+      className={cn(
+        "w-full overflow-x-auto rounded-md border bg-muted-foreground/5",
+        className
+      )}
+      onClick={(e) => e.stopPropagation()}
+    >
       <Tabs defaultValue={defaultTab}>
         {showControls && isCollapsible && (
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <div className="flex items-center gap-2">
+          <div
+            className="flex h-7 items-center justify-between gap-4 rounded-t-md border-b pl-2"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <>
+              <div
+                className="flex items-center gap-2"
+                onClick={(e) => e.stopPropagation()}
+              >
                 <Switch
+                  size="xs"
                   checked={isExpanded}
                   onCheckedChange={setIsExpanded}
                   className="data-[state=checked]:bg-muted-foreground"
+                  onClick={(e) => e.stopPropagation()}
                 />
                 <p className="text-xs text-foreground/70">
                   {isExpanded ? "Collapse" : "Expand"}
                 </p>
               </div>
-            </div>
-            <TabsList className="h-7 text-xs">
+            </>
+            <TabsList
+              className="rounded-b-none border-none bg-transparent text-xs shadow-none"
+              onClick={(e) => e.stopPropagation()}
+            >
               {tabItems.map(({ value, label }) => (
-                <TabsTrigger key={value} value={value} className="text-xs">
+                <TabsTrigger
+                  key={value}
+                  value={value}
+                  className="border-none bg-transparent text-xs shadow-none data-[state=active]:!bg-transparent data-[state=active]:!shadow-none"
+                  onClick={(e) => e.stopPropagation()}
+                >
                   {label}
                 </TabsTrigger>
               ))}
@@ -151,13 +174,14 @@ export function JsonViewWithControls({
           <TabsContent
             key={value}
             value={value}
-            className="rounded-md border bg-muted-foreground/5 p-4"
+            className={cn("p-4", showControls ? "rounded-b-md" : "rounded-md")}
+            onClick={(e) => e.stopPropagation()}
           >
             <JsonView
               collapsed={!isExpanded}
               displaySize
               enableClipboard
-              src={source}
+              src={source ?? null}
               className="break-all text-xs"
               theme="atom"
               CopyComponent={({ onClick, className }) => (
@@ -168,7 +192,10 @@ export function JsonViewWithControls({
                         "m-0 size-3 p-0 text-muted-foreground",
                         className
                       )}
-                      onClick={onClick}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onClick(e)
+                      }}
                     />
                   </TooltipTrigger>
                   <TooltipContent>Copy JSONPath</TooltipContent>

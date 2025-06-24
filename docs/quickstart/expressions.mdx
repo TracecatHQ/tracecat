@@ -67,7 +67,7 @@ Actions are referenced by a sluggified version of their name.
   Check out the [workflow triggers](/tutorials/workflow-triggers.mdx) tutorial for a detailed guide setting up webhooks for workflows.
 </Info>
 
-Workflows can be triggered via webhook, manual UI trigger, or the `Execute Child Workflow` action.
+Workflows can be triggered via webhook, manual UI trigger, or the `Execute child workflow` action.
 Use the `TRIGGER` context to reference the data from the trigger as a JSON object.
 
 
@@ -128,6 +128,51 @@ ${{ SECRETS.<name>.<key> }}
 
 Tracecat will automatically replace the expression with the secret value at runtime.
 Retrieved secrets are deleted from memory after the workflow run completes.
+
+## Operators
+
+You can use standard operators (`+`, `-`, `*`, `/`) on `int`, `float`, `str`, `datetime`, `timedelta`, `list`, and `dict` data in actions.
+
+<Accordion icon="book-open" title="Example">
+This expression will return the integer value 3:
+
+```php
+${{ 1 + 2 }}
+```
+
+And the following expression will return the string `hello world`:
+
+```php
+${{ "hello " + "world" }}
+```
+</Accordion>
+
+## Typecasting
+
+You can convert data from actions from one data type to another (e.g. from string to integer) using the following syntax:
+
+<CodeGroup>
+```php Inline
+${{ int(<expression>) }}
+```
+
+```php Trailing
+${{ <expression> -> int }}
+```
+</CodeGroup>
+
+Supported typecasts:
+
+| Data Type | Behavior |
+|-----------|----------|
+| int       | Python `int` |
+| float     | Python `float` |
+| str       | Python `str` |
+| bool      | Custom `bool` - true for any truthy value, `1`, or upper/lower case `true` |
+
+<Accordion icon="book-open" title="Example">
+`${{ "101" -> int }}` and `${{ int("101") }}` both return the integer object `101`.
+</Accordion>
 
 ## `FN` context
 

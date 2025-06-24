@@ -1,10 +1,9 @@
 "use client"
 
 import { useEffect } from "react"
-import { ApiError } from "@/client"
-
-import { useWorkspaceManager } from "@/lib/hooks"
+import type { ApiError } from "@/client"
 import ErrorPage from "@/components/error"
+import { useWorkspaceManager } from "@/lib/hooks"
 
 export default function Error({
   error,

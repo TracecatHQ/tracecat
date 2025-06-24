@@ -24,6 +24,11 @@ export type ActionCreate = {
   workflow_id: string
   type: string
   title: string
+  description?: string | null
+  inputs?: string
+  control_flow?: ActionControlFlow | null
+  is_interactive?: boolean
+  interaction?: ResponseInteraction | ApprovalInteraction | null
 }
 
 export type ActionRead = {
@@ -36,6 +41,7 @@ export type ActionRead = {
   control_flow?: ActionControlFlow
   is_interactive: boolean
   interaction?: ResponseInteraction | ApprovalInteraction | null
+  readonly ref: string
 }
 
 export type ActionReadMinimal = {
@@ -124,6 +130,11 @@ export type ActionStep = {
   }
 }
 
+export type ActionType = {
+  component_id?: "action-type"
+  multiple?: boolean
+}
+
 export type ActionUpdate = {
   title?: string | null
   description?: string | null
@@ -135,12 +146,41 @@ export type ActionUpdate = {
 }
 
 /**
+ * Result of validating a registry action's arguments.
+ */
+export type ActionValidationResult = {
+  type?: "action"
+  status: "success" | "error"
+  msg?: string
+  detail?: Array<ValidationDetail> | null
+  ref?: string | null
+  action_type: string
+  validated_args?: {
+    [key: string]: unknown
+  } | null
+}
+
+export type status = "success" | "error"
+
+export type AgentOutput = {
+  output: unknown
+  files?: {
+    [key: string]: string
+  } | null
+  message_history: Array<ModelRequest | ModelResponse>
+  duration: number
+  usage?: Usage | null
+}
+
+/**
  * Settings for the app.
  */
 export type AppSettingsRead = {
   app_registry_validation_enabled: boolean
   app_executions_query_limit: number
   app_interactions_enabled: boolean
+  app_workflow_export_enabled: boolean
+  app_create_workspace_on_register: boolean
 }
 
 /**
@@ -159,6 +199,14 @@ export type AppSettingsUpdate = {
    * Whether app interactions are enabled.
    */
   app_interactions_enabled?: boolean
+  /**
+   * Whether workflow exports are enabled.
+   */
+  app_workflow_export_enabled?: boolean
+  /**
+   * Whether to automatically create a workspace when a user signs up.
+   */
+  app_create_workspace_on_register?: boolean
 }
 
 /**
@@ -186,6 +234,32 @@ export type ApprovalInteraction = {
    * Condition to approve the action.
    */
   approve_if?: string | null
+}
+
+/**
+ * Event for when a case assignee is changed.
+ */
+export type AssigneeChangedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
+  wf_exec_id?: string | null
+  type?: "assignee_changed"
+  old: string | null
+  new: string | null
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
+}
+
+export type AudioUrl = {
+  url: string
+  kind?: "audio-url"
 }
 
 export type AuthSettingsRead = {
@@ -219,6 +293,27 @@ export type AuthSettingsUpdate = {
   auth_session_expire_time_seconds?: number
 }
 
+export type BinaryContent = {
+  data: Blob | File
+  media_type:
+    | "audio/wav"
+    | "audio/mpeg"
+    | "image/jpeg"
+    | "image/png"
+    | "image/gif"
+    | "image/webp"
+    | "application/pdf"
+    | "text/plain"
+    | "text/csv"
+    | "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    | "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    | "text/html"
+    | "text/markdown"
+    | "application/vnd.ms-excel"
+    | string
+  kind?: "binary"
+}
+
 export type Body_auth_reset_forgot_password = {
   email: string
 }
@@ -230,6 +325,7 @@ export type Body_auth_reset_reset_password = {
 
 export type Body_auth_sso_acs = {
   saml_response: string
+  relay_state: string
 }
 
 export type Body_auth_verify_request_token = {
@@ -284,6 +380,7 @@ export type CaseCreate = {
   fields?: {
     [key: string]: unknown
   } | null
+  assignee_id?: string | null
 }
 
 export type CaseCustomFieldRead = {
@@ -294,6 +391,31 @@ export type CaseCustomFieldRead = {
   default: string | null
   reserved: boolean
   value: unknown
+}
+
+/**
+ * Base read model for all event types.
+ */
+export type CaseEventRead =
+  | CreatedEventRead
+  | ClosedEventRead
+  | ReopenedEventRead
+  | UpdatedEventRead
+  | StatusChangedEventRead
+  | PriorityChangedEventRead
+  | SeverityChangedEventRead
+  | FieldChangedEventRead
+  | AssigneeChangedEventRead
+
+export type CaseEventsWithUsers = {
+  /**
+   * The events for the case.
+   */
+  events: Array<CaseEventRead>
+  /**
+   * The users for the case.
+   */
+  users: Array<UserRead>
 }
 
 /**
@@ -380,6 +502,7 @@ export type CaseRead = {
   severity: CaseSeverity
   description: string
   fields: Array<CaseCustomFieldRead>
+  assignee?: UserRead | null
 }
 
 export type CaseReadMinimal = {
@@ -391,6 +514,7 @@ export type CaseReadMinimal = {
   status: CaseStatus
   priority: CasePriority
   severity: CaseSeverity
+  assignee?: UserRead | null
 }
 
 /**
@@ -437,18 +561,54 @@ export type CaseUpdate = {
   fields?: {
     [key: string]: unknown
   } | null
+  assignee_id?: string | null
 }
 
-export type CreateWorkspaceMembershipParams = {
-  user_id: string
+/**
+ * Event for when a case is closed.
+ */
+export type ClosedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
+  wf_exec_id?: string | null
+  type?: "case_closed"
+  old: CaseStatus
+  new: CaseStatus
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
 }
 
-export type CreateWorkspaceParams = {
-  name: string
-  settings?: {
-    [key: string]: string
-  } | null
-  owner_id?: string
+export type Code = {
+  component_id?: "code"
+  lang?: "yaml" | "python"
+}
+
+export type lang = "yaml" | "python"
+
+/**
+ * Event for when a case is created.
+ */
+export type CreatedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
+  wf_exec_id?: string | null
+  type?: "case_created"
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
 }
 
 /**
@@ -558,11 +718,40 @@ export type DSLRunArgs = {
   schedule_id?: string | null
 }
 
+/**
+ * Result of validating a generic input.
+ */
+export type DSLValidationResult = {
+  type?: "dsl"
+  status: "success" | "error"
+  msg?: string
+  detail?: Array<ValidationDetail> | null
+  ref?: string | null
+}
+
+export type DocumentUrl = {
+  url: string
+  kind?: "document-url"
+}
+
 export type EditorActionRead = {
   type: string
   ref: string
   description: string
 }
+
+export type EditorComponent =
+  | Text
+  | Code
+  | Select
+  | TextArea
+  | Integer
+  | Float
+  | Toggle
+  | Yaml
+  | TagInput
+  | ActionType
+  | WorkflowAlias
 
 export type EditorFunctionRead = {
   name: string
@@ -575,6 +764,16 @@ export type EditorParamRead = {
   name: string
   type: string
   optional: boolean
+}
+
+export type ErrorDetails = {
+  type: string
+  loc: Array<number | string>
+  msg: string
+  input: unknown
+  ctx?: {
+    [key: string]: unknown
+  }
 }
 
 export type ErrorModel = {
@@ -592,7 +791,7 @@ export type EventFailure = {
   } | null
 }
 
-export type EventGroup = {
+export type EventGroup_TypeVar_ = {
   event_id: number
   udf_namespace: string
   udf_name: string
@@ -635,6 +834,89 @@ export type ExprContext =
   | "inputs"
   | "steps"
 
+export type ExprType =
+  | "generic"
+  | "action"
+  | "secret"
+  | "function"
+  | "input"
+  | "env"
+  | "local_vars"
+  | "literal"
+  | "typecast"
+  | "iterator"
+  | "ternary"
+  | "trigger"
+  | "template_action_step"
+  | "template_action_input"
+
+/**
+ * Result of visiting an expression node.
+ */
+export type ExprValidationResult = {
+  type?: "expression"
+  status: "success" | "error"
+  msg?: string
+  detail?: Array<ValidationDetail> | null
+  ref?: string | null
+  expression?: string | null
+  expression_type: ExprType
+}
+
+export type ExpressionValidationRequest = {
+  expression: string
+}
+
+export type ExpressionValidationResponse = {
+  is_valid: boolean
+  errors?: Array<ValidationError>
+  tokens?: Array<SyntaxToken>
+}
+
+/**
+ * Event for when a case field is changed.
+ */
+export type FieldChangedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
+  wf_exec_id?: string | null
+  type?: "fields_changed"
+  changes: Array<FieldDiff>
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
+}
+
+export type FieldDiff = {
+  field: string
+  old: unknown
+  new: unknown
+}
+
+export type Float = {
+  component_id?: "float"
+  min_val?: number | null
+  max_val?: number | null
+  step?: number
+}
+
+export type FolderDirectoryItem = {
+  id: string
+  name: string
+  path: string
+  owner_id: string
+  created_at: string
+  updated_at: string
+  type: "folder"
+  num_items: number
+}
+
 export type GetWorkflowDefinitionActivityInputs = {
   role: Role
   workflow_id: string
@@ -661,6 +943,18 @@ export type HTTPValidationError = {
   detail?: Array<ValidationError>
 }
 
+export type ImageUrl = {
+  url: string
+  kind?: "image-url"
+}
+
+export type Integer = {
+  component_id?: "integer"
+  min_val?: number | null
+  max_val?: number | null
+  step?: number
+}
+
 export type InteractionCategory = "slack"
 
 /**
@@ -685,6 +979,28 @@ export type InteractionInput = {
 }
 
 /**
+ * Model for reading an interaction.
+ */
+export type InteractionRead = {
+  id: string
+  created_at: string
+  updated_at: string
+  type: InteractionType
+  status: InteractionStatus
+  request_payload: {
+    [key: string]: unknown
+  } | null
+  response_payload: {
+    [key: string]: unknown
+  } | null
+  expires_at?: string | null
+  wf_exec_id: string
+  actor: string | null
+  action_ref: string
+  action_type: string
+}
+
+/**
  * Output for the workflow interaction handler. This is used on the client side.
  */
 export type InteractionResult = {
@@ -692,20 +1008,32 @@ export type InteractionResult = {
   detail?: unknown | null
 }
 
-export type InteractionState = {
-  type: InteractionType
-  action_ref: string
-  status: InteractionStatus
-  data?: {
-    [key: string]: unknown
-  }
-}
-
-export type InteractionStatus = "idle" | "pending" | "completed"
+export type InteractionStatus =
+  | "idle"
+  | "pending"
+  | "error"
+  | "timed_out"
+  | "completed"
 
 export type InteractionType = "approval" | "response"
 
 export type JoinStrategy = "any" | "all"
+
+export type ModelRequest = {
+  parts: Array<
+    SystemPromptPart | UserPromptPart | ToolReturnPart | RetryPromptPart
+  >
+  instructions?: string | null
+  kind?: "request"
+}
+
+export type ModelResponse = {
+  parts: Array<TextPart | ToolCallPart>
+  usage?: Usage
+  model_name?: string | null
+  timestamp?: string
+  kind?: "response"
+}
 
 export type OAuth2AuthorizeResponse = {
   authorization_url: string
@@ -738,6 +1066,27 @@ export type OrgMemberRead = {
   is_superuser: boolean
   is_verified: boolean
   last_login_at: string | null
+}
+
+/**
+ * Event for when a case priority is changed.
+ */
+export type PriorityChangedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
+  wf_exec_id?: string | null
+  type?: "priority_changed"
+  old: CasePriority
+  new: CasePriority
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
 }
 
 export type ReceiveInteractionResponse = {
@@ -1019,13 +1368,6 @@ export type RegistryActionUpdate = {
   options?: RegistryActionOptions | null
 }
 
-export type RegistryActionValidateResponse = {
-  ok: boolean
-  message: string
-  detail?: unknown | null
-  action_ref?: string | null
-}
-
 export type RegistryActionValidationErrorInfo = {
   type: TemplateActionValidationErrorType
   details: Array<string>
@@ -1088,6 +1430,27 @@ export type RegistrySecret = {
 }
 
 /**
+ * Event for when a case is reopened.
+ */
+export type ReopenedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
+  wf_exec_id?: string | null
+  type?: "case_reopened"
+  old: CaseStatus
+  new: CaseStatus
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
+}
+
+/**
  * Configuration for a response interaction.
  */
 export type ResponseInteraction = {
@@ -1096,6 +1459,14 @@ export type ResponseInteraction = {
    * The timeout for the interaction in seconds.
    */
   timeout?: number | null
+}
+
+export type RetryPromptPart = {
+  content: Array<ErrorDetails> | string
+  tool_name?: string | null
+  tool_call_id?: string
+  timestamp?: string
+  part_kind?: "retry-prompt"
 }
 
 /**
@@ -1127,28 +1498,31 @@ export type ResponseInteraction = {
 export type Role = {
   type: "user" | "service"
   workspace_id?: string | null
+  workspace_role?: WorkspaceRole | null
   user_id?: string | null
   access_level?: AccessLevel
   service_id:
-    | "tracecat-runner"
     | "tracecat-api"
+    | "tracecat-bootstrap"
     | "tracecat-cli"
+    | "tracecat-executor"
+    | "tracecat-runner"
     | "tracecat-schedule-runner"
     | "tracecat-service"
-    | "tracecat-executor"
-    | "tracecat-bootstrap"
+    | "tracecat-ui"
 }
 
 export type type2 = "user" | "service"
 
 export type service_id =
-  | "tracecat-runner"
   | "tracecat-api"
+  | "tracecat-bootstrap"
   | "tracecat-cli"
+  | "tracecat-executor"
+  | "tracecat-runner"
   | "tracecat-schedule-runner"
   | "tracecat-service"
-  | "tracecat-executor"
-  | "tracecat-bootstrap"
+  | "tracecat-ui"
 
 /**
  * This object contains all the information needed to execute an action.
@@ -1160,6 +1534,7 @@ export type RunActionInput = {
   }
   run_context: RunContext
   interaction_context?: InteractionContext | null
+  stream_id?: string
 }
 
 /**
@@ -1257,7 +1632,7 @@ export type ScheduleCreate = {
   timeout?: number
 }
 
-export type status = "online" | "offline"
+export type status2 = "online" | "offline"
 
 export type ScheduleSearch = {
   workflow_id?: string | null
@@ -1366,11 +1741,57 @@ export type SecretUpdate = {
   environment?: string | null
 }
 
+/**
+ * Detail of a secret validation result.
+ */
+export type SecretValidationDetail = {
+  environment: string
+  secret_name: string
+}
+
+/**
+ * Result of validating credentials.
+ */
+export type SecretValidationResult = {
+  type?: "secret"
+  status: "success" | "error"
+  msg?: string
+  detail?: SecretValidationDetail | null
+  ref?: string | null
+}
+
+export type Select = {
+  component_id?: "select"
+  options?: Array<string> | null
+  multiple?: boolean
+}
+
 export type SessionRead = {
   id: string
   created_at: string
   user_id: string
   user_email: string
+}
+
+/**
+ * Event for when a case severity is changed.
+ */
+export type SeverityChangedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
+  wf_exec_id?: string | null
+  type?: "severity_changed"
+  old: CaseSeverity
+  new: CaseSeverity
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
 }
 
 /**
@@ -1390,6 +1811,41 @@ export type SqlType =
   | "TIMESTAMPTZ"
   | "JSONB"
   | "UUID"
+
+/**
+ * Event for when a case status is changed.
+ */
+export type StatusChangedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
+  wf_exec_id?: string | null
+  type?: "status_changed"
+  old: CaseStatus
+  new: CaseStatus
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
+}
+
+export type SyntaxToken = {
+  type: string
+  value: string
+  start: number
+  end: number
+}
+
+export type SystemPromptPart = {
+  content: string
+  timestamp?: string
+  dynamic_ref?: string | null
+  part_kind?: "system-prompt"
+}
 
 /**
  * Create model for a table column.
@@ -1484,10 +1940,6 @@ export type TableRowInsert = {
     [key: string]: unknown
   }
   upsert?: boolean
-  /**
-   * The columns of the table to use for upsert
-   */
-  natural_keys?: Array<string>
 }
 
 /**
@@ -1535,6 +1987,10 @@ export type TagCreate = {
    * Hex color code
    */
   color?: string | null
+}
+
+export type TagInput = {
+  component_id?: "tag-input"
 }
 
 /**
@@ -1628,11 +2084,65 @@ export type TemplateActionDefinition = {
       }
 }
 
+/**
+ * Result of visiting an expression node.
+ */
+export type TemplateActionExprValidationResult = {
+  type?: "action_template"
+  status: "success" | "error"
+  msg?: string
+  detail?: Array<ValidationDetail> | null
+  ref?: string | null
+  expression?: string | null
+  expression_type: ExprType
+  loc: Array<string | number>
+}
+
 export type TemplateActionValidationErrorType =
   | "ACTION_NOT_FOUND"
   | "ACTION_NAME_CONFLICT"
   | "STEP_VALIDATION_ERROR"
   | "EXPRESSION_VALIDATION_ERROR"
+
+export type Text = {
+  component_id?: "text"
+}
+
+export type TextArea = {
+  component_id?: "text-area"
+  rows?: number
+  placeholder?: string
+}
+
+export type TextPart = {
+  content: string
+  part_kind?: "text"
+}
+
+export type Toggle = {
+  label_on?: string
+  label_off?: string
+  component_id?: "toggle"
+}
+
+export type ToolCallPart = {
+  tool_name: string
+  args:
+    | string
+    | {
+        [key: string]: unknown
+      }
+  tool_call_id?: string
+  part_kind?: "tool-call"
+}
+
+export type ToolReturnPart = {
+  tool_name: string
+  content: unknown
+  tool_call_id: string
+  timestamp?: string
+  part_kind?: "tool-return"
+}
 
 export type Trigger = {
   type: "schedule" | "webhook"
@@ -1649,10 +2159,35 @@ export type type3 = "schedule" | "webhook"
  */
 export type TriggerType = "manual" | "scheduled" | "webhook"
 
-export type UpdateWorkspaceParams = {
-  name?: string | null
-  settings?: {
-    [key: string]: string
+/**
+ * Event for when a case is updated.
+ */
+export type UpdatedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
+  wf_exec_id?: string | null
+  type?: "case_updated"
+  field: "summary"
+  old: string | null
+  new: string | null
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
+}
+
+export type Usage = {
+  requests?: number
+  request_tokens?: number | null
+  response_tokens?: number | null
+  total_tokens?: number | null
+  details?: {
+    [key: string]: number
   } | null
 }
 
@@ -1662,9 +2197,18 @@ export type UserCreate = {
   is_active?: boolean | null
   is_superuser?: boolean | null
   is_verified?: boolean | null
-  role?: UserRole
   first_name?: string | null
   last_name?: string | null
+}
+
+export type UserPromptPart = {
+  content:
+    | string
+    | Array<
+        string | ImageUrl | AudioUrl | DocumentUrl | VideoUrl | BinaryContent
+      >
+  timestamp?: string
+  part_kind?: "user-prompt"
 }
 
 export type UserRead = {
@@ -1697,15 +2241,38 @@ export type UserUpdate = {
   } | null
 }
 
+export type ValidationDetail = {
+  type: string
+  msg: string
+  loc?: Array<number | string> | null
+}
+
 export type ValidationError = {
   loc: Array<string | number>
   msg: string
   type: string
 }
 
+export type ValidationResult =
+  | DSLValidationResult
+  | SecretValidationResult
+  | ExprValidationResult
+  | TemplateActionExprValidationResult
+  | ActionValidationResult
+
+export type VideoUrl = {
+  url: string
+  kind?: "video-url"
+}
+
+export type WaitStrategy = "wait" | "detach"
+
 export type WebhookCreate = {
   status?: WebhookStatus
-  method?: WebhookMethod
+  /**
+   * Methods to allow
+   */
+  methods?: Array<WebhookMethod>
   entrypoint_ref?: string | null
 }
 
@@ -1722,7 +2289,10 @@ export type WebhookRead = {
   filters: {
     [key: string]: unknown
   }
-  method: WebhookMethod
+  /**
+   * Methods to allow
+   */
+  methods?: Array<WebhookMethod>
   workflow_id: string
   url: string
 }
@@ -1731,21 +2301,25 @@ export type WebhookStatus = "online" | "offline"
 
 export type WebhookUpdate = {
   status?: WebhookStatus | null
-  method?: WebhookMethod | null
+  methods?: Array<WebhookMethod> | null
   entrypoint_ref?: string | null
+}
+
+export type WorkflowAlias = {
+  component_id?: "workflow-alias"
 }
 
 export type WorkflowCommitResponse = {
   workflow_id: string
   status: "success" | "failure"
   message: string
-  errors?: Array<RegistryActionValidateResponse> | null
+  errors?: Array<ValidationResult> | null
   metadata?: {
     [key: string]: unknown
   } | null
 }
 
-export type status2 = "success" | "failure"
+export type status3 = "success" | "failure"
 
 /**
  * A workflow definition.
@@ -1780,6 +2354,29 @@ export type WorkflowDefinition = {
   content: {
     [key: string]: unknown
   }
+}
+
+export type WorkflowDefinitionReadMinimal = {
+  id: string
+  version: number
+  created_at: string
+}
+
+export type WorkflowDirectoryItem = {
+  id: string
+  title: string
+  description: string
+  status: string
+  icon_url: string | null
+  created_at: string
+  updated_at: string
+  version: number | null
+  tags?: Array<TagRead> | null
+  alias?: string | null
+  error_handler?: string | null
+  latest_definition?: WorkflowDefinitionReadMinimal | null
+  folder_id?: string | null
+  type: "workflow"
 }
 
 /**
@@ -1831,7 +2428,7 @@ export type WorkflowExecutionEvent = {
   /**
    * The action group of the event. We use this to keep track of what events are related to each other.
    */
-  event_group?: EventGroup | null
+  event_group?: EventGroup_TypeVar_ | null
   failure?: EventFailure | null
   result?: unknown | null
   role?: Role | null
@@ -1839,10 +2436,7 @@ export type WorkflowExecutionEvent = {
   workflow_timeout?: number | null
 }
 
-/**
- * A compact representation of a workflow execution event.
- */
-export type WorkflowExecutionEventCompact = {
+export type WorkflowExecutionEventCompact_Any_Union_AgentOutput__Any__ = {
   source_event_id: number
   schedule_time: string
   start_time?: string | null
@@ -1851,12 +2445,14 @@ export type WorkflowExecutionEventCompact = {
   status: WorkflowExecutionEventStatus
   action_name: string
   action_ref: string
-  action_input?: unknown | null
-  action_result?: unknown | null
+  action_input?: unknown
+  action_result?: AgentOutput | unknown | null
   action_error?: EventFailure | null
+  stream_id?: string
   child_wf_exec_id?: string | null
   child_wf_count?: number
   loop_index?: number | null
+  child_wf_wait_strategy?: WaitStrategy | null
 }
 
 export type WorkflowExecutionEventStatus =
@@ -1868,6 +2464,7 @@ export type WorkflowExecutionEventStatus =
   | "TERMINATED"
   | "TIMED_OUT"
   | "UNKNOWN"
+  | "DETACHED"
 
 export type WorkflowExecutionRead = {
   /**
@@ -1905,6 +2502,7 @@ export type WorkflowExecutionRead = {
    */
   history_length: number
   parent_wf_exec_id?: string | null
+  trigger_type: TriggerType
   /**
    * The events in the workflow execution
    */
@@ -1912,12 +2510,10 @@ export type WorkflowExecutionRead = {
   /**
    * The interactions in the workflow execution
    */
-  interaction_states?: {
-    [key: string]: InteractionState
-  }
+  interactions?: Array<InteractionRead>
 }
 
-export type status3 =
+export type status4 =
   | "RUNNING"
   | "COMPLETED"
   | "FAILED"
@@ -1926,7 +2522,7 @@ export type status3 =
   | "CONTINUED_AS_NEW"
   | "TIMED_OUT"
 
-export type WorkflowExecutionReadCompact = {
+export type WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__ = {
   /**
    * The ID of the workflow execution
    */
@@ -1962,16 +2558,15 @@ export type WorkflowExecutionReadCompact = {
    */
   history_length: number
   parent_wf_exec_id?: string | null
+  trigger_type: TriggerType
   /**
    * Compact events in the workflow execution
    */
-  events: Array<WorkflowExecutionEventCompact>
+  events: Array<WorkflowExecutionEventCompact_Any_Union_AgentOutput__Any__>
   /**
    * The interactions in the workflow execution
    */
-  interaction_states?: {
-    [key: string]: InteractionState
-  }
+  interactions?: Array<InteractionRead>
 }
 
 export type WorkflowExecutionReadMinimal = {
@@ -2010,10 +2605,41 @@ export type WorkflowExecutionReadMinimal = {
    */
   history_length: number
   parent_wf_exec_id?: string | null
+  trigger_type: TriggerType
 }
 
 export type WorkflowExecutionTerminate = {
   reason?: string | null
+}
+
+export type WorkflowFolderCreate = {
+  name: string
+  parent_path?: string
+}
+
+export type WorkflowFolderDelete = {
+  recursive?: boolean
+}
+
+export type WorkflowFolderMove = {
+  new_parent_path?: string | null
+}
+
+export type WorkflowFolderRead = {
+  id: string
+  name: string
+  path: string
+  owner_id: string
+  created_at: string
+  updated_at: string
+}
+
+export type WorkflowFolderUpdate = {
+  name?: string | null
+}
+
+export type WorkflowMoveToFolder = {
+  folder_path?: string | null
 }
 
 export type WorkflowRead = {
@@ -2044,6 +2670,9 @@ export type WorkflowRead = {
   error_handler?: string | null
 }
 
+/**
+ * Minimal version of WorkflowRead model for list endpoints.
+ */
 export type WorkflowReadMinimal = {
   id: string
   title: string
@@ -2056,6 +2685,8 @@ export type WorkflowReadMinimal = {
   tags?: Array<TagRead> | null
   alias?: string | null
   error_handler?: string | null
+  latest_definition?: WorkflowDefinitionReadMinimal | null
+  folder_id?: string | null
 }
 
 export type WorkflowTagCreate = {
@@ -2090,26 +2721,39 @@ export type WorkflowUpdate = {
   error_handler?: string | null
 }
 
+export type WorkspaceCreate = {
+  name: string
+  settings?: {
+    [key: string]: string
+  } | null
+  owner_id?: string
+}
+
 export type WorkspaceMember = {
   user_id: string
   first_name: string | null
   last_name: string | null
   email: string
-  role: UserRole
+  org_role: UserRole
+  workspace_role: WorkspaceRole
 }
 
-export type WorkspaceMembershipResponse = {
+export type WorkspaceMembershipCreate = {
+  user_id: string
+  role?: WorkspaceRole
+}
+
+export type WorkspaceMembershipRead = {
   user_id: string
   workspace_id: string
+  role: WorkspaceRole
 }
 
-export type WorkspaceMetadataResponse = {
-  id: string
-  name: string
-  n_members: number
+export type WorkspaceMembershipUpdate = {
+  role?: WorkspaceRole | null
 }
 
-export type WorkspaceResponse = {
+export type WorkspaceRead = {
   id: string
   name: string
   settings?: {
@@ -2118,6 +2762,25 @@ export type WorkspaceResponse = {
   owner_id: string
   n_members: number
   members: Array<WorkspaceMember>
+}
+
+export type WorkspaceReadMinimal = {
+  id: string
+  name: string
+  n_members: number
+}
+
+export type WorkspaceRole = "editor" | "admin"
+
+export type WorkspaceUpdate = {
+  name?: string | null
+  settings?: {
+    [key: string]: string
+  } | null
+}
+
+export type Yaml = {
+  component_id?: "yaml"
 }
 
 export type login = {
@@ -2132,14 +2795,42 @@ export type login = {
 export type PublicIncomingWebhookData = {
   contentType?: string | null
   /**
-   * Echo the request payload back to the caller
+   * Echo back to the caller
    */
   echo?: boolean
+  /**
+   * Return an empty response. Assumes `echo` to be `True`.
+   */
+  emptyEcho?: boolean
   secret: string
+  /**
+   * Vendor specific webhook verification. Supported vendors: `okta`.
+   */
+  vendor?: string | null
   workflowId: string
 }
 
-export type PublicIncomingWebhookResponse = WorkflowExecutionCreateResponse
+export type PublicIncomingWebhookResponse = unknown
+
+export type PublicIncomingWebhook1Data = {
+  contentType?: string | null
+  /**
+   * Echo back to the caller
+   */
+  echo?: boolean
+  /**
+   * Return an empty response. Assumes `echo` to be `True`.
+   */
+  emptyEcho?: boolean
+  secret: string
+  /**
+   * Vendor specific webhook verification. Supported vendors: `okta`.
+   */
+  vendor?: string | null
+  workflowId: string
+}
+
+export type PublicIncomingWebhook1Response = unknown
 
 export type PublicIncomingWebhookWaitData = {
   contentType?: string | null
@@ -2158,29 +2849,28 @@ export type PublicReceiveInteractionData = {
 
 export type PublicReceiveInteractionResponse = ReceiveInteractionResponse
 
-export type WorkspacesListWorkspacesResponse = Array<WorkspaceMetadataResponse>
+export type WorkspacesListWorkspacesResponse = Array<WorkspaceReadMinimal>
 
 export type WorkspacesCreateWorkspaceData = {
-  requestBody: CreateWorkspaceParams
+  requestBody: WorkspaceCreate
 }
 
-export type WorkspacesCreateWorkspaceResponse = WorkspaceMetadataResponse
+export type WorkspacesCreateWorkspaceResponse = WorkspaceReadMinimal
 
 export type WorkspacesSearchWorkspacesData = {
   name?: string | null
 }
 
-export type WorkspacesSearchWorkspacesResponse =
-  Array<WorkspaceMetadataResponse>
+export type WorkspacesSearchWorkspacesResponse = Array<WorkspaceReadMinimal>
 
 export type WorkspacesGetWorkspaceData = {
   workspaceId: string
 }
 
-export type WorkspacesGetWorkspaceResponse = WorkspaceResponse
+export type WorkspacesGetWorkspaceResponse = WorkspaceRead
 
 export type WorkspacesUpdateWorkspaceData = {
-  requestBody: UpdateWorkspaceParams
+  requestBody: WorkspaceUpdate
   workspaceId: string
 }
 
@@ -2197,22 +2887,29 @@ export type WorkspacesListWorkspaceMembershipsData = {
 }
 
 export type WorkspacesListWorkspaceMembershipsResponse =
-  Array<WorkspaceMembershipResponse>
+  Array<WorkspaceMembershipRead>
 
 export type WorkspacesCreateWorkspaceMembershipData = {
-  requestBody: CreateWorkspaceMembershipParams
+  requestBody: WorkspaceMembershipCreate
   workspaceId: string
 }
 
 export type WorkspacesCreateWorkspaceMembershipResponse = unknown
+
+export type WorkspacesUpdateWorkspaceMembershipData = {
+  requestBody: WorkspaceMembershipUpdate
+  userId: string
+  workspaceId: string
+}
+
+export type WorkspacesUpdateWorkspaceMembershipResponse = void
 
 export type WorkspacesGetWorkspaceMembershipData = {
   userId: string
   workspaceId: string
 }
 
-export type WorkspacesGetWorkspaceMembershipResponse =
-  WorkspaceMembershipResponse
+export type WorkspacesGetWorkspaceMembershipResponse = WorkspaceMembershipRead
 
 export type WorkspacesDeleteWorkspaceMembershipData = {
   userId: string
@@ -2320,6 +3017,14 @@ export type TriggersUpdateWebhookData = {
 
 export type TriggersUpdateWebhookResponse = void
 
+export type WorkflowsMoveWorkflowToFolderData = {
+  requestBody: WorkflowMoveToFolder
+  workflowId: string
+  workspaceId: string
+}
+
+export type WorkflowsMoveWorkflowToFolderResponse = void
+
 export type WorkflowExecutionsListWorkflowExecutionsData = {
   limit?: number | null
   trigger?: Array<TriggerType> | null
@@ -2353,7 +3058,7 @@ export type WorkflowExecutionsGetWorkflowExecutionCompactData = {
 }
 
 export type WorkflowExecutionsGetWorkflowExecutionCompactResponse =
-  WorkflowExecutionReadCompact
+  WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__
 
 export type WorkflowExecutionsCancelWorkflowExecutionData = {
   executionId: string
@@ -2568,6 +3273,7 @@ export type TagsDeleteTagResponse = unknown
 
 export type UsersSearchUserData = {
   email?: string | null
+  workspaceId?: string | null
 }
 
 export type UsersSearchUserResponse = UserRead
@@ -2607,6 +3313,15 @@ export type EditorListActionsData = {
 }
 
 export type EditorListActionsResponse = Array<EditorActionRead>
+
+export type EditorValidateExpressionData = {
+  requestBody: ExpressionValidationRequest
+  workspaceId: string
+}
+
+export type EditorValidateExpressionResponse = ExpressionValidationResponse
+
+export type EditorFieldSchemaResponse = EditorComponent
 
 export type RegistryRepositoriesReloadRegistryRepositoriesResponse = void
 
@@ -2878,6 +3593,46 @@ export type CasesCreateCaseData = {
 
 export type CasesCreateCaseResponse = unknown
 
+export type CasesSearchCasesData = {
+  /**
+   * Maximum number of cases to return
+   */
+  limit?: number | null
+  /**
+   * Field to order the cases by
+   */
+  orderBy?:
+    | "created_at"
+    | "updated_at"
+    | "priority"
+    | "severity"
+    | "status"
+    | null
+  /**
+   * Filter by case priority
+   */
+  priority?: CasePriority | null
+  /**
+   * Text to search for in case summary and description
+   */
+  searchTerm?: string | null
+  /**
+   * Filter by case severity
+   */
+  severity?: CaseSeverity | null
+  /**
+   * Direction to sort (asc or desc)
+   */
+  sort?: "asc" | "desc" | null
+  /**
+   * Filter by case status
+   */
+  status?: CaseStatus | null
+  workspaceId: string
+}
+
+export type CasesSearchCasesResponse = Array<CaseReadMinimal>
+
 export type CasesGetCaseData = {
   caseId: string
   workspaceId: string
@@ -2932,6 +3687,13 @@ export type CasesDeleteCommentData = {
 
 export type CasesDeleteCommentResponse = void
 
+export type CasesListEventsWithUsersData = {
+  caseId: string
+  workspaceId: string
+}
+
+export type CasesListEventsWithUsersResponse = CaseEventsWithUsers
+
 export type CasesListFieldsData = {
   workspaceId: string
 }
@@ -2959,6 +3721,66 @@ export type CasesDeleteFieldData = {
 }
 
 export type CasesDeleteFieldResponse = void
+
+export type FoldersGetDirectoryData = {
+  /**
+   * Folder path
+   */
+  path?: string
+  workspaceId: string
+}
+
+export type FoldersGetDirectoryResponse = Array<
+  WorkflowDirectoryItem | FolderDirectoryItem
+>
+
+export type FoldersListFoldersData = {
+  /**
+   * Parent folder path
+   */
+  parentPath?: string
+  workspaceId: string
+}
+
+export type FoldersListFoldersResponse = Array<WorkflowFolderRead>
+
+export type FoldersCreateFolderData = {
+  requestBody: WorkflowFolderCreate
+  workspaceId: string
+}
+
+export type FoldersCreateFolderResponse = WorkflowFolderRead
+
+export type FoldersGetFolderData = {
+  folderId: string
+  workspaceId: string
+}
+
+export type FoldersGetFolderResponse = WorkflowFolderRead
+
+export type FoldersUpdateFolderData = {
+  folderId: string
+  requestBody: WorkflowFolderUpdate
+  workspaceId: string
+}
+
+export type FoldersUpdateFolderResponse = WorkflowFolderRead
+
+export type FoldersDeleteFolderData = {
+  folderId: string
+  requestBody: WorkflowFolderDelete
+  workspaceId: string
+}
+
+export type FoldersDeleteFolderResponse = void
+
+export type FoldersMoveFolderData = {
+  folderId: string
+  requestBody: WorkflowFolderMove
+  workspaceId: string
+}
+
+export type FoldersMoveFolderResponse = WorkflowFolderRead
 
 export type UsersUsersCurrentUserResponse = UserRead
 
@@ -3060,7 +3882,20 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: WorkflowExecutionCreateResponse
+        200: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    get: {
+      req: PublicIncomingWebhook1Data
+      res: {
+        /**
+         * Successful Response
+         */
+        200: unknown
         /**
          * Validation Error
          */
@@ -3104,7 +3939,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Array<WorkspaceMetadataResponse>
+        200: Array<WorkspaceReadMinimal>
       }
     }
     post: {
@@ -3113,7 +3948,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        201: WorkspaceMetadataResponse
+        201: WorkspaceReadMinimal
         /**
          * Validation Error
          */
@@ -3128,7 +3963,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Array<WorkspaceMetadataResponse>
+        200: Array<WorkspaceReadMinimal>
         /**
          * Validation Error
          */
@@ -3143,7 +3978,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: WorkspaceResponse
+        200: WorkspaceRead
         /**
          * Validation Error
          */
@@ -3184,7 +4019,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Array<WorkspaceMembershipResponse>
+        200: Array<WorkspaceMembershipRead>
         /**
          * Validation Error
          */
@@ -3206,13 +4041,26 @@ export type $OpenApiTs = {
     }
   }
   "/workspaces/{workspace_id}/memberships/{user_id}": {
+    patch: {
+      req: WorkspacesUpdateWorkspaceMembershipData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
     get: {
       req: WorkspacesGetWorkspaceMembershipData
       res: {
         /**
          * Successful Response
          */
-        200: WorkspaceMembershipResponse
+        200: WorkspaceMembershipRead
         /**
          * Validation Error
          */
@@ -3401,6 +4249,21 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/workflows/{workflow_id}/move": {
+    post: {
+      req: WorkflowsMoveWorkflowToFolderData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/workflow-executions": {
     get: {
       req: WorkflowExecutionsListWorkflowExecutionsData
@@ -3451,7 +4314,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: WorkflowExecutionReadCompact
+        200: WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__
         /**
          * Validation Error
          */
@@ -3945,6 +4808,31 @@ export type $OpenApiTs = {
          * Validation Error
          */
         422: HTTPValidationError
+      }
+    }
+  }
+  "/editor/expressions/validate": {
+    post: {
+      req: EditorValidateExpressionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ExpressionValidationResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/editor/field-schema": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: EditorComponent
       }
     }
   }
@@ -4521,6 +5409,21 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/cases/search": {
+    get: {
+      req: CasesSearchCasesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<CaseReadMinimal>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/cases/{case_id}": {
     get: {
       req: CasesGetCaseData
@@ -4618,6 +5521,21 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/cases/{case_id}/events": {
+    get: {
+      req: CasesListEventsWithUsersData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseEventsWithUsers
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/case-fields": {
     get: {
       req: CasesListFieldsData
@@ -4667,6 +5585,105 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/folders/directory": {
+    get: {
+      req: FoldersGetDirectoryData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<WorkflowDirectoryItem | FolderDirectoryItem>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/folders": {
+    get: {
+      req: FoldersListFoldersData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<WorkflowFolderRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: FoldersCreateFolderData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: WorkflowFolderRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/folders/{folder_id}": {
+    get: {
+      req: FoldersGetFolderData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WorkflowFolderRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: FoldersUpdateFolderData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WorkflowFolderRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: FoldersDeleteFolderData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/folders/{folder_id}/move": {
+    post: {
+      req: FoldersMoveFolderData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WorkflowFolderRead
         /**
          * Validation Error
          */

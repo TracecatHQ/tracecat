@@ -1,9 +1,7 @@
 "use client"
 
-import React from "react"
-import { WorkflowReadMinimal } from "@/client"
-
-import { useWorkflowManager } from "@/lib/hooks"
+import type React from "react"
+import type { WorkflowReadMinimal } from "@/client"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -15,6 +13,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
+import { useWorkflowManager } from "@/lib/hooks"
 
 export function DeleteWorkflowAlertDialog({
   selectedWorkflow,
