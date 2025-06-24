@@ -84,12 +84,12 @@ export function AssigneeChangedEvent({
       )
     }
     return (
-      <div className="flex items-center space-x-1 text-xs">
+      <div className="flex items-center space-x-2 text-xs">
         <EventIcon icon={UserIcon} />
         <span>
-          <EventActor user={actor} /> assigned the case to
+          <EventActor user={actor} /> assigned the case to{" "}
+          <EventActor user={userMap[assigneeId]} />
         </span>
-        <EventActor user={userMap[assigneeId]} />
       </div>
     )
   }
@@ -223,23 +223,25 @@ export function CaseUpdatedEvent({
       return (
         <div className="flex items-center space-x-2 text-xs">
           <EventIcon icon={PencilIcon} />
-          <TooltipProvider>
-            <Tooltip>
-              <EventActor user={actor} />{" "}
-              <TooltipTrigger asChild>
-                <span className="cursor-default">
-                  {event.new
-                    ? `changed summary to ${event.new}`
-                    : "removed summary"}
-                </span>
-              </TooltipTrigger>
-              {event.old && (
-                <TooltipContent>
-                  <p>Previously: {event.old}</p>
-                </TooltipContent>
-              )}
-            </Tooltip>
-          </TooltipProvider>
+          <span>
+            <EventActor user={actor} />{" "}
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="cursor-default">
+                    {event.new
+                      ? `changed summary to ${event.new}`
+                      : "removed summary"}
+                  </span>
+                </TooltipTrigger>
+                {event.old && (
+                  <TooltipContent>
+                    <p>Previously: {event.old}</p>
+                  </TooltipContent>
+                )}
+              </Tooltip>
+            </TooltipProvider>
+          </span>
         </div>
       )
     default:
