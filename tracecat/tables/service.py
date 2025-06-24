@@ -40,6 +40,11 @@ from tracecat.tables.models import (
 )
 from tracecat.types.auth import AccessLevel, Role
 from tracecat.types.exceptions import TracecatAuthorizationError, TracecatNotFoundError
+from tracecat.types.pagination import (
+    BaseCursorPaginator,
+    CursorPaginatedResponse,
+    CursorPaginationParams,
+)
 
 _RETRYABLE_DB_EXCEPTIONS = (
     InvalidCachedStatementError,
@@ -908,6 +913,209 @@ class BaseTablesService(BaseService):
                 schema=schema_name,
             )
             raise
+
+    async def list_rows_paginated(
+        self,
+        table: Table,
+        params: CursorPaginationParams,
+        search_term: str | None = None,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
+        updated_before: datetime | None = None,
+        updated_after: datetime | None = None,
+    ) -> CursorPaginatedResponse[dict[str, Any]]:
+        """List rows in a table with cursor-based pagination.
+
+        Args:
+            table: The table to search in
+            params: Cursor pagination parameters
+            search_term: Text to search for across all text and JSONB columns
+            start_time: Filter records created after this time
+            end_time: Filter records created before this time
+            updated_before: Filter records updated before this time
+            updated_after: Filter records updated after this time
+
+        Returns:
+            Cursor paginated response with matching rows
+
+        Raises:
+            TracecatNotFoundError: If the table does not exist
+            ValueError: If search parameters are invalid
+        """
+        schema_name = self._get_schema_name()
+        sanitized_table_name = self._sanitize_identifier(table.name)
+        conn = await self.session.connection()
+
+        # Build the base query
+        stmt = sa.select(sa.text("*")).select_from(
+            sa.table(sanitized_table_name, schema=schema_name)
+        )
+
+        # Build WHERE conditions
+        where_conditions = []
+
+        # Add text search conditions
+        if search_term:
+            # Validate search term to prevent abuse
+            if len(search_term) > 1000:
+                raise ValueError("Search term cannot exceed 1000 characters")
+            if "\x00" in search_term:
+                raise ValueError("Search term cannot contain null bytes")
+
+            # Get all text-searchable columns (TEXT and JSONB types)
+            searchable_columns = [
+                col.name
+                for col in table.columns
+                if col.type in (SqlType.TEXT.value, SqlType.JSONB.value)
+            ]
+
+            if searchable_columns:
+                # Use SQLAlchemy's concat function for proper parameter binding
+                search_pattern = sa.func.concat("%", search_term, "%")
+                search_conditions = []
+                for col_name in searchable_columns:
+                    sanitized_col = self._sanitize_identifier(col_name)
+                    if col_name in [
+                        c.name for c in table.columns if c.type == SqlType.JSONB.value
+                    ]:
+                        # For JSONB columns, convert to text for searching
+                        search_conditions.append(
+                            sa.func.cast(sa.column(sanitized_col), sa.TEXT).ilike(
+                                search_pattern
+                            )
+                        )
+                    else:
+                        # For TEXT columns, search directly
+                        search_conditions.append(
+                            sa.column(sanitized_col).ilike(search_pattern)
+                        )
+                where_conditions.append(sa.or_(*search_conditions))
+            else:
+                # No searchable columns found, search_term will have no effect
+                self.logger.warning(
+                    "No searchable columns found for text search",
+                    table=table.name,
+                    search_term=search_term,
+                )
+
+        # Add date filters
+        if start_time:
+            where_conditions.append(sa.column("created_at") >= start_time)
+        if end_time:
+            where_conditions.append(sa.column("created_at") <= end_time)
+        if updated_after:
+            where_conditions.append(sa.column("updated_at") >= updated_after)
+        if updated_before:
+            where_conditions.append(sa.column("updated_at") <= updated_before)
+
+        # Apply WHERE conditions if any
+        if where_conditions:
+            stmt = stmt.where(sa.and_(*where_conditions))
+
+        # Apply cursor-based pagination
+        # Decode cursor if provided
+        cursor_data = None
+        if params.cursor:
+            try:
+                cursor_data = BaseCursorPaginator.decode_cursor(params.cursor)
+            except Exception as e:
+                raise ValueError(f"Invalid cursor: {e}") from e
+
+            # Apply cursor filtering for table rows
+            cursor_time = cursor_data.created_at
+            cursor_id = UUID(cursor_data.id)
+
+            if params.reverse:
+                # For reverse pagination (going backwards)
+                stmt = stmt.where(
+                    sa.or_(
+                        sa.column("created_at") > cursor_time,
+                        sa.and_(
+                            sa.column("created_at") == cursor_time,
+                            sa.column("id") > cursor_id,
+                        ),
+                    )
+                )
+            else:
+                # For forward pagination (going forwards)
+                stmt = stmt.where(
+                    sa.or_(
+                        sa.column("created_at") < cursor_time,
+                        sa.and_(
+                            sa.column("created_at") == cursor_time,
+                            sa.column("id") < cursor_id,
+                        ),
+                    )
+                )
+
+        # Apply consistent ordering for cursor pagination
+        if params.reverse:
+            # For reverse pagination, use ASC ordering
+            stmt = stmt.order_by(sa.column("created_at").asc(), sa.column("id").asc())
+        else:
+            # For forward pagination, use DESC ordering (newest first)
+            stmt = stmt.order_by(sa.column("created_at").desc(), sa.column("id").desc())
+
+        # Fetch limit + 1 to determine if there are more items
+        stmt = stmt.limit(params.limit + 1)
+
+        try:
+            result = await conn.execute(stmt)
+            rows = [dict(row) for row in result.mappings().all()]
+        except ProgrammingError as e:
+            while (cause := e.__cause__) is not None:
+                e = cause
+            if isinstance(e, UndefinedTableError):
+                raise TracecatNotFoundError(
+                    f"Table '{table.name}' does not exist"
+                ) from e
+            raise ValueError(str(e)) from e
+        except Exception as e:
+            self.logger.error(
+                "Unexpected DB exception occurred during paginated search",
+                kind=type(e).__name__,
+                error=str(e),
+                table=table.name,
+                schema=schema_name,
+            )
+            raise
+
+        # Check if there are more items
+        has_more = len(rows) > params.limit
+        if has_more:
+            rows = rows[: params.limit]
+
+        # Generate cursors
+        next_cursor = None
+        prev_cursor = None
+
+        if rows:
+            if has_more:
+                # Generate next cursor from the last item
+                last_item = rows[-1]
+                next_cursor = BaseCursorPaginator.encode_cursor(
+                    last_item["created_at"], last_item["id"]
+                )
+
+            if params.cursor:
+                # If we used a cursor to get here, we can go back
+                first_item = rows[0]
+                prev_cursor = BaseCursorPaginator.encode_cursor(
+                    first_item["created_at"], first_item["id"]
+                )
+
+        # If we were doing reverse pagination, swap the cursors and reverse items
+        if params.reverse:
+            rows = list(reversed(rows))
+            next_cursor, prev_cursor = prev_cursor, next_cursor
+
+        return CursorPaginatedResponse(
+            items=rows,
+            next_cursor=next_cursor,
+            prev_cursor=prev_cursor,
+            has_more=has_more,
+            has_previous=params.cursor is not None,
+        )
 
     async def batch_insert_rows(
         self,
