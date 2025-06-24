@@ -2,32 +2,23 @@ import os
 
 import pytest
 from temporalio.client import WorkflowFailureError
-from temporalio.worker import Worker
 
 from tests import shared
 from tracecat.contexts import ctx_role
-from tracecat.dsl.action import DSLActivities
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import RETRY_POLICIES, DSLEntrypoint, DSLInput, DSLRunArgs
 from tracecat.dsl.models import ActionStatement
-from tracecat.dsl.worker import new_sandbox_runner
 from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.logger import logger
 
 
 @pytest.mark.anyio
-async def test_execution_fails_fatal(test_role):
+async def test_execution_fails_fatal(test_role, test_worker_factory):
     dsl = DSLInput.from_yaml("tests/data/workflows/unit_error_fatal.yml")
     test_name = f"test_fatal_execution-{dsl.title}"
     wf_exec_id = shared.generate_test_exec_id(test_name)
     client = await get_temporal_client()
-    async with Worker(
-        client,
-        task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-        activities=DSLActivities.load(),
-        workflows=[DSLWorkflow],
-        workflow_runner=new_sandbox_runner(),
-    ):
+    async with test_worker_factory(client):
         with pytest.raises(WorkflowFailureError) as e:
             await client.execute_workflow(
                 DSLWorkflow.run,
@@ -80,7 +71,7 @@ async def test_execution_fails_fatal(test_role):
 @pytest.mark.anyio
 @pytest.mark.skip
 async def test_execution_fails_invalid_expressions(
-    expression, expected_error, test_role
+    expression, expected_error, test_role, test_worker_factory
 ):
     dsl = DSLInput(
         title="Testing invalid expressions: " + expected_error,
@@ -106,13 +97,7 @@ async def test_execution_fails_invalid_expressions(
     test_name = f"test_execution_fails_invalid_expressions-{dsl.title}"
     wf_exec_id = shared.generate_test_exec_id(test_name)
     client = await get_temporal_client()
-    async with Worker(
-        client,
-        task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-        activities=DSLActivities.load(),
-        workflows=[DSLWorkflow],
-        workflow_runner=new_sandbox_runner(),
-    ):
+    async with test_worker_factory(client):
         with pytest.raises(WorkflowFailureError):
             result = await client.execute_workflow(
                 DSLWorkflow.run,
@@ -122,7 +107,3 @@ async def test_execution_fails_invalid_expressions(
                 retry_policy=RETRY_POLICIES["workflow:fail_fast"],
             )
             logger.info(result)
-
-        # assert (
-        #     expected_error in str(exc_info.value)
-        # ), f"Expected '{expected_error}' in error message, but got: {str(exc_info.value)}"

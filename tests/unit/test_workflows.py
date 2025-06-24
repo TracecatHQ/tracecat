@@ -12,7 +12,6 @@ import asyncio
 import os
 import re
 from collections.abc import AsyncGenerator, Callable, Mapping
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
@@ -54,7 +53,6 @@ from tracecat.dsl.models import (
     RunActionInput,
     ScatterArgs,
 )
-from tracecat.dsl.worker import get_activities, new_sandbox_runner
 from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.expressions.common import ExprContext
 from tracecat.identifiers.workflow import (
@@ -139,29 +137,6 @@ def load_expected_dsl_output(path: Path) -> dict[str, Any]:
         yaml_data = f.read()
     data = yaml.safe_load(yaml_data)
     return {key: (value or {}) for key, value in data.items()}
-
-
-@pytest.fixture
-async def test_worker_factory() -> AsyncGenerator[Callable[[Client], Worker], Any]:
-    """Factory fixture to create workers with proper ThreadPoolExecutor cleanup."""
-
-    executor = ThreadPoolExecutor(max_workers=100)
-
-    def create_worker(client: Client) -> Worker:
-        """Create a worker with the same configuration as production."""
-        return Worker(
-            client=client,
-            task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
-            activities=get_activities(),
-            workflows=[DSLWorkflow],
-            workflow_runner=new_sandbox_runner(),
-            activity_executor=executor,
-        )
-
-    try:
-        yield create_worker
-    finally:
-        executor.shutdown(wait=True)
 
 
 @pytest.fixture
@@ -589,18 +564,16 @@ async def _create_and_commit_workflow(
 
 
 async def _run_workflow(
-    client: Client,
     wf_exec_id: str,
     run_args: DSLRunArgs,
-    worker_factory: Callable[[Client], Worker],
+    worker: Worker,
 ):
-    queue = os.environ["TEMPORAL__CLUSTER_QUEUE"]
-    async with worker_factory(client):
-        result = await client.execute_workflow(
+    async with worker:
+        result = await worker.client.execute_workflow(
             DSLWorkflow.run,
             run_args,
             id=wf_exec_id,
-            task_queue=queue,
+            task_queue=worker.task_queue,
             retry_policy=RETRY_POLICIES["workflow:fail_fast"],
         )
     return result
@@ -677,9 +650,8 @@ async def test_child_workflow_success(test_role, temporal_client, test_worker_fa
         wf_exec_id=wf_exec_id,
         t=type(test_worker_factory),
     )
-    result = await _run_workflow(
-        temporal_client, wf_exec_id, run_args, test_worker_factory
-    )
+    worker = test_worker_factory(temporal_client)
+    result = await _run_workflow(wf_exec_id, run_args, worker)
 
     expected = {
         "ACTIONS": {
@@ -779,9 +751,8 @@ async def test_child_workflow_context_passing(
         },
     )
 
-    result = await _run_workflow(
-        temporal_client, wf_exec_id, run_args, test_worker_factory
-    )
+    worker = test_worker_factory(temporal_client)
+    result = await _run_workflow(wf_exec_id, run_args, worker)
     # Parent expected
     expected = {
         "ACTIONS": {
@@ -906,9 +877,8 @@ async def test_child_workflow_loop(
         },
     )
 
-    result = await _run_workflow(
-        temporal_client, wf_exec_id, run_args, test_worker_factory
-    )
+    worker = test_worker_factory(temporal_client)
+    result = await _run_workflow(wf_exec_id, run_args, worker)
     # Parent expected
     expected = {
         "ACTIONS": {
@@ -990,9 +960,8 @@ async def test_single_child_workflow_alias(
         role=test_role,
         wf_id=WorkflowUUID.new("wf-00000000000000000000000000000002"),
     )
-    result = await _run_workflow(
-        temporal_client, wf_exec_id, run_args, test_worker_factory
-    )
+    worker = test_worker_factory(temporal_client)
+    result = await _run_workflow(wf_exec_id, run_args, worker)
     # Parent expected
     assert result == {"data": "Test", "index": 0}
 
@@ -1072,9 +1041,8 @@ async def test_child_workflow_alias_with_loop(
         wf_id=WorkflowUUID.new("wf-00000000000000000000000000000002"),
         trigger_inputs="__EXPECTED_DATA__",
     )
-    result = await _run_workflow(
-        temporal_client, wf_exec_id, run_args, test_worker_factory
-    )
+    worker = test_worker_factory(temporal_client)
+    result = await _run_workflow(wf_exec_id, run_args, worker)
     # Parent expected
     assert result == [
         {
@@ -1165,9 +1133,8 @@ async def test_single_child_workflow_override_environment_correct(
         wf_id=TEST_WF_ID,
     )
 
-    result = await _run_workflow(
-        temporal_client, wf_exec_id, run_args, test_worker_factory
-    )
+    worker = test_worker_factory(temporal_client)
+    result = await _run_workflow(wf_exec_id, run_args, worker)
     expected = {
         "ACTIONS": {
             "parent": {
@@ -1246,9 +1213,8 @@ async def test_multiple_child_workflow_override_environment_correct(
         wf_id=TEST_WF_ID,
     )
 
-    result = await _run_workflow(
-        temporal_client, wf_exec_id, run_args, test_worker_factory(temporal_client)
-    )
+    worker = test_worker_factory(temporal_client)
+    result = await _run_workflow(wf_exec_id, run_args, worker)
     expected = {
         "ACTIONS": {
             "parent": {
@@ -1327,9 +1293,8 @@ async def test_single_child_workflow_environment_has_correct_default(
         wf_id=TEST_WF_ID,
     )
 
-    result = await _run_workflow(
-        temporal_client, wf_exec_id, run_args, test_worker_factory
-    )
+    worker = test_worker_factory(temporal_client)
+    result = await _run_workflow(wf_exec_id, run_args, worker)
     expected = {
         "ACTIONS": {
             "parent": {
@@ -1414,9 +1379,8 @@ async def test_multiple_child_workflow_environments_have_correct_defaults(
         wf_id=TEST_WF_ID,
     )
 
-    result = await _run_workflow(
-        temporal_client, wf_exec_id, run_args, test_worker_factory
-    )
+    worker = test_worker_factory(temporal_client)
+    result = await _run_workflow(wf_exec_id, run_args, worker)
     expected = {
         "ACTIONS": {
             "parent": {
@@ -1520,9 +1484,8 @@ async def test_single_child_workflow_get_correct_secret_environment(
         wf_id=TEST_WF_ID,
     )
 
-    result = await _run_workflow(
-        temporal_client, wf_exec_id, run_args, test_worker_factory
-    )
+    worker = test_worker_factory(temporal_client)
+    result = await _run_workflow(wf_exec_id, run_args, worker)
     expected = {
         "ACTIONS": {
             "parent": {
@@ -1601,12 +1564,8 @@ async def test_pull_based_workflow_fetches_latest_version(
         # NOTE: Not setting dsl here to make it pull based
         # Not setting schedule_id here to make it use the passed in trigger inputs
     )
-    result = await _run_workflow(
-        temporal_client,
-        f"{wf_exec_id}:first",
-        run_args,
-        test_worker_factory,
-    )
+    worker = test_worker_factory(temporal_client)
+    result = await _run_workflow(f"{wf_exec_id}:first", run_args, worker)
 
     assert result == "__EXPECTED_FIRST_RESULT__"
 
@@ -1639,12 +1598,8 @@ async def test_pull_based_workflow_fetches_latest_version(
             workflow_id=workflow_id, dsl=second_dsl
         )
 
-    result = await _run_workflow(
-        temporal_client,
-        f"{wf_exec_id}:second",
-        run_args,
-        test_worker_factory,
-    )
+    worker = test_worker_factory(temporal_client)
+    result = await _run_workflow(f"{wf_exec_id}:second", run_args, worker)
     assert result == "__EXPECTED_SECOND_RESULT__"
 
 
@@ -2711,9 +2666,8 @@ async def test_workflow_error_handler_success(
         wf_id=TEST_WF_ID,
     )
     with pytest.raises(WorkflowFailureError) as exc_info:
-        _ = await _run_workflow(
-            temporal_client, wf_exec_id, run_args, test_worker_factory
-        )
+        worker = test_worker_factory(temporal_client)
+        _ = await _run_workflow(wf_exec_id, run_args, worker)
     assert str(exc_info.value) == "Workflow execution failed"
 
     # Check temporal event history
@@ -2799,9 +2753,8 @@ async def test_workflow_error_handler_invalid_handler_fail_no_match(
         wf_id=TEST_WF_ID,
     )
     with pytest.raises(WorkflowFailureError) as exc_info:
-        _ = await _run_workflow(
-            temporal_client, wf_exec_id, run_args, test_worker_factory
-        )
+        worker = test_worker_factory(temporal_client)
+        _ = await _run_workflow(wf_exec_id, run_args, worker)
     assert str(exc_info.value) == "Workflow execution failed"
     cause0 = exc_info.value.cause
     assert isinstance(cause0, ActivityError)
@@ -2860,9 +2813,8 @@ async def test_workflow_lookup_table_success(
         role=test_role,
         wf_id=TEST_WF_ID,
     )
-    result = await _run_workflow(
-        temporal_client, wf_exec_id, run_args, test_worker_factory
-    )
+    worker = test_worker_factory(temporal_client)
+    result = await _run_workflow(wf_exec_id, run_args, worker)
     assert "number" in result
     assert result["number"] == 1
 
@@ -2920,9 +2872,8 @@ async def test_workflow_lookup_table_missing_value(
         role=test_role,
         wf_id=TEST_WF_ID,
     )
-    result = await _run_workflow(
-        temporal_client, wf_exec_id, run_args, test_worker_factory
-    )
+    worker = test_worker_factory(temporal_client)
+    result = await _run_workflow(wf_exec_id, run_args, worker)
     assert result is None
 
 
@@ -2976,9 +2927,8 @@ async def test_workflow_insert_table_row_success(
         role=test_role,
         wf_id=TEST_WF_ID,
     )
-    result = await _run_workflow(
-        temporal_client, wf_exec_id, run_args, test_worker_factory
-    )
+    worker = test_worker_factory(temporal_client)
+    result = await _run_workflow(wf_exec_id, run_args, worker)
 
     # Verify the result indicates success
     assert result is not None
@@ -3078,9 +3028,8 @@ async def test_workflow_table_actions_in_loop(
         role=test_role,
         wf_id=TEST_WF_ID,
     )
-    result = await _run_workflow(
-        temporal_client, wf_exec_id, run_args, test_worker_factory
-    )
+    worker = test_worker_factory(temporal_client)
+    result = await _run_workflow(wf_exec_id, run_args, worker)
 
     # Verify the results
     assert result is not None
@@ -3171,13 +3120,13 @@ async def test_workflow_detached_child_workflow(
         role=test_role,
         wf_id=TEST_WF_ID,
     )
-    queue = os.environ["TEMPORAL__CLUSTER_QUEUE"]
-    async with test_worker_factory(temporal_client):
+    worker = test_worker_factory(temporal_client)
+    async with worker:
         parent_handle = await temporal_client.start_workflow(
             DSLWorkflow.run,
             run_args,
             id=wf_exec_id,
-            task_queue=queue,
+            task_queue=worker.task_queue,
             retry_policy=RETRY_POLICIES["workflow:fail_fast"],
         )
         # Wait for parent completion
