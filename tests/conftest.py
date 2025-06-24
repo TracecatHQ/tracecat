@@ -82,7 +82,7 @@ async def test_db_engine():
             logger.error(f"Error disposing engine in test_db_engine: {e}")
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="session", autouse=True)
 def db() -> Iterator[None]:
     """Session-scoped fixture to create and teardown test database using sync SQLAlchemy."""
 
