@@ -209,6 +209,28 @@ TRACECAT__ALLOWED_GIT_DOMAINS = set(
     ).split(",")
 )
 
+# === Blob Storage Config === #
+TRACECAT__BLOB_STORAGE_PROTOCOL = os.environ.get(
+    "TRACECAT__BLOB_STORAGE_PROTOCOL", "minio"
+)
+"""Blob storage protocol: 's3' for AWS S3, 'minio' for Minio."""
+
+TRACECAT__BLOB_STORAGE_BUCKET = os.environ.get(
+    "TRACECAT__BLOB_STORAGE_BUCKET", "tracecat"
+)
+"""The name of the blob storage bucket."""
+
+TRACECAT__BLOB_STORAGE_ENDPOINT = os.environ.get(
+    "TRACECAT__BLOB_STORAGE_ENDPOINT", "http://minio:9000"
+)
+"""Endpoint URL for Minio. Ignored when protocol is 's3'."""
+
+# Presigned URL configuration
+TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY = int(
+    os.environ.get("TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY", 3600)
+)
+"""Default expiry time for presigned URLs in seconds (default: 1 hour)."""
+
 # === Local registry === #
 TRACECAT__LOCAL_REPOSITORY_ENABLED = os.getenv(
     "TRACECAT__LOCAL_REPOSITORY_ENABLED", "0"
@@ -290,3 +312,23 @@ TRACECAT__MAX_ROWS_CLIENT_POSTGRES = int(
     os.environ.get("TRACECAT__MAX_ROWS_CLIENT_POSTGRES", 1000)
 )
 """Maximum number of rows that can be returned from PostgreSQL client queries. Defaults to 1,000."""
+# === File limits === #
+TRACECAT__MAX_ATTACHMENT_SIZE_BYTES = int(
+    os.environ.get("TRACECAT__MAX_ATTACHMENT_SIZE_BYTES", 50 * 1024 * 1024)
+)
+"""The maximum size for case attachment files in bytes. Defaults to 50MB."""
+
+TRACECAT__MAX_ATTACHMENT_FILENAME_LENGTH = int(
+    os.environ.get("TRACECAT__MAX_ATTACHMENT_FILENAME_LENGTH", 255)
+)
+"""The maximum length for attachment filenames. Defaults to 255 (Django FileField standard)."""
+
+TRACECAT__MAX_CASE_STORAGE_BYTES = int(
+    os.environ.get("TRACECAT__MAX_CASE_STORAGE_BYTES", 500 * 1024 * 1024)
+)
+"""The maximum total storage per case in bytes. Defaults to 500MB."""
+
+TRACECAT__MAX_ATTACHMENTS_PER_CASE = int(
+    os.environ.get("TRACECAT__MAX_ATTACHMENTS_PER_CASE", 100)
+)
+"""The maximum number of attachments allowed per case. Defaults to 100."""
