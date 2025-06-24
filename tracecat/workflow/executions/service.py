@@ -27,10 +27,10 @@ from tracecat import config
 from tracecat.contexts import ctx_role
 from tracecat.db.schemas import Interaction
 from tracecat.dsl.client import get_temporal_client
-from tracecat.dsl.common import DSLInput, DSLRunArgs
+from tracecat.dsl.common import RETRY_POLICIES, DSLInput, DSLRunArgs
 from tracecat.dsl.models import Task, TriggerInputs
 from tracecat.dsl.validation import validate_trigger_inputs
-from tracecat.dsl.workflow import DSLWorkflow, retry_policies
+from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.ee.interactions.models import InteractionInput
 from tracecat.ee.interactions.service import InteractionService
 from tracecat.identifiers import UserID
@@ -673,7 +673,7 @@ class WorkflowExecutionsService:
                 ),
                 id=wf_exec_id,
                 task_queue=config.TEMPORAL__CLUSTER_QUEUE,
-                retry_policy=retry_policies["workflow:fail_fast"],
+                retry_policy=RETRY_POLICIES["workflow:fail_fast"],
                 # We don't currently differentiate between exec and run timeout as we fail fast for workflows
                 execution_timeout=datetime.timedelta(seconds=dsl.config.timeout),
                 search_attributes=search_attrs,
