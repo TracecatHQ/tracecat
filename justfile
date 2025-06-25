@@ -29,7 +29,7 @@ lint-app:
 	ruff check
 
 lint-fix-ui:
-	cd frontend && pnpm lint:fix && pnpm format:write && cd ..
+	cd frontend && pnpm check && cd ..
 lint-fix-app:
 	ruff check . && ruff format .
 
