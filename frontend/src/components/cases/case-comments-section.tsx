@@ -2,6 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod"
 import {
+  AlertCircle,
   ArrowUpIcon,
   MoreHorizontal,
   PaperclipIcon,
@@ -60,20 +61,32 @@ export function CommentSection({
   caseId: string
   workspaceId: string
 }) {
-  const { caseComments, caseCommentsIsLoading } = useCaseComments({
-    caseId,
-    workspaceId,
-  })
+  const { caseComments, caseCommentsIsLoading, caseCommentsError } =
+    useCaseComments({
+      caseId,
+      workspaceId,
+    })
 
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null)
 
   if (caseCommentsIsLoading) {
     return (
-      <>
+      <div className="space-y-4 p-4">
         <CommentSkeleton />
         <CommentSkeleton />
         <CommentSkeleton />
-      </>
+      </div>
+    )
+  }
+
+  if (caseCommentsError) {
+    return (
+      <div className="flex items-center justify-center p-8">
+        <div className="flex items-center gap-2 text-red-600">
+          <AlertCircle className="h-4 w-4" />
+          <span className="text-sm">Failed to load comments</span>
+        </div>
+      </div>
     )
   }
   return (
