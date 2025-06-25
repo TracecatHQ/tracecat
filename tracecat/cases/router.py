@@ -11,6 +11,7 @@ from tracecat.auth.users import search_users
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.models import (
     AssigneeChangedEventRead,
+    CaseAttachmentCreate,
     CaseAttachmentRead,
     CaseCommentCreate,
     CaseCommentRead,
@@ -475,6 +476,7 @@ async def list_attachments(
     service = CasesService(session, role)
     case = await service.get_case(case_id)
     if case is None:
+        logger.warning("Case not found", case_id=case_id, user_id=role.user_id)
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Case with ID {case_id} not found",
@@ -508,18 +510,30 @@ async def create_attachment(
     file: UploadFile,
 ) -> CaseAttachmentRead:
     """Upload a new attachment to a case."""
-    from tracecat.cases.models import CaseAttachmentCreate
-
     service = CasesService(session, role)
     case = await service.get_case(case_id)
     if case is None:
+        logger.warning("Case not found", case_id=case_id, user_id=role.user_id)
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Case with ID {case_id} not found",
         )
 
     # Read file content
-    content = await file.read()
+    try:
+        content = await file.read()
+    except Exception as e:
+        logger.error(
+            "Failed to read file content",
+            case_id=case_id,
+            filename=file.filename,
+            error=str(e),
+            error_type=type(e).__name__,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Failed to read file content: {str(e)}",
+        ) from e
 
     # Create attachment
     try:
@@ -529,7 +543,14 @@ async def create_attachment(
             size=len(content),
             content=content,
         )
+
         attachment = await service.attachments.create_attachment(case, params)
+        logger.info(
+            "Created attachment",
+            case_id=case_id,
+            attachment_id=attachment.id,
+            size_mb=round(attachment.file.size / (1024 * 1024), 2),
+        )
 
         return CaseAttachmentRead(
             id=attachment.id,
@@ -545,11 +566,24 @@ async def create_attachment(
             is_deleted=attachment.file.is_deleted,
         )
     except ValueError as e:
+        logger.error(
+            "Validation error",
+            case_id=case_id,
+            filename=file.filename,
+            error=str(e),
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         ) from e
     except Exception as e:
+        logger.error(
+            "Failed to create attachment",
+            case_id=case_id,
+            filename=file.filename,
+            error=str(e),
+            error_type=type(e).__name__,
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to upload attachment: {str(e)}",
@@ -565,11 +599,10 @@ async def download_attachment(
     attachment_id: uuid.UUID,
 ) -> Response:
     """Download an attachment."""
-    from fastapi.responses import Response
-
     service = CasesService(session, role)
     case = await service.get_case(case_id)
     if case is None:
+        logger.warning("Case not found", case_id=case_id, attachment_id=attachment_id)
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Case with ID {case_id} not found",
@@ -589,11 +622,26 @@ async def download_attachment(
             },
         )
     except Exception as e:
+        error_type = type(e).__name__
         if "not found" in str(e).lower():
+            logger.warning(
+                "Attachment not found",
+                case_id=case_id,
+                attachment_id=attachment_id,
+                error=str(e),
+            )
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=str(e),
             ) from e
+
+        logger.error(
+            "Failed to download attachment",
+            case_id=case_id,
+            attachment_id=attachment_id,
+            error=str(e),
+            error_type=error_type,
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to download attachment: {str(e)}",
@@ -614,6 +662,7 @@ async def delete_attachment(
     service = CasesService(session, role)
     case = await service.get_case(case_id)
     if case is None:
+        logger.warning("Case not found", case_id=case_id, attachment_id=attachment_id)
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Case with ID {case_id} not found",
@@ -622,16 +671,39 @@ async def delete_attachment(
     try:
         await service.attachments.delete_attachment(case, attachment_id)
     except Exception as e:
+        error_type = type(e).__name__
+
         if "not found" in str(e).lower():
+            logger.warning(
+                "Attachment not found",
+                case_id=case_id,
+                attachment_id=attachment_id,
+                error=str(e),
+            )
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=str(e),
             ) from e
         if "permission" in str(e).lower():
+            logger.warning(
+                "Permission denied",
+                case_id=case_id,
+                attachment_id=attachment_id,
+                user_id=role.user_id,
+                error=str(e),
+            )
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=str(e),
             ) from e
+
+        logger.error(
+            "Failed to delete attachment",
+            case_id=case_id,
+            attachment_id=attachment_id,
+            error=str(e),
+            error_type=error_type,
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to delete attachment: {str(e)}",
@@ -649,13 +721,16 @@ async def get_storage_usage(
     service = CasesService(session, role)
     case = await service.get_case(case_id)
     if case is None:
+        logger.warning("Case not found", case_id=case_id)
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Case with ID {case_id} not found",
         )
 
     total_bytes = await service.attachments.get_total_storage_used(case)
+    total_mb = round(total_bytes / (1024 * 1024), 2)
+
     return {
         "total_bytes": float(total_bytes),
-        "total_mb": round(total_bytes / (1024 * 1024), 2),
+        "total_mb": total_mb,
     }
