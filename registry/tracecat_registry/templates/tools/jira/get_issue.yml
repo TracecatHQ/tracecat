@@ -16,11 +16,15 @@ definition:
     base_url:
       type: str
       description: Jira tenant URL (e.g. https://tracecat.atlassian.net)
+    fields:
+      type: str
+      description: "A list of fields to return for each issue, use it to retrieve a subset of fields. This parameter accepts a comma-separated list. Expand options include: *all, *navigable, summary,comment, -description, -comment. The default is *all"
+      default: "*all"
   steps:
     - ref: get_issue
       action: core.http_request
       args:
-        url: ${{ inputs.base_url }}/rest/api/3/issue/${{ inputs.issue_id_or_key }}
+        url: ${{ inputs.base_url }}/rest/api/3/issue/${{ inputs.issue_id_or_key }}?fields=${{ inputs.fields }}
         method: GET
         auth:
           username: ${{ SECRETS.jira.JIRA_USEREMAIL }}
