@@ -1,0 +1,28 @@
+type: action
+definition:
+  title: Get issue
+  description: Get an issue from Jira by ID or key.
+  display_group: Jira
+  doc_url: https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issues/#api-rest-api-3-issue-issueidorkey-get
+  namespace: tools.jira
+  name: get_issue
+  secrets:
+    - name: jira
+      keys: ["JIRA_USEREMAIL", "JIRA_API_TOKEN"]
+  expects:
+    issue_id_or_key:
+      type: str
+      description: ID or key of the issue to get.
+    base_url:
+      type: str
+      description: Jira tenant URL (e.g. https://tracecat.atlassian.net)
+  steps:
+    - ref: get_issue
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/rest/api/3/issue/${{ inputs.issue_id_or_key }}
+        method: GET
+        auth:
+          username: ${{ SECRETS.jira.JIRA_USEREMAIL }}
+          password: ${{ SECRETS.jira.JIRA_API_TOKEN }}
+  returns: ${{ steps.get_issue.result.data }}
