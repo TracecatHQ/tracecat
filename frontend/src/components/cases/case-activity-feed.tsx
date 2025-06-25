@@ -191,28 +191,23 @@ export function CaseActivityFeed({
   if (caseEventsIsLoading) {
     return (
       <div className="space-y-4">
-        <Skeleton className="h-8 w-40" />
-        <div className="space-y-4">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="space-y-2">
-              <Skeleton className="h-6 w-full" />
-              <Skeleton className="h-4 w-3/4" />
-            </div>
-          ))}
-        </div>
+        {Array.from({ length: 3 }).map((_, i) => (
+          <div key={i} className="space-y-2">
+            <Skeleton className="h-6 w-full" />
+            <Skeleton className="h-4 w-3/4" />
+          </div>
+        ))}
       </div>
     )
   }
 
   if (caseEventsError) {
     return (
-      <div className="flex flex-col items-center justify-center p-6 text-center">
-        <AlertCircle className="size-8 text-destructive" />
-        <h3 className="mt-2 text-sm font-medium">Error loading activities</h3>
-        <p className="mt-1 text-xs text-muted-foreground">
-          {caseEventsError.message ||
-            "An error occurred while loading activities."}
-        </p>
+      <div className="flex items-center justify-center p-8">
+        <div className="flex items-center gap-2 text-red-600">
+          <AlertCircle className="h-4 w-4" />
+          <span className="text-sm">Failed to load activities</span>
+        </div>
       </div>
     )
   }

@@ -6,10 +6,8 @@ import {
   Braces,
   List,
   MessageCircleIcon,
-  Paperclip,
   PaperclipIcon,
   PlayCircle,
-  Plus,
   UserCircle2,
 } from "lucide-react"
 import type {
@@ -20,6 +18,7 @@ import type {
   UserRead,
 } from "@/client"
 import { CaseActivityFeed } from "@/components/cases/case-activity-feed"
+import { CaseAttachmentsSection } from "@/components/cases/case-attachments-section"
 import { CommentSection } from "@/components/cases/case-comments-section"
 import { CustomField } from "@/components/cases/case-panel-custom-fields"
 import { CasePanelDescription } from "@/components/cases/case-panel-description"
@@ -33,7 +32,6 @@ import { CasePanelSummary } from "@/components/cases/case-panel-summary"
 import { CaseWorkflowTrigger } from "@/components/cases/case-workflow-trigger"
 import { AlertNotification } from "@/components/notifications"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useGetCase, useUpdateCase } from "@/lib/hooks"
@@ -179,30 +177,10 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
               <CaseActivityFeed caseId={caseId} workspaceId={workspaceId} />
             </TabsContent>
             <TabsContent value="attachments" className="p-4">
-              <div className="flex size-full flex-col items-center justify-center">
-                <div className="flex flex-col items-center gap-4 p-6 text-center">
-                  <div className="rounded-full bg-muted p-3">
-                    <Paperclip className="size-6 text-muted-foreground" />
-                  </div>
-                  <div className="space-y-1">
-                    <h4 className="text-sm font-semibold">
-                      No attachments yet
-                    </h4>
-                    <p className="text-xs text-muted-foreground">
-                      Get started by adding your first attachment
-                    </p>
-                  </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="w-full gap-1.5"
-                    disabled
-                  >
-                    <Plus className="size-4" />
-                    Add Attachment
-                  </Button>
-                </div>
-              </div>
+              <CaseAttachmentsSection
+                caseId={caseId}
+                workspaceId={workspaceId}
+              />
             </TabsContent>
           </Tabs>
         </div>
