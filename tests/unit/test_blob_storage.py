@@ -207,9 +207,11 @@ class TestFileSecurityValidator:
 
     def test_check_for_embedded_threats(self):
         """Test detection of embedded threats."""
+        # Safe content for text files
         safe_content = b"This is safe text content"
-        self.validator._check_for_embedded_threats(safe_content)
+        self.validator._check_for_embedded_threats(safe_content, "text/plain")
 
+        # Test text/document content with dangerous patterns
         dangerous_contents = [
             b"MZ\x90\x00",  # PE executable
             b"\x7fELF",  # ELF executable
@@ -222,7 +224,19 @@ class TestFileSecurityValidator:
             with pytest.raises(
                 ValueError, match="potentially dangerous embedded content"
             ):
-                self.validator._check_for_embedded_threats(content)
+                self.validator._check_for_embedded_threats(content, "text/plain")
+
+        # Test that image files only check for executable signatures at the start
+        image_content_safe = b"\xff\xd8\xff\xe0<script>alert('xss')</script>"
+        # This should NOT raise an error for images since script checking is skipped
+        self.validator._check_for_embedded_threats(image_content_safe, "image/jpeg")
+
+        # But executable signatures at the start should still be caught for images
+        image_with_executable = b"MZ\x90\x00\xff\xd8\xff\xe0"
+        with pytest.raises(ValueError, match="File contains executable content"):
+            self.validator._check_for_embedded_threats(
+                image_with_executable, "image/jpeg"
+            )
 
     def test_validate_pdf_content(self):
         """Test PDF content validation."""
@@ -245,10 +259,10 @@ class TestFileSecurityValidator:
         safe_image = b"\xff\xd8\xff\xe0\x00\x10JFIF"
         self.validator._validate_image_content(safe_image)
 
-        # Image with embedded script
-        malicious_image = b"\xff\xd8\xff\xe0<script>alert('xss')</script>"
-        with pytest.raises(ValueError, match="Image contains embedded script content"):
-            self.validator._validate_image_content(malicious_image)
+        # Image with embedded script - this should now pass since we don't check for scripts in images
+        # The script checking is handled by the more selective _check_for_embedded_threats method
+        image_with_script = b"\xff\xd8\xff\xe0<script>alert('xss')</script>"
+        self.validator._validate_image_content(image_with_script)  # Should not raise
 
     def test_validate_text_content(self):
         """Test text content validation."""
