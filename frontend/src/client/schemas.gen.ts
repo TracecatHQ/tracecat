@@ -915,6 +915,130 @@ export const $AssigneeChangedEventRead = {
   description: "Event for when a case assignee is changed.",
 } as const
 
+export const $AttachmentCreatedEventRead = {
+  properties: {
+    wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
+    },
+    type: {
+      type: "string",
+      const: "attachment_created",
+      title: "Type",
+      default: "attachment_created",
+    },
+    attachment_id: {
+      type: "string",
+      format: "uuid",
+      title: "Attachment Id",
+    },
+    file_name: {
+      type: "string",
+      title: "File Name",
+    },
+    content_type: {
+      type: "string",
+      title: "Content Type",
+    },
+    size: {
+      type: "integer",
+      title: "Size",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+      description: "The user who performed the action.",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "The timestamp of the event.",
+    },
+  },
+  type: "object",
+  required: [
+    "attachment_id",
+    "file_name",
+    "content_type",
+    "size",
+    "created_at",
+  ],
+  title: "AttachmentCreatedEventRead",
+  description: "Event for when an attachment is created for a case.",
+} as const
+
+export const $AttachmentDeletedEventRead = {
+  properties: {
+    wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
+    },
+    type: {
+      type: "string",
+      const: "attachment_deleted",
+      title: "Type",
+      default: "attachment_deleted",
+    },
+    attachment_id: {
+      type: "string",
+      format: "uuid",
+      title: "Attachment Id",
+    },
+    file_name: {
+      type: "string",
+      title: "File Name",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+      description: "The user who performed the action.",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "The timestamp of the event.",
+    },
+  },
+  type: "object",
+  required: ["attachment_id", "file_name", "created_at"],
+  title: "AttachmentDeletedEventRead",
+  description: "Event for when an attachment is deleted from a case.",
+} as const
+
 export const $AudioUrl = {
   properties: {
     url: {
@@ -1128,6 +1252,19 @@ export const $Body_auth_verify_verify = {
   title: "Body_auth-verify:verify",
 } as const
 
+export const $Body_cases_create_attachment = {
+  properties: {
+    file: {
+      type: "string",
+      format: "binary",
+      title: "File",
+    },
+  },
+  type: "object",
+  required: ["file"],
+  title: "Body_cases-create_attachment",
+} as const
+
 export const $Body_tables_import_csv = {
   properties: {
     file: {
@@ -1193,6 +1330,83 @@ export const $Body_workflows_create_workflow = {
   },
   type: "object",
   title: "Body_workflows-create_workflow",
+} as const
+
+export const $CaseAttachmentRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    case_id: {
+      type: "string",
+      format: "uuid",
+      title: "Case Id",
+    },
+    file_id: {
+      type: "string",
+      format: "uuid",
+      title: "File Id",
+    },
+    file_name: {
+      type: "string",
+      title: "File Name",
+    },
+    content_type: {
+      type: "string",
+      title: "Content Type",
+    },
+    size: {
+      type: "integer",
+      title: "Size",
+    },
+    sha256: {
+      type: "string",
+      title: "Sha256",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+    creator_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Creator Id",
+    },
+    is_deleted: {
+      type: "boolean",
+      title: "Is Deleted",
+      default: false,
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "case_id",
+    "file_id",
+    "file_name",
+    "content_type",
+    "size",
+    "sha256",
+    "created_at",
+    "updated_at",
+  ],
+  title: "CaseAttachmentRead",
+  description: "Model for reading a case attachment.",
 } as const
 
 export const $CaseCommentCreate = {
@@ -1440,6 +1654,12 @@ export const $CaseEventRead = {
     {
       $ref: "#/components/schemas/AssigneeChangedEventRead",
     },
+    {
+      $ref: "#/components/schemas/AttachmentCreatedEventRead",
+    },
+    {
+      $ref: "#/components/schemas/AttachmentDeletedEventRead",
+    },
   ],
   title: "CaseEventRead",
   description: "Base read model for all event types.",
@@ -1447,6 +1667,8 @@ export const $CaseEventRead = {
     propertyName: "type",
     mapping: {
       assignee_changed: "#/components/schemas/AssigneeChangedEventRead",
+      attachment_created: "#/components/schemas/AttachmentCreatedEventRead",
+      attachment_deleted: "#/components/schemas/AttachmentDeletedEventRead",
       case_closed: "#/components/schemas/ClosedEventRead",
       case_created: "#/components/schemas/CreatedEventRead",
       case_reopened: "#/components/schemas/ReopenedEventRead",
