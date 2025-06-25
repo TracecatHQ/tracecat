@@ -974,6 +974,20 @@ export type IntegrationOauthCallback = {
 }
 
 /**
+ * Request model for connecting an integration.
+ */
+export type IntegrationOauthConnect = {
+  /**
+   * The URL to redirect to for OAuth authentication
+   */
+  auth_url: string
+  /**
+   * The provider that the user connected to
+   */
+  provider_id: string
+}
+
+/**
  * Response model for user integration.
  */
 export type IntegrationRead = {
@@ -3975,9 +3989,7 @@ export type IntegrationsConnectProviderData = {
   workspaceId: string
 }
 
-export type IntegrationsConnectProviderResponse = {
-  [key: string]: string
-}
+export type IntegrationsConnectProviderResponse = IntegrationOauthConnect
 
 export type IntegrationsOauthCallbackData = {
   /**
@@ -5979,9 +5991,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: {
-          [key: string]: string
-        }
+        200: IntegrationOauthConnect
         /**
          * Validation Error
          */

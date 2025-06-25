@@ -3199,6 +3199,25 @@ export const $IntegrationOauthCallback = {
   description: "Response for OAuth callback.",
 } as const
 
+export const $IntegrationOauthConnect = {
+  properties: {
+    auth_url: {
+      type: "string",
+      title: "Auth Url",
+      description: "The URL to redirect to for OAuth authentication",
+    },
+    provider_id: {
+      type: "string",
+      title: "Provider Id",
+      description: "The provider that the user connected to",
+    },
+  },
+  type: "object",
+  required: ["auth_url", "provider_id"],
+  title: "IntegrationOauthConnect",
+  description: "Request model for connecting an integration.",
+} as const
+
 export const $IntegrationRead = {
   properties: {
     id: {

@@ -65,6 +65,19 @@ class IntegrationUpdate(BaseModel):
     )
 
 
+class IntegrationOauthConnect(BaseModel):
+    """Request model for connecting an integration."""
+
+    auth_url: str = Field(
+        ...,
+        description="The URL to redirect to for OAuth authentication",
+    )
+    provider_id: str = Field(
+        ...,
+        description="The provider that the user connected to",
+    )
+
+
 class IntegrationOauthCallback(BaseModel):
     """Response for OAuth callback."""
 

@@ -12,6 +12,7 @@ from tracecat.integrations.dependencies import get_provider
 from tracecat.integrations.enums import IntegrationStatus
 from tracecat.integrations.models import (
     IntegrationOauthCallback,
+    IntegrationOauthConnect,
     IntegrationRead,
     IntegrationReadMinimal,
     IntegrationUpdate,
@@ -104,7 +105,7 @@ async def connect_provider(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
     provider_impl: Annotated[type[BaseOAuthProvider], Depends(get_provider)],
-) -> dict[str, str]:
+) -> IntegrationOauthConnect:
     """Initiate OAuth integration for the specified provider."""
 
     if role.workspace_id is None or role.user_id is None:
@@ -131,7 +132,7 @@ async def connect_provider(
     state = f"{role.workspace_id}:{role.user_id}:{uuid.uuid4()}"
     auth_url = await provider.get_authorization_url(state)
 
-    return {"auth_url": auth_url, "provider": provider.id}
+    return IntegrationOauthConnect(auth_url=auth_url, provider_id=provider.id)
 
 
 @integrations_router.get("/{provider_id}/callback")

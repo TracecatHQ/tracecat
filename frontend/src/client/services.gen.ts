@@ -3846,7 +3846,7 @@ export const integrationsUpdateIntegration = (
  * @param data The data for the request.
  * @param data.providerId
  * @param data.workspaceId
- * @returns string Successful Response
+ * @returns IntegrationOauthConnect Successful Response
  * @throws ApiError
  */
 export const integrationsConnectProvider = (

@@ -3218,16 +3218,13 @@ export function useIntegrationProvider({
       await integrationsConnectProvider({ providerId, workspaceId }),
     onSuccess: (result) => {
       // Redirect to OAuth provider if auth_url is returned
-      if (result.auth_url) {
-        window.location.href = result.auth_url
-      }
+      window.location.href = result.auth_url
     },
     onError: (error: TracecatApiError) => {
       console.error("Failed to connect provider:", error)
       toast({
         title: "Failed to connect",
         description: `Could not connect to provider: ${error.body?.detail || error.message}`,
-        variant: "destructive",
       })
     },
   })
