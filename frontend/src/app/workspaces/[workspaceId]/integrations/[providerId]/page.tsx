@@ -13,7 +13,7 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { useParams } from "next/navigation"
-import { useMemo, useState } from "react"
+import { useCallback, useMemo, useState } from "react"
 import { ProviderIcon } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { ProviderConfigForm } from "@/components/provider-config-form"
@@ -69,43 +69,6 @@ export default function ProviderDetailPage() {
     [providers, providerId]
   )
 
-  const handleOAuthConnect = async () => {
-    try {
-      setIsConnecting(true)
-      setErrorMessage("")
-      await connectProvider(providerId)
-      setShowSuccessMessage(true)
-      // Hide success message after 5 seconds
-      setTimeout(() => setShowSuccessMessage(false), 5000)
-    } catch (_error) {
-      setErrorMessage("Failed to connect. Please try again.")
-    } finally {
-      setIsConnecting(false)
-    }
-  }
-
-  const handleDisconnect = async () => {
-    try {
-      await disconnectProvider(providerId)
-      setShowSuccessMessage(false)
-      setErrorMessage("")
-    } catch (_error) {
-      setErrorMessage("Failed to disconnect. Please try again.")
-    }
-  }
-
-  const openConfigDialog = () => {
-    setIsConfigDialogOpen(true)
-  }
-
-  const handleConfigSuccess = () => {
-    setIsConfigDialogOpen(false)
-    // Show connect prompt if configured but not connected
-    if (integration_status === "configured") {
-      setShowConnectPrompt(true)
-    }
-  }
-
   if (providersIsLoading) {
     return <CenteredSpinner />
   }
@@ -139,7 +102,43 @@ export default function ProviderDetailPage() {
   const isConnected = integration_status === "connected"
   const isConfigured =
     integration_status === "configured" || integration_status === "connected"
+  // Handlers
+  const openConfigDialog = useCallback(() => {
+    setIsConfigDialogOpen(true)
+  }, [])
 
+  const handleConfigSuccess = useCallback(() => {
+    setIsConfigDialogOpen(false)
+    // Show connect prompt if configured but not connected
+    if (integration_status === "configured") {
+      setShowConnectPrompt(true)
+    }
+  }, [integration_status])
+
+  const handleOAuthConnect = useCallback(async () => {
+    try {
+      setIsConnecting(true)
+      setErrorMessage("")
+      await connectProvider(providerId)
+      setShowSuccessMessage(true)
+      // Hide success message after 5 seconds
+      setTimeout(() => setShowSuccessMessage(false), 5000)
+    } catch (_error) {
+      setErrorMessage("Failed to connect. Please try again.")
+    } finally {
+      setIsConnecting(false)
+    }
+  }, [connectProvider, providerId])
+
+  const handleDisconnect = useCallback(async () => {
+    try {
+      await disconnectProvider(providerId)
+      setShowSuccessMessage(false)
+      setErrorMessage("")
+    } catch (_error) {
+      setErrorMessage("Failed to disconnect. Please try again.")
+    }
+  }, [disconnectProvider, providerId])
   return (
     <div className="container mx-auto max-w-4xl p-6">
       {/* Breadcrumb */}
@@ -306,7 +305,7 @@ export default function ProviderDetailPage() {
                 </div>
               ) : (
                 <div className="space-y-4">
-                  <div className="text-muted-foreground">
+                  <div className="text-sm text-muted-foreground">
                     {integration_status === "configured"
                       ? "This integration is configured but not connected. Complete the OAuth flow to start using it."
                       : "This integration is not connected to your workspace. Configure it with your client credentials or use OAuth for quick setup."}
