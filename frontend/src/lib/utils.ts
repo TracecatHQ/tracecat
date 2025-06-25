@@ -1,6 +1,7 @@
 import { type ClassValue, clsx } from "clsx"
 import { twMerge } from "tailwind-merge"
 import YAML from "yaml"
+import type { IntegrationOAuthCallback } from "@/client"
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
@@ -107,4 +108,16 @@ export function shortTimeAgo(date: Date) {
  */
 export function reconstructActionType(type: string) {
   return type.replaceAll("__", ".")
+}
+
+export function isIntegrationOAuthCallback(
+  obj: unknown
+): obj is IntegrationOAuthCallback {
+  return (
+    typeof obj === "object" &&
+    obj !== null &&
+    "status" in obj &&
+    "provider_id" in obj &&
+    "redirect_url" in obj
+  )
 }

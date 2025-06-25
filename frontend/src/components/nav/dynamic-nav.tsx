@@ -32,6 +32,8 @@ function getNavBar(pathname: string, params: DynamicNavbarParams) {
     return <RegistryNav />
   } else if (pathname.includes("/organization")) {
     return <OrganizationNav />
+  } else if (pathname.includes("/integrations")) {
+    return <WorkspaceNav />
   } else {
     console.log("Hit NULL", pathname)
     return null

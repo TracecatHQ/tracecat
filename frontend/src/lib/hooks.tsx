@@ -44,6 +44,14 @@ import {
   foldersMoveFolder,
   foldersUpdateFolder,
   type GitSettingsRead,
+  type IntegrationRead,
+  type IntegrationReadMinimal,
+  type IntegrationUpdate,
+  integrationsConnectProvider,
+  integrationsDisconnectIntegration,
+  integrationsGetIntegration,
+  integrationsListIntegrations,
+  integrationsUpdateIntegration,
   type OAuthSettingsRead,
   type OrganizationDeleteOrgMemberData,
   type OrganizationDeleteSessionData,
@@ -58,6 +66,10 @@ import {
   organizationSecretsListOrgSecrets,
   organizationSecretsUpdateOrgSecretById,
   organizationUpdateOrgMember,
+  type ProviderRead,
+  type ProviderSchema,
+  providersGetProviderSchema,
+  providersListProviders,
   type RegistryActionCreate,
   type RegistryActionRead,
   type RegistryActionReadMinimal,
@@ -3101,5 +3113,162 @@ export function useCaseEvents({
     caseEvents,
     caseEventsIsLoading,
     caseEventsError,
+  }
+}
+
+/* Integrations */
+export function useIntegrations(workspaceId: string) {
+  // List workspace integrations
+  const {
+    data: integrations,
+    isLoading: integrationsIsLoading,
+    error: integrationsError,
+  } = useQuery<IntegrationReadMinimal[], TracecatApiError>({
+    queryKey: ["integrations", workspaceId],
+    queryFn: async () => await integrationsListIntegrations({ workspaceId }),
+  })
+
+  // List providers
+  const {
+    data: providers,
+    isLoading: providersIsLoading,
+    error: providersError,
+  } = useQuery<ProviderRead[], TracecatApiError>({
+    queryKey: ["providers", workspaceId],
+    queryFn: async () => await providersListProviders({ workspaceId }),
+  })
+
+  return {
+    integrations,
+    integrationsIsLoading,
+    integrationsError,
+    providers,
+    providersIsLoading,
+    providersError,
+  }
+}
+
+export function useIntegrationProvider({
+  providerId,
+  workspaceId,
+}: {
+  providerId: string
+  workspaceId: string
+}) {
+  const queryClient = useQueryClient()
+
+  // Read
+  const {
+    data: integration,
+    isLoading: integrationIsLoading,
+    error: integrationError,
+  } = useQuery<IntegrationRead, TracecatApiError>({
+    queryKey: ["integration", providerId, workspaceId],
+    queryFn: async () =>
+      await integrationsGetIntegration({ providerId, workspaceId }),
+  })
+
+  // Get provider schema
+  const {
+    data: providerSchema,
+    isLoading: providerSchemaIsLoading,
+    error: providerSchemaError,
+  } = useQuery<ProviderSchema, TracecatApiError>({
+    queryKey: ["provider-schema", providerId, workspaceId],
+    queryFn: async () =>
+      await providersGetProviderSchema({ providerId, workspaceId }),
+  })
+
+  // Update
+  const {
+    mutateAsync: updateIntegration,
+    isPending: updateIntegrationIsPending,
+    error: updateIntegrationError,
+  } = useMutation({
+    mutationFn: async (params: IntegrationUpdate) =>
+      await integrationsUpdateIntegration({
+        providerId,
+        workspaceId,
+        requestBody: params,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["integration", providerId, workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["providers", workspaceId],
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      console.error("Failed to update integration:", error)
+      toast({
+        title: "Failed to update",
+        description: `Could not update integration: ${JSON.stringify(error.body?.detail) || error.message}`,
+      })
+    },
+  })
+
+  // Connect to provider
+  const {
+    mutateAsync: connectProvider,
+    isPending: connectProviderIsPending,
+    error: connectProviderError,
+  } = useMutation({
+    mutationFn: async (providerId: string) =>
+      await integrationsConnectProvider({ providerId, workspaceId }),
+    onSuccess: (result) => {
+      // Redirect to OAuth provider if auth_url is returned
+      window.location.href = result.auth_url
+    },
+    onError: (error: TracecatApiError) => {
+      console.error("Failed to connect provider:", error)
+      toast({
+        title: "Failed to connect",
+        description: `Could not connect to provider: ${error.body?.detail || error.message}`,
+      })
+    },
+  })
+
+  // Disconnect from provider
+  const {
+    mutateAsync: disconnectProvider,
+    isPending: disconnectProviderIsPending,
+    error: disconnectProviderError,
+  } = useMutation({
+    mutationFn: async (providerId: string) =>
+      await integrationsDisconnectIntegration({ providerId, workspaceId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["integrations"] })
+      toast({
+        title: "Disconnected",
+        description: "Successfully disconnected from provider",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      console.error("Failed to disconnect provider:", error)
+      toast({
+        title: "Failed to disconnect",
+        description: `Could not disconnect from provider: ${error.body?.detail || error.message}`,
+        variant: "destructive",
+      })
+    },
+  })
+
+  return {
+    integration,
+    integrationIsLoading,
+    integrationError,
+    updateIntegration,
+    updateIntegrationIsPending,
+    updateIntegrationError,
+    connectProvider,
+    connectProviderIsPending,
+    connectProviderError,
+    disconnectProvider,
+    disconnectProviderIsPending,
+    disconnectProviderError,
+    providerSchema,
+    providerSchemaIsLoading,
+    providerSchemaError,
   }
 }

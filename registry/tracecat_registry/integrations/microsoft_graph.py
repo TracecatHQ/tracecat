@@ -5,6 +5,7 @@ Currently supports confidential app-only authentication (i.e. `acquire_token_for
 
 from typing import Annotated
 
+import httpx
 from msal import ConfidentialClientApplication
 from pydantic import Field
 from tracecat import __version__
@@ -77,3 +78,47 @@ def get_access_token(
         return result["access_token"]
     else:
         raise ValueError(f"Failed to acquire token: {result}")
+
+
+microsoft_oauth_secret = RegistrySecret.oauth("microsoft")
+"""Microsoft Graph OAuth2.0 credentials.
+
+- name: `microsoft`
+- provider_id: `microsoft`
+usage:
+MICROSOFT_ACCESS_TOKEN
+"""
+
+
+@registry.register(
+    default_title="Send Teams message",
+    description="Send a message to a Microsoft Teams channel.",
+    display_group="Microsoft Graph",
+    doc_url="https://learn.microsoft.com/en-us/graph/api/channel-post-messages",
+    namespace="tools.microsoft_graph",
+    secrets=[microsoft_oauth_secret],
+    include_in_schema=False,
+)
+async def send_teams_message(
+    team_id: Annotated[
+        str, Field(..., description="The ID of the team to send the message to.")
+    ],
+    channel_id: Annotated[
+        str, Field(..., description="The ID of the channel to send the message to.")
+    ],
+    message: Annotated[str, Field(..., description="The message to send.")],
+) -> dict[str, str]:
+    token = secrets.get("MICROSOFT_ACCESS_TOKEN")
+
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+
+    # Microsoft Graph API endpoint for sending channel messages
+    url = f"https://graph.microsoft.com/v1.0/teams/{team_id}/channels/{channel_id}/messages"
+
+    # Message payload
+    payload = {"body": {"content": message}}
+
+    async with httpx.AsyncClient() as client:
+        response = await client.post(url, headers=headers, json=payload)
+        response.raise_for_status()
+        return response.json()

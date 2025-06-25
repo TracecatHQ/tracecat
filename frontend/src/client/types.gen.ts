@@ -955,6 +955,92 @@ export type Integer = {
   step?: number
 }
 
+/**
+ * Response for OAuth callback.
+ */
+export type IntegrationOAuthCallback = {
+  /**
+   * The status of the OAuth callback
+   */
+  status?: string
+  /**
+   * The provider that the user connected to
+   */
+  provider_id: string
+  /**
+   * The URL to redirect to after the OAuth callback
+   */
+  redirect_url: string
+}
+
+/**
+ * Request model for connecting an integration.
+ */
+export type IntegrationOAuthConnect = {
+  /**
+   * The URL to redirect to for OAuth authentication
+   */
+  auth_url: string
+  /**
+   * The provider that the user connected to
+   */
+  provider_id: string
+}
+
+/**
+ * Response model for user integration.
+ */
+export type IntegrationRead = {
+  id: string
+  user_id?: string | null
+  token_type: string
+  expires_at: string | null
+  scope: string | null
+  provider_id: string
+  provider_config: {
+    [key: string]: unknown
+  }
+  created_at: string
+  updated_at: string
+  status: IntegrationStatus
+  is_expired: boolean
+}
+
+/**
+ * Response model for user integration.
+ */
+export type IntegrationReadMinimal = {
+  id: string
+  provider_id: string
+  status: IntegrationStatus
+  is_expired: boolean
+}
+
+/**
+ * Status of an integration.
+ */
+export type IntegrationStatus = "not_configured" | "configured" | "connected"
+
+/**
+ * Request model for updating an integration.
+ */
+export type IntegrationUpdate = {
+  /**
+   * OAuth client ID for the provider
+   */
+  client_id: string
+  /**
+   * OAuth client secret for the provider
+   */
+  client_secret: string
+  /**
+   * Provider-specific configuration
+   */
+  provider_config: {
+    [key: string]: unknown
+  }
+}
+
 export type InteractionCategory = "slack"
 
 /**
@@ -1087,6 +1173,94 @@ export type PriorityChangedEventRead = {
    * The timestamp of the event.
    */
   created_at: string
+}
+
+/**
+ * Category of a provider.
+ */
+export type ProviderCategory =
+  | "auth"
+  | "communication"
+  | "cloud"
+  | "monitoring"
+  | "alerting"
+  | "other"
+
+/**
+ * Metadata for a provider.
+ */
+export type ProviderMetadata = {
+  /**
+   * Provider identifier
+   */
+  id: string
+  /**
+   * Human-readable provider name
+   */
+  name: string
+  /**
+   * Provider description
+   */
+  description: string
+  /**
+   * URL to provider logo
+   */
+  logo_url?: string | null
+  /**
+   * Setup instructions for the provider
+   */
+  setup_instructions?: string | null
+  /**
+   * Default OAuth scopes
+   */
+  oauth_scopes?: Array<string>
+  /**
+   * Whether this provider requires additional configuration
+   */
+  requires_config?: boolean
+  /**
+   * Categories of the provider (e.g., auth, communication)
+   */
+  categories?: Array<ProviderCategory>
+  /**
+   * List of features provided by this integration
+   */
+  features?: Array<string>
+  /**
+   * Step-by-step instructions for setting up the provider
+   */
+  setup_steps?: Array<string>
+  /**
+   * Whether this provider is available for use
+   */
+  enabled?: boolean
+  /**
+   * URL to API documentation
+   */
+  api_docs_url?: string | null
+  /**
+   * URL to setup guide
+   */
+  setup_guide_url?: string | null
+  /**
+   * URL to troubleshooting documentation
+   */
+  troubleshooting_url?: string | null
+}
+
+export type ProviderRead = {
+  metadata: ProviderMetadata
+  integration_status: IntegrationStatus
+  redirect_uri: string
+}
+
+/**
+ * Schema for a provider.
+ */
+export type ProviderSchema = {
+  json_schema: {
+    [key: string]: unknown
+  }
 }
 
 export type ReceiveInteractionResponse = {
@@ -3782,6 +3956,69 @@ export type FoldersMoveFolderData = {
 
 export type FoldersMoveFolderResponse = WorkflowFolderRead
 
+export type IntegrationsListIntegrationsData = {
+  workspaceId: string
+}
+
+export type IntegrationsListIntegrationsResponse = Array<IntegrationReadMinimal>
+
+export type IntegrationsGetIntegrationData = {
+  providerId: string
+  workspaceId: string
+}
+
+export type IntegrationsGetIntegrationResponse = IntegrationRead
+
+export type IntegrationsDisconnectIntegrationData = {
+  providerId: string
+  workspaceId: string
+}
+
+export type IntegrationsDisconnectIntegrationResponse = void
+
+export type IntegrationsUpdateIntegrationData = {
+  providerId: string
+  requestBody: IntegrationUpdate
+  workspaceId: string
+}
+
+export type IntegrationsUpdateIntegrationResponse = void
+
+export type IntegrationsConnectProviderData = {
+  providerId: string
+  workspaceId: string
+}
+
+export type IntegrationsConnectProviderResponse = IntegrationOAuthConnect
+
+export type IntegrationsOauthCallbackData = {
+  /**
+   * Authorization code from OAuth provider
+   */
+  code: string
+  providerId: string
+  /**
+   * State parameter from authorization request
+   */
+  state: string
+  workspaceId: string
+}
+
+export type IntegrationsOauthCallbackResponse = IntegrationOAuthCallback
+
+export type ProvidersListProvidersData = {
+  workspaceId: string
+}
+
+export type ProvidersListProvidersResponse = Array<ProviderRead>
+
+export type ProvidersGetProviderSchemaData = {
+  providerId: string
+  workspaceId: string
+}
+
+export type ProvidersGetProviderSchemaResponse = ProviderSchema
+
 export type UsersUsersCurrentUserResponse = UserRead
 
 export type UsersUsersPatchCurrentUserData = {
@@ -3876,7 +4113,7 @@ export type PublicCheckHealthResponse = {
 
 export type $OpenApiTs = {
   "/webhooks/{workflow_id}/{secret}": {
-    post: {
+    get: {
       req: PublicIncomingWebhookData
       res: {
         /**
@@ -3889,7 +4126,7 @@ export type $OpenApiTs = {
         422: HTTPValidationError
       }
     }
-    get: {
+    post: {
       req: PublicIncomingWebhook1Data
       res: {
         /**
@@ -5684,6 +5921,122 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: WorkflowFolderRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/integrations": {
+    get: {
+      req: IntegrationsListIntegrationsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<IntegrationReadMinimal>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/integrations/{provider_id}": {
+    get: {
+      req: IntegrationsGetIntegrationData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: IntegrationRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: IntegrationsDisconnectIntegrationData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    put: {
+      req: IntegrationsUpdateIntegrationData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/integrations/{provider_id}/connect": {
+    post: {
+      req: IntegrationsConnectProviderData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: IntegrationOAuthConnect
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/integrations/{provider_id}/callback": {
+    get: {
+      req: IntegrationsOauthCallbackData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: IntegrationOAuthCallback
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/providers": {
+    get: {
+      req: ProvidersListProvidersData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<ProviderRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/providers/{provider_id}/schema": {
+    get: {
+      req: ProvidersGetProviderSchemaData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ProviderSchema
         /**
          * Validation Error
          */

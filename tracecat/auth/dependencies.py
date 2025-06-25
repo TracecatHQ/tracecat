@@ -20,6 +20,14 @@ WorkspaceUserRole = Annotated[
 Sets the `ctx_role` context variable.
 """
 
+ServiceRole = Annotated[
+    Role, RoleACL(allow_user=False, allow_service=True, require_workspace="no")
+]
+"""Dependency for a service role.
+
+Sets the `ctx_role` context variable.
+"""
+
 
 async def verify_auth_type(auth_type: AuthType) -> None:
     """Verify if an auth type is enabled and properly configured.

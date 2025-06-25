@@ -19,6 +19,7 @@ from tracecat.expressions.validator.validator import (
     ExprValidationContext,
     ExprValidator,
 )
+from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
 from tracecat.registry.actions.models import RegistryActionInterface
 from tracecat.registry.actions.service import RegistryActionsService
@@ -119,14 +120,67 @@ async def check_action_secrets(
     secrets.extend(implicit_secrets)
 
     for registry_secret in secrets:
-        secret_results = await validate_single_secret(
-            secrets_service,
-            checked_keys,
-            environment,
-            action,
-            registry_secret,
-        )
+        if registry_secret.is_oauth:
+            # Workspace integration
+            secret_results = await validate_workspace_integration(
+                secrets_service.session,
+                checked_keys,
+                environment,
+                registry_secret,
+            )
+        else:
+            # Workspace secret
+            secret_results = await validate_single_secret(
+                secrets_service,
+                checked_keys,
+                environment,
+                action,
+                registry_secret,
+            )
         results.extend(secret_results)
+
+    return results
+
+
+async def validate_workspace_integration(
+    session: AsyncSession,
+    checked_keys: set[str],
+    environment: str,
+    registry_secret: RegistrySecret,
+) -> list[SecretValidationResult]:
+    """Validate that a workspace has the required OAuth integration.
+
+    Args:
+        secrets_service: The secrets service to use for validation.
+        checked_keys: Set of keys that have already been checked.
+        environment: The environment to validate secrets for.
+        action: The registry action that requires the integration.
+        registry_secret: The registry secret definition for the OAuth integration.
+
+    Returns:
+        A list of validation results.
+    """
+    results: list[SecretValidationResult] = []
+
+    # Skip if we've already checked this key
+    if registry_secret.name in checked_keys:
+        return results
+
+    checked_keys.add(registry_secret.name)
+
+    # Get the integration from the workspace
+    provider_id = registry_secret.name.replace("_oauth", "")
+    integration = await IntegrationService(session).get_integration(
+        provider_id=provider_id
+    )
+
+    if not integration:
+        results.append(
+            SecretValidationResult(
+                status="error",
+                msg=f"Required OAuth integration {provider_id!r} is not configured",
+            )
+        )
 
     return results
 

@@ -34,6 +34,7 @@ from tracecat.expressions.eval import (
     get_iterables_from_expression,
 )
 from tracecat.git import prepare_git_url
+from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
 from tracecat.parse import get_pyproject_toml_required_deps, traverse_leaves
 from tracecat.registry.actions.models import BoundRegistryAction
@@ -211,26 +212,65 @@ async def run_action_from_input(input: RunActionInput, role: Role) -> Any:
         action_secrets = await service.fetch_all_action_secrets(reg_action)
         action = service.get_bound(reg_action, mode="execution")
 
-    args_secrets = set(extract_templated_secrets(task.args))
-    optional_secrets = {s.name for s in action_secrets if s.optional}
-    required_secrets = {s.name for s in action_secrets if not s.optional}
-    secrets_to_fetch = required_secrets | args_secrets | optional_secrets
+    # Handle secrets from the task args
+    args_secrets = extract_templated_secrets(task.args)
+    # Get oauth integrations from the action secrets
+    args_oauth_secrets: set[str] = set()
+    args_basic_secrets: set[str] = set()
+    for secret in args_secrets:
+        if secret.endswith("_oauth"):
+            args_oauth_secrets.add(secret)
+        else:
+            args_basic_secrets.add(secret)
 
+    # Handle secrets from the action
+    required_basic_secrets: set[str] = set()
+    optional_basic_secrets: set[str] = set()
+    oauth_provider_ids: set[str] = set()
+    for secret in action_secrets:
+        if secret.is_oauth:
+            oauth_provider_ids.add(secret.provider_id)
+        elif secret.optional:
+            optional_basic_secrets.add(secret.name)
+        else:
+            required_basic_secrets.add(secret.name)
+
+    # Get secrets to fetch
+    all_basic_secrets = (
+        required_basic_secrets | args_basic_secrets | optional_basic_secrets
+    )
     logger.info(
         "Handling secrets",
-        required_secrets=required_secrets,
-        optional_secrets=optional_secrets,
+        required_basic_secrets=required_basic_secrets,
+        optional_basic_secrets=optional_basic_secrets,
+        oauth_provider_ids=oauth_provider_ids,
         args_secrets=args_secrets,
-        secrets_to_fetch=secrets_to_fetch,
+        secrets_to_fetch=all_basic_secrets,
     )
 
-    # Get all secrets in one call
+    # Get all basic secrets in one call
+    secrets: dict[str, Any] = {}
     async with AuthSandbox(
-        secrets=secrets_to_fetch,
+        secrets=all_basic_secrets,
         environment=get_runtime_env(),
-        optional_secrets=optional_secrets,
+        optional_secrets=optional_basic_secrets,
     ) as sandbox:
-        secrets = sandbox.secrets.copy()
+        secrets |= sandbox.secrets.copy()
+
+    # Get oauth integrations
+    async with IntegrationService.with_session() as service:
+        oauth_integrations = await service.list_integrations(
+            providers=oauth_provider_ids,
+        )
+        for integration in oauth_integrations:
+            await service.refresh_token_if_needed(integration)
+            await service.session.refresh(
+                integration, attribute_names=("encrypted_access_token",)
+            )
+            access_token = await service.get_access_token(integration)
+            secrets[integration.provider_id] = {
+                f"{integration.provider_id.upper()}_ACCESS_TOKEN": access_token.get_secret_value()
+            }
 
     if config.TRACECAT__UNSAFE_DISABLE_SM_MASKING:
         log.warning(
@@ -288,18 +328,26 @@ def flatten_secrets(secrets: dict[str, Any]):
 
     For example, if you have the secret `my_secret.KEY`, then you access this in the UDF
     as `KEY`. This means you cannot have a clashing key in different secrets.
+
+    OAuth secrets are handled differently - they're stored as direct string values
+    and are accessible as environment variables using their provider_id.
     """
     flattened_secrets: dict[str, str] = {}
     for name, keyvalues in secrets.items():
-        for key, value in keyvalues.items():
-            if key in flattened_secrets:
-                raise ValueError(
-                    f"Key {key!r} is duplicated in {name!r}! "
-                    "Please ensure only one secret with a given name is set. "
-                    "e.g. If you have `first_secret.KEY` set, then you cannot "
-                    "also set `second_secret.KEY` as `KEY` is duplicated."
-                )
-            flattened_secrets[key] = value
+        if name.endswith("_oauth"):
+            # OAuth secrets are stored as direct string values
+            flattened_secrets[name] = str(keyvalues)
+        else:
+            # Regular secrets are stored as key-value dictionaries
+            for key, value in keyvalues.items():
+                if key in flattened_secrets:
+                    raise ValueError(
+                        f"Key {key!r} is duplicated in {name!r}! "
+                        "Please ensure only one secret with a given name is set. "
+                        "e.g. If you have `first_secret.KEY` set, then you cannot "
+                        "also set `second_secret.KEY` as `KEY` is duplicated."
+                    )
+                flattened_secrets[key] = value
     return flattened_secrets
 
 

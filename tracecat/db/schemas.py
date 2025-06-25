@@ -3,7 +3,7 @@
 import hashlib
 import os
 import uuid
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from pydantic import UUID4, BaseModel, ConfigDict, computed_field
@@ -28,6 +28,7 @@ from tracecat.db.adapter import (
 from tracecat.ee.interactions.enums import InteractionStatus, InteractionType
 from tracecat.identifiers import OwnerID, action, id_factory
 from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.integrations.enums import IntegrationStatus
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 
 DEFAULT_SA_RELATIONSHIP_KWARGS = {
@@ -129,6 +130,13 @@ class Workspace(Resource, table=True):
         },
     )
     folders: list["WorkflowFolder"] = Relationship(
+        back_populates="owner",
+        sa_relationship_kwargs={
+            "cascade": "all, delete",
+            **DEFAULT_SA_RELATIONSHIP_KWARGS,
+        },
+    )
+    integrations: list["OAuthIntegration"] = Relationship(
         back_populates="owner",
         sa_relationship_kwargs={
             "cascade": "all, delete",
@@ -973,3 +981,119 @@ class Interaction(Resource, table=True):
         nullable=True,
         description="ID of the user/actor who responded",
     )
+
+
+class OAuthIntegration(SQLModel, TimestampMixin, table=True):
+    """Store user integrations with external services."""
+
+    __tablename__: str = "oauth_integration"
+    __table_args__ = (
+        UniqueConstraint(
+            "owner_id",
+            "provider_id",
+            name="uq_oauth_integration_owner_provider",
+        ),
+    )
+
+    id: UUID4 = Field(
+        default_factory=uuid.uuid4,
+        primary_key=True,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    # Owner (workspace)
+    owner_id: OwnerID = Field(
+        sa_column=Column(UUID, ForeignKey("workspace.id", ondelete="CASCADE"))
+    )
+    user_id: UUID4 | None = Field(
+        default=None,
+        sa_column=Column(
+            "user_id",
+            ForeignKey("user.id", ondelete="CASCADE"),
+        ),
+        description="The user this integration belongs to",
+    )
+    provider_id: str = Field(
+        ...,
+        description="Integration provider identifier (e.g., 'microsoft-teams', 'google-gmail')",
+        index=True,
+    )
+    encrypted_access_token: bytes = Field(
+        ...,
+        description="Encrypted OAuth access token for the integration",
+    )
+    encrypted_refresh_token: bytes | None = Field(
+        default=None,
+        description="Encrypted OAuth refresh token for the integration",
+    )
+    encrypted_client_id: bytes | None = Field(
+        default=None,
+        description="Encrypted OAuth client ID for the integration",
+    )
+    encrypted_client_secret: bytes | None = Field(
+        default=None,
+        description="Encrypted OAuth client secret for the integration",
+    )
+    use_workspace_credentials: bool = Field(
+        default=False,
+        description="Whether to use workspace-configured credentials instead of environment variables",
+    )
+    token_type: str = Field(
+        default="Bearer",
+        description="Token type (typically Bearer)",
+    )
+    expires_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(TIMESTAMP(timezone=True)),
+        description="When the access token expires",
+    )
+    scope: str | None = Field(
+        default=None,
+        description="OAuth scopes granted for this integration",
+    )
+    provider_config: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=Column(JSONB),
+        description="Provider-specific configuration for the integration",
+    )
+
+    # Relationships
+    user: User | None = Relationship(
+        sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS
+    )
+    owner: Workspace = Relationship(back_populates="integrations")
+
+    @property
+    def is_expired(self) -> bool:
+        """Check if the access token is expired."""
+        if self.expires_at is None:
+            return False
+        return datetime.now(UTC) >= self.expires_at
+
+    @property
+    def needs_refresh(self) -> bool:
+        """Check if the token needs to be refreshed soon (within 5 minutes)."""
+        if self.expires_at is None:
+            return False
+        return datetime.now(UTC) >= (self.expires_at - timedelta(minutes=5))
+
+    @property
+    def status(self) -> IntegrationStatus:
+        """Get the status of the integration."""
+        # Is configured: Has client ID and Secret
+        is_configured = (
+            self.encrypted_client_id is not None
+            and self.encrypted_client_secret is not None
+        )
+
+        # Is connected: Successfully authenticated
+        is_connected = len(self.encrypted_access_token) > 0
+
+        # Return status based on conditions
+        if is_connected:
+            return IntegrationStatus.CONNECTED
+        elif is_configured:
+            return IntegrationStatus.CONFIGURED
+        else:
+            return IntegrationStatus.NOT_CONFIGURED

@@ -3174,6 +3174,199 @@ export const $Integer = {
   title: "Integer",
 } as const
 
+export const $IntegrationOAuthCallback = {
+  properties: {
+    status: {
+      type: "string",
+      title: "Status",
+      description: "The status of the OAuth callback",
+      default: "connected",
+    },
+    provider_id: {
+      type: "string",
+      title: "Provider Id",
+      description: "The provider that the user connected to",
+    },
+    redirect_url: {
+      type: "string",
+      title: "Redirect Url",
+      description: "The URL to redirect to after the OAuth callback",
+    },
+  },
+  type: "object",
+  required: ["provider_id", "redirect_url"],
+  title: "IntegrationOAuthCallback",
+  description: "Response for OAuth callback.",
+} as const
+
+export const $IntegrationOAuthConnect = {
+  properties: {
+    auth_url: {
+      type: "string",
+      title: "Auth Url",
+      description: "The URL to redirect to for OAuth authentication",
+    },
+    provider_id: {
+      type: "string",
+      title: "Provider Id",
+      description: "The provider that the user connected to",
+    },
+  },
+  type: "object",
+  required: ["auth_url", "provider_id"],
+  title: "IntegrationOAuthConnect",
+  description: "Request model for connecting an integration.",
+} as const
+
+export const $IntegrationRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid4",
+      title: "Id",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid4",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+    },
+    token_type: {
+      type: "string",
+      title: "Token Type",
+    },
+    expires_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Expires At",
+    },
+    scope: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Scope",
+    },
+    provider_id: {
+      type: "string",
+      title: "Provider Id",
+    },
+    provider_config: {
+      type: "object",
+      title: "Provider Config",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+    status: {
+      $ref: "#/components/schemas/IntegrationStatus",
+    },
+    is_expired: {
+      type: "boolean",
+      title: "Is Expired",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "token_type",
+    "expires_at",
+    "scope",
+    "provider_id",
+    "provider_config",
+    "created_at",
+    "updated_at",
+    "status",
+    "is_expired",
+  ],
+  title: "IntegrationRead",
+  description: "Response model for user integration.",
+} as const
+
+export const $IntegrationReadMinimal = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid4",
+      title: "Id",
+    },
+    provider_id: {
+      type: "string",
+      title: "Provider Id",
+    },
+    status: {
+      $ref: "#/components/schemas/IntegrationStatus",
+    },
+    is_expired: {
+      type: "boolean",
+      title: "Is Expired",
+    },
+  },
+  type: "object",
+  required: ["id", "provider_id", "status", "is_expired"],
+  title: "IntegrationReadMinimal",
+  description: "Response model for user integration.",
+} as const
+
+export const $IntegrationStatus = {
+  type: "string",
+  enum: ["not_configured", "configured", "connected"],
+  title: "IntegrationStatus",
+  description: "Status of an integration.",
+} as const
+
+export const $IntegrationUpdate = {
+  properties: {
+    client_id: {
+      type: "string",
+      minLength: 1,
+      title: "Client Id",
+      description: "OAuth client ID for the provider",
+    },
+    client_secret: {
+      type: "string",
+      minLength: 1,
+      format: "password",
+      title: "Client Secret",
+      description: "OAuth client secret for the provider",
+      writeOnly: true,
+    },
+    provider_config: {
+      type: "object",
+      title: "Provider Config",
+      description: "Provider-specific configuration",
+    },
+  },
+  type: "object",
+  required: ["client_id", "client_secret", "provider_config"],
+  title: "IntegrationUpdate",
+  description: "Request model for updating an integration.",
+} as const
+
 export const $InteractionCategory = {
   type: "string",
   enum: ["slack"],
@@ -3649,6 +3842,172 @@ export const $PriorityChangedEventRead = {
   required: ["old", "new", "created_at"],
   title: "PriorityChangedEventRead",
   description: "Event for when a case priority is changed.",
+} as const
+
+export const $ProviderCategory = {
+  type: "string",
+  enum: ["auth", "communication", "cloud", "monitoring", "alerting", "other"],
+  title: "ProviderCategory",
+  description: "Category of a provider.",
+} as const
+
+export const $ProviderMetadata = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+      description: "Provider identifier",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+      description: "Human-readable provider name",
+    },
+    description: {
+      type: "string",
+      title: "Description",
+      description: "Provider description",
+    },
+    logo_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Logo Url",
+      description: "URL to provider logo",
+    },
+    setup_instructions: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Setup Instructions",
+      description: "Setup instructions for the provider",
+    },
+    oauth_scopes: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Oauth Scopes",
+      description: "Default OAuth scopes",
+    },
+    requires_config: {
+      type: "boolean",
+      title: "Requires Config",
+      description: "Whether this provider requires additional configuration",
+      default: false,
+    },
+    categories: {
+      items: {
+        $ref: "#/components/schemas/ProviderCategory",
+      },
+      type: "array",
+      title: "Categories",
+      description: "Categories of the provider (e.g., auth, communication)",
+    },
+    features: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Features",
+      description: "List of features provided by this integration",
+    },
+    setup_steps: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Setup Steps",
+      description: "Step-by-step instructions for setting up the provider",
+    },
+    enabled: {
+      type: "boolean",
+      title: "Enabled",
+      description: "Whether this provider is available for use",
+      default: true,
+    },
+    api_docs_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Api Docs Url",
+      description: "URL to API documentation",
+    },
+    setup_guide_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Setup Guide Url",
+      description: "URL to setup guide",
+    },
+    troubleshooting_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Troubleshooting Url",
+      description: "URL to troubleshooting documentation",
+    },
+  },
+  type: "object",
+  required: ["id", "name", "description"],
+  title: "ProviderMetadata",
+  description: "Metadata for a provider.",
+} as const
+
+export const $ProviderRead = {
+  properties: {
+    metadata: {
+      $ref: "#/components/schemas/ProviderMetadata",
+    },
+    integration_status: {
+      $ref: "#/components/schemas/IntegrationStatus",
+    },
+    redirect_uri: {
+      type: "string",
+      title: "Redirect Uri",
+    },
+  },
+  type: "object",
+  required: ["metadata", "integration_status", "redirect_uri"],
+  title: "ProviderRead",
+} as const
+
+export const $ProviderSchema = {
+  properties: {
+    json_schema: {
+      type: "object",
+      title: "Json Schema",
+    },
+  },
+  type: "object",
+  required: ["json_schema"],
+  title: "ProviderSchema",
+  description: "Schema for a provider.",
 } as const
 
 export const $ReceiveInteractionResponse = {

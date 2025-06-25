@@ -18,7 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.api.common import bootstrap_role
-from tracecat.auth.credentials import RoleACL
+from tracecat.auth.dependencies import ServiceRole
 from tracecat.auth.users import AuthBackendStrategyDep, UserManagerDep, auth_backend
 from tracecat.config import (
     SAML_ACCEPTED_TIME_DIFF,
@@ -39,7 +39,6 @@ from tracecat.db.engine import get_async_session
 from tracecat.db.schemas import SAMLRequestData
 from tracecat.logger import logger
 from tracecat.settings.service import get_setting
-from tracecat.types.auth import Role
 
 router = APIRouter(prefix="/auth/saml", tags=["auth"])
 
@@ -403,9 +402,7 @@ async def sso_acs(
     strategy: AuthBackendStrategyDep,
     client: Annotated[Saml2Client, Depends(create_saml_client)],
     db_session: Annotated[AsyncSession, Depends(get_async_session)],
-    role: Annotated[
-        Role, RoleACL(allow_user=False, allow_service=True, require_workspace="no")
-    ],
+    role: ServiceRole,
 ) -> Response:
     """Handle the SAML SSO response from the IdP post-authentication."""
 
