@@ -523,8 +523,9 @@ class FileSecurityValidator:
 
     def _analyze_file_content(self, content: bytes, content_type: str) -> None:
         """Perform additional content analysis for security."""
-        # Check for embedded executables or scripts
-        self._check_for_embedded_threats(content)
+        # Only check for text-based embedded threats in non-binary file types
+        if not content_type.startswith("image/"):
+            self._check_for_embedded_threats(content, content_type)
 
         # Perform type-specific validation
         if content_type == "application/pdf":
@@ -534,9 +535,23 @@ class FileSecurityValidator:
         elif content_type in ["text/plain", "text/csv"]:
             self._validate_text_content(content)
 
-    def _check_for_embedded_threats(self, content: bytes) -> None:
-        """Check for common embedded threats."""
-        # Check for executable signatures within the file
+    def _check_for_embedded_threats(self, content: bytes, content_type: str) -> None:
+        """Check for common embedded threats based on content type."""
+        # For binary formats, only check for executable signatures
+        if content_type.startswith("image/") or content_type == "application/pdf":
+            # Only check for executable signatures in binary files
+            executable_signatures = [
+                b"MZ",  # PE executable
+                b"\x7fELF",  # ELF executable
+                b"\xfe\xed\xfa",  # Mach-O executable
+            ]
+
+            for signature in executable_signatures:
+                if content.startswith(signature):
+                    raise ValueError("File contains executable content")
+            return
+
+        # For text-based or document formats, check for script content
         dangerous_signatures = [
             b"MZ",  # PE executable
             b"\x7fELF",  # ELF executable
@@ -563,9 +578,9 @@ class FileSecurityValidator:
 
     def _validate_image_content(self, content: bytes) -> None:
         """Validate image-specific content."""
-        # Check for EXIF data that might contain scripts
-        if b"<script" in content.lower():
-            raise ValueError("Image contains embedded script content")
+        # For images, we rely on magic number validation and polyfile analysis
+        # Avoid checking for text patterns in binary image data as it causes false positives
+        pass
 
     def _validate_text_content(self, content: bytes) -> None:
         """Validate text file content."""
