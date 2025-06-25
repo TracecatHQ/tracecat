@@ -1,5 +1,4 @@
 import type { AxiosRequestConfig, AxiosResponse } from "axios"
-
 import type { ApiRequestOptions } from "./ApiRequestOptions"
 
 type Headers = Record<string, string>
