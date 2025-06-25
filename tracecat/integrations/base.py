@@ -125,11 +125,7 @@ class BaseOAuthProvider:
             **self._get_additional_authorize_params(),
         )
 
-        self.logger.info(
-            "Generated OAuth authorization URL",
-            provider=self.id,
-            state=state,
-        )
+        self.logger.info("Generated OAuth authorization URL", provider=self.id)
         return url
 
     async def exchange_code_for_token(self, code: str, state: str) -> TokenResponse:
@@ -147,11 +143,7 @@ class BaseOAuthProvider:
                 ),  # type: ignore
             )
 
-            self.logger.info(
-                "Successfully acquired OAuth token",
-                provider=self.id,
-                state=state,
-            )
+            self.logger.info("Successfully acquired OAuth token", provider=self.id)
 
             # Convert authlib token response to our TokenResponse model
             return TokenResponse(
