@@ -1,15 +1,11 @@
 "use client"
 
-import { HTMLInputTypeAttribute, useCallback, useMemo } from "react"
-import type { IntegrationUpdate, ProviderMetadata } from "@/client"
-import { useWorkspace } from "@/providers/workspace"
 import { zodResolver } from "@hookform/resolvers/zod"
-import { JSONSchema7 } from "json-schema"
+import type { JSONSchema7 } from "json-schema"
+import { type HTMLInputTypeAttribute, useCallback, useMemo } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
-
-import { useIntegrationProvider } from "@/lib/hooks"
-import { jsonSchemaToZod } from "@/lib/jsonschema"
+import type { IntegrationUpdate, ProviderMetadata } from "@/client"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
@@ -38,6 +34,9 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
+import { useIntegrationProvider } from "@/lib/hooks"
+import { jsonSchemaToZod } from "@/lib/jsonschema"
+import { useWorkspace } from "@/providers/workspace"
 
 interface ProviderConfigFormProps {
   provider: ProviderMetadata

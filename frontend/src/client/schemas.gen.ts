@@ -3917,6 +3917,42 @@ export const $ProviderMetadata = {
       description: "Whether this provider is available for use",
       default: true,
     },
+    api_docs_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Api Docs Url",
+      description: "URL to API documentation",
+    },
+    setup_guide_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Setup Guide Url",
+      description: "URL to setup guide",
+    },
+    troubleshooting_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Troubleshooting Url",
+      description: "URL to troubleshooting documentation",
+    },
   },
   type: "object",
   required: ["id", "name", "description"],

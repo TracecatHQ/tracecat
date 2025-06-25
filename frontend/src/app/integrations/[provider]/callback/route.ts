@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server"
+import { type NextRequest, NextResponse } from "next/server"
 
 import { buildUrl } from "@/lib/ss-utils"
 import { isIntegrationOauthCallback } from "@/lib/utils"
@@ -42,7 +42,7 @@ export const GET = async (
     console.error("Invalid integration callback", cb)
     return NextResponse.redirect(new URL("/auth/error", request.url))
   }
-  const { status, provider_id: providerId, redirect_url } = cb
+  const { provider_id: providerId, redirect_url } = cb
   if (providerId !== provider) {
     console.error("Invalid integration provider", providerId, provider)
     return NextResponse.redirect(new URL("/auth/error", request.url))

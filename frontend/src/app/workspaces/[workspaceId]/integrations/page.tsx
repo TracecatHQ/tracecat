@@ -1,18 +1,15 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { Filter, Search } from "lucide-react"
 import { useRouter } from "next/navigation"
+import { useMemo, useState } from "react"
 import {
   $ProviderCategory,
-  IntegrationStatus,
-  ProviderCategory,
+  type IntegrationStatus,
+  type ProviderCategory,
 } from "@/client"
-import { useWorkspace } from "@/providers/workspace"
-import { Filter, Search } from "lucide-react"
-
-import { useIntegrations } from "@/lib/hooks"
-import { categoryColors } from "@/lib/provider-styles"
-import { cn } from "@/lib/utils"
+import { ProviderIcon } from "@/components/icons"
+import { CenteredSpinner } from "@/components/loading/spinner"
 import { Badge } from "@/components/ui/badge"
 import {
   Card,
@@ -29,8 +26,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { ProviderIcon } from "@/components/icons"
-import { CenteredSpinner } from "@/components/loading/spinner"
+import { useIntegrations } from "@/lib/hooks"
+import { categoryColors } from "@/lib/provider-styles"
+import { cn } from "@/lib/utils"
+import { useWorkspace } from "@/providers/workspace"
 
 // Helper function to get status display info
 const getStatusInfo = (status: IntegrationStatus) => {
@@ -69,16 +68,17 @@ export default function IntegrationsPage() {
   const filteredProviders = useMemo(() => {
     return providers?.filter((provider) => {
       const metadata = provider.metadata
-      const statusInfo = getStatusInfo(provider.integration_status)
-
       const matchesSearch =
         metadata.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (metadata.description ?? "").toLowerCase().includes(searchQuery.toLowerCase())
+        (metadata.description ?? "")
+          .toLowerCase()
+          .includes(searchQuery.toLowerCase())
       const matchesCategory =
         selectedCategory === null ||
         (metadata.categories && metadata.categories.includes(selectedCategory))
       const matchesStatus =
-        selectedStatus === null || provider.integration_status === selectedStatus
+        selectedStatus === null ||
+        provider.integration_status === selectedStatus
 
       return matchesSearch && matchesCategory && matchesStatus
     })

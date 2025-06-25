@@ -1,20 +1,19 @@
 "use client"
 
-import Link from "next/link"
-import { usePathname } from "next/navigation"
 import {
   ShieldAlertIcon,
   Table2Icon,
   WorkflowIcon,
   ZapIcon,
 } from "lucide-react"
-
-import { cn } from "@/lib/utils"
+import Link from "next/link"
+import { usePathname } from "next/navigation"
 import {
   OrganizationNavButton,
   RegistryNavButton,
 } from "@/components/nav/nav-buttons"
 import { WorkspaceSelector } from "@/components/workspaces/workspace-selector"
+import { cn } from "@/lib/utils"
 import { useWorkspace } from "@/providers/workspace"
 
 export function WorkspaceNav() {

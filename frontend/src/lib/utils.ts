@@ -1,7 +1,7 @@
-import { IntegrationOauthCallback } from "@/client"
 import { type ClassValue, clsx } from "clsx"
 import { twMerge } from "tailwind-merge"
 import YAML from "yaml"
+import type { IntegrationOauthCallback } from "@/client"
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))

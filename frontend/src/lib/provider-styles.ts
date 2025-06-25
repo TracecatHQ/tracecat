@@ -1,4 +1,4 @@
-import { ProviderCategory } from "@/client"
+import type { ProviderCategory } from "@/client"
 
 /**
  * Shared category colors for provider badges across the application

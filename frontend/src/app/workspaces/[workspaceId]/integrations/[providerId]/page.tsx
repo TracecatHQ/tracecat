@@ -1,9 +1,5 @@
 "use client"
 
-import { useMemo, useState } from "react"
-import Link from "next/link"
-import { useParams } from "next/navigation"
-import { useWorkspace } from "@/providers/workspace"
 import {
   AlertCircle,
   CheckCircle,
@@ -15,10 +11,13 @@ import {
   Shield,
   Zap,
 } from "lucide-react"
-
-import { useIntegrationProvider, useIntegrations } from "@/lib/hooks"
-import { categoryColors } from "@/lib/provider-styles"
-import { cn } from "@/lib/utils"
+import Link from "next/link"
+import { useParams } from "next/navigation"
+import { useMemo, useState } from "react"
+import { ProviderIcon } from "@/components/icons"
+import { CenteredSpinner } from "@/components/loading/spinner"
+import { ProviderConfigForm } from "@/components/provider-config-form"
+import { RedirectUriDisplay } from "@/components/redirect-uri-display"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -37,10 +36,10 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import { ProviderIcon } from "@/components/icons"
-import { CenteredSpinner } from "@/components/loading/spinner"
-import { ProviderConfigForm } from "@/components/provider-config-form"
-import { RedirectUriDisplay } from "@/components/redirect-uri-display"
+import { useIntegrationProvider, useIntegrations } from "@/lib/hooks"
+import { categoryColors } from "@/lib/provider-styles"
+import { cn } from "@/lib/utils"
+import { useWorkspace } from "@/providers/workspace"
 
 export default function ProviderDetailPage() {
   const params = useParams()
@@ -78,7 +77,7 @@ export default function ProviderDetailPage() {
       setShowSuccessMessage(true)
       // Hide success message after 5 seconds
       setTimeout(() => setShowSuccessMessage(false), 5000)
-    } catch (error) {
+    } catch (_error) {
       setErrorMessage("Failed to connect. Please try again.")
     } finally {
       setIsConnecting(false)
@@ -90,7 +89,7 @@ export default function ProviderDetailPage() {
       await disconnectProvider(providerId)
       setShowSuccessMessage(false)
       setErrorMessage("")
-    } catch (error) {
+    } catch (_error) {
       setErrorMessage("Failed to disconnect. Please try again.")
     }
   }

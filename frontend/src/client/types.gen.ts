@@ -1220,6 +1220,18 @@ export type ProviderMetadata = {
    * Whether this provider is available for use
    */
   enabled?: boolean
+  /**
+   * URL to API documentation
+   */
+  api_docs_url?: string | null
+  /**
+   * URL to setup guide
+   */
+  setup_guide_url?: string | null
+  /**
+   * URL to troubleshooting documentation
+   */
+  troubleshooting_url?: string | null
 }
 
 export type ProviderRead = {
