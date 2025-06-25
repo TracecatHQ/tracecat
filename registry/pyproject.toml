@@ -35,6 +35,7 @@ dependencies = [
     "hatchling==1.27.0",
     "ldap3==2.9.1",
     "marshmallow==3.26.1",
+    "msal==1.31.1",
     "nh3==0.2.18",
     "ollama==0.4.8",
     "pydantic-ai-slim[openai,anthropic,bedrock,vertexai,mcp]==0.2.3",
