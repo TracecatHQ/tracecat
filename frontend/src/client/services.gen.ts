@@ -3846,7 +3846,7 @@ export const integrationsUpdateIntegration = (
  * @param data The data for the request.
  * @param data.providerId
  * @param data.workspaceId
- * @returns IntegrationOauthConnect Successful Response
+ * @returns IntegrationOAuthConnect Successful Response
  * @throws ApiError
  */
 export const integrationsConnectProvider = (
@@ -3875,7 +3875,7 @@ export const integrationsConnectProvider = (
  * @param data.code Authorization code from OAuth provider
  * @param data.state State parameter from authorization request
  * @param data.workspaceId
- * @returns IntegrationOauthCallback Successful Response
+ * @returns IntegrationOAuthCallback Successful Response
  * @throws ApiError
  */
 export const integrationsOauthCallback = (

@@ -11,8 +11,8 @@ from tracecat.integrations.base import BaseOAuthProvider
 from tracecat.integrations.dependencies import get_provider
 from tracecat.integrations.enums import IntegrationStatus
 from tracecat.integrations.models import (
-    IntegrationOauthCallback,
-    IntegrationOauthConnect,
+    IntegrationOAuthCallback,
+    IntegrationOAuthConnect,
     IntegrationRead,
     IntegrationReadMinimal,
     IntegrationUpdate,
@@ -105,7 +105,7 @@ async def connect_provider(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
     provider_impl: Annotated[type[BaseOAuthProvider], Depends(get_provider)],
-) -> IntegrationOauthConnect:
+) -> IntegrationOAuthConnect:
     """Initiate OAuth integration for the specified provider."""
 
     if role.workspace_id is None or role.user_id is None:
@@ -132,7 +132,7 @@ async def connect_provider(
     state = f"{role.workspace_id}:{role.user_id}:{uuid.uuid4()}"
     auth_url = await provider.get_authorization_url(state)
 
-    return IntegrationOauthConnect(auth_url=auth_url, provider_id=provider.id)
+    return IntegrationOAuthConnect(auth_url=auth_url, provider_id=provider.id)
 
 
 @integrations_router.get("/{provider_id}/callback")
@@ -143,7 +143,7 @@ async def oauth_callback(
     code: str = Query(..., description="Authorization code from OAuth provider"),
     state: str = Query(..., description="State parameter from authorization request"),
     provider_impl: Annotated[type[BaseOAuthProvider], Depends(get_provider)],
-) -> IntegrationOauthCallback:
+) -> IntegrationOAuthCallback:
     """Handle OAuth callback for the specified provider."""
     if role.workspace_id is None or role.user_id is None:
         raise HTTPException(
@@ -207,7 +207,7 @@ async def oauth_callback(
     redirect_url = (
         f"{config.TRACECAT__PUBLIC_APP_URL}/workspaces/{role.workspace_id}/integrations"
     )
-    return IntegrationOauthCallback(
+    return IntegrationOAuthCallback(
         status="connected",
         provider_id=provider.id,
         redirect_url=redirect_url,

@@ -2,7 +2,7 @@
 
 Terminology:
 - Integration: A user's integration with an external service.
-- Provider: An external service that can be integrated with. Defined by BaseOauthProvider.
+- Provider: An external service that can be integrated with. Defined by BaseOAuthProvider.
 
 
 """
@@ -65,7 +65,7 @@ class IntegrationUpdate(BaseModel):
     )
 
 
-class IntegrationOauthConnect(BaseModel):
+class IntegrationOAuthConnect(BaseModel):
     """Request model for connecting an integration."""
 
     auth_url: str = Field(
@@ -78,7 +78,7 @@ class IntegrationOauthConnect(BaseModel):
     )
 
 
-class IntegrationOauthCallback(BaseModel):
+class IntegrationOAuthCallback(BaseModel):
     """Response for OAuth callback."""
 
     status: str = Field(
@@ -156,7 +156,7 @@ class OAuthState(BaseModel):
 
     @classmethod
     def from_state(cls, state: str) -> Self:
-        """Create an OauthState from a state string."""
+        """Create an OAuthState from a state string."""
         workspace_id, user_id, state = state.split(":")
         return cls(
             workspace_id=uuid.UUID(workspace_id),

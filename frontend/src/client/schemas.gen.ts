@@ -3174,7 +3174,7 @@ export const $Integer = {
   title: "Integer",
 } as const
 
-export const $IntegrationOauthCallback = {
+export const $IntegrationOAuthCallback = {
   properties: {
     status: {
       type: "string",
@@ -3195,11 +3195,11 @@ export const $IntegrationOauthCallback = {
   },
   type: "object",
   required: ["provider_id", "redirect_url"],
-  title: "IntegrationOauthCallback",
+  title: "IntegrationOAuthCallback",
   description: "Response for OAuth callback.",
 } as const
 
-export const $IntegrationOauthConnect = {
+export const $IntegrationOAuthConnect = {
   properties: {
     auth_url: {
       type: "string",
@@ -3214,7 +3214,7 @@ export const $IntegrationOauthConnect = {
   },
   type: "object",
   required: ["auth_url", "provider_id"],
-  title: "IntegrationOauthConnect",
+  title: "IntegrationOAuthConnect",
   description: "Request model for connecting an integration.",
 } as const
 

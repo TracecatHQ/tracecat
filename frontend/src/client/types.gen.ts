@@ -958,7 +958,7 @@ export type Integer = {
 /**
  * Response for OAuth callback.
  */
-export type IntegrationOauthCallback = {
+export type IntegrationOAuthCallback = {
   /**
    * The status of the OAuth callback
    */
@@ -976,7 +976,7 @@ export type IntegrationOauthCallback = {
 /**
  * Request model for connecting an integration.
  */
-export type IntegrationOauthConnect = {
+export type IntegrationOAuthConnect = {
   /**
    * The URL to redirect to for OAuth authentication
    */
@@ -3989,7 +3989,7 @@ export type IntegrationsConnectProviderData = {
   workspaceId: string
 }
 
-export type IntegrationsConnectProviderResponse = IntegrationOauthConnect
+export type IntegrationsConnectProviderResponse = IntegrationOAuthConnect
 
 export type IntegrationsOauthCallbackData = {
   /**
@@ -4004,7 +4004,7 @@ export type IntegrationsOauthCallbackData = {
   workspaceId: string
 }
 
-export type IntegrationsOauthCallbackResponse = IntegrationOauthCallback
+export type IntegrationsOauthCallbackResponse = IntegrationOAuthCallback
 
 export type ProvidersListProvidersData = {
   workspaceId: string
@@ -5991,7 +5991,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: IntegrationOauthConnect
+        200: IntegrationOAuthConnect
         /**
          * Validation Error
          */
@@ -6006,7 +6006,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: IntegrationOauthCallback
+        200: IntegrationOAuthCallback
         /**
          * Validation Error
          */
