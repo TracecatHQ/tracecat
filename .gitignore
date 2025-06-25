@@ -8,6 +8,7 @@ node_modules/
 .tracecat/
 .dev/
 .llm/
+.v0/
 
 # UV
 uv.lock

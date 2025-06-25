@@ -1,7 +1,8 @@
 import uuid
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, UploadFile, status
+from fastapi.responses import Response
 from sqlalchemy.exc import DBAPIError
 
 from tracecat.auth.credentials import RoleACL
@@ -10,6 +11,7 @@ from tracecat.auth.users import search_users
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.models import (
     AssigneeChangedEventRead,
+    CaseAttachmentRead,
     CaseCommentCreate,
     CaseCommentRead,
     CaseCommentUpdate,
@@ -455,3 +457,203 @@ async def list_events_with_users(
     )
 
     return CaseEventsWithUsers(events=events, users=users)
+
+
+# Case Attachments
+
+
+@cases_router.get("/{case_id}/attachments")
+async def list_attachments(
+    *,
+    role: WorkspaceUser,
+    session: AsyncDBSession,
+    case_id: uuid.UUID,
+) -> list[CaseAttachmentRead]:
+    """List all attachments for a case."""
+    service = CasesService(session, role)
+    case = await service.get_case(case_id)
+    if case is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Case with ID {case_id} not found",
+        )
+
+    attachments = await service.attachments.list_attachments(case)
+    return [
+        CaseAttachmentRead(
+            id=attachment.id,
+            case_id=attachment.case_id,
+            file_id=attachment.file_id,
+            file_name=attachment.file.name,
+            content_type=attachment.file.content_type,
+            size=attachment.file.size,
+            sha256=attachment.file.sha256,
+            created_at=attachment.created_at,
+            updated_at=attachment.updated_at,
+            creator_id=attachment.file.creator_id,
+            is_deleted=attachment.file.is_deleted,
+        )
+        for attachment in attachments
+    ]
+
+
+@cases_router.post("/{case_id}/attachments", status_code=status.HTTP_201_CREATED)
+async def create_attachment(
+    *,
+    role: WorkspaceUser,
+    session: AsyncDBSession,
+    case_id: uuid.UUID,
+    file: UploadFile,
+) -> CaseAttachmentRead:
+    """Upload a new attachment to a case."""
+    from tracecat.cases.models import CaseAttachmentCreate
+
+    service = CasesService(session, role)
+    case = await service.get_case(case_id)
+    if case is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Case with ID {case_id} not found",
+        )
+
+    # Read file content
+    content = await file.read()
+
+    # Create attachment
+    try:
+        params = CaseAttachmentCreate(
+            file_name=file.filename or "unnamed",
+            content_type=file.content_type or "application/octet-stream",
+            size=len(content),
+            content=content,
+        )
+        attachment = await service.attachments.create_attachment(case, params)
+
+        return CaseAttachmentRead(
+            id=attachment.id,
+            case_id=attachment.case_id,
+            file_id=attachment.file_id,
+            file_name=attachment.file.name,
+            content_type=attachment.file.content_type,
+            size=attachment.file.size,
+            sha256=attachment.file.sha256,
+            created_at=attachment.created_at,
+            updated_at=attachment.updated_at,
+            creator_id=attachment.file.creator_id,
+            is_deleted=attachment.file.is_deleted,
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to upload attachment: {str(e)}",
+        ) from e
+
+
+@cases_router.get("/{case_id}/attachments/{attachment_id}")
+async def download_attachment(
+    *,
+    role: WorkspaceUser,
+    session: AsyncDBSession,
+    case_id: uuid.UUID,
+    attachment_id: uuid.UUID,
+) -> Response:
+    """Download an attachment."""
+    from fastapi.responses import Response
+
+    service = CasesService(session, role)
+    case = await service.get_case(case_id)
+    if case is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Case with ID {case_id} not found",
+        )
+
+    try:
+        content, filename, content_type = await service.attachments.download_attachment(
+            case, attachment_id
+        )
+
+        return Response(
+            content=content,
+            media_type=content_type,
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Content-Length": str(len(content)),
+            },
+        )
+    except Exception as e:
+        if "not found" in str(e).lower():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=str(e),
+            ) from e
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to download attachment: {str(e)}",
+        ) from e
+
+
+@cases_router.delete(
+    "/{case_id}/attachments/{attachment_id}", status_code=status.HTTP_204_NO_CONTENT
+)
+async def delete_attachment(
+    *,
+    role: WorkspaceUser,
+    session: AsyncDBSession,
+    case_id: uuid.UUID,
+    attachment_id: uuid.UUID,
+) -> None:
+    """Delete an attachment (soft delete)."""
+    service = CasesService(session, role)
+    case = await service.get_case(case_id)
+    if case is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Case with ID {case_id} not found",
+        )
+
+    try:
+        await service.attachments.delete_attachment(case, attachment_id)
+    except Exception as e:
+        if "not found" in str(e).lower():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=str(e),
+            ) from e
+        if "permission" in str(e).lower():
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=str(e),
+            ) from e
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete attachment: {str(e)}",
+        ) from e
+
+
+@cases_router.get("/{case_id}/storage-usage")
+async def get_storage_usage(
+    *,
+    role: WorkspaceUser,
+    session: AsyncDBSession,
+    case_id: uuid.UUID,
+) -> dict[str, float]:
+    """Get total storage used by a case's attachments."""
+    service = CasesService(session, role)
+    case = await service.get_case(case_id)
+    if case is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Case with ID {case_id} not found",
+        )
+
+    total_bytes = await service.attachments.get_total_storage_used(case)
+    return {
+        "total_bytes": float(total_bytes),
+        "total_mb": round(total_bytes / (1024 * 1024), 2),
+    }
