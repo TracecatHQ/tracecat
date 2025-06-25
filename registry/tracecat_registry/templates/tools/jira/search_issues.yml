@@ -1,0 +1,40 @@
+type: action
+definition:
+  title: Search issues
+  description: Search for issues in Jira using JQL.
+  display_group: Jira
+  doc_url: https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-search/#api-rest-api-3-search-jql-get
+  namespace: tools.jira
+  name: search_issues
+  secrets:
+    - name: jira
+      keys: ["JIRA_USEREMAIL", "JIRA_API_TOKEN"]
+  expects:
+    jql:
+      type: str
+      description: JQL query to search for issues.
+    base_url:
+      type: str
+      description: Jira tenant URL (e.g. https://tracecat.atlassian.net)
+    next_page:
+      type: str
+      description: Next page token to get the next page of results. If not provided, the first page of results will be returned.
+      default: null
+    max_results:
+      type: int
+      description: Maximum number of results to return.
+      default: 100
+    fields:
+      type: str
+      description: "A list of fields to return for each issue, use it to retrieve a subset of fields. This parameter accepts a comma-separated list. Expand options include: *all, *navigable, summary,comment, -description, -comment. The default is id"
+      default: "id"
+  steps:
+    - ref: search_issues
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/rest/api/3/search/jql?jql=${{ inputs.jql }}&maxResults=${{ inputs.max_results }}&nextPageToken=${{ inputs.next_page }}&fields=${{ inputs.fields }}
+        method: GET
+        auth:
+          username: ${{ SECRETS.jira.JIRA_USEREMAIL }}
+          password: ${{ SECRETS.jira.JIRA_API_TOKEN }}
+  returns: ${{ steps.search_issues.result.data }}
