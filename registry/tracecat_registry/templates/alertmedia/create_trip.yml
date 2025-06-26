@@ -21,14 +21,14 @@ definition:
       description: Name of the trip.
     start_date:
       type: datetime
-      description: Start date of the trip. Example 2025-06-26
+      description: Start date of the trip. Example 2025-06-26 00:00:00
     start_time_zone:
       type: str
       description: Time zone of the trip.
       default: "America/New_York"
     end_date:
       type: datetime
-      description: End date of the trip. Example 2025-06-26T12:00:00
+      description: End date of the trip. Example 2025-06-26 23:59:59
     end_time_zone:
       type: str
       description: Time zone of the trip.
@@ -36,9 +36,9 @@ definition:
     city:
       type: str
       description: City of the trip.
-    country:
+    country_code:
       type: str
-      description: Country of the trip.
+      description: Country code of the trip. For example, US, CA, GB, etc.
     latitude:
       type: str
       description: Latitude of the trip.
@@ -54,7 +54,7 @@ definition:
         headers:
           Authorization: Bearer ${{ SECRETS.alertmedia.ALERTMEDIA_API_KEY }}
         payload:
-          user_id: ${{ inputs.user_id }}
+          user: ${{ inputs.user_id }}
           name: ${{ inputs.name }}
           start_date: ${{ inputs.start_date }}
           start_time_zone: ${{ inputs.start_time_zone }}
@@ -62,7 +62,7 @@ definition:
           end_time_zone: ${{ inputs.end_time_zone }}
           destination_address:
             city: ${{ inputs.city }}
-            country: ${{ inputs.country }}
+            country: ${{ inputs.country_code }}
             latitude: ${{ inputs.latitude }}
             longitude: ${{ inputs.longitude }}
 
