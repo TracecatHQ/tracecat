@@ -16,7 +16,7 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 
 from tests.shared import TEST_WF_ID, generate_test_exec_id
-from tracecat.dsl._converter import pydantic_data_converter
+from tracecat.dsl._converter import get_data_converter
 from tracecat.dsl.action import DSLActivities
 from tracecat.dsl.common import DSLEntrypoint, DSLInput, DSLRunArgs
 from tracecat.dsl.models import ActionRetryPolicy, ActionStatement, RunActionInput
@@ -27,9 +27,11 @@ from tracecat.types.auth import Role
 
 
 @pytest.fixture
-async def env() -> AsyncGenerator[WorkflowEnvironment, None]:
+async def env(
+    monkeysession: pytest.MonkeyPatch,
+) -> AsyncGenerator[WorkflowEnvironment, None]:
     async with await WorkflowEnvironment.start_time_skipping(
-        data_converter=pydantic_data_converter
+        data_converter=get_data_converter(compression_enabled=False)
     ) as env:
         yield env
 

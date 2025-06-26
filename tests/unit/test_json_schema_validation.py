@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Annotated, Any, Literal, Union, get_args, get_origin
 
 from pydantic import BaseModel
@@ -365,3 +366,73 @@ def test_array_of_objects():
     item_name_annotation = ListItemModel.__annotations__["item_name"]
     assert get_origin(item_name_annotation) is Annotated
     assert get_args(item_name_annotation)[0] is str
+
+
+def test_datetime_format():
+    """Test that string fields with 'date-time' format are properly converted to datetime type."""
+    schema = {
+        "type": "object",
+        "title": "DateTimeTest",
+        "properties": {
+            "start": {
+                "type": "string",
+                "format": "date-time",
+                "description": "The start date.",
+            },
+            "end": {
+                "type": "string",
+                "format": "date-time",
+                "description": "The end date.",
+            },
+            "regular_string": {
+                "type": "string",
+                "description": "A regular string field.",
+            },
+        },
+        "required": ["start", "end"],
+    }
+
+    Model = json_schema_to_pydantic(schema)
+
+    assert issubclass(Model, BaseModel)
+
+    # start is Annotated[datetime, ...] because it's required and has date-time format
+    start_type_annotation = Model.__annotations__["start"]
+    assert get_origin(start_type_annotation) is Annotated
+    assert get_args(start_type_annotation)[0] is datetime
+
+    # end is Annotated[datetime, ...] because it's required and has date-time format
+    end_type_annotation = Model.__annotations__["end"]
+    assert get_origin(end_type_annotation) is Annotated
+    assert get_args(end_type_annotation)[0] is datetime
+
+    # regular_string is Optional[Annotated[str, ...]] because it's not required and no format
+    regular_string_type_annotation = Model.__annotations__["regular_string"]
+    assert get_origin(regular_string_type_annotation) is Union
+    regular_string_args = get_args(regular_string_type_annotation)
+    assert type(None) in regular_string_args
+    annotated_str_type = next(
+        arg for arg in regular_string_args if arg is not type(None)
+    )
+    assert get_origin(annotated_str_type) is Annotated
+    assert get_args(annotated_str_type)[0] is str
+
+    # Test validation with datetime objects
+    test_data = {
+        "start": datetime(2025, 6, 26, 15, 51, 8, 346252),
+        "end": datetime(2025, 6, 26, 16, 51, 8, 346252),
+    }
+
+    validated = Model.model_validate(test_data)
+    assert isinstance(validated.start, datetime)  # type: ignore
+    assert isinstance(validated.end, datetime)  # type: ignore
+
+    # Test validation with string inputs
+    test_data_str = {
+        "start": "2025-06-26T15:51:08.346252",
+        "end": "2025-06-26T16:51:08.346252",
+    }
+
+    validated_str = Model.model_validate(test_data_str)
+    assert isinstance(validated_str.start, datetime)  # type: ignore
+    assert isinstance(validated_str.end, datetime)  # type: ignore

@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, create_model
@@ -65,6 +66,9 @@ def json_schema_to_pydantic(
             # Pass the field_name_for_enum for context in case array items are enums/objects
             return list[create_field(items_schema, f"{enum_field_name}Item")]
         elif type_ == "string":
+            format_type = prop_schema.get("format")
+            if format_type == "date-time":
+                return datetime
             return str
         elif type_ == "integer":
             return int
@@ -104,7 +108,7 @@ async def secret_validator(
     # (1) Check if the secret is defined
     async with SecretsService.with_session() as service:
         defined_secret = await service.search_secrets(
-            SecretSearch(names=[name], environment=environment)  # type: ignore
+            SecretSearch(names={name}, environment=environment)
         )
         logger.info("Secret search results", defined_secret=defined_secret)
         if (n_found := len(defined_secret)) != 1:
