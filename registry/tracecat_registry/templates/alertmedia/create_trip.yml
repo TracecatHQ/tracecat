@@ -56,9 +56,9 @@ definition:
         payload:
           user_id: ${{ inputs.user_id }}
           name: ${{ inputs.name }}
-          start_date: FN.to_isoformat(${{ inputs.start_date }})
+          start_date: ${{ inputs.start_date }}
           start_time_zone: ${{ inputs.start_time_zone }}
-          end_date: FN.to_isoformat(${{ inputs.end_date }})
+          end_date: ${{ inputs.end_date }}
           end_time_zone: ${{ inputs.end_time_zone }}
           destination_address:
             city: ${{ inputs.city }}
