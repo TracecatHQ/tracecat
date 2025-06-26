@@ -39,6 +39,93 @@ env:
   PYODIDE_VERSION: "0.27.6"
 
 jobs:
+  test-custom-registry-install:
+    runs-on: blacksmith-4vcpu-ubuntu-2204
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.git-ref }}
+
+      - name: Install uv
+        uses: useblacksmith/setup-uv@v4
+        with:
+          version: "0.4.20"
+
+      - name: Set up Python 3.12
+        uses: useblacksmith/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Clone custom registry starter
+        run: |
+          git clone https://github.com/TracecatHQ/custom-integrations-starter-kit
+          cd custom-integrations-starter-kit
+
+      - name: Install dependencies
+        run: uv venv --python 3.12 && uv pip install ".[dev]"
+
+  test-workflow-codec:
+    runs-on: blacksmith-4vcpu-ubuntu-2204
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.git-ref }}
+
+      - name: Install uv
+        uses: useblacksmith/setup-uv@v4
+        with:
+          version: "0.4.20"
+          enable-cache: true
+          cache-dependency-glob: "pyproject.toml"
+
+      - name: Set up Python 3.12
+        uses: useblacksmith/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Install system dependencies
+        run: |
+          # Install ripgrep for grep integration tests
+          sudo apt-get update
+          sudo apt-get install -y ripgrep
+
+          # Install kubectl
+          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          chmod +x kubectl
+          sudo mv kubectl /usr/local/bin/
+          kubectl version --client
+
+      - name: Run environment setup script
+        run: |
+          echo "y
+          localhost
+          n
+          test@tracecat.com" | bash env.sh
+
+      - name: Start core Docker services
+        env:
+          TRACECAT__UNSAFE_DISABLE_SM_MASKING: "true"
+        run: docker compose -f docker-compose.dev.yml up -d temporal api worker executor postgres_db caddy
+
+      - name: Install dependencies
+        run: |
+          uv pip install ".[dev]"
+          uv pip install ./registry
+
+      - name: Run workflow tests with compression
+        env:
+          TRACECAT__SYSTEM_PATH: "/usr/local/bin:/usr/bin:/bin"
+          # Enable compression
+          TRACECAT__CONTEXT_COMPRESSION_ENABLED: true
+          # Apply unconditionally
+          TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB: 0
+        run: uv run pytest tests/unit/test_workflows.py -ra
+
   test-all:
     runs-on: blacksmith-4vcpu-ubuntu-2204
     timeout-minutes: 60

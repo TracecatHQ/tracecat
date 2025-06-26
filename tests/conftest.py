@@ -179,6 +179,12 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
     monkeysession.setattr(config, "TRACECAT__AUTH_ALLOWED_DOMAINS", ["tracecat.com"])
     # Need this for local unit tests
     monkeysession.setattr(config, "TRACECAT__EXECUTOR_URL", "http://localhost:8001")
+    if os.getenv("TRACECAT__CONTEXT_COMPRESSION_ENABLED"):
+        logger.info("Enabling compression for workflow context")
+        monkeysession.setattr(config, "TRACECAT__CONTEXT_COMPRESSION_ENABLED", True)
+        # Force compression for local unit tests
+        monkeysession.setattr(config, "TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB", 0)
+
     # test_workflows.py was written when we returned the full context by default
     monkeysession.setattr(config, "TRACECAT__WORKFLOW_RETURN_STRATEGY", "context")
     monkeysession.setenv("TRACECAT__WORKFLOW_RETURN_STRATEGY", "context")
