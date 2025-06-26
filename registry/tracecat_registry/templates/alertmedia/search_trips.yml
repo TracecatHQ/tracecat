@@ -1,0 +1,39 @@
+type: action
+definition:
+  title: Search trips
+  description: Search for trips in AlertMedia. This returns a list of trips and an item range header. The item range header of 0-2/3 means that the first 3 trips (0-2) have been returned and there are a total of 3 trips.
+  display_group: AlertMedia
+  doc_url: https://docs.alertmedia.com/reference/get-list-a-users-travel-itinerary
+  namespace: tools.alertmedia
+  name: search_trips
+  secrets:
+    - name: alertmedia
+      keys: ["ALERTMEDIA_API_KEY"]
+  expects:
+    base_url:
+      type: str
+      description: AlertMedia base URL (e.g. https://tracecat.alertmedia.com)
+    ordering:
+      type: str
+      description: Sort trips in response by one of start_date, end_date, name, city, country, state, country_code. Add - before the field name to reverse the order (e.g. ?ordering=-start_date returns trips sorted by start date Z-A). Default is -active_date.
+      default: "-active_date"
+    status:
+      type: str
+      description: Filter trips by status, this is a comma separated list of statuses. Valid values are upcoming, active, past. Default is upcoming,active,past. (all statuses)
+      default: "upcoming,active,past"
+    item_range:
+      type: str
+      description: Item-Range header value. Default is 0-25.
+      default: "0-25"
+  steps:
+    - ref: search_trips
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/api/trips?ordering=${{ inputs.ordering }}&status=${{ inputs.status }}&item_range=${{ inputs.item_range }}
+        method: GET
+        headers:
+          Item-Range: items=${{ inputs.item_range }}
+          Authorization: Bearer ${{ SECRETS.alertmedia.ALERTMEDIA_API_KEY }}
+  returns:
+    data: ${{ steps.search_trips.result.data }}
+    next_item_range: ${{ steps.search_trips.result.headers["item-range"] }}
