@@ -41,6 +41,10 @@ definition:
       type: str
       description: Sort users in response by one of last_name, first_name, last_login, email, mobile_phone, date_updated. Add - before the field name to reverse the order (e.g. ?ordering=-last_name returns users sorted by last name Z-A)
       default: ""
+    item_range:
+      type: str
+      description: Item-Range header value. Default is 0-25.
+      default: "0-25"
   steps:
     - ref: search_users
       action: core.http_request
@@ -48,5 +52,8 @@ definition:
         url: ${{ inputs.base_url }}/api/users?email=${{ inputs.email }}&name=${{ inputs.name }}&phone=${{ inputs.phone }}&has_email=${{ inputs.has_email }}&has_phone=${{ inputs.has_phone }}&has_device=${{ inputs.has_device }}&ordering=${{ inputs.ordering }}
         method: GET
         headers:
+          Item-Range: items=${{ inputs.item_range }}
           Authorization: Bearer ${{ SECRETS.alertmedia.ALERTMEDIA_API_KEY }}
-  returns: ${{ steps.search_users.result.data }}
+  returns:
+    data: ${{ steps.search_users.result.data }}
+    next_item_range: ${{ steps.search_users.result.headers["item-range"] }}
