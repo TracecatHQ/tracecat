@@ -736,11 +736,15 @@ class DSLWorkflow:
     def _handle_return(self) -> Any:
         self.logger.debug("Handling return", context=self.context)
         if self.dsl.returns is None:
-            # Return the context
-            # XXX: Don't return ENV context for now
-            self.logger.trace("Returning DSL context")
-            self.context.pop(ExprContext.ENV, None)
-            return self.context
+            match config.TRACECAT__WORKFLOW_RETURN_STRATEGY:
+                case "context":
+                    self.logger.trace("Returning DSL context")
+                    self.context.pop(ExprContext.ENV, None)
+                    return self.context
+                case "minimal":
+                    return self.run_context
+                case _:
+                    return None
         # Return some custom value that should be evaluated
         self.logger.trace("Returning value from expression")
         return eval_templated_object(self.dsl.returns, operand=self.context)
