@@ -1,0 +1,34 @@
+type: action
+definition:
+  title: Get user trips
+  description: Get a list of trips for a user from AlertMedia. This returns a list of trips and an item range header. The item range header of 0-2/3 means that the first 3 trips (0-2) have been returned and there are a total of 3 trips.
+  display_group: AlertMedia
+  doc_url: https://docs.alertmedia.com/reference/get-list-a-users-travel-itinerary
+  namespace: tools.alertmedia
+  name: get_user_trips
+  secrets:
+    - name: alertmedia
+      keys: ["ALERTMEDIA_API_KEY"]
+  expects:
+    base_url:
+      type: str
+      description: AlertMedia base URL (e.g. https://tracecat.alertmedia.com)
+    user_id:
+      type: str
+      description: User ID of the user to get the trips for.
+    item_range:
+      type: str
+      description: Item-Range header value. Default is 0-25.
+      default: "0-25"
+  steps:
+    - ref: get_user_trips
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/api/users/${{ inputs.user_id }}/trips?item_range=${{ inputs.item_range }}
+        method: GET
+        headers:
+          Item-Range: items=${{ inputs.item_range }}
+          Authorization: Bearer ${{ SECRETS.alertmedia.ALERTMEDIA_API_KEY }}
+  returns:
+    data: ${{ steps.get_user_trips.result.data }}
+    next_item_range: ${{ steps.get_user_trips.result.headers["item-range"] }}
