@@ -104,7 +104,7 @@ async def secret_validator(
     # (1) Check if the secret is defined
     async with SecretsService.with_session() as service:
         defined_secret = await service.search_secrets(
-            SecretSearch(names=[name], environment=environment)  # type: ignore
+            SecretSearch(names={name}, environment=environment)
         )
         logger.info("Secret search results", defined_secret=defined_secret)
         if (n_found := len(defined_secret)) != 1:
