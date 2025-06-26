@@ -297,14 +297,14 @@ TRACECAT__MAX_ROWS_CLIENT_POSTGRES = int(
 
 # === Context Compression === #
 TRACECAT__CONTEXT_COMPRESSION_ENABLED = os.environ.get(
-    "TRACECAT__CONTEXT_COMPRESSION_ENABLED", "true"
+    "TRACECAT__CONTEXT_COMPRESSION_ENABLED", "false"
 ).lower() in ("true", "1")
 """Enable compression of large action results in workflow contexts. Defaults to False."""
 
 TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB = int(
-    os.environ.get("TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB", 0)
+    os.environ.get("TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB", 16)
 )
-"""Threshold in KB above which action results are compressed. Defaults to 64KB."""
+"""Threshold in KB above which action results are compressed. Defaults to 16KB."""
 
 TRACECAT__CONTEXT_COMPRESSION_ALGORITHM = os.environ.get(
     "TRACECAT__CONTEXT_COMPRESSION_ALGORITHM", "zstd"
