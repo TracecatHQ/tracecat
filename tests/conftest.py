@@ -180,6 +180,7 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
     # Need this for local unit tests
     monkeysession.setattr(config, "TRACECAT__EXECUTOR_URL", "http://localhost:8001")
     if os.getenv("TRACECAT__CONTEXT_COMPRESSION_ENABLED"):
+        logger.info("Enabling compression for workflow context")
         monkeysession.setattr(config, "TRACECAT__CONTEXT_COMPRESSION_ENABLED", True)
         # Force compression for local unit tests
         monkeysession.setattr(config, "TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB", 0)
