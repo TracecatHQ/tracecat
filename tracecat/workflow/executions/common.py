@@ -5,6 +5,8 @@ import temporalio.api.common.v1
 from temporalio.api.enums.v1 import EventType
 from temporalio.api.history.v1 import HistoryEvent
 
+from tracecat import config
+from tracecat.dsl.compression import get_compression_payload_codec
 from tracecat.ee.interactions.service import InteractionService
 from tracecat.identifiers import UserID, WorkflowID
 from tracecat.logger import logger
@@ -103,7 +105,7 @@ def is_utility_activity(activity_name: str) -> bool:
     return activity_name in UTILITY_ACTIONS
 
 
-def get_result(event: HistoryEvent) -> Any:
+async def get_result(event: HistoryEvent) -> Any:
     match event.event_type:
         case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED:
             payload = event.workflow_execution_completed_event_attributes.result
@@ -115,7 +117,7 @@ def get_result(event: HistoryEvent) -> Any:
             payload = event.workflow_execution_update_completed_event_attributes.outcome.success
         case _:
             raise ValueError("Event is not a completed event")
-    return extract_first(payload)
+    return await extract_first(payload)
 
 
 def get_source_event_id(event: HistoryEvent) -> int | None:
@@ -146,9 +148,16 @@ def get_source_event_id(event: HistoryEvent) -> int | None:
             return None
 
 
-def extract_payload(payload: temporalio.api.common.v1.Payloads, index: int = 0) -> Any:
+async def extract_payload(
+    payload: temporalio.api.common.v1.Payloads, index: int = 0
+) -> Any:
     """Extract the first payload from a workflow history event."""
-    raw_data = payload.payloads[index].data
+    if config.TRACECAT__CONTEXT_COMPRESSION_ENABLED:
+        codec = get_compression_payload_codec()
+        decompressed_payload = await codec.decode(payload.payloads)
+        raw_data = decompressed_payload[index].data
+    else:
+        raw_data = payload.payloads[index].data
     try:
         return orjson.loads(raw_data)
     except orjson.JSONDecodeError as e:
@@ -165,9 +174,9 @@ def extract_payload(payload: temporalio.api.common.v1.Payloads, index: int = 0) 
         return raw_data
 
 
-def extract_first(input_or_result: temporalio.api.common.v1.Payloads) -> Any:
+async def extract_first(input_or_result: temporalio.api.common.v1.Payloads) -> Any:
     """Extract the first payload from a workflow history event."""
-    return extract_payload(input_or_result, index=0)
+    return await extract_payload(input_or_result, index=0)
 
 
 def build_query(

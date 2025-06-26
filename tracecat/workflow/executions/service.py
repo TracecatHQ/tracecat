@@ -181,7 +181,7 @@ class WorkflowExecutionsService:
         async for event in self.handle(wf_exec_id).fetch_history_events(**kwargs):
             if is_scheduled_event(event):
                 # Create a new source event
-                source = WorkflowExecutionEventCompact.from_source_event(event)
+                source = await WorkflowExecutionEventCompact.from_source_event(event)
                 if source is None:
                     logger.trace(
                         "Skipping scheduled event as there is no source",
@@ -216,7 +216,7 @@ class WorkflowExecutionsService:
                     source.start_time = event.event_time.ToDatetime(datetime.UTC)
                 if is_close_event(event):
                     source.close_time = event.event_time.ToDatetime(datetime.UTC)
-                    source.action_result = get_result(event)
+                    source.action_result = await get_result(event)
                 if is_error_event(event):
                     source.action_error = EventFailure.from_history_event(event)
         # For the resultant values, if there are duplicate source action_refs,
@@ -273,7 +273,7 @@ class WorkflowExecutionsService:
             match event.event_type:
                 # === Child Workflow Execution Events ===
                 case EventType.EVENT_TYPE_START_CHILD_WORKFLOW_EXECUTION_INITIATED:
-                    group = EventGroup.from_initiated_child_workflow(event)
+                    group = await EventGroup.from_initiated_child_workflow(event)
                     event_group_names[event.event_id] = group
                     events.append(
                         WorkflowExecutionEvent(
@@ -299,7 +299,7 @@ class WorkflowExecutionsService:
                         )
                     )
                 case EventType.EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_COMPLETED:
-                    result = extract_first(
+                    result = await extract_first(
                         event.child_workflow_execution_completed_event_attributes.result
                     )
                     initiator_event_id = event.child_workflow_execution_completed_event_attributes.initiated_event_id
@@ -332,7 +332,7 @@ class WorkflowExecutionsService:
                 # === Workflow Execution Events ===
                 case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_STARTED:
                     attrs = event.workflow_execution_started_event_attributes
-                    run_args_data = extract_first(attrs.input)
+                    run_args_data = await extract_first(attrs.input)
                     dsl_run_args = DSLRunArgs(**run_args_data)
                     # Empty strings coerce to None
                     parent_exec_id = attrs.parent_workflow_execution.workflow_id or None
@@ -348,7 +348,7 @@ class WorkflowExecutionsService:
                         )
                     )
                 case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED:
-                    result = extract_first(
+                    result = await extract_first(
                         event.workflow_execution_completed_event_attributes.result
                     )
                     events.append(
@@ -408,7 +408,7 @@ class WorkflowExecutionsService:
                     )
                 # === Activity Task Events ===
                 case EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED:
-                    if not (group := EventGroup.from_scheduled_activity(event)):
+                    if not (group := await EventGroup.from_scheduled_activity(event)):
                         continue
                     event_group_names[event.event_id] = group
                     events.append(
@@ -444,7 +444,7 @@ class WorkflowExecutionsService:
                     if not (group := event_group_names.get(gparent_event_id)):
                         continue
                     event_group_names[event.event_id] = group
-                    result = extract_first(
+                    result = await extract_first(
                         event.activity_task_completed_event_attributes.result
                     )
                     events.append(
@@ -490,7 +490,7 @@ class WorkflowExecutionsService:
                 # === Workflow Execution Interaction Events ===
                 case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_SIGNALED:
                     attrs = event.workflow_execution_signaled_event_attributes
-                    data = extract_first(attrs.input)
+                    data = await extract_first(attrs.input)
                     events.append(
                         WorkflowExecutionEvent(
                             event_id=event.event_id,
@@ -501,7 +501,7 @@ class WorkflowExecutionsService:
                         )
                     )
                 case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_ACCEPTED:
-                    group = EventGroup.from_accepted_workflow_update(event)
+                    group = await EventGroup.from_accepted_workflow_update(event)
                     event_group_names[event.event_id] = group
                     events.append(
                         WorkflowExecutionEvent(
@@ -532,7 +532,7 @@ class WorkflowExecutionsService:
                     event_group_names[event.event_id] = group
                     outcome = attrs.outcome
                     if outcome.HasField("success"):
-                        result = extract_first(outcome.success)
+                        result = await extract_first(outcome.success)
                         events.append(
                             WorkflowExecutionEvent(
                                 event_id=event.event_id,

@@ -11,6 +11,11 @@ from temporalio.converter import (
     JSONPlainPayloadConverter,
 )
 
+from tracecat import config
+from tracecat.dsl.compression import (
+    get_compression_payload_codec,
+)
+
 
 def _serializer(obj: Any) -> Any:
     """Serializer for arbitrary objects.
@@ -66,6 +71,9 @@ class PydanticPayloadConverter(CompositePayloadConverter):
 
 
 pydantic_data_converter = DataConverter(
-    payload_converter_class=PydanticPayloadConverter
+    payload_converter_class=PydanticPayloadConverter,
+    payload_codec=get_compression_payload_codec()
+    if config.TRACECAT__CONTEXT_COMPRESSION_ENABLED
+    else None,
 )
-"""Data converter using Pydantic JSON conversion."""
+"""Data converter using Pydantic JSON conversion with optional compression."""
