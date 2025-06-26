@@ -1,0 +1,35 @@
+type: action
+definition:
+  title: Assign issue
+  description: Assign an issue to a user.
+  display_group: Jira
+  doc_url: https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issues/#api-rest-api-3-issue-issueidorkey-assignee-put
+  namespace: tools.jira
+  name: assign_issue
+  secrets:
+    - name: jira
+      keys: ["JIRA_USEREMAIL", "JIRA_API_TOKEN"]
+  expects:
+    base_url:
+      type: str
+      description: Jira tenant URL (e.g. https://tracecat.atlassian.net)
+    issue_key:
+      type: str
+      description: Jira issue key (e.g. TC-123)
+    user_id:
+      type: str
+      description: Jira user ID (e.g. 1234567890)
+  steps:
+    - ref: assign_issue
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/rest/api/3/issue/${{ inputs.issue_key }}/assignee
+        method: PUT
+        auth:
+          username: ${{ SECRETS.jira.JIRA_USEREMAIL }}
+          password: ${{ SECRETS.jira.JIRA_API_TOKEN }}
+        payload:
+          accountId: ${{ inputs.user_id }}
+  returns:
+    error: ${{ steps.assign_issue.result.data }}
+    status: ${{ steps.assign_issue.result.status_code }}
