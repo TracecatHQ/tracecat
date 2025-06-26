@@ -1,0 +1,28 @@
+type: action
+definition:
+  title: Get user ID
+  description: Get a user ID from Jira.
+  display_group: Jira
+  doc_url: https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-user-search/#api-rest-api-3-user-search-get
+  namespace: tools.jira
+  name: get_user_id
+  secrets:
+    - name: jira
+      keys: ["JIRA_USEREMAIL", "JIRA_API_TOKEN"]
+  expects:
+    base_url:
+      type: str
+      description: Jira tenant URL (e.g. https://tracecat.atlassian.net)
+    username:
+      type: str
+      description: Jira username (e.g. john.doe@example.com)
+  steps:
+    - ref: get_user_id
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/rest/api/3/user/search?query=${{ inputs.username }}&maxResults=1
+        method: GET
+        auth:
+          username: ${{ SECRETS.jira.JIRA_USEREMAIL }}
+          password: ${{ SECRETS.jira.JIRA_API_TOKEN }}
+  returns: ${{ steps.get_user_id.result.data }}
