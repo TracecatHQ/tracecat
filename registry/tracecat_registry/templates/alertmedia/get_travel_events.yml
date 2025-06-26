@@ -15,7 +15,7 @@ definition:
       description: AlertMedia base URL (e.g. https://tracecat.alertmedia.com)
     since:
       type: datetime
-      description: Start date of the trips to get.
+      description: Start date of the trips to get. Example 2025-06-26 00:00:00
       default: ""
     active:
       type: bool
