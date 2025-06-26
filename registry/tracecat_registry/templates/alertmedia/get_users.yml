@@ -1,7 +1,7 @@
 type: action
 definition:
   title: Get users
-  description: Get a list of users from AlertMedia.
+  description: Get a list of users from AlertMedia. This returns a list of users and an item range header. The item range header of 0-2/3 means that the first 3 users (0-2) have been returned and there are a total of 3 users.
   display_group: AlertMedia
   doc_url: https://docs.alertmedia.com/reference/get-list-users
   namespace: tools.alertmedia
@@ -13,6 +13,10 @@ definition:
     base_url:
       type: str
       description: AlertMedia base URL (e.g. https://tracecat.alertmedia.com)
+    item_range:
+      type: str
+      description: Item-Range header value. Default is 0-25.
+      default: "0-25"
   steps:
     - ref: get_users
       action: core.http_request
@@ -20,5 +24,9 @@ definition:
         url: ${{ inputs.base_url }}/api/users
         method: GET
         headers:
+          Item-Range: items=${{ inputs.item_range }}
           Authorization: Bearer ${{ SECRETS.alertmedia.ALERTMEDIA_API_KEY }}
-  returns: ${{ steps.get_users.result.data }}
+
+  returns:
+    data: ${{ steps.get_users.result.data }}
+    next_item_range: ${{ steps.get_users.result.headers["item-range"] }}
