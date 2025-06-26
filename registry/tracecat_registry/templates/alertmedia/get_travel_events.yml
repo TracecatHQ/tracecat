@@ -21,6 +21,10 @@ definition:
       type: bool
       description: Whether to get active trips.
       default: null
+    item_range:
+      type: str
+      description: Item-Range header value. Default is 0-25.
+      default: "0-25"
   steps:
     - ref: get_travel_events
       action: core.http_request
@@ -28,5 +32,8 @@ definition:
         url: ${{ inputs.base_url }}/api/v2/events?since=${{ inputs.since }}&active=${{ inputs.active }}
         method: GET
         headers:
+          Item-Range: items=${{ inputs.item_range }}
           Authorization: Bearer ${{ SECRETS.alertmedia.ALERTMEDIA_API_KEY }}
-  returns: ${{ steps.get_travel_events.result.data }}
+  returns:
+    data: ${{ steps.get_travel_events.result.data }}
+    next_item_range: ${{ steps.get_travel_events.result.headers["item-range"] }}
