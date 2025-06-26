@@ -179,6 +179,12 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
     monkeysession.setattr(config, "TRACECAT__AUTH_ALLOWED_DOMAINS", ["tracecat.com"])
     # Need this for local unit tests
     monkeysession.setattr(config, "TRACECAT__EXECUTOR_URL", "http://localhost:8001")
+    if os.getenv("TRACECAT__CONTEXT_COMPRESSION_ENABLED"):
+        logger.info("Enabling compression for workflow context")
+        monkeysession.setattr(config, "TRACECAT__CONTEXT_COMPRESSION_ENABLED", True)
+        # Force compression for local unit tests
+        monkeysession.setattr(config, "TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB", 0)
+
     # Add Homebrew path for macOS development environments
     monkeysession.setattr(
         config,

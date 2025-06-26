@@ -11,7 +11,6 @@ from typing import (
     cast,
 )
 
-import orjson
 import temporalio.api.common.v1
 import temporalio.api.enums.v1
 import temporalio.api.history.v1
@@ -167,7 +166,7 @@ class EventGroup[T: EventInput](BaseModel):
     related_wf_exec_id: WorkflowExecutionID | None = None
 
     @staticmethod
-    def from_scheduled_activity(
+    async def from_scheduled_activity(
         event: temporalio.api.history.v1.HistoryEvent,
     ) -> EventGroup[EventInput] | None:
         if (
@@ -177,8 +176,7 @@ class EventGroup[T: EventInput](BaseModel):
             raise ValueError("Event is not an activity task scheduled event.")
         # Load the input data
         attrs = event.activity_task_scheduled_event_attributes
-        activity_input_data = orjson.loads(attrs.input.payloads[0].data)
-        # Retry policy
+        activity_input_data = await extract_first(attrs.input)
 
         act_type = attrs.activity_type.name
         if is_utility_activity(act_type):
@@ -213,7 +211,7 @@ class EventGroup[T: EventInput](BaseModel):
         )
 
     @staticmethod
-    def from_initiated_child_workflow(
+    async def from_initiated_child_workflow(
         event: temporalio.api.history.v1.HistoryEvent,
     ) -> EventGroup[DSLRunArgs]:
         if (
@@ -224,7 +222,7 @@ class EventGroup[T: EventInput](BaseModel):
 
         attrs = event.start_child_workflow_execution_initiated_event_attributes
         wf_exec_id = cast(WorkflowExecutionID, attrs.workflow_id)
-        input = orjson.loads(attrs.input.payloads[0].data)
+        input = await extract_first(attrs.input)
         dsl_run_args = DSLRunArgs(**input)
         # Create an event group
 
@@ -250,7 +248,7 @@ class EventGroup[T: EventInput](BaseModel):
         )
 
     @staticmethod
-    def from_accepted_workflow_update(
+    async def from_accepted_workflow_update(
         event: temporalio.api.history.v1.HistoryEvent,
     ) -> EventGroup[InteractionInput]:
         if (
@@ -261,7 +259,7 @@ class EventGroup[T: EventInput](BaseModel):
             raise ValueError("Event is not a workflow update accepted event.")
 
         attrs = event.workflow_execution_update_accepted_event_attributes
-        input = extract_first(attrs.accepted_request.input.args)
+        input = await extract_first(attrs.accepted_request.input.args)
         group = EventGroup(
             event_id=event.event_id,
             udf_namespace="core.interact",
@@ -341,25 +339,31 @@ class WorkflowExecutionEventCompact[TInput: Any, TResult: Any](BaseModel):
     child_wf_wait_strategy: WaitStrategy | None = None
 
     @staticmethod
-    def from_source_event(
+    async def from_source_event(
         event: temporalio.api.history.v1.HistoryEvent,
     ) -> WorkflowExecutionEventCompact | None:
         match event.event_type:
             case temporalio.api.enums.v1.EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED:
-                return WorkflowExecutionEventCompact.from_scheduled_activity(event)
-            case temporalio.api.enums.v1.EventType.EVENT_TYPE_START_CHILD_WORKFLOW_EXECUTION_INITIATED:
-                return WorkflowExecutionEventCompact.from_initiated_child_workflow(
+                return await WorkflowExecutionEventCompact.from_scheduled_activity(
                     event
                 )
+            case temporalio.api.enums.v1.EventType.EVENT_TYPE_START_CHILD_WORKFLOW_EXECUTION_INITIATED:
+                return (
+                    await WorkflowExecutionEventCompact.from_initiated_child_workflow(
+                        event
+                    )
+                )
             case temporalio.api.enums.v1.EventType.EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_ACCEPTED:
-                return WorkflowExecutionEventCompact.from_workflow_update_accepted(
-                    event
+                return (
+                    await WorkflowExecutionEventCompact.from_workflow_update_accepted(
+                        event
+                    )
                 )
             case _:
                 return None
 
     @staticmethod
-    def from_scheduled_activity(
+    async def from_scheduled_activity(
         event: temporalio.api.history.v1.HistoryEvent,
     ) -> WorkflowExecutionEventCompact | None:
         if (
@@ -368,7 +372,7 @@ class WorkflowExecutionEventCompact[TInput: Any, TResult: Any](BaseModel):
         ):
             raise ValueError("Event is not an activity task scheduled event.")
         attrs = event.activity_task_scheduled_event_attributes
-        activity_input_data = extract_first(attrs.input)
+        activity_input_data = await extract_first(attrs.input)
 
         act_type = attrs.activity_type.name
         if act_type in (UTILITY_ACTIONS | {"get_workflow_definition_activity"}):
@@ -392,7 +396,7 @@ class WorkflowExecutionEventCompact[TInput: Any, TResult: Any](BaseModel):
         )
 
     @staticmethod
-    def from_initiated_child_workflow(
+    async def from_initiated_child_workflow(
         event: temporalio.api.history.v1.HistoryEvent,
     ) -> WorkflowExecutionEventCompact | None:
         """Creates a compact workflow execution event from a child workflow initiation event.
@@ -432,7 +436,7 @@ class WorkflowExecutionEventCompact[TInput: Any, TResult: Any](BaseModel):
             memo=memo,
         )
 
-        input_data = extract_first(attrs.input)
+        input_data = await extract_first(attrs.input)
         dsl_run_args = DSLRunArgs(**input_data)
 
         return WorkflowExecutionEventCompact(
@@ -450,7 +454,7 @@ class WorkflowExecutionEventCompact[TInput: Any, TResult: Any](BaseModel):
         )
 
     @staticmethod
-    def from_workflow_update_accepted(
+    async def from_workflow_update_accepted(
         event: temporalio.api.history.v1.HistoryEvent,
     ) -> WorkflowExecutionEventCompact | None:
         if (
@@ -460,7 +464,7 @@ class WorkflowExecutionEventCompact[TInput: Any, TResult: Any](BaseModel):
             raise ValueError("Event is not a workflow update accepted event.")
 
         attrs = event.workflow_execution_update_accepted_event_attributes
-        input_data = extract_first(attrs.accepted_request.input.args)
+        input_data = await extract_first(attrs.accepted_request.input.args)
         signal_input = InteractionInput(**input_data)
         return WorkflowExecutionEventCompact(
             source_event_id=event.event_id,

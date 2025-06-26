@@ -12,6 +12,7 @@ from tenacity import (
     wait_exponential,
 )
 
+from tracecat import config
 from tracecat.config import (
     TEMPORAL__API_KEY__ARN,
     TEMPORAL__CLUSTER_NAMESPACE,
@@ -19,7 +20,7 @@ from tracecat.config import (
     TEMPORAL__CONNECT_RETRIES,
     TEMPORAL__METRICS_PORT,
 )
-from tracecat.dsl._converter import pydantic_data_converter
+from tracecat.dsl._converter import get_data_converter
 from tracecat.logger import logger
 
 _client: Client | None = None
@@ -67,7 +68,9 @@ async def connect_to_temporal() -> Client:
         rpc_metadata=rpc_metadata,
         api_key=api_key,
         tls=tls_config,
-        data_converter=pydantic_data_converter,
+        data_converter=get_data_converter(
+            compression_enabled=config.TRACECAT__CONTEXT_COMPRESSION_ENABLED
+        ),
         runtime=runtime,
     )
     return client
