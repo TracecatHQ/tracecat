@@ -220,7 +220,7 @@ services:
       - temporal
 
   minio:
-    image: minio/minio:RELEASE.2024-12-13T22-19-12Z
+    image: minio/minio:RELEASE.2025-05-24T17-08-30Z
     container_name: minio
     restart: unless-stopped
     networks:
