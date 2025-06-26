@@ -1,0 +1,24 @@
+type: action
+definition:
+  title: Get users
+  description: Get a list of users from AlertMedia.
+  display_group: AlertMedia
+  doc_url: https://docs.alertmedia.com/reference/get-list-users
+  namespace: tools.alertmedia
+  name: get_users
+  secrets:
+    - name: alertmedia
+      keys: ["ALERTMEDIA_API_KEY"]
+  expects:
+    base_url:
+      type: str
+      description: AlertMedia base URL (e.g. https://tracecat.alertmedia.com)
+  steps:
+    - ref: get_users
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/api/users
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.alertmedia.ALERTMEDIA_API_KEY }}
+  returns: ${{ steps.get_users.result.data }}
