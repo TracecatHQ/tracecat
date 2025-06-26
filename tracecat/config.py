@@ -310,3 +310,8 @@ TRACECAT__CONTEXT_COMPRESSION_ALGORITHM = os.environ.get(
     "TRACECAT__CONTEXT_COMPRESSION_ALGORITHM", "zstd"
 )
 """Compression algorithm to use. Supported: zstd, gzip, brotli. Defaults to zstd."""
+
+TRACECAT__WORKFLOW_RETURN_STRATEGY = os.environ.get(
+    "TRACECAT__WORKFLOW_RETURN_STRATEGY", "minimal"
+).lower()
+"""Strategy to use when returning a value from a workflow. Supported: context, minimal. Defaults to minimal."""
