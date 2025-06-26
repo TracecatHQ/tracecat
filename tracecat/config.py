@@ -119,12 +119,14 @@ SAML_IDP_METADATA_URL = os.environ.get("SAML_IDP_METADATA_URL")
 """Sets the default SAML metadata URL for cold start."""
 
 SAML_ALLOW_UNSOLICITED = (
-    os.environ.get("SAML_ALLOW_UNSOLICITED", "true").lower() == "true"
+    os.environ.get("SAML_ALLOW_UNSOLICITED", "false").lower() == "false"
 )
-"""Whether to allow unsolicited SAML responses."""
+"""Whether to allow unsolicited SAML responses.
+Do not set to true if authn requests are signed are false
+"""
 
 SAML_AUTHN_REQUESTS_SIGNED = (
-    os.environ.get("SAML_AUTHN_REQUESTS_SIGNED", "true").lower() == "true"
+    os.environ.get("SAML_AUTHN_REQUESTS_SIGNED", "false").lower() == "false"
 )
 """Whether to require signed SAML authentication requests."""
 
