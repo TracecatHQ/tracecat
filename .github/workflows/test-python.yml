@@ -122,7 +122,7 @@ jobs:
           TRACECAT__SYSTEM_PATH: "/usr/local/bin:/usr/bin:/bin"
           # Enable compression
           TRACECAT__CONTEXT_COMPRESSION_ENABLED: true
-        run: uv run pytest tests/workflows/test_workflows.py -ra
+        run: uv run pytest tests/unit/test_workflows.py -ra
 
   test-all:
     runs-on: blacksmith-4vcpu-ubuntu-2204
