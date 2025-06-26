@@ -1,0 +1,30 @@
+type: action
+definition:
+  title: Get user trip by ID
+  description: Get a trip by ID from AlertMedia.
+  display_group: AlertMedia
+  doc_url: https://docs.alertmedia.com/reference/get-list-a-users-travel-itinerary
+  namespace: tools.alertmedia
+  name: get_user_trip_by_id
+  secrets:
+    - name: alertmedia
+      keys: ["ALERTMEDIA_API_KEY"]
+  expects:
+    base_url:
+      type: str
+      description: AlertMedia base URL (e.g. https://tracecat.alertmedia.com)
+    user_id:
+      type: str
+      description: User ID of the user to get the trip for.
+    trip_id:
+      type: str
+      description: ID of the trip to get.
+  steps:
+    - ref: get_user_trip_by_id
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/api/users/${{ inputs.user_id }}/trips/${{ inputs.trip_id }}
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.alertmedia.ALERTMEDIA_API_KEY }}
+  returns: ${{ steps.get_user_trip_by_id.result.data }}
