@@ -185,6 +185,10 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
         # Force compression for local unit tests
         monkeysession.setattr(config, "TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB", 0)
 
+    # test_workflows.py was written when we returned the full context by default
+    monkeysession.setattr(config, "TRACECAT__WORKFLOW_RETURN_STRATEGY", "context")
+    monkeysession.setenv("TRACECAT__WORKFLOW_RETURN_STRATEGY", "context")
+
     # Add Homebrew path for macOS development environments
     monkeysession.setattr(
         config,

@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
 from typing import Any, Literal
+from uuid import UUID
 
 import pytest
 import yaml
@@ -4763,3 +4764,91 @@ async def test_workflow_env_and_trigger_access_in_stream(
             retry_policy=RETRY_POLICIES["workflow:fail_fast"],
         )
         assert result == expected
+
+
+def assert_result_is_run_context(result: dict[str, Any]) -> bool:
+    assert isinstance(result, dict), "Result is not a dict"
+    assert result.get("wf_id") == str(TEST_WF_ID), "wf_id is not correct"
+    assert result.get("wf_exec_id") == generate_test_exec_id(
+        "test_workflow_return_strategy"
+    ), "wf_exec_id is not correct"
+    assert result.get("environment") == "default", "environment is not correct"
+    wf_run_id = result.get("wf_run_id")
+    assert isinstance(wf_run_id, str) and bool(UUID(wf_run_id)), (
+        "wf_run_id is not a UUID"
+    )
+    return True
+
+
+@pytest.mark.parametrize(
+    "return_strategy,validator",
+    [
+        # Context strategy returns the full context
+        pytest.param(
+            "context",
+            lambda result: result
+            == {
+                "ACTIONS": {
+                    "a": {
+                        "result": 42,
+                        "result_typename": "int",
+                    },
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            },
+            id="context-strategy",
+        ),
+        # Minimal strategy returns the RunContext
+        pytest.param(
+            "minimal",
+            assert_result_is_run_context,
+            id="minimal-strategy",
+        ),
+    ],
+)
+@pytest.mark.anyio
+async def test_workflow_return_strategy(
+    test_role: Role,
+    temporal_client: Client,
+    test_worker_factory,
+    return_strategy: Literal["context", "minimal"],
+    validator: Callable[[dict[str, Any]], bool],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """
+    Test that the workflow return strategy is respected.
+    """
+    monkeypatch.setenv("TRACECAT__WORKFLOW_RETURN_STRATEGY", return_strategy)
+    monkeypatch.setattr(config, "TRACECAT__WORKFLOW_RETURN_STRATEGY", return_strategy)
+    test_name = f"{test_workflow_return_strategy.__name__}"
+    wf_exec_id = generate_test_exec_id(test_name)
+
+    # Define the DSL workflow
+    dsl = DSLInput(
+        title="Workflow return strategy",
+        description="Test that the workflow return strategy is respected",
+        entrypoint=DSLEntrypoint(ref="a"),
+        actions=[
+            ActionStatement(
+                ref="a",
+                action="core.transform.reshape",
+                args={"value": 42},
+            ),
+        ],
+    )
+
+    async with test_worker_factory(temporal_client):
+        run_args = DSLRunArgs(
+            dsl=dsl,
+            role=test_role,
+            wf_id=TEST_WF_ID,
+        )
+        result = await temporal_client.execute_workflow(
+            DSLWorkflow.run,
+            run_args,
+            id=wf_exec_id,
+            task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
+            retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+        )
+        assert validator(result)
