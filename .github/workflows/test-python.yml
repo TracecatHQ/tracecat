@@ -122,6 +122,8 @@ jobs:
           TRACECAT__SYSTEM_PATH: "/usr/local/bin:/usr/bin:/bin"
           # Enable compression
           TRACECAT__CONTEXT_COMPRESSION_ENABLED: true
+          # Apply unconditionally
+          TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB: 0
         run: uv run pytest tests/unit/test_workflows.py -ra
 
   test-all:
