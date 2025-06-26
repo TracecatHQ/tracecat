@@ -5,7 +5,6 @@ import temporalio.api.common.v1
 from temporalio.api.enums.v1 import EventType
 from temporalio.api.history.v1 import HistoryEvent
 
-from tracecat import config
 from tracecat.dsl.compression import get_compression_payload_codec
 from tracecat.ee.interactions.service import InteractionService
 from tracecat.identifiers import UserID, WorkflowID
@@ -152,12 +151,11 @@ async def extract_payload(
     payload: temporalio.api.common.v1.Payloads, index: int = 0
 ) -> Any:
     """Extract the first payload from a workflow history event."""
-    if config.TRACECAT__CONTEXT_COMPRESSION_ENABLED:
-        codec = get_compression_payload_codec()
-        decompressed_payload = await codec.decode(payload.payloads)
-        raw_data = decompressed_payload[index].data
-    else:
-        raw_data = payload.payloads[index].data
+    # Always call the decoder. It will return the original payload if it's not compressed.
+    # This enables backwards compatibility of newer payloads with older clients.
+    codec = get_compression_payload_codec()
+    decompressed_payload = await codec.decode(payload.payloads)
+    raw_data = decompressed_payload[index].data
     try:
         return orjson.loads(raw_data)
     except orjson.JSONDecodeError as e:
