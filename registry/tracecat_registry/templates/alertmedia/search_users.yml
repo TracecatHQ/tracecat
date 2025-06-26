@@ -1,7 +1,7 @@
 type: action
 definition:
   title: Search users
-  description: Search for users in AlertMedia.
+  description: Search for users in AlertMedia. This returns a list of users and an item range header. The item range header of 0-2/3 means that the first 3 users (0-2) have been returned and there are a total of 3 users.
   display_group: AlertMedia
   doc_url: https://docs.alertmedia.com/reference/get-list-users
   namespace: tools.alertmedia

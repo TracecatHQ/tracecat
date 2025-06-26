@@ -1,7 +1,7 @@
 type: action
 definition:
   title: Get Travel Events
-  description: Get travel events and concerns for users traveling. This can be traffic, weather, or other events that may affect the user's travel.
+  description: Get travel events and concerns for users traveling. This can be traffic, weather, or other events that may affect the user's travel. This returns a list of events and an item range header. The item range header of 0-2/3 means that the first 3 events (0-2) have been returned and there are a total of 3 events.
   display_group: AlertMedia
   doc_url: https://docs.alertmedia.com/reference/get-list-events
   namespace: tools.alertmedia
