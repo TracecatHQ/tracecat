@@ -1,0 +1,32 @@
+type: action
+definition:
+  title: Get Travel Events
+  description: Get travel events and concerns for users traveling. This can be traffic, weather, or other events that may affect the user's travel.
+  display_group: AlertMedia
+  doc_url: https://docs.alertmedia.com/reference/get-list-events
+  namespace: tools.alertmedia
+  name: get_travel_events
+  secrets:
+    - name: alertmedia
+      keys: ["ALERTMEDIA_API_KEY"]
+  expects:
+    base_url:
+      type: str
+      description: AlertMedia base URL (e.g. https://tracecat.alertmedia.com)
+    since:
+      type: datetime
+      description: Start date of the trips to get.
+      default: ""
+    active:
+      type: bool
+      description: Whether to get active trips.
+      default: null
+  steps:
+    - ref: get_travel_events
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/api/v2/events?since=${{ inputs.since }}&active=${{ inputs.active }}
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.alertmedia.ALERTMEDIA_API_KEY }}
+  returns: ${{ steps.get_travel_events.result.data }}
