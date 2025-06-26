@@ -1,0 +1,69 @@
+type: action
+definition:
+  title: Create trip
+  description: Create a trip in AlertMedia.
+  display_group: AlertMedia
+  doc_url: https://docs.alertmedia.com/reference/steps-create-a-trip-and-itinerary
+  namespace: tools.alertmedia
+  name: create_trip
+  secrets:
+    - name: alertmedia
+      keys: ["ALERTMEDIA_API_KEY"]
+  expects:
+    base_url:
+      type: str
+      description: AlertMedia base URL (e.g. https://tracecat.alertmedia.com)
+    user_id:
+      type: str
+      description: User ID of the user to create the trip for.
+    name:
+      type: str
+      description: Name of the trip.
+    start_date:
+      type: datetime
+      description: Start date of the trip. Example 2025-06-26
+    start_time_zone:
+      type: str
+      description: Time zone of the trip.
+      default: "America/New_York"
+    end_date:
+      type: datetime
+      description: End date of the trip. Example 2025-06-26T12:00:00
+    end_time_zone:
+      type: str
+      description: Time zone of the trip.
+      default: "America/New_York"
+    city:
+      type: str
+      description: City of the trip.
+    country:
+      type: str
+      description: Country of the trip.
+    latitude:
+      type: str
+      description: Latitude of the trip.
+    longitude:
+      type: str
+      description: Longitude of the trip.
+  steps:
+    - ref: create_trip
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/api/users/${{ inputs.user_id }}/trips
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.alertmedia.ALERTMEDIA_API_KEY }}
+        payload:
+          user_id: ${{ inputs.user_id }}
+          name: ${{ inputs.name }}
+          start_date: FN.to_isoformat(${{ inputs.start_date }})
+          start_time_zone: ${{ inputs.start_time_zone }}
+          end_date: FN.to_isoformat(${{ inputs.end_date }})
+          end_time_zone: ${{ inputs.end_time_zone }}
+          destination_address:
+            city: ${{ inputs.city }}
+            country: ${{ inputs.country }}
+            latitude: ${{ inputs.latitude }}
+            longitude: ${{ inputs.longitude }}
+
+  returns: ${{ steps.create_trip.result.data }}
