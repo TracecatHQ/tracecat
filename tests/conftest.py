@@ -179,6 +179,10 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
     monkeysession.setattr(config, "TRACECAT__AUTH_ALLOWED_DOMAINS", ["tracecat.com"])
     # Need this for local unit tests
     monkeysession.setattr(config, "TRACECAT__EXECUTOR_URL", "http://localhost:8001")
+    # test_workflows.py was written when we returned the full context by default
+    monkeysession.setattr(config, "TRACECAT__WORKFLOW_RETURN_STRATEGY", "context")
+    monkeysession.setenv("TRACECAT__WORKFLOW_RETURN_STRATEGY", "context")
+
     # Add Homebrew path for macOS development environments
     monkeysession.setattr(
         config,

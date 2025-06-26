@@ -249,3 +249,29 @@ TRACECAT__S3_CONCURRENCY_LIMIT = int(
     os.environ.get("TRACECAT__S3_CONCURRENCY_LIMIT", 50)
 )
 """Maximum number of concurrent S3 operations to prevent resource exhaustion. Defaults to 50."""
+
+TRACECAT__MAX_ROWS_CLIENT_POSTGRES = int(
+    os.environ.get("TRACECAT__MAX_ROWS_CLIENT_POSTGRES", 1000)
+)
+"""Maximum number of rows that can be returned from PostgreSQL client queries. Defaults to 1,000."""
+
+# === Context Compression === #
+TRACECAT__CONTEXT_COMPRESSION_ENABLED = os.environ.get(
+    "TRACECAT__CONTEXT_COMPRESSION_ENABLED", "false"
+).lower() in ("true", "1")
+"""Enable compression of large action results in workflow contexts. Defaults to False."""
+
+TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB = int(
+    os.environ.get("TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB", 16)
+)
+"""Threshold in KB above which action results are compressed. Defaults to 16KB."""
+
+TRACECAT__CONTEXT_COMPRESSION_ALGORITHM = os.environ.get(
+    "TRACECAT__CONTEXT_COMPRESSION_ALGORITHM", "zstd"
+)
+"""Compression algorithm to use. Supported: zstd, gzip, brotli. Defaults to zstd."""
+
+TRACECAT__WORKFLOW_RETURN_STRATEGY = os.environ.get(
+    "TRACECAT__WORKFLOW_RETURN_STRATEGY", "minimal"
+).lower()
+"""Strategy to use when returning a value from a workflow. Supported: context, minimal. Defaults to minimal."""

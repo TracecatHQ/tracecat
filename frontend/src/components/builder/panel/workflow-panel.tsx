@@ -625,7 +625,7 @@ export function WorkflowPanel({
                             </span>
                           </div>
                           <span className="text-xs text-muted-foreground">
-                            If undefined, the entire workflow run context is
+                            If undefined, only the workflow run metadata is
                             returned.
                           </span>
                           <FormField
