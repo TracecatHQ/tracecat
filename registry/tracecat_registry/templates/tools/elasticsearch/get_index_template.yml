@@ -1,0 +1,27 @@
+type: action
+definition:
+  title: Get index template
+  description: Get the definition of a specific index template using the _index_template API.
+  display_group: Elasticsearch
+  namespace: tools.elasticsearch
+  name: get_index_template
+  secrets:
+    - name: elasticsearch
+      keys:
+        - ELASTICSEARCH_API_KEY
+  expects:
+    base_url:
+      type: str
+      description: Elasticsearch base URL (e.g. https://your-cluster.es.io:443).
+    template_name:
+      type: str
+      description: Name of the index template to retrieve.
+  steps:
+    - ref: get_index_template_request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/_index_template/${{ inputs.template_name }}
+        method: GET
+        headers:
+          Authorization: ApiKey ${{ SECRETS.elasticsearch.ELASTICSEARCH_API_KEY }}
+  returns: ${{ steps.get_index_template_request.result }}
