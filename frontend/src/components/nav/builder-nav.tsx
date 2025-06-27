@@ -96,7 +96,6 @@ export function BuilderNav() {
   }
 
   const manualTriggerDisabled = workflow.version === null
-  const workflowsPath = `/workspaces/${workspaceId}/workflows`
 
   return (
     <div className="flex w-full items-center">
@@ -104,8 +103,10 @@ export function BuilderNav() {
         <Breadcrumb>
           <BreadcrumbList className="flex-nowrap overflow-hidden whitespace-nowrap">
             <BreadcrumbItem>
-              <BreadcrumbLink href={workflowsPath}>
-                {workspace.name}
+              <BreadcrumbLink asChild>
+                <Link href={`/workspaces/${workspaceId}/workflows`}>
+                  {workspace.name}
+                </Link>
               </BreadcrumbLink>
             </BreadcrumbItem>
             <BreadcrumbSeparator className="shrink-0 font-semibold">

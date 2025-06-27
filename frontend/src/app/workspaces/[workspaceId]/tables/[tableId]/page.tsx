@@ -1,6 +1,7 @@
 "use client"
 
 import { ArrowLeftIcon } from "lucide-react"
+import Link from "next/link"
 import { useParams } from "next/navigation"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
@@ -41,12 +42,14 @@ export default function TablePage() {
           <Breadcrumb>
             <BreadcrumbList>
               <BreadcrumbItem>
-                <BreadcrumbLink
-                  href={`/workspaces/${workspaceId}/tables`}
-                  className="flex items-center"
-                >
-                  <ArrowLeftIcon className="mr-2 size-4" />
-                  Tables
+                <BreadcrumbLink asChild>
+                  <Link
+                    href={`/workspaces/${workspaceId}/tables`}
+                    className="flex items-center"
+                  >
+                    <ArrowLeftIcon className="mr-2 size-4" />
+                    Tables
+                  </Link>
                 </BreadcrumbLink>
               </BreadcrumbItem>
               <BreadcrumbSeparator>{"/"}</BreadcrumbSeparator>

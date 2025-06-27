@@ -145,8 +145,10 @@ export default function ProviderDetailPage() {
       <Breadcrumb className="mb-6">
         <BreadcrumbList>
           <BreadcrumbItem>
-            <BreadcrumbLink href={`/workspaces/${workspaceId}/integrations`}>
-              Integrations
+            <BreadcrumbLink asChild>
+              <Link href={`/workspaces/${workspaceId}/integrations`}>
+                Integrations
+              </Link>
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
