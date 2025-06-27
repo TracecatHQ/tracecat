@@ -20,9 +20,12 @@ definition:
     - ref: get_user_id
       action: core.http_request
       args:
-        url: ${{ inputs.base_url }}/rest/api/3/user/search?query=${{ inputs.username }}&maxResults=1
+        url: ${{ inputs.base_url }}/rest/api/3/user/search
         method: GET
         auth:
           username: ${{ SECRETS.jira.JIRA_USEREMAIL }}
           password: ${{ SECRETS.jira.JIRA_API_TOKEN }}
+        params:
+          query: ${{ inputs.username }}
+          maxResults: 1
   returns: ${{ steps.get_user_id.result.data }}
