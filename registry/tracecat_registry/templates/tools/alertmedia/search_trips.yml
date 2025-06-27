@@ -29,8 +29,11 @@ definition:
     - ref: search_trips
       action: core.http_request
       args:
-        url: ${{ inputs.base_url }}/api/trips?ordering=${{ inputs.ordering }}&status=${{ inputs.status }}&item_range=${{ inputs.item_range }}
+        url: ${{ inputs.base_url }}/api/trips
         method: GET
+        params:
+          ordering: ${{ inputs.ordering }}
+          status: ${{ inputs.status }}
         headers:
           Item-Range: items=${{ inputs.item_range }}
           Authorization: Bearer ${{ SECRETS.alertmedia.ALERTMEDIA_API_KEY }}

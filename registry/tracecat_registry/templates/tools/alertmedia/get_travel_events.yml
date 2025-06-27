@@ -29,8 +29,11 @@ definition:
     - ref: get_travel_events
       action: core.http_request
       args:
-        url: ${{ inputs.base_url }}/api/v2/events?since=${{ inputs.since }}&active=${{ inputs.active }}
+        url: ${{ inputs.base_url }}/api/v2/events
         method: GET
+        params:
+          since: ${{ inputs.since }}
+          active: ${{ inputs.active }}
         headers:
           Item-Range: items=${{ inputs.item_range }}
           Authorization: Bearer ${{ SECRETS.alertmedia.ALERTMEDIA_API_KEY }}

@@ -49,8 +49,15 @@ definition:
     - ref: search_users
       action: core.http_request
       args:
-        url: ${{ inputs.base_url }}/api/users?email=${{ inputs.email }}&name=${{ inputs.name }}&phone=${{ inputs.phone }}&has_email=${{ inputs.has_email }}&has_phone=${{ inputs.has_phone }}&has_device=${{ inputs.has_device }}&ordering=${{ inputs.ordering }}
+        url: ${{ inputs.base_url }}/api/users
         method: GET
+        params:
+          email: ${{ inputs.email }}
+          name: ${{ inputs.name }}
+          phone: ${{ inputs.phone }}
+          has_email: ${{ inputs.has_email }}
+          has_phone: ${{ inputs.has_phone }}
+          has_device: ${{ inputs.has_device }}
         headers:
           Item-Range: items=${{ inputs.item_range }}
           Authorization: Bearer ${{ SECRETS.alertmedia.ALERTMEDIA_API_KEY }}

@@ -24,7 +24,7 @@ definition:
     - ref: get_user_trips
       action: core.http_request
       args:
-        url: ${{ inputs.base_url }}/api/users/${{ inputs.user_id }}/trips?item_range=${{ inputs.item_range }}
+        url: ${{ inputs.base_url }}/api/users/${{ inputs.user_id }}/trips
         method: GET
         headers:
           Item-Range: items=${{ inputs.item_range }}
