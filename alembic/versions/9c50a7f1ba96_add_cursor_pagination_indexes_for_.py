@@ -8,6 +8,8 @@ Create Date: 2025-06-23 23:10:46.844705
 
 from collections.abc import Sequence
 
+import sqlalchemy as sa
+
 from alembic import op
 
 # revision identifiers, used by Alembic.
@@ -19,140 +21,188 @@ depends_on: str | Sequence[str] | None = None
 
 def upgrade() -> None:
     """Add cursor pagination indexes for tables with timestamp fields."""
-    # Use raw SQL for CONCURRENTLY indexes since op.create_index doesn't support it
+    # Create indexes for cursor pagination performance
 
     # Core workflow-related tables
-    op.execute(
-        "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_workflows_cursor_pagination "
-        "ON workflow(owner_id, created_at DESC, id DESC);"
+    op.create_index(
+        "idx_workflows_cursor_pagination",
+        "workflow",
+        ["owner_id", sa.text("created_at DESC"), sa.text("id DESC")],
+        if_not_exists=True,
     )
 
-    op.execute(
-        "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_actions_cursor_pagination "
-        "ON action(owner_id, created_at DESC, id DESC);"
+    op.create_index(
+        "idx_actions_cursor_pagination",
+        "action",
+        ["owner_id", sa.text("created_at DESC"), sa.text("id DESC")],
+        if_not_exists=True,
     )
 
-    op.execute(
-        "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_workflow_definitions_cursor_pagination "
-        "ON workflowdefinition(owner_id, created_at DESC, id DESC);"
+    op.create_index(
+        "idx_workflow_definitions_cursor_pagination",
+        "workflowdefinition",
+        ["owner_id", sa.text("created_at DESC"), sa.text("id DESC")],
+        if_not_exists=True,
     )
 
-    op.execute(
-        "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_webhooks_cursor_pagination "
-        "ON webhook(owner_id, created_at DESC, id DESC);"
+    op.create_index(
+        "idx_webhooks_cursor_pagination",
+        "webhook",
+        ["owner_id", sa.text("created_at DESC"), sa.text("id DESC")],
+        if_not_exists=True,
     )
 
-    op.execute(
-        "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_schedules_cursor_pagination "
-        "ON schedule(owner_id, created_at DESC, id DESC);"
+    op.create_index(
+        "idx_schedules_cursor_pagination",
+        "schedule",
+        ["owner_id", sa.text("created_at DESC"), sa.text("id DESC")],
+        if_not_exists=True,
     )
 
     # Case management tables
-    op.execute(
-        "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_cases_cursor_pagination "
-        "ON cases(owner_id, created_at DESC, id DESC);"
+    op.create_index(
+        "idx_cases_cursor_pagination",
+        "cases",
+        ["owner_id", sa.text("created_at DESC"), sa.text("id DESC")],
+        if_not_exists=True,
     )
 
-    op.execute(
-        "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_case_comments_cursor_pagination "
-        "ON case_comments(owner_id, created_at DESC, id DESC);"
+    op.create_index(
+        "idx_case_comments_cursor_pagination",
+        "case_comments",
+        ["owner_id", sa.text("created_at DESC"), sa.text("id DESC")],
+        if_not_exists=True,
     )
 
-    op.execute(
-        "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_case_events_cursor_pagination "
-        "ON case_event(owner_id, created_at DESC, id DESC);"
+    op.create_index(
+        "idx_case_events_cursor_pagination",
+        "case_event",
+        ["owner_id", sa.text("created_at DESC"), sa.text("id DESC")],
+        if_not_exists=True,
     )
 
-    op.execute(
-        "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_case_fields_cursor_pagination "
-        "ON case_fields(created_at DESC, id DESC);"
+    op.create_index(
+        "idx_case_fields_cursor_pagination",
+        "case_fields",
+        [sa.text("created_at DESC"), sa.text("id DESC")],
+        if_not_exists=True,
     )
 
     # Organization and workspace tables
-    op.execute(
-        "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_workspaces_cursor_pagination "
-        "ON workspace(owner_id, created_at DESC, id DESC);"
+    op.create_index(
+        "idx_workspaces_cursor_pagination",
+        "workspace",
+        ["owner_id", sa.text("created_at DESC"), sa.text("id DESC")],
+        if_not_exists=True,
     )
 
-    op.execute(
-        "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_secrets_cursor_pagination "
-        "ON secret(owner_id, created_at DESC, id DESC);"
+    op.create_index(
+        "idx_secrets_cursor_pagination",
+        "secret",
+        ["owner_id", sa.text("created_at DESC"), sa.text("id DESC")],
+        if_not_exists=True,
     )
 
-    op.execute(
-        "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_tags_cursor_pagination "
-        "ON tag(owner_id, created_at DESC, id DESC);"
+    op.create_index(
+        "idx_tags_cursor_pagination",
+        "tag",
+        ["owner_id", sa.text("created_at DESC"), sa.text("id DESC")],
+        if_not_exists=True,
     )
 
-    op.execute(
-        "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_workflow_folders_cursor_pagination "
-        "ON workflow_folder(owner_id, created_at DESC, id DESC);"
+    op.create_index(
+        "idx_workflow_folders_cursor_pagination",
+        "workflow_folder",
+        ["owner_id", sa.text("created_at DESC"), sa.text("id DESC")],
+        if_not_exists=True,
     )
 
     # Registry tables
-    op.execute(
-        "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_registry_repositories_cursor_pagination "
-        "ON registryrepository(owner_id, created_at DESC, id DESC);"
+    op.create_index(
+        "idx_registry_repositories_cursor_pagination",
+        "registryrepository",
+        ["owner_id", sa.text("created_at DESC"), sa.text("id DESC")],
+        if_not_exists=True,
     )
 
-    op.execute(
-        "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_registry_actions_cursor_pagination "
-        "ON registryaction(owner_id, created_at DESC, id DESC);"
+    op.create_index(
+        "idx_registry_actions_cursor_pagination",
+        "registryaction",
+        ["owner_id", sa.text("created_at DESC"), sa.text("id DESC")],
+        if_not_exists=True,
     )
 
     # Tables and interaction tables
-    op.execute(
-        "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_tables_cursor_pagination "
-        "ON tables(owner_id, created_at DESC, id DESC);"
+    op.create_index(
+        "idx_tables_cursor_pagination",
+        "tables",
+        ["owner_id", sa.text("created_at DESC"), sa.text("id DESC")],
+        if_not_exists=True,
     )
 
-    op.execute(
-        "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_interactions_cursor_pagination "
-        "ON interaction(owner_id, created_at DESC, id DESC);"
+    op.create_index(
+        "idx_interactions_cursor_pagination",
+        "interaction",
+        ["owner_id", sa.text("created_at DESC"), sa.text("id DESC")],
+        if_not_exists=True,
     )
 
     # Organization settings (special case with different owner structure)
-    op.execute(
-        "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_organization_settings_cursor_pagination "
-        "ON organization_settings(owner_id, created_at DESC, id DESC);"
+    op.create_index(
+        "idx_organization_settings_cursor_pagination",
+        "organization_settings",
+        ["owner_id", sa.text("created_at DESC"), sa.text("id DESC")],
+        if_not_exists=True,
     )
 
     # Tables without owner_id but with timestamp fields
-    op.execute(
-        "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_table_columns_cursor_pagination "
-        "ON table_columns(created_at DESC, id DESC);"
+    op.create_index(
+        "idx_table_columns_cursor_pagination",
+        "table_columns",
+        [sa.text("created_at DESC"), sa.text("id DESC")],
+        if_not_exists=True,
     )
 
 
 def downgrade() -> None:
     """Remove cursor pagination indexes."""
     # Drop all the indexes created in upgrade
-    op.execute("DROP INDEX CONCURRENTLY IF EXISTS idx_workflows_cursor_pagination;")
-    op.execute("DROP INDEX CONCURRENTLY IF EXISTS idx_actions_cursor_pagination;")
-    op.execute(
-        "DROP INDEX CONCURRENTLY IF EXISTS idx_workflow_definitions_cursor_pagination;"
+    op.drop_index("idx_workflows_cursor_pagination", "workflow", if_exists=True)
+    op.drop_index("idx_actions_cursor_pagination", "action", if_exists=True)
+    op.drop_index(
+        "idx_workflow_definitions_cursor_pagination",
+        "workflowdefinition",
+        if_exists=True,
     )
-    op.execute("DROP INDEX CONCURRENTLY IF EXISTS idx_webhooks_cursor_pagination;")
-    op.execute("DROP INDEX CONCURRENTLY IF EXISTS idx_schedules_cursor_pagination;")
-    op.execute("DROP INDEX CONCURRENTLY IF EXISTS idx_cases_cursor_pagination;")
-    op.execute("DROP INDEX CONCURRENTLY IF EXISTS idx_case_comments_cursor_pagination;")
-    op.execute("DROP INDEX CONCURRENTLY IF EXISTS idx_case_events_cursor_pagination;")
-    op.execute("DROP INDEX CONCURRENTLY IF EXISTS idx_case_fields_cursor_pagination;")
-    op.execute("DROP INDEX CONCURRENTLY IF EXISTS idx_workspaces_cursor_pagination;")
-    op.execute("DROP INDEX CONCURRENTLY IF EXISTS idx_secrets_cursor_pagination;")
-    op.execute("DROP INDEX CONCURRENTLY IF EXISTS idx_tags_cursor_pagination;")
-    op.execute(
-        "DROP INDEX CONCURRENTLY IF EXISTS idx_workflow_folders_cursor_pagination;"
+    op.drop_index("idx_webhooks_cursor_pagination", "webhook", if_exists=True)
+    op.drop_index("idx_schedules_cursor_pagination", "schedule", if_exists=True)
+    op.drop_index("idx_cases_cursor_pagination", "cases", if_exists=True)
+    op.drop_index(
+        "idx_case_comments_cursor_pagination", "case_comments", if_exists=True
     )
-    op.execute(
-        "DROP INDEX CONCURRENTLY IF EXISTS idx_registry_repositories_cursor_pagination;"
+    op.drop_index("idx_case_events_cursor_pagination", "case_event", if_exists=True)
+    op.drop_index("idx_case_fields_cursor_pagination", "case_fields", if_exists=True)
+    op.drop_index("idx_workspaces_cursor_pagination", "workspace", if_exists=True)
+    op.drop_index("idx_secrets_cursor_pagination", "secret", if_exists=True)
+    op.drop_index("idx_tags_cursor_pagination", "tag", if_exists=True)
+    op.drop_index(
+        "idx_workflow_folders_cursor_pagination", "workflow_folder", if_exists=True
     )
-    op.execute(
-        "DROP INDEX CONCURRENTLY IF EXISTS idx_registry_actions_cursor_pagination;"
+    op.drop_index(
+        "idx_registry_repositories_cursor_pagination",
+        "registryrepository",
+        if_exists=True,
     )
-    op.execute("DROP INDEX CONCURRENTLY IF EXISTS idx_tables_cursor_pagination;")
-    op.execute("DROP INDEX CONCURRENTLY IF EXISTS idx_interactions_cursor_pagination;")
-    op.execute(
-        "DROP INDEX CONCURRENTLY IF EXISTS idx_organization_settings_cursor_pagination;"
+    op.drop_index(
+        "idx_registry_actions_cursor_pagination", "registryaction", if_exists=True
     )
-    op.execute("DROP INDEX CONCURRENTLY IF EXISTS idx_table_columns_cursor_pagination;")
+    op.drop_index("idx_tables_cursor_pagination", "tables", if_exists=True)
+    op.drop_index("idx_interactions_cursor_pagination", "interaction", if_exists=True)
+    op.drop_index(
+        "idx_organization_settings_cursor_pagination",
+        "organization_settings",
+        if_exists=True,
+    )
+    op.drop_index(
+        "idx_table_columns_cursor_pagination", "table_columns", if_exists=True
+    )
