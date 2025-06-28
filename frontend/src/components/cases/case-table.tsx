@@ -13,8 +13,9 @@ import { columns } from "@/components/cases/case-table-columns"
 import { DataTable, type DataTableToolbarProps } from "@/components/data-table"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { useToast } from "@/components/ui/use-toast"
+import { useCasesPagination } from "@/hooks"
 import { getDisplayName } from "@/lib/auth"
-import { useDeleteCase, useListCases } from "@/lib/hooks"
+import { useDeleteCase } from "@/lib/hooks"
 import { useAuth } from "@/providers/auth"
 import { useCasePanelContext } from "@/providers/case-panel"
 import { useWorkspace } from "@/providers/workspace"
@@ -22,9 +23,22 @@ import { useWorkspace } from "@/providers/workspace"
 export default function CaseTable() {
   const { user } = useAuth()
   const { workspaceId, workspace } = useWorkspace()
-  const { cases, casesIsLoading, casesError } = useListCases({
-    workspaceId,
-  })
+  const [pageSize, setPageSize] = useState(20)
+
+  const {
+    data: cases,
+    isLoading: casesIsLoading,
+    error: casesError,
+    goToNextPage,
+    goToPreviousPage,
+    goToFirstPage,
+    hasNextPage,
+    hasPreviousPage,
+    currentPage,
+    totalEstimate,
+    startItem,
+    endItem,
+  } = useCasesPagination({ workspaceId, limit: pageSize })
   const { setCaseId } = useCasePanelContext()
   const { toast } = useToast()
   const [isDeleting, setIsDeleting] = useState(false)
@@ -63,7 +77,7 @@ export default function CaseTable() {
         setIsDeleting(false)
       }
     },
-    [deleteCase, toast, setIsDeleting]
+    [deleteCase, toast]
   )
 
   const defaultToolbarProps = useMemo(() => {
@@ -128,6 +142,20 @@ export default function CaseTable() {
         onDeleteRows={handleDeleteRows}
         toolbarProps={defaultToolbarProps}
         tableId={`${user?.id}-${workspaceId}-cases`}
+        serverSidePagination={{
+          currentPage,
+          hasNextPage,
+          hasPreviousPage,
+          pageSize,
+          totalEstimate,
+          startItem,
+          endItem,
+          onNextPage: goToNextPage,
+          onPreviousPage: goToPreviousPage,
+          onFirstPage: goToFirstPage,
+          onPageSizeChange: setPageSize,
+          isLoading: casesIsLoading || isDeleting,
+        }}
       />
     </TooltipProvider>
   )

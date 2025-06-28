@@ -30,7 +30,12 @@ from tracecat.cases.service import (
     CasesService,
 )
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.logger import logger
 from tracecat.types.auth import AccessLevel, Role
+from tracecat.types.pagination import (
+    CursorPaginatedResponse,
+    CursorPaginationParams,
+)
 
 cases_router = APIRouter(prefix="/cases", tags=["cases"])
 case_fields_router = APIRouter(prefix="/case-fields", tags=["cases"])
@@ -62,26 +67,23 @@ async def list_cases(
     *,
     role: WorkspaceUser,
     session: AsyncDBSession,
-) -> list[CaseReadMinimal]:
-    """List all cases."""
+    limit: int = Query(20, ge=1, le=100, description="Maximum items per page"),
+    cursor: str | None = Query(None, description="Cursor for pagination"),
+    reverse: bool = Query(False, description="Reverse pagination direction"),
+) -> CursorPaginatedResponse[CaseReadMinimal]:
+    """List cases with cursor-based pagination."""
     service = CasesService(session, role)
-    cases = await service.list_cases()
-    return [
-        CaseReadMinimal(
-            id=case.id,
-            created_at=case.created_at,
-            updated_at=case.updated_at,
-            short_id=f"CASE-{case.case_number:04d}",
-            summary=case.summary,
-            status=case.status,
-            priority=case.priority,
-            severity=case.severity,
-            assignee=UserRead.model_validate(case.assignee, from_attributes=True)
-            if case.assignee
-            else None,
-        )
-        for case in cases
-    ]
+    pagination_params = CursorPaginationParams(
+        limit=limit,
+        cursor=cursor,
+        reverse=reverse,
+    )
+    try:
+        cases = await service.list_cases_paginated(pagination_params)
+    except Exception as e:
+        logger.error(f"Failed to list cases: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve cases") from e
+    return cases
 
 
 @cases_router.get("/search")

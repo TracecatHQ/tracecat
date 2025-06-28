@@ -32,6 +32,11 @@ from tracecat.types.exceptions import (
     TracecatAuthorizationError,
     TracecatValidationError,
 )
+from tracecat.types.pagination import (
+    BaseCursorPaginator,
+    CursorPaginatedResponse,
+    CursorPaginationParams,
+)
 from tracecat.validation.models import (
     DSLValidationResult,
     ValidationDetail,
@@ -126,6 +131,157 @@ class WorkflowsManagementService(BaseService):
                 latest_defn = None
             res.append((workflow, latest_defn))
         return res
+
+    async def list_workflows_paginated(
+        self, params: CursorPaginationParams, *, tags: list[str] | None = None
+    ) -> CursorPaginatedResponse[tuple[Workflow, WorkflowDefinitionMinimal | None]]:
+        """List workflows with cursor-based pagination.
+
+        Args:
+            params: Cursor pagination parameters
+            tags: Optional list of tag names to filter workflows by
+
+        Returns:
+            CursorPaginatedResponse containing workflows and their latest definitions
+        """
+
+        # Subquery to get the latest definition for each workflow
+        latest_defn_subq = (
+            select(
+                WorkflowDefinition.workflow_id,
+                sa.func.max(WorkflowDefinition.version).label("latest_version"),
+            )
+            .group_by(cast(WorkflowDefinition.workflow_id, sa.UUID))
+            .subquery()
+        )
+
+        # Main query selecting workflow with left outer join to definitions
+        stmt = (
+            select(
+                Workflow,
+                WorkflowDefinition.id,
+                WorkflowDefinition.version,
+                col(WorkflowDefinition.created_at).label("defn_created_at"),
+            )
+            .where(Workflow.owner_id == self.role.workspace_id)
+            .outerjoin(
+                latest_defn_subq,
+                cast(Workflow.id, sa.UUID) == latest_defn_subq.c.workflow_id,
+            )
+            .outerjoin(
+                WorkflowDefinition,
+                and_(
+                    WorkflowDefinition.workflow_id == Workflow.id,
+                    WorkflowDefinition.version == latest_defn_subq.c.latest_version,
+                ),
+            )
+        )
+
+        # Apply tag filtering if specified
+        if tags:
+            tag_set = set(tags)
+            stmt = (
+                stmt.join(
+                    WorkflowTag, cast(Workflow.id, sa.UUID) == WorkflowTag.workflow_id
+                )
+                .join(
+                    Tag, and_(Tag.id == WorkflowTag.tag_id, col(Tag.name).in_(tag_set))
+                )
+                .distinct()
+            )
+
+        # Use cursor paginator for workflows
+        paginator = BaseCursorPaginator(self.session)
+
+        # Since we're selecting multiple columns, we need to handle pagination differently
+        # Apply cursor filter manually for complex queries
+        if params.cursor:
+            cursor_data = paginator.decode_cursor(params.cursor)
+            cursor_time = cursor_data.created_at
+            cursor_id = cursor_data.id
+
+            if params.reverse:
+                stmt = stmt.where(
+                    sa.or_(
+                        col(Workflow.created_at) > cursor_time,
+                        sa.and_(
+                            col(Workflow.created_at) == cursor_time,
+                            col(Workflow.id) > cursor_id,
+                        ),
+                    )
+                )
+            else:
+                stmt = stmt.where(
+                    sa.or_(
+                        col(Workflow.created_at) < cursor_time,
+                        sa.and_(
+                            col(Workflow.created_at) == cursor_time,
+                            col(Workflow.id) < cursor_id,
+                        ),
+                    )
+                )
+
+        # Apply ordering
+        if params.reverse:
+            stmt = stmt.order_by(col(Workflow.created_at).asc(), col(Workflow.id).asc())
+        else:
+            stmt = stmt.order_by(
+                col(Workflow.created_at).desc(), col(Workflow.id).desc()
+            )
+
+        # Fetch limit + 1 to determine if there are more items
+        stmt = stmt.limit(params.limit + 1)
+
+        results = await self.session.exec(stmt)
+        raw_items = list(results.all())
+
+        # Check if there are more items
+        has_more = len(raw_items) > params.limit
+        if has_more:
+            raw_items = raw_items[: params.limit]
+
+        # Process results into the expected format
+        items = []
+        for workflow, defn_id, defn_version, defn_created in raw_items:
+            if all((defn_id, defn_version, defn_created)):
+                latest_defn = WorkflowDefinitionMinimal(
+                    id=defn_id,
+                    version=defn_version,
+                    created_at=defn_created,
+                )
+            else:
+                latest_defn = None
+            items.append((workflow, latest_defn))
+
+        # Generate cursors
+        next_cursor = None
+        prev_cursor = None
+
+        if items:
+            if has_more:
+                last_workflow = items[-1][0]  # Get the workflow from the tuple
+                next_cursor = paginator.encode_cursor(
+                    last_workflow.created_at, last_workflow.id
+                )
+
+            if params.cursor:
+                first_workflow = items[0][0]  # Get the workflow from the tuple
+                prev_cursor = paginator.encode_cursor(
+                    first_workflow.created_at, first_workflow.id
+                )
+
+        # If we were doing reverse pagination, swap the cursors and reverse items
+        if params.reverse:
+            items = list(reversed(items))
+            next_cursor, prev_cursor = prev_cursor, next_cursor
+
+        return CursorPaginatedResponse(
+            items=items,
+            next_cursor=next_cursor,
+            prev_cursor=prev_cursor,
+            has_more=has_more,
+            has_previous=params.cursor is not None,
+        )
 
     async def get_workflow(self, workflow_id: WorkflowID) -> Workflow | None:
         statement = select(Workflow).where(

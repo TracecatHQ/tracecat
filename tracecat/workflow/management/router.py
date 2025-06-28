@@ -29,6 +29,7 @@ from tracecat.logger import logger
 from tracecat.settings.service import get_setting
 from tracecat.tags.models import TagRead
 from tracecat.types.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.types.pagination import CursorPaginatedResponse, CursorPaginationParams
 from tracecat.validation.models import (
     ValidationDetail,
     ValidationResult,
@@ -63,12 +64,24 @@ async def list_workflows(
         description="Filter workflows by tags",
         alias="tag",
     ),
-) -> list[WorkflowReadMinimal]:
+    limit: int = Query(default=20, ge=1, le=100),
+    cursor: str | None = Query(default=None),
+    reverse: bool = Query(default=False),
+) -> CursorPaginatedResponse[WorkflowReadMinimal]:
     """List workflows."""
     service = WorkflowsManagementService(session, role=role)
-    workflows = await service.list_workflows(tags=filter_tags)
-    res = []
-    for workflow, defn in workflows:
+
+    # Create cursor pagination parameters
+    params = CursorPaginationParams(limit=limit, cursor=cursor, reverse=reverse)
+
+    # Get paginated workflows
+    paginated_response = await service.list_workflows_paginated(
+        params, tags=filter_tags
+    )
+
+    # Transform workflows to WorkflowReadMinimal format
+    workflows_minimal = []
+    for workflow, defn in paginated_response.items:
         tags = [
             TagRead.model_validate(tag, from_attributes=True) for tag in workflow.tags
         ]
@@ -77,7 +90,7 @@ async def list_workflows(
             if defn
             else None
         )
-        res.append(
+        workflows_minimal.append(
             WorkflowReadMinimal(
                 id=WorkflowUUID.new(workflow.id).short(),
                 title=workflow.title,
@@ -94,7 +107,15 @@ async def list_workflows(
                 folder_id=workflow.folder_id,
             )
         )
-    return res
+
+    # Return cursor paginated response with transformed items
+    return CursorPaginatedResponse(
+        items=workflows_minimal,
+        next_cursor=paginated_response.next_cursor,
+        prev_cursor=paginated_response.prev_cursor,
+        has_more=paginated_response.has_more,
+        has_previous=paginated_response.has_previous,
+    )
 
 
 @router.post("", status_code=status.HTTP_201_CREATED, tags=["workflows"])

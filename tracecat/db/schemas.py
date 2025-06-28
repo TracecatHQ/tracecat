@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from pydantic import UUID4, BaseModel, ConfigDict, computed_field
-from sqlalchemy import TIMESTAMP, Column, ForeignKey, Identity, Integer, func
+from sqlalchemy import TIMESTAMP, Column, ForeignKey, Identity, Index, Integer, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import UUID, Field, Relationship, SQLModel, UniqueConstraint
 
@@ -795,6 +795,9 @@ class Case(Resource, table=True):
     """A case represents an incident or issue that needs to be tracked and resolved."""
 
     __tablename__: str = "cases"
+    __table_args__ = (
+        Index("idx_case_cursor_pagination", "owner_id", "created_at", "id"),
+    )
 
     id: uuid.UUID = Field(
         default_factory=uuid.uuid4,
