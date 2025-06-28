@@ -122,7 +122,6 @@ import {
   settingsUpdateSamlSettings,
   type TableRead,
   type TableReadMinimal,
-  type TableRowRead,
   type TablesBatchInsertRowsData,
   type TablesCreateColumnData,
   type TablesCreateTableData,
@@ -133,7 +132,6 @@ import {
   type TablesGetTableData,
   type TablesImportCsvData,
   type TablesInsertRowData,
-  type TablesListRowsData,
   type TablesListTablesData,
   type TablesUpdateColumnData,
   type TablesUpdateTableData,
@@ -151,7 +149,6 @@ import {
   tablesGetTable,
   tablesImportCsv,
   tablesInsertRow,
-  tablesListRows,
   tablesListTables,
   tablesUpdateColumn,
   tablesUpdateTable,
@@ -1410,7 +1407,7 @@ export function useRegistryRepositories() {
             title: "Forbidden",
             description: "You are not authorized to perform this action",
           })
-        case 422:
+        case 422: {
           const { message } = error.body.detail as RegistryRepositoryErrorDetail
           return toast({
             title: "Repository validation failed",
@@ -1421,6 +1418,7 @@ export function useRegistryRepositories() {
               </div>
             ),
           })
+        }
         default:
           return toast({
             title: "Unexpected error syncing repositories",
@@ -2211,26 +2209,6 @@ export function useDeleteTable() {
     deleteTable,
     deleteTableIsPending,
     deleteTableError,
-  }
-}
-
-export function useListRows({ tableId, workspaceId }: TablesListRowsData) {
-  const {
-    data: rows,
-    isLoading: rowsIsLoading,
-    error: rowsError,
-  } = useQuery<TableRowRead[], TracecatApiError>({
-    queryKey: ["rows", tableId],
-    queryFn: async () => {
-      const response = await tablesListRows({ tableId, workspaceId })
-      return response.items
-    },
-  })
-
-  return {
-    rows,
-    rowsIsLoading,
-    rowsError,
   }
 }
 
