@@ -97,7 +97,6 @@ MICROSOFT_ACCESS_TOKEN
     doc_url="https://learn.microsoft.com/en-us/graph/api/channel-post-messages",
     namespace="tools.microsoft_graph",
     secrets=[microsoft_oauth_secret],
-    include_in_schema=False,
 )
 async def send_teams_message(
     team_id: Annotated[
@@ -122,3 +121,256 @@ async def send_teams_message(
         response = await client.post(url, headers=headers, json=payload)
         response.raise_for_status()
         return response.json()
+
+
+@registry.register(
+    default_title="Get all chat messages",
+    description="Get all messages from all chats in which a user is a participant, including one-on-one chats, group chats, and meeting chats.",
+    display_group="Microsoft Graph",
+    doc_url="https://learn.microsoft.com/en-us/graph/api/chats-getallmessages?view=graph-rest-beta&tabs=python",
+    namespace="tools.microsoft_graph",
+    secrets=[microsoft_oauth_secret],
+)
+async def get_all_chat_messages(
+    user_id: Annotated[
+        str, Field(..., description="The ID or user principal name of the user.")
+    ],
+    model: Annotated[
+        str | None,
+        Field(
+            None,
+            description="Payment model (A or B). If not specified, evaluation mode is used.",
+        ),
+    ] = None,
+    top: Annotated[
+        int | None, Field(None, description="Maximum number of messages to return.")
+    ] = None,
+    filter: Annotated[
+        str | None,
+        Field(
+            None,
+            description="OData filter expression for the messages (e.g., 'messageType ne systemEventMessage').",
+        ),
+    ] = None,
+) -> dict[str, str]:
+    """Get all messages from all chats for a user.
+
+    Note: This is a metered API that requires Chat.Read.All or Chat.ReadWrite.All permissions.
+    """
+    token = secrets.get("MICROSOFT_ACCESS_TOKEN")
+
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+
+    url = f"https://graph.microsoft.com/beta/users/{user_id}/chats/getAllMessages"
+
+    params = {}
+    if model:
+        params["model"] = model
+    if top:
+        params["$top"] = top
+    if filter:
+        params["$filter"] = filter
+
+    async with httpx.AsyncClient() as client:
+        response = await client.get(url, headers=headers, params=params)
+        response.raise_for_status()
+        return response.json()
+
+
+@registry.register(
+    default_title="Create Teams channel",
+    description="Create a new channel in a Microsoft Teams team. Can create either public (standard) or private channels.",
+    display_group="Microsoft Graph",
+    doc_url="https://learn.microsoft.com/en-us/graph/api/channel-post",
+    namespace="tools.microsoft_graph",
+    secrets=[microsoft_oauth_secret],
+)
+async def create_teams_channel(
+    team_id: Annotated[
+        str, Field(..., description="The ID of the team to create the channel in.")
+    ],
+    display_name: Annotated[
+        str, Field(..., description="The display name for the channel.")
+    ],
+    description: Annotated[
+        str | None, Field(None, description="Description for the channel.")
+    ] = None,
+    is_private: Annotated[
+        bool,
+        Field(
+            False, description="Whether to create a private channel (requires members)."
+        ),
+    ] = False,
+    owner_user_ids: Annotated[
+        list[str] | None,
+        Field(
+            None,
+            description="List of user IDs to add as owners (required for private channels).",
+        ),
+    ] = None,
+) -> dict[str, str]:
+    """Create a Teams channel.
+
+    For private channels, at least one owner must be specified in owner_user_ids.
+    """
+    token = secrets.get("MICROSOFT_ACCESS_TOKEN")
+
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+
+    url = f"https://graph.microsoft.com/beta/teams/{team_id}/channels"
+
+    if is_private:
+        if not owner_user_ids:
+            raise ValueError(
+                "Private channels require at least one owner in owner_user_ids"
+            )
+
+        members = []
+        for user_id in owner_user_ids:
+            members.append(
+                {
+                    "@odata.type": "#microsoft.graph.aadUserConversationMember",
+                    "roles": ["owner"],
+                    "user@odata.bind": f"https://graph.microsoft.com/beta/users('{user_id}')",
+                }
+            )
+
+        payload = {
+            "@odata.type": "#Microsoft.Graph.channel",
+            "membershipType": "private",
+            "displayName": display_name,
+            "description": description or "",
+            "members": members,
+        }
+    else:
+        payload = {
+            "displayName": display_name,
+            "description": description or "",
+            "membershipType": "standard",
+        }
+
+    async with httpx.AsyncClient() as client:
+        response = await client.post(url, headers=headers, json=payload)
+        response.raise_for_status()
+        return response.json()
+
+
+@registry.register(
+    default_title="List channel messages",
+    description="Retrieve the list of messages (without the replies) in a channel of a team.",
+    display_group="Microsoft Graph",
+    doc_url="https://learn.microsoft.com/en-us/graph/api/channel-list-messages?view=graph-rest-beta&tabs=python",
+    namespace="tools.microsoft_graph",
+    secrets=[microsoft_oauth_secret],
+)
+async def list_channel_messages(
+    team_id: Annotated[
+        str, Field(..., description="The ID of the team containing the channel.")
+    ],
+    channel_id: Annotated[
+        str, Field(..., description="The ID of the channel to list messages from.")
+    ],
+    top: Annotated[
+        int | None,
+        Field(
+            None,
+            description="Number of messages to return per page (default 20, max 50).",
+        ),
+    ] = None,
+    expand_replies: Annotated[
+        bool, Field(False, description="Whether to expand replies for each message.")
+    ] = False,
+) -> dict[str, str]:
+    """List messages from a Teams channel.
+
+    Note: This API requires ChannelMessage.Read.All or ChannelMessage.Read.Group permissions.
+    """
+    token = secrets.get("MICROSOFT_ACCESS_TOKEN")
+
+    headers = {"Authorization": f"Bearer {token}"}
+
+    url = f"https://graph.microsoft.com/beta/teams/{team_id}/channels/{channel_id}/messages"
+
+    params = {}
+    if top:
+        if top > 50:
+            raise ValueError("Top parameter cannot exceed 50 messages per page")
+        params["$top"] = top
+
+    if expand_replies:
+        params["$expand"] = "replies"
+
+    async with httpx.AsyncClient() as client:
+        response = await client.get(url, headers=headers, params=params)
+        response.raise_for_status()
+        return response.json()
+
+
+@registry.register(
+    default_title="Get user ID by email",
+    description="Get a user's ID by searching for their email address in mail or userPrincipalName fields.",
+    display_group="Microsoft Graph",
+    doc_url="https://learn.microsoft.com/en-us/graph/api/user-list?view=graph-rest-beta&tabs=http",
+    namespace="tools.microsoft_graph",
+    secrets=[microsoft_oauth_secret],
+)
+async def get_user_id_by_email(
+    email: Annotated[str, Field(..., description="The email address to search for.")],
+) -> dict[str, str]:
+    """Get a user's ID by email address.
+
+    Note: This API requires User.ReadBasic.All, User.Read.All, or Directory.Read.All permissions.
+    """
+    token = secrets.get("MICROSOFT_ACCESS_TOKEN")
+
+    headers = {"Authorization": f"Bearer {token}"}
+
+    url = "https://graph.microsoft.com/beta/users"
+
+    filter_query = f"mail eq '{email}'"
+
+    params = {"$filter": filter_query, "$select": "id", "$top": "1"}
+
+    async with httpx.AsyncClient() as client:
+        response = await client.get(url, headers=headers, params=params)
+        response.raise_for_status()
+        return response.json()
+
+
+@registry.register(
+    default_title="Delete Teams channel",
+    description="Delete a channel from a Microsoft Teams team.",
+    display_group="Microsoft Graph",
+    doc_url="https://learn.microsoft.com/en-us/graph/api/channel-delete?view=graph-rest-beta&tabs=http",
+    namespace="tools.microsoft_graph",
+    secrets=[microsoft_oauth_secret],
+)
+async def delete_teams_channel(
+    team_id: Annotated[
+        str, Field(..., description="The ID of the team containing the channel.")
+    ],
+    channel_id: Annotated[
+        str, Field(..., description="The ID of the channel to delete.")
+    ],
+) -> dict[str, str]:
+    """Delete a Teams channel.
+
+    Note: This API requires Channel.Delete.All or Channel.Delete.Group permissions.
+    """
+    token = secrets.get("MICROSOFT_ACCESS_TOKEN")
+
+    headers = {"Authorization": f"Bearer {token}"}
+
+    url = f"https://graph.microsoft.com/beta/teams/{team_id}/channels/{channel_id}"
+
+    async with httpx.AsyncClient() as client:
+        response = await client.delete(url, headers=headers)
+        response.raise_for_status()
+
+        return {
+            "success": True,
+            "status_code": response.status_code,
+            "team_id": team_id,
+            "channel_id": channel_id,
+            "message": "Channel deleted successfully",
+        }
