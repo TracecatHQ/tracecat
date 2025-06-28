@@ -124,60 +124,6 @@ async def send_teams_message(
 
 
 @registry.register(
-    default_title="Get all chat messages",
-    description="Get all messages from all chats in which a user is a participant, including one-on-one chats, group chats, and meeting chats.",
-    display_group="Microsoft Graph",
-    doc_url="https://learn.microsoft.com/en-us/graph/api/chats-getallmessages?view=graph-rest-beta&tabs=python",
-    namespace="tools.microsoft_graph",
-    secrets=[microsoft_oauth_secret],
-)
-async def get_all_chat_messages(
-    user_id: Annotated[
-        str, Field(..., description="The ID or user principal name of the user.")
-    ],
-    model: Annotated[
-        str | None,
-        Field(
-            None,
-            description="Payment model (A or B). If not specified, evaluation mode is used.",
-        ),
-    ] = None,
-    top: Annotated[
-        int | None, Field(None, description="Maximum number of messages to return.")
-    ] = None,
-    filter: Annotated[
-        str | None,
-        Field(
-            None,
-            description="OData filter expression for the messages (e.g., 'messageType ne systemEventMessage').",
-        ),
-    ] = None,
-) -> dict[str, str]:
-    """Get all messages from all chats for a user.
-
-    Note: This is a metered API that requires Chat.Read.All or Chat.ReadWrite.All permissions.
-    """
-    token = secrets.get("MICROSOFT_ACCESS_TOKEN")
-
-    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-
-    url = f"https://graph.microsoft.com/beta/users/{user_id}/chats/getAllMessages"
-
-    params = {}
-    if model:
-        params["model"] = model
-    if top:
-        params["$top"] = top
-    if filter:
-        params["$filter"] = filter
-
-    async with httpx.AsyncClient() as client:
-        response = await client.get(url, headers=headers, params=params)
-        response.raise_for_status()
-        return response.json()
-
-
-@registry.register(
     default_title="Create Teams channel",
     description="Create a new channel in a Microsoft Teams team. Can create either public (standard) or private channels.",
     display_group="Microsoft Graph",
