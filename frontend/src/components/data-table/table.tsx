@@ -120,6 +120,12 @@ export function DataTable<TData, TValue>({
       rowSelection,
       columnFilters,
     },
+    initialState: {
+      pagination: {
+        pageSize: serverSidePagination?.pageSize ?? data?.length ?? 10,
+        pageIndex: serverSidePagination?.currentPage ?? 0,
+      },
+    },
     enableRowSelection: true,
     onRowSelectionChange: setRowSelection,
     onSortingChange: setSorting,
@@ -132,6 +138,13 @@ export function DataTable<TData, TValue>({
     getFacetedRowModel: getFacetedRowModel(),
     getFacetedUniqueValues: getFacetedUniqueValues(),
   })
+
+  React.useEffect(() => {
+    if (serverSidePagination) {
+      table.setPageSize(serverSidePagination.pageSize)
+      table.setPageIndex(serverSidePagination.currentPage)
+    }
+  }, [serverSidePagination])
 
   return (
     <div>

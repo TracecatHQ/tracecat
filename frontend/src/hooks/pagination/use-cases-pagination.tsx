@@ -15,7 +15,7 @@ export interface UseCasesPaginationParams {
 
 export function useCasesPagination({
   workspaceId,
-  limit = 20,
+  limit,
 }: UseCasesPaginationParams) {
   // Wrapper function to adapt the API response to our generic interface
   const adaptedCasesListCases = async (

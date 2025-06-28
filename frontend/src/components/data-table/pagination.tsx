@@ -93,8 +93,9 @@ export function DataTablePagination<TData>({
               const newPageSize = Number(value)
               if (isServerSide) {
                 serverSide.onPageSizeChange(newPageSize)
+              } else {
+                table.setPageSize(newPageSize)
               }
-              table.setPageSize(newPageSize)
             }}
             disabled={isLoading}
           >
@@ -102,7 +103,7 @@ export function DataTablePagination<TData>({
               <SelectValue placeholder={currentPageSize} />
             </SelectTrigger>
             <SelectContent side="top">
-              {[10, 20, 25, 50, 75, 100].map((pageSize) => (
+              {[10, 20, 50, 75, 100].map((pageSize) => (
                 <SelectItem key={pageSize} value={`${pageSize}`}>
                   <p className="text-xs">{pageSize}</p>
                 </SelectItem>
