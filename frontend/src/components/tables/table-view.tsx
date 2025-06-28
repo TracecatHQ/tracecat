@@ -4,10 +4,7 @@ import type { CellContext, ColumnDef } from "@tanstack/react-table"
 import { DatabaseZapIcon } from "lucide-react"
 import React, { useEffect, useState } from "react"
 import type { TableColumnRead, TableRead, TableRowRead } from "@/client"
-import {
-  DataTable,
-  type ServerSidePaginationProps,
-} from "@/components/data-table"
+import { DataTable } from "@/components/data-table"
 import { JsonViewWithControls } from "@/components/json-viewer"
 import { TableViewAction } from "@/components/tables/table-view-action"
 import { TableViewColumnMenu } from "@/components/tables/table-view-column-menu"
@@ -115,21 +112,6 @@ export function DatabaseTable({
     goToFirstPage()
   }
 
-  const serverSidePagination: ServerSidePaginationProps = {
-    currentPage,
-    hasNextPage,
-    hasPreviousPage,
-    pageSize,
-    totalEstimate,
-    startItem,
-    endItem,
-    onNextPage: goToNextPage,
-    onPreviousPage: goToPreviousPage,
-    onFirstPage: goToFirstPage,
-    onPageSizeChange: handlePageSizeChange,
-    isLoading: rowsIsLoading,
-  }
-
   type CellT = CellContext<TableRowRead, TableColumnRead>
   const allColumns: ColumnDef<TableRowRead, TableColumnRead>[] = [
     ...columns.map((column) => ({
@@ -195,7 +177,20 @@ export function DatabaseTable({
       emptyMessage="No rows found."
       errorMessage="Error loading rows."
       columns={allColumns}
-      serverSidePagination={serverSidePagination}
+      serverSidePagination={{
+        currentPage,
+        hasNextPage,
+        hasPreviousPage,
+        pageSize,
+        totalEstimate,
+        startItem,
+        endItem,
+        onNextPage: goToNextPage,
+        onPreviousPage: goToPreviousPage,
+        onFirstPage: goToFirstPage,
+        onPageSizeChange: handlePageSizeChange,
+        isLoading: rowsIsLoading,
+      }}
     />
   )
 }

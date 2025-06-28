@@ -27,7 +27,7 @@ import {
   DataTableToolbar,
   type ServerSidePaginationProps,
 } from "@/components/data-table"
-import { CenteredSpinner } from "@/components/loading/spinner"
+import { Skeleton } from "@/components/ui/skeleton"
 import {
   Table,
   TableBody,
@@ -191,6 +191,10 @@ export function DataTable<TData, TValue>({
                 onClickRow={onClickRow}
                 emptyMessage={emptyMessage}
                 errorMessage={errorMessage}
+                pageSize={
+                  serverSidePagination?.pageSize ??
+                  table.getState().pagination.pageSize
+                }
               />
             </TableBody>
           </Table>
@@ -213,6 +217,7 @@ function TableContents<TData>({
   onClickRow,
   emptyMessage = "No results.",
   errorMessage = "Failed to fetch data",
+  pageSize,
 }: {
   isLoading?: boolean
   error?: Error | null
@@ -221,17 +226,23 @@ function TableContents<TData>({
   onClickRow?: (row: Row<TData>) => () => void
   emptyMessage?: string
   errorMessage?: string
+  pageSize?: number
 }) {
   if (isLoading) {
+    // Show skeleton rows equivalent to page size
+    const skeletonRowCount = pageSize || 10
     return (
-      <TableRow>
-        <TableCell
-          colSpan={colSpan}
-          className="font-sm h-24 text-center text-xs text-muted-foreground"
-        >
-          <CenteredSpinner />
-        </TableCell>
-      </TableRow>
+      <>
+        {Array.from({ length: skeletonRowCount }).map((_, index) => (
+          <TableRow key={`skeleton-${index}`}>
+            {Array.from({ length: colSpan }).map((_, cellIndex) => (
+              <TableCell key={`skeleton-cell-${cellIndex}`} className="py-3">
+                <Skeleton className="h-4 w-full" />
+              </TableCell>
+            ))}
+          </TableRow>
+        ))}
+      </>
     )
   }
   if (error) {
