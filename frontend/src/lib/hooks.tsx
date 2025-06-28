@@ -213,7 +213,7 @@ export function useAppInfo() {
   } = useQuery<AppInfo, Error>({
     queryKey: ["app-info"],
     queryFn: async () => {
-      const resp = await fetch(getBaseUrl() + "/info")
+      const resp = await fetch(`${getBaseUrl()}/info`)
       try {
         return await resp.json()
       } catch (_error) {
@@ -356,8 +356,13 @@ export function useWorkflowManager(filter?: WorkflowFilter) {
     error: workflowsError,
   } = useQuery<WorkflowReadMinimal[], ApiError>({
     queryKey: ["workflows", filter?.tag],
-    queryFn: async () =>
-      await workflowsListWorkflows({ workspaceId, tag: filter?.tag }),
+    queryFn: async () => {
+      const response = await workflowsListWorkflows({
+        workspaceId,
+        tag: filter?.tag,
+      })
+      return response.items
+    },
     retry: retryHandler,
   })
 
@@ -2216,7 +2221,10 @@ export function useListRows({ tableId, workspaceId }: TablesListRowsData) {
     error: rowsError,
   } = useQuery<TableRowRead[], TracecatApiError>({
     queryKey: ["rows", tableId],
-    queryFn: async () => await tablesListRows({ tableId, workspaceId }),
+    queryFn: async () => {
+      const response = await tablesListRows({ tableId, workspaceId })
+      return response.items
+    },
   })
 
   return {
@@ -2412,7 +2420,7 @@ export function useInsertRow() {
         queryKey: ["rows", variables.tableId],
       })
     },
-    onError: (error: TracecatApiError, variables) => {
+    onError: (error: TracecatApiError) => {
       if (error.status === 409) {
         toast({
           title: "Duplicate value error",
@@ -2497,7 +2505,10 @@ export function useListCases({ workspaceId }: CasesListCasesData) {
     error: casesError,
   } = useQuery<CaseReadMinimal[], TracecatApiError>({
     queryKey: ["cases", workspaceId],
-    queryFn: async () => await casesListCases({ workspaceId }),
+    queryFn: async () => {
+      const response = await casesListCases({ workspaceId })
+      return response.items
+    },
   })
 
   return {
@@ -2822,7 +2833,10 @@ export function useGetWorkflows(workspaceId: string) {
     error: workflowsError,
   } = useQuery<WorkflowReadMinimal[], ApiError>({
     queryKey: ["workflows", workspaceId],
-    queryFn: async () => await workflowsListWorkflows({ workspaceId }),
+    queryFn: async () => {
+      const response = await workflowsListWorkflows({ workspaceId })
+      return response.items
+    },
     retry: retryHandler,
   })
 
