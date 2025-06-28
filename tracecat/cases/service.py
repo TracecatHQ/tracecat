@@ -6,9 +6,10 @@ from typing import Any, Literal
 import sqlalchemy as sa
 from asyncpg import UndefinedColumnError
 from sqlalchemy.exc import ProgrammingError
-from sqlmodel import cast, col, desc, select
+from sqlmodel import and_, cast, col, desc, func, or_, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from tracecat.auth.models import UserRead
 from tracecat.cases.enums import (
     CasePriority,
     CaseSeverity,
@@ -22,6 +23,7 @@ from tracecat.cases.models import (
     CaseEventVariant,
     CaseFieldCreate,
     CaseFieldUpdate,
+    CaseReadMinimal,
     CaseUpdate,
     ClosedEvent,
     CreatedEvent,
@@ -39,6 +41,11 @@ from tracecat.service import BaseWorkspaceService
 from tracecat.tables.service import TableEditorService, TablesService
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatAuthorizationError, TracecatException
+from tracecat.types.pagination import (
+    BaseCursorPaginator,
+    CursorPaginatedResponse,
+    CursorPaginationParams,
+)
 
 
 class CasesService(BaseWorkspaceService):
@@ -70,6 +77,106 @@ class CasesService(BaseWorkspaceService):
                 statement = statement.order_by(attr)
         result = await self.session.exec(statement)
         return result.all()
+
+    async def list_cases_paginated(
+        self, params: CursorPaginationParams
+    ) -> CursorPaginatedResponse[CaseReadMinimal]:
+        """List cases with cursor-based pagination."""
+        paginator = BaseCursorPaginator(self.session)
+
+        # Get estimated total count from table statistics
+        total_estimate = await paginator.get_table_row_estimate("cases")
+
+        # Base query with workspace filter
+        stmt = (
+            select(Case)
+            .where(Case.owner_id == self.workspace_id)
+            .order_by(col(Case.created_at).desc(), col(Case.id).desc())
+        )
+
+        # Apply cursor filtering
+        if params.cursor:
+            cursor_data = paginator.decode_cursor(params.cursor)
+            cursor_time = cursor_data.created_at
+            cursor_id = cursor_data.id
+
+            if params.reverse:
+                stmt = stmt.where(
+                    or_(
+                        col(Case.created_at) > cursor_time,
+                        and_(
+                            col(Case.created_at) == cursor_time,
+                            col(Case.id) > cursor_id,
+                        ),
+                    )
+                ).order_by(col(Case.created_at).asc(), col(Case.id).asc())
+            else:
+                stmt = stmt.where(
+                    or_(
+                        col(Case.created_at) < cursor_time,
+                        and_(
+                            col(Case.created_at) == cursor_time,
+                            col(Case.id) < cursor_id,
+                        ),
+                    )
+                )
+
+        # Fetch limit + 1 to determine if there are more items
+        stmt = stmt.limit(params.limit + 1)
+        result = await self.session.exec(stmt)
+        all_cases = result.all()
+
+        # Check if there are more items
+        has_more = len(all_cases) > params.limit
+        cases = all_cases[: params.limit] if has_more else all_cases
+
+        # Generate cursors
+        next_cursor = None
+        prev_cursor = None
+        has_previous = params.cursor is not None
+
+        if has_more and cases:
+            last_case = cases[-1]
+            next_cursor = paginator.encode_cursor(last_case.created_at, last_case.id)
+
+        if params.cursor and cases:
+            first_case = cases[0]
+            # For reverse pagination, swap the cursor meaning
+            if params.reverse:
+                prev_cursor = paginator.encode_cursor(
+                    first_case.created_at, first_case.id
+                )
+            else:
+                prev_cursor = paginator.encode_cursor(
+                    first_case.created_at, first_case.id
+                )
+
+        # Convert to CaseReadMinimal objects
+        case_items = [
+            CaseReadMinimal(
+                id=case.id,
+                created_at=case.created_at,
+                updated_at=case.updated_at,
+                short_id=f"CASE-{case.case_number:04d}",
+                summary=case.summary,
+                status=case.status,
+                priority=case.priority,
+                severity=case.severity,
+                assignee=UserRead.model_validate(case.assignee, from_attributes=True)
+                if case.assignee
+                else None,
+            )
+            for case in cases
+        ]
+
+        return CursorPaginatedResponse(
+            items=case_items,
+            next_cursor=next_cursor,
+            prev_cursor=prev_cursor,
+            has_more=has_more,
+            has_previous=has_previous,
+            total_estimate=total_estimate,
+        )
 
     async def search_cases(
         self,
@@ -115,9 +222,9 @@ class CasesService(BaseWorkspaceService):
                 raise ValueError("Search term cannot contain null bytes")
 
             # Use SQLAlchemy's concat function for proper parameter binding
-            search_pattern = sa.func.concat("%", search_term, "%")
+            search_pattern = func.concat("%", search_term, "%")
             statement = statement.where(
-                sa.or_(
+                or_(
                     col(Case.summary).ilike(search_pattern),
                     col(Case.description).ilike(search_pattern),
                 )
