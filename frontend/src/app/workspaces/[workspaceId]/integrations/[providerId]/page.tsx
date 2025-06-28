@@ -14,6 +14,7 @@ import {
 import Link from "next/link"
 import { useParams } from "next/navigation"
 import { useCallback, useMemo, useState } from "react"
+import type { IntegrationStatus, ProviderRead } from "@/client"
 import { ProviderIcon } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { ProviderConfigForm } from "@/components/provider-config-form"
@@ -46,20 +47,6 @@ export default function ProviderDetailPage() {
   const { workspaceId } = useWorkspace()
   const providerId = params.providerId as string
 
-  const [isConfigDialogOpen, setIsConfigDialogOpen] = useState(false)
-  const [isConnecting, setIsConnecting] = useState(false)
-  const [errorMessage, setErrorMessage] = useState("")
-  const [showConnectPrompt, setShowConnectPrompt] = useState(false)
-  const [showSuccessMessage, setShowSuccessMessage] = useState(false)
-
-  const {
-    integration,
-    connectProvider,
-    connectProviderIsPending,
-    disconnectProvider,
-    disconnectProviderIsPending,
-  } = useIntegrationProvider({ providerId, workspaceId })
-
   const { providers, providersIsLoading, providersError } =
     useIntegrations(workspaceId)
 
@@ -83,7 +70,8 @@ export default function ProviderDetailPage() {
           <AlertCircle className="size-12 text-muted-foreground" />
           <h2 className="text-xl font-semibold">Provider not found</h2>
           <div className="text-muted-foreground">
-            The requested integration provider could not be found.
+            The requested integration provider could not be found or metadata
+            could not be loaded.
           </div>
           <Link href={`/workspaces/${workspaceId}/integrations`}>
             <Button variant="outline" className="mt-2">
@@ -95,13 +83,55 @@ export default function ProviderDetailPage() {
       </div>
     )
   }
-  const { metadata, integration_status } = provider ?? {}
-  const isEnabled = metadata?.enabled !== false
+  return <ProviderDetailContent provider={provider} />
+}
+
+const statusStyles: Record<
+  IntegrationStatus,
+  {
+    label: string
+    style: string
+  }
+> = {
+  connected: {
+    label: "Connected",
+    style: "bg-green-100 text-green-800 hover:bg-green-200",
+  },
+  configured: {
+    label: "Configured",
+    style: "bg-yellow-100 text-yellow-800 hover:bg-yellow-200",
+  },
+  not_configured: {
+    label: "Not Configured",
+    style: "bg-gray-100 text-gray-800 hover:bg-gray-200",
+  },
+}
+
+export function ProviderDetailContent({
+  provider,
+}: {
+  provider: ProviderRead
+}) {
+  const { workspaceId } = useWorkspace()
+  const [isConfigDialogOpen, setIsConfigDialogOpen] = useState(false)
+  const [errorMessage, setErrorMessage] = useState("")
+  const [showConnectPrompt, setShowConnectPrompt] = useState(false)
+  const [showSuccessMessage, setShowSuccessMessage] = useState(false)
+  const providerId = provider.metadata.id
+
+  // Whether there's a connected integration
+  const {
+    integration,
+    connectProvider,
+    connectProviderIsPending,
+    disconnectProvider,
+    disconnectProviderIsPending,
+  } = useIntegrationProvider({ providerId, workspaceId })
+  const { metadata, integration_status: integrationStatus } = provider
 
   // Check if actually connected based on backend status
-  const isConnected = integration_status === "connected"
-  const isConfigured =
-    integration_status === "configured" || integration_status === "connected"
+  const isConnected = integrationStatus === "connected"
+  const isConfigured = integrationStatus === "configured"
   // Handlers
   const openConfigDialog = useCallback(() => {
     setIsConfigDialogOpen(true)
@@ -110,14 +140,13 @@ export default function ProviderDetailPage() {
   const handleConfigSuccess = useCallback(() => {
     setIsConfigDialogOpen(false)
     // Show connect prompt if configured but not connected
-    if (integration_status === "configured") {
+    if (integrationStatus === "configured") {
       setShowConnectPrompt(true)
     }
-  }, [integration_status])
+  }, [integrationStatus])
 
   const handleOAuthConnect = useCallback(async () => {
     try {
-      setIsConnecting(true)
       setErrorMessage("")
       await connectProvider(providerId)
       setShowSuccessMessage(true)
@@ -125,8 +154,6 @@ export default function ProviderDetailPage() {
       setTimeout(() => setShowSuccessMessage(false), 5000)
     } catch (_error) {
       setErrorMessage("Failed to connect. Please try again.")
-    } finally {
-      setIsConnecting(false)
     }
   }, [connectProvider, providerId])
 
@@ -139,6 +166,9 @@ export default function ProviderDetailPage() {
       setErrorMessage("Failed to disconnect. Please try again.")
     }
   }, [disconnectProvider, providerId])
+
+  const isEnabled = Boolean(metadata.enabled)
+
   return (
     <div className="container mx-auto max-w-4xl p-6">
       {/* Breadcrumb */}
@@ -177,23 +207,8 @@ export default function ProviderDetailPage() {
                   {category}
                 </Badge>
               ))}
-              <Badge
-                className={cn(
-                  integration_status === "connected" &&
-                    "bg-green-100 text-green-800 hover:bg-green-200",
-                  integration_status === "configured" &&
-                    "bg-yellow-100 text-yellow-800 hover:bg-yellow-200",
-                  (!integration_status ||
-                    (integration_status !== "connected" &&
-                      integration_status !== "configured")) &&
-                    "bg-gray-100 text-gray-800 hover:bg-gray-200"
-                )}
-              >
-                {integration_status === "connected"
-                  ? "Connected"
-                  : integration_status === "configured"
-                    ? "Configured"
-                    : "Not Configured"}
+              <Badge className={cn(statusStyles[integrationStatus].style)}>
+                {statusStyles[integrationStatus].label}
               </Badge>
             </div>
           </div>
@@ -308,7 +323,7 @@ export default function ProviderDetailPage() {
               ) : (
                 <div className="space-y-4">
                   <div className="text-sm text-muted-foreground">
-                    {integration_status === "configured"
+                    {isConfigured
                       ? "This integration is configured but not connected. Complete the OAuth flow to start using it."
                       : "This integration is not connected to your workspace. Configure it with your client credentials or use OAuth for quick setup."}
                   </div>
@@ -320,7 +335,7 @@ export default function ProviderDetailPage() {
                       disabled={!isEnabled}
                     >
                       <Settings className="mr-2 size-4" />
-                      {integration_status === "configured"
+                      {isConfigured
                         ? "Update Configuration"
                         : "Configure Integration"}
                     </Button>
@@ -328,13 +343,11 @@ export default function ProviderDetailPage() {
                     {isConfigured && (
                       <Button
                         onClick={handleOAuthConnect}
-                        disabled={
-                          !isEnabled || connectProviderIsPending || isConnecting
-                        }
+                        disabled={!isEnabled || connectProviderIsPending}
                         variant="outline"
                         className="sm:w-auto"
                       >
-                        {connectProviderIsPending || isConnecting ? (
+                        {connectProviderIsPending ? (
                           <>
                             <Loader2 className="mr-2 size-4 animate-spin" />
                             Connecting...
