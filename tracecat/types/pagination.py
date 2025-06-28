@@ -3,7 +3,7 @@
 import base64
 import json
 from datetime import datetime
-from typing import Generic, TypeVar
+from typing import TypeVar
 from uuid import UUID
 
 import sqlalchemy as sa
@@ -21,7 +21,7 @@ class CursorPaginationParams(BaseModel):
     reverse: bool = Field(default=False, description="Reverse pagination direction")
 
 
-class CursorPaginatedResponse(BaseModel, Generic[T]):
+class CursorPaginatedResponse[T](BaseModel):
     """Response format for cursor-based pagination."""
 
     items: list[T]

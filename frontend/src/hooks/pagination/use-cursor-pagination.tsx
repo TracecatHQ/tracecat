@@ -61,7 +61,7 @@ export function useCursorPagination<T, P extends CursorPaginationParams>({
       cursors: [],
       currentPage: 0,
     })
-  }, [])
+  }, [limit])
 
   const queryParams: P = {
     workspaceId,

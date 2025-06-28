@@ -30,6 +30,7 @@ from tracecat.cases.service import (
     CasesService,
 )
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.logger import logger
 from tracecat.types.auth import AccessLevel, Role
 from tracecat.types.pagination import (
     CursorPaginatedResponse,
@@ -77,7 +78,11 @@ async def list_cases(
         cursor=cursor,
         reverse=reverse,
     )
-    cases = await service.list_cases_paginated(pagination_params)
+    try:
+        cases = await service.list_cases_paginated(pagination_params)
+    except Exception as e:
+        logger.error(f"Failed to list cases: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve cases") from e
     return cases
 
 

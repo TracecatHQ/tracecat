@@ -352,7 +352,7 @@ export function useWorkflowManager(filter?: WorkflowFilter) {
     isLoading: workflowsLoading,
     error: workflowsError,
   } = useQuery<WorkflowReadMinimal[], ApiError>({
-    queryKey: ["workflows", filter?.tag],
+    queryKey: ["workflows", workspaceId, filter?.tag],
     queryFn: async () => {
       const response = await workflowsListWorkflows({
         workspaceId,

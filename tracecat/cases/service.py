@@ -98,7 +98,7 @@ class CasesService(BaseWorkspaceService):
         if params.cursor:
             cursor_data = paginator.decode_cursor(params.cursor)
             cursor_time = cursor_data.created_at
-            cursor_id = cursor_data.id
+            cursor_id = uuid.UUID(cursor_data.id)
 
             if params.reverse:
                 stmt = stmt.where(
@@ -143,7 +143,7 @@ class CasesService(BaseWorkspaceService):
             first_case = cases[0]
             # For reverse pagination, swap the cursor meaning
             if params.reverse:
-                prev_cursor = paginator.encode_cursor(
+                next_cursor = paginator.encode_cursor(
                     first_case.created_at, first_case.id
                 )
             else:
