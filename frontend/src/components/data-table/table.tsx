@@ -22,7 +22,11 @@ import * as React from "react"
 import AuxClickMenu, {
   type AuxClickMenuOptionProps,
 } from "@/components/aux-click-menu"
-import { DataTablePagination, DataTableToolbar } from "@/components/data-table"
+import {
+  DataTablePagination,
+  DataTableToolbar,
+  type ServerSidePaginationProps,
+} from "@/components/data-table"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import {
   Table,
@@ -55,6 +59,7 @@ interface DataTableProps<TData, TValue> {
   initialColumnVisibility?: VisibilityState
   tableId?: string
   onDeleteRows?: (selectedRows: Row<TData>[]) => void
+  serverSidePagination?: ServerSidePaginationProps
 }
 
 export function DataTable<TData, TValue>({
@@ -72,6 +77,7 @@ export function DataTable<TData, TValue>({
   initialColumnVisibility,
   tableId,
   onDeleteRows,
+  serverSidePagination,
 }: DataTableProps<TData, TValue>) {
   const [tableState, setTableState] = useLocalStorage<Partial<TableState>>(
     `table-state:${tableId}`,
@@ -179,6 +185,7 @@ export function DataTable<TData, TValue>({
         <DataTablePagination
           table={table}
           showSelectedRows={showSelectedRows}
+          serverSide={serverSidePagination}
         />
       </div>
     </div>
