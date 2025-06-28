@@ -1,0 +1,38 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.worker.service.name }}
+  namespace: {{ .Release.Namespace }}
+{{- if .Values.worker.service.annotations }}
+  annotations:
+    {{- range $key, $value := .Values.worker.service.annotations }}
+    {{ $key }}: {{ $value | quote }}
+    {{- end }}
+{{- end }}
+  labels:
+    app: tracecat
+    chart: "{{ template "chart.fullname" . }}"
+    release: "{{ .Release.Name }}"
+    heritage: "{{ .Release.Service }}"
+    app.kubernetes.io/component: worker
+    app.kubernetes.io/name: "{{ .Chart.Name }}"
+    app.kubernetes.io/version: {{ template "chart.version" . }}
+{{- if .Values.worker.service.labels }}
+    {{- range $key, $value := .Values.worker.service.labels }}
+    {{ $key }}: {{ $value | quote }}
+    {{- end }}
+{{- end }}
+spec:
+  selector:
+    app: tracecat
+    app.kubernetes.io/component: worker
+  type: ClusterIP
+  ports:
+    - name: tracecat-worker
+      port: {{ .Values.worker.service.port }}
+      protocol: TCP
+      targetPort: 8001
+    - name: tracecat-worker-metrics
+      port: {{ .Values.worker.service.metricsPort }}
+      protocol: TCP
+      targetPort: 9000
