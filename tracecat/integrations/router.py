@@ -261,6 +261,7 @@ async def update_integration(
         client_id=params.client_id,
         client_secret=params.client_secret,
         provider_config=params.provider_config,
+        requested_scopes=params.scopes,
     )
 
     logger.info(

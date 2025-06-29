@@ -305,6 +305,7 @@ class IntegrationService(BaseWorkspaceService):
         client_id: str,
         client_secret: SecretStr,
         provider_config: dict[str, Any],
+        requested_scopes: list[str] | None = None,
     ) -> OAuthIntegration:
         """Store or update provider configuration (client credentials) for a workspace."""
         # Check if integration configuration already exists for this provider
@@ -317,6 +318,8 @@ class IntegrationService(BaseWorkspaceService):
             )
             integration.use_workspace_credentials = True
             integration.provider_config = provider_config
+            if requested_scopes is not None:
+                integration.requested_scopes = " ".join(requested_scopes)
 
             self.session.add(integration)
             await self.session.commit()
@@ -342,6 +345,9 @@ class IntegrationService(BaseWorkspaceService):
                 # These will be populated during OAuth flow
                 encrypted_access_token=b"",  # Placeholder, will be updated
                 provider_config=provider_config,
+                requested_scopes=" ".join(requested_scopes)
+                if requested_scopes
+                else None,
             )
 
             self.session.add(integration)
@@ -378,6 +384,9 @@ class IntegrationService(BaseWorkspaceService):
                 client_id=client_id,
                 client_secret=SecretStr(client_secret),
                 provider_config=integration.provider_config,
+                scopes=integration.requested_scopes.split()
+                if integration.requested_scopes
+                else None,
             )
         except Exception as e:
             self.logger.error(
