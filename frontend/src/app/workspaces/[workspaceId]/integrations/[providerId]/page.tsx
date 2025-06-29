@@ -107,11 +107,7 @@ const statusStyles: Record<
   },
 }
 
-export function ProviderDetailContent({
-  provider,
-}: {
-  provider: ProviderRead
-}) {
+function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
   const { workspaceId } = useWorkspace()
   const [isConfigDialogOpen, setIsConfigDialogOpen] = useState(false)
   const [errorMessage, setErrorMessage] = useState("")
