@@ -83,9 +83,6 @@ function getDefaultValue(schemaProperty: JSONSchema7): unknown {
 
 const TEXT_AREA_THRESHOLD = 512
 
-function isJsonSchema(schema: unknown): schema is JSONSchema7 {
-  return typeof schema === "object" && schema !== null && "type" in schema
-}
 export function ProviderConfigForm({
   provider,
   isOpen,
@@ -93,17 +90,18 @@ export function ProviderConfigForm({
   onSuccess,
 }: ProviderConfigFormProps) {
   const { workspaceId } = useWorkspace()
-  const { providerSchema, providerSchemaIsLoading } = useIntegrationProvider({
-    providerId: provider.id,
-    workspaceId: workspaceId,
-  })
+  const { providerSchema, providerSchemaIsLoading, providerSchemaError } =
+    useIntegrationProvider({
+      providerId: provider.id,
+      workspaceId: workspaceId,
+    })
   if (providerSchemaIsLoading) {
-    return <div>Loading...</div>
+    return <ProviderConfigFormSkeleton />
   }
-  const schema = providerSchema?.json_schema as JSONSchema7 | undefined
-  if (!isJsonSchema(schema)) {
-    return <div>Invalid schema</div>
+  if (providerSchemaError) {
+    return <div>Error: {providerSchemaError.message}</div>
   }
+  const schema = providerSchema?.json_schema || {}
 
   return (
     <ProviderConfigFormContent
@@ -134,7 +132,6 @@ export function ProviderConfigFormContent({
   const { updateIntegration, updateIntegrationIsPending } =
     useIntegrationProvider({ providerId: provider.id, workspaceId })
   const properties = Object.entries(schema.properties || {})
-
   const zodSchema = useMemo(() => jsonSchemaToZod(schema), [schema])
 
   const oauthSchema = z.object({
@@ -166,7 +163,7 @@ export function ProviderConfigFormContent({
         const params: IntegrationUpdate = {
           client_id: String(client_id),
           client_secret: String(client_secret),
-          provider_config: config,
+          provider_config: config || {}, // If no config is provided, set an empty object
         }
         console.log(params)
         await updateIntegration(params)
@@ -204,6 +201,9 @@ export function ProviderConfigFormContent({
                       <Input {...field} />
                     </FormControl>
                     <FormMessage />
+                    <FormDescription>
+                      The client ID for the OAuth application.
+                    </FormDescription>
                   </FormItem>
                 )}
               />
@@ -217,6 +217,9 @@ export function ProviderConfigFormContent({
                       <Input {...field} type="password" />
                     </FormControl>
                     <FormMessage />
+                    <FormDescription>
+                      The client secret for the OAuth application.
+                    </FormDescription>
                   </FormItem>
                 )}
               />

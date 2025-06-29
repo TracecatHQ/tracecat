@@ -27,7 +27,7 @@ class BaseOAuthProvider:
     grant_type: ClassVar[str] = "authorization_code"
 
     # Provider specific configuration schema
-    config_model: ClassVar[type[BaseModel]]
+    config_model: ClassVar[type[BaseModel] | None] = None
 
     # Provider metadata
     metadata: ClassVar[ProviderMetadata]
@@ -89,19 +89,23 @@ class BaseOAuthProvider:
         return self._token_endpoint
 
     @classmethod
-    def schema(cls) -> dict[str, Any]:
+    def schema(cls) -> dict[str, Any] | None:
         """Get the metadata for the OAuth provider."""
-        return cls.config_model.model_json_schema()
+        return cls.config_model.model_json_schema() if cls.config_model else None
 
     @classmethod
     def from_config(cls, config: ProviderConfig) -> Self:
         """Create an OAuth provider from a configuration."""
         logger.warning("Creating OAuth provider from configuration", config=config)
-        validated_config = cls.config_model.model_validate(config.provider_config)
+        if cls.config_model:
+            model = cls.config_model.model_validate(config.provider_config)
+            validated_config = model.model_dump(exclude_unset=True)
+        else:
+            validated_config = {}
         return cls(
             client_id=config.client_id,
             client_secret=config.client_secret.get_secret_value(),
-            **validated_config.model_dump(exclude_unset=True),
+            **validated_config,
         )
 
     def _use_pkce(self) -> bool:
