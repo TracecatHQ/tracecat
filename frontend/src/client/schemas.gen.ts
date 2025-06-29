@@ -3549,6 +3549,21 @@ export const $IntegrationUpdate = {
       title: "Provider Config",
       description: "Provider-specific configuration",
     },
+    scopes: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Scopes",
+      description: "OAuth scopes to request for this integration",
+    },
   },
   type: "object",
   required: ["client_id", "client_secret", "provider_config"],

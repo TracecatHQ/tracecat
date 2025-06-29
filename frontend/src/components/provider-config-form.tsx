@@ -6,6 +6,8 @@ import { type HTMLInputTypeAttribute, useCallback, useMemo } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import type { IntegrationUpdate, ProviderMetadata } from "@/client"
+import { MultiTagCommandInput } from "@/components/tags-input"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
@@ -134,9 +136,63 @@ export function ProviderConfigFormContent({
   const properties = Object.entries(schema.properties || {})
   const zodSchema = useMemo(() => jsonSchemaToZod(schema), [schema])
 
+  // Create scope suggestions from default scopes and common provider scopes
+  const scopeSuggestions = useMemo(() => {
+    const defaultScopes = provider.oauth_scopes || []
+    const suggestions = defaultScopes.map((scope) => ({
+      id: scope,
+      label: scope,
+      value: scope,
+      description: `Default scope for ${provider.name}`,
+      group: "Default",
+    }))
+
+    // Add common scopes based on provider
+    const commonScopes: { [key: string]: string[] } = {
+      microsoft: [
+        "https://graph.microsoft.com/Mail.Read",
+        "https://graph.microsoft.com/Mail.Send",
+        "https://graph.microsoft.com/Calendar.Read",
+        "https://graph.microsoft.com/Calendar.ReadWrite",
+        "https://graph.microsoft.com/Files.Read",
+        "https://graph.microsoft.com/Files.ReadWrite",
+      ],
+      google: [
+        "https://www.googleapis.com/auth/gmail.readonly",
+        "https://www.googleapis.com/auth/gmail.modify",
+        "https://www.googleapis.com/auth/calendar.readonly",
+        "https://www.googleapis.com/auth/calendar.events",
+        "https://www.googleapis.com/auth/drive.file",
+        "https://www.googleapis.com/auth/drive.readonly",
+      ],
+      slack: [
+        "channels:read",
+        "channels:write",
+        "chat:write:bot",
+        "files:read",
+        "files:write",
+        "users:read",
+      ],
+    }
+
+    const providerCommonScopes = commonScopes[provider.id] || []
+    const commonSuggestions = providerCommonScopes
+      .filter((scope) => !defaultScopes.includes(scope))
+      .map((scope) => ({
+        id: scope,
+        label: scope,
+        value: scope,
+        description: `Common scope for ${provider.name}`,
+        group: "Common",
+      }))
+
+    return [...suggestions, ...commonSuggestions]
+  }, [provider])
+
   const oauthSchema = z.object({
     client_id: z.string().min(1).max(512),
     client_secret: z.string().min(1).max(512),
+    scopes: z.array(z.string()).optional(),
     config: zodSchema,
   })
   type OAuthSchema = z.infer<typeof oauthSchema>
@@ -157,13 +213,14 @@ export function ProviderConfigFormContent({
 
   const onSubmit = useCallback(
     async (data: OAuthSchema) => {
-      const { client_id, client_secret, config } = data
+      const { client_id, client_secret, scopes, config } = data
 
       try {
         const params: IntegrationUpdate = {
           client_id: String(client_id),
           client_secret: String(client_secret),
           provider_config: config || {}, // If no config is provided, set an empty object
+          scopes: scopes || undefined, // Only send if not empty
         }
         console.log(params)
         await updateIntegration(params)
@@ -223,6 +280,59 @@ export function ProviderConfigFormContent({
                   </FormItem>
                 )}
               />
+
+              {/* OAuth Scopes Configuration */}
+              <div className="space-y-4">
+                {/* Show default scopes */}
+                {provider.oauth_scopes && provider.oauth_scopes.length > 0 && (
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground mb-2">
+                      Default Scopes
+                    </p>
+                    <div className="flex flex-wrap gap-1">
+                      {provider.oauth_scopes.map((scope) => (
+                        <Badge
+                          key={scope}
+                          variant="secondary"
+                          className="text-xs"
+                        >
+                          {scope}
+                        </Badge>
+                      ))}
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      These scopes will be used if no custom scopes are
+                      specified.
+                    </p>
+                  </div>
+                )}
+
+                <FormField
+                  control={form.control}
+                  name="scopes"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Custom OAuth Scopes (Optional)</FormLabel>
+                      <FormControl>
+                        <MultiTagCommandInput
+                          value={field.value || []}
+                          onChange={field.onChange}
+                          suggestions={scopeSuggestions}
+                          placeholder="Add custom scopes..."
+                          searchKeys={["value", "label", "description"]}
+                          className="min-h-[42px]"
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        Override default scopes with custom ones. Leave empty to
+                        use defaults. Start typing to see suggestions or enter
+                        any valid scope.
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
             </div>
             {/* Provider-Specific Configuration Section */}
             {properties.length > 0 && (

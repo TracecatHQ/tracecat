@@ -1111,6 +1111,10 @@ export type IntegrationUpdate = {
   provider_config: {
     [key: string]: unknown
   }
+  /**
+   * OAuth scopes to request for this integration
+   */
+  scopes?: Array<string> | null
 }
 
 export type InteractionCategory = "slack"
