@@ -63,6 +63,10 @@ class IntegrationUpdate(BaseModel):
         ...,
         description="Provider-specific configuration",
     )
+    scopes: list[str] | None = Field(
+        default=None,
+        description="OAuth scopes to request for this integration",
+    )
 
 
 class IntegrationOAuthConnect(BaseModel):
@@ -197,3 +201,4 @@ class ProviderConfig:
     client_id: str
     client_secret: SecretStr
     provider_config: dict[str, Any]
+    scopes: list[str] | None = None

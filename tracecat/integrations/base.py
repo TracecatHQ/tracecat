@@ -105,6 +105,7 @@ class BaseOAuthProvider:
         return cls(
             client_id=config.client_id,
             client_secret=config.client_secret.get_secret_value(),
+            scopes=config.scopes,
             **validated_config,
         )
 
