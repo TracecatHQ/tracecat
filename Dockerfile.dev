@@ -39,6 +39,10 @@ RUN chmod +x /app/entrypoint.sh
 RUN uv pip install -e .
 RUN uv pip install -e ./registry
 
+# Ensure uv binary is available where Ray expects it
+RUN mkdir -p /root/.local/bin && \
+    ln -s $(which uv) /root/.local/bin/uv
+
 # Create necessary directories for development
 RUN mkdir -p /root/.deno /app/node_modules /app/.scripts && \
     # Copy pre-cached deno modules if they exist

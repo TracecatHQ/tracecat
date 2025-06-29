@@ -399,9 +399,9 @@ async def run_action_on_ray_cluster(
         )
         pip_deps.extend([local_repo_path, *required_deps])
 
-    # Add pip dependencies to runtime env
+    # Add pip dependencies to runtime env using uv
     if pip_deps:
-        additional_vars["pip"] = pip_deps
+        additional_vars["uv"] = pip_deps
 
     runtime_env = RuntimeEnv(env_vars=env_vars, **additional_vars)
 
