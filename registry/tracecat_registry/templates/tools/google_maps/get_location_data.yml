@@ -22,5 +22,4 @@ definition:
         params:
           address: ${{ inputs.address }}
           key: ${{ SECRETS.google_maps.GOOGLE_MAPS_API_KEY }}
-
   returns: ${{ steps.get_location_data.result.data }}
