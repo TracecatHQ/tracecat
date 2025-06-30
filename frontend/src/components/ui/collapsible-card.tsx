@@ -34,12 +34,12 @@ export function CollapsibleCard({
   const [isOpen, setIsOpen] = useState(defaultOpen)
 
   return (
-    <Card className={className}>
+    <Card className={cn("w-full", className)}>
       <Collapsible open={isOpen} onOpenChange={setIsOpen}>
         <CollapsibleTrigger asChild>
           <CardHeader className="cursor-pointer">
             <div className="flex items-center justify-between">
-              <div className="space-y-1">
+              <div className="flex-1 space-y-1">
                 <CardTitle>{title}</CardTitle>
                 {description && (
                   <CardDescription>{description}</CardDescription>

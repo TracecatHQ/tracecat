@@ -178,7 +178,7 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
   const isEnabled = Boolean(metadata.enabled)
 
   return (
-    <div className="container mx-auto max-w-4xl p-6">
+    <div className="container mx-auto max-w-4xl p-6 min-h-screen">
       {/* Breadcrumb */}
       <Breadcrumb className="mb-6">
         <BreadcrumbList>
