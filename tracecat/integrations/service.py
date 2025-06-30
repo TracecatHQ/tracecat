@@ -132,6 +132,17 @@ class IntegrationService(BaseWorkspaceService):
             )
             return integration
 
+    async def disconnect_integration(self, *, integration: OAuthIntegration) -> None:
+        """Disconnect a user's integration for a specific provider."""
+        # Wipe all tokens
+        integration.encrypted_access_token = b""
+        integration.encrypted_refresh_token = None
+        integration.expires_at = None
+        integration.scope = None  # Granted scopes
+        integration.requested_scopes = None
+        self.session.add(integration)
+        await self.session.commit()
+
     async def remove_integration(self, *, integration: OAuthIntegration) -> None:
         """Remove a user's integration for a specific provider."""
         await self.session.delete(integration)

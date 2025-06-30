@@ -3190,6 +3190,9 @@ export function useIntegrationProvider({
       queryClient.invalidateQueries({
         queryKey: ["providers", workspaceId],
       })
+      queryClient.invalidateQueries({
+        queryKey: ["provider-schema", providerId, workspaceId],
+      })
     },
     onError: (error: TracecatApiError) => {
       console.error("Failed to update integration:", error)

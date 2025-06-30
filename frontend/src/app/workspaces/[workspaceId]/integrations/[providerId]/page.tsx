@@ -336,31 +336,8 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
                           )}
 
                           {/* Scopes Section */}
-                          {(integration.requested_scopes ||
-                            integration.granted_scopes) && (
+                          {integration.granted_scopes && (
                             <div className="space-y-2">
-                              {integration.requested_scopes &&
-                                integration.requested_scopes.length > 0 && (
-                                  <div>
-                                    <div className="font-medium text-foreground mb-1">
-                                      Requested Scopes:
-                                    </div>
-                                    <div className="flex flex-wrap gap-1">
-                                      {integration.requested_scopes.map(
-                                        (scope) => (
-                                          <Badge
-                                            key={scope}
-                                            variant="outline"
-                                            className="text-xs bg-blue-50 text-blue-700 border-blue-200"
-                                          >
-                                            {scope}
-                                          </Badge>
-                                        )
-                                      )}
-                                    </div>
-                                  </div>
-                                )}
-
                               {integration.granted_scopes &&
                                 integration.granted_scopes.length > 0 && (
                                   <div>

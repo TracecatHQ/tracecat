@@ -248,7 +248,7 @@ async def disconnect_integration(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"{provider_impl.id} integration not found",
         )
-    await svc.remove_integration(integration=integration)
+    await svc.disconnect_integration(integration=integration)
 
 
 @integrations_router.put("/{provider_id}", status_code=status.HTTP_204_NO_CONTENT)
