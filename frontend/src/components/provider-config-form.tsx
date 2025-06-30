@@ -364,7 +364,7 @@ export function ProviderConfigForm({
                       to use only the base scopes. Start typing to see
                       suggestions or enter any valid scope.
                       {allowedPatterns && allowedPatterns.length > 0 && (
-                        <div className="mt-2 p-2 bg-muted rounded text-xs">
+                        <div className="mt-2 p-2 bg-muted/50 rounded text-xs">
                           <strong>Allowed scope patterns:</strong>
                           <div className="mt-1 space-y-1">
                             {allowedPatterns.map((pattern, index) => (
