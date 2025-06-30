@@ -158,7 +158,7 @@ export function ProviderConfigForm({
         ...(integration?.provider_config ?? {}),
       },
     }
-  }, [integration, properties])
+  }, [integration, properties, defaultScopes])
 
   const form = useForm<OAuthSchema>({
     resolver: zodResolver(oauthSchema),

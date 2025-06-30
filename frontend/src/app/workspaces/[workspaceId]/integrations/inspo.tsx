@@ -225,7 +225,7 @@ export default function Component() {
                           key={feature.name}
                           className="flex items-center space-x-3"
                         >
-                          <CheckCircle className="w-4 h-4 text-green-600" />
+                          <feature.icon className="w-4 h-4 text-green-600" />
                           <span className="text-slate-700">{feature.name}</span>
                         </div>
                       ))}

@@ -198,7 +198,7 @@ export default function IntegrationsPage() {
             <Card
               key={id}
               className={cn(
-                enabled
+                !!enabled
                   ? "cursor-pointer transition-colors duration-200 hover:bg-accent/50"
                   : "cursor-not-allowed opacity-50"
               )}
