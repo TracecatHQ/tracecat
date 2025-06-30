@@ -306,4 +306,6 @@ async def get_provider_schema(
     provider_impl: Annotated[type[BaseOAuthProvider], Depends(get_provider)],
 ) -> ProviderSchema:
     """Get JSON Schema for provider-specific configuration."""
-    return ProviderSchema(json_schema=provider_impl.schema())
+
+    schema = provider_impl.schema() or {}
+    return ProviderSchema(json_schema=schema)

@@ -35,6 +35,7 @@ lint-fix-app:
 
 lint: lint-ui lint-app
 lint-fix: lint-fix-ui lint-fix-app
+fix: lint-fix
 
 mypy path:
 	mypy --ignore-missing-imports {{path}}

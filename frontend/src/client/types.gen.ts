@@ -611,6 +611,78 @@ export type CreatedEventRead = {
   created_at: string
 }
 
+export type CursorPaginatedResponse_CaseReadMinimal_ = {
+  items: Array<CaseReadMinimal>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
+export type CursorPaginatedResponse_TableRowRead_ = {
+  items: Array<TableRowRead>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
+export type CursorPaginatedResponse_WorkflowReadMinimal_ = {
+  items: Array<WorkflowReadMinimal>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
 /**
  * This is the runtime configuration for the workflow.
  *
@@ -3093,6 +3165,9 @@ export type WorkspacesDeleteWorkspaceMembershipData = {
 export type WorkspacesDeleteWorkspaceMembershipResponse = void
 
 export type WorkflowsListWorkflowsData = {
+  cursor?: string | null
+  limit?: number
+  reverse?: boolean
   /**
    * Filter workflows by tags
    */
@@ -3100,7 +3175,8 @@ export type WorkflowsListWorkflowsData = {
   workspaceId: string
 }
 
-export type WorkflowsListWorkflowsResponse = Array<WorkflowReadMinimal>
+export type WorkflowsListWorkflowsResponse =
+  CursorPaginatedResponse_WorkflowReadMinimal_
 
 export type WorkflowsCreateWorkflowData = {
   formData?: Body_workflows_create_workflow
@@ -3700,19 +3776,14 @@ export type TablesDeleteColumnData = {
 export type TablesDeleteColumnResponse = void
 
 export type TablesListRowsData = {
-  /**
-   * Maximum number of rows to return
-   */
+  cursor?: string | null
   limit?: number
-  /**
-   * Number of rows to skip
-   */
-  offset?: number
+  reverse?: boolean
   tableId: string
   workspaceId: string
 }
 
-export type TablesListRowsResponse = Array<TableRowRead>
+export type TablesListRowsResponse = CursorPaginatedResponse_TableRowRead_
 
 export type TablesInsertRowData = {
   requestBody: TableRowInsert
@@ -3755,10 +3826,22 @@ export type TablesImportCsvData = {
 export type TablesImportCsvResponse = TableRowInsertBatchResponse
 
 export type CasesListCasesData = {
+  /**
+   * Cursor for pagination
+   */
+  cursor?: string | null
+  /**
+   * Maximum items per page
+   */
+  limit?: number
+  /**
+   * Reverse pagination direction
+   */
+  reverse?: boolean
   workspaceId: string
 }
 
-export type CasesListCasesResponse = Array<CaseReadMinimal>
+export type CasesListCasesResponse = CursorPaginatedResponse_CaseReadMinimal_
 
 export type CasesCreateCaseData = {
   requestBody: CaseCreate
@@ -4325,7 +4408,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Array<WorkflowReadMinimal>
+        200: CursorPaginatedResponse_WorkflowReadMinimal_
         /**
          * Validation Error
          */
@@ -5539,7 +5622,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Array<TableRowRead>
+        200: CursorPaginatedResponse_TableRowRead_
         /**
          * Validation Error
          */
@@ -5625,7 +5708,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Array<CaseReadMinimal>
+        200: CursorPaginatedResponse_CaseReadMinimal_
         /**
          * Validation Error
          */

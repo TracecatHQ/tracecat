@@ -5,5 +5,8 @@
   "yaml.schemas": {
     "https://json.schemastore.org/yamllint.json": "playbooks/*.yml"
   },
-  "python.analysis.extraPaths": ["./registry"]
+  "python.analysis.extraPaths": ["./registry"],
+  "biome.configurationPath": "./frontend/biome.json",
+  "biome.enabled": true,
+  "biome.lsp.bin": "./frontend/node_modules/.bin/biome"
 }

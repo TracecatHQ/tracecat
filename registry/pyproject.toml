@@ -25,7 +25,7 @@ dependencies = [
     "ansible-runner==2.4.0",
     "ansible==11.1.0",
     "boto3==1.37.3",
-    "crowdstrike-falconpy==1.4.4",
+    "crowdstrike-falconpy==1.5.3",
     "diskcache==5.6.3",
     "dnspython==2.6.1",
     "docker==7.1.0",

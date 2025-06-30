@@ -1,0 +1,25 @@
+type: action
+definition:
+  title: Get location data
+  description: Get location data from Google Maps.
+  display_group: Google Maps
+  doc_url: https://developers.google.com/maps/documentation/geocoding/overview
+  namespace: tools.google_maps
+  name: get_location_data
+  secrets:
+    - name: google_maps
+      keys: ["GOOGLE_MAPS_API_KEY"]
+  expects:
+    address:
+      type: str
+      description: The address to get the location data for.
+  steps:
+    - ref: get_location_data
+      action: core.http_request
+      args:
+        url: https://maps.googleapis.com/maps/api/geocode/json
+        method: GET
+        params:
+          address: ${{ inputs.address }}
+          key: ${{ SECRETS.google_maps.GOOGLE_MAPS_API_KEY }}
+  returns: ${{ steps.get_location_data.result.data }}

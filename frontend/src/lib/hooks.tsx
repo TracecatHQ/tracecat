@@ -122,7 +122,6 @@ import {
   settingsUpdateSamlSettings,
   type TableRead,
   type TableReadMinimal,
-  type TableRowRead,
   type TablesBatchInsertRowsData,
   type TablesCreateColumnData,
   type TablesCreateTableData,
@@ -133,7 +132,6 @@ import {
   type TablesGetTableData,
   type TablesImportCsvData,
   type TablesInsertRowData,
-  type TablesListRowsData,
   type TablesListTablesData,
   type TablesUpdateColumnData,
   type TablesUpdateTableData,
@@ -151,7 +149,6 @@ import {
   tablesGetTable,
   tablesImportCsv,
   tablesInsertRow,
-  tablesListRows,
   tablesListTables,
   tablesUpdateColumn,
   tablesUpdateTable,
@@ -213,7 +210,7 @@ export function useAppInfo() {
   } = useQuery<AppInfo, Error>({
     queryKey: ["app-info"],
     queryFn: async () => {
-      const resp = await fetch(getBaseUrl() + "/info")
+      const resp = await fetch(`${getBaseUrl()}/info`)
       try {
         return await resp.json()
       } catch (_error) {
@@ -355,9 +352,14 @@ export function useWorkflowManager(filter?: WorkflowFilter) {
     isLoading: workflowsLoading,
     error: workflowsError,
   } = useQuery<WorkflowReadMinimal[], ApiError>({
-    queryKey: ["workflows", filter?.tag],
-    queryFn: async () =>
-      await workflowsListWorkflows({ workspaceId, tag: filter?.tag }),
+    queryKey: ["workflows", workspaceId, filter?.tag],
+    queryFn: async () => {
+      const response = await workflowsListWorkflows({
+        workspaceId,
+        tag: filter?.tag,
+      })
+      return response.items
+    },
     retry: retryHandler,
   })
 
@@ -1405,7 +1407,7 @@ export function useRegistryRepositories() {
             title: "Forbidden",
             description: "You are not authorized to perform this action",
           })
-        case 422:
+        case 422: {
           const { message } = error.body.detail as RegistryRepositoryErrorDetail
           return toast({
             title: "Repository validation failed",
@@ -1416,6 +1418,7 @@ export function useRegistryRepositories() {
               </div>
             ),
           })
+        }
         default:
           return toast({
             title: "Unexpected error syncing repositories",
@@ -2209,23 +2212,6 @@ export function useDeleteTable() {
   }
 }
 
-export function useListRows({ tableId, workspaceId }: TablesListRowsData) {
-  const {
-    data: rows,
-    isLoading: rowsIsLoading,
-    error: rowsError,
-  } = useQuery<TableRowRead[], TracecatApiError>({
-    queryKey: ["rows", tableId],
-    queryFn: async () => await tablesListRows({ tableId, workspaceId }),
-  })
-
-  return {
-    rows,
-    rowsIsLoading,
-    rowsError,
-  }
-}
-
 export function useInsertColumn() {
   const queryClient = useQueryClient()
   const {
@@ -2412,7 +2398,7 @@ export function useInsertRow() {
         queryKey: ["rows", variables.tableId],
       })
     },
-    onError: (error: TracecatApiError, variables) => {
+    onError: (error: TracecatApiError) => {
       if (error.status === 409) {
         toast({
           title: "Duplicate value error",
@@ -2497,7 +2483,10 @@ export function useListCases({ workspaceId }: CasesListCasesData) {
     error: casesError,
   } = useQuery<CaseReadMinimal[], TracecatApiError>({
     queryKey: ["cases", workspaceId],
-    queryFn: async () => await casesListCases({ workspaceId }),
+    queryFn: async () => {
+      const response = await casesListCases({ workspaceId })
+      return response.items
+    },
   })
 
   return {
@@ -2822,7 +2811,10 @@ export function useGetWorkflows(workspaceId: string) {
     error: workflowsError,
   } = useQuery<WorkflowReadMinimal[], ApiError>({
     queryKey: ["workflows", workspaceId],
-    queryFn: async () => await workflowsListWorkflows({ workspaceId }),
+    queryFn: async () => {
+      const response = await workflowsListWorkflows({ workspaceId })
+      return response.items
+    },
     retry: retryHandler,
   })
 
@@ -3166,6 +3158,7 @@ export function useIntegrationProvider({
     queryKey: ["integration", providerId, workspaceId],
     queryFn: async () =>
       await integrationsGetIntegration({ providerId, workspaceId }),
+    retry: retryHandler,
   })
 
   // Get provider schema

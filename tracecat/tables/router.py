@@ -39,6 +39,7 @@ from tracecat.tables.models import (
 from tracecat.tables.service import TablesService
 from tracecat.types.auth import AccessLevel, Role
 from tracecat.types.exceptions import TracecatImportError, TracecatNotFoundError
+from tracecat.types.pagination import CursorPaginatedResponse, CursorPaginationParams
 
 router = APIRouter(prefix="/tables", tags=["tables"])
 
@@ -308,9 +309,10 @@ async def list_rows(
     role: WorkspaceUser,
     session: AsyncDBSession,
     table_id: TableID,
-    limit: int = Query(default=100, description="Maximum number of rows to return"),
-    offset: int = Query(default=0, description="Number of rows to skip"),
-) -> list[TableRowRead]:
+    limit: int = Query(default=20, ge=1, le=100),
+    cursor: str | None = Query(default=None),
+    reverse: bool = Query(default=False),
+) -> CursorPaginatedResponse[TableRowRead]:
     """Get a row by ID."""
     service = TablesService(session, role=role)
     try:
@@ -320,8 +322,23 @@ async def list_rows(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
         ) from e
-    rows = await service.list_rows(table, limit=limit, offset=offset)
-    return [TableRowRead.model_validate(row) for row in rows]
+
+    params = CursorPaginationParams(
+        limit=limit,
+        cursor=cursor,
+        reverse=reverse,
+    )
+
+    response = await service.list_rows_paginated(table, params)
+
+    # Convert the response items to TableRowRead format
+    return CursorPaginatedResponse(
+        items=[TableRowRead.model_validate(row) for row in response.items],
+        next_cursor=response.next_cursor,
+        prev_cursor=response.prev_cursor,
+        has_more=response.has_more,
+        has_previous=response.has_previous,
+    )
 
 
 @router.get("/{table_id}/rows/{row_id}")

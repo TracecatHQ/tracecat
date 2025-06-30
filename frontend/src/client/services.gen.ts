@@ -731,7 +731,10 @@ export const workspacesDeleteWorkspaceMembership = (
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.tag Filter workflows by tags
- * @returns WorkflowReadMinimal Successful Response
+ * @param data.limit
+ * @param data.cursor
+ * @param data.reverse
+ * @returns CursorPaginatedResponse_WorkflowReadMinimal_ Successful Response
  * @throws ApiError
  */
 export const workflowsListWorkflows = (
@@ -742,6 +745,9 @@ export const workflowsListWorkflows = (
     url: "/workflows",
     query: {
       tag: data.tag,
+      limit: data.limit,
+      cursor: data.cursor,
+      reverse: data.reverse,
       workspace_id: data.workspaceId,
     },
     errors: {
@@ -2938,9 +2944,10 @@ export const tablesDeleteColumn = (
  * @param data The data for the request.
  * @param data.tableId
  * @param data.workspaceId
- * @param data.limit Maximum number of rows to return
- * @param data.offset Number of rows to skip
- * @returns TableRowRead Successful Response
+ * @param data.limit
+ * @param data.cursor
+ * @param data.reverse
+ * @returns CursorPaginatedResponse_TableRowRead_ Successful Response
  * @throws ApiError
  */
 export const tablesListRows = (
@@ -2954,7 +2961,8 @@ export const tablesListRows = (
     },
     query: {
       limit: data.limit,
-      offset: data.offset,
+      cursor: data.cursor,
+      reverse: data.reverse,
       workspace_id: data.workspaceId,
     },
     errors: {
@@ -3116,10 +3124,13 @@ export const tablesImportCsv = (
 
 /**
  * List Cases
- * List all cases.
+ * List cases with cursor-based pagination.
  * @param data The data for the request.
  * @param data.workspaceId
- * @returns CaseReadMinimal Successful Response
+ * @param data.limit Maximum items per page
+ * @param data.cursor Cursor for pagination
+ * @param data.reverse Reverse pagination direction
+ * @returns CursorPaginatedResponse_CaseReadMinimal_ Successful Response
  * @throws ApiError
  */
 export const casesListCases = (
@@ -3129,6 +3140,9 @@ export const casesListCases = (
     method: "GET",
     url: "/cases",
     query: {
+      limit: data.limit,
+      cursor: data.cursor,
+      reverse: data.reverse,
       workspace_id: data.workspaceId,
     },
     errors: {

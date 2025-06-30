@@ -168,5 +168,8 @@ just gen-functions
 ## Code Style Guidelines
 - When writing typescript code, always avoid using nested ternary statements. You probably want to use `if/else` or `switch/case`.
 
+## Frontend Type Generation
+- If you need to add frontend types, you should first try to generate them from the backend using `just gen-client`
+
 ## Database Migrations
 - When running an alembic migration, you should use `export TRACECAT__DB_URI=postgresql+psycopg://postgres:postgres@localhost:5432/postgres` or pass it into the command
