@@ -18,14 +18,22 @@ definition:
       description: Jira tenant URL (e.g. https://tracecat.atlassian.net)
     fields:
       type: str
-      description: "A list of fields to return for each issue, use it to retrieve a subset of fields. This parameter accepts a comma-separated list. Expand options include: *all, *navigable, summary,comment, -description, -comment. The default is *all"
+      description: >
+        A list of fields to return for each issue, use it to retrieve a subset of fields. This parameter accepts a comma-separated list. Expand options include: *all, *navigable, summary,comment, -description, -comment. The default is *all.
+
+        For example, to get the summary and description of an issue, you can use the following:
+        ```
+        fields: "summary,description"
+        ```
       default: "*all"
   steps:
     - ref: get_issue
       action: core.http_request
       args:
-        url: ${{ inputs.base_url }}/rest/api/3/issue/${{ inputs.issue_id_or_key }}?fields=${{ inputs.fields }}
+        url: ${{ inputs.base_url }}/rest/api/3/issue/${{ inputs.issue_id_or_key }}
         method: GET
+        params:
+          fields: ${{ inputs.fields }}
         auth:
           username: ${{ SECRETS.jira.JIRA_USEREMAIL }}
           password: ${{ SECRETS.jira.JIRA_API_TOKEN }}
