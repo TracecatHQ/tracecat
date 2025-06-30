@@ -31,13 +31,8 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
 import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { CollapsibleCard } from "@/components/ui/collapsible-card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useIntegrationProvider } from "@/lib/hooks"
 import { categoryColors } from "@/lib/provider-styles"
@@ -447,45 +442,63 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
                 </CardContent>
               </Card>
 
+              {/* OAuth Redirect URI */}
+              <div className="space-y-3">
+                <h3 className="text-lg font-semibold">OAuth Redirect URI</h3>
+                <div className="text-sm text-muted-foreground">
+                  Use this redirect URI when configuring your OAuth application
+                  in the provider's developer console.
+                </div>
+                <RedirectUriDisplay redirectUri={provider.redirect_uri} />
+              </div>
+
               {/* Setup Steps */}
-              <Card>
-                <CardHeader>
-                  <CardTitle>Setup Guide</CardTitle>
-                  <CardDescription>
-                    Follow these steps to complete the integration
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    {metadata.setup_steps?.map((step, index) => (
-                      <div key={step} className="flex items-start gap-3">
-                        <div
-                          className={`flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-medium ${
-                            isConnected
-                              ? "bg-green-100 text-green-800"
-                              : "bg-gray-100 text-gray-600"
-                          }`}
-                        >
-                          {isConnected ? (
-                            <CheckCircle className="size-3" />
-                          ) : (
-                            index + 1
-                          )}
-                        </div>
-                        <span
-                          className={`text-sm ${
-                            isConnected
-                              ? "text-green-800 line-through"
-                              : "text-gray-700"
-                          }`}
-                        >
-                          {step}
+              <CollapsibleCard
+                title={
+                  <div className="flex items-center gap-2">
+                    Setup Guide
+                    {isConnected && (
+                      <>
+                        <span className="text-sm font-normal text-muted-foreground">
+                          (completed)
                         </span>
-                      </div>
-                    ))}
+                        <CheckCircle className="size-4 text-green-600" />
+                      </>
+                    )}
                   </div>
-                </CardContent>
-              </Card>
+                }
+                description="Follow these steps to complete the integration"
+                defaultOpen={!isConnected}
+              >
+                <div className="space-y-3">
+                  {metadata.setup_steps?.map((step, index) => (
+                    <div key={step} className="flex items-start gap-3">
+                      <div
+                        className={`flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-medium ${
+                          isConnected
+                            ? "bg-green-100 text-green-800"
+                            : "bg-gray-100 text-gray-600"
+                        }`}
+                      >
+                        {isConnected ? (
+                          <CheckCircle className="size-3" />
+                        ) : (
+                          index + 1
+                        )}
+                      </div>
+                      <span
+                        className={`text-sm ${
+                          isConnected
+                            ? "text-green-800 line-through"
+                            : "text-gray-700"
+                        }`}
+                      >
+                        {step}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </CollapsibleCard>
             </div>
 
             {/* Sidebar */}
