@@ -3,11 +3,11 @@
 Currently supports confidential app-only authentication (i.e. `acquire_token_for_client` method)
 """
 
-from typing import Annotated
+from typing import Annotated, Any
 
 import httpx
 from msal import ConfidentialClientApplication
-from pydantic import Field
+from pydantic import Doc
 from tracecat import __version__
 
 from tracecat_registry import RegistrySecret, registry, secrets
@@ -39,21 +39,21 @@ microsoft_graph_secret = RegistrySecret(
 def get_access_token(
     scopes: Annotated[
         list[str] | None,
-        Field(
+        Doc(
             ...,
             description='Microsoft Graph scopes, defaults to ["https://graph.microsoft.com/.default"].',
         ),
     ] = None,
     authority: Annotated[
         str | None,
-        Field(
+        Doc(
             ...,
             description='Microsoft Graph authority, defaults to "https://login.microsoftonline.com/common".',
         ),
     ] = None,
     oidc_authority: Annotated[
         str | None,
-        Field(
+        Doc(
             ...,
             description='Microsoft Graph OIDC authority, defaults to "https://login.microsoftonline.com/common".',
         ),
@@ -100,12 +100,12 @@ MICROSOFT_ACCESS_TOKEN
 )
 async def send_teams_message(
     team_id: Annotated[
-        str, Field(..., description="The ID of the team to send the message to.")
+        str, Doc(..., description="The ID of the team to send the message to.")
     ],
     channel_id: Annotated[
-        str, Field(..., description="The ID of the channel to send the message to.")
+        str, Doc(..., description="The ID of the channel to send the message to.")
     ],
-    message: Annotated[str, Field(..., description="The message to send.")],
+    message: Annotated[str, Doc(..., description="The message to send.")],
 ) -> dict[str, str]:
     token = secrets.get("MICROSOFT_ACCESS_TOKEN")
 
@@ -133,23 +133,23 @@ async def send_teams_message(
 )
 async def create_teams_channel(
     team_id: Annotated[
-        str, Field(..., description="The ID of the team to create the channel in.")
+        str, Doc(..., description="The ID of the team to create the channel in.")
     ],
     display_name: Annotated[
-        str, Field(..., description="The display name for the channel.")
+        str, Doc(..., description="The display name for the channel.")
     ],
     description: Annotated[
-        str | None, Field(None, description="Description for the channel.")
+        str | None, Doc(None, description="Description for the channel.")
     ] = None,
     is_private: Annotated[
         bool,
-        Field(
+        Doc(
             False, description="Whether to create a private channel (requires members)."
         ),
     ] = False,
     owner_user_ids: Annotated[
         list[str] | None,
-        Field(
+        Doc(
             None,
             description="List of user IDs to add as owners (required for private channels).",
         ),
@@ -211,22 +211,22 @@ async def create_teams_channel(
 )
 async def list_channel_messages(
     team_id: Annotated[
-        str, Field(..., description="The ID of the team containing the channel.")
+        str, Doc(..., description="The ID of the team containing the channel.")
     ],
     channel_id: Annotated[
-        str, Field(..., description="The ID of the channel to list messages from.")
+        str, Doc(..., description="The ID of the channel to list messages from.")
     ],
     top: Annotated[
         int | None,
-        Field(
+        Doc(
             None,
             description="Number of messages to return per page (default 20, max 50).",
         ),
     ] = None,
     expand_replies: Annotated[
-        bool, Field(False, description="Whether to expand replies for each message.")
+        bool, Doc(False, description="Whether to expand replies for each message.")
     ] = False,
-) -> dict[str, str]:
+) -> dict[str, Any]:
     """List messages from a Teams channel.
 
     Note: This API requires ChannelMessage.Read.All or ChannelMessage.Read.Group permissions.
@@ -254,14 +254,14 @@ async def list_channel_messages(
 
 @registry.register(
     default_title="Get user ID by email",
-    description="Get a user's ID by searching for their email address in mail or userPrincipalName fields.",
+    description="Get a user's ID by searching for their email address in mail or userPrincipalName Docs.",
     display_group="Microsoft Graph",
     doc_url="https://learn.microsoft.com/en-us/graph/api/user-list?view=graph-rest-beta&tabs=http",
     namespace="tools.microsoft_graph",
     secrets=[microsoft_oauth_secret],
 )
 async def get_user_id_by_email(
-    email: Annotated[str, Field(..., description="The email address to search for.")],
+    email: Annotated[str, Doc(..., description="The email address to search for.")],
 ) -> dict[str, str]:
     """Get a user's ID by email address.
 
@@ -293,12 +293,12 @@ async def get_user_id_by_email(
 )
 async def delete_teams_channel(
     team_id: Annotated[
-        str, Field(..., description="The ID of the team containing the channel.")
+        str, Doc(..., description="The ID of the team containing the channel.")
     ],
     channel_id: Annotated[
-        str, Field(..., description="The ID of the channel to delete.")
+        str, Doc(..., description="The ID of the channel to delete.")
     ],
-) -> dict[str, str]:
+) -> dict[str, Any]:
     """Delete a Teams channel.
 
     Note: This API requires Channel.Delete.All or Channel.Delete.Group permissions.
