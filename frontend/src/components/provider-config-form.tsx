@@ -10,6 +10,7 @@ import { MultiTagCommandInput } from "@/components/tags-input"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
+import { CollapsibleCard } from "@/components/ui/collapsible-card"
 
 import {
   Form,
@@ -197,8 +198,12 @@ export function ProviderConfigForm({
     <div className="space-y-6">
       {/* Current Configuration Summary */}
       {integration && (
-        <div className="rounded-md p-4 bg-muted/50 shadow-sm">
-          <h4 className="text-sm font-medium mb-3">Current configuration</h4>
+        <CollapsibleCard
+          title="Current configuration"
+          description="View your existing integration settings"
+          defaultOpen={false}
+          className="bg-muted/50"
+        >
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
             <div className="space-y-1">
               <span className="font-medium text-muted-foreground">
@@ -264,7 +269,7 @@ export function ProviderConfigForm({
                 </div>
               )}
           </div>
-        </div>
+        </CollapsibleCard>
       )}
 
       <Form {...form}>
