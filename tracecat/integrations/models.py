@@ -37,7 +37,14 @@ class IntegrationRead(BaseModel):
     user_id: UserID | None = None
     token_type: str
     expires_at: datetime | None
-    scope: str | None
+    granted_scopes: list[str] | None = Field(
+        default=None,
+        description="OAuth scopes granted for this integration",
+    )
+    requested_scopes: list[str] | None = Field(
+        default=None,
+        description="OAuth scopes requested by user for this integration",
+    )
     provider_id: str
     provider_config: dict[str, Any]
     created_at: datetime
@@ -120,9 +127,6 @@ class ProviderMetadata(BaseModel):
     setup_instructions: str | None = Field(
         None, description="Setup instructions for the provider"
     )
-    oauth_scopes: list[str] = Field(
-        default_factory=list, description="Default OAuth scopes"
-    )
     requires_config: bool = Field(
         False, description="Whether this provider requires additional configuration"
     )
@@ -148,6 +152,20 @@ class ProviderMetadata(BaseModel):
     setup_guide_url: str | None = Field(default=None, description="URL to setup guide")
     troubleshooting_url: str | None = Field(
         default=None, description="URL to troubleshooting documentation"
+    )
+
+
+class ProviderScopes(BaseModel):
+    """Scope metadata for a provider."""
+
+    default: list[str] = Field(
+        ...,
+        description="Default scopes for this provider. Ultra thin layer",
+    )
+
+    allowed_patterns: list[str] | None = Field(
+        default=None,
+        description="Regex patterns to validate additional scopes for this provider.",
     )
 
 
@@ -202,3 +220,22 @@ class ProviderConfig:
     client_secret: SecretStr
     provider_config: dict[str, Any]
     scopes: list[str] | None = None
+
+
+class ProviderReadMinimal(BaseModel):
+    id: str
+    name: str
+    description: str
+    requires_config: bool
+    categories: list[ProviderCategory]
+    features: list[str]
+    integration_status: IntegrationStatus
+    enabled: bool
+
+
+class ProviderRead(BaseModel):
+    metadata: ProviderMetadata
+    scopes: ProviderScopes
+    schema: ProviderSchema
+    integration_status: IntegrationStatus
+    redirect_uri: str

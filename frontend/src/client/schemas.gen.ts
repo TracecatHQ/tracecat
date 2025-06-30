@@ -3442,16 +3442,35 @@ export const $IntegrationRead = {
       ],
       title: "Expires At",
     },
-    scope: {
+    granted_scopes: {
       anyOf: [
         {
-          type: "string",
+          items: {
+            type: "string",
+          },
+          type: "array",
         },
         {
           type: "null",
         },
       ],
-      title: "Scope",
+      title: "Granted Scopes",
+      description: "OAuth scopes granted for this integration",
+    },
+    requested_scopes: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Requested Scopes",
+      description: "OAuth scopes requested by user for this integration",
     },
     provider_id: {
       type: "string",
@@ -3484,7 +3503,6 @@ export const $IntegrationRead = {
     "id",
     "token_type",
     "expires_at",
-    "scope",
     "provider_id",
     "provider_config",
     "created_at",
@@ -4096,14 +4114,6 @@ export const $ProviderMetadata = {
       title: "Setup Instructions",
       description: "Setup instructions for the provider",
     },
-    oauth_scopes: {
-      items: {
-        type: "string",
-      },
-      type: "array",
-      title: "Oauth Scopes",
-      description: "Default OAuth scopes",
-    },
     requires_config: {
       type: "boolean",
       title: "Requires Config",
@@ -4188,6 +4198,12 @@ export const $ProviderRead = {
     metadata: {
       $ref: "#/components/schemas/ProviderMetadata",
     },
+    scopes: {
+      $ref: "#/components/schemas/ProviderScopes",
+    },
+    schema: {
+      $ref: "#/components/schemas/ProviderSchema",
+    },
     integration_status: {
       $ref: "#/components/schemas/IntegrationStatus",
     },
@@ -4197,8 +4213,62 @@ export const $ProviderRead = {
     },
   },
   type: "object",
-  required: ["metadata", "integration_status", "redirect_uri"],
+  required: ["metadata", "scopes", "integration_status", "redirect_uri"],
   title: "ProviderRead",
+} as const
+
+export const $ProviderReadMinimal = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    description: {
+      type: "string",
+      title: "Description",
+    },
+    requires_config: {
+      type: "boolean",
+      title: "Requires Config",
+    },
+    categories: {
+      items: {
+        $ref: "#/components/schemas/ProviderCategory",
+      },
+      type: "array",
+      title: "Categories",
+    },
+    features: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Features",
+    },
+    integration_status: {
+      $ref: "#/components/schemas/IntegrationStatus",
+    },
+    enabled: {
+      type: "boolean",
+      title: "Enabled",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "name",
+    "description",
+    "requires_config",
+    "categories",
+    "features",
+    "integration_status",
+    "enabled",
+  ],
+  title: "ProviderReadMinimal",
 } as const
 
 export const $ProviderSchema = {
@@ -4212,6 +4282,39 @@ export const $ProviderSchema = {
   required: ["json_schema"],
   title: "ProviderSchema",
   description: "Schema for a provider.",
+} as const
+
+export const $ProviderScopes = {
+  properties: {
+    default: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Default",
+      description: "Default scopes for this provider. Ultra thin layer",
+    },
+    allowed_patterns: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Allowed Patterns",
+      description:
+        "Regex patterns to validate additional scopes for this provider.",
+    },
+  },
+  type: "object",
+  required: ["default"],
+  title: "ProviderScopes",
+  description: "Scope metadata for a provider.",
 } as const
 
 export const $ReceiveInteractionResponse = {

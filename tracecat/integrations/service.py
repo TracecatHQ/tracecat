@@ -9,6 +9,7 @@ from sqlmodel import col, select
 
 from tracecat.db.schemas import OAuthIntegration
 from tracecat.identifiers import UserID
+from tracecat.integrations.base import BaseOAuthProvider
 from tracecat.integrations.models import ProviderConfig
 from tracecat.integrations.providers import ProviderRegistry
 from tracecat.secrets.encryption import decrypt_value, encrypt_value
@@ -170,8 +171,8 @@ class IntegrationService(BaseWorkspaceService):
 
         # Get provider class from registry
         registry = ProviderRegistry.get()
-        provider_class = registry.get_class(integration.provider_id)
-        if not provider_class:
+        provider_impl = registry.get_class(integration.provider_id)
+        if not provider_impl:
             self.logger.warning(
                 "Provider not found in registry",
                 user_id=integration.user_id,
@@ -206,11 +207,12 @@ class IntegrationService(BaseWorkspaceService):
                     client_id=client_id,
                     client_secret=SecretStr(client_secret),
                     provider_config=integration.provider_config,
+                    scopes=self.parse_scopes(integration.requested_scopes),
                 )
-                provider = provider_class.from_config(provider_config)
+                provider = provider_impl.from_config(provider_config)
             else:
                 # Use environment variables (default behavior)
-                provider = provider_class(**integration.provider_config)
+                provider = provider_impl(**integration.provider_config)
         except Exception as e:
             self.logger.error(
                 "Failed to create provider for token refresh",
@@ -362,7 +364,10 @@ class IntegrationService(BaseWorkspaceService):
             return integration
 
     def get_provider_config(
-        self, *, integration: OAuthIntegration
+        self,
+        *,
+        integration: OAuthIntegration,
+        provider_impl: type[BaseOAuthProvider],
     ) -> ProviderConfig | None:
         """Get decrypted client credentials for a provider."""
 
@@ -384,9 +389,8 @@ class IntegrationService(BaseWorkspaceService):
                 client_id=client_id,
                 client_secret=SecretStr(client_secret),
                 provider_config=integration.provider_config,
-                scopes=integration.requested_scopes.split()
-                if integration.requested_scopes
-                else None,
+                scopes=self.parse_scopes(integration.requested_scopes)
+                or provider_impl.scopes.default,
             )
         except Exception as e:
             self.logger.error(
@@ -433,3 +437,7 @@ class IntegrationService(BaseWorkspaceService):
             )
 
         return True
+
+    def parse_scopes(self, scopes: str | None) -> list[str] | None:
+        """Parse a space-separated string of scopes into a list of scopes."""
+        return scopes.split(" ") if scopes else None

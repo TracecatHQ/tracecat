@@ -2,13 +2,13 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, ValidationError
+from pydantic import ValidationError
 
 from tracecat import config
 from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.integrations.base import BaseOAuthProvider
-from tracecat.integrations.dependencies import get_provider
+from tracecat.integrations.dependencies import get_provider_impl
 from tracecat.integrations.enums import IntegrationStatus
 from tracecat.integrations.models import (
     IntegrationOAuthCallback,
@@ -17,7 +17,8 @@ from tracecat.integrations.models import (
     IntegrationReadMinimal,
     IntegrationUpdate,
     OAuthState,
-    ProviderMetadata,
+    ProviderRead,
+    ProviderReadMinimal,
     ProviderSchema,
 )
 from tracecat.integrations.providers import ProviderRegistry
@@ -63,7 +64,7 @@ async def list_integrations(
 async def get_integration(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
-    provider_impl: Annotated[type[BaseOAuthProvider], Depends(get_provider)],
+    provider_impl: Annotated[type[BaseOAuthProvider], Depends(get_provider_impl)],
 ) -> IntegrationRead:
     """Get integration for the specified provider."""
     # Verify provider exists (this will raise 400 if not)
@@ -88,7 +89,10 @@ async def get_integration(
         provider_id=integration.provider_id,
         token_type=integration.token_type,
         expires_at=integration.expires_at,
-        scope=integration.scope,
+        granted_scopes=integration.scope.split(" ") if integration.scope else None,
+        requested_scopes=integration.requested_scopes.split(" ")
+        if integration.requested_scopes
+        else provider_impl.scopes.default,
         provider_config=integration.provider_config,
         created_at=integration.created_at,
         updated_at=integration.updated_at,
@@ -104,7 +108,7 @@ async def connect_provider(
     *,
     role: WorkspaceUserRole,
     session: AsyncDBSession,
-    provider_impl: Annotated[type[BaseOAuthProvider], Depends(get_provider)],
+    provider_impl: Annotated[type[BaseOAuthProvider], Depends(get_provider_impl)],
 ) -> IntegrationOAuthConnect:
     """Initiate OAuth integration for the specified provider."""
 
@@ -122,7 +126,9 @@ async def connect_provider(
         )
 
     # This requires that the provider is configured
-    provider_config = svc.get_provider_config(integration=integration)
+    provider_config = svc.get_provider_config(
+        integration=integration, provider_impl=provider_impl
+    )
     if provider_config is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -142,7 +148,7 @@ async def oauth_callback(
     role: WorkspaceUserRole,
     code: str = Query(..., description="Authorization code from OAuth provider"),
     state: str = Query(..., description="State parameter from authorization request"),
-    provider_impl: Annotated[type[BaseOAuthProvider], Depends(get_provider)],
+    provider_impl: Annotated[type[BaseOAuthProvider], Depends(get_provider_impl)],
 ) -> IntegrationOAuthCallback:
     """Handle OAuth callback for the specified provider."""
     if role.workspace_id is None or role.user_id is None:
@@ -180,7 +186,9 @@ async def oauth_callback(
         )
 
     # This requires that the provider is configured
-    provider_config = svc.get_provider_config(integration=integration)
+    provider_config = svc.get_provider_config(
+        integration=integration, provider_impl=provider_impl
+    )
     if provider_config is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -193,8 +201,7 @@ async def oauth_callback(
     logger.info("OAuth callback")
 
     # Store integration tokens for this user
-    integration_service = IntegrationService(session, role=role)
-    await integration_service.store_integration(
+    await svc.store_integration(
         user_id=role.user_id,
         provider_id=provider.id,
         access_token=token_result.access_token,
@@ -219,7 +226,7 @@ async def disconnect_integration(
     *,
     role: WorkspaceUserRole,
     session: AsyncDBSession,
-    provider_impl: Annotated[type[BaseOAuthProvider], Depends(get_provider)],
+    provider_impl: Annotated[type[BaseOAuthProvider], Depends(get_provider_impl)],
 ) -> None:
     """Disconnect integration for the specified provider."""
     # Verify provider exists (this will raise 400 if not)
@@ -245,7 +252,7 @@ async def update_integration(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
     params: IntegrationUpdate,
-    provider_impl: Annotated[type[BaseOAuthProvider], Depends(get_provider)],
+    provider_impl: Annotated[type[BaseOAuthProvider], Depends(get_provider_impl)],
 ) -> None:
     """Update OAuth client credentials for the specified provider integration."""
     if role.workspace_id is None:
@@ -272,41 +279,53 @@ async def update_integration(
 
 
 # Provider discovery endpoints
-class ProviderRead(BaseModel):
-    metadata: ProviderMetadata  # static
-    integration_status: IntegrationStatus
-    redirect_uri: str
 
 
 @providers_router.get("")
 async def list_providers(
     role: WorkspaceUserRole,
     session: AsyncDBSession,
-) -> list[ProviderRead]:
+) -> list[ProviderReadMinimal]:
     svc = IntegrationService(session, role=role)
     existing = {i.provider_id: i for i in await svc.list_integrations()}
 
-    items: list[ProviderRead] = []
+    items: list[ProviderReadMinimal] = []
     for provider_impl in ProviderRegistry.get().providers:
         integration = existing.get(provider_impl.id)
-        item = ProviderRead(
-            metadata=provider_impl.metadata,
+        metadata = provider_impl.metadata
+        item = ProviderReadMinimal(
+            id=provider_impl.id,
+            name=metadata.name,
+            description=metadata.description,
+            requires_config=metadata.requires_config,
+            categories=metadata.categories,
+            features=metadata.features,
             integration_status=integration.status
             if integration
             else IntegrationStatus.NOT_CONFIGURED,
-            redirect_uri=provider_impl.redirect_uri(),
+            enabled=metadata.enabled,
         )
         items.append(item)
 
     return items
 
 
-@providers_router.get("/{provider_id}/schema")
-async def get_provider_schema(
+@providers_router.get("/{provider_id}")
+async def get_provider(
     role: WorkspaceUserRole,
-    provider_impl: Annotated[type[BaseOAuthProvider], Depends(get_provider)],
-) -> ProviderSchema:
-    """Get JSON Schema for provider-specific configuration."""
+    session: AsyncDBSession,
+    provider_impl: Annotated[type[BaseOAuthProvider], Depends(get_provider_impl)],
+) -> ProviderRead:
+    """Get provider metadata, scopes, and schema."""
+    svc = IntegrationService(session, role=role)
+    integration = await svc.get_integration(provider_id=provider_impl.id)
 
-    schema = provider_impl.schema() or {}
-    return ProviderSchema(json_schema=schema)
+    return ProviderRead(
+        metadata=provider_impl.metadata,
+        scopes=provider_impl.scopes,
+        schema=ProviderSchema(json_schema=provider_impl.schema() or {}),
+        integration_status=integration.status
+        if integration
+        else IntegrationStatus.NOT_CONFIGURED,
+        redirect_uri=provider_impl.redirect_uri(),
+    )

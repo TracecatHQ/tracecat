@@ -115,8 +115,8 @@ import type {
   OrganizationSecretsUpdateOrgSecretByIdResponse,
   OrganizationUpdateOrgMemberData,
   OrganizationUpdateOrgMemberResponse,
-  ProvidersGetProviderSchemaData,
-  ProvidersGetProviderSchemaResponse,
+  ProvidersGetProviderData,
+  ProvidersGetProviderResponse,
   ProvidersListProvidersData,
   ProvidersListProvidersResponse,
   PublicCheckHealthResponse,
@@ -3916,7 +3916,7 @@ export const integrationsOauthCallback = (
  * List Providers
  * @param data The data for the request.
  * @param data.workspaceId
- * @returns ProviderRead Successful Response
+ * @returns ProviderReadMinimal Successful Response
  * @throws ApiError
  */
 export const providersListProviders = (
@@ -3935,20 +3935,20 @@ export const providersListProviders = (
 }
 
 /**
- * Get Provider Schema
- * Get JSON Schema for provider-specific configuration.
+ * Get Provider
+ * Get provider metadata, scopes, and schema.
  * @param data The data for the request.
  * @param data.providerId
  * @param data.workspaceId
- * @returns ProviderSchema Successful Response
+ * @returns ProviderRead Successful Response
  * @throws ApiError
  */
-export const providersGetProviderSchema = (
-  data: ProvidersGetProviderSchemaData
-): CancelablePromise<ProvidersGetProviderSchemaResponse> => {
+export const providersGetProvider = (
+  data: ProvidersGetProviderData
+): CancelablePromise<ProvidersGetProviderResponse> => {
   return __request(OpenAPI, {
     method: "GET",
-    url: "/providers/{provider_id}/schema",
+    url: "/providers/{provider_id}",
     path: {
       provider_id: data.providerId,
     },

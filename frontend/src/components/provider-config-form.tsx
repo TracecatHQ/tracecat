@@ -5,19 +5,12 @@ import type { JSONSchema7 } from "json-schema"
 import { type HTMLInputTypeAttribute, useCallback, useMemo } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
-import type { IntegrationUpdate, ProviderMetadata } from "@/client"
+import type { IntegrationUpdate, ProviderRead } from "@/client"
 import { MultiTagCommandInput } from "@/components/tags-input"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
+
 import {
   Form,
   FormControl,
@@ -39,13 +32,6 @@ import { Textarea } from "@/components/ui/textarea"
 import { useIntegrationProvider } from "@/lib/hooks"
 import { jsonSchemaToZod } from "@/lib/jsonschema"
 import { useWorkspace } from "@/providers/workspace"
-
-interface ProviderConfigFormProps {
-  provider: ProviderMetadata
-  isOpen: boolean
-  onClose: () => void
-  onSuccess?: () => void
-}
 
 function getInputType(schemaProperty: JSONSchema7): HTMLInputTypeAttribute {
   switch (schemaProperty.type) {
@@ -85,114 +71,57 @@ function getDefaultValue(schemaProperty: JSONSchema7): unknown {
 
 const TEXT_AREA_THRESHOLD = 512
 
-export function ProviderConfigForm({
-  provider,
-  isOpen,
-  onClose,
-  onSuccess,
-}: ProviderConfigFormProps) {
-  const { workspaceId } = useWorkspace()
-  const { providerSchema, providerSchemaIsLoading, providerSchemaError } =
-    useIntegrationProvider({
-      providerId: provider.id,
-      workspaceId: workspaceId,
-    })
-  if (providerSchemaIsLoading) {
-    return <ProviderConfigFormSkeleton />
-  }
-  if (providerSchemaError) {
-    return <div>Error: {providerSchemaError.message}</div>
-  }
-  const schema = providerSchema?.json_schema || {}
-
-  return (
-    <ProviderConfigFormContent
-      schema={schema}
-      provider={provider}
-      isOpen={isOpen}
-      onClose={onClose}
-      onSuccess={onSuccess}
-    />
-  )
-}
-
-interface ProviderConfigFormContentProps {
-  schema: JSONSchema7
-  provider: ProviderMetadata
-  isOpen: boolean
-  onClose: () => void
+interface ProviderConfigFormProps {
+  provider: ProviderRead
   onSuccess?: () => void
 }
-export function ProviderConfigFormContent({
-  schema,
+
+export function ProviderConfigForm({
   provider,
-  isOpen,
-  onClose,
   onSuccess,
-}: ProviderConfigFormContentProps) {
+}: ProviderConfigFormProps) {
+  const schema = provider.schema?.json_schema || {}
+  const {
+    metadata: { id },
+    scopes: { default: defaultScopes, allowed_patterns: allowedPatterns },
+  } = provider
   const { workspaceId } = useWorkspace()
   const { updateIntegration, updateIntegrationIsPending } =
-    useIntegrationProvider({ providerId: provider.id, workspaceId })
+    useIntegrationProvider({
+      providerId: id,
+      workspaceId,
+    })
   const properties = Object.entries(schema.properties || {})
   const zodSchema = useMemo(() => jsonSchemaToZod(schema), [schema])
-
-  // Create scope suggestions from default scopes and common provider scopes
-  const scopeSuggestions = useMemo(() => {
-    const defaultScopes = provider.oauth_scopes || []
-    const suggestions = defaultScopes.map((scope) => ({
-      id: scope,
-      label: scope,
-      value: scope,
-      description: `Default scope for ${provider.name}`,
-      group: "Default",
-    }))
-
-    // Add common scopes based on provider
-    const commonScopes: { [key: string]: string[] } = {
-      microsoft: [
-        "https://graph.microsoft.com/Mail.Read",
-        "https://graph.microsoft.com/Mail.Send",
-        "https://graph.microsoft.com/Calendar.Read",
-        "https://graph.microsoft.com/Calendar.ReadWrite",
-        "https://graph.microsoft.com/Files.Read",
-        "https://graph.microsoft.com/Files.ReadWrite",
-      ],
-      google: [
-        "https://www.googleapis.com/auth/gmail.readonly",
-        "https://www.googleapis.com/auth/gmail.modify",
-        "https://www.googleapis.com/auth/calendar.readonly",
-        "https://www.googleapis.com/auth/calendar.events",
-        "https://www.googleapis.com/auth/drive.file",
-        "https://www.googleapis.com/auth/drive.readonly",
-      ],
-      slack: [
-        "channels:read",
-        "channels:write",
-        "chat:write:bot",
-        "files:read",
-        "files:write",
-        "users:read",
-      ],
-    }
-
-    const providerCommonScopes = commonScopes[provider.id] || []
-    const commonSuggestions = providerCommonScopes
-      .filter((scope) => !defaultScopes.includes(scope))
-      .map((scope) => ({
-        id: scope,
-        label: scope,
-        value: scope,
-        description: `Common scope for ${provider.name}`,
-        group: "Common",
-      }))
-
-    return [...suggestions, ...commonSuggestions]
-  }, [provider])
 
   const oauthSchema = z.object({
     client_id: z.string().min(1).max(512),
     client_secret: z.string().min(1).max(512),
-    scopes: z.array(z.string()).optional(),
+    scopes: z
+      .array(z.string())
+      .optional()
+      .refine(
+        (scopes) => {
+          if (!scopes || scopes.length === 0) return true
+          if (!allowedPatterns || allowedPatterns.length === 0) return true
+
+          return scopes.every((scope) =>
+            allowedPatterns.some((pattern) => {
+              try {
+                const regex = new RegExp(pattern)
+                return regex.test(scope)
+              } catch {
+                // If regex is invalid, skip this pattern
+                return false
+              }
+            })
+          )
+        },
+        {
+          message:
+            "One or more scopes don't match the allowed patterns for this provider",
+        }
+      ),
     config: zodSchema,
   })
   type OAuthSchema = z.infer<typeof oauthSchema>
@@ -233,260 +162,186 @@ export function ProviderConfigFormContent({
   )
 
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>Configure {provider.name}</DialogTitle>
-          <DialogDescription>
-            {provider.description ||
-              `Configure ${provider.name} integration settings`}
-          </DialogDescription>
-        </DialogHeader>
+    <Form {...form}>
+      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+        {/* Standard OAuth Configuration */}
+        <div className="space-y-4">
+          <h3 className="text-sm font-medium">OAuth Configuration</h3>
+          <FormField
+            control={form.control}
+            name="client_id"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Client ID</FormLabel>
+                <FormControl>
+                  <Input {...field} />
+                </FormControl>
+                <FormMessage />
+                <FormDescription>
+                  The client ID for the OAuth application.
+                </FormDescription>
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name="client_secret"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Client Secret</FormLabel>
+                <FormControl>
+                  <Input {...field} type="password" />
+                </FormControl>
+                <FormMessage />
+                <FormDescription>
+                  The client secret for the OAuth application.
+                </FormDescription>
+              </FormItem>
+            )}
+          />
 
-        <Form {...form}>
-          <div className="space-y-6">
-            {/* Standard OAuth Configuration */}
-            <div className="space-y-4">
-              <h3 className="text-sm font-medium">OAuth Configuration</h3>
-              <FormField
-                control={form.control}
-                name="client_id"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Client ID</FormLabel>
-                    <FormControl>
-                      <Input {...field} />
-                    </FormControl>
-                    <FormMessage />
-                    <FormDescription>
-                      The client ID for the OAuth application.
-                    </FormDescription>
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="client_secret"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Client Secret</FormLabel>
-                    <FormControl>
-                      <Input {...field} type="password" />
-                    </FormControl>
-                    <FormMessage />
-                    <FormDescription>
-                      The client secret for the OAuth application.
-                    </FormDescription>
-                  </FormItem>
-                )}
-              />
-
-              {/* OAuth Scopes Configuration */}
-              <div className="space-y-4">
-                {/* Show default scopes */}
-                {provider.oauth_scopes && provider.oauth_scopes.length > 0 && (
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground mb-2">
-                      Default Scopes
-                    </p>
-                    <div className="flex flex-wrap gap-1">
-                      {provider.oauth_scopes.map((scope) => (
-                        <Badge
-                          key={scope}
-                          variant="secondary"
-                          className="text-xs"
-                        >
-                          {scope}
-                        </Badge>
-                      ))}
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      These scopes will be used if no custom scopes are
-                      specified.
-                    </p>
-                  </div>
-                )}
-
-                <FormField
-                  control={form.control}
-                  name="scopes"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Custom OAuth Scopes (Optional)</FormLabel>
-                      <FormControl>
-                        <MultiTagCommandInput
-                          value={field.value || []}
-                          onChange={field.onChange}
-                          suggestions={scopeSuggestions}
-                          placeholder="Add custom scopes..."
-                          searchKeys={["value", "label", "description"]}
-                          className="min-h-[42px]"
-                        />
-                      </FormControl>
-                      <FormDescription>
-                        Override default scopes with custom ones. Leave empty to
-                        use defaults. Start typing to see suggestions or enter
-                        any valid scope.
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+          {/* OAuth Scopes Configuration */}
+          <div className="space-y-4">
+            {/* Show default scopes */}
+            {defaultScopes && defaultScopes.length > 0 && (
+              <div>
+                <p className="text-sm font-medium text-muted-foreground mb-2">
+                  Default Scopes
+                </p>
+                <div className="flex flex-wrap gap-1">
+                  {defaultScopes.map((scope) => (
+                    <Badge key={scope} variant="secondary" className="text-xs">
+                      {scope}
+                    </Badge>
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  These scopes will be used if no custom scopes are specified.
+                </p>
               </div>
-            </div>
-            {/* Provider-Specific Configuration Section */}
-            {properties.length > 0 && (
-              <div className="space-y-4">
-                <h3 className="text-sm font-medium">Provider Configuration</h3>
-                <div className="space-y-4">
-                  {properties.map(([key, property]) => {
-                    if (typeof property === "boolean") {
-                      return null
-                    }
-                    const keyName = `config.${key}` as const
-                    const enumOptions = property.enum
-                    if (enumOptions) {
-                      return (
-                        <FormField
-                          key={key}
-                          control={form.control}
-                          name={keyName}
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>
-                                {property.title ||
-                                  key
-                                    .replace(/_/g, " ")
-                                    .replace(/\b\w/g, (l) => l.toUpperCase())}
-                                {property.required && (
-                                  <span className="ml-1 text-red-500">*</span>
-                                )}
-                              </FormLabel>
-                              <FormControl>
-                                <Select
-                                  onValueChange={field.onChange}
-                                  defaultValue={
-                                    field.value ? String(field.value) : ""
-                                  }
-                                >
-                                  <SelectTrigger>
-                                    <SelectValue
-                                      placeholder={`Select ${property.title || key}`}
-                                    />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    {enumOptions.map((option: unknown) => (
-                                      <SelectItem
-                                        key={String(option)}
-                                        value={String(option)}
-                                      >
-                                        {String(option)}
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                              </FormControl>
-                              {property.description && (
-                                <FormDescription>
-                                  {property.description}
-                                </FormDescription>
-                              )}
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                      )
-                    }
+            )}
 
-                    if (property.type === "boolean") {
-                      return (
-                        <FormField
-                          key={key}
-                          control={form.control}
-                          name={keyName}
-                          render={({ field }) => (
-                            <FormItem>
-                              <div className="flex items-center space-x-2">
-                                <FormControl>
-                                  <Checkbox
-                                    id={key}
-                                    checked={Boolean(field.value)}
-                                    onCheckedChange={field.onChange}
-                                  />
-                                </FormControl>
-                                <FormLabel htmlFor={key}>
-                                  {property.title ||
-                                    key
-                                      .replace(/_/g, " ")
-                                      .replace(/\b\w/g, (l) => l.toUpperCase())}
-                                  {property.required && (
-                                    <span className="ml-1 text-red-500">*</span>
-                                  )}
-                                </FormLabel>
-                              </div>
-                              {property.description && (
-                                <FormDescription>
-                                  {property.description}
-                                </FormDescription>
-                              )}
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                      )
-                    }
-
-                    if (
-                      property.type === "string" &&
-                      (property.maxLength === undefined ||
-                        property.maxLength > TEXT_AREA_THRESHOLD)
-                    ) {
-                      return (
-                        <FormField
-                          key={key}
-                          control={form.control}
-                          name={keyName}
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>
-                                {property.title ||
-                                  key
-                                    .replace(/_/g, " ")
-                                    .replace(/\b\w/g, (l) => l.toUpperCase())}
-                                {property.required && (
-                                  <span className="ml-1 text-red-500">*</span>
-                                )}
-                              </FormLabel>
-                              <FormControl>
-                                <Textarea
-                                  {...field}
-                                  placeholder={
-                                    property.description ||
-                                    `Enter ${property.title || key}`
-                                  }
-                                  value={field.value ? String(field.value) : ""}
+            <FormField
+              control={form.control}
+              name="scopes"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Custom OAuth Scopes (Optional)</FormLabel>
+                  <FormControl>
+                    <MultiTagCommandInput
+                      value={field.value || []}
+                      onChange={field.onChange}
+                      placeholder="Add custom scopes..."
+                      searchKeys={["value", "label", "description"]}
+                      className="min-h-[42px]"
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    Override default scopes with custom ones. Leave empty to use
+                    defaults. Start typing to see suggestions or enter any valid
+                    scope.
+                    {allowedPatterns && allowedPatterns.length > 0 && (
+                      <div className="mt-2 p-2 bg-muted rounded text-xs">
+                        <strong>Allowed scope patterns:</strong>
+                        <ul className="mt-1 space-y-1">
+                          {allowedPatterns.map((pattern, index) => (
+                            <li key={index} className="font-mono text-xs">
+                              {pattern}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </div>
+        </div>
+        {/* Provider-Specific Configuration Section */}
+        {properties.length > 0 && (
+          <div className="space-y-4">
+            <h3 className="text-sm font-medium">
+              Provider-specific Configuration
+            </h3>
+            <div className="space-y-4">
+              {properties.map(([key, property]) => {
+                if (typeof property === "boolean") {
+                  return null
+                }
+                const keyName = `config.${key}` as const
+                const enumOptions = property.enum
+                if (enumOptions) {
+                  return (
+                    <FormField
+                      key={key}
+                      control={form.control}
+                      name={keyName}
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>
+                            {property.title ||
+                              key
+                                .replace(/_/g, " ")
+                                .replace(/\b\w/g, (l) => l.toUpperCase())}
+                            {property.required && (
+                              <span className="ml-1 text-red-500">*</span>
+                            )}
+                          </FormLabel>
+                          <FormControl>
+                            <Select
+                              onValueChange={field.onChange}
+                              defaultValue={
+                                field.value ? String(field.value) : ""
+                              }
+                            >
+                              <SelectTrigger>
+                                <SelectValue
+                                  placeholder={`Select ${property.title || key}`}
                                 />
-                              </FormControl>
-                              {property.description && (
-                                <FormDescription>
-                                  {property.description}
-                                </FormDescription>
-                              )}
-                              <FormMessage />
-                            </FormItem>
+                              </SelectTrigger>
+                              <SelectContent>
+                                {enumOptions.map((option: unknown) => (
+                                  <SelectItem
+                                    key={String(option)}
+                                    value={String(option)}
+                                  >
+                                    {String(option)}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </FormControl>
+                          {property.description && (
+                            <FormDescription>
+                              {property.description}
+                            </FormDescription>
                           )}
-                        />
-                      )
-                    }
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  )
+                }
 
-                    return (
-                      <FormField
-                        key={key}
-                        control={form.control}
-                        name={keyName}
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>
+                if (property.type === "boolean") {
+                  return (
+                    <FormField
+                      key={key}
+                      control={form.control}
+                      name={keyName}
+                      render={({ field }) => (
+                        <FormItem>
+                          <div className="flex items-center space-x-2">
+                            <FormControl>
+                              <Checkbox
+                                id={key}
+                                checked={Boolean(field.value)}
+                                onCheckedChange={field.onChange}
+                              />
+                            </FormControl>
+                            <FormLabel htmlFor={key}>
                               {property.title ||
                                 key
                                   .replace(/_/g, " ")
@@ -495,51 +350,112 @@ export function ProviderConfigFormContent({
                                 <span className="ml-1 text-red-500">*</span>
                               )}
                             </FormLabel>
-                            <FormControl>
-                              <Input
-                                {...field}
-                                value={field.value ? String(field.value) : ""}
-                                type={getInputType(property)}
-                                placeholder={
-                                  property.description ||
-                                  `Enter ${property.title || key}`
-                                }
-                              />
-                            </FormControl>
-                            {property.description && (
-                              <FormDescription>
-                                {property.description}
-                              </FormDescription>
-                            )}
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                    )
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
-        </Form>
+                          </div>
+                          {property.description && (
+                            <FormDescription>
+                              {property.description}
+                            </FormDescription>
+                          )}
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  )
+                }
 
-        <DialogFooter>
-          <Button
-            variant="outline"
-            onClick={onClose}
-            disabled={updateIntegrationIsPending}
-          >
-            Cancel
-          </Button>
-          <Button
-            onClick={form.handleSubmit(onSubmit)}
-            disabled={updateIntegrationIsPending}
-          >
+                if (
+                  property.type === "string" &&
+                  (property.maxLength === undefined ||
+                    property.maxLength > TEXT_AREA_THRESHOLD)
+                ) {
+                  return (
+                    <FormField
+                      key={key}
+                      control={form.control}
+                      name={keyName}
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>
+                            {property.title ||
+                              key
+                                .replace(/_/g, " ")
+                                .replace(/\b\w/g, (l) => l.toUpperCase())}
+                            {property.required && (
+                              <span className="ml-1 text-red-500">*</span>
+                            )}
+                          </FormLabel>
+                          <FormControl>
+                            <Textarea
+                              {...field}
+                              placeholder={
+                                property.description ||
+                                `Enter ${property.title || key}`
+                              }
+                              value={field.value ? String(field.value) : ""}
+                            />
+                          </FormControl>
+                          {property.description && (
+                            <FormDescription>
+                              {property.description}
+                            </FormDescription>
+                          )}
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  )
+                }
+
+                return (
+                  <FormField
+                    key={key}
+                    control={form.control}
+                    name={keyName}
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>
+                          {property.title ||
+                            key
+                              .replace(/_/g, " ")
+                              .replace(/\b\w/g, (l) => l.toUpperCase())}
+                          {property.required && (
+                            <span className="ml-1 text-red-500">*</span>
+                          )}
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            {...field}
+                            value={field.value ? String(field.value) : ""}
+                            type={getInputType(property)}
+                            placeholder={
+                              property.description ||
+                              `Enter ${property.title || key}`
+                            }
+                          />
+                        </FormControl>
+                        {property.description && (
+                          <FormDescription>
+                            {property.description}
+                          </FormDescription>
+                        )}
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Submit Button */}
+        <div className="flex justify-end pt-4">
+          <Button type="submit" disabled={updateIntegrationIsPending}>
             {updateIntegrationIsPending ? "Saving..." : "Save Configuration"}
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </div>
+      </form>
+    </Form>
   )
 }
 

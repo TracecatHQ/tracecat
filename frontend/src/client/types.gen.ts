@@ -1067,7 +1067,14 @@ export type IntegrationRead = {
   user_id?: string | null
   token_type: string
   expires_at: string | null
-  scope: string | null
+  /**
+   * OAuth scopes granted for this integration
+   */
+  granted_scopes?: Array<string> | null
+  /**
+   * OAuth scopes requested by user for this integration
+   */
+  requested_scopes?: Array<string> | null
   provider_id: string
   provider_config: {
     [key: string]: unknown
@@ -1287,10 +1294,6 @@ export type ProviderMetadata = {
    */
   setup_instructions?: string | null
   /**
-   * Default OAuth scopes
-   */
-  oauth_scopes?: Array<string>
-  /**
    * Whether this provider requires additional configuration
    */
   requires_config?: boolean
@@ -1326,8 +1329,21 @@ export type ProviderMetadata = {
 
 export type ProviderRead = {
   metadata: ProviderMetadata
+  scopes: ProviderScopes
+  schema?: ProviderSchema
   integration_status: IntegrationStatus
   redirect_uri: string
+}
+
+export type ProviderReadMinimal = {
+  id: string
+  name: string
+  description: string
+  requires_config: boolean
+  categories: Array<ProviderCategory>
+  features: Array<string>
+  integration_status: IntegrationStatus
+  enabled: boolean
 }
 
 /**
@@ -1337,6 +1353,20 @@ export type ProviderSchema = {
   json_schema: {
     [key: string]: unknown
   }
+}
+
+/**
+ * Scope metadata for a provider.
+ */
+export type ProviderScopes = {
+  /**
+   * Default scopes for this provider. Ultra thin layer
+   */
+  default: Array<string>
+  /**
+   * Regex patterns to validate additional scopes for this provider.
+   */
+  allowed_patterns?: Array<string> | null
 }
 
 export type ReceiveInteractionResponse = {
@@ -4097,14 +4127,14 @@ export type ProvidersListProvidersData = {
   workspaceId: string
 }
 
-export type ProvidersListProvidersResponse = Array<ProviderRead>
+export type ProvidersListProvidersResponse = Array<ProviderReadMinimal>
 
-export type ProvidersGetProviderSchemaData = {
+export type ProvidersGetProviderData = {
   providerId: string
   workspaceId: string
 }
 
-export type ProvidersGetProviderSchemaResponse = ProviderSchema
+export type ProvidersGetProviderResponse = ProviderRead
 
 export type UsersUsersCurrentUserResponse = UserRead
 
@@ -6108,7 +6138,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Array<ProviderRead>
+        200: Array<ProviderReadMinimal>
         /**
          * Validation Error
          */
@@ -6116,14 +6146,14 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/providers/{provider_id}/schema": {
+  "/providers/{provider_id}": {
     get: {
-      req: ProvidersGetProviderSchemaData
+      req: ProvidersGetProviderData
       res: {
         /**
          * Successful Response
          */
-        200: ProviderSchema
+        200: ProviderRead
         /**
          * Validation Error
          */
