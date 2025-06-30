@@ -32,8 +32,13 @@ definition:
     - ref: search_issues
       action: core.http_request
       args:
-        url: ${{ inputs.base_url }}/rest/api/3/search/jql?jql=${{ inputs.jql }}&maxResults=${{ inputs.max_results }}&nextPageToken=${{ inputs.next_page }}&fields=${{ inputs.fields }}
+        url: ${{ inputs.base_url }}/rest/api/3/search/jql
         method: GET
+        params:
+          fields: ${{ inputs.fields }}
+          jql: ${{ inputs.jql }}
+          maxResults: ${{ inputs.max_results }}
+          nextPageToken: ${{ inputs.next_page }}
         auth:
           username: ${{ SECRETS.jira.JIRA_USEREMAIL }}
           password: ${{ SECRETS.jira.JIRA_API_TOKEN }}
