@@ -6,7 +6,12 @@ from authlib.integrations.httpx_client import AsyncOAuth2Client
 from pydantic import BaseModel, SecretStr
 
 from tracecat import config
-from tracecat.integrations.models import ProviderConfig, ProviderMetadata, TokenResponse
+from tracecat.integrations.models import (
+    ProviderConfig,
+    ProviderMetadata,
+    ProviderScopes,
+    TokenResponse,
+)
 from tracecat.logger import logger
 
 
@@ -19,8 +24,8 @@ class BaseOAuthProvider:
     _authorization_endpoint: ClassVar[str]
     _token_endpoint: ClassVar[str]
 
-    # Default scopes - to be overridden by subclasses
-    default_scopes: ClassVar[list[str]] = []
+    # Scopes - to be overridden by subclasses
+    scopes: ClassVar[ProviderScopes]
 
     # OAuth2 configuration
     response_type: ClassVar[str] = "code"
@@ -44,10 +49,11 @@ class BaseOAuthProvider:
         Args:
             client_id: Optional client ID to use instead of environment variable
             client_secret: Optional client secret to use instead of environment variable
+            scopes: Optional additional scopes to request
         """
         self.client_id = client_id
         self.client_secret = client_secret
-        self.scopes = scopes or self.default_scopes
+        self.requested_scopes = self.scopes.default + (scopes or [])
 
         # Validate required endpoints
         if not self.authorization_endpoint or not self.token_endpoint:
@@ -60,7 +66,7 @@ class BaseOAuthProvider:
             client_id=self.client_id,
             client_secret=self.client_secret,
             redirect_uri=self.redirect_uri(),
-            scope=" ".join(self.scopes),
+            scope=" ".join(self.requested_scopes),
             response_type=self.response_type,
             grant_type=self.grant_type,
             # Additional OAuth2 parameters can be passed here
@@ -72,7 +78,7 @@ class BaseOAuthProvider:
             f"{self.id} OAuth provider initialized",
             redirect_uri=self.redirect_uri(),
             client_id=self.client_id,
-            scopes=self.scopes,
+            scopes=self.requested_scopes,
         )
 
     @classmethod
@@ -105,6 +111,7 @@ class BaseOAuthProvider:
         return cls(
             client_id=config.client_id,
             client_secret=config.client_secret.get_secret_value(),
+            scopes=config.scopes,
             **validated_config,
         )
 
@@ -156,7 +163,7 @@ class BaseOAuthProvider:
                 if (refresh_token := token.get("refresh_token"))
                 else None,
                 expires_in=token.get("expires_in", 3600),
-                scope=token.get("scope", " ".join(self.scopes)),
+                scope=token.get("scope", " ".join(self.requested_scopes)),
                 token_type=token.get("token_type", "Bearer"),
             )
 
@@ -191,7 +198,7 @@ class BaseOAuthProvider:
                 if (new_refresh_token := token.get("refresh_token"))
                 else SecretStr(refresh_token),  # Fallback to original if not rotated
                 expires_in=token.get("expires_in", 3600),
-                scope=token.get("scope", " ".join(self.scopes)),
+                scope=token.get("scope", " ".join(self.requested_scopes)),
                 token_type=token.get("token_type", "Bearer"),
             )
 

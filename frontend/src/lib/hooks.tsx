@@ -67,8 +67,8 @@ import {
   organizationSecretsUpdateOrgSecretById,
   organizationUpdateOrgMember,
   type ProviderRead,
-  type ProviderSchema,
-  providersGetProviderSchema,
+  type ProviderReadMinimal,
+  providersGetProvider,
   providersListProviders,
   type RegistryActionCreate,
   type RegistryActionRead,
@@ -3125,7 +3125,7 @@ export function useIntegrations(workspaceId: string) {
     data: providers,
     isLoading: providersIsLoading,
     error: providersError,
-  } = useQuery<ProviderRead[], TracecatApiError>({
+  } = useQuery<ProviderReadMinimal[], TracecatApiError>({
     queryKey: ["providers", workspaceId],
     queryFn: async () => await providersListProviders({ workspaceId }),
   })
@@ -3158,18 +3158,17 @@ export function useIntegrationProvider({
     queryKey: ["integration", providerId, workspaceId],
     queryFn: async () =>
       await integrationsGetIntegration({ providerId, workspaceId }),
-    retry: retryHandler,
   })
 
   // Get provider schema
   const {
-    data: providerSchema,
-    isLoading: providerSchemaIsLoading,
-    error: providerSchemaError,
-  } = useQuery<ProviderSchema, TracecatApiError>({
+    data: provider,
+    isLoading: providerIsLoading,
+    error: providerError,
+  } = useQuery<ProviderRead, TracecatApiError>({
     queryKey: ["provider-schema", providerId, workspaceId],
     queryFn: async () =>
-      await providersGetProviderSchema({ providerId, workspaceId }),
+      await providersGetProvider({ providerId, workspaceId }),
   })
 
   // Update
@@ -3190,6 +3189,9 @@ export function useIntegrationProvider({
       })
       queryClient.invalidateQueries({
         queryKey: ["providers", workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["provider-schema", providerId, workspaceId],
       })
     },
     onError: (error: TracecatApiError) => {
@@ -3231,7 +3233,12 @@ export function useIntegrationProvider({
     mutationFn: async (providerId: string) =>
       await integrationsDisconnectIntegration({ providerId, workspaceId }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["integrations"] })
+      queryClient.invalidateQueries({
+        queryKey: ["integration", providerId, workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["providers", workspaceId],
+      })
       toast({
         title: "Disconnected",
         description: "Successfully disconnected from provider",
@@ -3260,8 +3267,8 @@ export function useIntegrationProvider({
     disconnectProvider,
     disconnectProviderIsPending,
     disconnectProviderError,
-    providerSchema,
-    providerSchemaIsLoading,
-    providerSchemaError,
+    provider,
+    providerIsLoading,
+    providerError,
   }
 }

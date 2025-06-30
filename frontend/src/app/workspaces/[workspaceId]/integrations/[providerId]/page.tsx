@@ -6,14 +6,15 @@ import {
   ChevronLeft,
   Database,
   ExternalLink,
+  LayoutListIcon,
   Loader2,
   Settings,
   Shield,
   Zap,
 } from "lucide-react"
 import Link from "next/link"
-import { useParams } from "next/navigation"
-import { useCallback, useMemo, useState } from "react"
+import { useParams, useRouter, useSearchParams } from "next/navigation"
+import { useCallback, useState } from "react"
 import type { IntegrationStatus, ProviderRead } from "@/client"
 import { ProviderIcon } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
@@ -30,14 +31,10 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
 import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
-import { useIntegrationProvider, useIntegrations } from "@/lib/hooks"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { CollapsibleCard } from "@/components/ui/collapsible-card"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { useIntegrationProvider } from "@/lib/hooks"
 import { categoryColors } from "@/lib/provider-styles"
 import { cn } from "@/lib/utils"
 import { useWorkspace } from "@/providers/workspace"
@@ -47,21 +44,19 @@ export default function ProviderDetailPage() {
   const { workspaceId } = useWorkspace()
   const providerId = params.providerId as string
 
-  const { providers, providersIsLoading, providersError } =
-    useIntegrations(workspaceId)
-
-  // Find the provider that matches the current providerId from the URL
-  const provider = useMemo(
-    () => providers?.find((p) => p.metadata.id === providerId),
-    [providers, providerId]
+  const { provider, providerIsLoading, providerError } = useIntegrationProvider(
+    {
+      providerId,
+      workspaceId,
+    }
   )
 
-  if (providersIsLoading) {
+  if (providerIsLoading) {
     return <CenteredSpinner />
   }
 
-  if (providersError) {
-    return <div>Error: {providersError.message}</div>
+  if (providerError) {
+    return <div>Error: {providerError.message}</div>
   }
   if (!provider) {
     return (
@@ -107,13 +102,33 @@ const statusStyles: Record<
   },
 }
 
+type ProviderDetailTab = "overview" | "configuration"
+
 function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
   const { workspaceId } = useWorkspace()
-  const [isConfigDialogOpen, setIsConfigDialogOpen] = useState(false)
+  const router = useRouter()
+  const searchParams = useSearchParams()
   const [errorMessage, setErrorMessage] = useState("")
   const [showConnectPrompt, setShowConnectPrompt] = useState(false)
   const [showSuccessMessage, setShowSuccessMessage] = useState(false)
   const providerId = provider.metadata.id
+
+  // Get active tab from URL query params, default to "overview"
+  const activeTab = (
+    ["overview", "configuration"].includes(searchParams.get("tab") || "")
+      ? searchParams.get("tab")
+      : "overview"
+  ) as ProviderDetailTab
+
+  // Function to handle tab changes and update URL
+  const handleTabChange = useCallback(
+    (tab: string) => {
+      router.push(
+        `/workspaces/${workspaceId}/integrations/${providerId}?tab=${tab}`
+      )
+    },
+    [router, workspaceId, providerId, searchParams]
+  )
 
   // Whether there's a connected integration
   const {
@@ -128,18 +143,15 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
   // Check if actually connected based on backend status
   const isConnected = integrationStatus === "connected"
   const isConfigured = integrationStatus === "configured"
-  // Handlers
-  const openConfigDialog = useCallback(() => {
-    setIsConfigDialogOpen(true)
-  }, [])
 
   const handleConfigSuccess = useCallback(() => {
-    setIsConfigDialogOpen(false)
     // Show connect prompt if configured but not connected
     if (integrationStatus === "configured") {
       setShowConnectPrompt(true)
     }
-  }, [integrationStatus])
+    // Switch back to overview tab after successful configuration
+    handleTabChange("overview")
+  }, [integrationStatus, handleTabChange])
 
   const handleOAuthConnect = useCallback(async () => {
     try {
@@ -166,7 +178,7 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
   const isEnabled = Boolean(metadata.enabled)
 
   return (
-    <div className="container mx-auto max-w-4xl p-6">
+    <div className="container mx-auto max-w-4xl p-6 min-h-screen">
       {/* Breadcrumb */}
       <Breadcrumb className="mb-6">
         <BreadcrumbList>
@@ -209,12 +221,6 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
             </div>
           </div>
         </div>
-        <Link href={`/workspaces/${workspaceId}/integrations`}>
-          <Button variant="outline">
-            <ChevronLeft className="mr-2 size-4" />
-            Back
-          </Button>
-        </Link>
       </div>
 
       {/* Disabled Provider Alert */}
@@ -275,257 +281,345 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
         </Alert>
       )}
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        {/* Main Content */}
-        <div className="space-y-6 lg:col-span-2">
-          {/* Connection Status */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Zap className="size-5" />
-                Connection Status
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {isConnected ? (
-                <div className="space-y-4">
-                  <div className="flex items-center gap-2 text-green-600">
-                    <CheckCircle className="size-5" />
-                    <span className="font-medium">Connected</span>
-                  </div>
-                  {integration && (
-                    <div className="space-y-1 text-sm text-muted-foreground">
-                      <div>Token Type: {integration.token_type}</div>
-                      {integration.expires_at && (
-                        <div>
-                          Expires:{" "}
-                          {new Date(
-                            integration.expires_at
-                          ).toLocaleDateString()}
+      {/* Tabs */}
+      <Tabs
+        value={activeTab}
+        onValueChange={handleTabChange}
+        className="space-y-6"
+      >
+        <TabsList className="h-8 justify-start rounded-none bg-transparent p-0 border-b border-border w-full">
+          <TabsTrigger
+            className="flex h-full min-w-24 items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+            value="overview"
+          >
+            <LayoutListIcon className="mr-2 size-4" />
+            <span>Overview</span>
+          </TabsTrigger>
+          <TabsTrigger
+            className="flex h-full min-w-24 items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+            value="configuration"
+          >
+            <Settings className="mr-2 size-4" />
+            <span>Configuration</span>
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="overview" className="space-y-6">
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+            {/* Main Content */}
+            <div className="space-y-6 lg:col-span-2">
+              {/* Connection Status */}
+              <Card className="border-border">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Zap className="size-5" />
+                    Connection Status
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {isConnected ? (
+                    <div className="space-y-4">
+                      <div className="flex items-center gap-2 text-green-600">
+                        <CheckCircle className="size-5" />
+                        <span className="font-medium">Connected</span>
+                      </div>
+                      {integration && (
+                        <div className="space-y-3 text-sm text-muted-foreground">
+                          <div>Token Type: {integration.token_type}</div>
+                          {integration.expires_at && (
+                            <div>
+                              Expires:{" "}
+                              {new Date(
+                                integration.expires_at
+                              ).toLocaleDateString()}
+                            </div>
+                          )}
+
+                          {/* Scopes Section */}
+                          {integration.granted_scopes && (
+                            <div className="space-y-2">
+                              {integration.granted_scopes &&
+                                integration.granted_scopes.length > 0 && (
+                                  <div>
+                                    <div className="font-medium text-foreground mb-1">
+                                      Granted Scopes:
+                                    </div>
+                                    <div className="flex flex-wrap gap-1">
+                                      {integration.granted_scopes.map(
+                                        (scope) => (
+                                          <Badge
+                                            key={scope}
+                                            variant="outline"
+                                            className="text-xs bg-green-50 text-green-700 border-green-200"
+                                          >
+                                            {scope}
+                                          </Badge>
+                                        )
+                                      )}
+                                    </div>
+                                  </div>
+                                )}
+                            </div>
+                          )}
                         </div>
                       )}
+                      <Button
+                        variant="destructive"
+                        onClick={handleDisconnect}
+                        disabled={!isEnabled || disconnectProviderIsPending}
+                      >
+                        {disconnectProviderIsPending
+                          ? "Disconnecting..."
+                          : "Disconnect"}
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      <div className="text-sm text-muted-foreground">
+                        {isConfigured
+                          ? "This integration is configured but not connected. Complete the OAuth flow to start using it."
+                          : "This integration is not connected to your workspace. Configure it with your client credentials or use OAuth for quick setup."}
+                      </div>
+
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          onClick={() => handleTabChange("configuration")}
+                          className="sm:w-auto"
+                          disabled={!isEnabled}
+                        >
+                          <Settings className="mr-2 size-4" />
+                          {isConfigured
+                            ? "Update Configuration"
+                            : "Configure Integration"}
+                        </Button>
+
+                        {isConfigured && (
+                          <Button
+                            onClick={handleOAuthConnect}
+                            disabled={!isEnabled || connectProviderIsPending}
+                            variant="outline"
+                            className="sm:w-auto"
+                          >
+                            {connectProviderIsPending ? (
+                              <>
+                                <Loader2 className="mr-2 size-4 animate-spin" />
+                                Connecting...
+                              </>
+                            ) : (
+                              <>
+                                <ExternalLink className="mr-2 size-4" />
+                                Connect with OAuth
+                              </>
+                            )}
+                          </Button>
+                        )}
+                      </div>
                     </div>
                   )}
-                  <Button
-                    variant="destructive"
-                    onClick={handleDisconnect}
-                    disabled={!isEnabled || disconnectProviderIsPending}
-                  >
-                    {disconnectProviderIsPending
-                      ? "Disconnecting..."
-                      : "Disconnect"}
-                  </Button>
+                </CardContent>
+              </Card>
+
+              {/* OAuth Redirect URI */}
+              <div className="space-y-3">
+                <h3 className="text-lg font-semibold">OAuth Redirect URI</h3>
+                <div className="text-sm text-muted-foreground">
+                  Use this redirect URI when configuring your OAuth application
+                  in the provider's developer console.
                 </div>
-              ) : (
-                <div className="space-y-4">
-                  <div className="text-sm text-muted-foreground">
-                    {isConfigured
-                      ? "This integration is configured but not connected. Complete the OAuth flow to start using it."
-                      : "This integration is not connected to your workspace. Configure it with your client credentials or use OAuth for quick setup."}
-                  </div>
-
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      onClick={openConfigDialog}
-                      className="sm:w-auto"
-                      disabled={!isEnabled}
-                    >
-                      <Settings className="mr-2 size-4" />
-                      {isConfigured
-                        ? "Update Configuration"
-                        : "Configure Integration"}
-                    </Button>
-
-                    {isConfigured && (
-                      <Button
-                        onClick={handleOAuthConnect}
-                        disabled={!isEnabled || connectProviderIsPending}
-                        variant="outline"
-                        className="sm:w-auto"
-                      >
-                        {connectProviderIsPending ? (
-                          <>
-                            <Loader2 className="mr-2 size-4 animate-spin" />
-                            Connecting...
-                          </>
-                        ) : (
-                          <>
-                            <ExternalLink className="mr-2 size-4" />
-                            Connect with OAuth
-                          </>
-                        )}
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Configuration */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Settings className="size-5" />
-                Configuration Details
-              </CardTitle>
-              <CardDescription>
-                Manage your {metadata.name} integration settings and credentials
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <h4 className="mb-2 text-sm font-medium">OAuth Redirect URI</h4>
                 <RedirectUriDisplay redirectUri={provider.redirect_uri} />
               </div>
-              <Button
-                onClick={openConfigDialog}
-                variant="outline"
-                disabled={!isEnabled}
-              >
-                {isConnected ? "Update Configuration" : "Open Configuration"}
-              </Button>
-            </CardContent>
-          </Card>
 
-          {/* Setup Steps */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Setup Guide</CardTitle>
-              <CardDescription>
-                Follow these steps to complete the integration
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                {metadata.setup_steps?.map((step, index) => (
-                  <div key={index} className="flex items-start gap-3">
-                    <div
-                      className={`flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-medium ${
-                        isConnected
-                          ? "bg-green-100 text-green-800"
-                          : "bg-gray-100 text-gray-600"
-                      }`}
-                    >
-                      {isConnected ? (
-                        <CheckCircle className="size-3" />
-                      ) : (
-                        index + 1
-                      )}
-                    </div>
-                    <span
-                      className={`text-sm ${
-                        isConnected
-                          ? "text-green-800 line-through"
-                          : "text-gray-700"
-                      }`}
-                    >
-                      {step}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Sidebar */}
-        <div className="space-y-6">
-          {/* Features */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Database className="size-5" />
-                Features
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                {metadata.features?.map((feature, index) => (
-                  <div key={index} className="flex items-center gap-2 text-sm">
-                    <CheckCircle className="size-4 shrink-0 text-green-500" />
-                    <span>{feature}</span>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Documentation */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Documentation</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {metadata.api_docs_url && (
-                <Button
-                  variant="outline"
-                  className="w-full justify-start"
-                  asChild
-                >
-                  <a
-                    href={metadata.api_docs_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    <ExternalLink className="mr-2 size-4" />
-                    API Documentation
-                  </a>
-                </Button>
-              )}
-              {metadata.setup_guide_url && (
-                <Button
-                  variant="outline"
-                  className="w-full justify-start"
-                  asChild
-                >
-                  <a
-                    href={metadata.setup_guide_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    <ExternalLink className="mr-2 size-4" />
+              {/* Setup Steps */}
+              <CollapsibleCard
+                title={
+                  <div className="flex items-center gap-2">
                     Setup Guide
-                  </a>
-                </Button>
-              )}
-              {metadata.troubleshooting_url && (
-                <Button
-                  variant="outline"
-                  className="w-full justify-start"
-                  asChild
-                >
-                  <a
-                    href={metadata.troubleshooting_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    <ExternalLink className="mr-2 size-4" />
-                    Troubleshooting
-                  </a>
-                </Button>
-              )}
-              {!metadata.api_docs_url &&
-                !metadata.setup_guide_url &&
-                !metadata.troubleshooting_url && (
-                  <p className="text-sm text-muted-foreground">
-                    No documentation links available for this provider.
-                  </p>
-                )}
-            </CardContent>
-          </Card>
-        </div>
-      </div>
+                    {isConnected && (
+                      <>
+                        <span className="text-sm font-normal text-muted-foreground">
+                          (completed)
+                        </span>
+                        <CheckCircle className="size-4 text-green-600" />
+                      </>
+                    )}
+                  </div>
+                }
+                description="Follow these steps to complete the integration"
+                defaultOpen={!isConnected}
+              >
+                <div className="space-y-3">
+                  {metadata.setup_steps?.map((step, index) => (
+                    <div key={step} className="flex items-start gap-3">
+                      <div
+                        className={`flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-medium ${
+                          isConnected
+                            ? "bg-green-100 text-green-800"
+                            : "bg-gray-100 text-gray-600"
+                        }`}
+                      >
+                        {isConnected ? (
+                          <CheckCircle className="size-3" />
+                        ) : (
+                          index + 1
+                        )}
+                      </div>
+                      <span
+                        className={`text-sm ${
+                          isConnected
+                            ? "text-green-800 line-through"
+                            : "text-gray-700"
+                        }`}
+                      >
+                        {step}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </CollapsibleCard>
+            </div>
 
-      {/* Provider Configuration Form */}
-      {metadata && (
-        <ProviderConfigForm
-          provider={metadata}
-          isOpen={isConfigDialogOpen}
-          onClose={() => setIsConfigDialogOpen(false)}
-          onSuccess={handleConfigSuccess}
-        />
-      )}
+            {/* Sidebar */}
+            <div className="space-y-6">
+              {/* Features */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Database className="size-5" />
+                    Features
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2">
+                    {metadata.features?.map((feature) => (
+                      <div
+                        key={feature}
+                        className="flex items-center gap-2 text-sm"
+                      >
+                        <CheckCircle className="size-4 shrink-0 text-green-500" />
+                        <span>{feature}</span>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Documentation */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Documentation</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {metadata.api_docs_url && (
+                    <Button
+                      variant="outline"
+                      className="w-full justify-start"
+                      asChild
+                    >
+                      <a
+                        href={metadata.api_docs_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        <ExternalLink className="mr-2 size-4" />
+                        API Documentation
+                      </a>
+                    </Button>
+                  )}
+                  {metadata.setup_guide_url && (
+                    <Button
+                      variant="outline"
+                      className="w-full justify-start"
+                      asChild
+                    >
+                      <a
+                        href={metadata.setup_guide_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        <ExternalLink className="mr-2 size-4" />
+                        Setup Guide
+                      </a>
+                    </Button>
+                  )}
+                  {metadata.troubleshooting_url && (
+                    <Button
+                      variant="outline"
+                      className="w-full justify-start"
+                      asChild
+                    >
+                      <a
+                        href={metadata.troubleshooting_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        <ExternalLink className="mr-2 size-4" />
+                        Troubleshooting
+                      </a>
+                    </Button>
+                  )}
+                  {!metadata.api_docs_url &&
+                    !metadata.setup_guide_url &&
+                    !metadata.troubleshooting_url && (
+                      <p className="text-sm text-muted-foreground">
+                        No documentation links available for this provider.
+                      </p>
+                    )}
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="configuration" className="space-y-6">
+          {/* OAuth Redirect URI - Prominently displayed */}
+          <div className="space-y-3">
+            <h3 className="text-lg font-semibold">OAuth Redirect URI</h3>
+            <div className="text-sm text-muted-foreground">
+              Use this redirect URI when configuring your OAuth application in
+              the provider's developer console.
+            </div>
+            <RedirectUriDisplay redirectUri={provider.redirect_uri} />
+          </div>
+
+          {/* Configuration Form */}
+          <div className="space-y-4">
+            <h3 className="text-lg font-semibold flex items-center gap-2">
+              <Settings className="size-5" />
+              Configure {metadata.name}
+            </h3>
+            <p className="text-sm text-muted-foreground">
+              Set up your {metadata.name} integration with OAuth credentials and
+              custom settings
+            </p>
+            <ProviderConfigForm
+              provider={provider}
+              onSuccess={handleConfigSuccess}
+            />
+          </div>
+
+          {/* Quick Actions */}
+          <div className="flex flex-wrap gap-3">
+            {isConfigured && (
+              <Button
+                onClick={handleOAuthConnect}
+                disabled={!isEnabled || connectProviderIsPending}
+              >
+                {connectProviderIsPending ? (
+                  <>
+                    <Loader2 className="mr-2 size-4 animate-spin" />
+                    Connecting...
+                  </>
+                ) : (
+                  <>
+                    <ExternalLink className="mr-2 size-4" />
+                    Connect with OAuth
+                  </>
+                )}
+              </Button>
+            )}
+          </div>
+        </TabsContent>
+      </Tabs>
     </div>
   )
 }

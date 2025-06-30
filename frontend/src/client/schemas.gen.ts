@@ -3414,6 +3414,16 @@ export const $IntegrationRead = {
       format: "uuid4",
       title: "Id",
     },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
     user_id: {
       anyOf: [
         {
@@ -3425,6 +3435,14 @@ export const $IntegrationRead = {
         },
       ],
       title: "User Id",
+    },
+    provider_id: {
+      type: "string",
+      title: "Provider Id",
+    },
+    provider_config: {
+      type: "object",
+      title: "Provider Config",
     },
     token_type: {
       type: "string",
@@ -3442,7 +3460,7 @@ export const $IntegrationRead = {
       ],
       title: "Expires At",
     },
-    scope: {
+    client_id: {
       anyOf: [
         {
           type: "string",
@@ -3451,25 +3469,38 @@ export const $IntegrationRead = {
           type: "null",
         },
       ],
-      title: "Scope",
+      title: "Client Id",
+      description: "OAuth client ID for the provider",
     },
-    provider_id: {
-      type: "string",
-      title: "Provider Id",
+    granted_scopes: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Granted Scopes",
+      description: "OAuth scopes granted for this integration",
     },
-    provider_config: {
-      type: "object",
-      title: "Provider Config",
-    },
-    created_at: {
-      type: "string",
-      format: "date-time",
-      title: "Created At",
-    },
-    updated_at: {
-      type: "string",
-      format: "date-time",
-      title: "Updated At",
+    requested_scopes: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Requested Scopes",
+      description: "OAuth scopes requested by user for this integration",
     },
     status: {
       $ref: "#/components/schemas/IntegrationStatus",
@@ -3482,13 +3513,12 @@ export const $IntegrationRead = {
   type: "object",
   required: [
     "id",
-    "token_type",
-    "expires_at",
-    "scope",
-    "provider_id",
-    "provider_config",
     "created_at",
     "updated_at",
+    "provider_id",
+    "provider_config",
+    "token_type",
+    "expires_at",
     "status",
     "is_expired",
   ],
@@ -3531,27 +3561,62 @@ export const $IntegrationStatus = {
 export const $IntegrationUpdate = {
   properties: {
     client_id: {
-      type: "string",
-      minLength: 1,
+      anyOf: [
+        {
+          type: "string",
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "Client Id",
       description: "OAuth client ID for the provider",
     },
     client_secret: {
-      type: "string",
-      minLength: 1,
-      format: "password",
+      anyOf: [
+        {
+          type: "string",
+          minLength: 1,
+          format: "password",
+          writeOnly: true,
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "Client Secret",
       description: "OAuth client secret for the provider",
-      writeOnly: true,
     },
     provider_config: {
-      type: "object",
+      anyOf: [
+        {
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "Provider Config",
       description: "Provider-specific configuration",
     },
+    scopes: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Scopes",
+      description: "OAuth scopes to request for this integration",
+    },
   },
   type: "object",
-  required: ["client_id", "client_secret", "provider_config"],
   title: "IntegrationUpdate",
   description: "Request model for updating an integration.",
 } as const
@@ -4081,14 +4146,6 @@ export const $ProviderMetadata = {
       title: "Setup Instructions",
       description: "Setup instructions for the provider",
     },
-    oauth_scopes: {
-      items: {
-        type: "string",
-      },
-      type: "array",
-      title: "Oauth Scopes",
-      description: "Default OAuth scopes",
-    },
     requires_config: {
       type: "boolean",
       title: "Requires Config",
@@ -4173,6 +4230,12 @@ export const $ProviderRead = {
     metadata: {
       $ref: "#/components/schemas/ProviderMetadata",
     },
+    scopes: {
+      $ref: "#/components/schemas/ProviderScopes",
+    },
+    schema: {
+      $ref: "#/components/schemas/ProviderSchema",
+    },
     integration_status: {
       $ref: "#/components/schemas/IntegrationStatus",
     },
@@ -4182,8 +4245,62 @@ export const $ProviderRead = {
     },
   },
   type: "object",
-  required: ["metadata", "integration_status", "redirect_uri"],
+  required: ["metadata", "scopes", "integration_status", "redirect_uri"],
   title: "ProviderRead",
+} as const
+
+export const $ProviderReadMinimal = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    description: {
+      type: "string",
+      title: "Description",
+    },
+    requires_config: {
+      type: "boolean",
+      title: "Requires Config",
+    },
+    categories: {
+      items: {
+        $ref: "#/components/schemas/ProviderCategory",
+      },
+      type: "array",
+      title: "Categories",
+    },
+    features: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Features",
+    },
+    integration_status: {
+      $ref: "#/components/schemas/IntegrationStatus",
+    },
+    enabled: {
+      type: "boolean",
+      title: "Enabled",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "name",
+    "description",
+    "requires_config",
+    "categories",
+    "features",
+    "integration_status",
+    "enabled",
+  ],
+  title: "ProviderReadMinimal",
 } as const
 
 export const $ProviderSchema = {
@@ -4197,6 +4314,39 @@ export const $ProviderSchema = {
   required: ["json_schema"],
   title: "ProviderSchema",
   description: "Schema for a provider.",
+} as const
+
+export const $ProviderScopes = {
+  properties: {
+    default: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Default",
+      description: "Default scopes for this provider. Ultra thin layer",
+    },
+    allowed_patterns: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Allowed Patterns",
+      description:
+        "Regex patterns to validate additional scopes for this provider.",
+    },
+  },
+  type: "object",
+  required: ["default"],
+  title: "ProviderScopes",
+  description: "Scope metadata for a provider.",
 } as const
 
 export const $ReceiveInteractionResponse = {

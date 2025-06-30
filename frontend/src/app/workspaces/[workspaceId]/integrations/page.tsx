@@ -67,15 +67,13 @@ export default function IntegrationsPage() {
 
   const filteredProviders = useMemo(() => {
     return providers?.filter((provider) => {
-      const metadata = provider.metadata
+      const { description, name, categories: providerCategories } = provider
       const matchesSearch =
-        metadata.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (metadata.description ?? "")
-          .toLowerCase()
-          .includes(searchQuery.toLowerCase())
+        name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (description ?? "").toLowerCase().includes(searchQuery.toLowerCase())
       const matchesCategory =
         selectedCategory === null ||
-        (metadata.categories && metadata.categories.includes(selectedCategory))
+        (providerCategories && providerCategories.includes(selectedCategory))
       const matchesStatus =
         selectedStatus === null ||
         provider.integration_status === selectedStatus
@@ -86,7 +84,9 @@ export default function IntegrationsPage() {
 
   const handleProviderClick = (providerId: string, enabled: boolean) => {
     if (enabled) {
-      router.push(`/workspaces/${workspaceId}/integrations/${providerId}`)
+      router.push(
+        `/workspaces/${workspaceId}/integrations/${providerId}?tab=overview`
+      )
     }
   }
 
@@ -185,31 +185,33 @@ export default function IntegrationsPage() {
       {/* Integrations Grid */}
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
         {filteredProviders?.map((provider) => {
-          const metadata = provider.metadata
+          const {
+            id,
+            enabled,
+            name,
+            description,
+            categories: providerCategories,
+          } = provider
           const statusInfo = getStatusInfo(provider.integration_status)
-          const isEnabled = metadata.enabled !== false
 
           return (
             <Card
-              key={metadata.id}
+              key={id}
               className={cn(
-                isEnabled
+                !!enabled
                   ? "cursor-pointer transition-colors duration-200 hover:bg-accent/50"
                   : "cursor-not-allowed opacity-50"
               )}
-              onClick={() => handleProviderClick(metadata.id, isEnabled)}
+              onClick={() => handleProviderClick(id, enabled)}
             >
               <CardHeader>
                 <div className="flex items-start justify-between">
                   <div className="flex items-start gap-3">
-                    <ProviderIcon
-                      providerId={metadata.id}
-                      className="size-8 p-1.5"
-                    />
+                    <ProviderIcon providerId={id} className="size-8 p-1.5" />
                     <div>
-                      <CardTitle className="text-lg">{metadata.name}</CardTitle>
+                      <CardTitle className="text-lg">{name}</CardTitle>
                       <div className="mt-1 flex gap-2">
-                        {metadata.categories?.map((category, index) => (
+                        {providerCategories?.map((category, index) => (
                           <Badge
                             key={index}
                             className={cn(
@@ -225,18 +227,18 @@ export default function IntegrationsPage() {
                   </div>
                   <Badge
                     className={cn(
-                      isEnabled
+                      enabled
                         ? statusInfo.className
                         : "bg-orange-100 text-orange-800 hover:bg-orange-200",
                       "whitespace-nowrap"
                     )}
                   >
-                    {isEnabled ? statusInfo.label : "Coming Soon"}
+                    {enabled ? statusInfo.label : "Coming Soon"}
                   </Badge>
                 </div>
                 <CardDescription className="mt-2">
-                  {metadata.description ||
-                    `Connect with ${metadata.name} to enhance your workflows`}
+                  {description ||
+                    `Connect with ${name} to enhance your workflows`}
                 </CardDescription>
               </CardHeader>
             </Card>

@@ -9,6 +9,7 @@ from tracecat.integrations.models import (
     OAuthProviderKwargs,
     ProviderCategory,
     ProviderMetadata,
+    ProviderScopes,
 )
 
 
@@ -37,13 +38,18 @@ class MicrosoftOAuthProvider(BaseOAuthProvider):
     )
 
     # Default Microsoft Graph scopes for Teams integration
-    default_scopes: ClassVar[list[str]] = [
-        "offline_access",  # Required for refresh token
-        "https://graph.microsoft.com/User.Read",
-        "https://graph.microsoft.com/Team.ReadBasic.All",
-        "https://graph.microsoft.com/Channel.ReadBasic.All",
-        "https://graph.microsoft.com/ChannelMessage.Send",
-    ]
+    scopes: ClassVar[ProviderScopes] = ProviderScopes(
+        default=[
+            "offline_access",
+            "https://graph.microsoft.com/User.Read",
+        ],
+        allowed_patterns=[
+            r"^https://graph\.microsoft\.com/[^/]+$",
+            r"^(?!.*\.ReadWrite\.All$).*",  # Prevent read/write all patterns
+            r"^(?!.*\.Read\.All$).*",  # Prevent read all patterns
+            r"^(?!.*\.Write\.All$).*",  # Prevent write all patterns
+        ],
+    )
 
     config_model: ClassVar[type[BaseModel]] = MicrosoftOAuthConfig
 

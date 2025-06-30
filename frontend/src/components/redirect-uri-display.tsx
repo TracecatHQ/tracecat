@@ -20,34 +20,30 @@ export function RedirectUriDisplay({
     try {
       await navigator.clipboard.writeText(redirectUri)
       setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
+      await new Promise((resolve) => setTimeout(resolve, 2000))
     } catch (error) {
       console.error("Failed to copy:", error)
+    } finally {
+      setCopied(false)
     }
   }
 
   return (
     <div className={cn("space-y-2", className)}>
-      <div className="flex items-center gap-2">
-        <div className="flex-1 truncate rounded-md border bg-muted p-2 font-mono text-sm">
-          {redirectUri}
+      <div className="flex items-center h-8 shadow-sm">
+        <div className="h-full flex flex-1 items-center truncate rounded-md border bg-muted p-2 font-mono text-sm rounded-r-none border-r-0">
+          <span className="text-xs text-muted-foreground">{redirectUri}</span>
         </div>
         <Button
           size="sm"
           variant="outline"
           onClick={handleCopy}
-          className="flex items-center gap-2"
+          className="flex items-center gap-2 rounded-l-none h-full shadow-none"
         >
           {copied ? (
-            <>
-              <CheckCircle className="size-3" />
-              Copied
-            </>
+            <CheckCircle className="size-3" />
           ) : (
-            <>
-              <Copy className="size-3" />
-              Copy
-            </>
+            <Copy className="size-3" />
           )}
         </Button>
       </div>
