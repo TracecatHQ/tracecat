@@ -132,7 +132,7 @@ async def connect_provider(
 
     # This requires that the provider is configured
     provider_config = svc.get_provider_config(
-        integration=integration, provider_impl=provider_impl
+        integration=integration, default_scopes=provider_impl.scopes.default
     )
     if provider_config is None:
         raise HTTPException(
@@ -192,7 +192,7 @@ async def oauth_callback(
 
     # This requires that the provider is configured
     provider_config = svc.get_provider_config(
-        integration=integration, provider_impl=provider_impl
+        integration=integration, default_scopes=provider_impl.scopes.default
     )
     if provider_config is None:
         raise HTTPException(

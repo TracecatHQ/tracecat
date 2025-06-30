@@ -9,7 +9,6 @@ from sqlmodel import col, select
 
 from tracecat.db.schemas import OAuthIntegration
 from tracecat.identifiers import UserID
-from tracecat.integrations.base import BaseOAuthProvider
 from tracecat.integrations.models import ProviderConfig
 from tracecat.integrations.providers import ProviderRegistry
 from tracecat.secrets.encryption import decrypt_value, encrypt_value
@@ -382,7 +381,7 @@ class IntegrationService(BaseWorkspaceService):
         self,
         *,
         integration: OAuthIntegration,
-        provider_impl: type[BaseOAuthProvider],
+        default_scopes: list[str] | None = None,
     ) -> ProviderConfig | None:
         """Get decrypted client credentials for a provider."""
 
@@ -405,7 +404,7 @@ class IntegrationService(BaseWorkspaceService):
                 client_secret=SecretStr(client_secret),
                 provider_config=integration.provider_config,
                 scopes=self.parse_scopes(integration.requested_scopes)
-                or provider_impl.scopes.default,
+                or default_scopes,
             )
         except Exception as e:
             self.logger.error(
