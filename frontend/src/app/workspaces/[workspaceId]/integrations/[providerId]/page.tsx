@@ -226,12 +226,6 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
             </div>
           </div>
         </div>
-        <Link href={`/workspaces/${workspaceId}/integrations`}>
-          <Button variant="outline">
-            <ChevronLeft className="mr-2 size-4" />
-            Back
-          </Button>
-        </Link>
       </div>
 
       {/* Disabled Provider Alert */}
@@ -298,7 +292,7 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
         onValueChange={handleTabChange}
         className="space-y-6"
       >
-        <TabsList className="h-8 justify-start rounded-none bg-transparent p-0">
+        <TabsList className="h-8 justify-start rounded-none bg-transparent p-0 border-b border-border w-full">
           <TabsTrigger
             className="flex h-full min-w-24 items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
             value="overview"
@@ -320,14 +314,14 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
             {/* Main Content */}
             <div className="space-y-6 lg:col-span-2">
               {/* Connection Status */}
-              <Card>
+              <Card className="border-border">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     <Zap className="size-5" />
                     Connection Status
                   </CardTitle>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="space-y-4">
                   {isConnected ? (
                     <div className="space-y-4">
                       <div className="flex items-center gap-2 text-green-600">
@@ -587,84 +581,52 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
         </TabsContent>
 
         <TabsContent value="configuration" className="space-y-6">
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-            {/* Configuration Form */}
-            <div className="lg:col-span-2">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Settings className="size-5" />
-                    Configure {metadata.name}
-                  </CardTitle>
-                  <CardDescription>
-                    Set up your {metadata.name} integration with OAuth
-                    credentials and custom settings
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <ProviderConfigForm
-                    provider={provider}
-                    onSuccess={handleConfigSuccess}
-                  />
-                </CardContent>
-              </Card>
+          {/* OAuth Redirect URI - Prominently displayed */}
+          <div className="space-y-3">
+            <h3 className="text-lg font-semibold">OAuth Redirect URI</h3>
+            <div className="text-sm text-muted-foreground">
+              Use this redirect URI when configuring your OAuth application in
+              the provider's developer console.
             </div>
+            <RedirectUriDisplay redirectUri={provider.redirect_uri} />
+          </div>
 
-            {/* Configuration Details Sidebar */}
-            <div className="space-y-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle>OAuth Setup</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div>
-                    <h4 className="mb-2 text-sm font-medium">
-                      OAuth Redirect URI
-                    </h4>
-                    <RedirectUriDisplay redirectUri={provider.redirect_uri} />
-                  </div>
-                  <p className="text-sm text-muted-foreground">
-                    Use this redirect URI when configuring your OAuth
-                    application in the provider's developer console.
-                  </p>
-                </CardContent>
-              </Card>
+          {/* Configuration Form */}
+          <div className="space-y-4">
+            <h3 className="text-lg font-semibold flex items-center gap-2">
+              <Settings className="size-5" />
+              Configure {metadata.name}
+            </h3>
+            <p className="text-sm text-muted-foreground">
+              Set up your {metadata.name} integration with OAuth credentials and
+              custom settings
+            </p>
+            <ProviderConfigForm
+              provider={provider}
+              onSuccess={handleConfigSuccess}
+            />
+          </div>
 
-              {/* Quick Actions */}
-              <Card>
-                <CardHeader>
-                  <CardTitle>Quick Actions</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  {isConfigured && (
-                    <Button
-                      onClick={handleOAuthConnect}
-                      disabled={!isEnabled || connectProviderIsPending}
-                      className="w-full"
-                    >
-                      {connectProviderIsPending ? (
-                        <>
-                          <Loader2 className="mr-2 size-4 animate-spin" />
-                          Connecting...
-                        </>
-                      ) : (
-                        <>
-                          <ExternalLink className="mr-2 size-4" />
-                          Connect with OAuth
-                        </>
-                      )}
-                    </Button>
-                  )}
-                  <Button
-                    variant="outline"
-                    onClick={() => handleTabChange("overview")}
-                    className="w-full"
-                  >
-                    Back to Overview
-                  </Button>
-                </CardContent>
-              </Card>
-            </div>
+          {/* Quick Actions */}
+          <div className="flex flex-wrap gap-3">
+            {isConfigured && (
+              <Button
+                onClick={handleOAuthConnect}
+                disabled={!isEnabled || connectProviderIsPending}
+              >
+                {connectProviderIsPending ? (
+                  <>
+                    <Loader2 className="mr-2 size-4 animate-spin" />
+                    Connecting...
+                  </>
+                ) : (
+                  <>
+                    <ExternalLink className="mr-2 size-4" />
+                    Connect with OAuth
+                  </>
+                )}
+              </Button>
+            )}
           </div>
         </TabsContent>
       </Tabs>

@@ -98,6 +98,11 @@ async def get_integration(
         updated_at=integration.updated_at,
         status=integration.status,
         is_expired=integration.is_expired,
+        client_id=(
+            svc.decrypt_client_credential(integration.encrypted_client_id)
+            if integration.encrypted_client_id
+            else None
+        ),
     )
 
 

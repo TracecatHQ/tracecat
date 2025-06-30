@@ -3414,6 +3414,16 @@ export const $IntegrationRead = {
       format: "uuid4",
       title: "Id",
     },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
     user_id: {
       anyOf: [
         {
@@ -3425,6 +3435,14 @@ export const $IntegrationRead = {
         },
       ],
       title: "User Id",
+    },
+    provider_id: {
+      type: "string",
+      title: "Provider Id",
+    },
+    provider_config: {
+      type: "object",
+      title: "Provider Config",
     },
     token_type: {
       type: "string",
@@ -3441,6 +3459,18 @@ export const $IntegrationRead = {
         },
       ],
       title: "Expires At",
+    },
+    client_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Client Id",
+      description: "OAuth client ID for the provider",
     },
     granted_scopes: {
       anyOf: [
@@ -3472,24 +3502,6 @@ export const $IntegrationRead = {
       title: "Requested Scopes",
       description: "OAuth scopes requested by user for this integration",
     },
-    provider_id: {
-      type: "string",
-      title: "Provider Id",
-    },
-    provider_config: {
-      type: "object",
-      title: "Provider Config",
-    },
-    created_at: {
-      type: "string",
-      format: "date-time",
-      title: "Created At",
-    },
-    updated_at: {
-      type: "string",
-      format: "date-time",
-      title: "Updated At",
-    },
     status: {
       $ref: "#/components/schemas/IntegrationStatus",
     },
@@ -3501,12 +3513,12 @@ export const $IntegrationRead = {
   type: "object",
   required: [
     "id",
-    "token_type",
-    "expires_at",
-    "provider_id",
-    "provider_config",
     "created_at",
     "updated_at",
+    "provider_id",
+    "provider_config",
+    "token_type",
+    "expires_at",
     "status",
     "is_expired",
   ],
@@ -3549,21 +3561,42 @@ export const $IntegrationStatus = {
 export const $IntegrationUpdate = {
   properties: {
     client_id: {
-      type: "string",
-      minLength: 1,
+      anyOf: [
+        {
+          type: "string",
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "Client Id",
       description: "OAuth client ID for the provider",
     },
     client_secret: {
-      type: "string",
-      minLength: 1,
-      format: "password",
+      anyOf: [
+        {
+          type: "string",
+          minLength: 1,
+          format: "password",
+          writeOnly: true,
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "Client Secret",
       description: "OAuth client secret for the provider",
-      writeOnly: true,
     },
     provider_config: {
-      type: "object",
+      anyOf: [
+        {
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "Provider Config",
       description: "Provider-specific configuration",
     },
@@ -3584,7 +3617,6 @@ export const $IntegrationUpdate = {
     },
   },
   type: "object",
-  required: ["client_id", "client_secret", "provider_config"],
   title: "IntegrationUpdate",
   description: "Request model for updating an integration.",
 } as const

@@ -33,10 +33,27 @@ class IntegrationReadMinimal(BaseModel):
 class IntegrationRead(BaseModel):
     """Response model for user integration."""
 
+    # Core identification and timestamps
     id: UUID4
+    created_at: datetime
+    updated_at: datetime
     user_id: UserID | None = None
+
+    # Provider information
+    provider_id: str
+    provider_config: dict[str, Any]
+
+    # OAuth token details
     token_type: str
     expires_at: datetime | None
+
+    # OAuth credentials
+    client_id: str | None = Field(
+        default=None,
+        description="OAuth client ID for the provider",
+    )
+
+    # OAuth scopes
     granted_scopes: list[str] | None = Field(
         default=None,
         description="OAuth scopes granted for this integration",
@@ -45,10 +62,8 @@ class IntegrationRead(BaseModel):
         default=None,
         description="OAuth scopes requested by user for this integration",
     )
-    provider_id: str
-    provider_config: dict[str, Any]
-    created_at: datetime
-    updated_at: datetime
+
+    # Integration state
     status: IntegrationStatus
     is_expired: bool
 
@@ -56,18 +71,18 @@ class IntegrationRead(BaseModel):
 class IntegrationUpdate(BaseModel):
     """Request model for updating an integration."""
 
-    client_id: str = Field(
-        ...,
+    client_id: str | None = Field(
+        default=None,
         description="OAuth client ID for the provider",
         min_length=1,
     )
-    client_secret: SecretStr = Field(
-        ...,
+    client_secret: SecretStr | None = Field(
+        default=None,
         description="OAuth client secret for the provider",
         min_length=1,
     )
-    provider_config: dict[str, Any] = Field(
-        ...,
+    provider_config: dict[str, Any] | None = Field(
+        default=None,
         description="Provider-specific configuration",
     )
     scopes: list[str] | None = Field(
@@ -212,8 +227,7 @@ class TokenResponse:
     token_type: str = "Bearer"
 
 
-@dataclass(slots=True)
-class ProviderConfig:
+class ProviderConfig(BaseModel):
     """Data class for integration client credentials."""
 
     client_id: str

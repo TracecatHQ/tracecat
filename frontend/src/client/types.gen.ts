@@ -1064,9 +1064,19 @@ export type IntegrationOAuthConnect = {
  */
 export type IntegrationRead = {
   id: string
+  created_at: string
+  updated_at: string
   user_id?: string | null
+  provider_id: string
+  provider_config: {
+    [key: string]: unknown
+  }
   token_type: string
   expires_at: string | null
+  /**
+   * OAuth client ID for the provider
+   */
+  client_id?: string | null
   /**
    * OAuth scopes granted for this integration
    */
@@ -1075,12 +1085,6 @@ export type IntegrationRead = {
    * OAuth scopes requested by user for this integration
    */
   requested_scopes?: Array<string> | null
-  provider_id: string
-  provider_config: {
-    [key: string]: unknown
-  }
-  created_at: string
-  updated_at: string
   status: IntegrationStatus
   is_expired: boolean
 }
@@ -1107,17 +1111,17 @@ export type IntegrationUpdate = {
   /**
    * OAuth client ID for the provider
    */
-  client_id: string
+  client_id?: string | null
   /**
    * OAuth client secret for the provider
    */
-  client_secret: string
+  client_secret?: string | null
   /**
    * Provider-specific configuration
    */
-  provider_config: {
+  provider_config?: {
     [key: string]: unknown
-  }
+  } | null
   /**
    * OAuth scopes to request for this integration
    */

@@ -70,6 +70,14 @@ export interface MultiTagCommandInputProps {
   disabled?: boolean
   maxTags?: number
   searchKeys: (keyof Suggestion)[]
+  /**
+   * Allow users to add custom tags by pressing Enter, even if not in suggestions
+   */
+  allowCustomTags?: boolean
+  /**
+   * Disable the suggestions dropdown and arrow indicator
+   */
+  disableSuggestions?: boolean
 }
 
 export function MultiTagCommandInput({
@@ -81,6 +89,8 @@ export function MultiTagCommandInput({
   disabled = false,
   maxTags,
   searchKeys,
+  allowCustomTags = false,
+  disableSuggestions = false,
 }: MultiTagCommandInputProps) {
   const [open, setOpen] = useState(false)
   const [inputValue, setInputValue] = useState("")
@@ -151,10 +161,35 @@ export function MultiTagCommandInput({
     setHighlightedIndex(-1) // Reset highlight when typing
   }
 
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      // Always prevent default form submission when Enter is pressed
+      e.preventDefault()
+      e.stopPropagation()
+
+      if (allowCustomTags && inputValue.trim()) {
+        // Don't add if it already exists or if we've hit the max
+        if (
+          valueSet.has(inputValue.trim()) ||
+          (maxTags && value.length >= maxTags)
+        ) {
+          return
+        }
+
+        const newValue = [...value, inputValue.trim()]
+        onChange?.(newValue)
+        setInputValue("")
+        setHighlightedIndex(-1)
+      }
+    }
+  }
+
   const handleFocus = () => {
-    setOpen(true) // Always show when focused
-    // Set to first item if there are suggestions, otherwise -1
-    setHighlightedIndex(filteredSuggestions.length > 0 ? 0 : -1)
+    if (!disableSuggestions) {
+      setOpen(true) // Only show dropdown when suggestions are enabled
+      // Set to first item if there are suggestions, otherwise -1
+      setHighlightedIndex(filteredSuggestions.length > 0 ? 0 : -1)
+    }
   }
 
   const handleBlur = () => {
@@ -203,6 +238,7 @@ export function MultiTagCommandInput({
               type="text"
               value={inputValue}
               onChange={(e) => handleInputChange(e.target.value)}
+              onKeyDown={handleKeyDown}
               onFocus={handleFocus}
               onBlur={handleBlur}
               disabled={disabled}
