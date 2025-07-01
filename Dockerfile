@@ -64,8 +64,9 @@ RUN uv pip install .
 RUN uv pip install ./registry
 
 # Ensure uv binary is available where Ray expects it
-RUN mkdir -p /root/.local/bin && \
-    ln -s $(which uv) /root/.local/bin/uv
+RUN mkdir -p /home/apiuser/.local/bin && \
+    ln -s $(which uv) /home/apiuser/.local/bin/uv && \
+    chown -R apiuser:apiuser /home/apiuser/.local/bin
 
 # Fix ownership of all apiuser directories after root operations
 # This ensures apiuser can access all necessary files and directories
