@@ -6,6 +6,7 @@ from authlib.integrations.httpx_client import AsyncOAuth2Client
 from pydantic import BaseModel, SecretStr
 
 from tracecat import config
+from tracecat.integrations.enums import OAuthGrantType
 from tracecat.integrations.models import (
     ProviderConfig,
     ProviderMetadata,
@@ -29,7 +30,7 @@ class BaseOAuthProvider:
 
     # OAuth2 configuration
     response_type: ClassVar[str] = "code"
-    grant_type: ClassVar[str] = "authorization_code"
+    grant_type: ClassVar[OAuthGrantType] = OAuthGrantType.AUTHORIZATION_CODE
     
     # Client credentials support
     supports_client_credentials: ClassVar[bool] = False

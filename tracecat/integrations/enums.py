@@ -10,3 +10,10 @@ class IntegrationStatus(StrEnum):
     """The integration is configured but not connected."""
     CONNECTED = "connected"
     """The integration is connected."""
+
+
+class OAuthGrantType(StrEnum):
+    """Type of OAuth flow."""
+
+    AUTHORIZATION_CODE = "authorization_code"
+    CLIENT_CREDENTIALS = "client_credentials"
