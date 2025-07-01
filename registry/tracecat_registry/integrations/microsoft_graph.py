@@ -5,8 +5,9 @@ Currently supports confidential app-only authentication (i.e. `acquire_token_for
 
 from typing import Annotated
 
+from typing_extensions import Doc
+
 from msal import ConfidentialClientApplication
-from pydantic import Doc
 from tracecat import __version__
 
 from tracecat_registry import RegistrySecret, registry, secrets
