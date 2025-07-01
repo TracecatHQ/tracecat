@@ -3158,6 +3158,7 @@ export function useIntegrationProvider({
     queryKey: ["integration", providerId, workspaceId],
     queryFn: async () =>
       await integrationsGetIntegration({ providerId, workspaceId }),
+    retry: retryHandler,
   })
 
   // Get provider schema
