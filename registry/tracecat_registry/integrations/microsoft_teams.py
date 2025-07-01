@@ -1,9 +1,9 @@
 import json
 import uuid
 from typing import Annotated, Any, Literal
+from typing_extensions import Doc
 
 import httpx
-from pydantic import Doc
 
 from tracecat_registry import RegistrySecret, registry, secrets
 
