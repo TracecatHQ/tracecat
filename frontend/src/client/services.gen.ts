@@ -4280,6 +4280,58 @@ export const authOauthGoogleDatabaseCallback = (
 }
 
 /**
+ * Oidc:Database.Authorize
+ * @param data The data for the request.
+ * @param data.scopes
+ * @returns OAuth2AuthorizeResponse Successful Response
+ * @throws ApiError
+ */
+export const authOidcDatabaseAuthorize = (
+  data: AuthOidcDatabaseAuthorizeData = {}
+): CancelablePromise<AuthOidcDatabaseAuthorizeResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/auth/oidc/authorize",
+    query: {
+      scopes: data.scopes,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Oidc:Database.Callback
+ * The response varies based on the authentication backend used.
+ * @param data The data for the request.
+ * @param data.code
+ * @param data.codeVerifier
+ * @param data.state
+ * @param data.error
+ * @returns unknown Successful Response
+ * @throws ApiError
+ */
+export const authOidcDatabaseCallback = (
+  data: AuthOidcDatabaseCallbackData = {}
+): CancelablePromise<AuthOidcDatabaseCallbackResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/auth/oidc/callback",
+    query: {
+      code: data.code,
+      code_verifier: data.codeVerifier,
+      state: data.state,
+      error: data.error,
+    },
+    errors: {
+      400: "Bad Request",
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * Saml:Database.Login
  * Initiate SAML login flow
  * @returns SAMLDatabaseLoginResponse Successful Response

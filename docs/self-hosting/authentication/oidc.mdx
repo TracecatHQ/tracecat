@@ -1,0 +1,30 @@
+---
+title: OpenID Connect
+description: Learn how to authenticate into Tracecat using a generic OpenID Connect provider.
+icon: log-in
+---
+
+## Configuration
+
+In your `.env` file, make sure you have the following values set.
+
+```bash
+TRACECAT__AUTH_TYPES=oidc
+OIDC_CLIENT_ID=<your-client-id>
+OIDC_CLIENT_SECRET=<your-client-secret>
+OIDC_DISCOVERY_URL=<your-provider-discovery-url>
+```
+
+Optional environment variable to customize the sign in button label:
+
+```bash
+NEXT_PUBLIC_OIDC_BUTTON_LABEL=OpenID Connect
+```
+
+## Instructions
+
+1. Configure an OpenID Connect application in your identity provider.
+2. Set the environment variables above with the client credentials and discovery URL.
+3. Restart Tracecat to apply the changes.
+
+The login page will display an **OpenID Connect** button when `oidc` is listed in `TRACECAT__AUTH_TYPES`.

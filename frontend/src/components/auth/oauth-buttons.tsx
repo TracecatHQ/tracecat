@@ -1,7 +1,10 @@
 "use client"
 
 import { type ComponentPropsWithoutRef, useState } from "react"
-import { authOauthGoogleDatabaseAuthorize } from "@/client"
+import {
+  authOauthGoogleDatabaseAuthorize,
+  authOidcDatabaseAuthorize,
+} from "@/client"
 import { Icons } from "@/components/icons"
 import { Button } from "@/components/ui/button"
 
@@ -57,6 +60,35 @@ export function GoogleOAuthButton(props: OAuthButtonProps) {
         <Icons.google className="mr-2 size-4" />
       )}{" "}
       Google
+    </Button>
+  )
+}
+
+export function OidcOAuthButton(props: OAuthButtonProps) {
+  const [isLoading, setIsLoading] = useState<boolean>(false)
+  const label =
+    process.env.NEXT_PUBLIC_OIDC_BUTTON_LABEL || "OpenID Connect"
+  const handleClick = async () => {
+    try {
+      setIsLoading(true)
+      const { authorization_url } = await authOidcDatabaseAuthorize({
+        scopes: ["openid", "email", "profile"],
+      })
+      window.location.href = authorization_url
+    } catch (error) {
+      console.error("Error authorizing with OIDC", error)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+  return (
+    <Button {...props} variant="outline" onClick={handleClick} disabled={isLoading}>
+      {isLoading ? (
+        <Icons.spinner className="mr-2 size-4 animate-spin" />
+      ) : (
+        <Icons.openid className="mr-2 size-4" />
+      )}{" "}
+      {label}
     </Button>
   )
 }
