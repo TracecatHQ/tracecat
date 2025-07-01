@@ -180,7 +180,7 @@ async def list_channel_messages(
     secrets=[microsoft_teams_oauth_secret],
 )
 async def get_user_id_by_email(
-    email: Annotated[str, Doc(..., description="The email address to search for.")],
+    email: Annotated[str, Doc("The email address to search for.")],
 ) -> dict[str, str]:
     """Get a user's ID by email address.
 
