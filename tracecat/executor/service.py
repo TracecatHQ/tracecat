@@ -367,6 +367,10 @@ async def run_action_on_ray_cluster(
     """
     # Initialize runtime environment variables
     env_vars = {"GIT_SSH_COMMAND": ctx.ssh_command} if ctx.ssh_command else {}
+    # Override UV_SYSTEM_PYTHON to allow uv to respect Ray's virtual environment
+    # The global UV_SYSTEM_PYTHON=1 in Dockerfile forces system Python usage,
+    # but Ray creates its own virtual environment and expects uv to use it
+    env_vars["UV_SYSTEM_PYTHON"] = "false"
     additional_vars: dict[str, Any] = {}
 
     # Add git URL to pip dependencies if SHA is present
@@ -399,9 +403,9 @@ async def run_action_on_ray_cluster(
         )
         pip_deps.extend([local_repo_path, *required_deps])
 
-    # Add pip dependencies to runtime env
+    # Add pip dependencies to runtime env using uv
     if pip_deps:
-        additional_vars["pip"] = pip_deps
+        additional_vars["uv"] = pip_deps
 
     runtime_env = RuntimeEnv(env_vars=env_vars, **additional_vars)
 
