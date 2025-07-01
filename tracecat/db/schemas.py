@@ -994,7 +994,9 @@ class OAuthIntegration(SQLModel, TimestampMixin, table=True):
         UniqueConstraint(
             "owner_id",
             "provider_id",
-            name="uq_oauth_integration_owner_provider",
+            "user_id",
+            "oauth_flow_type",
+            name="uq_oauth_integration_owner_provider_user_flow",
         ),
     )
 
@@ -1058,6 +1060,10 @@ class OAuthIntegration(SQLModel, TimestampMixin, table=True):
     requested_scopes: str | None = Field(
         default=None,
         description="OAuth scopes requested by user for this integration",
+    )
+    oauth_flow_type: str = Field(
+        default="authorization_code",
+        description="OAuth flow type used for this integration (authorization_code or client_credentials)",
     )
     provider_config: dict[str, Any] = Field(
         default_factory=dict,
