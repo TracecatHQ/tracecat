@@ -27,13 +27,9 @@ MICROSOFT_TEAMS_ACCESS_TOKEN
     secrets=[microsoft_teams_oauth_secret],
 )
 async def send_teams_message(
-    team_id: Annotated[
-        str, Doc(..., description="The ID of the team to send the message to.")
-    ],
-    channel_id: Annotated[
-        str, Doc(..., description="The ID of the channel to send the message to.")
-    ],
-    message: Annotated[str, Doc(..., description="The message to send.")],
+    team_id: Annotated[str, Doc("The ID of the team to send the message to.")],
+    channel_id: Annotated[str, Doc("The ID of the channel to send the message to.")],
+    message: Annotated[str, Doc("The message to send.")],
 ) -> dict[str, str]:
     token = secrets.get("MICROSOFT_TEAMS_ACCESS_TOKEN")
 
@@ -60,27 +56,22 @@ async def send_teams_message(
     secrets=[microsoft_teams_oauth_secret],
 )
 async def create_teams_channel(
-    team_id: Annotated[
-        str, Doc(..., description="The ID of the team to create the channel in.")
-    ],
+    team_id: Annotated[str, Doc("The ID of the team to create the channel in.")],
     display_name: Annotated[
-        str, Doc(..., description="The display name for the channel.")
+        str,
+        Doc("The display name for the channel."),
     ],
     description: Annotated[
-        str | None, Doc(None, description="Description for the channel.")
+        str | None,
+        Doc("Description for the channel."),
     ] = None,
     is_private: Annotated[
         bool,
-        Doc(
-            False, description="Whether to create a private channel (requires members)."
-        ),
+        Doc("Whether to create a private channel (requires members)."),
     ] = False,
     owner_user_ids: Annotated[
         list[str] | None,
-        Doc(
-            None,
-            description="List of user IDs to add as owners (required for private channels).",
-        ),
+        Doc("List of user IDs to add as owners (required for private channels)."),
     ] = None,
 ) -> dict[str, str]:
     """Create a Teams channel.
@@ -139,20 +130,20 @@ async def create_teams_channel(
 )
 async def list_channel_messages(
     team_id: Annotated[
-        str, Doc(..., description="The ID of the team containing the channel.")
+        str,
+        Doc("The ID of the team containing the channel."),
     ],
     channel_id: Annotated[
-        str, Doc(..., description="The ID of the channel to list messages from.")
+        str,
+        Doc("The ID of the channel to list messages from."),
     ],
     top: Annotated[
         int | None,
-        Doc(
-            None,
-            description="Number of messages to return per page (default 20, max 50).",
-        ),
+        Doc("Number of messages to return per page (default 20, max 50)."),
     ] = None,
     expand_replies: Annotated[
-        bool, Doc(False, description="Whether to expand replies for each message.")
+        bool,
+        Doc("Whether to expand replies for each message."),
     ] = False,
 ) -> dict[str, str]:
     """List messages from a Teams channel.
@@ -221,10 +212,12 @@ async def get_user_id_by_email(
 )
 async def delete_teams_channel(
     team_id: Annotated[
-        str, Doc(..., description="The ID of the team containing the channel.")
+        str,
+        Doc("The ID of the team containing the channel."),
     ],
     channel_id: Annotated[
-        str, Doc(..., description="The ID of the channel to delete.")
+        str,
+        Doc("The ID of the channel to delete."),
     ],
 ) -> dict[str, str]:
     """Delete a Teams channel.
@@ -261,19 +254,17 @@ def format_fact_set(
     facts: Annotated[
         list[dict[str, str]],
         Doc(
-            ...,
-            description=(
-                "List of JSONs with `title` and `value` keys."
-                " E.g. `[{'title': 'Status', 'value': 'Critical'}, {'title': 'Priority', 'value': 'High'}]`."
-            ),
+            "List of JSONs with `title` and `value` keys."
+            " E.g. `[{'title': 'Status', 'value': 'Critical'}, {'title': 'Priority', 'value': 'High'}]`."
         ),
     ],
     spacing: Annotated[
         Literal["None", "Small", "Default", "Medium", "Large", "ExtraLarge"] | None,
-        Doc(None, description="Spacing above the fact set."),
+        Doc("Spacing above the fact set."),
     ] = None,
     separator: Annotated[
-        bool, Doc(False, description="Whether to show a separator line above.")
+        bool,
+        Doc("Whether to show a separator line above."),
     ] = False,
 ) -> dict[str, Any]:
     """Create an Adaptive Card FactSet element."""
@@ -298,30 +289,32 @@ def format_fact_set(
     namespace="tools.microsoft_teams",
 )
 def format_text_block(
-    text: Annotated[str, Doc(..., description="The text content.")],
+    text: Annotated[str, Doc("The text content.")],
     size: Annotated[
         Literal["Small", "Default", "Medium", "Large", "ExtraLarge"] | None,
-        Doc(None, description="Text size."),
+        Doc("Text size."),
     ] = None,
     weight: Annotated[
         Literal["Lighter", "Default", "Bolder"] | None,
-        Doc(None, description="Text weight."),
+        Doc("Text weight."),
     ] = None,
     color: Annotated[
         Literal["Default", "Dark", "Light", "Accent", "Good", "Warning", "Attention"]
         | None,
-        Doc(None, description="Text color."),
+        Doc("Text color."),
     ] = None,
     is_subtle: Annotated[
-        bool | None, Doc(None, description="Whether text is subtle.")
+        bool | None,
+        Doc("Whether text is subtle."),
     ] = None,
-    wrap: Annotated[bool, Doc(True, description="Whether text should wrap.")] = True,
+    wrap: Annotated[bool, Doc("Whether text should wrap.")] = True,
     spacing: Annotated[
         Literal["None", "Small", "Default", "Medium", "Large", "ExtraLarge"] | None,
-        Doc(None, description="Spacing above the text block."),
+        Doc("Spacing above the text block."),
     ] = None,
     separator: Annotated[
-        bool, Doc(False, description="Whether to show a separator line above.")
+        bool,
+        Doc("Whether to show a separator line above."),
     ] = False,
 ) -> dict[str, Any]:
     """Create an Adaptive Card TextBlock element."""
@@ -358,20 +351,18 @@ def format_action_set(
     actions: Annotated[
         list[dict[str, Any]],
         Doc(
-            ...,
-            description=(
-                "List of action objects. Each action should have 'type' and 'title' keys."
-                " For messageBack: `{'type': 'messageBack', 'title': 'Click me', 'text': 'clicked', 'value': 'data'}`"
-                " For openUrl: `{'type': 'openUrl', 'title': 'Open', 'url': 'https://example.com'}`"
-            ),
+            "List of action objects. Each action should have 'type' and 'title' keys."
+            " For messageBack: `{'type': 'messageBack', 'title': 'Click me', 'text': 'clicked', 'value': 'data'}`"
+            " For openUrl: `{'type': 'openUrl', 'title': 'Open', 'url': 'https://example.com'}`"
         ),
     ],
     spacing: Annotated[
         Literal["None", "Small", "Default", "Medium", "Large", "ExtraLarge"] | None,
-        Doc(None, description="Spacing above the action set."),
+        Doc("Spacing above the action set."),
     ] = None,
     separator: Annotated[
-        bool, Doc(False, description="Whether to show a separator line above.")
+        bool,
+        Doc("Whether to show a separator line above."),
     ] = False,
 ) -> dict[str, Any]:
     """Create an Adaptive Card ActionSet element."""
@@ -423,35 +414,37 @@ def format_choice_set(
     choices: Annotated[
         list[dict[str, str]],
         Doc(
-            ...,
-            description=(
-                "List of choice objects with 'title' and 'value' keys."
-                " E.g. `[{'title': 'Option 1', 'value': 'opt1'}, {'title': 'Option 2', 'value': 'opt2'}]`"
-            ),
+            "List of choice objects with 'title' and 'value' keys."
+            " E.g. `[{'title': 'Option 1', 'value': 'opt1'}, {'title': 'Option 2', 'value': 'opt2'}]`"
         ),
     ],
     label: Annotated[
-        str | None, Doc(None, description="Label for the choice set.")
+        str | None,
+        Doc("Label for the choice set."),
     ] = None,
     placeholder: Annotated[
-        str | None, Doc(None, description="Placeholder text.")
+        str | None,
+        Doc("Placeholder text."),
     ] = None,
     value: Annotated[
-        str | None, Doc(None, description="Default selected value.")
+        str | None,
+        Doc("Default selected value."),
     ] = None,
     is_multi_select: Annotated[
-        bool, Doc(False, description="Whether multiple choices can be selected.")
+        bool,
+        Doc("Whether multiple choices can be selected."),
     ] = False,
     style: Annotated[
         Literal["compact", "expanded"] | None,
-        Doc(None, description="Presentation style for the choices."),
+        Doc("Presentation style for the choices."),
     ] = None,
     spacing: Annotated[
         Literal["None", "Small", "Default", "Medium", "Large", "ExtraLarge"] | None,
-        Doc(None, description="Spacing above the choice set."),
+        Doc("Spacing above the choice set."),
     ] = None,
     separator: Annotated[
-        bool, Doc(False, description="Whether to show a separator line above.")
+        bool,
+        Doc("Whether to show a separator line above."),
     ] = False,
 ) -> dict[str, Any]:
     """Create an Adaptive Card Input.ChoiceSet element."""
@@ -490,29 +483,28 @@ def format_choice_set(
 )
 async def send_teams_buttons(
     team_id: Annotated[
-        str, Doc(..., description="The ID of the team to send the message to.")
+        str,
+        Doc("The ID of the team to send the message to."),
     ],
     channel_id: Annotated[
-        str, Doc(..., description="The ID of the channel to send the message to.")
+        str,
+        Doc("The ID of the channel to send the message to."),
     ],
     action_set: Annotated[
         dict[str, Any],
-        Doc(
-            ...,
-            description="ActionSet element from format_action_set function.",
-        ),
+        Doc("ActionSet element from format_action_set function."),
     ],
     title: Annotated[
         str | None,
-        Doc(None, description="Title for the button card."),
+        Doc("Title for the button card."),
     ] = None,
     subtitle: Annotated[
         str | None,
-        Doc(None, description="Subtitle for the button card."),
+        Doc("Subtitle for the button card."),
     ] = None,
     text: Annotated[
         str | None,
-        Doc(None, description="Text content for the button card."),
+        Doc("Text content for the button card."),
     ] = None,
 ) -> dict[str, Any]:
     """Send ActionSet buttons as a Teams thumbnail card."""
@@ -591,25 +583,26 @@ async def send_teams_buttons(
 )
 async def send_adaptive_card(
     team_id: Annotated[
-        str, Doc(..., description="The ID of the team to send the message to.")
+        str,
+        Doc("The ID of the team to send the message to."),
     ],
     channel_id: Annotated[
-        str, Doc(..., description="The ID of the channel to send the message to.")
+        str,
+        Doc("The ID of the channel to send the message to."),
     ],
     card_elements: Annotated[
         list[dict[str, Any]],
         Doc(
-            ...,
-            description="List of Adaptive Card elements (from format functions above). Do NOT include ActionSet elements - use send_teams_buttons for those.",
+            "List of Adaptive Card elements (from format functions above). Do NOT include ActionSet elements - use send_teams_buttons for those."
         ),
     ],
     title: Annotated[
         str | None,
-        Doc(None, description="Title for the card."),
+        Doc("Title for the card."),
     ] = None,
     subtitle: Annotated[
         str | None,
-        Doc(None, description="Subtitle for the card."),
+        Doc("Subtitle for the card."),
     ] = None,
 ) -> dict[str, Any]:
     """Send an Adaptive Card message to Teams (without ActionSet elements)."""
@@ -660,22 +653,18 @@ async def send_adaptive_card(
     namespace="tools.microsoft_teams",
 )
 def format_task_module_action(
-    title: Annotated[str, Doc(..., description="Button title.")],
-    url: Annotated[str, Doc(..., description="URL to open in task module.")],
+    title: Annotated[str, Doc("Button title.")],
+    url: Annotated[str, Doc("URL to open in task module.")],
     width: Annotated[
         int | str,
-        Doc("large", description="Task module width (small/medium/large or pixels)."),
+        Doc("Task module width (small/medium/large or pixels)."),
     ] = "large",
     height: Annotated[
         int | str,
-        Doc("large", description="Task module height (small/medium/large or pixels)."),
+        Doc("Task module height (small/medium/large or pixels)."),
     ] = "large",
-    team_id: Annotated[
-        str | None, Doc(None, description="Team ID for context.")
-    ] = None,
-    channel_id: Annotated[
-        str | None, Doc(None, description="Channel ID for context.")
-    ] = None,
+    team_id: Annotated[str | None, Doc("Team ID for context.")] = None,
+    channel_id: Annotated[str | None, Doc("Channel ID for context.")] = None,
 ) -> dict[str, Any]:
     """Create an action that opens a Teams task module."""
 
@@ -703,20 +692,22 @@ def format_task_module_action(
     namespace="tools.microsoft_teams",
 )
 def format_adaptive_card_task_module(
-    title: Annotated[str, Doc(..., description="Button title.")],
+    title: Annotated[str, Doc("Button title.")],
     card_elements: Annotated[
         list[dict[str, Any]],
-        Doc(..., description="Adaptive Card elements for the task module."),
+        Doc("Adaptive Card elements for the task module."),
     ],
     submit_action: Annotated[
         str | None,
-        Doc(None, description="Action to perform when task module is submitted."),
+        Doc("Action to perform when task module is submitted."),
     ] = None,
     width: Annotated[
-        int | str, Doc("large", description="Task module width.")
+        int | str,
+        Doc("Task module width."),
     ] = "large",
     height: Annotated[
-        int | str, Doc("large", description="Task module height.")
+        int | str,
+        Doc("Task module height."),
     ] = "large",
 ) -> dict[str, Any]:
     """Create an action that opens an Adaptive Card in a task module."""
@@ -755,16 +746,18 @@ def format_adaptive_card_task_module(
     namespace="tools.microsoft_teams",
 )
 def format_task_module_form(
-    form_title: Annotated[str, Doc(..., description="Title of the form.")],
+    form_title: Annotated[str, Doc("Title of the form.")],
     form_Docs: Annotated[
         list[dict[str, Any]],
-        Doc(..., description="Form Docs (TextInput, ChoiceSet, etc.)."),
+        Doc("Form Docs (TextInput, ChoiceSet, etc.)."),
     ],
     submit_url: Annotated[
-        str | None, Doc(None, description="URL to submit form data to.")
+        str | None,
+        Doc("URL to submit form data to."),
     ] = None,
     cancel_button: Annotated[
-        bool, Doc(True, description="Whether to include a cancel button.")
+        bool,
+        Doc("Whether to include a cancel button."),
     ] = True,
 ) -> dict[str, Any]:
     """Create a form for use in task modules."""

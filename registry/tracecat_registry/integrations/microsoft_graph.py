@@ -40,22 +40,19 @@ def get_access_token(
     scopes: Annotated[
         list[str] | None,
         Doc(
-            ...,
-            description='Microsoft Graph scopes, defaults to ["https://graph.microsoft.com/.default"].',
+            "Microsoft Graph scopes, defaults to ['https://graph.microsoft.com/.default']"
         ),
     ] = None,
     authority: Annotated[
         str | None,
         Doc(
-            ...,
-            description='Microsoft Graph authority, defaults to "https://login.microsoftonline.com/common".',
+            "Microsoft Graph authority, defaults to 'https://login.microsoftonline.com/common'"
         ),
     ] = None,
     oidc_authority: Annotated[
         str | None,
         Doc(
-            ...,
-            description='Microsoft Graph OIDC authority, defaults to "https://login.microsoftonline.com/common".',
+            "Microsoft Graph OIDC authority, defaults to https://login.microsoftonline.com/common"
         ),
     ] = None,
 ) -> str:
