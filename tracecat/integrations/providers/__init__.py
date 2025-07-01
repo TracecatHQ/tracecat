@@ -23,7 +23,8 @@ def _collect_subclasses(
     """Recursively collect all subclasses of the given class."""
     subclasses = []
     for subclass in cls.__subclasses__():
-        subclasses.append(subclass)
+        if hasattr(subclass, "id"):
+            subclasses.append(subclass)
         subclasses.extend(_collect_subclasses(subclass))
     return subclasses
 
