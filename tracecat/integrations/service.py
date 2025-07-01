@@ -132,6 +132,17 @@ class IntegrationService(BaseWorkspaceService):
             )
             return integration
 
+    async def disconnect_integration(self, *, integration: OAuthIntegration) -> None:
+        """Disconnect a user's integration for a specific provider."""
+        # Wipe all tokens
+        integration.encrypted_access_token = b""
+        integration.encrypted_refresh_token = None
+        integration.expires_at = None
+        integration.scope = None  # Granted scopes
+        integration.requested_scopes = None
+        self.session.add(integration)
+        await self.session.commit()
+
     async def remove_integration(self, *, integration: OAuthIntegration) -> None:
         """Remove a user's integration for a specific provider."""
         await self.session.delete(integration)
@@ -170,8 +181,8 @@ class IntegrationService(BaseWorkspaceService):
 
         # Get provider class from registry
         registry = ProviderRegistry.get()
-        provider_class = registry.get_class(integration.provider_id)
-        if not provider_class:
+        provider_impl = registry.get_class(integration.provider_id)
+        if not provider_impl:
             self.logger.warning(
                 "Provider not found in registry",
                 user_id=integration.user_id,
@@ -206,11 +217,12 @@ class IntegrationService(BaseWorkspaceService):
                     client_id=client_id,
                     client_secret=SecretStr(client_secret),
                     provider_config=integration.provider_config,
+                    scopes=self.parse_scopes(integration.requested_scopes),
                 )
-                provider = provider_class.from_config(provider_config)
+                provider = provider_impl.from_config(provider_config)
             else:
                 # Use environment variables (default behavior)
-                provider = provider_class(**integration.provider_config)
+                provider = provider_impl(**integration.provider_config)
         except Exception as e:
             self.logger.error(
                 "Failed to create provider for token refresh",
@@ -288,11 +300,11 @@ class IntegrationService(BaseWorkspaceService):
         """Decrypt a token using the service's encryption key."""
         return decrypt_value(encrypted_token, key=self._encryption_key).decode("utf-8")
 
-    def _encrypt_client_credential(self, credential: str) -> bytes:
+    def encrypt_client_credential(self, credential: str) -> bytes:
         """Encrypt a client credential using the service's encryption key."""
         return encrypt_value(credential.encode("utf-8"), key=self._encryption_key)
 
-    def _decrypt_client_credential(self, encrypted_credential: bytes) -> str:
+    def decrypt_client_credential(self, encrypted_credential: bytes) -> str:
         """Decrypt a client credential using the service's encryption key."""
         return decrypt_value(encrypted_credential, key=self._encryption_key).decode(
             "utf-8"
@@ -302,21 +314,34 @@ class IntegrationService(BaseWorkspaceService):
         self,
         *,
         provider_id: str,
-        client_id: str,
-        client_secret: SecretStr,
-        provider_config: dict[str, Any],
+        client_id: str | None = None,
+        client_secret: SecretStr | None = None,
+        provider_config: dict[str, Any] | None = None,
+        requested_scopes: list[str] | None = None,
     ) -> OAuthIntegration:
         """Store or update provider configuration (client credentials) for a workspace."""
         # Check if integration configuration already exists for this provider
 
         if integration := await self.get_integration(provider_id=provider_id):
-            # Update existing integration with client credentials
-            integration.encrypted_client_id = self._encrypt_client_credential(client_id)
-            integration.encrypted_client_secret = self._encrypt_client_credential(
-                client_secret.get_secret_value()
-            )
-            integration.use_workspace_credentials = True
-            integration.provider_config = provider_config
+            # Update existing integration with client credentials (patch operation)
+            if not any((client_id, client_secret, provider_config, requested_scopes)):
+                return integration
+
+            if client_id is not None:
+                integration.encrypted_client_id = self.encrypt_client_credential(
+                    client_id
+                )
+
+            if client_secret is not None:
+                integration.encrypted_client_secret = self.encrypt_client_credential(
+                    client_secret.get_secret_value()
+                )
+
+            if provider_config is not None:
+                integration.provider_config = provider_config
+
+            if requested_scopes is not None:
+                integration.requested_scopes = " ".join(requested_scopes)
 
             self.session.add(integration)
             await self.session.commit()
@@ -327,6 +352,7 @@ class IntegrationService(BaseWorkspaceService):
                 provider=provider_id,
                 workspace_id=self.workspace_id,
             )
+
             return integration
         else:
             # Create new integration record with just client credentials
@@ -334,14 +360,21 @@ class IntegrationService(BaseWorkspaceService):
             integration = OAuthIntegration(
                 owner_id=self.workspace_id,
                 provider_id=provider_id,
-                encrypted_client_id=self._encrypt_client_credential(client_id),
-                encrypted_client_secret=self._encrypt_client_credential(
+                encrypted_client_id=self.encrypt_client_credential(client_id)
+                if client_id
+                else None,
+                encrypted_client_secret=self.encrypt_client_credential(
                     client_secret.get_secret_value()
-                ),
+                )
+                if client_secret
+                else None,
                 use_workspace_credentials=True,
                 # These will be populated during OAuth flow
                 encrypted_access_token=b"",  # Placeholder, will be updated
-                provider_config=provider_config,
+                provider_config=provider_config or {},
+                requested_scopes=" ".join(requested_scopes)
+                if requested_scopes
+                else None,
             )
 
             self.session.add(integration)
@@ -356,7 +389,10 @@ class IntegrationService(BaseWorkspaceService):
             return integration
 
     def get_provider_config(
-        self, *, integration: OAuthIntegration
+        self,
+        *,
+        integration: OAuthIntegration,
+        default_scopes: list[str] | None = None,
     ) -> ProviderConfig | None:
         """Get decrypted client credentials for a provider."""
 
@@ -370,14 +406,16 @@ class IntegrationService(BaseWorkspaceService):
             return None
 
         try:
-            client_id = self._decrypt_client_credential(integration.encrypted_client_id)
-            client_secret = self._decrypt_client_credential(
+            client_id = self.decrypt_client_credential(integration.encrypted_client_id)
+            client_secret = self.decrypt_client_credential(
                 integration.encrypted_client_secret
             )
             return ProviderConfig(
                 client_id=client_id,
                 client_secret=SecretStr(client_secret),
                 provider_config=integration.provider_config,
+                scopes=self.parse_scopes(integration.requested_scopes)
+                or default_scopes,
             )
         except Exception as e:
             self.logger.error(
@@ -424,3 +462,7 @@ class IntegrationService(BaseWorkspaceService):
             )
 
         return True
+
+    def parse_scopes(self, scopes: str | None) -> list[str] | None:
+        """Parse a space-separated string of scopes into a list of scopes."""
+        return scopes.split(" ") if scopes else None

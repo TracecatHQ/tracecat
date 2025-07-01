@@ -1064,16 +1064,27 @@ export type IntegrationOAuthConnect = {
  */
 export type IntegrationRead = {
   id: string
+  created_at: string
+  updated_at: string
   user_id?: string | null
-  token_type: string
-  expires_at: string | null
-  scope: string | null
   provider_id: string
   provider_config: {
     [key: string]: unknown
   }
-  created_at: string
-  updated_at: string
+  token_type: string
+  expires_at: string | null
+  /**
+   * OAuth client ID for the provider
+   */
+  client_id?: string | null
+  /**
+   * OAuth scopes granted for this integration
+   */
+  granted_scopes?: Array<string> | null
+  /**
+   * OAuth scopes requested by user for this integration
+   */
+  requested_scopes?: Array<string> | null
   status: IntegrationStatus
   is_expired: boolean
 }
@@ -1100,17 +1111,21 @@ export type IntegrationUpdate = {
   /**
    * OAuth client ID for the provider
    */
-  client_id: string
+  client_id?: string | null
   /**
    * OAuth client secret for the provider
    */
-  client_secret: string
+  client_secret?: string | null
   /**
    * Provider-specific configuration
    */
-  provider_config: {
+  provider_config?: {
     [key: string]: unknown
-  }
+  } | null
+  /**
+   * OAuth scopes to request for this integration
+   */
+  scopes?: Array<string> | null
 }
 
 export type InteractionCategory = "slack"
@@ -1283,10 +1298,6 @@ export type ProviderMetadata = {
    */
   setup_instructions?: string | null
   /**
-   * Default OAuth scopes
-   */
-  oauth_scopes?: Array<string>
-  /**
    * Whether this provider requires additional configuration
    */
   requires_config?: boolean
@@ -1322,8 +1333,21 @@ export type ProviderMetadata = {
 
 export type ProviderRead = {
   metadata: ProviderMetadata
+  scopes: ProviderScopes
+  schema?: ProviderSchema
   integration_status: IntegrationStatus
   redirect_uri: string
+}
+
+export type ProviderReadMinimal = {
+  id: string
+  name: string
+  description: string
+  requires_config: boolean
+  categories: Array<ProviderCategory>
+  features: Array<string>
+  integration_status: IntegrationStatus
+  enabled: boolean
 }
 
 /**
@@ -1333,6 +1357,20 @@ export type ProviderSchema = {
   json_schema: {
     [key: string]: unknown
   }
+}
+
+/**
+ * Scope metadata for a provider.
+ */
+export type ProviderScopes = {
+  /**
+   * Default scopes for this provider. Ultra thin layer
+   */
+  default: Array<string>
+  /**
+   * Regex patterns to validate additional scopes for this provider.
+   */
+  allowed_patterns?: Array<string> | null
 }
 
 export type ReceiveInteractionResponse = {
@@ -4093,14 +4131,14 @@ export type ProvidersListProvidersData = {
   workspaceId: string
 }
 
-export type ProvidersListProvidersResponse = Array<ProviderRead>
+export type ProvidersListProvidersResponse = Array<ProviderReadMinimal>
 
-export type ProvidersGetProviderSchemaData = {
+export type ProvidersGetProviderData = {
   providerId: string
   workspaceId: string
 }
 
-export type ProvidersGetProviderSchemaResponse = ProviderSchema
+export type ProvidersGetProviderResponse = ProviderRead
 
 export type UsersUsersCurrentUserResponse = UserRead
 
@@ -6104,7 +6142,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Array<ProviderRead>
+        200: Array<ProviderReadMinimal>
         /**
          * Validation Error
          */
@@ -6112,14 +6150,14 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/providers/{provider_id}/schema": {
+  "/providers/{provider_id}": {
     get: {
-      req: ProvidersGetProviderSchemaData
+      req: ProvidersGetProviderData
       res: {
         /**
          * Successful Response
          */
-        200: ProviderSchema
+        200: ProviderRead
         /**
          * Validation Error
          */

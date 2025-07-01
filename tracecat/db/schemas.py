@@ -1055,6 +1055,10 @@ class OAuthIntegration(SQLModel, TimestampMixin, table=True):
         default=None,
         description="OAuth scopes granted for this integration",
     )
+    requested_scopes: str | None = Field(
+        default=None,
+        description="OAuth scopes requested by user for this integration",
+    )
     provider_config: dict[str, Any] = Field(
         default_factory=dict,
         sa_column=Column(JSONB),

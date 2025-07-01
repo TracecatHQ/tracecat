@@ -14,6 +14,7 @@ from tracecat.integrations.models import (
     ProviderCategory,
     ProviderConfig,
     ProviderMetadata,
+    ProviderScopes,
     TokenResponse,
 )
 from tracecat.integrations.service import IntegrationService
@@ -36,8 +37,11 @@ class MockOAuthProvider(BaseOAuthProvider):
     id: ClassVar[str] = "mock_provider"
     _authorization_endpoint: ClassVar[str] = "https://mock.provider/oauth/authorize"
     _token_endpoint: ClassVar[str] = "https://mock.provider/oauth/token"
-    default_scopes: ClassVar[list[str]] = ["read", "write"]
     config_model: ClassVar[type[BaseModel]] = MockProviderConfig
+    scopes: ClassVar[ProviderScopes] = ProviderScopes(
+        default=["read", "write"],
+        allowed_patterns=["user.read"],
+    )
     metadata: ClassVar[ProviderMetadata] = ProviderMetadata(
         id="mock_provider",
         name="Mock Provider",
@@ -602,7 +606,9 @@ class TestIntegrationService:
         assert integration.provider_config == provider_config
 
         # Get provider config
-        config = integration_service.get_provider_config(integration=integration)
+        config = integration_service.get_provider_config(
+            integration=integration, default_scopes=["user.read"]
+        )
         assert config is not None
         assert config.client_id == client_id
         assert (
@@ -673,7 +679,7 @@ class TestBaseOAuthProvider:
         assert mock_provider.id == "mock_provider"
         assert mock_provider.client_id == "mock_client_id"
         assert mock_provider.client_secret == "mock_client_secret"
-        assert mock_provider.scopes == ["read", "write"]
+        assert mock_provider.requested_scopes == ["read", "write"]
         assert (
             mock_provider.redirect_uri()
             == "http://localhost/integrations/mock_provider/callback"
