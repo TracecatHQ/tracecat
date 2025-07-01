@@ -2,28 +2,34 @@
 
 from typing import ClassVar
 
-from tracecat.integrations.base import BaseOAuthProvider
-from tracecat.integrations.models import ProviderCategory, ProviderMetadata
+from tracecat.integrations.base import AuthorizationCodeOAuthProvider
+from tracecat.integrations.models import (
+    ProviderCategory,
+    ProviderMetadata,
+    ProviderScopes,
+)
 
 
-class SlackOAuthProvider(BaseOAuthProvider):
+class SlackOAuthProvider(AuthorizationCodeOAuthProvider):
     """Slack OAuth provider using generic OAuth implementation."""
 
     id: ClassVar[str] = "slack"
 
     # Slack OAuth endpoints
-    authorization_endpoint: ClassVar[str] = "https://slack.com/oauth/v2/authorize"
-    token_endpoint: ClassVar[str] = "https://slack.com/api/oauth.v2.access"
+    _authorization_endpoint: ClassVar[str] = "https://slack.com/oauth/v2/authorize"
+    _token_endpoint: ClassVar[str] = "https://slack.com/api/oauth.v2.access"
 
-    # Default Slack scopes
-    default_scopes: ClassVar[list[str]] = [
-        "channels:read",
-        "chat:write",
-        "users:read",
-        "team:read",
-        "im:history",
-        "channels:history",
-    ]
+    # Slack OAuth scopes
+    scopes: ClassVar[ProviderScopes] = ProviderScopes(
+        default=[
+            "channels:read",
+            "chat:write",
+            "users:read",
+            "team:read",
+            "im:history",
+            "channels:history",
+        ]
+    )
 
     metadata: ClassVar[ProviderMetadata] = ProviderMetadata(
         id="slack",

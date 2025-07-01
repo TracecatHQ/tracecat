@@ -9,7 +9,7 @@ from authlib.integrations.httpx_client import AsyncOAuth2Client
 from pydantic import BaseModel, SecretStr
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from tracecat.integrations.base import BaseOAuthProvider
+from tracecat.integrations.base import AuthorizationCodeOAuthProvider
 from tracecat.integrations.models import (
     ProviderCategory,
     ProviderConfig,
@@ -31,7 +31,7 @@ class MockProviderConfig(BaseModel):
     redirect_uri: str | None = None
 
 
-class MockOAuthProvider(BaseOAuthProvider):
+class MockOAuthProvider(AuthorizationCodeOAuthProvider):
     """Mock OAuth provider for testing."""
 
     id: ClassVar[str] = "mock_provider"

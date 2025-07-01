@@ -2,29 +2,35 @@
 
 from typing import ClassVar
 
-from tracecat.integrations.base import BaseOAuthProvider
-from tracecat.integrations.models import ProviderCategory, ProviderMetadata
+from tracecat.integrations.base import AuthorizationCodeOAuthProvider
+from tracecat.integrations.models import (
+    ProviderCategory,
+    ProviderMetadata,
+    ProviderScopes,
+)
 
 
-class GoogleOAuthProvider(BaseOAuthProvider):
+class GoogleOAuthProvider(AuthorizationCodeOAuthProvider):
     """Google OAuth provider using generic OAuth implementation."""
 
     id: ClassVar[str] = "google"
 
     # Google OAuth endpoints
-    authorization_endpoint: ClassVar[str] = (
-        "https://accounts.google.com/o/oauth2/v2/auth"
+    _authorization_endpoint: ClassVar[str] = (
+        "https://accounts.google.com/o/oauth2/v2.0/auth"
     )
-    token_endpoint: ClassVar[str] = "https://oauth2.googleapis.com/token"
+    _token_endpoint: ClassVar[str] = "https://oauth2.googleapis.com/token"
 
-    # Default Google scopes
-    default_scopes: ClassVar[list[str]] = [
-        "openid",
-        "email",
-        "profile",
-        "https://www.googleapis.com/auth/gmail.send",
-        "https://www.googleapis.com/auth/drive.readonly",
-    ]
+    # Google OAuth scopes
+    scopes: ClassVar[ProviderScopes] = ProviderScopes(
+        default=[
+            "openid",
+            "email",
+            "profile",
+            "https://www.googleapis.com/auth/gmail.send",
+            "https://www.googleapis.com/auth/drive.readonly",
+        ]
+    )
 
     metadata: ClassVar[ProviderMetadata] = ProviderMetadata(
         id="google",
