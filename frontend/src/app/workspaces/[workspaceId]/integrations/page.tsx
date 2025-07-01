@@ -98,161 +98,176 @@ export default function IntegrationsPage() {
   }
 
   return (
-    <div className="container mx-auto max-w-7xl p-6">
-      <div className="mb-8">
-        <h1 className="mb-2 text-3xl font-bold">Integrations</h1>
-        <p className="text-muted-foreground">
-          Connect your workspace with powerful third-party services and tools.
-        </p>
-      </div>
-
-      {/* Filters */}
-      <div className="mb-6 flex flex-col gap-4 sm:flex-row">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="Search integrations..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-10"
-          />
-        </div>
-        <Select
-          value={selectedCategory ?? "all"}
-          onValueChange={(value) =>
-            setSelectedCategory(value as ProviderCategory)
-          }
-        >
-          <SelectTrigger className="w-full sm:w-48">
-            <Filter className="mr-2 size-4" />
-            <SelectValue placeholder="Category" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Categories</SelectItem>
-            {categories.map((category) => (
-              <SelectItem key={category} value={category}>
-                {category.charAt(0).toUpperCase() + category.slice(1)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select
-          value={selectedStatus ?? "all"}
-          onValueChange={(value) =>
-            setSelectedStatus(value as IntegrationStatus)
-          }
-        >
-          <SelectTrigger className="w-full sm:w-48">
-            <SelectValue placeholder="Status" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Status</SelectItem>
-            <SelectItem value="available">Available</SelectItem>
-            <SelectItem value="connected">Connected</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      {/* Stats */}
-      <div className="mb-8 grid grid-cols-1 gap-4 md:grid-cols-3">
-        <Card>
-          <CardContent className="p-4">
-            <div className="text-2xl font-bold">{providers?.length || 0}</div>
-            <div className="text-sm text-muted-foreground">
-              Total Integrations
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="text-2xl font-bold text-green-600">
-              {providers?.filter((p) => p.integration_status === "connected")
-                .length || 0}
-            </div>
-            <div className="text-sm text-muted-foreground">Connected</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="text-2xl font-bold text-blue-600">
-              {categories.length}
-            </div>
-            <div className="text-sm text-muted-foreground">Categories</div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Integrations Grid */}
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
-        {filteredProviders?.map((provider) => {
-          const {
-            id,
-            enabled,
-            name,
-            description,
-            categories: providerCategories,
-          } = provider
-          const statusInfo = getStatusInfo(provider.integration_status)
-
-          return (
-            <Card
-              key={id}
-              className={cn(
-                !!enabled
-                  ? "cursor-pointer transition-colors duration-200 hover:bg-accent/50"
-                  : "cursor-not-allowed opacity-50"
-              )}
-              onClick={() => handleProviderClick(id, enabled)}
-            >
-              <CardHeader>
-                <div className="flex items-start justify-between">
-                  <div className="flex items-start gap-3">
-                    <ProviderIcon providerId={id} className="size-8 p-1.5" />
-                    <div>
-                      <CardTitle className="text-lg">{name}</CardTitle>
-                      <div className="mt-1 flex gap-2">
-                        {providerCategories?.map((category, index) => (
-                          <Badge
-                            key={index}
-                            className={cn(
-                              categoryColors[category] || categoryColors.other,
-                              "whitespace-nowrap"
-                            )}
-                          >
-                            {category}
-                          </Badge>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                  <Badge
-                    className={cn(
-                      enabled
-                        ? statusInfo.className
-                        : "bg-orange-100 text-orange-800 hover:bg-orange-200",
-                      "whitespace-nowrap"
-                    )}
-                  >
-                    {enabled ? statusInfo.label : "Coming Soon"}
-                  </Badge>
-                </div>
-                <CardDescription className="mt-2">
-                  {description ||
-                    `Connect with ${name} to enhance your workflows`}
-                </CardDescription>
-              </CardHeader>
-            </Card>
-          )
-        })}
-      </div>
-
-      {filteredProviders?.length === 0 && (
-        <div className="py-12 text-center">
-          <div className="text-muted-foreground">
-            No integrations found matching your criteria.
+    <div className="size-full overflow-auto">
+      <div className="flex size-full flex-col space-y-12">
+        <div className="flex w-full items-center justify-between">
+          <div className="items-start space-y-3 text-left">
+            <h2 className="text-2xl font-semibold tracking-tight">
+              Integrations
+            </h2>
+            <p className="text-md text-muted-foreground">
+              Connect your workspace with third-party services and tools.
+            </p>
           </div>
         </div>
-      )}
+
+        <>
+          {/* Filters */}
+          <div className="mb-6 flex flex-col gap-4 sm:flex-row">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="Search integrations..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-10"
+              />
+            </div>
+            <Select
+              value={selectedCategory ?? "all"}
+              onValueChange={(value) =>
+                setSelectedCategory(value as ProviderCategory)
+              }
+            >
+              <SelectTrigger className="w-full sm:w-48">
+                <Filter className="mr-2 size-4" />
+                <SelectValue placeholder="Category" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Categories</SelectItem>
+                {categories.map((category) => (
+                  <SelectItem key={category} value={category}>
+                    {category.charAt(0).toUpperCase() + category.slice(1)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select
+              value={selectedStatus ?? "all"}
+              onValueChange={(value) =>
+                setSelectedStatus(value as IntegrationStatus)
+              }
+            >
+              <SelectTrigger className="w-full sm:w-48">
+                <SelectValue placeholder="Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Status</SelectItem>
+                <SelectItem value="available">Available</SelectItem>
+                <SelectItem value="connected">Connected</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Stats */}
+          <div className="mb-8 grid grid-cols-1 gap-4 md:grid-cols-3">
+            <Card>
+              <CardContent className="p-4">
+                <div className="text-2xl font-bold">
+                  {providers?.length || 0}
+                </div>
+                <div className="text-sm text-muted-foreground">
+                  Total Integrations
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4">
+                <div className="text-2xl font-bold text-green-600">
+                  {providers?.filter(
+                    (p) => p.integration_status === "connected"
+                  ).length || 0}
+                </div>
+                <div className="text-sm text-muted-foreground">Connected</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4">
+                <div className="text-2xl font-bold text-blue-600">
+                  {categories.length}
+                </div>
+                <div className="text-sm text-muted-foreground">Categories</div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Integrations Grid */}
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
+            {filteredProviders?.map((provider) => {
+              const {
+                id,
+                enabled,
+                name,
+                description,
+                categories: providerCategories,
+              } = provider
+              const statusInfo = getStatusInfo(provider.integration_status)
+
+              return (
+                <Card
+                  key={id}
+                  className={cn(
+                    !!enabled
+                      ? "cursor-pointer transition-colors duration-200 hover:bg-accent/50"
+                      : "cursor-not-allowed opacity-50"
+                  )}
+                  onClick={() => handleProviderClick(id, enabled)}
+                >
+                  <CardHeader className="flex flex-col gap-1">
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-start gap-3">
+                        <ProviderIcon
+                          providerId={id}
+                          className="size-8 p-1.5"
+                        />
+                        <div>
+                          <CardTitle className="text-lg">{name}</CardTitle>
+                          <div className="mt-1 flex gap-2">
+                            {providerCategories?.map((category, index) => (
+                              <Badge
+                                key={index}
+                                className={cn(
+                                  categoryColors[category] ||
+                                    categoryColors.other,
+                                  "whitespace-nowrap"
+                                )}
+                              >
+                                {category}
+                              </Badge>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                      <Badge
+                        className={cn(
+                          enabled
+                            ? statusInfo.className
+                            : "bg-orange-100 text-orange-800 hover:bg-orange-200",
+                          "whitespace-nowrap"
+                        )}
+                      >
+                        {enabled ? statusInfo.label : "Coming Soon"}
+                      </Badge>
+                    </div>
+                    <CardDescription className="text-xs mt-2">
+                      {description ||
+                        `Connect with ${name} to enhance your workflows`}
+                    </CardDescription>
+                  </CardHeader>
+                </Card>
+              )
+            })}
+          </div>
+
+          {filteredProviders?.length === 0 && (
+            <div className="py-12 text-center">
+              <div className="text-muted-foreground">
+                No integrations found matching your criteria.
+              </div>
+            </div>
+          )}
+        </>
+      </div>
     </div>
   )
 }
