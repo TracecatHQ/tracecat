@@ -6,7 +6,7 @@ Currently supports confidential app-only authentication (i.e. `acquire_token_for
 from typing import Annotated
 
 from msal import ConfidentialClientApplication
-from pydantic import Field
+from pydantic import Doc
 from tracecat import __version__
 
 from tracecat_registry import RegistrySecret, registry, secrets
@@ -38,21 +38,21 @@ microsoft_graph_secret = RegistrySecret(
 def get_access_token(
     scopes: Annotated[
         list[str] | None,
-        Field(
+        Doc(
             ...,
             description='Microsoft Graph scopes, defaults to ["https://graph.microsoft.com/.default"].',
         ),
     ] = None,
     authority: Annotated[
         str | None,
-        Field(
+        Doc(
             ...,
             description='Microsoft Graph authority, defaults to "https://login.microsoftonline.com/common".',
         ),
     ] = None,
     oidc_authority: Annotated[
         str | None,
-        Field(
+        Doc(
             ...,
             description='Microsoft Graph OIDC authority, defaults to "https://login.microsoftonline.com/common".',
         ),
