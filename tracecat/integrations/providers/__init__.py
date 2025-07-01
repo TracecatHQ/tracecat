@@ -17,6 +17,17 @@ def load_providers():
 load_providers()
 
 
+def _collect_subclasses(
+    cls: type[BaseOAuthProvider],
+) -> list[type[BaseOAuthProvider]]:
+    """Recursively collect all subclasses of the given class."""
+    subclasses = []
+    for subclass in cls.__subclasses__():
+        subclasses.append(subclass)
+        subclasses.extend(_collect_subclasses(subclass))
+    return subclasses
+
+
 class ProviderRegistry:
     _instance: Self | None = None
 
@@ -27,7 +38,9 @@ class ProviderRegistry:
 
     def __init__(self):
         self._providers = {}
-        for provider in BaseOAuthProvider.__subclasses__():
+
+        all_providers = _collect_subclasses(BaseOAuthProvider)
+        for provider in all_providers:
             if provider.id in self._providers:
                 raise ValueError(f"Duplicate provider ID: {provider.id}")
             self._providers[provider.id] = provider

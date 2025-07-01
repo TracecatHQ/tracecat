@@ -474,6 +474,26 @@ export const providerIcons: Record<
       <MicrosoftIcon {...rest} />
     </div>
   ),
+  microsoft_defender: ({ className, ...rest }) => (
+    <div className={className}>
+      <MicrosoftDefenderIcon {...rest} />
+    </div>
+  ),
+  microsoft_entra: ({ className, ...rest }) => (
+    <div className={className}>
+      <MicrosoftEntraIcon {...rest} />
+    </div>
+  ),
+  microsoft_teams: ({ className, ...rest }) => (
+    <div className={className}>
+      <MicrosoftTeamsIcon {...rest} />
+    </div>
+  ),
+  microsoft_sentinel: ({ className, ...rest }) => (
+    <div className={className}>
+      <MicrosoftSentinelIcon {...rest} />
+    </div>
+  ),
   google: ({ className, ...rest }) => (
     <div className={className}>
       <GoogleIcon {...rest} />
@@ -782,6 +802,171 @@ export function GoogleIcon({ className, ...rest }: IconProps) {
         d="M130.55 50.479c24.514 0 41.05 10.589 50.479 19.438l36.844-35.974C195.245 12.91 165.798 0 130.55 0 79.49 0 35.393 29.301 13.925 71.947l42.211 32.783c10.59-31.477 39.891-54.251 74.414-54.251"
         fill="#EB4335"
       />
+    </svg>
+  )
+}
+
+export function MicrosoftDefenderIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="240"
+      height="240"
+      viewBox="0 0 48 48"
+      {...rest}
+    >
+      <path fill="#0370c8" d="M24 44a1 1 0 0 1 0-2v2z" />
+      <path fill="#0f5094" d="M25 43a1 1 0 0 1-1 1v-2a1 1 0 0 1 1 1z" />
+      <circle cx="42" cy="11" r="1" fill="#0883d9" />
+      <circle cx="6" cy="11" r="1" fill="#33bff0" />
+      <path fill="#0f5094" d="m24 43 .427.907s15.144-7.9 18.08-19.907H24v19z" />
+      <path
+        fill="#0883d9"
+        d="m43 11-1-1c-11.122 0-11.278-6-18-6v20h18.507c.315-1.288.493-2.622.493-4v-9z"
+      />
+      <path fill="#0370c8" d="m24 43-.427.907S8.429 36.007 5.493 24H24v19z" />
+      <path
+        fill="#33bff0"
+        d="m5 11 1-1c11.122 0 11.278-6 18-6v20H5.493A16.789 16.789 0 0 1 5 20v-9z"
+      />
+    </svg>
+  )
+}
+export function MicrosoftEntraIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="18"
+      height="18"
+      data-name="Layer 1"
+      {...rest}
+    >
+      <path
+        fill="#225086"
+        d="M3.802 14.032c.388.242 1.033.511 1.715.511.621 0 1.198-.18 1.676-.487l.002-.001L9 12.927V17a1.56 1.56 0 0 1-.824-.234l-4.374-2.734Z"
+      />
+      <path
+        fill="#6df"
+        d="m7.853 1.507-7.5 8.46c-.579.654-.428 1.642.323 2.111l3.126 1.954c.388.242 1.033.511 1.715.511.621 0 1.198-.18 1.676-.487l.002-.001L9 12.927l-4.364-2.728 4.365-4.924V1c-.424 0-.847.169-1.147.507Z"
+      />
+      <path
+        fill="#cbf8ff"
+        d="m4.636 10.199.052.032L9 12.927h.001V5.276L9 5.275l-4.364 4.924z"
+      />
+      <path
+        fill="#074793"
+        d="M17.324 12.078c.751-.469.902-1.457.323-2.111l-4.921-5.551a3.102 3.102 0 0 0-1.313-.291c-.925 0-1.752.399-2.302 1.026l-.109.123 4.364 4.924-4.365 2.728v4.073c.287 0 .573-.078.823-.234l7.5-4.688Z"
+      />
+      <path
+        fill="#0294e4"
+        d="M9.001 1v4.275l.109-.123a3.053 3.053 0 0 1 2.302-1.026c.472 0 .916.107 1.313.291l-2.579-2.909A1.524 1.524 0 0 0 9 1.001Z"
+      />
+      <path fill="#96bcc2" d="M13.365 10.199 9.001 5.276v7.65l4.364-2.727z" />
+    </svg>
+  )
+}
+
+export function MicrosoftTeamsIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 2228.8 2073.3"
+      {...rest}
+    >
+      <path
+        fill="#5059C9"
+        d="M1555 778h575c55 0 99 44 99 98v524c0 200-162 362-362 362h-2a362 362 0 0 1-362-362V829c0-28 23-51 52-51z"
+      />
+      <circle cx="1943.8" cy="440.6" r="233.3" fill="#5059C9" />
+      <circle cx="1218.1" cy="336.9" r="336.9" fill="#7B83EB" />
+      <path
+        fill="#7B83EB"
+        d="M1667 778H717c-54 1-96 45-95 99v598a585 585 0 0 0 570 598c323-8 578-275 570-598V877c2-54-41-98-95-99z"
+      />
+      <path
+        d="M1244 778v838a95 95 0 0 1-95 95H668a614 614 0 0 1-46-236V877c-1-54 41-98 95-100h527z"
+        opacity=".1"
+      />
+      <path
+        d="M1192 778v889a95 95 0 0 1-95 95H692a672 672 0 0 1-43-103c-18-60-27-122-27-184V877c-1-54 41-98 95-100h475z"
+        opacity=".2"
+      />
+      <path
+        d="M1192 778v786c0 52-42 94-95 95H649c-18-60-27-122-27-184V877c-1-54 41-98 95-100h475z"
+        opacity=".2"
+      />
+      <path
+        d="M1140 778v786c0 52-42 94-95 95H649c-18-60-27-122-27-184V877c-1-54 41-98 95-100h423z"
+        opacity=".2"
+      />
+      <path
+        d="M1244 510v163l-26 1-26-1a337 337 0 0 1-302-258h259c52 0 95 42 95 95z"
+        opacity=".1"
+      />
+      <path
+        d="M1192 561v112a337 337 0 0 1-285-206h190c53 0 95 42 95 94z"
+        opacity=".2"
+      />
+      <path
+        d="M1192 561v112a337 337 0 0 1-285-206h190c53 0 95 42 95 94z"
+        opacity=".2"
+      />
+      <path
+        d="M1140 561v104a337 337 0 0 1-233-198h138c53 0 95 42 95 94z"
+        opacity=".2"
+      />
+      <linearGradient
+        id="a"
+        x1="198.1"
+        x2="942.2"
+        y1="1683.1"
+        y2="394.3"
+        gradientTransform="matrix(1 0 0 -1 0 2075)"
+        gradientUnits="userSpaceOnUse"
+      >
+        <stop offset="0" stop-color="#5a62c3" />
+        <stop offset=".5" stop-color="#4d55bd" />
+        <stop offset="1" stop-color="#3940ab" />
+      </linearGradient>
+      <path
+        fill="url(#a)"
+        d="M95 467h950c53 0 95 42 95 95v950c0 52-42 95-95 95H95c-52 0-95-43-95-95V562c0-53 43-95 95-95z"
+      />
+      <path fill="#FFF" d="M820 828H630v517H509V828H320V728h500v100z" />
+    </svg>
+  )
+}
+
+export function MicrosoftSentinelIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" {...rest}>
+      <defs>
+        <linearGradient
+          id="a"
+          x1="9"
+          x2="9"
+          y1="16.2"
+          y2=".6"
+          gradientUnits="userSpaceOnUse"
+        >
+          <stop offset="0" stop-color="#1b93eb" />
+          <stop offset=".2" stop-color="#2095eb" />
+          <stop offset=".4" stop-color="#2e9ced" />
+          <stop offset=".7" stop-color="#45a7ef" />
+          <stop offset=".9" stop-color="#64b6f1" />
+          <stop offset="1" stop-color="#6bb9f2" />
+        </linearGradient>
+      </defs>
+      <path fill="#1b93eb" d="M16 8c0 5-6 9-7 9s-7-4-7-9V2l7-1 7 2Z" />
+      <path
+        fill="url(#a)"
+        d="M15 8c0 5-5 8-6 9-1-1-6-4-6-9V3c4 0 3-2 6-2s2 2 6 2Z"
+      />
+      <path
+        fill="#c3f1ff"
+        d="M9 7a3 3 0 0 1 3 2h2A5 5 0 0 0 4 9h2a3 3 0 0 1 3-2Z"
+      />
+      <circle cx="9" cy="9.4" r="1.9" fill="#fff" />
     </svg>
   )
 }
