@@ -213,7 +213,7 @@ export default function IntegrationsPage() {
                   )}
                   onClick={() => handleProviderClick(id, enabled)}
                 >
-                  <CardHeader>
+                  <CardHeader className="flex flex-col gap-1">
                     <div className="flex items-start justify-between">
                       <div className="flex items-start gap-3">
                         <ProviderIcon
@@ -249,7 +249,7 @@ export default function IntegrationsPage() {
                         {enabled ? statusInfo.label : "Coming Soon"}
                       </Badge>
                     </div>
-                    <CardDescription className="mt-2">
+                    <CardDescription className="text-xs mt-2">
                       {description ||
                         `Connect with ${name} to enhance your workflows`}
                     </CardDescription>
