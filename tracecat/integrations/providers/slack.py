@@ -30,12 +30,6 @@ class SlackOAuthProvider(BaseOAuthProvider):
         name="Slack",
         description="Slack OAuth provider for team communication and notifications",
         categories=[ProviderCategory.COMMUNICATION],
-        features=[
-            "Channel Notifications",
-            "Direct Messages",
-            "Custom Webhooks",
-            "Bot Integration",
-        ],
         setup_steps=[
             "Create a new Slack App at api.slack.com/apps",
             "Go to OAuth & Permissions section",
