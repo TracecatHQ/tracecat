@@ -14,29 +14,29 @@ from tracecat import __version__
 
 from tracecat_registry import RegistrySecret, registry, secrets
 
-microsoft_graph_secret = RegistrySecret(
-    name="microsoft_graph",
+microsoft_teams_secret = RegistrySecret(
+    name="microsoft_teams",
     keys=[
-        "MICROSOFT_GRAPH_CLIENT_ID",
-        "MICROSOFT_GRAPH_CLIENT_SECRET",
+        "MICROSOFT_TEAMS_CLIENT_ID",
+        "MICROSOFT_TEAMS_CLIENT_SECRET",
     ],
 )
-"""Microsoft Graph OAuth2.0 credentials.
+"""Microsoft Teams OAuth2.0 credentials.
 
-- name: `microsoft_graph`
+- name: `microsoft_teams`
 - keys:
-    - `MICROSOFT_GRAPH_CLIENT_ID`
-    - `MICROSOFT_GRAPH_CLIENT_SECRET`
+    - `MICROSOFT_TEAMS_CLIENT_ID`
+    - `MICROSOFT_TEAMS_CLIENT_SECRET`
 """
 
 
 @registry.register(
     default_title="Get access token",
-    description="Retrieve a JWT token for Microsoft Graph API calls from a confidential application.",
-    display_group="Microsoft Graph",
+    description="Retrieve a JWT token for Microsoft Teams API calls from a confidential application.",
+    display_group="Microsoft Teams",
     doc_url="https://msal-python.readthedocs.io/en/latest/#confidentialclientapplication",
-    namespace="tools.microsoft_graph",
-    secrets=[microsoft_graph_secret],
+    namespace="tools.microsoft_teams",
+    secrets=[microsoft_teams_secret],
 )
 def get_access_token(
     scopes: Annotated[
@@ -61,8 +61,8 @@ def get_access_token(
         ),
     ] = None,
 ) -> str:
-    client_id = secrets.get("MICROSOFT_GRAPH_CLIENT_ID")
-    client_secret = secrets.get("MICROSOFT_GRAPH_CLIENT_SECRET")
+    client_id = secrets.get("MICROSOFT_TEAMS_CLIENT_ID")
+    client_secret = secrets.get("MICROSOFT_TEAMS_CLIENT_SECRET")
     scopes = scopes or ["https://graph.microsoft.com/.default"]
     authority = authority or "https://login.microsoftonline.com/common"
     app = ConfidentialClientApplication(
@@ -82,23 +82,23 @@ def get_access_token(
         raise ValueError(f"Failed to acquire token: {result}")
 
 
-microsoft_oauth_secret = RegistrySecret.oauth("microsoft")
-"""Microsoft Graph OAuth2.0 credentials.
+microsoft_teams_oauth_secret = RegistrySecret.oauth("microsoft_teams")
+"""Microsoft Teams OAuth2.0 credentials.
 
-- name: `microsoft`
-- provider_id: `microsoft`
+- name: `microsoft_teams`
+- provider_id: `microsoft_teams`
 usage:
-MICROSOFT_ACCESS_TOKEN
+MICROSOFT_TEAMS_ACCESS_TOKEN
 """
 
 
 @registry.register(
     default_title="Send Teams message",
     description="Send a message to a Microsoft Teams channel.",
-    display_group="Microsoft Graph",
+    display_group="Microsoft Teams",
     doc_url="https://learn.microsoft.com/en-us/graph/api/channel-post-messages",
-    namespace="tools.microsoft_graph",
-    secrets=[microsoft_oauth_secret],
+    namespace="tools.microsoft_teams",
+    secrets=[microsoft_teams_oauth_secret],
 )
 async def send_teams_message(
     team_id: Annotated[
@@ -109,7 +109,7 @@ async def send_teams_message(
     ],
     message: Annotated[str, Field(..., description="The message to send.")],
 ) -> dict[str, str]:
-    token = secrets.get("MICROSOFT_ACCESS_TOKEN")
+    token = secrets.get("MICROSOFT_TEAMS_ACCESS_TOKEN")
 
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
@@ -128,10 +128,10 @@ async def send_teams_message(
 @registry.register(
     default_title="Create Teams channel",
     description="Create a new channel in a Microsoft Teams team. Can create either public (standard) or private channels.",
-    display_group="Microsoft Graph",
+    display_group="Microsoft Teams",
     doc_url="https://learn.microsoft.com/en-us/graph/api/channel-post",
-    namespace="tools.microsoft_graph",
-    secrets=[microsoft_oauth_secret],
+    namespace="tools.microsoft_teams",
+    secrets=[microsoft_teams_oauth_secret],
 )
 async def create_teams_channel(
     team_id: Annotated[
@@ -161,7 +161,7 @@ async def create_teams_channel(
 
     For private channels, at least one owner must be specified in owner_user_ids.
     """
-    token = secrets.get("MICROSOFT_ACCESS_TOKEN")
+    token = secrets.get("MICROSOFT_TEAMS_ACCESS_TOKEN")
 
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
@@ -206,10 +206,10 @@ async def create_teams_channel(
 @registry.register(
     default_title="List channel messages",
     description="Retrieve the list of messages (without the replies) in a channel of a team.",
-    display_group="Microsoft Graph",
+    display_group="Microsoft Teams",
     doc_url="https://learn.microsoft.com/en-us/graph/api/channel-list-messages?view=graph-rest-beta&tabs=python",
-    namespace="tools.microsoft_graph",
-    secrets=[microsoft_oauth_secret],
+    namespace="tools.microsoft_teams",
+    secrets=[microsoft_teams_oauth_secret],
 )
 async def list_channel_messages(
     team_id: Annotated[
@@ -233,7 +233,7 @@ async def list_channel_messages(
 
     Note: This API requires ChannelMessage.Read.All or ChannelMessage.Read.Group permissions.
     """
-    token = secrets.get("MICROSOFT_ACCESS_TOKEN")
+    token = secrets.get("MICROSOFT_TEAMS_ACCESS_TOKEN")
 
     headers = {"Authorization": f"Bearer {token}"}
 
@@ -257,10 +257,10 @@ async def list_channel_messages(
 @registry.register(
     default_title="Get user ID by email",
     description="Get a user's ID by searching for their email address in mail or userPrincipalName fields.",
-    display_group="Microsoft Graph",
+    display_group="Microsoft Teams",
     doc_url="https://learn.microsoft.com/en-us/graph/api/user-list?view=graph-rest-beta&tabs=http",
-    namespace="tools.microsoft_graph",
-    secrets=[microsoft_oauth_secret],
+    namespace="tools.microsoft_teams",
+    secrets=[microsoft_teams_oauth_secret],
 )
 async def get_user_id_by_email(
     email: Annotated[str, Field(..., description="The email address to search for.")],
@@ -269,7 +269,7 @@ async def get_user_id_by_email(
 
     Note: This API requires User.ReadBasic.All, User.Read.All, or Directory.Read.All permissions.
     """
-    token = secrets.get("MICROSOFT_ACCESS_TOKEN")
+    token = secrets.get("MICROSOFT_TEAMS_ACCESS_TOKEN")
 
     headers = {"Authorization": f"Bearer {token}"}
 
@@ -288,10 +288,10 @@ async def get_user_id_by_email(
 @registry.register(
     default_title="Delete Teams channel",
     description="Delete a channel from a Microsoft Teams team.",
-    display_group="Microsoft Graph",
+    display_group="Microsoft Teams",
     doc_url="https://learn.microsoft.com/en-us/graph/api/channel-delete?view=graph-rest-beta&tabs=http",
-    namespace="tools.microsoft_graph",
-    secrets=[microsoft_oauth_secret],
+    namespace="tools.microsoft_teams",
+    secrets=[microsoft_teams_oauth_secret],
 )
 async def delete_teams_channel(
     team_id: Annotated[
@@ -305,7 +305,7 @@ async def delete_teams_channel(
 
     Note: This API requires Channel.Delete.All or Channel.Delete.Group permissions.
     """
-    token = secrets.get("MICROSOFT_ACCESS_TOKEN")
+    token = secrets.get("MICROSOFT_TEAMS_ACCESS_TOKEN")
 
     headers = {"Authorization": f"Bearer {token}"}
 
@@ -327,9 +327,9 @@ async def delete_teams_channel(
 @registry.register(
     default_title="Format fact set",
     description="Format fields into an Adaptive Card FactSet (key-value pairs).",
-    display_group="Microsoft Graph Cards",
+    display_group="Microsoft Teams",
     doc_url="https://adaptivecards.io/explorer/FactSet.html",
-    namespace="tools.microsoft_graph_cards",
+    namespace="tools.microsoft_teams",
 )
 def format_fact_set(
     facts: Annotated[
@@ -367,9 +367,9 @@ def format_fact_set(
 @registry.register(
     default_title="Format text block",
     description="Format text into an Adaptive Card TextBlock.",
-    display_group="Microsoft Graph Cards",
+    display_group="Microsoft Teams",
     doc_url="https://adaptivecards.io/explorer/TextBlock.html",
-    namespace="tools.microsoft_graph_cards",
+    namespace="tools.microsoft_teams",
 )
 def format_text_block(
     text: Annotated[str, Field(..., description="The text content.")],
@@ -424,9 +424,9 @@ def format_text_block(
 @registry.register(
     default_title="Format action set",
     description="Format buttons into an Adaptive Card ActionSet.",
-    display_group="Microsoft Graph Cards",
+    display_group="Microsoft Teams",
     doc_url="https://adaptivecards.io/explorer/ActionSet.html",
-    namespace="tools.microsoft_graph_cards",
+    namespace="tools.microsoft_teams",
 )
 def format_action_set(
     actions: Annotated[
@@ -488,9 +488,9 @@ def format_action_set(
 @registry.register(
     default_title="Format choice set",
     description="Format a dropdown/choice input into an Adaptive Card Input.ChoiceSet.",
-    display_group="Microsoft Graph Cards",
+    display_group="Microsoft Teams",
     doc_url="https://adaptivecards.io/explorer/Input.ChoiceSet.html",
-    namespace="tools.microsoft_graph_cards",
+    namespace="tools.microsoft_teams",
 )
 def format_choice_set(
     id: Annotated[str, Field(..., description="Unique identifier for the input.")],
@@ -557,10 +557,10 @@ def format_choice_set(
 @registry.register(
     default_title="Send Teams buttons",
     description="Send buttons/ActionSet as a thumbnail card to a Microsoft Teams channel.",
-    display_group="Microsoft Graph Cards",
+    display_group="Microsoft Teams",
     doc_url="https://learn.microsoft.com/en-us/graph/api/channel-post-messages",
-    namespace="tools.microsoft_graph_cards",
-    secrets=[microsoft_oauth_secret],
+    namespace="tools.microsoft_teams",
+    secrets=[microsoft_teams_oauth_secret],
 )
 async def send_teams_buttons(
     team_id: Annotated[
@@ -590,7 +590,7 @@ async def send_teams_buttons(
     ] = None,
 ) -> dict[str, Any]:
     """Send ActionSet buttons as a Teams thumbnail card."""
-    token = secrets.get("MICROSOFT_ACCESS_TOKEN")
+    token = secrets.get("MICROSOFT_TEAMS_ACCESS_TOKEN")
 
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
@@ -658,10 +658,10 @@ async def send_teams_buttons(
 @registry.register(
     default_title="Send adaptive card",
     description="Send a message with Adaptive Cards to a Microsoft Teams channel.",
-    display_group="Microsoft Graph Cards",
+    display_group="Microsoft Teams",
     doc_url="https://learn.microsoft.com/en-us/graph/api/channel-post-messages",
-    namespace="tools.microsoft_graph_cards",
-    secrets=[microsoft_oauth_secret],
+    namespace="tools.microsoft_teams",
+    secrets=[microsoft_teams_oauth_secret],
 )
 async def send_adaptive_card(
     team_id: Annotated[
@@ -687,7 +687,7 @@ async def send_adaptive_card(
     ] = None,
 ) -> dict[str, Any]:
     """Send an Adaptive Card message to Teams (without ActionSet elements)."""
-    token = secrets.get("MICROSOFT_ACCESS_TOKEN")
+    token = secrets.get("MICROSOFT_TEAMS_ACCESS_TOKEN")
 
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
@@ -729,9 +729,9 @@ async def send_adaptive_card(
 @registry.register(
     default_title="Format task module action",
     description="Format an action that opens a Teams task module (modal dialog).",
-    display_group="Microsoft Graph Cards",
+    display_group="Microsoft Teams",
     doc_url="https://docs.microsoft.com/en-us/microsoftteams/platform/task-modules-and-cards/task-modules/task-modules-tabs",
-    namespace="tools.microsoft_graph_cards",
+    namespace="tools.microsoft_teams",
 )
 def format_task_module_action(
     title: Annotated[str, Field(..., description="Button title.")],
@@ -774,9 +774,9 @@ def format_task_module_action(
 @registry.register(
     default_title="Format adaptive card task module",
     description="Format an action that opens an Adaptive Card in a Teams task module.",
-    display_group="Microsoft Graph Cards",
+    display_group="Microsoft Teams",
     doc_url="https://docs.microsoft.com/en-us/microsoftteams/platform/task-modules-and-cards/task-modules/task-modules-bots",
-    namespace="tools.microsoft_graph_cards",
+    namespace="tools.microsoft_teams",
 )
 def format_adaptive_card_task_module(
     title: Annotated[str, Field(..., description="Button title.")],
@@ -827,8 +827,8 @@ def format_adaptive_card_task_module(
 @registry.register(
     default_title="Format task module form",
     description="Create a form that opens in a Teams task module.",
-    display_group="Microsoft Graph Cards",
-    namespace="tools.microsoft_graph_cards",
+    display_group="Microsoft Teams",
+    namespace="tools.microsoft_teams",
 )
 def format_task_module_form(
     form_title: Annotated[str, Field(..., description="Title of the form.")],
