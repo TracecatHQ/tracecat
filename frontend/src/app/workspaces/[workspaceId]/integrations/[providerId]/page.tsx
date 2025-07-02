@@ -184,7 +184,8 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
       await testConnection(providerId)
       setShowSuccessMessage(true)
       // Hide success message after 5 seconds
-      setTimeout(() => setShowSuccessMessage(false), 5000)
+      await new Promise((resolve) => setTimeout(resolve, 5000))
+      setShowSuccessMessage(false)
     } catch (_error) {
       setErrorMessage(
         "Failed to test connection. Please check your credentials."
