@@ -4394,6 +4394,13 @@ export const $ProviderScopes = {
       description:
         "Regex patterns to validate additional scopes for this provider.",
     },
+    accepts_additional_scopes: {
+      type: "boolean",
+      title: "Accepts Additional Scopes",
+      description:
+        "Whether this provider accepts additional scopes beyond the default ones. Set to False for providers like Microsoft Graph that require exactly the default scopes.",
+      default: true,
+    },
   },
   type: "object",
   required: ["default"],

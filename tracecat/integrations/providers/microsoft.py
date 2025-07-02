@@ -110,18 +110,18 @@ class MicrosoftACProvider(AuthorizationCodeOAuthProvider):
 
 # Shared Microsoft Graph scopes for client credentials flow
 CC_SCOPES = ProviderScopes(
+    # For Microsoft Entra ID / Graph client-credentials tokens you cannot ask
+    # for individual Microsoft Graph scopes (e.g. Chat.Read, Channel.Read.All, …)
+    # in the scope parameter. The token endpoint for app-only auth accepts one
+    # and only one value per resource and that value must be the ".default" scope:
+    # If you need additional permissions (Chat.Read, ChannelMessage.Send, …)
+    # you add them to API permissions → Application permissions in the portal
+    # and click Grant admin consent. After that a token requested with .default
+    # automatically contains those new roles.
     default=[
         "https://graph.microsoft.com/.default",
     ],
-    allowed_patterns=[
-        r"^https://graph\.microsoft\.com/\.default$",
-        r"^https://graph\.microsoft\.com/[^/]+\.Read\.All$",
-        r"^https://graph\.microsoft\.com/[^/]+\.ReadWrite\.All$",
-        # Allow application permissions (ending in .All)
-        r"^https://graph\.microsoft\.com/[^/]+\.All$",
-        # Allow Azure Management API scopes
-        r"^https://management\.azure\.com/\.default$",
-    ],
+    accepts_additional_scopes=False,
 )
 
 # Shared metadata for client credentials flow

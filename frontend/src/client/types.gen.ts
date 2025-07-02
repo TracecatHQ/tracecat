@@ -1399,6 +1399,10 @@ export type ProviderScopes = {
    * Regex patterns to validate additional scopes for this provider.
    */
   allowed_patterns?: Array<string> | null
+  /**
+   * Whether this provider accepts additional scopes beyond the default ones. Set to False for providers like Microsoft Graph that require exactly the default scopes.
+   */
+  accepts_additional_scopes?: boolean
 }
 
 export type ReceiveInteractionResponse = {
@@ -4270,7 +4274,7 @@ export type PublicCheckHealthResponse = {
 
 export type $OpenApiTs = {
   "/webhooks/{workflow_id}/{secret}": {
-    post: {
+    get: {
       req: PublicIncomingWebhookData
       res: {
         /**
@@ -4283,7 +4287,7 @@ export type $OpenApiTs = {
         422: HTTPValidationError
       }
     }
-    get: {
+    post: {
       req: PublicIncomingWebhook1Data
       res: {
         /**

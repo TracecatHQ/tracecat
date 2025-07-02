@@ -204,6 +204,12 @@ class ProviderScopes(BaseModel):
         description="Regex patterns to validate additional scopes for this provider.",
     )
 
+    accepts_additional_scopes: bool = Field(
+        default=True,
+        description="Whether this provider accepts additional scopes beyond the default ones. "
+        "Set to False for providers like Microsoft Graph that require exactly the default scopes.",
+    )
+
 
 class OAuthState(BaseModel):
     """Data class for OAuth state."""

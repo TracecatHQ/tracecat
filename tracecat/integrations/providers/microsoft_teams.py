@@ -75,17 +75,7 @@ CC_SCOPES = ProviderScopes(
     default=[
         "https://graph.microsoft.com/.default",
     ],
-    allowed_patterns=[
-        r"^https://graph\.microsoft\.com/\.default$",
-        # Teams-specific application permissions
-        r"^https://graph\.microsoft\.com/Chat\.Read\.All$",
-        r"^https://graph\.microsoft\.com/Chat\.ReadWrite\.All$",
-        r"^https://graph\.microsoft\.com/Team\.ReadBasic\.All$",
-        r"^https://graph\.microsoft\.com/TeamMember\.Read\.All$",
-        r"^https://graph\.microsoft\.com/Channel\.ReadBasic\.All$",
-        r"^https://graph\.microsoft\.com/OnlineMeetings\.Read\.All$",
-        r"^https://graph\.microsoft\.com/OnlineMeetings\.ReadWrite\.All$",
-    ],
+    accepts_additional_scopes=False,
 )
 
 # Microsoft Teams specific metadata for client credentials flow

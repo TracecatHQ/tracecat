@@ -338,60 +338,65 @@ export function ProviderConfigForm({
                   </div>
                   <span className="text-xs text-muted-foreground mt-1">
                     These are the base scopes that this integration requires.
-                    You can customize additional scopes below.
+                    {!!provider.scopes.accepts_additional_scopes && (
+                      <> You can customize additional scopes below.</>
+                    )}
                   </span>
                 </div>
               )}
 
-              <FormField
-                control={form.control}
-                name="additional_scopes"
-                render={({ field, fieldState }) => (
-                  <FormItem>
-                    <FormLabel>Additional OAuth Scopes (Optional)</FormLabel>
-                    <FormControl>
-                      <MultiTagCommandInput
-                        value={field.value ?? []}
-                        onChange={field.onChange}
-                        placeholder="Add scopes..."
-                        className="min-h-[42px]"
-                        searchKeys={["value", "label", "description"]}
-                        allowCustomTags
-                        disableSuggestions
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      Add additional scopes beyond the base scopes. Leave empty
-                      to use only the base scopes. Start typing to see
-                      suggestions or enter any valid scope.
-                      {allowedPatterns && allowedPatterns.length > 0 && (
-                        <div className="mt-2 p-2 bg-muted/50 rounded text-xs">
-                          <strong>Allowed scope patterns:</strong>
-                          <div className="mt-1 space-y-1">
-                            {allowedPatterns.map((pattern, index) => (
-                              <div key={index} className="font-mono text-xs">
-                                {pattern}
-                              </div>
-                            ))}
+              {/* Only show additional scopes input if provider accepts them */}
+              {!!provider.scopes.accepts_additional_scopes && (
+                <FormField
+                  control={form.control}
+                  name="additional_scopes"
+                  render={({ field, fieldState }) => (
+                    <FormItem>
+                      <FormLabel>Additional OAuth Scopes (Optional)</FormLabel>
+                      <FormControl>
+                        <MultiTagCommandInput
+                          value={field.value ?? []}
+                          onChange={field.onChange}
+                          placeholder="Add scopes..."
+                          className="min-h-[42px]"
+                          searchKeys={["value", "label", "description"]}
+                          allowCustomTags
+                          disableSuggestions
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        Add additional scopes beyond the base scopes. Leave
+                        empty to use only the base scopes. Start typing to see
+                        suggestions or enter any valid scope.
+                        {allowedPatterns && allowedPatterns.length > 0 && (
+                          <div className="mt-2 p-2 bg-muted/50 rounded text-xs">
+                            <strong>Allowed scope patterns:</strong>
+                            <div className="mt-1 space-y-1">
+                              {allowedPatterns.map((pattern, index) => (
+                                <div key={index} className="font-mono text-xs">
+                                  {pattern}
+                                </div>
+                              ))}
+                            </div>
                           </div>
-                        </div>
-                      )}
-                    </FormDescription>
-                    <ScopeErrors
-                      errors={
-                        fieldState.error as
-                          | Record<string, { message?: string }>
-                          | undefined
-                      }
-                      scopes={field.value ?? []}
-                    />
-                    {fieldState.error &&
-                      !Object.keys(fieldState.error).some(
-                        (key) => !isNaN(Number(key))
-                      ) && <FormMessage />}
-                  </FormItem>
-                )}
-              />
+                        )}
+                      </FormDescription>
+                      <ScopeErrors
+                        errors={
+                          fieldState.error as
+                            | Record<string, { message?: string }>
+                            | undefined
+                        }
+                        scopes={field.value ?? []}
+                      />
+                      {fieldState.error &&
+                        !Object.keys(fieldState.error).some(
+                          (key) => !isNaN(Number(key))
+                        ) && <FormMessage />}
+                    </FormItem>
+                  )}
+                />
+              )}
             </div>
           </div>
           {/* Provider-Specific Configuration Section */}
