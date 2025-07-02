@@ -4122,12 +4122,12 @@ export type IntegrationsGetIntegrationData = {
 
 export type IntegrationsGetIntegrationResponse = IntegrationRead
 
-export type IntegrationsDisconnectIntegrationData = {
+export type IntegrationsDeleteIntegrationData = {
   providerId: string
   workspaceId: string
 }
 
-export type IntegrationsDisconnectIntegrationResponse = void
+export type IntegrationsDeleteIntegrationResponse = void
 
 export type IntegrationsUpdateIntegrationData = {
   providerId: string
@@ -4158,6 +4158,13 @@ export type IntegrationsOauthCallbackData = {
 }
 
 export type IntegrationsOauthCallbackResponse = IntegrationOAuthCallback
+
+export type IntegrationsDisconnectIntegrationData = {
+  providerId: string
+  workspaceId: string
+}
+
+export type IntegrationsDisconnectIntegrationResponse = void
 
 export type IntegrationsTestConnectionData = {
   providerId: string
@@ -4274,7 +4281,7 @@ export type PublicCheckHealthResponse = {
 
 export type $OpenApiTs = {
   "/webhooks/{workflow_id}/{secret}": {
-    get: {
+    post: {
       req: PublicIncomingWebhookData
       res: {
         /**
@@ -4287,7 +4294,7 @@ export type $OpenApiTs = {
         422: HTTPValidationError
       }
     }
-    post: {
+    get: {
       req: PublicIncomingWebhook1Data
       res: {
         /**
@@ -6119,7 +6126,7 @@ export type $OpenApiTs = {
       }
     }
     delete: {
-      req: IntegrationsDisconnectIntegrationData
+      req: IntegrationsDeleteIntegrationData
       res: {
         /**
          * Successful Response
@@ -6168,6 +6175,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: IntegrationOAuthCallback
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/integrations/{provider_id}/disconnect": {
+    post: {
+      req: IntegrationsDisconnectIntegrationData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
         /**
          * Validation Error
          */
