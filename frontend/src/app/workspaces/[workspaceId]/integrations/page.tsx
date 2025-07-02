@@ -1,6 +1,6 @@
 "use client"
 
-import { Filter, Key, type LucideIcon, Search, User2Icon } from "lucide-react"
+import { ArrowUpDown, Filter, Key, type LucideIcon, Search, User2Icon } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useMemo, useState } from "react"
 import {
@@ -84,12 +84,13 @@ export default function IntegrationsPage() {
     useState<ProviderCategory | null>(null)
   const [selectedStatus, setSelectedStatus] =
     useState<IntegrationStatus | null>(null)
+  const [sortBy, setSortBy] = useState<"default" | "name" | "availability">("default")
 
   const { providers, providersIsLoading, providersError } =
     useIntegrations(workspaceId)
 
   const filteredProviders = useMemo(() => {
-    return providers?.filter((provider) => {
+    const filtered = providers?.filter((provider) => {
       const { description, name, categories: providerCategories } = provider
       const matchesSearch =
         name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -103,7 +104,29 @@ export default function IntegrationsPage() {
 
       return matchesSearch && matchesCategory && matchesStatus
     })
-  }, [providers, searchQuery, selectedCategory, selectedStatus])
+
+    if (!filtered) return filtered
+
+    // Sort the filtered results
+    return [...filtered].sort((a, b) => {
+      if (sortBy === "availability") {
+        // First sort by enabled status (enabled first)
+        if (a.enabled !== b.enabled) {
+          return a.enabled ? -1 : 1
+        }
+        // Then by name alphabetically
+        return a.name.localeCompare(b.name)
+      } else if (sortBy === "name") {
+        return a.name.localeCompare(b.name)
+      } else {
+        // Default: availability first, then alphabetical
+        if (a.enabled !== b.enabled) {
+          return a.enabled ? -1 : 1
+        }
+        return a.name.localeCompare(b.name)
+      }
+    })
+  }, [providers, searchQuery, selectedCategory, selectedStatus, sortBy])
 
   const handleProviderClick = (providerId: string, enabled: boolean) => {
     if (enabled) {
@@ -178,6 +201,22 @@ export default function IntegrationsPage() {
                 <SelectItem value="all">All Status</SelectItem>
                 <SelectItem value="available">Available</SelectItem>
                 <SelectItem value="connected">Connected</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select
+              value={sortBy}
+              onValueChange={(value) =>
+                setSortBy(value as "default" | "name" | "availability")
+              }
+            >
+              <SelectTrigger className="w-full sm:w-48">
+                <ArrowUpDown className="mr-2 size-4" />
+                <SelectValue placeholder="Sort by" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="default">Default</SelectItem>
+                <SelectItem value="availability">Availability</SelectItem>
+                <SelectItem value="name">Name (A-Z)</SelectItem>
               </SelectContent>
             </Select>
           </div>
