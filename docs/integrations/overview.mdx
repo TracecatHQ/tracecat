@@ -20,6 +20,8 @@ import ContributingCTA from "/snippets/contributing-cta.mdx";
 **Tracecat Registry** is a collection of community-driven integrations and response actions in both YAML and Python.
 The majority of integrations are written in YAML as **Action Templates**, which are reusable building blocks for response automation.
 
+Tracecat also provides built-in **OAuth integrations** for secure connections to third-party services with automatic credential management and token refresh.
+
 All integrations can be found under the `tools` namespace with the following naming convention in lower snake case:
 
 ```
@@ -42,6 +44,9 @@ action is called `tools.slack.post_notification`.
 ## Learn more
 
 <CardGroup cols={2}>
+  <Card title="OAuth Integrations" icon="key" href="/integrations/oauth-integrations">
+    Built-in OAuth 2.0 integrations with automatic credential management.
+  </Card>
   <Card title="Action Templates" icon="file-code" href="/integrations/action-templates">
     Build flexible integrations fast with Tracecat's YAML-based DSL.
   </Card>

@@ -1,0 +1,201 @@
+---
+title: OAuth integrations
+description: Built-in OAuth 2.0 integrations for secure third-party service connections.
+icon: key
+---
+
+<Tip>
+  OAuth integrations provide a secure way to connect to third-party services without exposing credentials in workflows or logs.
+  All tokens are encrypted at rest and automatically refreshed when needed.
+</Tip>
+
+
+**OAuth integrations** are built-in connections to third-party services that handle the complete authentication flow automatically.
+Unlike action templates that require manual token management, OAuth integrations provide seamless, secure access to external APIs.
+
+Key benefits:
+- **Secure credential storage** - Client secrets and tokens are encrypted at rest
+- **Automatic token refresh** - Expired tokens are refreshed in the background
+- **Dynamic scope management** - Configure only the permissions you need
+- **Workspace isolation** - Each workspace has separate integration configurations
+
+## OAuth grant types
+
+Tracecat supports two OAuth 2.0 grant types for different authentication scenarios:
+
+### Authorization Code Flow
+The standard OAuth flow where users are redirected to the provider to grant permissions. Best for:
+- **User-delegated access** - Actions performed on behalf of a specific user
+- **Interactive authentication** - Requires user consent and login
+- **Broad API access** - Full access to user resources with appropriate scopes
+
+Examples: Accessing a user's Microsoft OneDrive files, sending Slack messages as a specific user
+
+### Client Credentials Flow
+Direct machine-to-machine authentication using client credentials only. Best for:
+- **Application-level access** - Actions performed by the application itself
+- **Service authentication** - No user interaction required
+- **System integration** - Background processes and automated workflows
+
+Examples: Organization-wide Microsoft Teams channel management, system-level GitHub repository access
+
+<Note>
+  The grant type is configured per provider and determines the authentication flow and available permissions.
+  Some providers support both flows while others may only support one.
+</Note>
+
+## Setting up OAuth integrations
+
+### 1. Configure the provider
+
+Navigate to the integrations page and select a provider to configure:
+
+<img src="/images/oauth-setup-placeholder.png" alt="OAuth provider configuration" />
+
+1. **Grant Type** - Select Authorization Code or Client Credentials flow
+2. **Client ID** - OAuth application client ID from the provider
+3. **Client Secret** - OAuth application client secret (encrypted when saved)
+4. **Additional Scopes** - Custom scopes beyond the base requirements (optional)
+
+<Note>
+  Each provider includes setup instructions with links to their developer documentation.
+  Follow the provider's guide to create an OAuth application and obtain your client credentials.
+</Note>
+
+### 2. Complete authentication
+
+The authentication process depends on your selected grant type:
+
+#### Authorization Code Flow
+Click "Connect with OAuth" to complete the authorization:
+
+<img src="/images/oauth-flow-placeholder.png" alt="OAuth authorization flow" />
+
+This redirects you to the provider's authorization page where you grant permissions to Tracecat.
+
+#### Client Credentials Flow
+Click "Test Connection" to verify your client credentials. No user authorization is required - the connection uses your application's credentials directly.
+
+### 3. Verify connection
+
+Once connected, the integration status shows as "Connected" with details about granted scopes and token expiration:
+
+<img src="/images/oauth-connected-placeholder.png" alt="Connected OAuth integration" />
+
+## Managing scopes
+
+OAuth integrations use a two-tier scope system:
+
+### Base scopes
+Required permissions that every integration needs for basic functionality.
+These are automatically included and cannot be removed.
+
+### Additional scopes
+Optional permissions you can add for extended functionality.
+Use the scope input to add custom scopes beyond the base requirements.
+
+<Tip>
+  Only add scopes you actually need. Extra permissions increase security risk and may require additional approval from your organization.
+</Tip>
+
+<Accordion title="Scope validation" icon="shield-check">
+  Each provider defines allowed scope patterns to prevent invalid or potentially dangerous permissions.
+
+  If you enter an invalid scope, you'll see a validation error with the expected patterns.
+
+  Common validation patterns:
+  - **Microsoft Graph**: `https://graph.microsoft.com/.default` or specific resource scopes
+  - **Google APIs**: Service-specific scopes like `https://www.googleapis.com/auth/drive.readonly`
+  - **GitHub**: Repository and organization permissions like `repo`, `read:org`
+</Accordion>
+
+## Integration status
+
+OAuth integrations have three possible states:
+
+<Steps>
+  <Step title="Not Configured">
+    No client credentials have been set up. Click "Configure Integration" to get started.
+  </Step>
+  <Step title="Configured">
+    Client credentials are saved but authentication hasn't been completed. For Authorization Code flow, click "Connect with OAuth". For Client Credentials flow, click "Test Connection".
+  </Step>
+  <Step title="Connected">
+    Successfully authenticated and ready to use in workflows. For Authorization Code flow, tokens are automatically refreshed as needed.
+  </Step>
+</Steps>
+
+## Supported providers
+
+<CardGroup cols={2}>
+  <Card title="Microsoft Graph" icon="microsoft">
+    Access Office 365, Azure AD, and Microsoft services
+  </Card>
+  <Card title="Google Workspace" icon="google">
+    Connect to Gmail, Drive, Calendar, and Google services
+  </Card>
+  <Card title="GitHub" icon="github">
+    Repository management and organization access
+  </Card>
+  <Card title="Slack" icon="slack">
+    Channel messaging and workspace integration
+  </Card>
+</CardGroup>
+
+<Note>
+  Don't see your provider? OAuth integrations are extensible - check our [contributing guide](https://github.com/TracecatHQ/tracecat/blob/main/CONTRIBUTING.md) to learn how to add new providers.
+</Note>
+
+## Using in workflows
+
+Once connected, OAuth integrations work seamlessly with action templates and Python UDFs.
+The integration handles token retrieval automatically - no need to manage credentials in your workflows.
+
+```yaml
+# Example: List files from Microsoft OneDrive
+- ref: list_files
+  action: tools.microsoft_graph.list_drive_files
+  args:
+    drive_id: "b!abc123"
+    folder_path: "/Documents"
+```
+
+The `tools.microsoft_graph.list_drive_files` action automatically uses your connected OAuth integration for authentication.
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Integration shows as expired" icon="clock">
+    OAuth tokens have limited lifespans. Tracecat automatically refreshes expired tokens using refresh tokens.
+
+    If refresh fails, you may need to re-authorize by clicking "Connect with OAuth" again.
+  </Accordion>
+
+  <Accordion title="Scope permission errors" icon="exclamation-triangle">
+    If workflows fail with permission errors, check that your integration includes the required scopes.
+
+    You can update scopes in the configuration tab and re-authorize to grant additional permissions.
+  </Accordion>
+
+  <Accordion title="Provider connection fails" icon="wifi-off">
+    Verify your OAuth application configuration with the provider:
+    - Redirect URI matches the one shown in Tracecat
+    - Client ID and secret are correct
+    - OAuth application is enabled and published
+  </Accordion>
+</AccordionGroup>
+
+## Security considerations
+
+<Warning>
+  OAuth integrations have access to external services with the permissions you grant.
+  Follow security best practices:
+
+  - Only grant minimum required scopes
+  - Regularly review connected integrations
+  - Rotate client secrets periodically
+  - Monitor integration usage in audit logs
+</Warning>
+
+All OAuth credentials and tokens are encrypted using workspace-specific encryption keys.
+Tokens are never logged or exposed in workflow outputs for security.
