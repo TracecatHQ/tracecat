@@ -264,6 +264,7 @@ async def delete_teams_channel(
     display_group="Microsoft Teams",
     doc_url="https://adaptivecards.io/explorer/FactSet.html",
     namespace="tools.microsoft_teams",
+    secrets=[microsoft_teams_oauth_secret],
 )
 def format_fact_set(
     facts: Annotated[
@@ -296,6 +297,7 @@ def format_fact_set(
     display_group="Microsoft Teams",
     doc_url="https://adaptivecards.io/explorer/TextBlock.html",
     namespace="tools.microsoft_teams",
+    secrets=[microsoft_teams_oauth_secret],
 )
 def format_text_block(
     text: Annotated[str, Doc("The text content.")],
@@ -349,6 +351,7 @@ def format_text_block(
     display_group="Microsoft Teams",
     doc_url="https://adaptivecards.io/explorer/ActionSet.html",
     namespace="tools.microsoft_teams",
+    secrets=[microsoft_teams_oauth_secret],
 )
 def format_action_set(
     actions: Annotated[
@@ -405,6 +408,7 @@ def format_action_set(
     display_group="Microsoft Teams",
     doc_url="https://adaptivecards.io/explorer/Input.ChoiceSet.html",
     namespace="tools.microsoft_teams",
+    secrets=[microsoft_teams_oauth_secret],
 )
 def format_choice_set(
     id: Annotated[str, Doc("Unique identifier for the input.")],
@@ -603,144 +607,3 @@ async def send_adaptive_card(
         response = await client.post(url, headers=headers, json=payload)
         response.raise_for_status()
         return response.json()
-
-
-@registry.register(
-    default_title="Format task module action",
-    description="Format an action that opens a Teams task module (modal dialog).",
-    display_group="Microsoft Teams",
-    doc_url="https://docs.microsoft.com/en-us/microsoftteams/platform/task-modules-and-cards/task-modules/task-modules-tabs",
-    namespace="tools.microsoft_teams",
-)
-def format_task_module_action(
-    title: RequiredTitle,
-    url: Annotated[str, Doc("URL to open in task module.")],
-    team_id: OptionalTeamId = None,
-    channel_id: OptionalChannelId = None,
-) -> dict[str, Any]:
-    """Create an action that opens a Teams task module."""
-
-    # Build task module deep link
-    task_module_url = f"https://teams.microsoft.com/l/task/{url}"
-
-    # Add context parameters
-    params = []
-    if team_id:
-        params.append(f"groupId={team_id}")
-    if channel_id:
-        params.append(f"channelId={channel_id}")
-
-    if params:
-        task_module_url += "?" + "&".join(params)
-
-    return {"type": "openUrl", "title": title, "url": task_module_url}
-
-
-@registry.register(
-    default_title="Format adaptive card task module",
-    description="Format an action that opens an Adaptive Card in a Teams task module.",
-    display_group="Microsoft Teams",
-    doc_url="https://docs.microsoft.com/en-us/microsoftteams/platform/task-modules-and-cards/task-modules/task-modules-bots",
-    namespace="tools.microsoft_teams",
-)
-def format_adaptive_card_task_module(
-    title: Annotated[str, Doc("Button title.")],
-    card_elements: Annotated[
-        list[dict[str, Any]],
-        Doc("Adaptive Card elements for the task module."),
-    ],
-    submit_action: Annotated[
-        str | None,
-        Doc("Action to perform when task module is submitted."),
-    ] = None,
-    width: Annotated[
-        int | str,
-        Doc("Task module width."),
-    ] = "large",
-    height: Annotated[
-        int | str,
-        Doc("Task module height."),
-    ] = "large",
-) -> dict[str, Any]:
-    """Create an action that opens an Adaptive Card in a task module."""
-
-    task_card = {"type": "AdaptiveCard", "version": "1.4", "body": card_elements}
-
-    # Add submit action if provided
-    if submit_action:
-        task_card["actions"] = [
-            {
-                "type": "Action.Submit",
-                "title": "Submit",
-                "data": {"action": submit_action},
-            }
-        ]
-
-    return {
-        "type": "messageBack",
-        "title": title,
-        "text": f"task_module:{json.dumps(task_card)}",
-        "displayText": f"Opening {title}...",
-        "value": {
-            "type": "task_module",
-            "card": task_card,
-            "width": width,
-            "height": height,
-        },
-    }
-
-
-@registry.register(
-    default_title="Format task module form",
-    description="Create a form that opens in a Teams task module.",
-    display_group="Microsoft Teams",
-    namespace="tools.microsoft_teams",
-)
-def format_task_module_form(
-    form_title: Annotated[str, Doc("Title of the form.")],
-    form_Docs: Annotated[
-        list[dict[str, Any]],
-        Doc("Form Docs (TextInput, ChoiceSet, etc.)."),
-    ],
-    submit_url: Annotated[
-        str | None,
-        Doc("URL to submit form data to."),
-    ] = None,
-    cancel_button: Annotated[
-        bool,
-        Doc("Whether to include a cancel button."),
-    ] = True,
-) -> dict[str, Any]:
-    """Create a form for use in task modules."""
-
-    # Build form body
-    form_body = [
-        {"type": "TextBlock", "text": form_title, "size": "Large", "weight": "Bolder"}
-    ]
-
-    # Add form Docs
-    form_body.extend(form_Docs)
-
-    # Build form actions
-    actions = []
-
-    if submit_url:
-        actions.append(
-            {
-                "type": "Action.Submit",
-                "title": "Submit",
-                "data": {"submitUrl": submit_url},
-            }
-        )
-
-    if cancel_button:
-        actions.append(
-            {"type": "Action.Submit", "title": "Cancel", "data": {"action": "cancel"}}
-        )
-
-    return {
-        "type": "AdaptiveCard",
-        "version": "1.4",
-        "body": form_body,
-        "actions": actions,
-    }
