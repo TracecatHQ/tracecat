@@ -36,8 +36,12 @@ def upgrade() -> None:
                 create_type=False,
             ),
             nullable=False,
+            # Up until this point, all integrations were created with authorization code grant type
+            server_default=sa.text("'AUTHORIZATION_CODE'"),
         ),
     )
+    # Remove the server default to force explicit values for new rows
+    op.alter_column("oauth_integration", "grant_type", server_default=None)
     op.drop_constraint(
         "uq_oauth_integration_owner_provider", "oauth_integration", type_="unique"
     )
