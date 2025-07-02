@@ -28,7 +28,7 @@ from tracecat.db.adapter import (
 from tracecat.ee.interactions.enums import InteractionStatus, InteractionType
 from tracecat.identifiers import OwnerID, action, id_factory
 from tracecat.identifiers.workflow import WorkflowUUID
-from tracecat.integrations.enums import IntegrationStatus
+from tracecat.integrations.enums import IntegrationStatus, OAuthGrantType
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 
 DEFAULT_SA_RELATIONSHIP_KWARGS = {
@@ -994,7 +994,9 @@ class OAuthIntegration(SQLModel, TimestampMixin, table=True):
         UniqueConstraint(
             "owner_id",
             "provider_id",
-            name="uq_oauth_integration_owner_provider",
+            "user_id",
+            "grant_type",
+            name="uq_oauth_integration_owner_provider_user_flow",
         ),
     )
 
@@ -1058,6 +1060,10 @@ class OAuthIntegration(SQLModel, TimestampMixin, table=True):
     requested_scopes: str | None = Field(
         default=None,
         description="OAuth scopes requested by user for this integration",
+    )
+    grant_type: OAuthGrantType = Field(
+        default=OAuthGrantType.AUTHORIZATION_CODE,
+        description="OAuth grant type used for this integration",
     )
     provider_config: dict[str, Any] = Field(
         default_factory=dict,

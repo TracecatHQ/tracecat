@@ -17,7 +17,7 @@ from pydantic import UUID4, BaseModel, SecretStr
 from sqlmodel import Field
 
 from tracecat.identifiers import UserID, WorkspaceID
-from tracecat.integrations.enums import IntegrationStatus
+from tracecat.integrations.enums import IntegrationStatus, OAuthGrantType
 
 
 # Pydantic models for API responses
@@ -89,6 +89,10 @@ class IntegrationUpdate(BaseModel):
         default=None,
         description="OAuth scopes to request for this integration",
     )
+    grant_type: OAuthGrantType | None = Field(
+        default=None,
+        description="OAuth grant type for this integration",
+    )
 
 
 class IntegrationOAuthConnect(BaseModel):
@@ -118,6 +122,27 @@ class IntegrationOAuthCallback(BaseModel):
     redirect_url: str = Field(
         ...,
         description="The URL to redirect to after the OAuth callback",
+    )
+
+
+class IntegrationTestConnectionResponse(BaseModel):
+    """Response for testing integration connection."""
+
+    success: bool = Field(
+        ...,
+        description="Whether the connection test was successful",
+    )
+    provider_id: str = Field(
+        ...,
+        description="The provider that was tested",
+    )
+    message: str = Field(
+        ...,
+        description="Message describing the test result",
+    )
+    error: str | None = Field(
+        default=None,
+        description="Error message if the test failed",
     )
 
 
@@ -177,6 +202,12 @@ class ProviderScopes(BaseModel):
     allowed_patterns: list[str] | None = Field(
         default=None,
         description="Regex patterns to validate additional scopes for this provider.",
+    )
+
+    accepts_additional_scopes: bool = Field(
+        default=True,
+        description="Whether this provider accepts additional scopes beyond the default ones. "
+        "Set to False for providers like Microsoft Graph that require exactly the default scopes.",
     )
 
 
@@ -240,11 +271,14 @@ class ProviderReadMinimal(BaseModel):
     categories: list[ProviderCategory]
     integration_status: IntegrationStatus
     enabled: bool
+    grant_type: OAuthGrantType
 
 
 class ProviderRead(BaseModel):
+    grant_type: OAuthGrantType
     metadata: ProviderMetadata
     scopes: ProviderScopes
     schema: ProviderSchema
     integration_status: IntegrationStatus
-    redirect_uri: str
+    # Only applicable to AuthorizationCodeOAuthProvider
+    redirect_uri: str | None = None

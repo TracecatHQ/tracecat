@@ -3,12 +3,13 @@
 Currently supports confidential app-only authentication (i.e. `acquire_token_for_client` method)
 """
 
-from typing import Annotated
+from typing import Annotated, Any
 
 import httpx
 from msal import ConfidentialClientApplication
 from pydantic import Field
 from tracecat import __version__
+from tracecat.logger import logger
 
 from tracecat_registry import RegistrySecret, registry, secrets
 
@@ -80,7 +81,7 @@ def get_access_token(
         raise ValueError(f"Failed to acquire token: {result}")
 
 
-microsoft_oauth_secret = RegistrySecret.oauth("microsoft")
+microsoft_oauth_secret = RegistrySecret.oauth("microsoft_cc")
 """Microsoft Graph OAuth2.0 credentials.
 
 - name: `microsoft`
@@ -91,34 +92,58 @@ MICROSOFT_ACCESS_TOKEN
 
 
 @registry.register(
-    default_title="Send Teams message",
-    description="Send a message to a Microsoft Teams channel.",
+    default_title="Read teams messages",
+    description="Read messages from a Microsoft Teams channel using Microsoft Graph.",
     display_group="Microsoft Graph",
-    doc_url="https://learn.microsoft.com/en-us/graph/api/channel-post-messages",
+    doc_url="https://learn.microsoft.com/en-us/graph/api/channel-list-messages",
     namespace="tools.microsoft_graph",
     secrets=[microsoft_oauth_secret],
-    include_in_schema=False,
 )
-async def send_teams_message(
+async def read_teams_channel(
     team_id: Annotated[
-        str, Field(..., description="The ID of the team to send the message to.")
+        str,
+        Field(..., description="The ID of the Microsoft Teams team."),
     ],
     channel_id: Annotated[
-        str, Field(..., description="The ID of the channel to send the message to.")
+        str,
+        Field(..., description="The ID of the channel within the team."),
     ],
-    message: Annotated[str, Field(..., description="The message to send.")],
-) -> dict[str, str]:
-    token = secrets.get("MICROSOFT_ACCESS_TOKEN")
+    limit: Annotated[
+        int,
+        Field(
+            50,
+            description="Maximum number of messages to retrieve (default: 50).",
+            ge=1,
+            le=999,
+        ),
+    ] = 50,
+    expand_replies: Annotated[
+        bool,
+        Field(
+            False,
+            description="Whether to expand replies to messages.",
+        ),
+    ] = False,
+) -> dict[str, Any]:
+    """Read messages from a Microsoft Teams channel."""
+    token = secrets.get("MICROSOFT_CC_ACCESS_TOKEN")
+    logger.info("Reading Teams channel messages using Microsoft Graph", token=token)
 
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
-    # Microsoft Graph API endpoint for sending channel messages
+    # Microsoft Graph API endpoint for reading channel messages
     url = f"https://graph.microsoft.com/v1.0/teams/{team_id}/channels/{channel_id}/messages"
 
-    # Message payload
-    payload = {"body": {"content": message}}
+    # Build query parameters
+    params = {
+        "$top": limit,
+    }
+
+    logger.info(f"Reading messages from Teams channel {channel_id} in team {team_id}")
+    logger.debug(f"Request URL: {url}")
+    logger.debug(f"Query parameters: {params}")
 
     async with httpx.AsyncClient() as client:
-        response = await client.post(url, headers=headers, json=payload)
+        response = await client.get(url, headers=headers, params=params)
         response.raise_for_status()
         return response.json()

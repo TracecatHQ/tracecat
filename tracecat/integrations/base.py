@@ -1,11 +1,13 @@
 """Base OAuth provider using authlib for standardized OAuth2 flows."""
 
+from abc import ABC
 from typing import Any, ClassVar, Self, cast
 
 from authlib.integrations.httpx_client import AsyncOAuth2Client
 from pydantic import BaseModel, SecretStr
 
 from tracecat import config
+from tracecat.integrations.enums import OAuthGrantType
 from tracecat.integrations.models import (
     ProviderConfig,
     ProviderMetadata,
@@ -15,8 +17,8 @@ from tracecat.integrations.models import (
 from tracecat.logger import logger
 
 
-class BaseOAuthProvider:
-    """Base OAuth provider using authlib for standardized OAuth2 flows."""
+class BaseOAuthProvider(ABC):
+    """Base OAuth provider containing logic common to all OAuth 2.0 providers."""
 
     id: ClassVar[str]
 
@@ -27,15 +29,15 @@ class BaseOAuthProvider:
     # Scopes - to be overridden by subclasses
     scopes: ClassVar[ProviderScopes]
 
-    # OAuth2 configuration
-    response_type: ClassVar[str] = "code"
-    grant_type: ClassVar[str] = "authorization_code"
+    # Grant type - to be set by grant-specific subclasses
+    grant_type: ClassVar[OAuthGrantType]
 
     # Provider specific configuration schema
     config_model: ClassVar[type[BaseModel] | None] = None
 
     # Provider metadata
     metadata: ClassVar[ProviderMetadata]
+    _include_in_registry: ClassVar[bool] = True
 
     def __init__(
         self,
@@ -53,38 +55,39 @@ class BaseOAuthProvider:
         """
         self.client_id = client_id
         self.client_secret = client_secret
-        self.requested_scopes = self.scopes.default + (scopes or [])
+        # Merge provider defaults with user-supplied scopes and remove duplicates
+        combined_scopes = sorted(set(self.scopes.default + (scopes or [])))
+        self.requested_scopes = combined_scopes
 
         # Validate required endpoints
         if not self.authorization_endpoint or not self.token_endpoint:
             raise ValueError(
                 f"{self.__class__.__name__} must define authorization_endpoint and token_endpoint"
             )
+        if not self.id == self.metadata.id:
+            raise ValueError(f"{self.__class__.__name__} id must match metadata.id")
 
-        # Create authlib OAuth2 client
-        self.client = AsyncOAuth2Client(
-            client_id=self.client_id,
-            client_secret=self.client_secret,
-            redirect_uri=self.redirect_uri(),
-            scope=" ".join(self.requested_scopes),
-            response_type=self.response_type,
-            grant_type=self.grant_type,
-            # Additional OAuth2 parameters can be passed here
-            code_challenge_method="S256" if self._use_pkce() else None,
-        )
+        # Create base client kwargs
+        client_kwargs = {
+            "client_id": self.client_id,
+            "client_secret": self.client_secret,
+            "scope": " ".join(self.requested_scopes),
+            "grant_type": self.grant_type,
+        }
+
+        # Let subclasses add grant-specific parameters
+        client_kwargs.update(self._get_client_kwargs())
+
+        self.client = AsyncOAuth2Client(**client_kwargs)
 
         self.logger = logger.bind(service=f"{self.__class__.__name__}")
         self.logger.info(
-            f"{self.id} OAuth provider initialized",
-            redirect_uri=self.redirect_uri(),
+            "OAuth provider initialized",
+            provider=self.id,
             client_id=self.client_id,
             scopes=self.requested_scopes,
+            grant_type=self.grant_type,
         )
-
-    @classmethod
-    def redirect_uri(cls) -> str:
-        """The redirect URI for the OAuth provider."""
-        return f"{config.TRACECAT__PUBLIC_APP_URL}/integrations/{cls.id}/callback"
 
     @property
     def authorization_endpoint(self) -> str:
@@ -102,7 +105,6 @@ class BaseOAuthProvider:
     @classmethod
     def from_config(cls, config: ProviderConfig) -> Self:
         """Create an OAuth provider from a configuration."""
-        logger.warning("Creating OAuth provider from configuration", config=config)
         if cls.config_model:
             model = cls.config_model.model_validate(config.provider_config)
             validated_config = model.model_dump(exclude_unset=True)
@@ -115,16 +117,41 @@ class BaseOAuthProvider:
             **validated_config,
         )
 
+    def _get_client_kwargs(self) -> dict[str, Any]:
+        """Override to add grant-specific client parameters."""
+        return {}
+
+    def _get_additional_token_params(self) -> dict[str, Any]:
+        """Override to add provider-specific token exchange parameters."""
+        return {}
+
+
+class AuthorizationCodeOAuthProvider(BaseOAuthProvider):
+    """Base OAuth provider for authorization code flow."""
+
+    # OAuth2 configuration for authorization code flow
+    response_type: ClassVar[str] = "code"
+    grant_type: ClassVar[OAuthGrantType] = OAuthGrantType.AUTHORIZATION_CODE
+
+    def _get_client_kwargs(self) -> dict[str, Any]:
+        """Add authorization code flow specific parameters."""
+        return {
+            "redirect_uri": self.redirect_uri(),
+            "response_type": self.response_type,
+            "code_challenge_method": "S256" if self._use_pkce() else None,
+        }
+
+    @classmethod
+    def redirect_uri(cls) -> str:
+        """The redirect URI for the OAuth provider."""
+        return f"{config.TRACECAT__PUBLIC_APP_URL}/integrations/{cls.id}/callback"
+
     def _use_pkce(self) -> bool:
         """Override to enable PKCE for providers that support/require it."""
         return False
 
     def _get_additional_authorize_params(self) -> dict[str, Any]:
         """Override to add provider-specific authorization parameters."""
-        return {}
-
-    def _get_additional_token_params(self) -> dict[str, Any]:
-        """Override to add provider-specific token exchange parameters."""
         return {}
 
     async def get_authorization_url(self, state: str) -> str:
@@ -205,6 +232,47 @@ class BaseOAuthProvider:
         except Exception as e:
             self.logger.error(
                 "Error refreshing access token",
+                provider=self.id,
+                error=str(e),
+            )
+            raise
+
+
+class ClientCredentialsOAuthProvider(BaseOAuthProvider):
+    """Base OAuth provider for client credentials flow."""
+
+    # OAuth2 configuration for client credentials flow
+    grant_type: ClassVar[OAuthGrantType] = OAuthGrantType.CLIENT_CREDENTIALS
+
+    async def get_client_credentials_token(self) -> TokenResponse:
+        """Get token using client credentials flow."""
+        try:
+            # Get token using client credentials flow
+            token = cast(
+                dict[str, Any],
+                await self.client.fetch_token(
+                    self.token_endpoint,
+                    grant_type="client_credentials",
+                    **self._get_additional_token_params(),
+                ),  # type: ignore
+            )
+
+            self.logger.info(
+                "Successfully acquired client credentials token", provider=self.id
+            )
+
+            # Convert authlib token response to our TokenResponse model
+            return TokenResponse(
+                access_token=SecretStr(token["access_token"]),
+                refresh_token=None,  # Client credentials flow doesn't use refresh tokens
+                expires_in=token.get("expires_in", 3600),
+                scope=token.get("scope", " ".join(self.requested_scopes)),
+                token_type=token.get("token_type", "Bearer"),
+            )
+
+        except Exception as e:
+            self.logger.error(
+                "Error acquiring client credentials token",
                 provider=self.id,
                 error=str(e),
             )

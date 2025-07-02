@@ -1105,6 +1105,28 @@ export type IntegrationReadMinimal = {
 export type IntegrationStatus = "not_configured" | "configured" | "connected"
 
 /**
+ * Response for testing integration connection.
+ */
+export type IntegrationTestConnectionResponse = {
+  /**
+   * Whether the connection test was successful
+   */
+  success: boolean
+  /**
+   * The provider that was tested
+   */
+  provider_id: string
+  /**
+   * Message describing the test result
+   */
+  message: string
+  /**
+   * Error message if the test failed
+   */
+  error?: string | null
+}
+
+/**
  * Request model for updating an integration.
  */
 export type IntegrationUpdate = {
@@ -1126,6 +1148,10 @@ export type IntegrationUpdate = {
    * OAuth scopes to request for this integration
    */
   scopes?: Array<string> | null
+  /**
+   * OAuth grant type for this integration
+   */
+  grant_type?: OAuthGrantType | null
 }
 
 export type InteractionCategory = "slack"
@@ -1211,6 +1237,11 @@ export type ModelResponse = {
 export type OAuth2AuthorizeResponse = {
   authorization_url: string
 }
+
+/**
+ * Grant type for OAuth 2.0.
+ */
+export type OAuthGrantType = "authorization_code" | "client_credentials"
 
 /**
  * Settings for OAuth authentication.
@@ -1328,11 +1359,12 @@ export type ProviderMetadata = {
 }
 
 export type ProviderRead = {
+  grant_type: OAuthGrantType
   metadata: ProviderMetadata
   scopes: ProviderScopes
   schema?: ProviderSchema
   integration_status: IntegrationStatus
-  redirect_uri: string
+  redirect_uri?: string | null
 }
 
 export type ProviderReadMinimal = {
@@ -1343,6 +1375,7 @@ export type ProviderReadMinimal = {
   categories: Array<ProviderCategory>
   integration_status: IntegrationStatus
   enabled: boolean
+  grant_type: OAuthGrantType
 }
 
 /**
@@ -1366,6 +1399,10 @@ export type ProviderScopes = {
    * Regex patterns to validate additional scopes for this provider.
    */
   allowed_patterns?: Array<string> | null
+  /**
+   * Whether this provider accepts additional scopes beyond the default ones. Set to False for providers like Microsoft Graph that require exactly the default scopes.
+   */
+  accepts_additional_scopes?: boolean
 }
 
 export type ReceiveInteractionResponse = {
@@ -4122,6 +4159,14 @@ export type IntegrationsOauthCallbackData = {
 
 export type IntegrationsOauthCallbackResponse = IntegrationOAuthCallback
 
+export type IntegrationsTestConnectionData = {
+  providerId: string
+  workspaceId: string
+}
+
+export type IntegrationsTestConnectionResponse =
+  IntegrationTestConnectionResponse
+
 export type ProvidersListProvidersData = {
   workspaceId: string
 }
@@ -6123,6 +6168,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: IntegrationOAuthCallback
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/integrations/{provider_id}/test": {
+    post: {
+      req: IntegrationsTestConnectionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: IntegrationTestConnectionResponse
         /**
          * Validation Error
          */

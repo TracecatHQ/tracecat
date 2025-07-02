@@ -3558,6 +3558,42 @@ export const $IntegrationStatus = {
   description: "Status of an integration.",
 } as const
 
+export const $IntegrationTestConnectionResponse = {
+  properties: {
+    success: {
+      type: "boolean",
+      title: "Success",
+      description: "Whether the connection test was successful",
+    },
+    provider_id: {
+      type: "string",
+      title: "Provider Id",
+      description: "The provider that was tested",
+    },
+    message: {
+      type: "string",
+      title: "Message",
+      description: "Message describing the test result",
+    },
+    error: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Error",
+      description: "Error message if the test failed",
+    },
+  },
+  type: "object",
+  required: ["success", "provider_id", "message"],
+  title: "IntegrationTestConnectionResponse",
+  description: "Response for testing integration connection.",
+} as const
+
 export const $IntegrationUpdate = {
   properties: {
     client_id: {
@@ -3614,6 +3650,17 @@ export const $IntegrationUpdate = {
       ],
       title: "Scopes",
       description: "OAuth scopes to request for this integration",
+    },
+    grant_type: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/OAuthGrantType",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description: "OAuth grant type for this integration",
     },
   },
   type: "object",
@@ -3942,6 +3989,13 @@ export const $OAuth2AuthorizeResponse = {
   title: "OAuth2AuthorizeResponse",
 } as const
 
+export const $OAuthGrantType = {
+  type: "string",
+  enum: ["authorization_code", "client_credentials"],
+  title: "OAuthGrantType",
+  description: "Grant type for OAuth 2.0.",
+} as const
+
 export const $OAuthSettingsRead = {
   properties: {
     oauth_google_enabled: {
@@ -4219,6 +4273,9 @@ export const $ProviderMetadata = {
 
 export const $ProviderRead = {
   properties: {
+    grant_type: {
+      $ref: "#/components/schemas/OAuthGrantType",
+    },
     metadata: {
       $ref: "#/components/schemas/ProviderMetadata",
     },
@@ -4232,12 +4289,19 @@ export const $ProviderRead = {
       $ref: "#/components/schemas/IntegrationStatus",
     },
     redirect_uri: {
-      type: "string",
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "Redirect Uri",
     },
   },
   type: "object",
-  required: ["metadata", "scopes", "integration_status", "redirect_uri"],
+  required: ["grant_type", "metadata", "scopes", "integration_status"],
   title: "ProviderRead",
 } as const
 
@@ -4273,6 +4337,9 @@ export const $ProviderReadMinimal = {
       type: "boolean",
       title: "Enabled",
     },
+    grant_type: {
+      $ref: "#/components/schemas/OAuthGrantType",
+    },
   },
   type: "object",
   required: [
@@ -4283,6 +4350,7 @@ export const $ProviderReadMinimal = {
     "categories",
     "integration_status",
     "enabled",
+    "grant_type",
   ],
   title: "ProviderReadMinimal",
 } as const
@@ -4325,6 +4393,13 @@ export const $ProviderScopes = {
       title: "Allowed Patterns",
       description:
         "Regex patterns to validate additional scopes for this provider.",
+    },
+    accepts_additional_scopes: {
+      type: "boolean",
+      title: "Accepts Additional Scopes",
+      description:
+        "Whether this provider accepts additional scopes beyond the default ones. Set to False for providers like Microsoft Graph that require exactly the default scopes.",
+      default: true,
     },
   },
   type: "object",

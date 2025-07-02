@@ -7,10 +7,10 @@ from tracecat.integrations.models import (
     ProviderMetadata,
     ProviderScopes,
 )
-from tracecat.integrations.providers.microsoft import MicrosoftOAuthProvider
+from tracecat.integrations.providers.microsoft import MicrosoftACProvider
 
 
-class MicrosoftDefenderOAuthProvider(MicrosoftOAuthProvider):
+class MicrosoftDefenderOAuthProvider(MicrosoftACProvider):
     """Microsoft Defender OAuth provider for security and threat protection."""
 
     id: ClassVar[str] = "microsoft_defender"

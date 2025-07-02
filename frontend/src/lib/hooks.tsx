@@ -51,6 +51,7 @@ import {
   integrationsDisconnectIntegration,
   integrationsGetIntegration,
   integrationsListIntegrations,
+  integrationsTestConnection,
   integrationsUpdateIntegration,
   type OAuthSettingsRead,
   type OrganizationDeleteOrgMemberData,
@@ -3240,6 +3241,9 @@ export function useIntegrationProvider({
       queryClient.invalidateQueries({
         queryKey: ["providers", workspaceId],
       })
+      queryClient.invalidateQueries({
+        queryKey: ["provider-schema", providerId, workspaceId],
+      })
       toast({
         title: "Disconnected",
         description: "Successfully disconnected from provider",
@@ -3250,6 +3254,47 @@ export function useIntegrationProvider({
       toast({
         title: "Failed to disconnect",
         description: `Could not disconnect from provider: ${error.body?.detail || error.message}`,
+        variant: "destructive",
+      })
+    },
+  })
+
+  // Test connection for client credentials providers
+  const {
+    mutateAsync: testConnection,
+    isPending: testConnectionIsPending,
+    error: testConnectionError,
+  } = useMutation({
+    mutationFn: async (providerId: string) =>
+      await integrationsTestConnection({ providerId, workspaceId }),
+    onSuccess: (result) => {
+      if (result.success) {
+        queryClient.invalidateQueries({
+          queryKey: ["integration", providerId, workspaceId],
+        })
+        queryClient.invalidateQueries({
+          queryKey: ["providers", workspaceId],
+        })
+        queryClient.invalidateQueries({
+          queryKey: ["provider-schema", providerId, workspaceId],
+        })
+        toast({
+          title: "Connection successful",
+          description: result.message,
+        })
+      } else {
+        toast({
+          title: "Connection failed",
+          description: result.error || result.message,
+          variant: "destructive",
+        })
+      }
+    },
+    onError: (error: TracecatApiError) => {
+      console.error("Failed to test connection:", error)
+      toast({
+        title: "Test failed",
+        description: `Could not test connection: ${error.body?.detail || error.message}`,
         variant: "destructive",
       })
     },
@@ -3268,6 +3313,9 @@ export function useIntegrationProvider({
     disconnectProvider,
     disconnectProviderIsPending,
     disconnectProviderError,
+    testConnection,
+    testConnectionIsPending,
+    testConnectionError,
     provider,
     providerIsLoading,
     providerError,

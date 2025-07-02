@@ -3,15 +3,25 @@
 import os
 from typing import Any, ClassVar
 
-from tracecat.integrations.base import BaseOAuthProvider
-from tracecat.integrations.models import ProviderCategory, ProviderMetadata
+from tracecat.integrations.base import AuthorizationCodeOAuthProvider
+from tracecat.integrations.models import (
+    ProviderCategory,
+    ProviderMetadata,
+    ProviderScopes,
+)
 
 
-class CustomOAuthProvider(BaseOAuthProvider):
+class CustomOAuthProvider(AuthorizationCodeOAuthProvider):
     """Custom OAuth provider that can be configured via environment variables."""
 
     id: ClassVar[str] = "custom"
-    default_scopes: ClassVar[list[str]] = []
+
+    # Will be overridden by dynamic class creation
+    _authorization_endpoint: ClassVar[str] = ""
+    _token_endpoint: ClassVar[str] = ""
+
+    # Custom provider starts with no default scopes
+    scopes: ClassVar[ProviderScopes] = ProviderScopes(default=[])
     metadata: ClassVar[ProviderMetadata] = ProviderMetadata(
         id="custom",
         name="Custom",
@@ -57,8 +67,8 @@ class CustomOAuthProvider(BaseOAuthProvider):
             (CustomOAuthProvider,),
             {
                 "id": self._provider_id,
-                "authorization_endpoint": authorization_endpoint,
-                "token_endpoint": token_endpoint,
+                "_authorization_endpoint": authorization_endpoint,
+                "_token_endpoint": token_endpoint,
             },
         )
 
