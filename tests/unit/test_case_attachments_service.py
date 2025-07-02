@@ -61,6 +61,27 @@ def attachment_params() -> CaseAttachmentCreate:
     )
 
 
+@pytest.fixture
+def png_attachment_params() -> CaseAttachmentCreate:
+    """Return PNG file attachment parameters for binary file testing."""
+    # Simple PNG file header + minimal data
+    png_content = (
+        b"\x89PNG\r\n\x1a\n"  # PNG signature
+        b"\x00\x00\x00\rIHDR"  # IHDR chunk
+        b"\x00\x00\x00\x01\x00\x00\x00\x01"  # 1x1 pixel
+        b"\x08\x02\x00\x00\x00\x90wS\xde"  # Color type, etc.
+        b"\x00\x00\x00\x0cIDATx\x9cc\xf8\x00\x00\x00\x01\x00\x01"
+        b"\x02\x1a\x0b\xa5"  # Minimal IDAT chunk
+        b"\x00\x00\x00\x00IEND\xaeB`\x82"  # IEND chunk
+    )
+    return CaseAttachmentCreate(
+        file_name="test.png",
+        content_type="image/png",
+        size=len(png_content),
+        content=png_content,
+    )
+
+
 @pytest.mark.anyio
 class TestCaseAttachmentService:
     async def test_create_attachment_calls_storage_upload(
@@ -126,6 +147,320 @@ class TestCaseAttachmentService:
             result = await session.exec(stmt)
             files = result.all()
             assert len(files) == 0
+
+    async def test_upload_delete_reupload_cycle(
+        self,
+        attachments_service: CaseAttachmentService,
+        test_case: Case,
+        attachment_params: CaseAttachmentCreate,
+        session: AsyncSession,
+    ) -> None:
+        """Test complete upload -> delete -> reupload cycle with file restoration."""
+        original_hash = "original_file_hash"
+
+        # Mock storage operations
+        mock_upload = AsyncMock()
+        mock_delete = AsyncMock()
+
+        with (
+            patch("tracecat.storage.upload_file", mock_upload),
+            patch("tracecat.storage.delete_file", mock_delete),
+            patch("tracecat.storage.compute_sha256", return_value=original_hash),
+            patch(
+                "tracecat.storage.FileSecurityValidator.validate_file",
+                return_value={
+                    "filename": attachment_params.file_name,
+                    "content_type": attachment_params.content_type,
+                },
+            ),
+        ):
+            # Step 1: Upload file
+            attachment1 = await attachments_service.create_attachment(
+                test_case, attachment_params
+            )
+            assert mock_upload.call_count == 1
+            assert attachment1.file.sha256 == original_hash
+            assert attachment1.file.deleted_at is None
+
+            # Verify file exists in database
+            stmt = select(File).where(File.sha256 == original_hash)
+            result = await session.exec(stmt)
+            file_record = result.first()
+            assert file_record is not None
+            assert file_record.deleted_at is None
+
+            # Step 2: Delete attachment (soft delete)
+            await attachments_service.delete_attachment(test_case, attachment1.id)
+            assert mock_delete.call_count == 1
+
+            # Verify file is soft-deleted
+            await session.refresh(file_record)
+            assert file_record.deleted_at is not None
+
+            # Verify attachment is no longer accessible
+            deleted_attachment = await attachments_service.get_attachment(
+                test_case, attachment1.id
+            )
+            assert deleted_attachment is None
+
+            # Step 3: Re-upload same file (should restore)
+            attachment2 = await attachments_service.create_attachment(
+                test_case, attachment_params
+            )
+
+            # Should have uploaded again since file was deleted
+            assert mock_upload.call_count == 2
+
+            # Should restore the same file record
+            await session.refresh(file_record)
+            assert file_record.deleted_at is None
+            assert attachment2.file.sha256 == original_hash
+
+            # Should create new attachment record
+            assert attachment2.id != attachment1.id
+            assert attachment2.case_id == test_case.id
+
+    async def test_upload_delete_reupload_different_case(
+        self,
+        attachments_service: CaseAttachmentService,
+        test_case: Case,
+        attachment_params: CaseAttachmentCreate,
+        session: AsyncSession,
+        svc_role: Role,
+    ) -> None:
+        """Test that file can be reused across different cases after deletion."""
+        # Create second case
+        case2 = Case(
+            owner_id=svc_role.workspace_id if svc_role.workspace_id else uuid.uuid4(),
+            summary="Second Test Case",
+            description="For testing file reuse",
+            status=CaseStatus.NEW,
+            priority=CasePriority.LOW,
+            severity=CaseSeverity.LOW,
+        )
+        session.add(case2)
+        await session.commit()
+        await session.refresh(case2)
+
+        original_hash = "shared_file_hash"
+        mock_upload = AsyncMock()
+        mock_delete = AsyncMock()
+
+        with (
+            patch("tracecat.storage.upload_file", mock_upload),
+            patch("tracecat.storage.delete_file", mock_delete),
+            patch("tracecat.storage.compute_sha256", return_value=original_hash),
+            patch(
+                "tracecat.storage.FileSecurityValidator.validate_file",
+                return_value={
+                    "filename": attachment_params.file_name,
+                    "content_type": attachment_params.content_type,
+                },
+            ),
+        ):
+            # Upload to first case
+            attachment1 = await attachments_service.create_attachment(
+                test_case, attachment_params
+            )
+            assert mock_upload.call_count == 1
+
+            # Delete from first case
+            await attachments_service.delete_attachment(test_case, attachment1.id)
+            assert mock_delete.call_count == 1
+
+            # Upload same file to second case (should restore file)
+            attachment2 = await attachments_service.create_attachment(
+                case2, attachment_params
+            )
+
+            # Should have re-uploaded since file was deleted
+            assert mock_upload.call_count == 2
+            assert attachment2.file.sha256 == original_hash
+            assert attachment2.case_id == case2.id
+
+    async def test_download_attachment_without_corruption(
+        self,
+        attachments_service: CaseAttachmentService,
+        test_case: Case,
+        png_attachment_params: CaseAttachmentCreate,
+    ) -> None:
+        """Test that binary files (PNG) download without corruption."""
+        original_content = png_attachment_params.content
+        original_hash = "png_file_hash"
+
+        with (
+            patch("tracecat.storage.upload_file", new_callable=AsyncMock),
+            patch("tracecat.storage.compute_sha256", return_value=original_hash),
+            patch(
+                "tracecat.storage.FileSecurityValidator.validate_file",
+                return_value={
+                    "filename": png_attachment_params.file_name,
+                    "content_type": png_attachment_params.content_type,
+                },
+            ),
+        ):
+            # Upload PNG file
+            attachment = await attachments_service.create_attachment(
+                test_case, png_attachment_params
+            )
+
+        # Mock download returning exact original content
+        with (
+            patch(
+                "tracecat.storage.download_file",
+                new_callable=AsyncMock,
+                return_value=original_content,
+            ),
+            patch("tracecat.storage.compute_sha256", return_value=original_hash),
+        ):
+            # Download and verify integrity
+            (
+                downloaded_content,
+                filename,
+                content_type,
+            ) = await attachments_service.download_attachment(test_case, attachment.id)
+
+            # Verify content is identical
+            assert downloaded_content == original_content
+            assert filename == png_attachment_params.file_name
+            assert content_type == png_attachment_params.content_type
+
+            # Verify PNG signature is intact (critical for binary files)
+            assert downloaded_content.startswith(b"\x89PNG\r\n\x1a\n")
+
+    async def test_download_large_binary_file_integrity(
+        self,
+        attachments_service: CaseAttachmentService,
+        test_case: Case,
+    ) -> None:
+        """Test download integrity for larger binary files."""
+        # Create a larger binary file with pattern
+        large_content = b"\x00\x01\x02\x03" * 1024  # 4KB of binary pattern
+        large_hash = "large_binary_hash"
+
+        params = CaseAttachmentCreate(
+            file_name="large_binary.bin",
+            content_type="application/octet-stream",
+            size=len(large_content),
+            content=large_content,
+        )
+
+        with (
+            patch("tracecat.storage.upload_file", new_callable=AsyncMock),
+            patch("tracecat.storage.compute_sha256", return_value=large_hash),
+            patch(
+                "tracecat.storage.FileSecurityValidator.validate_file",
+                return_value={
+                    "filename": params.file_name,
+                    "content_type": params.content_type,
+                },
+            ),
+        ):
+            attachment = await attachments_service.create_attachment(test_case, params)
+
+        # Mock download returning exact content
+        with (
+            patch(
+                "tracecat.storage.download_file",
+                new_callable=AsyncMock,
+                return_value=large_content,
+            ),
+            patch("tracecat.storage.compute_sha256", return_value=large_hash),
+        ):
+            (
+                downloaded_content,
+                filename,
+                content_type,
+            ) = await attachments_service.download_attachment(test_case, attachment.id)
+
+            # Verify exact byte-for-byte match
+            assert downloaded_content == large_content
+            assert len(downloaded_content) == len(large_content)
+
+            # Verify pattern integrity at start and end
+            assert downloaded_content[:4] == b"\x00\x01\x02\x03"
+            assert downloaded_content[-4:] == b"\x00\x01\x02\x03"
+
+    async def test_download_with_corrupted_content_detection(
+        self,
+        attachments_service: CaseAttachmentService,
+        test_case: Case,
+        attachment_params: CaseAttachmentCreate,
+    ) -> None:
+        """Test that corrupted downloads are properly detected."""
+        original_hash = "original_hash"
+        corrupted_hash = "corrupted_hash"
+
+        with (
+            patch("tracecat.storage.upload_file", new_callable=AsyncMock),
+            patch("tracecat.storage.compute_sha256", return_value=original_hash),
+            patch(
+                "tracecat.storage.FileSecurityValidator.validate_file",
+                return_value={
+                    "filename": attachment_params.file_name,
+                    "content_type": attachment_params.content_type,
+                },
+            ),
+        ):
+            attachment = await attachments_service.create_attachment(
+                test_case, attachment_params
+            )
+
+        # Mock download returning corrupted content
+        corrupted_content = b"This is corrupted content"
+        with (
+            patch(
+                "tracecat.storage.download_file",
+                new_callable=AsyncMock,
+                return_value=corrupted_content,
+            ),
+            patch("tracecat.storage.compute_sha256", return_value=corrupted_hash),
+        ):
+            with pytest.raises(TracecatException, match="File integrity check failed"):
+                await attachments_service.download_attachment(test_case, attachment.id)
+
+    async def test_multiple_uploads_same_content_deduplication(
+        self,
+        attachments_service: CaseAttachmentService,
+        test_case: Case,
+        attachment_params: CaseAttachmentCreate,
+        session: AsyncSession,
+    ) -> None:
+        """Test that uploading same content multiple times uses deduplication."""
+        same_hash = "duplicate_content_hash"
+        mock_upload = AsyncMock()
+
+        with (
+            patch("tracecat.storage.upload_file", mock_upload),
+            patch("tracecat.storage.compute_sha256", return_value=same_hash),
+            patch(
+                "tracecat.storage.FileSecurityValidator.validate_file",
+                return_value={
+                    "filename": attachment_params.file_name,
+                    "content_type": attachment_params.content_type,
+                },
+            ),
+        ):
+            # First upload
+            attachment1 = await attachments_service.create_attachment(
+                test_case, attachment_params
+            )
+            assert mock_upload.call_count == 1
+
+            # Second upload of same content
+            attachment2 = await attachments_service.create_attachment(
+                test_case, attachment_params
+            )
+
+            # Should not upload again due to deduplication
+            assert mock_upload.call_count == 1
+
+            # Should reuse same file record
+            assert attachment1.file_id == attachment2.file_id
+            assert attachment1.file.sha256 == attachment2.file.sha256 == same_hash
+
+            # But should create different attachment records
+            assert attachment1.id != attachment2.id
 
     async def test_list_attachments_excludes_deleted_files(
         self,
