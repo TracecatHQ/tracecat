@@ -1,6 +1,13 @@
 "use client"
 
-import { ArrowUpDown, Filter, Key, type LucideIcon, Search, User2Icon } from "lucide-react"
+import {
+  ArrowUpDown,
+  Filter,
+  Key,
+  type LucideIcon,
+  Search,
+  User2Icon,
+} from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useMemo, useState } from "react"
 import {
@@ -84,7 +91,9 @@ export default function IntegrationsPage() {
     useState<ProviderCategory | null>(null)
   const [selectedStatus, setSelectedStatus] =
     useState<IntegrationStatus | null>(null)
-  const [sortBy, setSortBy] = useState<"default" | "name" | "availability">("default")
+  const [sortBy, setSortBy] = useState<"default" | "name" | "availability">(
+    "default"
+  )
 
   const { providers, providersIsLoading, providersError } =
     useIntegrations(workspaceId)
