@@ -469,7 +469,12 @@ export const providerIcons: Record<
   string,
   (props: CustomIconProps) => JSX.Element
 > = {
-  microsoft: ({ className, ...rest }) => (
+  microsoft_ac: ({ className, ...rest }) => (
+    <div className={className}>
+      <MicrosoftIcon {...rest} />
+    </div>
+  ),
+  microsoft_cc: ({ className, ...rest }) => (
     <div className={className}>
       <MicrosoftIcon {...rest} />
     </div>
@@ -484,7 +489,12 @@ export const providerIcons: Record<
       <MicrosoftEntraIcon {...rest} />
     </div>
   ),
-  microsoft_teams: ({ className, ...rest }) => (
+  microsoft_teams_ac: ({ className, ...rest }) => (
+    <div className={className}>
+      <MicrosoftTeamsIcon {...rest} />
+    </div>
+  ),
+  microsoft_teams_cc: ({ className, ...rest }) => (
     <div className={className}>
       <MicrosoftTeamsIcon {...rest} />
     </div>

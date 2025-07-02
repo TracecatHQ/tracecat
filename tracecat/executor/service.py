@@ -264,9 +264,6 @@ async def run_action_from_input(input: RunActionInput, role: Role) -> Any:
         )
         for integration in oauth_integrations:
             await service.refresh_token_if_needed(integration)
-            await service.session.refresh(
-                integration, attribute_names=("encrypted_access_token",)
-            )
             access_token = await service.get_access_token(integration)
             secrets[integration.provider_id] = {
                 f"{integration.provider_id.upper()}_ACCESS_TOKEN": access_token.get_secret_value()

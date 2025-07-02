@@ -1,11 +1,12 @@
 "use client"
 
-import { Filter, Search } from "lucide-react"
+import { Filter, Key, type LucideIcon, Search, User2Icon } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useMemo, useState } from "react"
 import {
   $ProviderCategory,
   type IntegrationStatus,
+  type OAuthGrantType,
   type ProviderCategory,
 } from "@/client"
 import { ProviderIcon } from "@/components/icons"
@@ -26,6 +27,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { useIntegrations } from "@/lib/hooks"
 import { categoryColors } from "@/lib/provider-styles"
 import { cn } from "@/lib/utils"
@@ -52,6 +59,22 @@ const getStatusInfo = (status: IntegrationStatus) => {
   }
 }
 const categories = Object.values($ProviderCategory.enum) as ProviderCategory[]
+const grantTypeStyles: Record<
+  OAuthGrantType,
+  {
+    icon: LucideIcon
+    label: string
+  }
+> = {
+  authorization_code: {
+    icon: User2Icon,
+    label: "Authorization Code",
+  },
+  client_credentials: {
+    icon: Key,
+    label: "Client Credentials",
+  },
+}
 
 export default function IntegrationsPage() {
   const { workspaceId } = useWorkspace()
@@ -66,7 +89,7 @@ export default function IntegrationsPage() {
     useIntegrations(workspaceId)
 
   const filteredProviders = useMemo(() => {
-    return providers?.filter((provider) => {
+    const filtered = providers?.filter((provider) => {
       const { description, name, categories: providerCategories } = provider
       const matchesSearch =
         name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -79,6 +102,16 @@ export default function IntegrationsPage() {
         provider.integration_status === selectedStatus
 
       return matchesSearch && matchesCategory && matchesStatus
+    })
+
+    if (!filtered) return filtered
+
+    // Sort by availability first (enabled first), then alphabetical by name
+    return [...filtered].sort((a, b) => {
+      if (a.enabled !== b.enabled) {
+        return a.enabled ? -1 : 1
+      }
+      return a.name.localeCompare(b.name)
     })
   }, [providers, searchQuery, selectedCategory, selectedStatus])
 
@@ -203,6 +236,7 @@ export default function IntegrationsPage() {
               } = provider
               const statusInfo = getStatusInfo(provider.integration_status)
 
+              const { icon: Icon, label } = grantTypeStyles[provider.grant_type]
               return (
                 <Card
                   key={id}
@@ -221,15 +255,17 @@ export default function IntegrationsPage() {
                           className="size-8 p-1.5"
                         />
                         <div>
-                          <CardTitle className="text-lg">{name}</CardTitle>
-                          <div className="mt-1 flex gap-2">
+                          <div className="flex items-center gap-4">
+                            <CardTitle className="text-lg">{name}</CardTitle>
+                          </div>
+                          <div className="mt-1 flex items-center gap-2">
                             {providerCategories?.map((category, index) => (
                               <Badge
                                 key={index}
                                 className={cn(
+                                  "!shadow-none whitespace-nowrap capitalize",
                                   categoryColors[category] ||
-                                    categoryColors.other,
-                                  "whitespace-nowrap"
+                                    categoryColors.other
                                 )}
                               >
                                 {category}
@@ -238,16 +274,33 @@ export default function IntegrationsPage() {
                           </div>
                         </div>
                       </div>
-                      <Badge
-                        className={cn(
-                          enabled
-                            ? statusInfo.className
-                            : "bg-orange-100 text-orange-800 hover:bg-orange-200",
-                          "whitespace-nowrap"
-                        )}
-                      >
-                        {enabled ? statusInfo.label : "Coming Soon"}
-                      </Badge>
+                      <div className="flex items-center gap-2">
+                        <div className="shrink-0 rounded-md bg-muted p-1">
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Icon
+                                  className="size-4 text-muted-foreground/70"
+                                  strokeWidth={2.5}
+                                />
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p>{label}</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        </div>
+                        <Badge
+                          className={cn(
+                            enabled
+                              ? statusInfo.className
+                              : "bg-orange-100 text-orange-800 hover:bg-orange-200",
+                            "!shadow-none whitespace-nowrap"
+                          )}
+                        >
+                          {enabled ? statusInfo.label : "Coming Soon"}
+                        </Badge>
+                      </div>
                     </div>
                     <CardDescription className="text-xs mt-2">
                       {description ||

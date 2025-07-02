@@ -7,10 +7,10 @@ from tracecat.integrations.models import (
     ProviderMetadata,
     ProviderScopes,
 )
-from tracecat.integrations.providers.microsoft import MicrosoftOAuthProvider
+from tracecat.integrations.providers.microsoft import MicrosoftACProvider
 
 
-class MicrosoftSentinelOAuthProvider(MicrosoftOAuthProvider):
+class MicrosoftSentinelOAuthProvider(MicrosoftACProvider):
     """Microsoft Sentinel OAuth provider for SIEM and security orchestration."""
 
     id: ClassVar[str] = "microsoft_sentinel"

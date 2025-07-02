@@ -3,12 +3,13 @@
 Currently supports confidential app-only authentication (i.e. `acquire_token_for_client` method)
 """
 
-from typing import Annotated
+from typing import Annotated, Any
 
 from typing_extensions import Doc
 
 from msal import ConfidentialClientApplication
 from tracecat import __version__
+from tracecat.logger import logger
 
 from tracecat_registry import RegistrySecret, registry, secrets
 

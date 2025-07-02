@@ -9,7 +9,11 @@ from authlib.integrations.httpx_client import AsyncOAuth2Client
 from pydantic import BaseModel, SecretStr
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from tracecat.integrations.base import BaseOAuthProvider
+from tracecat.integrations.base import (
+    AuthorizationCodeOAuthProvider,
+    ClientCredentialsOAuthProvider,
+)
+from tracecat.integrations.enums import OAuthGrantType
 from tracecat.integrations.models import (
     ProviderCategory,
     ProviderConfig,
@@ -31,7 +35,7 @@ class MockProviderConfig(BaseModel):
     redirect_uri: str | None = None
 
 
-class MockOAuthProvider(BaseOAuthProvider):
+class MockOAuthProvider(AuthorizationCodeOAuthProvider):
     """Mock OAuth provider for testing."""
 
     id: ClassVar[str] = "mock_provider"
@@ -55,6 +59,12 @@ class MockOAuthProviderWithPKCE(MockOAuthProvider):
     """Mock OAuth provider that uses PKCE and additional parameters."""
 
     id: ClassVar[str] = "mock_provider_pkce"
+    metadata: ClassVar[ProviderMetadata] = ProviderMetadata(
+        id="mock_provider_pkce",
+        name="Mock Provider with PKCE",
+        description="A mock OAuth provider with PKCE for testing",
+        categories=[ProviderCategory.OTHER],
+    )
 
     def _use_pkce(self) -> bool:
         """Enable PKCE for this provider."""
@@ -67,6 +77,27 @@ class MockOAuthProviderWithPKCE(MockOAuthProvider):
     def _get_additional_token_params(self) -> dict[str, Any]:
         """Add custom token exchange parameters."""
         return {"custom_token_param": "token_value", "resource": "test-resource"}
+
+
+class MockCCOAuthProvider(ClientCredentialsOAuthProvider):
+    """Mock OAuth provider for client credentials testing."""
+
+    id: ClassVar[str] = "mock_cc_provider"
+    _authorization_endpoint: ClassVar[str] = (
+        "https://mock.provider/oauth/authorize"  # Required by base class validation
+    )
+    _token_endpoint: ClassVar[str] = "https://mock.provider/oauth/token"
+    config_model: ClassVar[type[BaseModel]] = MockProviderConfig
+    scopes: ClassVar[ProviderScopes] = ProviderScopes(
+        default=["read", "write"],
+        allowed_patterns=["user.read"],
+    )
+    metadata: ClassVar[ProviderMetadata] = ProviderMetadata(
+        id="mock_cc_provider",
+        name="Mock CC Provider",
+        description="A mock OAuth provider for client credentials testing",
+        categories=[ProviderCategory.OTHER],
+    )
 
 
 @pytest.fixture
@@ -106,6 +137,16 @@ def mock_provider(monkeypatch: pytest.MonkeyPatch) -> MockOAuthProvider:
     monkeypatch.setenv("TRACECAT__PUBLIC_APP_URL", "http://localhost:8000")
     return MockOAuthProvider(
         client_id="mock_client_id", client_secret="mock_client_secret"
+    )
+
+
+@pytest.fixture
+def mock_cc_provider(monkeypatch: pytest.MonkeyPatch) -> MockCCOAuthProvider:
+    """Create a mock client credentials OAuth provider instance."""
+    # Set required environment variable
+    monkeypatch.setenv("TRACECAT__PUBLIC_APP_URL", "http://localhost:8000")
+    return MockCCOAuthProvider(
+        client_id="mock_cc_client_id", client_secret="mock_cc_client_secret"
     )
 
 
@@ -150,6 +191,7 @@ class TestIntegrationService:
         assert integration.user_id is None  # workspace-level integration
         assert integration.expires_at is not None
         assert integration.scope == mock_token_response.scope
+        assert integration.grant_type == OAuthGrantType.AUTHORIZATION_CODE
 
         # Retrieve integration
         retrieved = await integration_service.get_integration(provider_id=provider_id)
@@ -373,6 +415,48 @@ class TestIntegrationService:
         assert not integration.is_expired
         assert integration.needs_refresh
 
+    async def test_refresh_token_if_not_needed(
+        self,
+        integration_service: IntegrationService,
+        mock_token_response: TokenResponse,
+    ) -> None:
+        """Test that refresh is skipped when token doesn't need refresh."""
+        provider_id = "test_provider"
+
+        # Store provider config
+        await integration_service.store_provider_config(
+            provider_id=provider_id,
+            client_id="test_client_id",
+            client_secret=SecretStr("test_client_secret"),
+            provider_config={},
+        )
+
+        # Store integration with long expiry (1 hour)
+        integration = await integration_service.store_integration(
+            provider_id=provider_id,
+            access_token=mock_token_response.access_token,
+            refresh_token=mock_token_response.refresh_token,
+            expires_in=3600,  # 1 hour
+        )
+
+        # Integration should not need refresh
+        assert not integration.needs_refresh
+
+        # Mock the provider registry (should not be called)
+        with patch("tracecat.integrations.service.ProviderRegistry") as mock_registry:
+            # This should not be called since refresh is not needed
+            mock_registry.get.return_value.get_class.return_value = MockOAuthProvider
+
+            # Attempt refresh - should return immediately without refreshing
+            refreshed = await integration_service.refresh_token_if_needed(integration)
+
+            # Should be the same instance, unchanged
+            assert refreshed.id == integration.id
+            assert refreshed.expires_at == integration.expires_at
+
+            # Registry should not have been accessed
+            mock_registry.get.assert_not_called()
+
     async def test_refresh_token_if_needed(
         self,
         integration_service: IntegrationService,
@@ -396,6 +480,14 @@ class TestIntegrationService:
                     expires_in=7200,
                     scope="read write",
                     token_type="Bearer",
+                )
+
+                # Store provider config first to set client credentials
+                await integration_service.store_provider_config(
+                    provider_id=provider_id,
+                    client_id="mock_client_id",
+                    client_secret=SecretStr("mock_client_secret"),
+                    provider_config={},
                 )
 
                 # Store integration that needs refresh
@@ -463,8 +555,16 @@ class TestIntegrationService:
         integration_service: IntegrationService,
         mock_token_response: TokenResponse,
     ) -> None:
-        """Test refresh when provider is not found in registry."""
+        """Test refresh when provider is not found in registry - should handle gracefully."""
         provider_id = "unknown_provider"
+
+        # Store provider config first to set client credentials
+        await integration_service.store_provider_config(
+            provider_id=provider_id,
+            client_id="unknown_client_id",
+            client_secret=SecretStr("unknown_client_secret"),
+            provider_config={},
+        )
 
         # Store integration with tokens that will expire
         integration = await integration_service.store_integration(
@@ -480,16 +580,20 @@ class TestIntegrationService:
         await integration_service.session.commit()
         await integration_service.session.refresh(integration)
 
-        # Mock the provider registry to return None
+        # Mock the provider registry to return None (provider not found)
         with patch("tracecat.integrations.service.ProviderRegistry") as mock_registry:
+            # Make get_class return None to simulate provider not found
             mock_registry.get.return_value.get_class.return_value = None
 
-            # Attempt refresh - should return unchanged
+            # Attempt refresh - should return unchanged integration gracefully
             refreshed = await integration_service.refresh_token_if_needed(integration)
 
             # Should be the same instance, unchanged
             assert refreshed.id == integration.id
             assert refreshed.expires_at == integration.expires_at
+            # Token should remain unchanged
+            access_token, _ = integration_service.get_decrypted_tokens(refreshed)
+            assert access_token == mock_token_response.access_token.get_secret_value()
 
     async def test_refresh_token_if_needed_no_rotation(
         self,
@@ -517,6 +621,14 @@ class TestIntegrationService:
                     expires_in=7200,
                     scope="read write",
                     token_type="Bearer",
+                )
+
+                # Store provider config first to set client credentials
+                await integration_service.store_provider_config(
+                    provider_id=provider_id,
+                    client_id="mock_client_id",
+                    client_secret=SecretStr("mock_client_secret"),
+                    provider_config={},
                 )
 
                 # Store integration that needs refresh
@@ -667,6 +779,163 @@ class TestIntegrationService:
         assert integration.encrypted_client_secret is None
         assert integration.use_workspace_credentials is False
 
+    async def test_refresh_token_if_needed_client_credentials(
+        self,
+        integration_service: IntegrationService,
+        mock_cc_provider: MockCCOAuthProvider,
+        mock_token_response: TokenResponse,
+    ) -> None:
+        """Test automatic token refresh for client credentials grant type."""
+        provider_id = "mock_cc_provider"
+
+        # Mock the provider registry
+        with patch("tracecat.integrations.service.ProviderRegistry") as mock_registry:
+            mock_registry.get.return_value.get_class.return_value = MockCCOAuthProvider
+
+            # Mock the get_client_credentials_token method
+            with patch.object(
+                MockCCOAuthProvider,
+                "get_client_credentials_token",
+                new_callable=AsyncMock,
+            ) as mock_get_token:
+                mock_get_token.return_value = TokenResponse(
+                    access_token=SecretStr("new_cc_token"),
+                    refresh_token=None,  # CC flow doesn't use refresh tokens
+                    expires_in=7200,
+                    scope="read write",
+                    token_type="Bearer",
+                )
+
+                # Store provider config first to set client credentials
+                await integration_service.store_provider_config(
+                    provider_id=provider_id,
+                    client_id="mock_cc_client_id",
+                    client_secret=SecretStr("mock_cc_client_secret"),
+                    provider_config={},
+                    grant_type=OAuthGrantType.CLIENT_CREDENTIALS,
+                )
+
+                # Store integration
+                integration = await integration_service.store_integration(
+                    provider_id=provider_id,
+                    access_token=mock_token_response.access_token,
+                    expires_in=60,  # Expires in 1 minute
+                )
+
+                # Refresh the token
+                refreshed = await integration_service.refresh_token_if_needed(
+                    integration
+                )
+
+                # Verify get_client_credentials_token was called
+                mock_get_token.assert_called_once()
+
+                # Verify token was updated
+                access_token, refresh_token = integration_service.get_decrypted_tokens(
+                    refreshed
+                )
+                assert access_token == "new_cc_token"
+                assert refresh_token is None  # CC flow doesn't use refresh tokens
+
+    async def test_client_credentials_provider_initialization(
+        self, mock_cc_provider: MockCCOAuthProvider
+    ) -> None:
+        """Test client credentials OAuth provider initialization."""
+        assert mock_cc_provider.id == "mock_cc_provider"
+        assert mock_cc_provider.client_id == "mock_cc_client_id"
+        assert mock_cc_provider.client_secret == "mock_cc_client_secret"
+        assert mock_cc_provider.requested_scopes == ["read", "write"]
+        assert mock_cc_provider.grant_type == OAuthGrantType.CLIENT_CREDENTIALS
+
+    async def test_store_integration_with_grant_type(
+        self,
+        integration_service: IntegrationService,
+        mock_token_response: TokenResponse,
+    ) -> None:
+        """Test storing integration with grant type."""
+        # Store AC integration
+        ac_provider_id = "ac_provider"
+        await integration_service.store_provider_config(
+            provider_id=ac_provider_id,
+            client_id="ac_client",
+            client_secret=SecretStr("ac_secret"),
+            provider_config={},
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        )
+        ac_integration = await integration_service.store_integration(
+            provider_id=ac_provider_id,
+            access_token=mock_token_response.access_token,
+            refresh_token=mock_token_response.refresh_token,
+        )
+        assert ac_integration.grant_type == "authorization_code"
+
+        # Store CC integration
+        cc_provider_id = "cc_provider"
+        await integration_service.store_provider_config(
+            provider_id=cc_provider_id,
+            client_id="cc_client",
+            client_secret=SecretStr("cc_secret"),
+            provider_config={},
+            grant_type=OAuthGrantType.CLIENT_CREDENTIALS,
+        )
+        cc_integration = await integration_service.store_integration(
+            provider_id=cc_provider_id,
+            access_token=mock_token_response.access_token,
+        )
+        assert cc_integration.grant_type == "client_credentials"
+
+    async def test_list_integrations_mixed_grant_types(
+        self,
+        integration_service: IntegrationService,
+        mock_token_response: TokenResponse,
+    ) -> None:
+        """Test listing integrations with different grant types."""
+        # Create AC provider
+        ac_provider_id = "provider_ac"
+        await integration_service.store_provider_config(
+            provider_id=ac_provider_id,
+            client_id="ac_client",
+            client_secret=SecretStr("ac_secret"),
+            provider_config={},
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        )
+        await integration_service.store_integration(
+            provider_id=ac_provider_id,
+            access_token=mock_token_response.access_token,
+            refresh_token=mock_token_response.refresh_token,
+        )
+
+        # Create CC provider
+        cc_provider_id = "provider_cc"
+        await integration_service.store_provider_config(
+            provider_id=cc_provider_id,
+            client_id="cc_client",
+            client_secret=SecretStr("cc_secret"),
+            provider_config={},
+            grant_type=OAuthGrantType.CLIENT_CREDENTIALS,
+        )
+        await integration_service.store_integration(
+            provider_id=cc_provider_id,
+            access_token=mock_token_response.access_token,
+        )
+
+        # List all integrations
+        all_integrations = await integration_service.list_integrations()
+
+        # Find our integrations
+        ac_integration = next(
+            (i for i in all_integrations if i.provider_id == ac_provider_id), None
+        )
+        cc_integration = next(
+            (i for i in all_integrations if i.provider_id == cc_provider_id), None
+        )
+
+        assert ac_integration is not None
+        assert ac_integration.grant_type == OAuthGrantType.AUTHORIZATION_CODE
+
+        assert cc_integration is not None
+        assert cc_integration.grant_type == OAuthGrantType.CLIENT_CREDENTIALS
+
 
 @pytest.mark.anyio
 class TestBaseOAuthProvider:
@@ -679,7 +948,11 @@ class TestBaseOAuthProvider:
         assert mock_provider.id == "mock_provider"
         assert mock_provider.client_id == "mock_client_id"
         assert mock_provider.client_secret == "mock_client_secret"
-        assert mock_provider.requested_scopes == ["read", "write"]
+        assert set(mock_provider.requested_scopes) == {
+            "read",
+            "write",
+        }  # Compare as sets
+        assert mock_provider.grant_type == OAuthGrantType.AUTHORIZATION_CODE
         assert (
             mock_provider.redirect_uri()
             == "http://localhost/integrations/mock_provider/callback"
@@ -871,6 +1144,46 @@ class TestBaseOAuthProvider:
                 code=code,
                 state=state,
             )
+
+
+@pytest.mark.anyio
+class TestClientCredentialsOAuthProvider:
+    """Test the ClientCredentialsOAuthProvider class."""
+
+    async def test_client_credentials_token_acquisition(
+        self, mock_cc_provider: MockCCOAuthProvider
+    ) -> None:
+        """Test acquiring token using client credentials flow."""
+        with patch.object(
+            AsyncOAuth2Client, "fetch_token", new_callable=AsyncMock
+        ) as mock_fetch:
+            mock_fetch.return_value = {
+                "access_token": "cc_access_token",
+                "expires_in": 3600,
+                "scope": "read write",
+                "token_type": "Bearer",
+            }
+
+            result = await mock_cc_provider.get_client_credentials_token()
+
+            assert result.access_token.get_secret_value() == "cc_access_token"
+            assert result.refresh_token is None  # CC flow doesn't have refresh token
+            assert result.expires_in == 3600
+            assert result.scope == "read write"
+
+            mock_fetch.assert_called_once_with(
+                mock_cc_provider.token_endpoint,
+                grant_type="client_credentials",
+            )
+
+    async def test_client_credentials_no_refresh_token(
+        self, mock_cc_provider: MockCCOAuthProvider
+    ) -> None:
+        """Test that client credentials provider doesn't support refresh tokens."""
+        # Client credentials flow should not have refresh_access_token method
+        # The refresh is done by getting a new token with credentials
+        assert not hasattr(mock_cc_provider, "refresh_access_token")
+        assert hasattr(mock_cc_provider, "get_client_credentials_token")
 
 
 # NOTE: Workflow integration test removed as it requires Temporal server

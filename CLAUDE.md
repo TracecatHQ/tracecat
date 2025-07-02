@@ -173,3 +173,6 @@ just gen-functions
 
 ## Database Migrations
 - When running an alembic migration, you should use `export TRACECAT__DB_URI=postgresql+psycopg://postgres:postgres@localhost:5432/postgres` or pass it into the command
+
+## Services and Logging Guidelines
+- When working with live services, avoid using `just` commands. You should use `docker` commands to inspect/manage services and read logs.

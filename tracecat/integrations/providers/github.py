@@ -2,26 +2,32 @@
 
 from typing import ClassVar
 
-from tracecat.integrations.base import BaseOAuthProvider
-from tracecat.integrations.models import ProviderCategory, ProviderMetadata
+from tracecat.integrations.base import AuthorizationCodeOAuthProvider
+from tracecat.integrations.models import (
+    ProviderCategory,
+    ProviderMetadata,
+    ProviderScopes,
+)
 
 
-class GitHubOAuthProvider(BaseOAuthProvider):
+class GitHubOAuthProvider(AuthorizationCodeOAuthProvider):
     """GitHub OAuth provider using generic OAuth implementation."""
 
     id: ClassVar[str] = "github"
 
     # GitHub OAuth endpoints
-    authorization_endpoint: ClassVar[str] = "https://github.com/login/oauth/authorize"
-    token_endpoint: ClassVar[str] = "https://github.com/login/oauth/access_token"
+    _authorization_endpoint: ClassVar[str] = "https://github.com/login/oauth/authorize"
+    _token_endpoint: ClassVar[str] = "https://github.com/login/oauth/access_token"
 
-    # Default GitHub scopes
-    default_scopes: ClassVar[list[str]] = [
-        "read:user",
-        "user:email",
-        "repo",
-        "workflow",
-    ]
+    # GitHub OAuth scopes
+    scopes: ClassVar[ProviderScopes] = ProviderScopes(
+        default=[
+            "read:user",
+            "user:email",
+            "repo",
+            "workflow",
+        ]
+    )
 
     metadata: ClassVar[ProviderMetadata] = ProviderMetadata(
         id="github",

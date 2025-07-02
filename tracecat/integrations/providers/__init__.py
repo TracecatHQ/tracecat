@@ -23,7 +23,8 @@ def _collect_subclasses(
     """Recursively collect all subclasses of the given class."""
     subclasses = []
     for subclass in cls.__subclasses__():
-        subclasses.append(subclass)
+        if hasattr(subclass, "id"):
+            subclasses.append(subclass)
         subclasses.extend(_collect_subclasses(subclass))
     return subclasses
 
@@ -41,6 +42,8 @@ class ProviderRegistry:
 
         all_providers = _collect_subclasses(BaseOAuthProvider)
         for provider in all_providers:
+            if not provider._include_in_registry:
+                continue
             if provider.id in self._providers:
                 raise ValueError(f"Duplicate provider ID: {provider.id}")
             self._providers[provider.id] = provider

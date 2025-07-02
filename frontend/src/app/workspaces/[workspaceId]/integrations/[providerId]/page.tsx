@@ -5,10 +5,12 @@ import {
   CheckCircle,
   ChevronLeft,
   ExternalLink,
+  Key,
   LayoutListIcon,
   Loader2,
   Settings,
   Shield,
+  User,
   Zap,
 } from "lucide-react"
 import Link from "next/link"
@@ -136,6 +138,8 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
     connectProviderIsPending,
     disconnectProvider,
     disconnectProviderIsPending,
+    testConnection,
+    testConnectionIsPending,
   } = useIntegrationProvider({ providerId, workspaceId })
   const { metadata, integration_status: integrationStatus } = provider
 
@@ -174,6 +178,21 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
     }
   }, [disconnectProvider, providerId])
 
+  const handleTestConnection = useCallback(async () => {
+    try {
+      setErrorMessage("")
+      await testConnection(providerId)
+      setShowSuccessMessage(true)
+      // Hide success message after 5 seconds
+      await new Promise((resolve) => setTimeout(resolve, 5000))
+      setShowSuccessMessage(false)
+    } catch (_error) {
+      setErrorMessage(
+        "Failed to test connection. Please check your credentials."
+      )
+    }
+  }, [testConnection, providerId])
+
   const isEnabled = Boolean(metadata.enabled)
 
   return (
@@ -209,11 +228,30 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
               {metadata.categories?.map((category) => (
                 <Badge
                   key={category}
-                  className={categoryColors[category || "other"]}
+                  className={cn(
+                    "!shadow-none whitespace-nowrap capitalize",
+                    categoryColors[category || "other"]
+                  )}
                 >
                   {category}
                 </Badge>
               ))}
+              <Badge
+                variant="outline"
+                className="!shadow-none whitespace-nowrap"
+              >
+                {provider.grant_type === "client_credentials" ? (
+                  <>
+                    <Key className="mr-1 size-3" />
+                    Client Credentials
+                  </>
+                ) : (
+                  <>
+                    <User className="mr-1 size-3" />
+                    Authorization Code
+                  </>
+                )}
+              </Badge>
               <Badge className={cn(statusStyles[integrationStatus].style)}>
                 {statusStyles[integrationStatus].label}
               </Badge>
@@ -330,7 +368,7 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
                               Expires:{" "}
                               {new Date(
                                 integration.expires_at
-                              ).toLocaleDateString()}
+                              ).toLocaleString()}
                             </div>
                           )}
 
@@ -375,9 +413,13 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
                   ) : (
                     <div className="space-y-4">
                       <div className="text-sm text-muted-foreground">
-                        {isConfigured
-                          ? "This integration is configured but not connected. Complete the OAuth flow to start using it."
-                          : "This integration is not connected to your workspace. Configure it with your client credentials or use OAuth for quick setup."}
+                        {provider.grant_type === "client_credentials"
+                          ? isConfigured
+                            ? "This integration is configured with client credentials. You can fetch a token to test the connection."
+                            : "This integration requires client credentials configuration. Configure your client ID and secret to enable automatic authentication."
+                          : isConfigured
+                            ? "This integration is configured but not connected. Complete the OAuth flow to start using it."
+                            : "This integration is not connected to your workspace. Configure it with your client credentials or use OAuth for quick setup."}
                       </div>
 
                       <div className="flex flex-wrap gap-2">
@@ -392,26 +434,49 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
                             : "Configure Integration"}
                         </Button>
 
-                        {isConfigured && (
-                          <Button
-                            onClick={handleOAuthConnect}
-                            disabled={!isEnabled || connectProviderIsPending}
-                            variant="outline"
-                            className="sm:w-auto"
-                          >
-                            {connectProviderIsPending ? (
-                              <>
-                                <Loader2 className="mr-2 size-4 animate-spin" />
-                                Connecting...
-                              </>
-                            ) : (
-                              <>
-                                <ExternalLink className="mr-2 size-4" />
-                                Connect with OAuth
-                              </>
-                            )}
-                          </Button>
-                        )}
+                        {isConfigured &&
+                          provider.grant_type === "client_credentials" && (
+                            <Button
+                              onClick={handleTestConnection}
+                              disabled={!isEnabled || testConnectionIsPending}
+                              variant="outline"
+                              className="sm:w-auto"
+                            >
+                              {testConnectionIsPending ? (
+                                <>
+                                  <Loader2 className="mr-2 size-4 animate-spin" />
+                                  Testing...
+                                </>
+                              ) : (
+                                <>
+                                  <Zap className="mr-2 size-4" />
+                                  Fetch token
+                                </>
+                              )}
+                            </Button>
+                          )}
+
+                        {isConfigured &&
+                          provider.grant_type === "authorization_code" && (
+                            <Button
+                              onClick={handleOAuthConnect}
+                              disabled={!isEnabled || connectProviderIsPending}
+                              variant="outline"
+                              className="sm:w-auto"
+                            >
+                              {connectProviderIsPending ? (
+                                <>
+                                  <Loader2 className="mr-2 size-4 animate-spin" />
+                                  Connecting...
+                                </>
+                              ) : (
+                                <>
+                                  <ExternalLink className="mr-2 size-4" />
+                                  Connect with OAuth
+                                </>
+                              )}
+                            </Button>
+                          )}
                       </div>
                     </div>
                   )}
@@ -419,14 +484,19 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
               </Card>
 
               {/* OAuth Redirect URI */}
-              <div className="space-y-3">
-                <h3 className="text-lg font-semibold">OAuth Redirect URI</h3>
-                <div className="text-sm text-muted-foreground">
-                  Use this redirect URI when configuring your OAuth application
-                  in the provider's developer console.
-                </div>
-                <RedirectUriDisplay redirectUri={provider.redirect_uri} />
-              </div>
+              {provider.grant_type === "authorization_code" &&
+                provider.redirect_uri && (
+                  <div className="space-y-3">
+                    <h3 className="text-lg font-semibold">
+                      OAuth Redirect URI
+                    </h3>
+                    <div className="text-sm text-muted-foreground">
+                      Use this redirect URI when configuring your OAuth
+                      application in the provider's developer console.
+                    </div>
+                    <RedirectUriDisplay redirectUri={provider.redirect_uri} />
+                  </div>
+                )}
 
               {/* Setup Steps */}
               <CollapsibleCard
@@ -548,14 +618,17 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
 
         <TabsContent value="configuration" className="space-y-6">
           {/* OAuth Redirect URI - Prominently displayed */}
-          <div className="space-y-3">
-            <h3 className="text-lg font-semibold">OAuth Redirect URI</h3>
-            <div className="text-sm text-muted-foreground">
-              Use this redirect URI when configuring your OAuth application in
-              the provider's developer console.
-            </div>
-            <RedirectUriDisplay redirectUri={provider.redirect_uri} />
-          </div>
+          {provider.grant_type === "authorization_code" &&
+            provider.redirect_uri && (
+              <div className="space-y-3">
+                <h3 className="text-lg font-semibold">OAuth Redirect URI</h3>
+                <div className="text-sm text-muted-foreground">
+                  Use this redirect URI when configuring your OAuth application
+                  in the provider's developer console.
+                </div>
+                <RedirectUriDisplay redirectUri={provider.redirect_uri} />
+              </div>
+            )}
 
           {/* Configuration Form */}
           <div className="space-y-4">
@@ -575,7 +648,25 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
 
           {/* Quick Actions */}
           <div className="flex flex-wrap gap-3">
-            {isConfigured && (
+            {isConfigured && provider.grant_type === "client_credentials" && (
+              <Button
+                onClick={handleTestConnection}
+                disabled={!isEnabled || testConnectionIsPending}
+              >
+                {testConnectionIsPending ? (
+                  <>
+                    <Loader2 className="mr-2 size-4 animate-spin" />
+                    Testing...
+                  </>
+                ) : (
+                  <>
+                    <Zap className="mr-2 size-4" />
+                    Test Connection
+                  </>
+                )}
+              </Button>
+            )}
+            {isConfigured && provider.grant_type === "authorization_code" && (
               <Button
                 onClick={handleOAuthConnect}
                 disabled={!isEnabled || connectProviderIsPending}
