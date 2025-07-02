@@ -89,7 +89,7 @@ export default function IntegrationsPage() {
     useIntegrations(workspaceId)
 
   const filteredProviders = useMemo(() => {
-    return providers?.filter((provider) => {
+    const filtered = providers?.filter((provider) => {
       const { description, name, categories: providerCategories } = provider
       const matchesSearch =
         name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -102,6 +102,16 @@ export default function IntegrationsPage() {
         provider.integration_status === selectedStatus
 
       return matchesSearch && matchesCategory && matchesStatus
+    })
+
+    if (!filtered) return filtered
+
+    // Sort by availability first (enabled first), then alphabetical by name
+    return [...filtered].sort((a, b) => {
+      if (a.enabled !== b.enabled) {
+        return a.enabled ? -1 : 1
+      }
+      return a.name.localeCompare(b.name)
     })
   }, [providers, searchQuery, selectedCategory, selectedStatus])
 
