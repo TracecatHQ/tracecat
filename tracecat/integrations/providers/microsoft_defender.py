@@ -46,17 +46,6 @@ class MicrosoftDefenderOAuthProvider(MicrosoftOAuthProvider):
         name="Microsoft Defender",
         description="Microsoft Defender OAuth provider for security and threat protection",
         categories=[ProviderCategory.MONITORING, ProviderCategory.ALERTING],
-        features=[
-            "OAuth 2.0",
-            "Threat Detection",
-            "Security Alerts",
-            "Incident Management",
-            "Threat Intelligence",
-            "Security Actions",
-            "Vulnerability Management",
-            "Endpoint Protection",
-            "Cloud Security",
-        ],
         setup_steps=[
             "Register your application in Azure Portal",
             "Add the redirect URI shown above to 'Redirect URIs'",

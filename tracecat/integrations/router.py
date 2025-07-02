@@ -304,7 +304,6 @@ async def list_providers(
             description=metadata.description,
             requires_config=metadata.requires_config,
             categories=metadata.categories,
-            features=metadata.features,
             integration_status=integration.status
             if integration
             else IntegrationStatus.NOT_CONFIGURED,

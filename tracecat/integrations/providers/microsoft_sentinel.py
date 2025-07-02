@@ -45,18 +45,6 @@ class MicrosoftSentinelOAuthProvider(MicrosoftOAuthProvider):
         name="Microsoft Sentinel",
         description="Microsoft Sentinel OAuth provider for SIEM and security orchestration",
         categories=[ProviderCategory.MONITORING, ProviderCategory.ALERTING],
-        features=[
-            "OAuth 2.0",
-            "SIEM Integration",
-            "Security Orchestration",
-            "Incident Management",
-            "Log Analytics",
-            "Threat Hunting",
-            "Security Playbooks",
-            "Workbook Analytics",
-            "Data Connectors",
-            "Custom Analytics Rules",
-        ],
         setup_steps=[
             "Register your application in Azure Portal",
             "Add the redirect URI shown above to 'Redirect URIs'",
