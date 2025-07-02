@@ -35,6 +35,15 @@ TaskModuleSize = Annotated[
     Doc("Task module dimensions (small/medium/large or pixels)."),
 ]
 
+AdaptiveCardSpacing = Annotated[
+    Literal["None", "Small", "Default", "Medium", "Large", "ExtraLarge"] | None,
+    Doc("Spacing above the element."),
+]
+AdaptiveCardSeparator = Annotated[
+    bool,
+    Doc("Whether to show a separator line above."),
+]
+
 
 @registry.register(
     default_title="Send Teams message",
@@ -264,14 +273,8 @@ def format_fact_set(
             " E.g. `[{'title': 'Status', 'value': 'Critical'}, {'title': 'Priority', 'value': 'High'}]`."
         ),
     ],
-    spacing: Annotated[
-        Literal["None", "Small", "Default", "Medium", "Large", "ExtraLarge"] | None,
-        Doc("Spacing above the fact set."),
-    ] = None,
-    separator: Annotated[
-        bool,
-        Doc("Whether to show a separator line above."),
-    ] = False,
+    spacing: AdaptiveCardSpacing = None,
+    separator: AdaptiveCardSeparator = False,
 ) -> dict[str, Any]:
     """Create an Adaptive Card FactSet element."""
     fact_set = {
@@ -314,14 +317,8 @@ def format_text_block(
         Doc("Whether text is subtle."),
     ] = None,
     wrap: Annotated[bool, Doc("Whether text should wrap.")] = True,
-    spacing: Annotated[
-        Literal["None", "Small", "Default", "Medium", "Large", "ExtraLarge"] | None,
-        Doc("Spacing above the text block."),
-    ] = None,
-    separator: Annotated[
-        bool,
-        Doc("Whether to show a separator line above."),
-    ] = False,
+    spacing: AdaptiveCardSpacing = None,
+    separator: AdaptiveCardSeparator = False,
 ) -> dict[str, Any]:
     """Create an Adaptive Card TextBlock element."""
     text_block = {
@@ -362,14 +359,8 @@ def format_action_set(
             " For openUrl: `{'type': 'openUrl', 'title': 'Open', 'url': 'https://example.com'}`"
         ),
     ],
-    spacing: Annotated[
-        Literal["None", "Small", "Default", "Medium", "Large", "ExtraLarge"] | None,
-        Doc("Spacing above the action set."),
-    ] = None,
-    separator: Annotated[
-        bool,
-        Doc("Whether to show a separator line above."),
-    ] = False,
+    spacing: AdaptiveCardSpacing = None,
+    separator: AdaptiveCardSeparator = False,
 ) -> dict[str, Any]:
     """Create an Adaptive Card ActionSet element."""
     formatted_actions = []
@@ -444,14 +435,8 @@ def format_choice_set(
         Literal["compact", "expanded"] | None,
         Doc("Presentation style for the choices."),
     ] = None,
-    spacing: Annotated[
-        Literal["None", "Small", "Default", "Medium", "Large", "ExtraLarge"] | None,
-        Doc("Spacing above the choice set."),
-    ] = None,
-    separator: Annotated[
-        bool,
-        Doc("Whether to show a separator line above."),
-    ] = False,
+    spacing: AdaptiveCardSpacing = None,
+    separator: AdaptiveCardSeparator = False,
 ) -> dict[str, Any]:
     """Create an Adaptive Card Input.ChoiceSet element."""
     choice_set = {
@@ -566,7 +551,6 @@ async def send_teams_buttons(
         return response.json()
 
 
-# Also revert the send_adaptive_card back to adaptive format
 @registry.register(
     default_title="Send adaptive card",
     description="Send a message with Adaptive Cards to a Microsoft Teams channel.",
@@ -580,7 +564,6 @@ async def send_adaptive_card(
     channel_id: ChannelId,
     card_elements: CardElements,
     title: OptionalTitle = None,
-    subtitle: OptionalSubtitle = None,
 ) -> dict[str, Any]:
     """Send an Adaptive Card message to Teams (without ActionSet elements)."""
     token = secrets.get("MICROSOFT_TEAMS_ACCESS_TOKEN")
@@ -632,8 +615,6 @@ async def send_adaptive_card(
 def format_task_module_action(
     title: RequiredTitle,
     url: Annotated[str, Doc("URL to open in task module.")],
-    width: TaskModuleSize = "large",
-    height: TaskModuleSize = "large",
     team_id: OptionalTeamId = None,
     channel_id: OptionalChannelId = None,
 ) -> dict[str, Any]:
@@ -683,7 +664,6 @@ def format_adaptive_card_task_module(
 ) -> dict[str, Any]:
     """Create an action that opens an Adaptive Card in a task module."""
 
-    # Build the task module card
     task_card = {"type": "AdaptiveCard", "version": "1.4", "body": card_elements}
 
     # Add submit action if provided
