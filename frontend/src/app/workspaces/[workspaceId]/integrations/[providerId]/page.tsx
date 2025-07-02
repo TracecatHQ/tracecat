@@ -367,7 +367,7 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
                               Expires:{" "}
                               {new Date(
                                 integration.expires_at
-                              ).toLocaleDateString()}
+                              ).toLocaleString()}
                             </div>
                           )}
 
@@ -414,7 +414,7 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
                       <div className="text-sm text-muted-foreground">
                         {provider.grant_type === "client_credentials"
                           ? isConfigured
-                            ? "This integration is configured with client credentials. Test the connection to ensure it works properly."
+                            ? "This integration is configured with client credentials. You can fetch a token to test the connection."
                             : "This integration requires client credentials configuration. Configure your client ID and secret to enable automatic authentication."
                           : isConfigured
                             ? "This integration is configured but not connected. Complete the OAuth flow to start using it."
@@ -449,7 +449,7 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
                               ) : (
                                 <>
                                   <Zap className="mr-2 size-4" />
-                                  Test Connection
+                                  Fetch token
                                 </>
                               )}
                             </Button>

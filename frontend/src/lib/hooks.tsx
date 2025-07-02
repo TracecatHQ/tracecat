@@ -3241,6 +3241,9 @@ export function useIntegrationProvider({
       queryClient.invalidateQueries({
         queryKey: ["providers", workspaceId],
       })
+      queryClient.invalidateQueries({
+        queryKey: ["provider-schema", providerId, workspaceId],
+      })
       toast({
         title: "Disconnected",
         description: "Successfully disconnected from provider",
@@ -3271,6 +3274,9 @@ export function useIntegrationProvider({
         })
         queryClient.invalidateQueries({
           queryKey: ["providers", workspaceId],
+        })
+        queryClient.invalidateQueries({
+          queryKey: ["provider-schema", providerId, workspaceId],
         })
         toast({
           title: "Connection successful",
