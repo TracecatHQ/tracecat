@@ -56,8 +56,8 @@ class BaseOAuthProvider(ABC):
         self.client_id = client_id
         self.client_secret = client_secret
         # Merge provider defaults with user-supplied scopes and remove duplicates
-        combined_scopes = set(self.scopes.default + (scopes or []))
-        self.requested_scopes = list(combined_scopes)
+        combined_scopes = sorted(set(self.scopes.default + (scopes or [])))
+        self.requested_scopes = combined_scopes
 
         # Validate required endpoints
         if not self.authorization_endpoint or not self.token_endpoint:
