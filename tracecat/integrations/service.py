@@ -9,6 +9,7 @@ from sqlmodel import col, select
 
 from tracecat.db.schemas import OAuthIntegration
 from tracecat.identifiers import UserID
+from tracecat.integrations.base import AuthorizationCodeOAuthProvider
 from tracecat.integrations.models import ProviderConfig
 from tracecat.integrations.providers import ProviderRegistry
 from tracecat.secrets.encryption import decrypt_value, encrypt_value
@@ -231,6 +232,11 @@ class IntegrationService(BaseWorkspaceService):
                 error=str(e),
             )
             raise e
+
+        if not isinstance(provider, AuthorizationCodeOAuthProvider):
+            raise RuntimeError(
+                f"Provider {provider_impl.id} does not support token refresh"
+            )
 
         # Refresh the access token
         try:

@@ -13,7 +13,9 @@ class IntegrationStatus(StrEnum):
 
 
 class OAuthGrantType(StrEnum):
-    """Type of OAuth flow."""
+    """Grant type for OAuth 2.0."""
 
     AUTHORIZATION_CODE = "authorization_code"
+    """Authorization code grant type. See https://datatracker.ietf.org/doc/html/rfc6749#section-1.3.1"""
     CLIENT_CREDENTIALS = "client_credentials"
+    """Client credentials grant type. See https://datatracker.ietf.org/doc/html/rfc6749#section-1.3.4"""

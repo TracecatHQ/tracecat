@@ -37,6 +37,7 @@ class BaseOAuthProvider(ABC):
 
     # Provider metadata
     metadata: ClassVar[ProviderMetadata]
+    _include_in_registry: ClassVar[bool] = True
 
     def __init__(
         self,
@@ -61,6 +62,8 @@ class BaseOAuthProvider(ABC):
             raise ValueError(
                 f"{self.__class__.__name__} must define authorization_endpoint and token_endpoint"
             )
+        if not self.id == self.metadata.id:
+            raise ValueError(f"{self.__class__.__name__} id must match metadata.id")
 
         # Create base client kwargs
         client_kwargs = {

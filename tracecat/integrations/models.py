@@ -17,7 +17,7 @@ from pydantic import UUID4, BaseModel, SecretStr
 from sqlmodel import Field
 
 from tracecat.identifiers import UserID, WorkspaceID
-from tracecat.integrations.enums import IntegrationStatus
+from tracecat.integrations.enums import IntegrationStatus, OAuthGrantType
 
 
 # Pydantic models for API responses
@@ -240,11 +240,14 @@ class ProviderReadMinimal(BaseModel):
     categories: list[ProviderCategory]
     integration_status: IntegrationStatus
     enabled: bool
+    grant_type: OAuthGrantType
 
 
 class ProviderRead(BaseModel):
+    grant_type: OAuthGrantType
     metadata: ProviderMetadata
     scopes: ProviderScopes
     schema: ProviderSchema
     integration_status: IntegrationStatus
-    redirect_uri: str
+    # Only applicable to AuthorizationCodeOAuthProvider
+    redirect_uri: str | None = None

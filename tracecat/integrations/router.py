@@ -7,8 +7,14 @@ from pydantic import ValidationError
 from tracecat import config
 from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.integrations.base import BaseOAuthProvider
-from tracecat.integrations.dependencies import get_provider_impl
+from tracecat.integrations.base import (
+    AuthorizationCodeOAuthProvider,
+    BaseOAuthProvider,
+)
+from tracecat.integrations.dependencies import (
+    get_ac_provider_impl,
+    get_provider_impl,
+)
 from tracecat.integrations.enums import IntegrationStatus
 from tracecat.integrations.models import (
     IntegrationOAuthCallback,
@@ -113,7 +119,10 @@ async def connect_provider(
     *,
     role: WorkspaceUserRole,
     session: AsyncDBSession,
-    provider_impl: Annotated[type[BaseOAuthProvider], Depends(get_provider_impl)],
+    provider_impl: Annotated[
+        type[AuthorizationCodeOAuthProvider],
+        Depends(get_ac_provider_impl),
+    ],
 ) -> IntegrationOAuthConnect:
     """Initiate OAuth integration for the specified provider."""
 
@@ -153,7 +162,10 @@ async def oauth_callback(
     role: WorkspaceUserRole,
     code: str = Query(..., description="Authorization code from OAuth provider"),
     state: str = Query(..., description="State parameter from authorization request"),
-    provider_impl: Annotated[type[BaseOAuthProvider], Depends(get_provider_impl)],
+    provider_impl: Annotated[
+        type[AuthorizationCodeOAuthProvider],
+        Depends(get_ac_provider_impl),
+    ],
 ) -> IntegrationOAuthCallback:
     """Handle OAuth callback for the specified provider."""
     if role.workspace_id is None or role.user_id is None:
@@ -308,6 +320,7 @@ async def list_providers(
             if integration
             else IntegrationStatus.NOT_CONFIGURED,
             enabled=metadata.enabled,
+            grant_type=provider_impl.grant_type,
         )
         items.append(item)
 
@@ -325,11 +338,14 @@ async def get_provider(
     integration = await svc.get_integration(provider_id=provider_impl.id)
 
     return ProviderRead(
+        grant_type=provider_impl.grant_type,
         metadata=provider_impl.metadata,
         scopes=provider_impl.scopes,
         schema=ProviderSchema(json_schema=provider_impl.schema() or {}),
         integration_status=integration.status
         if integration
         else IntegrationStatus.NOT_CONFIGURED,
-        redirect_uri=provider_impl.redirect_uri(),
+        redirect_uri=provider_impl.redirect_uri()
+        if issubclass(provider_impl, AuthorizationCodeOAuthProvider)
+        else None,
     )

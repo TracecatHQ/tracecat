@@ -42,6 +42,8 @@ class ProviderRegistry:
 
         all_providers = _collect_subclasses(BaseOAuthProvider)
         for provider in all_providers:
+            if not provider._include_in_registry:
+                continue
             if provider.id in self._providers:
                 raise ValueError(f"Duplicate provider ID: {provider.id}")
             self._providers[provider.id] = provider
