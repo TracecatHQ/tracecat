@@ -6,6 +6,7 @@ from typing import Any, Literal
 import sqlalchemy as sa
 from asyncpg import UndefinedColumnError
 from sqlalchemy.exc import ProgrammingError
+from sqlalchemy.orm import selectinload
 from sqlmodel import and_, cast, col, desc, func, or_, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -777,6 +778,7 @@ class CaseAttachmentService(BaseWorkspaceService):
             select(CaseAttachment)
             .join(File, cast(CaseAttachment.file_id, sa.UUID) == cast(File.id, sa.UUID))
             .where(CaseAttachment.case_id == case.id, File.deleted_at.is_(None))
+            .options(selectinload(CaseAttachment.file))
             .order_by(desc(col(CaseAttachment.created_at)))
         )
         result = await self.session.exec(statement)
@@ -895,27 +897,68 @@ class CaseAttachmentService(BaseWorkspaceService):
                 await self.session.rollback()
                 raise TracecatException(f"Failed to upload file: {str(e)}") from e
 
-        # Create attachment link
-        attachment = CaseAttachment(
-            case_id=case.id,
-            file_id=file.id,
+        # Check if attachment already exists for this case and file
+        existing_attachment = await self.session.exec(
+            select(CaseAttachment)
+            .where(
+                CaseAttachment.case_id == case.id,
+                CaseAttachment.file_id == file.id,
+            )
+            .options(selectinload(CaseAttachment.file))
         )
-        # Eagerly link the file relationship to avoid lazy loading in async contexts
-        attachment.file = file
-        self.session.add(attachment)
+        attachment = existing_attachment.first()
 
-        # Record attachment event
-        run_ctx = ctx_run.get()
-        await CaseEventsService(self.session, self.role).create_event(
-            case=case,
-            event=AttachmentCreatedEvent(
-                attachment_id=attachment.id,
-                file_name=file.name,
-                content_type=file.content_type,
-                size=file.size,
-                wf_exec_id=run_ctx.wf_exec_id if run_ctx else None,
-            ),
-        )
+        should_create_event = False
+        if attachment:
+            # If attachment exists but file was soft-deleted, restore it
+            if attachment.file.deleted_at is not None:
+                attachment.file.deleted_at = None
+                # Re-upload to blob storage since it was deleted
+                storage_key = f"attachments/{sha256}"
+                try:
+                    await storage.upload_file(
+                        content=params.content,
+                        key=storage_key,
+                        content_type=validated_content_type,
+                    )
+                except Exception as e:
+                    # Rollback the database transaction if storage fails
+                    await self.session.rollback()
+                    raise TracecatException(f"Failed to upload file: {str(e)}") from e
+
+                should_create_event = True  # Restoration event
+                # Eagerly link the file relationship to avoid lazy loading in async contexts
+                attachment.file = file
+            else:
+                # Attachment already exists and is active - return it
+                return attachment
+        else:
+            # Create new attachment link
+            attachment = CaseAttachment(
+                case_id=case.id,
+                file_id=file.id,
+            )
+            # Eagerly link the file relationship to avoid lazy loading in async contexts
+            attachment.file = file
+            self.session.add(attachment)
+            should_create_event = True  # New attachment event
+
+        # Flush to ensure the attachment gets an ID
+        await self.session.flush()
+
+        # Record attachment event (for new attachments or restorations)
+        if should_create_event:
+            run_ctx = ctx_run.get()
+            await CaseEventsService(self.session, self.role).create_event(
+                case=case,
+                event=AttachmentCreatedEvent(
+                    attachment_id=attachment.id,
+                    file_name=file.name,
+                    content_type=file.content_type,
+                    size=file.size,
+                    wf_exec_id=run_ctx.wf_exec_id if run_ctx else None,
+                ),
+            )
 
         await self.session.commit()
         # Reload attachment with the file relationship eagerly loaded
