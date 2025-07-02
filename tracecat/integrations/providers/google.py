@@ -31,12 +31,6 @@ class GoogleOAuthProvider(BaseOAuthProvider):
         name="Google",
         description="Google OAuth provider for Workspace and Gmail integration",
         categories=[ProviderCategory.AUTH],
-        features=[
-            "OAuth 2.0",
-            "Google Workspace",
-            "Gmail API",
-            "Drive Integration",
-        ],
         setup_steps=[
             "Create a project in Google Cloud Console",
             "Enable required APIs (Gmail, Drive, etc.)",

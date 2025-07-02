@@ -47,17 +47,6 @@ class MicrosoftTeamsOAuthProvider(MicrosoftOAuthProvider):
         name="Microsoft Teams",
         description="Microsoft Teams OAuth provider for collaboration and communication",
         categories=[ProviderCategory.COMMUNICATION],
-        features=[
-            "OAuth 2.0",
-            "Teams Integration",
-            "Chat Management",
-            "Channel Management",
-            "Meeting Integration",
-            "File Sharing",
-            "Team Collaboration",
-            "Presence Status",
-            "Message Automation",
-        ],
         setup_steps=[
             "Register your application in Azure Portal",
             "Add the redirect URI shown above to 'Redirect URIs'",

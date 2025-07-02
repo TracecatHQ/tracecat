@@ -43,16 +43,6 @@ class MicrosoftEntraOAuthProvider(MicrosoftOAuthProvider):
         name="Microsoft Entra ID",
         description="Microsoft Entra ID OAuth provider for identity and access management",
         categories=[ProviderCategory.AUTH],
-        features=[
-            "OAuth 2.0",
-            "Azure AD Integration",
-            "Identity Management",
-            "Single Sign-On",
-            "User Management",
-            "Group Management",
-            "Directory Services",
-            "Role-Based Access Control",
-        ],
         setup_steps=[
             "Register your application in Azure Portal",
             "Add the redirect URI shown above to 'Redirect URIs'",

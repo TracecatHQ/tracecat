@@ -1311,10 +1311,6 @@ export type ProviderMetadata = {
    */
   categories?: Array<ProviderCategory>
   /**
-   * List of features provided by this integration
-   */
-  features?: Array<string>
-  /**
    * Step-by-step instructions for setting up the provider
    */
   setup_steps?: Array<string>
@@ -1350,7 +1346,6 @@ export type ProviderReadMinimal = {
   description: string
   requires_config: boolean
   categories: Array<ProviderCategory>
-  features: Array<string>
   integration_status: IntegrationStatus
   enabled: boolean
 }

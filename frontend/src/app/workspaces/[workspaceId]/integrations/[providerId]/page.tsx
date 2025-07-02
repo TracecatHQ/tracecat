@@ -4,7 +4,6 @@ import {
   AlertCircle,
   CheckCircle,
   ChevronLeft,
-  Database,
   ExternalLink,
   LayoutListIcon,
   Loader2,
@@ -480,29 +479,6 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
 
             {/* Sidebar */}
             <div className="space-y-6">
-              {/* Features */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Database className="size-5" />
-                    Features
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-2">
-                    {metadata.features?.map((feature) => (
-                      <div
-                        key={feature}
-                        className="flex items-center gap-2 text-sm"
-                      >
-                        <CheckCircle className="size-4 shrink-0 text-green-500" />
-                        <span>{feature}</span>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-
               {/* Documentation */}
               <Card>
                 <CardHeader>

@@ -58,12 +58,6 @@ class MicrosoftOAuthProvider(BaseOAuthProvider):
         name="Microsoft",
         description="Microsoft OAuth provider",
         categories=[ProviderCategory.AUTH],
-        features=[
-            "OAuth 2.0",
-            "Azure AD Integration",
-            "Microsoft Graph API",
-            "Single Sign-On",
-        ],
         setup_steps=[
             "Register your application in Azure Portal",
             "Add the redirect URI shown above to 'Redirect URIs'",

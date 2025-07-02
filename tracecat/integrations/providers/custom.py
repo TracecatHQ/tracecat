@@ -17,12 +17,6 @@ class CustomOAuthProvider(BaseOAuthProvider):
         name="Custom",
         description="Configure your own OAuth2 provider with custom endpoints and parameters",
         categories=[ProviderCategory.OTHER],
-        features=[
-            "Flexible endpoint configuration",
-            "PKCE support",
-            "Custom parameters",
-            "Multi-provider support",
-        ],
         setup_steps=[
             "Define environment variables for your OAuth provider endpoints",
             "Set CUSTOM_AUTHORIZATION_ENDPOINT to your provider's auth URL",

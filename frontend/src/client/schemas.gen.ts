@@ -4160,14 +4160,6 @@ export const $ProviderMetadata = {
       title: "Categories",
       description: "Categories of the provider (e.g., auth, communication)",
     },
-    features: {
-      items: {
-        type: "string",
-      },
-      type: "array",
-      title: "Features",
-      description: "List of features provided by this integration",
-    },
     setup_steps: {
       items: {
         type: "string",
@@ -4274,13 +4266,6 @@ export const $ProviderReadMinimal = {
       type: "array",
       title: "Categories",
     },
-    features: {
-      items: {
-        type: "string",
-      },
-      type: "array",
-      title: "Features",
-    },
     integration_status: {
       $ref: "#/components/schemas/IntegrationStatus",
     },
@@ -4296,7 +4281,6 @@ export const $ProviderReadMinimal = {
     "description",
     "requires_config",
     "categories",
-    "features",
     "integration_status",
     "enabled",
   ],

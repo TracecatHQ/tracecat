@@ -149,10 +149,6 @@ class ProviderMetadata(BaseModel):
         default_factory=list,
         description="Categories of the provider (e.g., auth, communication)",
     )
-    features: list[str] = Field(
-        default_factory=list,
-        description="List of features provided by this integration",
-    )
     setup_steps: list[str] = Field(
         default_factory=list,
         description="Step-by-step instructions for setting up the provider",
@@ -242,7 +238,6 @@ class ProviderReadMinimal(BaseModel):
     description: str
     requires_config: bool
     categories: list[ProviderCategory]
-    features: list[str]
     integration_status: IntegrationStatus
     enabled: bool
 

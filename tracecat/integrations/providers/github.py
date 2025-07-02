@@ -28,12 +28,6 @@ class GitHubOAuthProvider(BaseOAuthProvider):
         name="GitHub",
         description="GitHub OAuth provider for repository and workflow integration",
         categories=[ProviderCategory.AUTH],
-        features=[
-            "Repository Access",
-            "Automated Deployments",
-            "Issue Tracking",
-            "Pull Requests",
-        ],
         setup_steps=[
             "Go to GitHub Settings > Developer settings > OAuth Apps",
             "Click 'New OAuth App' or select existing app",
