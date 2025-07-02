@@ -1213,6 +1213,11 @@ export type OAuth2AuthorizeResponse = {
 }
 
 /**
+ * Grant type for OAuth 2.0.
+ */
+export type OAuthGrantType = "authorization_code" | "client_credentials"
+
+/**
  * Settings for OAuth authentication.
  */
 export type OAuthSettingsRead = {
@@ -1328,11 +1333,12 @@ export type ProviderMetadata = {
 }
 
 export type ProviderRead = {
+  grant_type: OAuthGrantType
   metadata: ProviderMetadata
   scopes: ProviderScopes
   schema?: ProviderSchema
   integration_status: IntegrationStatus
-  redirect_uri: string
+  redirect_uri?: string | null
 }
 
 export type ProviderReadMinimal = {
@@ -1343,6 +1349,7 @@ export type ProviderReadMinimal = {
   categories: Array<ProviderCategory>
   integration_status: IntegrationStatus
   enabled: boolean
+  grant_type: OAuthGrantType
 }
 
 /**

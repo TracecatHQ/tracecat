@@ -3942,6 +3942,13 @@ export const $OAuth2AuthorizeResponse = {
   title: "OAuth2AuthorizeResponse",
 } as const
 
+export const $OAuthGrantType = {
+  type: "string",
+  enum: ["authorization_code", "client_credentials"],
+  title: "OAuthGrantType",
+  description: "Grant type for OAuth 2.0.",
+} as const
+
 export const $OAuthSettingsRead = {
   properties: {
     oauth_google_enabled: {
@@ -4219,6 +4226,9 @@ export const $ProviderMetadata = {
 
 export const $ProviderRead = {
   properties: {
+    grant_type: {
+      $ref: "#/components/schemas/OAuthGrantType",
+    },
     metadata: {
       $ref: "#/components/schemas/ProviderMetadata",
     },
@@ -4232,12 +4242,19 @@ export const $ProviderRead = {
       $ref: "#/components/schemas/IntegrationStatus",
     },
     redirect_uri: {
-      type: "string",
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "Redirect Uri",
     },
   },
   type: "object",
-  required: ["metadata", "scopes", "integration_status", "redirect_uri"],
+  required: ["grant_type", "metadata", "scopes", "integration_status"],
   title: "ProviderRead",
 } as const
 
@@ -4273,6 +4290,9 @@ export const $ProviderReadMinimal = {
       type: "boolean",
       title: "Enabled",
     },
+    grant_type: {
+      $ref: "#/components/schemas/OAuthGrantType",
+    },
   },
   type: "object",
   required: [
@@ -4283,6 +4303,7 @@ export const $ProviderReadMinimal = {
     "categories",
     "integration_status",
     "enabled",
+    "grant_type",
   ],
   title: "ProviderReadMinimal",
 } as const
