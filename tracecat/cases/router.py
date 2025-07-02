@@ -1,5 +1,6 @@
 import uuid
 from typing import Annotated, Literal
+from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Query, UploadFile, status
 from fastapi.responses import Response
@@ -613,11 +614,22 @@ async def download_attachment(
             case, attachment_id
         )
 
+        # Handle Unicode filenames properly in Content-Disposition header
+        # Use RFC 5987 encoding for non-ASCII characters
+        try:
+            # Try ASCII encoding first (most common case)
+            filename.encode("ascii")
+            content_disposition = f'attachment; filename="{filename}"'
+        except UnicodeEncodeError:
+            # Use RFC 5987 encoding for Unicode filenames
+            encoded_filename = quote(filename.encode("utf-8"))
+            content_disposition = f"attachment; filename*=UTF-8''{encoded_filename}"
+
         return Response(
             content=content,
             media_type=content_type,
             headers={
-                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Content-Disposition": content_disposition,
                 "Content-Length": str(len(content)),
             },
         )
