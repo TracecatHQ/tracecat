@@ -17,6 +17,36 @@ usage:
 MICROSOFT_TEAMS_ACCESS_TOKEN
 """
 
+TeamId = Annotated[str, Doc("The ID of the team.")]
+ChannelId = Annotated[str, Doc("The ID of the channel.")]
+OptionalTeamId = Annotated[str | None, Doc("Team ID for context.")]
+OptionalChannelId = Annotated[str | None, Doc("Channel ID for context.")]
+
+# Adaptive Card formatting types
+AdaptiveCardSpacing = Annotated[
+    Literal["None", "Small", "Default", "Medium", "Large", "ExtraLarge"] | None,
+    Doc("Spacing above the element."),
+]
+AdaptiveCardSeparator = Annotated[
+    bool,
+    Doc("Whether to show a separator line above."),
+]
+
+# Card presentation types
+OptionalTitle = Annotated[str | None, Doc("Title for the card.")]
+RequiredTitle = Annotated[str, Doc("Title/button text.")]
+OptionalSubtitle = Annotated[str | None, Doc("Subtitle for the card.")]
+CardElements = Annotated[
+    list[dict[str, Any]],
+    Doc("List of Adaptive Card elements."),
+]
+
+# Task module types
+TaskModuleSize = Annotated[
+    int | str,
+    Doc("Task module dimensions (small/medium/large or pixels)."),
+]
+
 
 @registry.register(
     default_title="Send Teams message",
@@ -27,8 +57,8 @@ MICROSOFT_TEAMS_ACCESS_TOKEN
     secrets=[microsoft_teams_oauth_secret],
 )
 async def send_teams_message(
-    team_id: Annotated[str, Doc("The ID of the team to send the message to.")],
-    channel_id: Annotated[str, Doc("The ID of the channel to send the message to.")],
+    team_id: TeamId,
+    channel_id: ChannelId,
     message: Annotated[str, Doc("The message to send.")],
 ) -> dict[str, str]:
     token = secrets.get("MICROSOFT_TEAMS_ACCESS_TOKEN")
@@ -56,7 +86,7 @@ async def send_teams_message(
     secrets=[microsoft_teams_oauth_secret],
 )
 async def create_teams_channel(
-    team_id: Annotated[str, Doc("The ID of the team to create the channel in.")],
+    team_id: TeamId,
     display_name: Annotated[
         str,
         Doc("The display name for the channel."),
@@ -129,14 +159,8 @@ async def create_teams_channel(
     secrets=[microsoft_teams_oauth_secret],
 )
 async def list_channel_messages(
-    team_id: Annotated[
-        str,
-        Doc("The ID of the team containing the channel."),
-    ],
-    channel_id: Annotated[
-        str,
-        Doc("The ID of the channel to list messages from."),
-    ],
+    team_id: TeamId,
+    channel_id: ChannelId,
     top: Annotated[
         int | None,
         Doc("Number of messages to return per page (default 20, max 50)."),
@@ -211,14 +235,8 @@ async def get_user_id_by_email(
     secrets=[microsoft_teams_oauth_secret],
 )
 async def delete_teams_channel(
-    team_id: Annotated[
-        str,
-        Doc("The ID of the team containing the channel."),
-    ],
-    channel_id: Annotated[
-        str,
-        Doc("The ID of the channel to delete."),
-    ],
+    team_id: TeamId,
+    channel_id: ChannelId,
 ) -> dict[str, str]:
     """Delete a Teams channel.
 
@@ -482,26 +500,14 @@ def format_choice_set(
     secrets=[microsoft_teams_oauth_secret],
 )
 async def send_teams_buttons(
-    team_id: Annotated[
-        str,
-        Doc("The ID of the team to send the message to."),
-    ],
-    channel_id: Annotated[
-        str,
-        Doc("The ID of the channel to send the message to."),
-    ],
+    team_id: TeamId,
+    channel_id: ChannelId,
     action_set: Annotated[
         dict[str, Any],
         Doc("ActionSet element from format_action_set function."),
     ],
-    title: Annotated[
-        str | None,
-        Doc("Title for the button card."),
-    ] = None,
-    subtitle: Annotated[
-        str | None,
-        Doc("Subtitle for the button card."),
-    ] = None,
+    title: OptionalTitle = None,
+    subtitle: OptionalSubtitle = None,
     text: Annotated[
         str | None,
         Doc("Text content for the button card."),
@@ -582,28 +588,11 @@ async def send_teams_buttons(
     secrets=[microsoft_teams_oauth_secret],
 )
 async def send_adaptive_card(
-    team_id: Annotated[
-        str,
-        Doc("The ID of the team to send the message to."),
-    ],
-    channel_id: Annotated[
-        str,
-        Doc("The ID of the channel to send the message to."),
-    ],
-    card_elements: Annotated[
-        list[dict[str, Any]],
-        Doc(
-            "List of Adaptive Card elements (from format functions above). Do NOT include ActionSet elements - use send_teams_buttons for those."
-        ),
-    ],
-    title: Annotated[
-        str | None,
-        Doc("Title for the card."),
-    ] = None,
-    subtitle: Annotated[
-        str | None,
-        Doc("Subtitle for the card."),
-    ] = None,
+    team_id: TeamId,
+    channel_id: ChannelId,
+    card_elements: CardElements,
+    title: OptionalTitle = None,
+    subtitle: OptionalSubtitle = None,
 ) -> dict[str, Any]:
     """Send an Adaptive Card message to Teams (without ActionSet elements)."""
     token = secrets.get("MICROSOFT_TEAMS_ACCESS_TOKEN")
@@ -653,18 +642,12 @@ async def send_adaptive_card(
     namespace="tools.microsoft_teams",
 )
 def format_task_module_action(
-    title: Annotated[str, Doc("Button title.")],
+    title: RequiredTitle,
     url: Annotated[str, Doc("URL to open in task module.")],
-    width: Annotated[
-        int | str,
-        Doc("Task module width (small/medium/large or pixels)."),
-    ] = "large",
-    height: Annotated[
-        int | str,
-        Doc("Task module height (small/medium/large or pixels)."),
-    ] = "large",
-    team_id: Annotated[str | None, Doc("Team ID for context.")] = None,
-    channel_id: Annotated[str | None, Doc("Channel ID for context.")] = None,
+    width: TaskModuleSize = "large",
+    height: TaskModuleSize = "large",
+    team_id: OptionalTeamId = None,
+    channel_id: OptionalChannelId = None,
 ) -> dict[str, Any]:
     """Create an action that opens a Teams task module."""
 
