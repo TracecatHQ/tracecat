@@ -318,12 +318,90 @@ class TestIntegrationService:
         assert len(filtered) == 2
         assert all(i.provider_id in {"provider1", "provider3"} for i in filtered)
 
+    async def test_disconnect_integration(
+        self,
+        integration_service: IntegrationService,
+        mock_token_response: TokenResponse,
+    ) -> None:
+        """Test disconnecting an integration (clears tokens but keeps record)."""
+        provider_id = "test_provider"
+
+        # Store integration with tokens and scope
+        integration = await integration_service.store_integration(
+            provider_id=provider_id,
+            access_token=mock_token_response.access_token,
+            refresh_token=mock_token_response.refresh_token,
+            expires_in=3600,
+            scope="read write",
+        )
+
+        # Verify tokens and metadata are stored
+        assert integration.encrypted_access_token != b""
+        assert integration.encrypted_refresh_token is not None
+        assert integration.expires_at is not None
+        assert integration.scope == "read write"
+
+        # Disconnect integration
+        await integration_service.disconnect_integration(integration=integration)
+
+        # Verify tokens are wiped but record remains
+        assert integration.encrypted_access_token == b""
+        assert integration.encrypted_refresh_token is None
+        assert integration.expires_at is None
+        assert integration.scope is None
+        assert integration.requested_scopes is None
+
+        # Verify integration still exists in database
+        retrieved = await integration_service.get_integration(provider_id=provider_id)
+        assert retrieved is not None
+        assert retrieved.id == integration.id
+        assert retrieved.provider_id == provider_id
+        assert retrieved.encrypted_access_token == b""
+
+    async def test_disconnect_integration_with_provider_config(
+        self,
+        integration_service: IntegrationService,
+        mock_token_response: TokenResponse,
+    ) -> None:
+        """Test disconnecting an integration that has provider config (should preserve config)."""
+        provider_id = "test_provider"
+
+        # Store provider config first
+        await integration_service.store_provider_config(
+            provider_id=provider_id,
+            client_id="test_client_id",
+            client_secret=SecretStr("test_client_secret"),
+            provider_config={"api_endpoint": "https://api.example.com"},
+        )
+
+        # Store integration with tokens
+        integration = await integration_service.store_integration(
+            provider_id=provider_id,
+            access_token=mock_token_response.access_token,
+            refresh_token=mock_token_response.refresh_token,
+            scope="read write",
+        )
+
+        # Verify provider config is preserved
+        original_provider_config = integration.provider_config
+        original_use_workspace_creds = integration.use_workspace_credentials
+
+        # Disconnect integration
+        await integration_service.disconnect_integration(integration=integration)
+
+        # Verify tokens are wiped but provider config is preserved
+        assert integration.encrypted_access_token == b""
+        assert integration.encrypted_refresh_token is None
+        assert integration.scope is None
+        assert integration.provider_config == original_provider_config
+        assert integration.use_workspace_credentials == original_use_workspace_creds
+
     async def test_remove_integration(
         self,
         integration_service: IntegrationService,
         mock_token_response: TokenResponse,
     ) -> None:
-        """Test removing an integration."""
+        """Test removing an integration (deletes entire record)."""
         provider_id = "test_provider"
 
         # Store integration
@@ -338,6 +416,89 @@ class TestIntegrationService:
         # Verify it's gone
         retrieved = await integration_service.get_integration(provider_id=provider_id)
         assert retrieved is None
+
+    async def test_remove_integration_with_provider_config(
+        self,
+        integration_service: IntegrationService,
+        mock_token_response: TokenResponse,
+    ) -> None:
+        """Test removing an integration that has provider config (deletes everything)."""
+        provider_id = "test_provider"
+
+        # Store provider config first
+        await integration_service.store_provider_config(
+            provider_id=provider_id,
+            client_id="test_client_id",
+            client_secret=SecretStr("test_client_secret"),
+            provider_config={"api_endpoint": "https://api.example.com"},
+        )
+
+        # Store integration with tokens
+        integration = await integration_service.store_integration(
+            provider_id=provider_id,
+            access_token=mock_token_response.access_token,
+            refresh_token=mock_token_response.refresh_token,
+        )
+
+        # Verify integration exists with config
+        assert integration.provider_config is not None
+        assert integration.use_workspace_credentials is True
+
+        # Remove integration
+        await integration_service.remove_integration(integration=integration)
+
+        # Verify entire record is gone (including provider config)
+        retrieved = await integration_service.get_integration(provider_id=provider_id)
+        assert retrieved is None
+
+    async def test_disconnect_vs_remove_integration_behavior(
+        self,
+        integration_service: IntegrationService,
+        mock_token_response: TokenResponse,
+    ) -> None:
+        """Test the difference between disconnect and remove operations."""
+        # Create two identical integrations for comparison
+        disconnect_provider = "disconnect_provider"
+        remove_provider = "remove_provider"
+
+        # Store first integration for disconnect test
+        disconnect_integration = await integration_service.store_integration(
+            provider_id=disconnect_provider,
+            access_token=mock_token_response.access_token,
+            refresh_token=mock_token_response.refresh_token,
+            expires_in=3600,
+            scope="read write",
+        )
+
+        # Store second integration for remove test
+        remove_integration = await integration_service.store_integration(
+            provider_id=remove_provider,
+            access_token=mock_token_response.access_token,
+            refresh_token=mock_token_response.refresh_token,
+            expires_in=3600,
+            scope="read write",
+        )
+
+        # Disconnect first integration
+        await integration_service.disconnect_integration(
+            integration=disconnect_integration
+        )
+
+        # Remove second integration
+        await integration_service.remove_integration(integration=remove_integration)
+
+        # Verify disconnect behavior: record exists but tokens are cleared
+        disconnected = await integration_service.get_integration(
+            provider_id=disconnect_provider
+        )
+        assert disconnected is not None
+        assert disconnected.encrypted_access_token == b""
+        assert disconnected.encrypted_refresh_token is None
+        assert disconnected.scope is None
+
+        # Verify remove behavior: record is completely gone
+        removed = await integration_service.get_integration(provider_id=remove_provider)
+        assert removed is None
 
     async def test_token_encryption_decryption(
         self,

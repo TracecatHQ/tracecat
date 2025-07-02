@@ -231,16 +231,16 @@ async def oauth_callback(
     )
 
 
-# TODO: Differentiate between disconnect and remove
-@integrations_router.delete("/{provider_id}", status_code=status.HTTP_204_NO_CONTENT)
+@integrations_router.post(
+    "/{provider_id}/disconnect", status_code=status.HTTP_204_NO_CONTENT
+)
 async def disconnect_integration(
     *,
     role: WorkspaceUserRole,
     session: AsyncDBSession,
     provider_impl: ProviderImplDep,
 ) -> None:
-    """Disconnect integration for the specified provider."""
-    # Verify provider exists (this will raise 400 if not)
+    """Disconnect integration for the specified provider (revokes tokens but keeps configuration)."""
     if role.workspace_id is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -255,6 +255,30 @@ async def disconnect_integration(
             detail=f"{provider_impl.id} integration not found",
         )
     await svc.disconnect_integration(integration=integration)
+
+
+@integrations_router.delete("/{provider_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_integration(
+    *,
+    role: WorkspaceUserRole,
+    session: AsyncDBSession,
+    provider_impl: ProviderImplDep,
+) -> None:
+    """Delete integration for the specified provider (removes the integration record completely)."""
+    if role.workspace_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Workspace ID is required",
+        )
+
+    svc = IntegrationService(session, role=role)
+    integration = await svc.get_integration(provider_id=provider_impl.id)
+    if integration is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"{provider_impl.id} integration not found",
+        )
+    await svc.remove_integration(integration=integration)
 
 
 @integrations_router.post("/{provider_id}/test")
