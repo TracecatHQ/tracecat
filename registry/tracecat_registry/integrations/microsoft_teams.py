@@ -22,17 +22,6 @@ ChannelId = Annotated[str, Doc("The ID of the channel.")]
 OptionalTeamId = Annotated[str | None, Doc("Team ID for context.")]
 OptionalChannelId = Annotated[str | None, Doc("Channel ID for context.")]
 
-# Adaptive Card formatting types
-AdaptiveCardSpacing = Annotated[
-    Literal["None", "Small", "Default", "Medium", "Large", "ExtraLarge"] | None,
-    Doc("Spacing above the element."),
-]
-AdaptiveCardSeparator = Annotated[
-    bool,
-    Doc("Whether to show a separator line above."),
-]
-
-# Card presentation types
 OptionalTitle = Annotated[str | None, Doc("Title for the card.")]
 RequiredTitle = Annotated[str, Doc("Title/button text.")]
 OptionalSubtitle = Annotated[str | None, Doc("Subtitle for the card.")]
@@ -41,7 +30,6 @@ CardElements = Annotated[
     Doc("List of Adaptive Card elements."),
 ]
 
-# Task module types
 TaskModuleSize = Annotated[
     int | str,
     Doc("Task module dimensions (small/medium/large or pixels)."),
