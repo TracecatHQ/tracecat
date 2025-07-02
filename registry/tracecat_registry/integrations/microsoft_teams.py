@@ -8,13 +8,13 @@ import httpx
 from tracecat_registry import RegistrySecret, registry, secrets
 
 
-microsoft_teams_oauth_secret = RegistrySecret.oauth("microsoft_teams")
-"""Microsoft Teams OAuth2.0 credentials.
+microsoft_teams_ac_oauth_secret = RegistrySecret.oauth("microsoft_teams_ac")
+"""Microsoft Teams OAuth2.0 credentials (Authorization Code grant).
 
-- name: `microsoft_teams`
-- provider_id: `microsoft_teams`
+- name: `microsoft_teams_ac`
+- provider_id: `microsoft_teams_ac`
 usage:
-MICROSOFT_TEAMS_ACCESS_TOKEN
+MICROSOFT_TEAMS_AC_ACCESS_TOKEN
 """
 
 TeamId = Annotated[str, Doc("The ID of the team.")]
@@ -51,14 +51,14 @@ AdaptiveCardSeparator = Annotated[
     display_group="Microsoft Teams",
     doc_url="https://learn.microsoft.com/en-us/graph/api/channel-post-messages",
     namespace="tools.microsoft_teams",
-    secrets=[microsoft_teams_oauth_secret],
+    secrets=[microsoft_teams_ac_oauth_secret],
 )
 async def send_teams_message(
     team_id: TeamId,
     channel_id: ChannelId,
     message: Annotated[str, Doc("The message to send.")],
 ) -> dict[str, str]:
-    token = secrets.get("MICROSOFT_TEAMS_ACCESS_TOKEN")
+    token = secrets.get("MICROSOFT_TEAMS_AC_ACCESS_TOKEN")
 
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
@@ -80,7 +80,7 @@ async def send_teams_message(
     display_group="Microsoft Teams",
     doc_url="https://learn.microsoft.com/en-us/graph/api/channel-post",
     namespace="tools.microsoft_teams",
-    secrets=[microsoft_teams_oauth_secret],
+    secrets=[microsoft_teams_ac_oauth_secret],
 )
 async def create_teams_channel(
     team_id: TeamId,
@@ -105,7 +105,7 @@ async def create_teams_channel(
 
     For private channels, at least one owner must be specified in owner_user_ids.
     """
-    token = secrets.get("MICROSOFT_TEAMS_ACCESS_TOKEN")
+    token = secrets.get("MICROSOFT_TEAMS_AC_ACCESS_TOKEN")
 
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
@@ -153,7 +153,7 @@ async def create_teams_channel(
     display_group="Microsoft Teams",
     doc_url="https://learn.microsoft.com/en-us/graph/api/channel-list-messages?view=graph-rest-beta&tabs=python",
     namespace="tools.microsoft_teams",
-    secrets=[microsoft_teams_oauth_secret],
+    secrets=[microsoft_teams_ac_oauth_secret],
 )
 async def list_channel_messages(
     team_id: TeamId,
@@ -171,7 +171,7 @@ async def list_channel_messages(
 
     Note: This API requires ChannelMessage.Read.All or ChannelMessage.Read.Group permissions.
     """
-    token = secrets.get("MICROSOFT_TEAMS_ACCESS_TOKEN")
+    token = secrets.get("MICROSOFT_TEAMS_AC_ACCESS_TOKEN")
 
     headers = {"Authorization": f"Bearer {token}"}
 
@@ -198,7 +198,7 @@ async def list_channel_messages(
     display_group="Microsoft Teams",
     doc_url="https://learn.microsoft.com/en-us/graph/api/user-list?view=graph-rest-beta&tabs=http",
     namespace="tools.microsoft_teams",
-    secrets=[microsoft_teams_oauth_secret],
+    secrets=[microsoft_teams_ac_oauth_secret],
 )
 async def get_user_id_by_email(
     email: Annotated[str, Doc("The email address to search for.")],
@@ -207,7 +207,7 @@ async def get_user_id_by_email(
 
     Note: This API requires User.ReadBasic.All, User.Read.All, or Directory.Read.All permissions.
     """
-    token = secrets.get("MICROSOFT_TEAMS_ACCESS_TOKEN")
+    token = secrets.get("MICROSOFT_TEAMS_AC_ACCESS_TOKEN")
 
     headers = {"Authorization": f"Bearer {token}"}
 
@@ -229,17 +229,17 @@ async def get_user_id_by_email(
     display_group="Microsoft Teams",
     doc_url="https://learn.microsoft.com/en-us/graph/api/channel-delete?view=graph-rest-beta&tabs=http",
     namespace="tools.microsoft_teams",
-    secrets=[microsoft_teams_oauth_secret],
+    secrets=[microsoft_teams_ac_oauth_secret],
 )
 async def delete_teams_channel(
     team_id: TeamId,
     channel_id: ChannelId,
-) -> dict[str, str]:
+) -> dict[str, Any]:
     """Delete a Teams channel.
 
     Note: This API requires Channel.Delete.All or Channel.Delete.Group permissions.
     """
-    token = secrets.get("MICROSOFT_TEAMS_ACCESS_TOKEN")
+    token = secrets.get("MICROSOFT_TEAMS_AC_ACCESS_TOKEN")
 
     headers = {"Authorization": f"Bearer {token}"}
 
@@ -264,7 +264,7 @@ async def delete_teams_channel(
     display_group="Microsoft Teams",
     doc_url="https://adaptivecards.io/explorer/FactSet.html",
     namespace="tools.microsoft_teams",
-    secrets=[microsoft_teams_oauth_secret],
+    secrets=[microsoft_teams_ac_oauth_secret],
 )
 def format_fact_set(
     facts: Annotated[
@@ -297,7 +297,7 @@ def format_fact_set(
     display_group="Microsoft Teams",
     doc_url="https://adaptivecards.io/explorer/TextBlock.html",
     namespace="tools.microsoft_teams",
-    secrets=[microsoft_teams_oauth_secret],
+    secrets=[microsoft_teams_ac_oauth_secret],
 )
 def format_text_block(
     text: Annotated[str, Doc("The text content.")],
@@ -351,7 +351,7 @@ def format_text_block(
     display_group="Microsoft Teams",
     doc_url="https://adaptivecards.io/explorer/ActionSet.html",
     namespace="tools.microsoft_teams",
-    secrets=[microsoft_teams_oauth_secret],
+    secrets=[microsoft_teams_ac_oauth_secret],
 )
 def format_action_set(
     actions: Annotated[
@@ -408,7 +408,7 @@ def format_action_set(
     display_group="Microsoft Teams",
     doc_url="https://adaptivecards.io/explorer/Input.ChoiceSet.html",
     namespace="tools.microsoft_teams",
-    secrets=[microsoft_teams_oauth_secret],
+    secrets=[microsoft_teams_ac_oauth_secret],
 )
 def format_choice_set(
     id: Annotated[str, Doc("Unique identifier for the input.")],
@@ -474,7 +474,7 @@ def format_choice_set(
     display_group="Microsoft Teams",
     doc_url="https://learn.microsoft.com/en-us/graph/api/channel-post-messages",
     namespace="tools.microsoft_teams",
-    secrets=[microsoft_teams_oauth_secret],
+    secrets=[microsoft_teams_ac_oauth_secret],
 )
 async def send_teams_buttons(
     team_id: TeamId,
@@ -491,7 +491,7 @@ async def send_teams_buttons(
     ] = None,
 ) -> dict[str, Any]:
     """Send ActionSet buttons as a Teams thumbnail card."""
-    token = secrets.get("MICROSOFT_TEAMS_ACCESS_TOKEN")
+    token = secrets.get("MICROSOFT_TEAMS_AC_ACCESS_TOKEN")
 
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
@@ -561,7 +561,7 @@ async def send_teams_buttons(
     display_group="Microsoft Teams",
     doc_url="https://learn.microsoft.com/en-us/graph/api/channel-post-messages",
     namespace="tools.microsoft_teams",
-    secrets=[microsoft_teams_oauth_secret],
+    secrets=[microsoft_teams_ac_oauth_secret],
 )
 async def send_adaptive_card(
     team_id: TeamId,
@@ -570,7 +570,7 @@ async def send_adaptive_card(
     title: OptionalTitle = None,
 ) -> dict[str, Any]:
     """Send an Adaptive Card message to Teams (without ActionSet elements)."""
-    token = secrets.get("MICROSOFT_TEAMS_ACCESS_TOKEN")
+    token = secrets.get("MICROSOFT_TEAMS_AC_ACCESS_TOKEN")
 
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
