@@ -410,7 +410,7 @@ def format_action_set(
     namespace="tools.microsoft_teams",
 )
 def format_choice_set(
-    id: Annotated[str, Doc(..., description="Unique identifier for the input.")],
+    id: Annotated[str, Doc("Unique identifier for the input.")],
     choices: Annotated[
         list[dict[str, str]],
         Doc(
