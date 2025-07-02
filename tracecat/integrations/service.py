@@ -9,7 +9,11 @@ from sqlmodel import col, select
 
 from tracecat.db.schemas import OAuthIntegration
 from tracecat.identifiers import UserID
-from tracecat.integrations.base import AuthorizationCodeOAuthProvider
+from tracecat.integrations.base import (
+    AuthorizationCodeOAuthProvider,
+    BaseOAuthProvider,
+    ClientCredentialsOAuthProvider,
+)
 from tracecat.integrations.enums import OAuthGrantType
 from tracecat.integrations.models import ProviderConfig
 from tracecat.integrations.providers import ProviderRegistry
@@ -154,9 +158,109 @@ class IntegrationService(BaseWorkspaceService):
         self, integration: OAuthIntegration
     ) -> OAuthIntegration:
         """Refresh the access token if it's expired or about to expire."""
-        if not integration.needs_refresh:
-            return integration
+        # if not integration.needs_refresh:
+        #     return integration
 
+        if integration.grant_type == OAuthGrantType.AUTHORIZATION_CODE:
+            integration = await self._refresh_ac_integration(integration)
+        elif integration.grant_type == OAuthGrantType.CLIENT_CREDENTIALS:
+            integration = await self._refresh_cc_integration(integration)
+        else:
+            raise ValueError(f"Unsupported grant type: {integration.grant_type}")
+        await self.session.refresh(integration)
+        return integration
+
+    async def _provider_from_integration(
+        self, integration: OAuthIntegration
+    ) -> BaseOAuthProvider:
+        # Get provider class from registry
+        registry = ProviderRegistry.get()
+        provider_impl = registry.get_class(integration.provider_id)
+        if not provider_impl:
+            self.logger.error(
+                "Provider not found in registry",
+                user_id=integration.user_id,
+                provider=integration.provider_id,
+            )
+            raise RuntimeError(f"Provider {integration.provider_id} not found")
+
+        # Create provider instance from integration config
+        try:
+            # Decrypt client credentials if using workspace credentials
+            client_id = (
+                self._decrypt_token(integration.encrypted_client_id)
+                if integration.encrypted_client_id
+                else None
+            )
+            client_secret = (
+                self._decrypt_token(integration.encrypted_client_secret)
+                if integration.encrypted_client_secret
+                else None
+            )
+
+            if not client_id or not client_secret:
+                self.logger.warning(
+                    "No client credentials found",
+                    user_id=integration.user_id,
+                    provider=integration.provider_id,
+                )
+                raise RuntimeError(
+                    f"No client credentials found for provider {integration.provider_id}"
+                )
+            # Create provider config
+            provider_config = ProviderConfig(
+                client_id=client_id,
+                client_secret=SecretStr(client_secret),
+                provider_config=integration.provider_config,
+                scopes=self.parse_scopes(integration.requested_scopes),
+            )
+            return provider_impl.from_config(provider_config)
+        except Exception as e:
+            self.logger.error(
+                "Failed to create provider for token refresh",
+                user_id=integration.user_id,
+                provider=integration.provider_id,
+                error=str(e),
+            )
+            raise e
+
+    async def _refresh_cc_integration(
+        self, integration: OAuthIntegration
+    ) -> OAuthIntegration:
+        """Refresh an integration using the client credentials for client credentials grant type."""
+        provider = await self._provider_from_integration(integration)
+        if not isinstance(provider, ClientCredentialsOAuthProvider):
+            raise RuntimeError(
+                f"Provider {integration.provider_id} does not support client credentials"
+            )
+        token_response = await provider.get_client_credentials_token()
+        # Update integration with new tokens
+        integration.encrypted_access_token = self._encrypt_token(
+            token_response.access_token.get_secret_value()
+        )
+
+        # Update refresh token if provider rotated it
+        if token_response.refresh_token:
+            integration.encrypted_refresh_token = self._encrypt_token(
+                token_response.refresh_token.get_secret_value()
+            )
+
+        # Update expiry time
+        integration.expires_at = datetime.now() + timedelta(
+            seconds=token_response.expires_in
+        )
+
+        # Update scope if changed
+        integration.scope = token_response.scope
+
+        await self.session.commit()
+        await self.session.refresh(integration)
+        return integration
+
+    async def _refresh_ac_integration(
+        self, integration: OAuthIntegration
+    ) -> OAuthIntegration:
+        """Refresh an integration using the refresh token for authorization code grant type."""
         # Check if refresh token exists by attempting to decrypt
         try:
             refresh_token = (
@@ -181,62 +285,10 @@ class IntegrationService(BaseWorkspaceService):
             )
             return integration
 
-        # Get provider class from registry
-        registry = ProviderRegistry.get()
-        provider_impl = registry.get_class(integration.provider_id)
-        if not provider_impl:
-            self.logger.warning(
-                "Provider not found in registry",
-                user_id=integration.user_id,
-                provider=integration.provider_id,
-            )
-            return integration
-
-        # Create provider instance from integration config
-        try:
-            # Decrypt client credentials if using workspace credentials
-            if integration.use_workspace_credentials:
-                client_id = (
-                    self._decrypt_token(integration.encrypted_client_id)
-                    if integration.encrypted_client_id
-                    else None
-                )
-                client_secret = (
-                    self._decrypt_token(integration.encrypted_client_secret)
-                    if integration.encrypted_client_secret
-                    else None
-                )
-
-                if not client_id or not client_secret:
-                    self.logger.warning(
-                        "No client credentials found",
-                        user_id=integration.user_id,
-                        provider=integration.provider_id,
-                    )
-                    return integration
-                # Create provider config
-                provider_config = ProviderConfig(
-                    client_id=client_id,
-                    client_secret=SecretStr(client_secret),
-                    provider_config=integration.provider_config,
-                    scopes=self.parse_scopes(integration.requested_scopes),
-                )
-                provider = provider_impl.from_config(provider_config)
-            else:
-                # Use environment variables (default behavior)
-                provider = provider_impl(**integration.provider_config)
-        except Exception as e:
-            self.logger.error(
-                "Failed to create provider for token refresh",
-                user_id=integration.user_id,
-                provider=integration.provider_id,
-                error=str(e),
-            )
-            raise e
-
+        provider = await self._provider_from_integration(integration)
         if not isinstance(provider, AuthorizationCodeOAuthProvider):
             raise RuntimeError(
-                f"Provider {provider_impl.id} does not support token refresh"
+                f"Provider {integration.provider_id} does not support token refresh"
             )
 
         # Refresh the access token
