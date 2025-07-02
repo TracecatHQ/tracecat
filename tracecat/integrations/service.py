@@ -158,31 +158,46 @@ class IntegrationService(BaseWorkspaceService):
         self, integration: OAuthIntegration
     ) -> OAuthIntegration:
         """Refresh the access token if it's expired or about to expire."""
-        # if not integration.needs_refresh:
-        #     return integration
+        if not integration.needs_refresh:
+            return integration
 
-        if integration.grant_type == OAuthGrantType.AUTHORIZATION_CODE:
-            integration = await self._refresh_ac_integration(integration)
-        elif integration.grant_type == OAuthGrantType.CLIENT_CREDENTIALS:
-            integration = await self._refresh_cc_integration(integration)
-        else:
-            raise ValueError(f"Unsupported grant type: {integration.grant_type}")
+        try:
+            if integration.grant_type == OAuthGrantType.AUTHORIZATION_CODE:
+                integration = await self._refresh_ac_integration(integration)
+            elif integration.grant_type == OAuthGrantType.CLIENT_CREDENTIALS:
+                integration = await self._refresh_cc_integration(integration)
+            else:
+                self.logger.warning(
+                    "Unsupported grant type for refresh",
+                    grant_type=integration.grant_type,
+                    provider=integration.provider_id,
+                )
+                return integration
+        except Exception as e:
+            self.logger.error(
+                "Failed to refresh token, continuing with current token",
+                error=str(e),
+                provider=integration.provider_id,
+                expires_at=integration.expires_at,
+            )
+            # Return unchanged - let it fail naturally when token expires
+            return integration
+
         await self.session.refresh(integration)
         return integration
 
     async def _provider_from_integration(
         self, integration: OAuthIntegration
-    ) -> BaseOAuthProvider:
+    ) -> BaseOAuthProvider | None:
         # Get provider class from registry
         registry = ProviderRegistry.get()
         provider_impl = registry.get_class(integration.provider_id)
         if not provider_impl:
             self.logger.error(
                 "Provider not found in registry",
-                user_id=integration.user_id,
                 provider=integration.provider_id,
             )
-            raise RuntimeError(f"Provider {integration.provider_id} not found")
+            return None
 
         # Create provider instance from integration config
         try:
@@ -204,9 +219,7 @@ class IntegrationService(BaseWorkspaceService):
                     user_id=integration.user_id,
                     provider=integration.provider_id,
                 )
-                raise RuntimeError(
-                    f"No client credentials found for provider {integration.provider_id}"
-                )
+                return None
             # Create provider config
             provider_config = ProviderConfig(
                 client_id=client_id,
@@ -222,17 +235,22 @@ class IntegrationService(BaseWorkspaceService):
                 provider=integration.provider_id,
                 error=str(e),
             )
-            raise e
+            return None
 
     async def _refresh_cc_integration(
         self, integration: OAuthIntegration
     ) -> OAuthIntegration:
         """Refresh an integration using the client credentials for client credentials grant type."""
         provider = await self._provider_from_integration(integration)
+        if not provider:
+            self.logger.warning("Provider not found", provider=integration.provider_id)
+            return integration
         if not isinstance(provider, ClientCredentialsOAuthProvider):
-            raise RuntimeError(
-                f"Provider {integration.provider_id} does not support client credentials"
+            self.logger.warning(
+                "Provider does not support client credentials",
+                provider=integration.provider_id,
             )
+            return integration
         token_response = await provider.get_client_credentials_token()
         # Update integration with new tokens
         integration.encrypted_access_token = self._encrypt_token(
@@ -286,10 +304,21 @@ class IntegrationService(BaseWorkspaceService):
             return integration
 
         provider = await self._provider_from_integration(integration)
-        if not isinstance(provider, AuthorizationCodeOAuthProvider):
-            raise RuntimeError(
-                f"Provider {integration.provider_id} does not support token refresh"
+        if not provider:
+            self.logger.warning(
+                "Provider not found in registry, cannot refresh",
+                user_id=integration.user_id,
+                provider=integration.provider_id,
             )
+            return integration
+
+        if not isinstance(provider, AuthorizationCodeOAuthProvider):
+            self.logger.warning(
+                "Provider does not support token refresh",
+                user_id=integration.user_id,
+                provider=integration.provider_id,
+            )
+            return integration
 
         # Refresh the access token
         try:
@@ -330,7 +359,8 @@ class IntegrationService(BaseWorkspaceService):
                 provider=integration.provider_id,
                 error=str(e),
             )
-            raise e
+            # Return unchanged integration instead of raising
+            return integration
 
         return integration
 
