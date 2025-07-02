@@ -1105,6 +1105,28 @@ export type IntegrationReadMinimal = {
 export type IntegrationStatus = "not_configured" | "configured" | "connected"
 
 /**
+ * Response for testing integration connection.
+ */
+export type IntegrationTestConnectionResponse = {
+  /**
+   * Whether the connection test was successful
+   */
+  success: boolean
+  /**
+   * The provider that was tested
+   */
+  provider_id: string
+  /**
+   * Message describing the test result
+   */
+  message: string
+  /**
+   * Error message if the test failed
+   */
+  error?: string | null
+}
+
+/**
  * Request model for updating an integration.
  */
 export type IntegrationUpdate = {
@@ -1126,6 +1148,10 @@ export type IntegrationUpdate = {
    * OAuth scopes to request for this integration
    */
   scopes?: Array<string> | null
+  /**
+   * OAuth grant type for this integration
+   */
+  grant_type?: OAuthGrantType | null
 }
 
 export type InteractionCategory = "slack"
@@ -4129,6 +4155,14 @@ export type IntegrationsOauthCallbackData = {
 
 export type IntegrationsOauthCallbackResponse = IntegrationOAuthCallback
 
+export type IntegrationsTestConnectionData = {
+  providerId: string
+  workspaceId: string
+}
+
+export type IntegrationsTestConnectionResponse =
+  IntegrationTestConnectionResponse
+
 export type ProvidersListProvidersData = {
   workspaceId: string
 }
@@ -4236,7 +4270,7 @@ export type PublicCheckHealthResponse = {
 
 export type $OpenApiTs = {
   "/webhooks/{workflow_id}/{secret}": {
-    get: {
+    post: {
       req: PublicIncomingWebhookData
       res: {
         /**
@@ -4249,7 +4283,7 @@ export type $OpenApiTs = {
         422: HTTPValidationError
       }
     }
-    post: {
+    get: {
       req: PublicIncomingWebhook1Data
       res: {
         /**
@@ -6130,6 +6164,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: IntegrationOAuthCallback
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/integrations/{provider_id}/test": {
+    post: {
+      req: IntegrationsTestConnectionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: IntegrationTestConnectionResponse
         /**
          * Validation Error
          */

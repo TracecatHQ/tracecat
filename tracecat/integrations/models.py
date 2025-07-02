@@ -89,6 +89,10 @@ class IntegrationUpdate(BaseModel):
         default=None,
         description="OAuth scopes to request for this integration",
     )
+    grant_type: OAuthGrantType | None = Field(
+        default=None,
+        description="OAuth grant type for this integration",
+    )
 
 
 class IntegrationOAuthConnect(BaseModel):
@@ -118,6 +122,27 @@ class IntegrationOAuthCallback(BaseModel):
     redirect_url: str = Field(
         ...,
         description="The URL to redirect to after the OAuth callback",
+    )
+
+
+class IntegrationTestConnectionResponse(BaseModel):
+    """Response for testing integration connection."""
+
+    success: bool = Field(
+        ...,
+        description="Whether the connection test was successful",
+    )
+    provider_id: str = Field(
+        ...,
+        description="The provider that was tested",
+    )
+    message: str = Field(
+        ...,
+        description="Message describing the test result",
+    )
+    error: str | None = Field(
+        default=None,
+        description="Error message if the test failed",
     )
 
 

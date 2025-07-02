@@ -10,6 +10,7 @@ from sqlmodel import col, select
 from tracecat.db.schemas import OAuthIntegration
 from tracecat.identifiers import UserID
 from tracecat.integrations.base import AuthorizationCodeOAuthProvider
+from tracecat.integrations.enums import OAuthGrantType
 from tracecat.integrations.models import ProviderConfig
 from tracecat.integrations.providers import ProviderRegistry
 from tracecat.secrets.encryption import decrypt_value, encrypt_value
@@ -324,13 +325,22 @@ class IntegrationService(BaseWorkspaceService):
         client_secret: SecretStr | None = None,
         provider_config: dict[str, Any] | None = None,
         requested_scopes: list[str] | None = None,
+        grant_type: OAuthGrantType | None = None,
     ) -> OAuthIntegration:
         """Store or update provider configuration (client credentials) for a workspace."""
         # Check if integration configuration already exists for this provider
 
         if integration := await self.get_integration(provider_id=provider_id):
             # Update existing integration with client credentials (patch operation)
-            if not any((client_id, client_secret, provider_config, requested_scopes)):
+            if not any(
+                (
+                    client_id,
+                    client_secret,
+                    provider_config,
+                    requested_scopes,
+                    grant_type,
+                )
+            ):
                 return integration
 
             if client_id is not None:
@@ -348,6 +358,9 @@ class IntegrationService(BaseWorkspaceService):
 
             if requested_scopes is not None:
                 integration.requested_scopes = " ".join(requested_scopes)
+
+            if grant_type is not None:
+                integration.grant_type = grant_type
 
             self.session.add(integration)
             await self.session.commit()
@@ -381,6 +394,9 @@ class IntegrationService(BaseWorkspaceService):
                 requested_scopes=" ".join(requested_scopes)
                 if requested_scopes
                 else None,
+                grant_type=grant_type
+                if grant_type
+                else OAuthGrantType.AUTHORIZATION_CODE,
             )
 
             self.session.add(integration)

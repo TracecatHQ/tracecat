@@ -180,6 +180,7 @@ export function ProviderConfigForm({
           provider_config: config || undefined,
           // All scopes
           scopes: scopes || undefined,
+          grant_type: provider.grant_type,
         }
         await updateIntegration(params)
         onSuccess?.()

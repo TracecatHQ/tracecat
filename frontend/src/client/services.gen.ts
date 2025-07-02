@@ -95,6 +95,8 @@ import type {
   IntegrationsListIntegrationsResponse,
   IntegrationsOauthCallbackData,
   IntegrationsOauthCallbackResponse,
+  IntegrationsTestConnectionData,
+  IntegrationsTestConnectionResponse,
   IntegrationsUpdateIntegrationData,
   IntegrationsUpdateIntegrationResponse,
   OrganizationDeleteOrgMemberData,
@@ -324,7 +326,7 @@ export const publicIncomingWebhook = (
   data: PublicIncomingWebhookData
 ): CancelablePromise<PublicIncomingWebhookResponse> => {
   return __request(OpenAPI, {
-    method: "GET",
+    method: "POST",
     url: "/webhooks/{workflow_id}/{secret}",
     path: {
       secret: data.secret,
@@ -364,7 +366,7 @@ export const publicIncomingWebhook1 = (
   data: PublicIncomingWebhook1Data
 ): CancelablePromise<PublicIncomingWebhook1Response> => {
   return __request(OpenAPI, {
-    method: "POST",
+    method: "GET",
     url: "/webhooks/{workflow_id}/{secret}",
     path: {
       secret: data.secret,
@@ -3904,6 +3906,33 @@ export const integrationsOauthCallback = (
     query: {
       code: data.code,
       state: data.state,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Test Connection
+ * Test client credentials connection for the specified provider.
+ * @param data The data for the request.
+ * @param data.providerId
+ * @param data.workspaceId
+ * @returns IntegrationTestConnectionResponse Successful Response
+ * @throws ApiError
+ */
+export const integrationsTestConnection = (
+  data: IntegrationsTestConnectionData
+): CancelablePromise<IntegrationsTestConnectionResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/integrations/{provider_id}/test",
+    path: {
+      provider_id: data.providerId,
+    },
+    query: {
       workspace_id: data.workspaceId,
     },
     errors: {

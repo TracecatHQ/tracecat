@@ -3558,6 +3558,42 @@ export const $IntegrationStatus = {
   description: "Status of an integration.",
 } as const
 
+export const $IntegrationTestConnectionResponse = {
+  properties: {
+    success: {
+      type: "boolean",
+      title: "Success",
+      description: "Whether the connection test was successful",
+    },
+    provider_id: {
+      type: "string",
+      title: "Provider Id",
+      description: "The provider that was tested",
+    },
+    message: {
+      type: "string",
+      title: "Message",
+      description: "Message describing the test result",
+    },
+    error: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Error",
+      description: "Error message if the test failed",
+    },
+  },
+  type: "object",
+  required: ["success", "provider_id", "message"],
+  title: "IntegrationTestConnectionResponse",
+  description: "Response for testing integration connection.",
+} as const
+
 export const $IntegrationUpdate = {
   properties: {
     client_id: {
@@ -3614,6 +3650,17 @@ export const $IntegrationUpdate = {
       ],
       title: "Scopes",
       description: "OAuth scopes to request for this integration",
+    },
+    grant_type: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/OAuthGrantType",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description: "OAuth grant type for this integration",
     },
   },
   type: "object",

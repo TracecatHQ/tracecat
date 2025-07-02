@@ -5,10 +5,12 @@ import {
   CheckCircle,
   ChevronLeft,
   ExternalLink,
+  Key,
   LayoutListIcon,
   Loader2,
   Settings,
   Shield,
+  User,
   Zap,
 } from "lucide-react"
 import Link from "next/link"
@@ -136,6 +138,8 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
     connectProviderIsPending,
     disconnectProvider,
     disconnectProviderIsPending,
+    testConnection,
+    testConnectionIsPending,
   } = useIntegrationProvider({ providerId, workspaceId })
   const { metadata, integration_status: integrationStatus } = provider
 
@@ -173,6 +177,20 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
       setErrorMessage("Failed to disconnect. Please try again.")
     }
   }, [disconnectProvider, providerId])
+
+  const handleTestConnection = useCallback(async () => {
+    try {
+      setErrorMessage("")
+      await testConnection(providerId)
+      setShowSuccessMessage(true)
+      // Hide success message after 5 seconds
+      setTimeout(() => setShowSuccessMessage(false), 5000)
+    } catch (_error) {
+      setErrorMessage(
+        "Failed to test connection. Please check your credentials."
+      )
+    }
+  }, [testConnection, providerId])
 
   const isEnabled = Boolean(metadata.enabled)
 
@@ -217,6 +235,22 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
                   {category}
                 </Badge>
               ))}
+              <Badge
+                variant="outline"
+                className="!shadow-none whitespace-nowrap"
+              >
+                {provider.grant_type === "client_credentials" ? (
+                  <>
+                    <Key className="mr-1 size-3" />
+                    Client Credentials
+                  </>
+                ) : (
+                  <>
+                    <User className="mr-1 size-3" />
+                    Authorization Code
+                  </>
+                )}
+              </Badge>
               <Badge className={cn(statusStyles[integrationStatus].style)}>
                 {statusStyles[integrationStatus].label}
               </Badge>
@@ -378,9 +412,13 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
                   ) : (
                     <div className="space-y-4">
                       <div className="text-sm text-muted-foreground">
-                        {isConfigured
-                          ? "This integration is configured but not connected. Complete the OAuth flow to start using it."
-                          : "This integration is not connected to your workspace. Configure it with your client credentials or use OAuth for quick setup."}
+                        {provider.grant_type === "client_credentials"
+                          ? isConfigured
+                            ? "This integration is configured with client credentials. Test the connection to ensure it works properly."
+                            : "This integration requires client credentials configuration. Configure your client ID and secret to enable automatic authentication."
+                          : isConfigured
+                            ? "This integration is configured but not connected. Complete the OAuth flow to start using it."
+                            : "This integration is not connected to your workspace. Configure it with your client credentials or use OAuth for quick setup."}
                       </div>
 
                       <div className="flex flex-wrap gap-2">
@@ -395,26 +433,49 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
                             : "Configure Integration"}
                         </Button>
 
-                        {isConfigured && (
-                          <Button
-                            onClick={handleOAuthConnect}
-                            disabled={!isEnabled || connectProviderIsPending}
-                            variant="outline"
-                            className="sm:w-auto"
-                          >
-                            {connectProviderIsPending ? (
-                              <>
-                                <Loader2 className="mr-2 size-4 animate-spin" />
-                                Connecting...
-                              </>
-                            ) : (
-                              <>
-                                <ExternalLink className="mr-2 size-4" />
-                                Connect with OAuth
-                              </>
-                            )}
-                          </Button>
-                        )}
+                        {isConfigured &&
+                          provider.grant_type === "client_credentials" && (
+                            <Button
+                              onClick={handleTestConnection}
+                              disabled={!isEnabled || testConnectionIsPending}
+                              variant="outline"
+                              className="sm:w-auto"
+                            >
+                              {testConnectionIsPending ? (
+                                <>
+                                  <Loader2 className="mr-2 size-4 animate-spin" />
+                                  Testing...
+                                </>
+                              ) : (
+                                <>
+                                  <Zap className="mr-2 size-4" />
+                                  Test Connection
+                                </>
+                              )}
+                            </Button>
+                          )}
+
+                        {isConfigured &&
+                          provider.grant_type === "authorization_code" && (
+                            <Button
+                              onClick={handleOAuthConnect}
+                              disabled={!isEnabled || connectProviderIsPending}
+                              variant="outline"
+                              className="sm:w-auto"
+                            >
+                              {connectProviderIsPending ? (
+                                <>
+                                  <Loader2 className="mr-2 size-4 animate-spin" />
+                                  Connecting...
+                                </>
+                              ) : (
+                                <>
+                                  <ExternalLink className="mr-2 size-4" />
+                                  Connect with OAuth
+                                </>
+                              )}
+                            </Button>
+                          )}
                       </div>
                     </div>
                   )}
@@ -586,7 +647,25 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
 
           {/* Quick Actions */}
           <div className="flex flex-wrap gap-3">
-            {isConfigured && (
+            {isConfigured && provider.grant_type === "client_credentials" && (
+              <Button
+                onClick={handleTestConnection}
+                disabled={!isEnabled || testConnectionIsPending}
+              >
+                {testConnectionIsPending ? (
+                  <>
+                    <Loader2 className="mr-2 size-4 animate-spin" />
+                    Testing...
+                  </>
+                ) : (
+                  <>
+                    <Zap className="mr-2 size-4" />
+                    Test Connection
+                  </>
+                )}
+              </Button>
+            )}
+            {isConfigured && provider.grant_type === "authorization_code" && (
               <Button
                 onClick={handleOAuthConnect}
                 disabled={!isEnabled || connectProviderIsPending}
