@@ -229,6 +229,11 @@ TRACECAT__BLOB_STORAGE_ENDPOINT = os.environ.get(
 )
 """Endpoint URL for Minio. Ignored when protocol is 's3'."""
 
+TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT = os.environ.get(
+    "TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT"
+)
+"""Public endpoint URL for presigned URLs. Falls back to TRACECAT__BLOB_STORAGE_ENDPOINT if not set."""
+
 # Presigned URL configuration
 TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY = int(
     os.environ.get("TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY", 3600)
