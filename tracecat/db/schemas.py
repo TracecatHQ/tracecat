@@ -1016,7 +1016,7 @@ class File(Resource, table=True):
     )
     name: str = Field(
         ...,
-        max_length=255,
+        max_length=config.TRACECAT__MAX_ATTACHMENT_FILENAME_LENGTH,
         description="Original filename when uploaded",
     )
     content_type: str = Field(
@@ -1026,6 +1026,8 @@ class File(Resource, table=True):
     )
     size: int = Field(
         ...,
+        gt=0,
+        le=config.TRACECAT__MAX_ATTACHMENT_SIZE_BYTES,
         description="File size in bytes",
     )
     creator_id: uuid.UUID | None = Field(

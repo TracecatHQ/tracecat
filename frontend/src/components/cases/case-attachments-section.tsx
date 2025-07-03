@@ -49,6 +49,13 @@ interface ApiErrorDetail {
   error?: string
   message?: string
   allowed_extensions?: string[]
+  // Max attachments exceeded error fields
+  current_count?: number
+  max_count?: number
+  // Storage limit exceeded error fields
+  current_size_mb?: number
+  new_file_size_mb?: number
+  max_size_mb?: number
 }
 
 interface ApiErrorBody {
@@ -186,6 +193,54 @@ export function CaseAttachmentsSection({
           toast({
             title: "File too large",
             description: `${file.name} is too large to upload. ${detail.message || "Please choose a smaller file."}`,
+          })
+          return
+        }
+
+        if (
+          typeof detail === "object" &&
+          detail?.error === "storage_limit_exceeded"
+        ) {
+          let description = `Adding ${file.name} would exceed the case storage limit.`
+
+          if (
+            detail.current_size_mb &&
+            detail.new_file_size_mb &&
+            detail.max_size_mb
+          ) {
+            description = `Adding ${file.name} (${detail.new_file_size_mb}MB) would exceed the case storage limit. Current usage: ${detail.current_size_mb}MB of ${detail.max_size_mb}MB allowed.`
+          }
+
+          toast({
+            title: "Case storage limit exceeded",
+            description: `${description} Please remove some attachments or choose a smaller file.`,
+          })
+          return
+        }
+      }
+
+      if (
+        error.status === 409 &&
+        error.body &&
+        typeof error.body === "object"
+      ) {
+        const body = error.body as ApiErrorBody
+        const detail = body.detail
+
+        if (
+          typeof detail === "object" &&
+          detail?.error === "max_attachments_exceeded"
+        ) {
+          let description =
+            "This case already has the maximum number of attachments allowed."
+
+          if (detail.current_count && detail.max_count) {
+            description = `This case already has ${detail.current_count} of ${detail.max_count} attachments allowed.`
+          }
+
+          toast({
+            title: "Too many attachments",
+            description: `${description} Please remove some attachments before adding new ones.`,
           })
           return
         }
@@ -395,7 +450,7 @@ export function CaseAttachmentsSection({
           <span className="text-xs text-muted-foreground group-hover:text-foreground transition-colors">
             {isUploading || uploadMutation.isPending
               ? "Uploading..."
-              : "Add new attachment (txt, pdf, png, jpeg, gif, csv)"}
+              : "Add new attachment (pdf, doc, xls, txt, csv, images, zip)"}
           </span>
         </div>
 
@@ -474,7 +529,7 @@ export function CaseAttachmentsSection({
           type="file"
           onChange={handleFileSelect}
           className="hidden"
-          accept="*/*"
+          accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,.csv,.jpg,.jpeg,.png,.gif,.webp,.zip,.7z"
         />
       </div>
     </TooltipProvider>

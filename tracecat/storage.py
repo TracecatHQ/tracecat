@@ -61,6 +61,27 @@ class FileNameError(FileValidationError):
     pass
 
 
+class MaxAttachmentsExceededError(FileValidationError):
+    """Raised when maximum number of attachments per case is exceeded."""
+
+    def __init__(self, message: str, current_count: int, max_count: int):
+        super().__init__(message)
+        self.current_count = current_count
+        self.max_count = max_count
+
+
+class StorageLimitExceededError(FileValidationError):
+    """Raised when adding a file would exceed the case storage limit."""
+
+    def __init__(
+        self, message: str, current_size: int, new_file_size: int, max_size: int
+    ):
+        super().__init__(message)
+        self.current_size = current_size
+        self.new_file_size = new_file_size
+        self.max_size = max_size
+
+
 # Security configuration based on OWASP recommendations
 # Limited set of allowed MIME types for case management
 ALLOWED_CONTENT_TYPES = {
@@ -98,9 +119,9 @@ BLOCKED_CONTENT_TYPES = {
     "application/x-msdos-program",
 }
 
-# File size limits
-MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
-MAX_FILENAME_LENGTH = 255
+# File size limits - using config values
+MAX_FILE_SIZE = config.TRACECAT__MAX_ATTACHMENT_SIZE_BYTES
+MAX_FILENAME_LENGTH = config.TRACECAT__MAX_ATTACHMENT_FILENAME_LENGTH
 
 # Magic number signatures for file type validation
 # Based on https://en.wikipedia.org/wiki/List_of_file_signatures
@@ -194,8 +215,8 @@ class FileSecurityValidator:
     """Comprehensive file security validator implementing OWASP recommendations with polyfile integration."""
 
     def __init__(self):
-        self.max_file_size = MAX_FILE_SIZE
-        self.max_filename_length = MAX_FILENAME_LENGTH
+        self.max_file_size = config.TRACECAT__MAX_ATTACHMENT_SIZE_BYTES
+        self.max_filename_length = config.TRACECAT__MAX_ATTACHMENT_FILENAME_LENGTH
 
     def validate_file(
         self,
@@ -951,10 +972,11 @@ def validate_file_size(size: int) -> None:
     Raises:
         ValueError: If the file is too large
     """
-    if size > MAX_FILE_SIZE:
+    max_size = config.TRACECAT__MAX_ATTACHMENT_SIZE_BYTES
+    if size > max_size:
         raise ValueError(
             f"File size ({size / 1024 / 1024:.1f}MB) exceeds maximum allowed size "
-            f"({MAX_FILE_SIZE / 1024 / 1024}MB)"
+            f"({max_size / 1024 / 1024}MB)"
         )
 
 
@@ -983,9 +1005,10 @@ def sanitize_filename(filename: str) -> str:
     filename = filename.lstrip(".")
 
     # Truncate if too long (leave room for extension)
-    if len(filename) > MAX_FILENAME_LENGTH:
+    max_length = config.TRACECAT__MAX_ATTACHMENT_FILENAME_LENGTH
+    if len(filename) > max_length:
         name, ext = os.path.splitext(filename)
-        max_name_length = MAX_FILENAME_LENGTH - len(ext)
+        max_name_length = max_length - len(ext)
         filename = name[:max_name_length] + ext
 
     # If filename is empty after sanitization, generate a default

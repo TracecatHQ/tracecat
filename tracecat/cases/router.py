@@ -42,6 +42,8 @@ from tracecat.storage import (
     FileNameError,
     FileSecurityError,
     FileSizeError,
+    MaxAttachmentsExceededError,
+    StorageLimitExceededError,
 )
 from tracecat.types.auth import AccessLevel, Role
 from tracecat.types.pagination import (
@@ -694,6 +696,47 @@ async def create_attachment(
             detail={
                 "error": "file_validation_failed",
                 "message": str(e),
+            },
+        ) from e
+    except MaxAttachmentsExceededError as e:
+        logger.error(
+            "Maximum attachments per case exceeded",
+            case_id=case_id,
+            filename=file.filename,
+            current_count=e.current_count,
+            max_count=e.max_count,
+            error=str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "error": "max_attachments_exceeded",
+                "message": str(e),
+                "current_count": e.current_count,
+                "max_count": e.max_count,
+            },
+        ) from e
+    except StorageLimitExceededError as e:
+        current_mb = e.current_size / 1024 / 1024
+        new_mb = e.new_file_size / 1024 / 1024
+        max_mb = e.max_size / 1024 / 1024
+        logger.error(
+            "Case storage limit exceeded",
+            case_id=case_id,
+            filename=file.filename,
+            current_size_mb=round(current_mb, 2),
+            new_file_size_mb=round(new_mb, 2),
+            max_size_mb=round(max_mb, 2),
+            error=str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail={
+                "error": "storage_limit_exceeded",
+                "message": str(e),
+                "current_size_mb": round(current_mb, 2),
+                "new_file_size_mb": round(new_mb, 2),
+                "max_size_mb": round(max_mb, 2),
             },
         ) from e
     except Exception as e:

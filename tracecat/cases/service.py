@@ -11,7 +11,7 @@ from sqlmodel import and_, cast, col, desc, func, or_, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat.auth.models import UserRead
-from tracecat import storage
+from tracecat import config, storage
 from tracecat.cases.enums import (
     CasePriority,
     CaseSeverity,
@@ -838,6 +838,37 @@ class CaseAttachmentService(BaseWorkspaceService):
             ValueError: If validation fails
             TracecatException: If storage operation fails
         """
+
+        # Validate file size limits
+        if params.size > config.TRACECAT__MAX_ATTACHMENT_SIZE_BYTES:
+            raise storage.FileSizeError(
+                f"File size ({params.size / 1024 / 1024:.1f}MB) exceeds maximum allowed size "
+                f"({config.TRACECAT__MAX_ATTACHMENT_SIZE_BYTES / 1024 / 1024}MB)"
+            )
+
+        # Check maximum number of attachments per case
+        current_attachment_count = len(await self.list_attachments(case))
+        if current_attachment_count >= config.TRACECAT__MAX_ATTACHMENTS_PER_CASE:
+            raise storage.MaxAttachmentsExceededError(
+                f"Case already has {current_attachment_count} attachments. "
+                f"Maximum allowed is {config.TRACECAT__MAX_ATTACHMENTS_PER_CASE}",
+                current_count=current_attachment_count,
+                max_count=config.TRACECAT__MAX_ATTACHMENTS_PER_CASE,
+            )
+
+        # Check total storage usage per case
+        current_storage = await self.get_total_storage_used(case)
+        if current_storage + params.size > config.TRACECAT__MAX_CASE_STORAGE_BYTES:
+            current_mb = current_storage / 1024 / 1024
+            new_mb = params.size / 1024 / 1024
+            max_mb = config.TRACECAT__MAX_CASE_STORAGE_BYTES / 1024 / 1024
+            raise storage.StorageLimitExceededError(
+                f"Adding this file ({new_mb:.1f}MB) would exceed the case storage limit. "
+                f"Current usage: {current_mb:.1f}MB, Maximum allowed: {max_mb:.1f}MB",
+                current_size=current_storage,
+                new_file_size=params.size,
+                max_size=config.TRACECAT__MAX_CASE_STORAGE_BYTES,
+            )
 
         # Comprehensive security validation using the new validator
         validator = storage.FileSecurityValidator()

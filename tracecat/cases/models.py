@@ -7,6 +7,7 @@ from typing import Annotated, Any, Literal
 import sqlalchemy as sa
 from pydantic import BaseModel, Field, RootModel
 
+from tracecat import config
 from tracecat.auth.models import UserRead
 from tracecat.cases.constants import RESERVED_CASE_FIELDS
 from tracecat.cases.enums import CaseEventType, CasePriority, CaseSeverity, CaseStatus
@@ -312,9 +313,18 @@ class CaseEventsWithUsers(BaseModel):
 class CaseAttachmentCreate(BaseModel):
     """Model for creating a case attachment."""
 
-    file_name: str = Field(..., max_length=255, description="Original filename")
+    file_name: str = Field(
+        ...,
+        max_length=config.TRACECAT__MAX_ATTACHMENT_FILENAME_LENGTH,
+        description="Original filename",
+    )
     content_type: str = Field(..., max_length=100, description="MIME type of the file")
-    size: int = Field(..., gt=0, description="File size in bytes")
+    size: int = Field(
+        ...,
+        gt=0,
+        le=config.TRACECAT__MAX_ATTACHMENT_SIZE_BYTES,
+        description="File size in bytes",
+    )
     content: bytes = Field(..., description="File content")
 
 
