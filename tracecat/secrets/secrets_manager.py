@@ -8,14 +8,14 @@ from tracecat.contexts import ctx_env, get_env
 
 
 @overload
-def get(name: str, default: None = None, /) -> str | None: ...
+def get(name: str, /) -> str | None: ...
 
 
 @overload
-def get(name: str, default: str, /) -> str: ...
+def get[T](name: str, default: T, /) -> str | T: ...
 
 
-def get(name: str, default: str | None = None, /) -> str | None:
+def get[T](name: str, default: T | None = None, /) -> str | T | None:
     """Get a secret that was set in the current context."""
     _env = get_env()
     return _env.get(name, default)

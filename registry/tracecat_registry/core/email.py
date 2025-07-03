@@ -184,14 +184,16 @@ def send_email_smtp(
 
     timeout = timeout or socket.getdefaulttimeout() or 10.0
     smtp_host = secrets.get("SMTP_HOST")
+    smtp_port = secrets.get("SMTP_PORT")
+    smtp_user = secrets.get("SMTP_USER")
+    smtp_pass = secrets.get("SMTP_PASS")
+
     try:
-        smtp_port = int(secrets.get("SMTP_PORT"))
+        smtp_port = int(smtp_port)
     except TypeError as e:
         raise ValueError(
             f"Expected SMTP port to be an integer. Got: {secrets.get('SMTP_PORT')}"
         ) from e
-    smtp_user = secrets.get("SMTP_USER")
-    smtp_pass = secrets.get("SMTP_PASS")
 
     msg = _build_email_message(
         bcc=bcc,
