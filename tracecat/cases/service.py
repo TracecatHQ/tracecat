@@ -1026,7 +1026,9 @@ class CaseAttachmentService(BaseWorkspaceService):
         # Generate presigned URL for blob storage
         storage_key = attachment.storage_path
         try:
-            presigned_url = await storage.generate_presigned_download_url(storage_key)
+            presigned_url = await storage.generate_presigned_download_url(
+                key=storage_key
+            )
             return presigned_url, attachment.file.name, attachment.file.content_type
         except Exception as e:
             raise TracecatException(f"Failed to generate download URL: {str(e)}") from e

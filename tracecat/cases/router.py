@@ -35,6 +35,14 @@ from tracecat.cases.service import (
 )
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.logger import logger
+from tracecat.storage import (
+    FileContentMismatchError,
+    FileContentTypeError,
+    FileExtensionError,
+    FileNameError,
+    FileSecurityError,
+    FileSizeError,
+)
 from tracecat.types.auth import AccessLevel, Role
 from tracecat.types.pagination import (
     CursorPaginatedResponse,
@@ -609,16 +617,84 @@ async def create_attachment(
             creator_id=attachment.file.creator_id,
             is_deleted=attachment.file.is_deleted,
         )
-    except ValueError as e:
+    except FileExtensionError as e:
         logger.error(
-            "Validation error",
+            "File extension validation error",
+            case_id=case_id,
+            filename=file.filename,
+            extension=e.extension,
+            allowed_extensions=e.allowed_extensions,
+            error=str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail={
+                "error": "unsupported_file_extension",
+                "message": str(e),
+                "extension": e.extension,
+                "allowed_extensions": e.allowed_extensions,
+            },
+        ) from e
+    except FileContentTypeError as e:
+        logger.error(
+            "Content type validation error",
+            case_id=case_id,
+            filename=file.filename,
+            content_type=e.content_type,
+            allowed_types=e.allowed_types,
+            error=str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail={
+                "error": "unsupported_content_type",
+                "message": str(e),
+                "content_type": e.content_type,
+                "allowed_types": e.allowed_types,
+            },
+        ) from e
+    except FileSizeError as e:
+        logger.error(
+            "File size validation error",
             case_id=case_id,
             filename=file.filename,
             error=str(e),
         )
         raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail={
+                "error": "file_too_large",
+                "message": str(e),
+            },
+        ) from e
+    except FileSecurityError as e:
+        logger.error(
+            "File security validation error",
+            case_id=case_id,
+            filename=file.filename,
+            error=str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "error": "security_threat_detected",
+                "message": str(e),
+            },
+        ) from e
+    except (FileContentMismatchError, FileNameError) as e:
+        logger.error(
+            "File validation error",
+            case_id=case_id,
+            filename=file.filename,
+            error=str(e),
+            error_type=type(e).__name__,
+        )
+        raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
+            detail={
+                "error": "file_validation_failed",
+                "message": str(e),
+            },
         ) from e
     except Exception as e:
         logger.error(

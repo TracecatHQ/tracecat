@@ -11,6 +11,56 @@ from polyfile.magic import MagicMatcher
 from tracecat import config
 from tracecat.logger import logger
 
+
+# File validation exception classes
+class FileValidationError(ValueError):
+    """Base class for file validation errors."""
+
+    pass
+
+
+class FileSizeError(FileValidationError):
+    """Raised when file size exceeds limits."""
+
+    pass
+
+
+class FileExtensionError(FileValidationError):
+    """Raised when file extension is not allowed."""
+
+    def __init__(self, message: str, extension: str, allowed_extensions: list[str]):
+        super().__init__(message)
+        self.extension = extension
+        self.allowed_extensions = allowed_extensions
+
+
+class FileContentTypeError(FileValidationError):
+    """Raised when file content type is not allowed."""
+
+    def __init__(self, message: str, content_type: str, allowed_types: list[str]):
+        super().__init__(message)
+        self.content_type = content_type
+        self.allowed_types = allowed_types
+
+
+class FileSecurityError(FileValidationError):
+    """Raised when file contains security threats."""
+
+    pass
+
+
+class FileContentMismatchError(FileValidationError):
+    """Raised when file content doesn't match extension/declared type."""
+
+    pass
+
+
+class FileNameError(FileValidationError):
+    """Raised when filename is invalid or unsafe."""
+
+    pass
+
+
 # Security configuration based on OWASP recommendations
 # Limited set of allowed MIME types for case management
 ALLOWED_CONTENT_TYPES = {
@@ -202,10 +252,10 @@ class FileSecurityValidator:
     def _validate_file_size(self, size: int) -> None:
         """Validate file size constraints."""
         if size <= 0:
-            raise ValueError("File cannot be empty")
+            raise FileSizeError("File cannot be empty")
 
         if size > self.max_file_size:
-            raise ValueError(
+            raise FileSizeError(
                 f"File size ({size / 1024 / 1024:.1f}MB) exceeds maximum allowed size "
                 f"({self.max_file_size / 1024 / 1024}MB)"
             )
@@ -213,10 +263,10 @@ class FileSecurityValidator:
     def _validate_filename_safety(self, filename: str) -> None:
         """Validate filename for security issues."""
         if not filename or not filename.strip():
-            raise ValueError("Filename cannot be empty")
+            raise FileNameError("Filename cannot be empty")
 
         if len(filename) > self.max_filename_length:
-            raise ValueError(
+            raise FileNameError(
                 f"Filename too long (max {self.max_filename_length} characters)"
             )
 
@@ -227,11 +277,11 @@ class FileSecurityValidator:
             or "/" in filename
             or "\\" in filename
         ):
-            raise ValueError("Filename contains invalid path characters")
+            raise FileNameError("Filename contains invalid path characters")
 
         # Check for null bytes and control characters
         if any(ord(c) < 32 for c in filename if c != "\t"):
-            raise ValueError("Filename contains invalid control characters")
+            raise FileNameError("Filename contains invalid control characters")
 
     def _extract_extension(self, filename: str) -> str:
         """Extract and normalize file extension."""
@@ -241,33 +291,45 @@ class FileSecurityValidator:
     def _validate_extension(self, extension: str) -> None:
         """Validate file extension against allow/block lists."""
         if extension in BLOCKED_EXTENSIONS:
-            raise ValueError(
-                f"File extension '{extension}' is not allowed for security reasons"
+            raise FileExtensionError(
+                f"File extension '{extension}' is not allowed for security reasons",
+                extension=extension,
+                allowed_extensions=list(ALLOWED_EXTENSIONS.keys()),
             )
 
         if extension not in ALLOWED_EXTENSIONS:
-            allowed_exts = ", ".join(sorted(ALLOWED_EXTENSIONS.keys()))
-            raise ValueError(
-                f"File extension '{extension}' is not supported. Allowed: {allowed_exts}"
+            allowed_exts = sorted(ALLOWED_EXTENSIONS.keys())
+            raise FileExtensionError(
+                f"File extension '{extension}' is not supported. Allowed: {', '.join(allowed_exts)}",
+                extension=extension,
+                allowed_extensions=allowed_exts,
             )
 
     def _validate_declared_content_type(self, content_type: str) -> None:
         """Validate the declared Content-Type header."""
         if not content_type:
-            raise ValueError("Content-Type header is required")
+            raise FileContentTypeError(
+                "Content-Type header is required",
+                content_type="",
+                allowed_types=list(ALLOWED_CONTENT_TYPES),
+            )
 
         # Normalize content type (remove parameters like charset)
         base_content_type = content_type.split(";")[0].strip().lower()
 
         if base_content_type in BLOCKED_CONTENT_TYPES:
-            raise ValueError(
-                f"Content type '{base_content_type}' is not allowed for security reasons"
+            raise FileContentTypeError(
+                f"Content type '{base_content_type}' is not allowed for security reasons",
+                content_type=base_content_type,
+                allowed_types=list(ALLOWED_CONTENT_TYPES),
             )
 
         if base_content_type not in ALLOWED_CONTENT_TYPES:
-            allowed_types = ", ".join(sorted(ALLOWED_CONTENT_TYPES))
-            raise ValueError(
-                f"Content type '{base_content_type}' is not supported. Allowed: {allowed_types}"
+            allowed_types = sorted(ALLOWED_CONTENT_TYPES)
+            raise FileContentTypeError(
+                f"Content type '{base_content_type}' is not supported. Allowed: {', '.join(allowed_types)}",
+                content_type=base_content_type,
+                allowed_types=allowed_types,
             )
 
     def _detect_file_type_by_magic(self, content: bytes) -> str | None:
@@ -311,7 +373,11 @@ class FileSecurityValidator:
         # Get expected type from extension
         expected_from_ext = ALLOWED_EXTENSIONS.get(extension)
         if not expected_from_ext:
-            raise ValueError(f"Unsupported file extension: {extension}")
+            raise FileExtensionError(
+                f"Unsupported file extension: {extension}",
+                extension=extension,
+                allowed_extensions=list(ALLOWED_EXTENSIONS.keys()),
+            )
 
         # Normalize declared type
         declared_base = declared_type.split(";")[0].strip().lower()
@@ -327,7 +393,7 @@ class FileSecurityValidator:
 
             # For other files, magic number should match expected type
             if detected_type != expected_from_ext:
-                raise ValueError(
+                raise FileContentMismatchError(
                     f"File content (detected: {detected_type}) does not match "
                     f"extension {extension} (expected: {expected_from_ext})"
                 )
@@ -336,7 +402,7 @@ class FileSecurityValidator:
         if declared_base != expected_from_ext:
             # Allow some flexibility for common variations
             if not self._is_compatible_type(declared_base, expected_from_ext):
-                raise ValueError(
+                raise FileContentMismatchError(
                     f"Declared content type '{declared_base}' does not match "
                     f"file extension {extension} (expected: {expected_from_ext})"
                 )
@@ -426,7 +492,7 @@ class FileSecurityValidator:
 
             dangerous_detected = detected_types.intersection(dangerous_types)
             if dangerous_detected:
-                raise ValueError(
+                raise FileSecurityError(
                     f"File appears to be a polyglot containing dangerous formats: {', '.join(dangerous_detected)}"
                 )
 
@@ -461,7 +527,7 @@ class FileSecurityValidator:
                 if expected_type != "application/x-executable":
                     dangerous_signatures = ["executable", "elf", "pe32", "mach-o"]
                     if any(sig in match_str for sig in dangerous_signatures):
-                        raise ValueError(
+                        raise FileSecurityError(
                             f"File contains executable signature '{match}' but is not an executable type"
                         )
 
@@ -475,7 +541,7 @@ class FileSecurityValidator:
                         "batch",
                     ]
                     if any(sig in match_str for sig in script_signatures):
-                        raise ValueError(
+                        raise FileSecurityError(
                             f"File contains script signature '{match}' in non-text file"
                         )
 
@@ -513,7 +579,7 @@ class FileSecurityValidator:
                         # by checking if the content actually contains suspicious patterns
                         content_lower = content.lower()
                         if pattern.encode() in content_lower:
-                            raise ValueError(
+                            raise FileSecurityError(
                                 f"File contains suspicious embedded content: {pattern} (detected: {matching_patterns[0]})"
                             )
 
@@ -548,7 +614,7 @@ class FileSecurityValidator:
 
             for signature in executable_signatures:
                 if content.startswith(signature):
-                    raise ValueError("File contains executable content")
+                    raise FileSecurityError("File contains executable content")
             return
 
         # For text-based or document formats, check for script content
@@ -565,16 +631,44 @@ class FileSecurityValidator:
         content_lower = content.lower()
         for signature in dangerous_signatures:
             if signature.lower() in content_lower:
-                raise ValueError("File contains potentially dangerous embedded content")
+                raise FileSecurityError(
+                    "File contains potentially dangerous embedded content"
+                )
 
     def _validate_pdf_content(self, content: bytes) -> None:
-        """Validate PDF-specific content."""
+        """Validate PDF-specific content with targeted JavaScript detection."""
         if not content.startswith(b"%PDF-"):
-            raise ValueError("Invalid PDF file structure")
+            raise FileContentMismatchError("Invalid PDF file structure")
 
-        # Check for JavaScript in PDF (simplified check)
-        if b"/JavaScript" in content or b"/JS" in content:
-            raise ValueError("PDF contains JavaScript which is not allowed")
+        dangerous_patterns = [
+            (b"/OpenAction", "auto-execute actions"),
+            (b"/AA", "additional actions"),
+            (b"/Launch", "external application launch"),
+            (b"/SubmitForm", "form submission"),
+            (b"/ImportData", "data import"),
+            (b"/GoToR", "remote goto actions"),
+        ]
+
+        has_javascript = b"/JavaScript" in content or b"/JS" in content
+
+        for pattern, description in dangerous_patterns:
+            if pattern in content:
+                if has_javascript:
+                    # Only block if both JavaScript AND dangerous action present
+                    raise FileSecurityError(
+                        f"PDF contains JavaScript action {description} in blocklist"
+                    )
+                elif pattern in [b"/Launch", b"/SubmitForm", b"/GoToR"]:
+                    # Block these even without explicit JavaScript (they're inherently risky)
+                    raise FileSecurityError(
+                        f"PDF contains JavaScript action {description} in blocklist"
+                    )
+
+        if has_javascript:
+            logger.warning(
+                "PDF contains JavaScript references but no actions in blocklist detected",
+                content_hash=hashlib.sha256(content).hexdigest()[:16],
+            )
 
     def _validate_image_content(self, content: bytes) -> None:
         """Validate image-specific content."""
@@ -603,12 +697,14 @@ class FileSecurityValidator:
             text_lower = text.lower()
             for pattern in dangerous_patterns:
                 if pattern in text_lower:
-                    raise ValueError(
+                    raise FileSecurityError(
                         f"Text file contains potentially dangerous content: {pattern}"
                     )
 
         except UnicodeDecodeError as e:
-            raise ValueError("Text file contains invalid UTF-8 encoding") from e
+            raise FileContentMismatchError(
+                "Text file contains invalid UTF-8 encoding"
+            ) from e
 
     def _sanitize_filename(self, filename: str) -> str:
         """Sanitize filename to prevent security issues."""
@@ -714,6 +810,7 @@ async def generate_presigned_download_url(
         key: The S3 object key
         bucket: Optional bucket name (defaults to config)
         expiry: URL expiry time in seconds (defaults to config)
+        filename: Optional filename for Content-Disposition header
 
     Returns:
         Presigned URL for downloading the file
@@ -731,6 +828,15 @@ async def generate_presigned_download_url(
                 Params={"Bucket": bucket, "Key": key},
                 ExpiresIn=expiry,
             )
+
+            # If we have a separate presigned URL endpoint configured, replace the endpoint
+            if config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT:
+                # Replace the internal endpoint with the public endpoint in the URL
+                url = url.replace(
+                    config.TRACECAT__BLOB_STORAGE_ENDPOINT,
+                    config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT,
+                )
+
             logger.debug(
                 "Generated presigned download URL",
                 key=key,

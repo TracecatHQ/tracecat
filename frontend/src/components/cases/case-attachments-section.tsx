@@ -44,6 +44,17 @@ interface CaseAttachmentDownloadResponse {
   content_type: string
 }
 
+// Type definitions for API error responses
+interface ApiErrorDetail {
+  error?: string
+  message?: string
+  allowed_extensions?: string[]
+}
+
+interface ApiErrorBody {
+  detail?: ApiErrorDetail | string
+}
+
 function getFileIcon(contentType: string) {
   if (contentType.startsWith("image/")) return <ImageIcon className="h-4 w-4" />
   if (contentType === "application/pdf") return <FileText className="h-4 w-4" />
@@ -114,24 +125,125 @@ export function CaseAttachmentsSection({
         },
       })
     },
-    onSuccess: () => {
+    onSuccess: (data, file) => {
       queryClient.invalidateQueries({
         queryKey: ["case-attachments", caseId, workspaceId],
       })
-      toast({
-        title: "Upload successful",
-        description: "Attachment uploaded successfully.",
-      })
       setIsUploading(false)
+      toast({
+        title: "Attachment uploaded successfully",
+        description: `${file.name} has been added to the case`,
+      })
     },
-    onError: (error: ApiError) => {
+    onError: (error: ApiError, file) => {
       console.error("Failed to upload attachment:", error)
+      setIsUploading(false)
+
+      // Handle structured error responses with specific HTTP status codes
+      if (
+        error.status === 415 &&
+        error.body &&
+        typeof error.body === "object"
+      ) {
+        const body = error.body as ApiErrorBody
+        const detail = body.detail
+
+        if (
+          typeof detail === "object" &&
+          detail?.error === "unsupported_file_extension"
+        ) {
+          toast({
+            title: "File type not supported",
+            description: `${file.name} cannot be uploaded. Allowed file types: ${detail.allowed_extensions?.join(", ") || "txt, pdf, png, jpeg, gif, csv"}`,
+          })
+          return
+        }
+
+        if (
+          typeof detail === "object" &&
+          detail?.error === "unsupported_content_type"
+        ) {
+          toast({
+            title: "Content type not supported",
+            description: `${file.name} has an unsupported content type. ${detail.message || "Please try a different file type."}`,
+          })
+          return
+        }
+      }
+
+      if (
+        error.status === 413 &&
+        error.body &&
+        typeof error.body === "object"
+      ) {
+        const body = error.body as ApiErrorBody
+        const detail = body.detail
+
+        if (typeof detail === "object" && detail?.error === "file_too_large") {
+          toast({
+            title: "File too large",
+            description: `${file.name} is too large to upload. ${detail.message || "Please choose a smaller file."}`,
+          })
+          return
+        }
+      }
+
+      if (
+        error.status === 422 &&
+        error.body &&
+        typeof error.body === "object"
+      ) {
+        const body = error.body as ApiErrorBody
+        const detail = body.detail
+
+        if (
+          typeof detail === "object" &&
+          detail?.error === "security_threat_detected"
+        ) {
+          toast({
+            title: "Security threat detected",
+            description: `${file.name} contains potentially dangerous content and cannot be uploaded.`,
+          })
+          return
+        }
+      }
+
+      if (
+        error.status === 400 &&
+        error.body &&
+        typeof error.body === "object"
+      ) {
+        const body = error.body as ApiErrorBody
+        const detail = body.detail
+
+        if (
+          typeof detail === "object" &&
+          detail?.error === "file_validation_failed"
+        ) {
+          toast({
+            title: "File validation failed",
+            description: `${file.name} failed validation. ${detail.message || "Please check the file and try again."}`,
+          })
+          return
+        }
+      }
+
+      // Fallback for other errors
+      let errorMessage = error.message || "Unknown error"
+      if (error.body && typeof error.body === "object") {
+        const body = error.body as ApiErrorBody
+        if (body.detail) {
+          errorMessage =
+            typeof body.detail === "string"
+              ? body.detail
+              : body.detail.message || JSON.stringify(body.detail)
+        }
+      }
+
       toast({
         title: "Upload failed",
-        description: "Failed to upload attachment. Please try again.",
-        variant: "destructive",
+        description: `Failed to upload ${file.name}. ${errorMessage}`,
       })
-      setIsUploading(false)
     },
   })
 
@@ -148,16 +260,28 @@ export function CaseAttachmentsSection({
         queryKey: ["case-attachments", caseId, workspaceId],
       })
       toast({
-        title: "Deleted successfully",
-        description: "Attachment deleted successfully.",
+        title: "Attachment deleted",
+        description: "The attachment has been removed from the case",
       })
     },
     onError: (error: ApiError) => {
       console.error("Failed to delete attachment:", error)
+
+      // Extract error message from the API error
+      let errorMessage = error.message || "Unknown error"
+      if (error.body && typeof error.body === "object") {
+        const body = error.body as ApiErrorBody
+        if (body.detail) {
+          errorMessage =
+            typeof body.detail === "string"
+              ? body.detail
+              : body.detail.message || JSON.stringify(body.detail)
+        }
+      }
+
       toast({
         title: "Delete failed",
-        description: "Failed to delete attachment. Please try again.",
-        variant: "destructive",
+        description: `Failed to delete attachment. ${errorMessage}`,
       })
     },
   })
@@ -202,17 +326,10 @@ export function CaseAttachmentsSection({
       document.body.appendChild(link)
       link.click()
       document.body.removeChild(link)
-
-      toast({
-        title: "Download started",
-        description: `Downloading ${attachment.file_name}...`,
-      })
     } catch (error) {
       console.error("Failed to download attachment:", error)
-      toast({
-        title: "Download failed",
-        description: "Failed to download attachment. Please try again.",
-        variant: "destructive",
+      toast.error("Download failed", {
+        description: `Failed to download ${attachment.file_name}`,
       })
     }
   }
@@ -270,7 +387,7 @@ export function CaseAttachmentsSection({
           <span className="text-xs text-muted-foreground group-hover:text-foreground transition-colors">
             {isUploading || uploadMutation.isPending
               ? "Uploading..."
-              : "Add new attachment..."}
+              : "Add new attachment (txt, pdf, png, jpeg, gif, csv)"}
           </span>
         </div>
 
