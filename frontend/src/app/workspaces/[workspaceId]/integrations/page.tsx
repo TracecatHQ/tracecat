@@ -51,6 +51,11 @@ const getStatusInfo = (status: IntegrationStatus) => {
         label: "Configured",
         className: "bg-yellow-100 text-yellow-800 hover:bg-yellow-200",
       }
+    case "not_configured":
+      return {
+        label: "Available",
+        className: "bg-gray-100 text-gray-800 hover:bg-gray-200",
+      }
     default:
       return {
         label: "Available",
@@ -159,7 +164,9 @@ export default function IntegrationsPage() {
             <Select
               value={selectedCategory ?? "all"}
               onValueChange={(value) =>
-                setSelectedCategory(value as ProviderCategory)
+                setSelectedCategory(
+                  value === "all" ? null : (value as ProviderCategory)
+                )
               }
             >
               <SelectTrigger className="w-full sm:w-48">
@@ -178,7 +185,9 @@ export default function IntegrationsPage() {
             <Select
               value={selectedStatus ?? "all"}
               onValueChange={(value) =>
-                setSelectedStatus(value as IntegrationStatus)
+                setSelectedStatus(
+                  value === "all" ? null : (value as IntegrationStatus)
+                )
               }
             >
               <SelectTrigger className="w-full sm:w-48">
@@ -186,7 +195,8 @@ export default function IntegrationsPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Status</SelectItem>
-                <SelectItem value="available">Available</SelectItem>
+                <SelectItem value="not_configured">Available</SelectItem>
+                <SelectItem value="configured">Configured</SelectItem>
                 <SelectItem value="connected">Connected</SelectItem>
               </SelectContent>
             </Select>
