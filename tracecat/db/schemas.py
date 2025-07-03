@@ -1110,3 +1110,44 @@ class OAuthIntegration(SQLModel, TimestampMixin, table=True):
             return IntegrationStatus.CONFIGURED
         else:
             return IntegrationStatus.NOT_CONFIGURED
+
+
+class OAuthStateDB(SQLModel, TimestampMixin, table=True):
+    """Store OAuth state parameters for CSRF protection during OAuth flows."""
+
+    __tablename__: str = "oauth_state"
+    __table_args__ = (Index("ix_oauth_state_expires_at", "expires_at"),)
+
+    state: UUID4 = Field(
+        default_factory=uuid.uuid4,
+        primary_key=True,
+        nullable=False,
+        unique=True,
+        index=True,
+        description="Unique state identifier for OAuth flow",
+    )
+    workspace_id: UUID4 = Field(
+        sa_column=Column(
+            UUID, ForeignKey("workspace.id", ondelete="CASCADE"), nullable=False
+        ),
+        description="Workspace ID associated with this OAuth flow",
+    )
+    user_id: UUID4 = Field(
+        sa_column=Column(
+            UUID, ForeignKey("user.id", ondelete="CASCADE"), nullable=False
+        ),
+        description="User ID initiating the OAuth flow",
+    )
+    provider_id: str = Field(
+        nullable=False,
+        description="Provider ID for this OAuth flow",
+    )
+    expires_at: datetime = Field(
+        sa_type=TIMESTAMP(timezone=True),  # type: ignore
+        nullable=False,
+        description="When this state expires",
+    )
+
+    # Relationships
+    workspace: Workspace = Relationship()
+    user: User = Relationship()
