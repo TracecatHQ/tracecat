@@ -1,12 +1,16 @@
 import {
   BracesIcon,
   type LucideIcon,
+  PaperclipIcon,
   PencilIcon,
+  TrashIcon,
   UserIcon,
   UserXIcon,
 } from "lucide-react"
 import type {
   AssigneeChangedEventRead,
+  AttachmentCreatedEventRead,
+  AttachmentDeletedEventRead,
   ClosedEventRead,
   FieldChangedEventRead,
   PriorityChangedEventRead,
@@ -290,5 +294,65 @@ export function FieldsChangedEvent({
         </div>
       </div>
     </TooltipProvider>
+  )
+}
+
+export function AttachmentCreatedEvent({
+  event,
+  actor,
+}: {
+  event: AttachmentCreatedEventRead
+  actor: User
+}) {
+  const formatFileSize = (bytes: number): string => {
+    if (bytes === 0) return "0 Bytes"
+    const k = 1024
+    const sizes = ["Bytes", "KB", "MB", "GB"]
+    const i = Math.floor(Math.log(bytes) / Math.log(k))
+    return (
+      Number.parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i]
+    )
+  }
+
+  return (
+    <div className="flex items-center space-x-2 text-xs">
+      <EventIcon icon={PaperclipIcon} />
+      <span>
+        <EventActor user={actor} /> uploaded{" "}
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="cursor-default font-medium hover:underline">
+                {event.file_name}
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>
+              <div className="space-y-1">
+                <p>Size: {formatFileSize(event.size)}</p>
+                <p>Type: {event.content_type}</p>
+              </div>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      </span>
+    </div>
+  )
+}
+
+export function AttachmentDeletedEvent({
+  event,
+  actor,
+}: {
+  event: AttachmentDeletedEventRead
+  actor: User
+}) {
+  return (
+    <div className="flex items-center space-x-2 text-xs">
+      <EventIcon icon={TrashIcon} className="text-red-600 bg-red-50" />
+      <span>
+        <EventActor user={actor} /> deleted{" "}
+        <span className="font-medium">{event.file_name}</span>
+      </span>
+    </div>
   )
 }

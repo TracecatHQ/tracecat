@@ -129,6 +129,9 @@ export function CaseAttachmentsSection({
       queryClient.invalidateQueries({
         queryKey: ["case-attachments", caseId, workspaceId],
       })
+      queryClient.invalidateQueries({
+        queryKey: ["case-events", caseId, workspaceId],
+      })
       setIsUploading(false)
       toast({
         title: "Attachment uploaded successfully",
@@ -259,6 +262,9 @@ export function CaseAttachmentsSection({
       queryClient.invalidateQueries({
         queryKey: ["case-attachments", caseId, workspaceId],
       })
+      queryClient.invalidateQueries({
+        queryKey: ["case-events", caseId, workspaceId],
+      })
       toast({
         title: "Attachment deleted",
         description: "The attachment has been removed from the case",
@@ -328,8 +334,10 @@ export function CaseAttachmentsSection({
       document.body.removeChild(link)
     } catch (error) {
       console.error("Failed to download attachment:", error)
-      toast.error("Download failed", {
+      toast({
+        title: "Download failed",
         description: `Failed to download ${attachment.file_name}`,
+        variant: "destructive",
       })
     }
   }

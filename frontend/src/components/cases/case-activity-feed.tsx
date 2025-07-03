@@ -6,6 +6,8 @@ import { useMemo } from "react"
 import type { CaseEventRead } from "@/client"
 import {
   AssigneeChangedEvent,
+  AttachmentCreatedEvent,
+  AttachmentDeletedEvent,
   CaseClosedEvent,
   CaseReopenedEvent,
   CaseUpdatedEvent,
@@ -88,6 +90,15 @@ function ActivityFeedEvent({
         {/* Assignee events */}
         {event.type === "assignee_changed" && (
           <AssigneeChangedEvent event={event} actor={actor} userMap={users} />
+        )}
+
+        {/* Attachment events */}
+        {event.type === "attachment_created" && (
+          <AttachmentCreatedEvent event={event} actor={actor} />
+        )}
+
+        {event.type === "attachment_deleted" && (
+          <AttachmentDeletedEvent event={event} actor={actor} />
         )}
 
         {/* Add a dot separator */}
