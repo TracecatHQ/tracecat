@@ -340,3 +340,108 @@ class TestCaseAttachmentsIntegration:
         # List should show all attachments
         attachments = await attachments_service.list_attachments(test_case)
         assert len(attachments) == 3
+
+    async def test_get_attachment_download_url(
+        self,
+        cases_service: CasesService,
+        attachments_service: CaseAttachmentService,
+        case_create_params: CaseCreate,
+        sample_attachment_params: CaseAttachmentCreate,
+        sample_file_content: bytes,
+    ) -> None:
+        """Test generating presigned download URLs for attachments."""
+        # 1. Create a case
+        test_case = await cases_service.create_case(case_create_params)
+
+        # 2. Upload an attachment
+        with patch(
+            "tracecat.storage.FileSecurityValidator.validate_file",
+            return_value={
+                "filename": sample_attachment_params.file_name,
+                "content_type": sample_attachment_params.content_type,
+            },
+        ):
+            created_attachment = await attachments_service.create_attachment(
+                test_case, sample_attachment_params
+            )
+
+        # 3. Generate presigned download URL
+        (
+            presigned_url,
+            filename,
+            content_type,
+        ) = await attachments_service.get_attachment_download_url(
+            test_case, created_attachment.id
+        )
+
+        # Verify the response
+        assert isinstance(presigned_url, str)
+        assert presigned_url.startswith("http")  # Should be a valid URL
+        assert filename == sample_attachment_params.file_name
+        assert content_type == sample_attachment_params.content_type
+
+        # Verify the URL contains expected MinIO components
+        assert "localhost" in presigned_url or "minio" in presigned_url
+        assert (
+            created_attachment.file.sha256 in presigned_url
+        )  # Storage key contains SHA256
+
+    async def test_get_attachment_download_url_nonexistent(
+        self,
+        cases_service: CasesService,
+        attachments_service: CaseAttachmentService,
+        case_create_params: CaseCreate,
+    ) -> None:
+        """Test generating presigned URL for non-existent attachment raises proper error."""
+        test_case = await cases_service.create_case(case_create_params)
+        fake_attachment_id = uuid.uuid4()
+
+        with pytest.raises(TracecatNotFoundError, match="Attachment .* not found"):
+            await attachments_service.get_attachment_download_url(
+                test_case, fake_attachment_id
+            )
+
+    async def test_download_attachment_still_works(
+        self,
+        cases_service: CasesService,
+        attachments_service: CaseAttachmentService,
+        case_create_params: CaseCreate,
+        sample_attachment_params: CaseAttachmentCreate,
+        sample_file_content: bytes,
+    ) -> None:
+        """Test that the original download_attachment method still works alongside presigned URLs."""
+        # 1. Create a case
+        test_case = await cases_service.create_case(case_create_params)
+
+        # 2. Upload an attachment
+        with patch(
+            "tracecat.storage.FileSecurityValidator.validate_file",
+            return_value={
+                "filename": sample_attachment_params.file_name,
+                "content_type": sample_attachment_params.content_type,
+            },
+        ):
+            created_attachment = await attachments_service.create_attachment(
+                test_case, sample_attachment_params
+            )
+
+        # 3. Verify both download methods work
+        # Direct download
+        content, filename, content_type = await attachments_service.download_attachment(
+            test_case, created_attachment.id
+        )
+        assert content == sample_file_content
+        assert filename == sample_attachment_params.file_name
+        assert content_type == sample_attachment_params.content_type
+
+        # Presigned URL generation
+        (
+            presigned_url,
+            url_filename,
+            url_content_type,
+        ) = await attachments_service.get_attachment_download_url(
+            test_case, created_attachment.id
+        )
+        assert isinstance(presigned_url, str)
+        assert url_filename == sample_attachment_params.file_name
+        assert url_content_type == sample_attachment_params.content_type

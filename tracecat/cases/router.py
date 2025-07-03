@@ -1,9 +1,8 @@
+import hashlib
 import uuid
 from typing import Annotated, Literal
-from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Query, UploadFile, status
-from fastapi.responses import Response
 from sqlalchemy.exc import DBAPIError
 
 from tracecat.auth.credentials import RoleACL
@@ -13,6 +12,7 @@ from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.models import (
     AssigneeChangedEventRead,
     CaseAttachmentCreate,
+    CaseAttachmentDownloadResponse,
     CaseAttachmentRead,
     CaseCommentCreate,
     CaseCommentRead,
@@ -522,7 +522,37 @@ async def create_attachment(
 
     # Read file content
     try:
+        # Reset file pointer to beginning to ensure we read the full content
+        await file.seek(0)
         content = await file.read()
+
+        # Comprehensive debugging for upload
+        logger.info(
+            "File upload - content read",
+            case_id=case_id,
+            filename=file.filename,
+            declared_content_type=file.content_type,
+            declared_size=getattr(file, "size", "unknown"),
+            actual_size=len(content),
+            content_hash=hashlib.sha256(content).hexdigest()[:16]
+            if content
+            else "empty",
+        )
+
+        # Validate that we actually read content
+        if not content:
+            raise ValueError("File appears to be empty or unreadable")
+
+        # Validate size consistency if available
+        if hasattr(file, "size") and file.size and len(content) != file.size:
+            logger.warning(
+                "File size mismatch during upload",
+                case_id=case_id,
+                filename=file.filename,
+                declared_size=file.size,
+                actual_size=len(content),
+            )
+
     except Exception as e:
         logger.error(
             "Failed to read file content",
@@ -541,15 +571,28 @@ async def create_attachment(
         params = CaseAttachmentCreate(
             file_name=file.filename or "unnamed",
             content_type=file.content_type or "application/octet-stream",
-            size=len(content),
+            size=len(content),  # Use actual read size
             content=content,
         )
 
-        attachment = await service.attachments.create_attachment(case, params)
         logger.info(
-            "Created attachment",
+            "Creating attachment",
+            case_id=case_id,
+            file_name=params.file_name,
+            content_type=params.content_type,
+            size=params.size,
+            content_hash=hashlib.sha256(params.content).hexdigest()[:16],
+        )
+
+        attachment = await service.attachments.create_attachment(case, params)
+
+        logger.info(
+            "Attachment created successfully",
             case_id=case_id,
             attachment_id=attachment.id,
+            file_id=attachment.file_id,
+            stored_size=attachment.file.size,
+            stored_sha256=attachment.file.sha256[:16],
             size_mb=round(attachment.file.size / (1024 * 1024), 2),
         )
 
@@ -598,7 +641,7 @@ async def download_attachment(
     session: AsyncDBSession,
     case_id: uuid.UUID,
     attachment_id: uuid.UUID,
-) -> Response:
+) -> CaseAttachmentDownloadResponse:
     """Download an attachment."""
     service = CasesService(session, role)
     case = await service.get_case(case_id)
@@ -610,29 +653,26 @@ async def download_attachment(
         )
 
     try:
-        content, filename, content_type = await service.attachments.download_attachment(
-            case, attachment_id
+        (
+            presigned_url,
+            filename,
+            content_type,
+        ) = await service.attachments.get_attachment_download_url(case, attachment_id)
+
+        logger.info(
+            "Generated presigned download URL",
+            case_id=case_id,
+            attachment_id=attachment_id,
+            filename=filename,
+            content_type=content_type,
         )
 
-        # Handle Unicode filenames properly in Content-Disposition header
-        # Use RFC 5987 encoding for non-ASCII characters
-        try:
-            # Try ASCII encoding first (most common case)
-            filename.encode("ascii")
-            content_disposition = f'attachment; filename="{filename}"'
-        except UnicodeEncodeError:
-            # Use RFC 5987 encoding for Unicode filenames
-            encoded_filename = quote(filename.encode("utf-8"))
-            content_disposition = f"attachment; filename*=UTF-8''{encoded_filename}"
-
-        return Response(
-            content=content,
-            media_type=content_type,
-            headers={
-                "Content-Disposition": content_disposition,
-                "Content-Length": str(len(content)),
-            },
+        return CaseAttachmentDownloadResponse(
+            download_url=presigned_url,
+            file_name=filename,
+            content_type=content_type,
         )
+
     except Exception as e:
         error_type = type(e).__name__
         if "not found" in str(e).lower():
@@ -648,7 +688,7 @@ async def download_attachment(
             ) from e
 
         logger.error(
-            "Failed to download attachment",
+            "Failed to generate download URL",
             case_id=case_id,
             attachment_id=attachment_id,
             error=str(e),
@@ -656,7 +696,7 @@ async def download_attachment(
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to download attachment: {str(e)}",
+            detail=f"Failed to generate download URL: {str(e)}",
         ) from e
 
 

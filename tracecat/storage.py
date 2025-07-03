@@ -943,11 +943,11 @@ async def download_file(key: str, bucket: str | None = None) -> bytes:
         bucket: Optional bucket name (defaults to config)
 
     Returns:
-        The file content as bytes
+        File content as bytes
 
     Raises:
-        FileNotFoundError: If the file doesn't exist
         ClientError: If the download fails
+        FileNotFoundError: If the file doesn't exist
     """
     bucket = bucket or config.TRACECAT__BLOB_STORAGE_BUCKET
 
@@ -955,7 +955,7 @@ async def download_file(key: str, bucket: str | None = None) -> bytes:
         async with get_storage_client() as s3_client:
             response = await s3_client.get_object(Bucket=bucket, Key=key)
             content = await response["Body"].read()
-            logger.info(
+            logger.debug(
                 "File downloaded successfully",
                 key=key,
                 bucket=bucket,
@@ -964,8 +964,12 @@ async def download_file(key: str, bucket: str | None = None) -> bytes:
             return content
     except ClientError as e:
         if e.response.get("Error", {}).get("Code") == "NoSuchKey":
-            logger.warning("File not found", key=key, bucket=bucket)
-            raise FileNotFoundError(f"File not found: {key}") from e
+            logger.warning(
+                "File not found in storage",
+                key=key,
+                bucket=bucket,
+            )
+            raise FileNotFoundError(f"File {key} not found in bucket {bucket}") from e
         logger.error(
             "Failed to download file",
             key=key,

@@ -38,6 +38,12 @@ interface CaseAttachmentsSectionProps {
   workspaceId: string
 }
 
+interface CaseAttachmentDownloadResponse {
+  download_url: string
+  file_name: string
+  content_type: string
+}
+
 function getFileIcon(contentType: string) {
   if (contentType.startsWith("image/")) return <ImageIcon className="h-4 w-4" />
   if (contentType === "application/pdf") return <FileText className="h-4 w-4" />
@@ -77,24 +83,6 @@ function truncateHash(hash: string): string {
 function getUploaderName(creatorId: string | null | undefined): string {
   if (!creatorId) return "Unknown"
   return "User"
-}
-
-// Function to detect duplicate filenames
-function getDuplicateGroups(attachments: CaseAttachmentRead[]) {
-  const nameGroups = attachments.reduce(
-    (acc, attachment) => {
-      if (!acc[attachment.file_name]) {
-        acc[attachment.file_name] = []
-      }
-      acc[attachment.file_name].push(attachment)
-      return acc
-    },
-    {} as Record<string, CaseAttachmentRead[]>
-  )
-
-  return Object.fromEntries(
-    Object.entries(nameGroups).filter(([_, files]) => files.length > 1)
-  )
 }
 
 export function CaseAttachmentsSection({
@@ -192,24 +180,28 @@ export function CaseAttachmentsSection({
 
   const handleDownload = async (attachment: CaseAttachmentRead) => {
     try {
-      const response = await casesDownloadAttachment({
+      const response = (await casesDownloadAttachment({
         caseId,
         workspaceId,
         attachmentId: attachment.id,
-      })
+      })) as CaseAttachmentDownloadResponse
 
-      // Create blob and download
-      const blob = new Blob([response as unknown as BlobPart], {
-        type: attachment.content_type,
-      })
-      const url = window.URL.createObjectURL(blob)
+      // Response now contains presigned URL, not binary data
+      const downloadUrl = response.download_url
+
+      if (!downloadUrl) {
+        throw new Error("No download URL received from server")
+      }
+
+      // Create a hidden link element and trigger download
       const link = document.createElement("a")
-      link.href = url
+      link.href = downloadUrl
       link.download = attachment.file_name
+      link.style.display = "none"
+
       document.body.appendChild(link)
       link.click()
       document.body.removeChild(link)
-      window.URL.revokeObjectURL(url)
 
       toast({
         title: "Download started",

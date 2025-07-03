@@ -334,6 +334,14 @@ class CaseAttachmentRead(BaseModel):
     is_deleted: bool = False
 
 
+class CaseAttachmentDownloadResponse(BaseModel):
+    """Model for attachment download URL response."""
+
+    download_url: str = Field(..., description="Pre-signed download URL")
+    file_name: str = Field(..., description="Original filename")
+    content_type: str = Field(..., description="MIME type of the file")
+
+
 class FileRead(BaseModel):
     """Model for reading file metadata."""
 

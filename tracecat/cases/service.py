@@ -11,6 +11,7 @@ from sqlmodel import and_, cast, col, desc, func, or_, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat.auth.models import UserRead
+from tracecat import storage
 from tracecat.cases.enums import (
     CasePriority,
     CaseSeverity,
@@ -837,7 +838,6 @@ class CaseAttachmentService(BaseWorkspaceService):
             ValueError: If validation fails
             TracecatException: If storage operation fails
         """
-        from tracecat import storage
 
         # Comprehensive security validation using the new validator
         validator = storage.FileSecurityValidator()
@@ -981,7 +981,6 @@ class CaseAttachmentService(BaseWorkspaceService):
             TracecatNotFoundError: If attachment not found
             TracecatException: If download fails
         """
-        from tracecat import storage
 
         attachment = await self.get_attachment(case, attachment_id)
         if not attachment:
@@ -1003,6 +1002,35 @@ class CaseAttachmentService(BaseWorkspaceService):
         except Exception as e:
             raise TracecatException(f"Failed to download attachment: {str(e)}") from e
 
+    async def get_attachment_download_url(
+        self, case: Case, attachment_id: uuid.UUID
+    ) -> tuple[str, str, str]:
+        """Generate a presigned URL for downloading an attachment.
+
+        Args:
+            case: The case the attachment belongs to
+            attachment_id: The attachment ID
+
+        Returns:
+            Tuple of (presigned_url, filename, content_type)
+
+        Raises:
+            TracecatNotFoundError: If attachment not found
+            TracecatException: If URL generation fails
+        """
+
+        attachment = await self.get_attachment(case, attachment_id)
+        if not attachment:
+            raise TracecatNotFoundError(f"Attachment {attachment_id} not found")
+
+        # Generate presigned URL for blob storage
+        storage_key = attachment.storage_path
+        try:
+            presigned_url = await storage.generate_presigned_download_url(storage_key)
+            return presigned_url, attachment.file.name, attachment.file.content_type
+        except Exception as e:
+            raise TracecatException(f"Failed to generate download URL: {str(e)}") from e
+
     async def delete_attachment(self, case: Case, attachment_id: uuid.UUID) -> None:
         """Soft delete an attachment.
 
@@ -1017,7 +1045,6 @@ class CaseAttachmentService(BaseWorkspaceService):
             TracecatNotFoundError: If attachment not found
             TracecatAuthorizationError: If user lacks permission
         """
-        from tracecat import storage
 
         attachment = await self.get_attachment(case, attachment_id)
         if not attachment:
