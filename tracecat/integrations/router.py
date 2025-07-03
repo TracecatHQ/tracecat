@@ -1,11 +1,16 @@
 import uuid
+from datetime import UTC, datetime, timedelta
+from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, status
-from pydantic import ValidationError
+from sqlmodel import select
 
 from tracecat import config
+from tracecat.auth.credentials import RoleACL
 from tracecat.auth.dependencies import WorkspaceUserRole
+from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.db.schemas import OAuthStateDB
 from tracecat.integrations.base import (
     AuthorizationCodeOAuthProvider,
 )
@@ -22,7 +27,6 @@ from tracecat.integrations.models import (
     IntegrationReadMinimal,
     IntegrationTestConnectionResponse,
     IntegrationUpdate,
-    OAuthState,
     ProviderRead,
     ProviderReadMinimal,
     ProviderSchema,
@@ -30,6 +34,7 @@ from tracecat.integrations.models import (
 from tracecat.integrations.providers import ProviderRegistry
 from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
+from tracecat.types.auth import Role
 
 integrations_router = APIRouter(prefix="/integrations", tags=["integrations"])
 """Routes for managing dynamic integration states."""
@@ -120,7 +125,11 @@ async def connect_provider(
     session: AsyncDBSession,
     provider_impl: ACProviderImplDep,
 ) -> IntegrationOAuthConnect:
-    """Initiate OAuth integration for the specified provider."""
+    """Initiate OAuth integration for the specified provider.
+
+    Creates a secure state parameter stored in the database to prevent CSRF attacks.
+    The state is validated on the callback to ensure it was issued by our server.
+    """
 
     if role.workspace_id is None or role.user_id is None:
         raise HTTPException(
@@ -145,7 +154,28 @@ async def connect_provider(
             detail="Provider is not configured for this workspace",
         )
     provider = provider_impl.from_config(provider_config)
-    state = f"{role.workspace_id}:{role.user_id}:{uuid.uuid4()}"
+
+    # Clean up expired state entries before creating a new one
+    stmt = select(OAuthStateDB).where(OAuthStateDB.expires_at < datetime.now(UTC))
+    expired_states = await session.exec(stmt)
+    for expired_state in expired_states:
+        await session.delete(expired_state)
+    await session.commit()
+
+    # Create secure state in database
+    state_id = uuid.uuid4()
+    expires_at = datetime.now(UTC) + timedelta(minutes=10)
+    oauth_state = OAuthStateDB(
+        state=state_id,
+        workspace_id=role.workspace_id,
+        user_id=role.user_id,
+        provider_id=provider_impl.id,
+        expires_at=expires_at,
+    )
+    session.add(oauth_state)
+    await session.commit()
+
+    state = str(state_id)
     auth_url = await provider.get_authorization_url(state)
 
     return IntegrationOAuthConnect(auth_url=auth_url, provider_id=provider.id)
@@ -155,36 +185,60 @@ async def connect_provider(
 async def oauth_callback(
     *,
     session: AsyncDBSession,
-    role: WorkspaceUserRole,
+    role: Annotated[
+        Role,
+        RoleACL(allow_user=True, allow_service=False, require_workspace="no"),
+    ],
     provider_impl: ACProviderImplDep,
     code: str = Query(..., description="Authorization code from OAuth provider"),
     state: str = Query(..., description="State parameter from authorization request"),
 ) -> IntegrationOAuthCallback:
-    """Handle OAuth callback for the specified provider."""
-    if role.workspace_id is None or role.user_id is None:
+    """Handle OAuth callback for the specified provider.
+
+    Validates the state parameter against the database to ensure it was issued
+    by our server and hasn't expired. This prevents CSRF attacks.
+    """
+    if role.user_id is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Workspace and user ID is required",
+            detail="User ID is required",
         )
 
-    logger.info("OAuth callback", provider_id=provider_impl.id)
-    # Verify state contains user ID
-    try:
-        oauth_state = OAuthState.from_state(state)
-    except ValidationError as e:
+    # Look up state in database with FOR UPDATE lock
+    # Use FOR UPDATE lock to prevent concurrent access to the same OAuth state
+    # This ensures atomic read-modify-delete operations and prevents race conditions
+    # where multiple requests could process the same state simultaneously
+    oauth_state_db = await session.get(OAuthStateDB, state, with_for_update=True)
+    if oauth_state_db is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid state format",
-        ) from e
+            detail="Invalid or expired state parameter",
+        )
 
-    if (
-        oauth_state.user_id != role.user_id
-        or oauth_state.workspace_id != role.workspace_id
-    ):
+    # Validate state hasn't expired
+    if datetime.now(UTC) >= oauth_state_db.expires_at:
+        # Delete expired state
+        await session.delete(oauth_state_db)
+        await session.commit()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="State parameter has expired",
+        )
+
+    # Validate user matches and overwrite role with workspace context from state
+    if oauth_state_db.user_id != role.user_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid state parameter",
         )
+
+    # Overwrite role with workspace context from validated state
+    role = role.model_copy(update={"workspace_id": oauth_state_db.workspace_id})
+    ctx_role.set(role)
+
+    # Delete the state now that it's been used
+    await session.delete(oauth_state_db)
+    await session.commit()
 
     # Exchange code for tokens
     svc = IntegrationService(session, role=role)
@@ -206,9 +260,7 @@ async def oauth_callback(
         )
     provider = provider_impl.from_config(provider_config)
 
-    token_result = await provider.exchange_code_for_token(code, state)
-
-    logger.info("OAuth callback")
+    token_result = await provider.exchange_code_for_token(code, str(state))
 
     # Store integration tokens for this user
     await svc.store_integration(

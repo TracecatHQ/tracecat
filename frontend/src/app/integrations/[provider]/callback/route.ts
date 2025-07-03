@@ -16,13 +16,8 @@ export const GET = async (
     return NextResponse.redirect(new URL("/auth/error", request.url))
   }
 
-  const workspaceId = state.split(":")[0]
   const url = new URL(buildUrl(`/integrations/${provider}/callback`))
   url.search = request.nextUrl.search
-  // Add workspaceId as a search param if not already present
-  if (!url.searchParams.has("workspace_id")) {
-    url.searchParams.append("workspace_id", workspaceId)
-  }
 
   const cookie = request.headers.get("cookie")
   if (!cookie) {
