@@ -15,7 +15,7 @@ import {
   Trash2,
   Video,
 } from "lucide-react"
-import { useRef, useState } from "react"
+import { useCallback, useRef, useState } from "react"
 import type { ApiError, CaseAttachmentRead } from "@/client"
 import {
   casesCreateAttachment,
@@ -32,6 +32,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
+import { cn } from "@/lib/utils"
 
 interface CaseAttachmentsSectionProps {
   caseId: string
@@ -108,6 +109,7 @@ export function CaseAttachmentsSection({
   workspaceId,
 }: CaseAttachmentsSectionProps) {
   const [isUploading, setIsUploading] = useState(false)
+  const [isDragOver, setIsDragOver] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const queryClient = useQueryClient()
 
@@ -363,6 +365,40 @@ export function CaseAttachmentsSection({
     fileInputRef.current?.click()
   }
 
+  const handleDragEnter = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragOver(true)
+  }, [])
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragOver(false)
+  }, [])
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+  }, [])
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      setIsDragOver(false)
+
+      const files = Array.from(e.dataTransfer.files)
+      const file = files[0] // Only handle the first file
+
+      if (file) {
+        setIsUploading(true)
+        uploadMutation.mutate(file)
+      }
+    },
+    [uploadMutation]
+  )
+
   const handleDownload = async (attachment: CaseAttachmentRead) => {
     try {
       const response = (await casesDownloadAttachment({
@@ -442,7 +478,16 @@ export function CaseAttachmentsSection({
       <div className="space-y-1">
         <div
           onClick={handleAddAttachment}
-          className="flex items-center gap-2 p-1.5 m-2 rounded-md border border-dashed border-muted-foreground/25 hover:border-muted-foreground/50 hover:bg-muted/30 transition-all cursor-pointer group"
+          onDragEnter={handleDragEnter}
+          onDragLeave={handleDragLeave}
+          onDragOver={handleDragOver}
+          onDrop={handleDrop}
+          className={cn(
+            "flex items-center gap-2 p-1.5 m-2 rounded-md border border-dashed transition-all cursor-pointer group",
+            isDragOver
+              ? "border-blue-500 bg-blue-50 dark:bg-blue-950/20"
+              : "border-muted-foreground/25 hover:border-muted-foreground/50 hover:bg-muted/30"
+          )}
         >
           <div className="p-1.5 rounded bg-muted group-hover:bg-muted-foreground/10 transition-colors">
             <Plus className="h-3.5 w-3.5 text-muted-foreground" />
