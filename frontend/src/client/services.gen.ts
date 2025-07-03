@@ -328,7 +328,7 @@ export const publicIncomingWebhook = (
   data: PublicIncomingWebhookData
 ): CancelablePromise<PublicIncomingWebhookResponse> => {
   return __request(OpenAPI, {
-    method: "POST",
+    method: "GET",
     url: "/webhooks/{workflow_id}/{secret}",
     path: {
       secret: data.secret,
@@ -368,7 +368,7 @@ export const publicIncomingWebhook1 = (
   data: PublicIncomingWebhook1Data
 ): CancelablePromise<PublicIncomingWebhook1Response> => {
   return __request(OpenAPI, {
-    method: "GET",
+    method: "POST",
     url: "/webhooks/{workflow_id}/{secret}",
     path: {
       secret: data.secret,
@@ -3861,6 +3861,9 @@ export const integrationsUpdateIntegration = (
 /**
  * Connect Provider
  * Initiate OAuth integration for the specified provider.
+ *
+ * Creates a secure state parameter stored in the database to prevent CSRF attacks.
+ * The state is validated on the callback to ensure it was issued by our server.
  * @param data The data for the request.
  * @param data.providerId
  * @param data.workspaceId
@@ -3888,11 +3891,13 @@ export const integrationsConnectProvider = (
 /**
  * Oauth Callback
  * Handle OAuth callback for the specified provider.
+ *
+ * Validates the state parameter against the database to ensure it was issued
+ * by our server and hasn't expired. This prevents CSRF attacks.
  * @param data The data for the request.
  * @param data.providerId
  * @param data.code Authorization code from OAuth provider
  * @param data.state State parameter from authorization request
- * @param data.workspaceId
  * @returns IntegrationOAuthCallback Successful Response
  * @throws ApiError
  */
@@ -3908,7 +3913,6 @@ export const integrationsOauthCallback = (
     query: {
       code: data.code,
       state: data.state,
-      workspace_id: data.workspaceId,
     },
     errors: {
       422: "Validation Error",

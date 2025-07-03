@@ -4154,7 +4154,6 @@ export type IntegrationsOauthCallbackData = {
    * State parameter from authorization request
    */
   state: string
-  workspaceId: string
 }
 
 export type IntegrationsOauthCallbackResponse = IntegrationOAuthCallback
@@ -4281,7 +4280,7 @@ export type PublicCheckHealthResponse = {
 
 export type $OpenApiTs = {
   "/webhooks/{workflow_id}/{secret}": {
-    post: {
+    get: {
       req: PublicIncomingWebhookData
       res: {
         /**
@@ -4294,7 +4293,7 @@ export type $OpenApiTs = {
         422: HTTPValidationError
       }
     }
-    get: {
+    post: {
       req: PublicIncomingWebhook1Data
       res: {
         /**
