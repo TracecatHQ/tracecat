@@ -6,6 +6,7 @@ from typing import Any
 
 import pytest
 from pydantic import SecretStr
+from tracecat_registry import SecretNotFoundError
 
 from tracecat.dsl.common import create_default_execution_context
 from tracecat.dsl.models import ActionStatement, RunActionInput, RunContext
@@ -95,7 +96,8 @@ async def test_executor_can_run_udf_with_secrets(
     repo._register_udfs_from_package(mock_package)
 
     # Sanity check: Returns None because we haven't set secrets
-    assert repo.get("testing.fetch_secret").fn("TEST_UDF_SECRET_KEY") is None  # type: ignore
+    with pytest.raises(SecretNotFoundError):
+        repo.get("testing.fetch_secret").fn("TEST_UDF_SECRET_KEY")
 
     sec_service = SecretsService(session, role=test_role)
     try:
@@ -158,8 +160,9 @@ async def test_executor_can_run_template_action_with_secret(
     assert "testing.add_100" in repo
     assert repo.get("testing.add_100").fn(100) == 200  # type: ignore
 
-    # Sanity check: Returns None because we haven't set secrets
-    assert repo.get("testing.fetch_secret").fn("TEST_TEMPLATE_SECRET_KEY") is None  # type: ignore
+    # Sanity check: Raises SecretNotFoundError because we haven't set secrets
+    with pytest.raises(SecretNotFoundError):
+        repo.get("testing.fetch_secret").fn("TEST_TEMPLATE_SECRET_KEY")
 
     # 2. Add secrets
     sec_service = SecretsService(session, role=test_role)
