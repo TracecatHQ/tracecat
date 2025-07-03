@@ -22,9 +22,17 @@ from tests.conftest import (
     skip_if_no_slack_credentials,
     skip_if_no_slack_token,
 )
+from tracecat.secrets import secrets_manager
 
 # Load environment variables from .env file for live tests
 load_dotenv()
+
+
+@pytest.fixture(scope="module", autouse=True)
+def mock_sm():
+    """Set contextvars for the tests."""
+    secrets_manager.set("OPENAI_API_KEY", os.environ["OPENAI_API_KEY"])
+    yield
 
 
 @pytest.mark.anyio
