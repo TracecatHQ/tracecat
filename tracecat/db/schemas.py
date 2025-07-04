@@ -392,11 +392,7 @@ class Workflow(Resource, table=True):
     )
 
     id: uuid.UUID = Field(
-        default_factory=uuid.uuid4,
-        primary_key=True,
-        nullable=False,
-        unique=True,
-        index=True,
+        default_factory=uuid.uuid4, nullable=False, unique=True, index=True
     )
     title: str
     description: str
