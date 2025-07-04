@@ -107,6 +107,9 @@ function getUploaderName(creatorId: string | null | undefined): string {
   return "User"
 }
 
+// Add constant for max file size (20MB in bytes)
+const MAX_FILE_SIZE_BYTES = 20 * 1024 * 1024 // 20MB
+
 export function CaseAttachmentsSection({
   caseId,
   workspaceId,
@@ -355,9 +358,26 @@ export function CaseAttachmentsSection({
     },
   })
 
+  // Add file validation function
+  const validateFile = (file: File): boolean => {
+    if (file.size > MAX_FILE_SIZE_BYTES) {
+      toast({
+        title: "File too large",
+        description: `${file.name} is ${formatFileSize(file.size)}. Maximum file size is 20MB.`,
+        variant: "destructive",
+      })
+      return false
+    }
+    return true
+  }
+
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (file) {
+      // Validate file size before uploading
+      if (!validateFile(file)) {
+        return
+      }
       setIsUploading(true)
       uploadMutation.mutate(file)
     }
@@ -398,6 +418,10 @@ export function CaseAttachmentsSection({
       const file = files[0] // Only handle the first file
 
       if (file) {
+        // Validate file size before uploading
+        if (!validateFile(file)) {
+          return
+        }
         setIsUploading(true)
         uploadMutation.mutate(file)
       }
@@ -529,7 +553,7 @@ export function CaseAttachmentsSection({
           <span className="text-xs text-muted-foreground group-hover:text-foreground transition-colors">
             {isUploading || uploadMutation.isPending
               ? "Uploading..."
-              : "Add new attachment (pdf, doc, xls, txt, csv, png, jpeg, gif, webp, zip)"}
+              : "Add new attachment (max 20MB) • pdf, doc, xls, txt, csv, png, jpeg, gif, webp, zip"}
           </span>
         </div>
 
