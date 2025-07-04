@@ -19,7 +19,8 @@ definition:
     fields:
       type: str
       description: >
-        A list of fields to return for each issue, use it to retrieve a subset of fields. This parameter accepts a comma-separated list. Expand options include: *all, *navigable, summary,comment, -description, -comment. The default is *all.
+        A list of fields to return for each issue, use it to retrieve a subset of fields.
+        This parameter accepts a comma-separated list. Expand options include: *all, *navigable, summary,comment, -description, -comment. The default is *all.
 
         For example, to get the summary and description of an issue, you can use the following:
         ```
