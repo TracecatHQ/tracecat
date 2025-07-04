@@ -2,7 +2,6 @@
 
 import {
   AlertCircle,
-  CheckCircle,
   ChevronLeft,
   ExternalLink,
   Key,
@@ -17,8 +16,9 @@ import {
 import Link from "next/link"
 import { useParams, useRouter, useSearchParams } from "next/navigation"
 import { useCallback, useState } from "react"
-import type { IntegrationStatus, ProviderRead } from "@/client"
+import type { ProviderRead } from "@/client"
 import { ProviderIcon } from "@/components/icons"
+import { SuccessIcon, statusStyles } from "@/components/integrations/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { ProviderConfigForm } from "@/components/provider-config-form"
 import { RedirectUriDisplay } from "@/components/redirect-uri-display"
@@ -98,27 +98,6 @@ export default function ProviderDetailPage() {
     )
   }
   return <ProviderDetailContent provider={provider} />
-}
-
-const statusStyles: Record<
-  IntegrationStatus,
-  {
-    label: string
-    style: string
-  }
-> = {
-  connected: {
-    label: "Connected",
-    style: "bg-green-100 text-green-800 hover:bg-green-200",
-  },
-  configured: {
-    label: "Configured",
-    style: "bg-yellow-100 text-yellow-800 hover:bg-yellow-200",
-  },
-  not_configured: {
-    label: "Not Configured",
-    style: "bg-gray-100 text-gray-800 hover:bg-gray-200",
-  },
 }
 
 type ProviderDetailTab = "overview" | "configuration"
@@ -291,7 +270,7 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
       {/* Status Alert */}
       {showSuccessMessage && isConnected && (
         <Alert className="mb-6 border-green-200 bg-green-50">
-          <CheckCircle className="size-4 text-green-600" />
+          <SuccessIcon />
           <AlertDescription className="text-green-800">
             Successfully connected to {metadata.name}!
           </AlertDescription>
@@ -427,7 +406,7 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
                   {isConnected ? (
                     <div className="space-y-4">
                       <div className="flex items-center gap-2 text-green-600">
-                        <CheckCircle className="size-5" />
+                        <SuccessIcon />
                         <span className="font-medium">Connected</span>
                       </div>
                       {integration && (
@@ -569,7 +548,7 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
                         <span className="text-sm font-normal text-muted-foreground">
                           (completed)
                         </span>
-                        <CheckCircle className="size-4 text-green-600" />
+                        <SuccessIcon />
                       </>
                     )}
                   </div>
@@ -587,11 +566,7 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
                             : "bg-gray-100 text-gray-600"
                         }`}
                       >
-                        {isConnected ? (
-                          <CheckCircle className="size-3" />
-                        ) : (
-                          index + 1
-                        )}
+                        {isConnected ? <SuccessIcon /> : index + 1}
                       </div>
                       <span
                         className={`text-sm ${
