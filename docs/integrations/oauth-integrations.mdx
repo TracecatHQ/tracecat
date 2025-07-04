@@ -23,17 +23,17 @@ Key benefits:
 
 Tracecat supports two OAuth 2.0 grant types for different authentication scenarios. The grant type must be selected when configuring each provider and affects both the authentication flow and available features.
 
-### Authorization Code Flow
+### Authorization Code Flow (Delegated User)
 The standard OAuth flow where users are redirected to the provider to grant permissions. Best for:
-- **User-delegated access** - Actions performed on behalf of a specific user
+- **Delegated user access** - Actions performed on behalf of a specific user
 - **Interactive authentication** - Requires user consent and login
 - **Broad API access** - Full access to user resources with appropriate scopes
 
 Examples: Accessing a user's Microsoft OneDrive files, sending Slack messages as a specific user
 
-### Client Credentials Flow
+### Client Credentials Flow (Service Account)
 Direct machine-to-machine authentication using client credentials only. Best for:
-- **Application-level access** - Actions performed by the application itself
+- **Service account access** - Actions performed by the application itself
 - **Service authentication** - No user interaction required
 - **System integration** - Background processes and automated workflows
 
@@ -44,47 +44,65 @@ Examples: Organization-wide Microsoft Teams channel management, system-level Git
   - The authentication flow (user redirect vs direct authentication)
   - Available API permissions and scopes
   - Token refresh behavior
-  
+
   Some providers support both flows while others may only support one. The provider's setup instructions will indicate which grant types are available.
 </Note>
 
 ## Setting up OAuth integrations
 
-### 1. Configure the provider
+Before configuring OAuth integrations in Tracecat, you must first create an OAuth application with your chosen provider (Microsoft, Google, GitHub, etc.). This process is the same for both Authorization Code and Client Credentials flows:
 
-Navigate to the integrations page and select a provider to configure:
+1. **Create OAuth application** - Register a new application in your provider's developer console
+2. **Configure redirect URI** - Set the callback URL that Tracecat will provide during setup
+3. **Obtain credentials** - Copy the client ID and client secret from your OAuth application
+4. **Set permissions** - Configure the required scopes and permissions for your use case
 
-<img src="/images/oauth-setup-placeholder.png" alt="OAuth provider configuration" />
+Each provider has specific setup requirements. Tracecat provides direct links to setup guides in the configuration interface for each OAuth integration.
 
-1. **Grant Type** - Select Authorization Code or Client Credentials flow
-2. **Client ID** - OAuth application client ID from the provider
-3. **Client Secret** - OAuth application client secret (encrypted when saved)
-4. **Additional Scopes** - Custom scopes beyond the base requirements (optional)
+<Steps>
+  <Step title="Navigate to integrations">
+    Go to your workspace and navigate to the integrations page. Select the OAuth provider you want to configure from the available list. Each grant type is defined as a separate OAuth integration - you can distinguish between them by the lock icon (Client Credentials) or user icon (Authorization Code) displayed on each integration tile. This allows you to configure multiple integrations for the same provider with different grant types and credentials.
 
-<Note>
-  Each provider includes setup instructions with links to their developer documentation.
-  Follow the provider's guide to create an OAuth application and obtain your client credentials.
-</Note>
+    <img src="/img/integrations/oauth/select-provider.png" alt="OAuth provider configuration" />
+  </Step>
 
-### 2. Complete authentication
+  <Step title="Configure the provider">
+    Configure the following settings for your selected provider:
+    - **Client ID** - OAuth application client ID from the provider
+    - **Client Secret** - OAuth application client secret (encrypted when saved)
+    - **Additional Scopes** - Custom scopes beyond the base requirements (optional)
 
-The authentication process depends on your selected grant type:
+    <img src="/img/integrations/oauth/configure-provider.png" alt="OAuth provider configuration" />
+    <Note>
+      Each provider includes setup instructions with links to their developer documentation.
+      Follow the provider's guide to create an OAuth application and obtain your client credentials.
+    </Note>
+  </Step>
 
-#### Authorization Code Flow
-Click "Connect with OAuth" to complete the authorization:
+  <Step title="Complete authentication">
+    The authentication process depends on your selected grant type:
 
-<img src="/images/oauth-flow-placeholder.png" alt="OAuth authorization flow" />
+    **Authorization Code Flow**
 
-This redirects you to the provider's authorization page where you grant permissions to Tracecat.
+    Click "Connect with OAuth" to complete the authorization:
 
-#### Client Credentials Flow
-Click "Test Connection" to verify your client credentials. No user authorization is required - the connection uses your application's credentials directly.
+    <img src="/img/integrations/oauth/ac-flow.png" alt="Authorization Code Flow" />
 
-### 3. Verify connection
+    This redirects you to the provider's authorization page where you grant permissions to Tracecat.
 
-Once connected, the integration status shows as "Connected" with details about granted scopes and token expiration:
+    **Client Credentials Flow**
 
-<img src="/images/oauth-connected-placeholder.png" alt="Connected OAuth integration" />
+    Click "Fetch Token" to verify your client credentials. No user authorization is required - the connection uses your application's credentials directly.
+
+    <img src="/img/integrations/oauth/cc-flow.png" alt="Client Credentials Flow" />
+  </Step>
+
+  <Step title="Verify connection">
+    Once connected, the integration status shows as "Connected" with details about granted scopes and token expiration:
+
+    <img src="/img/integrations/oauth/cc-flow-connected.png" alt="Connected OAuth integration" />
+  </Step>
+</Steps>
 
 ## Managing scopes
 
