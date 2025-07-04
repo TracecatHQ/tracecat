@@ -10,8 +10,8 @@ from sqlalchemy.orm import selectinload
 from sqlmodel import and_, cast, col, desc, func, or_, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from tracecat.auth.models import UserRead
 from tracecat import config, storage
+from tracecat.auth.models import UserRead
 from tracecat.cases.enums import (
     CasePriority,
     CaseSeverity,
