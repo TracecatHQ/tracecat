@@ -234,8 +234,8 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
                 </Badge>
               ))}
               <Badge
-                variant="outline"
-                className="!shadow-none whitespace-nowrap"
+                variant="default"
+                className="text-muted-foreground bg-muted border-border border !shadow-none whitespace-nowrap hover:bg-muted hover:text-muted-foreground"
               >
                 {provider.grant_type === "client_credentials" ? (
                   <>
@@ -418,6 +418,9 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
                               {new Date(
                                 integration.expires_at
                               ).toLocaleString()}
+                              <span className="ml-2 text-xs text-muted-foreground">
+                                (auto-refreshed)
+                              </span>
                             </div>
                           )}
 
