@@ -5,17 +5,26 @@ For local MinIO (default), IP checking is disabled.
 For production S3, extracts real client IP from standard proxy headers.
 """
 
-from fastapi import Request, Response
-from starlette.middleware.base import BaseHTTPMiddleware
+from fastapi import Request
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from tracecat.config import TRACECAT__DISABLE_PRESIGNED_URL_IP_CHECKING
 
 
-class ClientIPMiddleware(BaseHTTPMiddleware):
+class ClientIPMiddleware:
     """Middleware to extract and store client IP in request state."""
 
-    async def dispatch(self, request: Request, call_next) -> Response:
-        """Extract client IP and attach to request.state.client_ip."""
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        """ASGI callable that processes the request."""
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        # Create a Request object to access headers and client info
+        request = Request(scope, receive)
 
         # Extract client IP based on configuration
         if TRACECAT__DISABLE_PRESIGNED_URL_IP_CHECKING:
@@ -26,11 +35,10 @@ class ClientIPMiddleware(BaseHTTPMiddleware):
             client_ip = self._extract_client_ip(request)
 
         # Attach to request state for use in routes
-        request.state.client_ip = client_ip
+        scope["state"] = getattr(scope, "state", {})
+        scope["state"]["client_ip"] = client_ip
 
-        # Continue processing
-        response = await call_next(request)
-        return response
+        await self.app(scope, receive, send)
 
     def _extract_client_ip(self, request: Request) -> str | None:
         """Extract client IP from proxy headers.
