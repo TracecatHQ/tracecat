@@ -125,7 +125,7 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
         `/workspaces/${workspaceId}/integrations/${providerId}?tab=${tab}`
       )
     },
-    [router, workspaceId, providerId, searchParams]
+    [router, workspaceId, providerId]
   )
 
   // Whether there's a connected integration
@@ -682,47 +682,51 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
             <ProviderConfigForm
               provider={provider}
               onSuccess={handleConfigSuccess}
+              additionalButtons={
+                <>
+                  {isConfigured &&
+                    provider.grant_type === "client_credentials" && (
+                      <Button
+                        onClick={handleTestConnection}
+                        disabled={!isEnabled || testConnectionIsPending}
+                        variant="outline"
+                      >
+                        {testConnectionIsPending ? (
+                          <>
+                            <Loader2 className="mr-2 size-4 animate-spin" />
+                            Testing...
+                          </>
+                        ) : (
+                          <>
+                            <Zap className="mr-2 size-4" />
+                            Test Connection
+                          </>
+                        )}
+                      </Button>
+                    )}
+                  {isConfigured &&
+                    provider.grant_type === "authorization_code" && (
+                      <Button
+                        onClick={handleOAuthConnect}
+                        disabled={!isEnabled || connectProviderIsPending}
+                        variant="outline"
+                      >
+                        {connectProviderIsPending ? (
+                          <>
+                            <Loader2 className="mr-2 size-4 animate-spin" />
+                            Connecting...
+                          </>
+                        ) : (
+                          <>
+                            <ExternalLink className="mr-2 size-4" />
+                            Connect with OAuth
+                          </>
+                        )}
+                      </Button>
+                    )}
+                </>
+              }
             />
-          </div>
-
-          {/* Quick Actions */}
-          <div className="flex flex-wrap gap-3">
-            {isConfigured && provider.grant_type === "client_credentials" && (
-              <Button
-                onClick={handleTestConnection}
-                disabled={!isEnabled || testConnectionIsPending}
-              >
-                {testConnectionIsPending ? (
-                  <>
-                    <Loader2 className="mr-2 size-4 animate-spin" />
-                    Testing...
-                  </>
-                ) : (
-                  <>
-                    <Zap className="mr-2 size-4" />
-                    Test Connection
-                  </>
-                )}
-              </Button>
-            )}
-            {isConfigured && provider.grant_type === "authorization_code" && (
-              <Button
-                onClick={handleOAuthConnect}
-                disabled={!isEnabled || connectProviderIsPending}
-              >
-                {connectProviderIsPending ? (
-                  <>
-                    <Loader2 className="mr-2 size-4 animate-spin" />
-                    Connecting...
-                  </>
-                ) : (
-                  <>
-                    <ExternalLink className="mr-2 size-4" />
-                    Connect with OAuth
-                  </>
-                )}
-              </Button>
-            )}
           </div>
         </TabsContent>
       </Tabs>
