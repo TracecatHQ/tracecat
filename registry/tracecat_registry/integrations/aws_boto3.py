@@ -14,7 +14,13 @@ from types_aiobotocore_sts.type_defs import (
 )
 from types_boto3_sts.type_defs import CredentialsTypeDef
 
-from tracecat_registry import RegistrySecret, logger, registry, secrets
+from tracecat_registry import (
+    RegistrySecret,
+    logger,
+    registry,
+    secrets,
+    SecretNotFoundError,
+)
 
 aws_secret = RegistrySecret(
     name="aws",
@@ -104,85 +110,87 @@ def get_sync_temporary_credentials(
 
 
 async def get_session() -> aioboto3.Session:
-    if secrets.get("AWS_ROLE_ARN"):
-        role_arn = secrets.get("AWS_ROLE_ARN")
-        role_session_name = secrets.get("AWS_ROLE_SESSION_NAME")
-        creds = await get_temporary_credentials(role_arn, role_session_name)
+    aws_role_arn = secrets.get_or_default("AWS_ROLE_ARN")
+    aws_profile = secrets.get_or_default("AWS_PROFILE")
+    aws_region = secrets.get_or_default("AWS_REGION")
+    aws_access_key_id = secrets.get_or_default("AWS_ACCESS_KEY_ID")
+    aws_secret_access_key = secrets.get_or_default("AWS_SECRET_ACCESS_KEY")
+    aws_session_token = secrets.get_or_default("AWS_SESSION_TOKEN")
+
+    if aws_role_arn:
+        aws_role_session_name = secrets.get_or_default("AWS_ROLE_SESSION_NAME")
+        creds = await get_temporary_credentials(aws_role_arn, aws_role_session_name)
         session = aioboto3.Session(
             aws_access_key_id=creds["AccessKeyId"],
             aws_secret_access_key=creds["SecretAccessKey"],
             aws_session_token=creds["SessionToken"],
-            region_name=secrets.get("AWS_REGION"),
+            region_name=aws_region,
         )
-    elif secrets.get("AWS_PROFILE"):
-        profile_name = secrets.get("AWS_PROFILE")
-        session = aioboto3.Session(profile_name=profile_name)
-    elif (
-        secrets.get("AWS_ACCESS_KEY_ID")
-        and secrets.get("AWS_SECRET_ACCESS_KEY")
-        and secrets.get("AWS_SESSION_TOKEN")
-    ):
+    elif aws_profile:
+        session = aioboto3.Session(profile_name=aws_profile)
+    elif aws_access_key_id and aws_secret_access_key and aws_session_token:
         session = aioboto3.Session(
-            aws_access_key_id=secrets.get("AWS_ACCESS_KEY_ID"),
-            aws_secret_access_key=secrets.get("AWS_SECRET_ACCESS_KEY"),
-            aws_session_token=secrets.get("AWS_SESSION_TOKEN"),
-            region_name=secrets.get("AWS_REGION"),
+            aws_access_key_id=aws_access_key_id,
+            aws_secret_access_key=aws_secret_access_key,
+            aws_session_token=aws_session_token,
+            region_name=aws_region,
         )
-    elif secrets.get("AWS_ACCESS_KEY_ID") and secrets.get("AWS_SECRET_ACCESS_KEY"):
+    elif aws_access_key_id and aws_secret_access_key:
         logger.warning(
             "Role ARN, profile, and session token not found. Defaulting to IAM credentials (not recommended)."
         )
         session = aioboto3.Session(
-            aws_access_key_id=secrets.get("AWS_ACCESS_KEY_ID"),
-            aws_secret_access_key=secrets.get("AWS_SECRET_ACCESS_KEY"),
-            region_name=secrets.get("AWS_REGION"),
+            aws_access_key_id=aws_access_key_id,
+            aws_secret_access_key=aws_secret_access_key,
+            region_name=aws_region,
         )
     else:
         # NOTE: This is critical. We must not allow Boto3's default behavior of
         # using the AWS credentials from the environment.
-        raise ValueError("No AWS credentials found.")
+        raise SecretNotFoundError("No AWS credentials found.")
 
     return session
 
 
 def get_sync_session() -> boto3.Session:
-    if secrets.get("AWS_ROLE_ARN"):
-        role_arn = secrets.get("AWS_ROLE_ARN")
-        role_session_name = secrets.get("AWS_ROLE_SESSION_NAME")
-        creds = get_sync_temporary_credentials(role_arn, role_session_name)
+    aws_role_arn = secrets.get_or_default("AWS_ROLE_ARN")
+    aws_profile = secrets.get_or_default("AWS_PROFILE")
+    aws_region = secrets.get_or_default("AWS_REGION")
+    aws_access_key_id = secrets.get_or_default("AWS_ACCESS_KEY_ID")
+    aws_secret_access_key = secrets.get_or_default("AWS_SECRET_ACCESS_KEY")
+    aws_session_token = secrets.get_or_default("AWS_SESSION_TOKEN")
+
+    if aws_role_arn:
+        aws_role_session_name = secrets.get_or_default("AWS_ROLE_SESSION_NAME")
+        creds = get_sync_temporary_credentials(aws_role_arn, aws_role_session_name)
         session = boto3.Session(
             aws_access_key_id=creds["AccessKeyId"],
             aws_secret_access_key=creds["SecretAccessKey"],
             aws_session_token=creds["SessionToken"],
-            region_name=secrets.get("AWS_REGION"),
+            region_name=aws_region,
         )
-    elif secrets.get("AWS_PROFILE"):
-        profile_name = secrets.get("AWS_PROFILE")
-        session = boto3.Session(profile_name=profile_name)
-    elif (
-        secrets.get("AWS_ACCESS_KEY_ID")
-        and secrets.get("AWS_SECRET_ACCESS_KEY")
-        and secrets.get("AWS_SESSION_TOKEN")
-    ):
+    elif aws_profile:
+        session = boto3.Session(profile_name=aws_profile)
+    elif aws_access_key_id and aws_secret_access_key and aws_session_token:
         session = boto3.Session(
-            aws_access_key_id=secrets.get("AWS_ACCESS_KEY_ID"),
-            aws_secret_access_key=secrets.get("AWS_SECRET_ACCESS_KEY"),
-            aws_session_token=secrets.get("AWS_SESSION_TOKEN"),
-            region_name=secrets.get("AWS_REGION"),
+            aws_access_key_id=aws_access_key_id,
+            aws_secret_access_key=aws_secret_access_key,
+            aws_session_token=aws_session_token,
+            region_name=aws_region,
         )
-    elif secrets.get("AWS_ACCESS_KEY_ID") and secrets.get("AWS_SECRET_ACCESS_KEY"):
+    elif aws_access_key_id and aws_secret_access_key:
         logger.warning(
             "Role ARN, profile, and session token not found. Defaulting to IAM credentials (not recommended)."
         )
         session = boto3.Session(
-            aws_access_key_id=secrets.get("AWS_ACCESS_KEY_ID"),
-            aws_secret_access_key=secrets.get("AWS_SECRET_ACCESS_KEY"),
-            region_name=secrets.get("AWS_REGION"),
+            aws_access_key_id=aws_access_key_id,
+            aws_secret_access_key=aws_secret_access_key,
+            region_name=aws_region,
         )
     else:
         # NOTE: This is critical. We must not allow Boto3's default behavior of
         # using the AWS credentials from the environment.
-        raise ValueError("No AWS credentials found.")
+        raise SecretNotFoundError("No AWS credentials found.")
 
     return session
 

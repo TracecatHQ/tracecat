@@ -14,6 +14,7 @@ from tracecat_registry._internal import exceptions, registry, secrets
 from tracecat_registry._internal.exceptions import (
     ActionIsInterfaceError,
     RegistryActionError,
+    SecretNotFoundError,
 )
 from tracecat_registry._internal.logger import logger
 from tracecat_registry._internal.models import RegistrySecret
@@ -26,4 +27,5 @@ __all__ = [
     "exceptions",
     "RegistryActionError",
     "ActionIsInterfaceError",
+    "SecretNotFoundError",
 ]

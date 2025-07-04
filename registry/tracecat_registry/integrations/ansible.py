@@ -82,7 +82,7 @@ def run_playbook(
     ] = None,
 ) -> list[dict[str, Any]] | list[str]:
     ssh_key = secrets.get("ANSIBLE_SSH_KEY")
-    passwords = secrets.get("ANSIBLE_PASSWORDS")
+    passwords = secrets.get_or_default("ANSIBLE_PASSWORDS")
 
     ignore_events = ignore_events or ["verbose"]
 
