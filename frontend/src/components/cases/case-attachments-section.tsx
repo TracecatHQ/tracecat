@@ -675,7 +675,7 @@ export function CaseAttachmentsSection({
                 <Image
                   src={previewImageUrl}
                   alt={previewAttachment?.file_name || "Preview image"}
-                  width={0}
+                  width={1}
                   height={0}
                   sizes="(max-width: 768px) 100vw, (max-width: 1200px) 90vw, 85vw"
                   style={{
