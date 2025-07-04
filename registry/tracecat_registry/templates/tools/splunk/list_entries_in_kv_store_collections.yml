@@ -46,10 +46,12 @@ definition:
       description: >
         Query JSON object.
         Conditional operators: $gt, $gte, $lt, $lte, and $ne
+        Regex operators: $regex
         Logical operators: $and, $or, and ,$not (invert conditional operators)
         Examples:
           - query={"title":"Item"} (Select all documents with property title that has value Item)
           - query={"price":{"$gt":5}} (Select all documents with price greater than 5)
+          - query={"ip":{"$regex":"192.168.1.*"}} (Select all documents with ip that matches 192.168.1.*)
       default: null
     shared:
       type: bool
