@@ -3,6 +3,7 @@
 import hashlib
 import os
 import re
+from urllib.parse import urlparse, urlunparse
 
 import aioboto3
 from botocore.exceptions import ClientError
@@ -856,9 +857,6 @@ async def generate_presigned_download_url(
 
             # If we have a separate presigned URL endpoint configured, replace the endpoint
             if config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT:
-                # Safely replace the internal endpoint with the public endpoint in the URL
-                from urllib.parse import urlparse, urlunparse
-
                 parsed_url = urlparse(url)
                 internal_parsed = urlparse(config.TRACECAT__BLOB_STORAGE_ENDPOINT)
                 public_parsed = urlparse(
