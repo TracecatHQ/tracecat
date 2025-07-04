@@ -42,4 +42,4 @@ definition:
           name: ${{ inputs.name }}
           output_mode: json
 
-  returns: ${{ steps.create_kv_store_collections.result.data.entry }}
+  returns: ${{ steps.create_kv_store_collections.result }}
