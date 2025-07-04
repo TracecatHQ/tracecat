@@ -111,7 +111,6 @@ def get_sync_temporary_credentials(
 
 async def get_session() -> aioboto3.Session:
     aws_role_arn = secrets.get_or_default("AWS_ROLE_ARN")
-    aws_role_session_name = secrets.get_or_default("AWS_ROLE_SESSION_NAME")
     aws_profile = secrets.get_or_default("AWS_PROFILE")
     aws_region = secrets.get_or_default("AWS_REGION")
     aws_access_key_id = secrets.get_or_default("AWS_ACCESS_KEY_ID")
@@ -119,6 +118,7 @@ async def get_session() -> aioboto3.Session:
     aws_session_token = secrets.get_or_default("AWS_SESSION_TOKEN")
 
     if aws_role_arn:
+        aws_role_session_name = secrets.get_or_default("AWS_ROLE_SESSION_NAME")
         creds = await get_temporary_credentials(aws_role_arn, aws_role_session_name)
         session = aioboto3.Session(
             aws_access_key_id=creds["AccessKeyId"],
@@ -154,7 +154,6 @@ async def get_session() -> aioboto3.Session:
 
 def get_sync_session() -> boto3.Session:
     aws_role_arn = secrets.get_or_default("AWS_ROLE_ARN")
-    aws_role_session_name = secrets.get_or_default("AWS_ROLE_SESSION_NAME")
     aws_profile = secrets.get_or_default("AWS_PROFILE")
     aws_region = secrets.get_or_default("AWS_REGION")
     aws_access_key_id = secrets.get_or_default("AWS_ACCESS_KEY_ID")
@@ -162,6 +161,7 @@ def get_sync_session() -> boto3.Session:
     aws_session_token = secrets.get_or_default("AWS_SESSION_TOKEN")
 
     if aws_role_arn:
+        aws_role_session_name = secrets.get_or_default("AWS_ROLE_SESSION_NAME")
         creds = get_sync_temporary_credentials(aws_role_arn, aws_role_session_name)
         session = boto3.Session(
             aws_access_key_id=creds["AccessKeyId"],
