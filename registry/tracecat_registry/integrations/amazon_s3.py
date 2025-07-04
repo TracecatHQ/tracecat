@@ -14,7 +14,7 @@ from types_aiobotocore_s3.type_defs import (
 )
 
 from tracecat_registry import RegistrySecret, registry
-from tracecat_registry.integrations.aws_boto3 import get_session
+import tracecat_registry.integrations.aws_boto3 as aws_boto3
 from tracecat.config import (
     TRACECAT__MAX_FILE_SIZE_BYTES,
     TRACECAT__S3_CONCURRENCY_LIMIT,
@@ -92,7 +92,7 @@ async def get_object(
         Doc("Endpoint URL for the AWS S3 service."),
     ] = None,
 ) -> str:
-    session = await get_session()
+    session = await aws_boto3.get_session()
     async with session.client("s3", endpoint_url=endpoint_url) as s3_client:
         obj = await s3_client.get_object(Bucket=bucket, Key=key)
         body = await obj["Body"].read()
@@ -120,7 +120,7 @@ async def list_objects(
         Doc("Endpoint URL for the AWS S3 service."),
     ] = None,
 ) -> ListObjectsV2OutputTypeDef:
-    session = await get_session()
+    session = await aws_boto3.get_session()
     async with session.client("s3", endpoint_url=endpoint_url) as s3_client:
         if prefix:
             response = await s3_client.list_objects_v2(
@@ -201,7 +201,7 @@ async def upload_object(
             f"{TRACECAT__MAX_FILE_SIZE_BYTES // 1024 // 1024}MB."
         )
 
-    session = await get_session()
+    session = await aws_boto3.get_session()
     async with session.client("s3", endpoint_url=endpoint_url) as s3_client:
         await s3_client.put_object(Bucket=bucket, Key=key, Body=content_bytes)
 
@@ -222,7 +222,7 @@ async def delete_object(
         Doc("Endpoint URL for the AWS S3 service."),
     ] = None,
 ) -> DeleteObjectOutputTypeDef:
-    session = await get_session()
+    session = await aws_boto3.get_session()
     async with session.client("s3", endpoint_url=endpoint_url) as s3_client:
         response = await s3_client.delete_object(Bucket=bucket, Key=key)
     return response
