@@ -6,7 +6,7 @@ import {
   AlertCircle,
   Download,
   Eye,
-  File,
+  FileIcon,
   FileSpreadsheet,
   FileText,
   ImageIcon,
@@ -75,7 +75,7 @@ function getFileIcon(contentType: string) {
     return <Presentation className="h-4 w-4" />
   if (contentType.startsWith("audio/")) return <Music className="h-4 w-4" />
   if (contentType.startsWith("video/")) return <Video className="h-4 w-4" />
-  return <File className="h-4 w-4" />
+  return <FileIcon className="h-4 w-4" />
 }
 
 function getFileColor(contentType: string) {
