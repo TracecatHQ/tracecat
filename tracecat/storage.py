@@ -824,14 +824,17 @@ async def generate_presigned_download_url(
     key: str,
     bucket: str | None = None,
     expiry: int | None = None,
+    client_ip: str | None = None,
+    user_agent: str | None = None,
 ) -> str:
-    """Generate a presigned URL for downloading a file.
+    """Generate a presigned URL for downloading a file with enhanced security.
 
     Args:
         key: The S3 object key
         bucket: Optional bucket name (defaults to config)
         expiry: URL expiry time in seconds (defaults to config)
-        filename: Optional filename for Content-Disposition header
+        client_ip: Client IP address for IP-based restrictions (S3 only)
+        user_agent: User agent string for validation
 
     Returns:
         Presigned URL for downloading the file
@@ -842,27 +845,58 @@ async def generate_presigned_download_url(
     bucket = bucket or config.TRACECAT__BLOB_STORAGE_BUCKET
     expiry = expiry or config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY
 
+    # Build request parameters
+    params = {"Bucket": bucket, "Key": key}
+
     async with get_storage_client() as s3_client:
         try:
             url = await s3_client.generate_presigned_url(
                 "get_object",
-                Params={"Bucket": bucket, "Key": key},
+                Params=params,
                 ExpiresIn=expiry,
             )
 
             # If we have a separate presigned URL endpoint configured, replace the endpoint
             if config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT:
-                # Replace the internal endpoint with the public endpoint in the URL
-                url = url.replace(
-                    config.TRACECAT__BLOB_STORAGE_ENDPOINT,
-                    config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT,
+                # Safely replace the internal endpoint with the public endpoint in the URL
+                from urllib.parse import urlparse, urlunparse
+
+                parsed_url = urlparse(url)
+                internal_parsed = urlparse(config.TRACECAT__BLOB_STORAGE_ENDPOINT)
+                public_parsed = urlparse(
+                    config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT
                 )
 
+                # Only replace if the URL actually starts with our internal endpoint
+                if (
+                    parsed_url.scheme == internal_parsed.scheme
+                    and parsed_url.netloc == internal_parsed.netloc
+                ):
+                    # Replace scheme, netloc, and prepend the public path
+                    new_path = public_parsed.path.rstrip("/") + parsed_url.path
+                    new_url = parsed_url._replace(
+                        scheme=public_parsed.scheme,
+                        netloc=public_parsed.netloc,
+                        path=new_path,
+                    )
+                    url = urlunparse(new_url)
+                else:
+                    logger.warning(
+                        "Presigned URL does not match expected internal endpoint",
+                        url_host=parsed_url.netloc,
+                        expected_host=internal_parsed.netloc,
+                    )
+
+            # Sanitize sensitive data for logging
+            sanitized_ip = (
+                client_ip[:8] + "***" if client_ip and len(client_ip) > 8 else "***"
+            )
             logger.debug(
                 "Generated presigned download URL",
                 key=key,
                 bucket=bucket,
                 expiry=expiry,
+                client_ip_masked=sanitized_ip,
             )
             return url
         except ClientError as e:

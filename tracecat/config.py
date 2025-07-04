@@ -236,9 +236,15 @@ TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT = os.environ.get(
 
 # Presigned URL configuration
 TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY = int(
-    os.environ.get("TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY", 3600)
+    os.environ.get("TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY", 5)
 )
-"""Default expiry time for presigned URLs in seconds (default: 1 hour)."""
+"""Default expiry time for presigned URLs in seconds (default: 5 seconds for immediate use)."""
+
+TRACECAT__DISABLE_PRESIGNED_URL_IP_CHECKING = (
+    os.environ.get("TRACECAT__DISABLE_PRESIGNED_URL_IP_CHECKING", "true").lower()
+    == "true"
+)
+"""Disable client IP checking for presigned URLs. Set to false for production with public S3, true for local MinIO (default: true)."""
 
 # === Local registry === #
 TRACECAT__LOCAL_REPOSITORY_ENABLED = os.getenv(

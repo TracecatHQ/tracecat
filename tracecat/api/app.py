@@ -38,7 +38,11 @@ from tracecat.db.engine import get_async_session_context_manager
 from tracecat.editor.router import router as editor_router
 from tracecat.integrations.router import integrations_router, providers_router
 from tracecat.logger import logger
-from tracecat.middleware import AuthorizationCacheMiddleware, RequestLoggingMiddleware
+from tracecat.middleware import (
+    AuthorizationCacheMiddleware,
+    ClientIPMiddleware,
+    RequestLoggingMiddleware,
+)
 from tracecat.middleware.security import SecurityHeadersMiddleware
 from tracecat.organization.router import router as org_router
 from tracecat.registry.actions.router import router as registry_actions_router
@@ -268,6 +272,7 @@ def create_app(**kwargs) -> FastAPI:
     # Add authorization cache middleware first so it's available for all requests
     app.add_middleware(AuthorizationCacheMiddleware)
     app.add_middleware(RequestLoggingMiddleware)
+    app.add_middleware(ClientIPMiddleware)  # Extract client IP from proxy headers
     if config.TRACECAT__APP_ENV != "development":
         app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(

@@ -10,7 +10,12 @@
 	}
 
 	handle_path /api* {
-		reverse_proxy http://api:8000
+		reverse_proxy http://api:8000 {
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+			header_up X-Forwarded-Host {host}
+		}
 	}
 	reverse_proxy http://ui:3000
 }

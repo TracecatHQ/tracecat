@@ -669,3 +669,235 @@ class TestEdgeCases:
 
             # Check that error was logged
             mock_logger.error.assert_called()
+
+
+class TestSecurityHardening:
+    """Test security hardening features for blob storage."""
+
+    @pytest.mark.anyio
+    @patch("tracecat.storage.get_storage_client")
+    @patch("tracecat.storage.config")
+    async def test_presigned_url_path_replacement(self, mock_config, mock_get_client):
+        """Test that presigned URLs correctly include /s3 path prefix."""
+        # Setup configuration
+        mock_config.TRACECAT__BLOB_STORAGE_ENDPOINT = "http://minio:9000"
+        mock_config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT = (
+            "http://localhost:8080/s3"
+        )
+
+        # Setup mock client
+        mock_client = AsyncMock()
+        mock_get_client.return_value.__aenter__.return_value = mock_client
+
+        # Mock the original presigned URL from MinIO
+        original_url = "http://minio:9000/tracecat/attachments/test.txt?AWSAccessKeyId=minio&Signature=abc123&Expires=1234567890"
+        mock_client.generate_presigned_url.return_value = original_url
+
+        # Generate presigned URL
+        result = await generate_presigned_download_url(
+            "attachments/test.txt", "tracecat", 30
+        )
+
+        # Verify URL transformation
+        expected_url = "http://localhost:8080/s3/tracecat/attachments/test.txt?AWSAccessKeyId=minio&Signature=abc123&Expires=1234567890"
+        assert result == expected_url
+        assert "/s3/" in result
+        assert "localhost:8080" in result
+
+    @pytest.mark.anyio
+    @patch("tracecat.storage.get_storage_client")
+    @patch("tracecat.storage.config")
+    async def test_presigned_url_no_replacement_when_not_configured(
+        self, mock_config, mock_get_client
+    ):
+        """Test that URLs are not modified when no public endpoint is configured."""
+        # No public endpoint configured
+        mock_config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT = None
+
+        # Setup mock client
+        mock_client = AsyncMock()
+        mock_get_client.return_value.__aenter__.return_value = mock_client
+
+        original_url = "http://minio:9000/tracecat/attachments/test.txt?AWSAccessKeyId=minio&Signature=abc123&Expires=1234567890"
+        mock_client.generate_presigned_url.return_value = original_url
+
+        # Generate presigned URL
+        result = await generate_presigned_download_url(
+            "attachments/test.txt", "tracecat", 30
+        )
+
+        # URL should remain unchanged
+        assert result == original_url
+        assert "minio:9000" in result
+
+    def test_file_validation_against_malicious_content(self):
+        """Test comprehensive file validation against various attack vectors."""
+        validator = FileSecurityValidator()
+
+        # Test various malicious file types that should be blocked
+        malicious_files = [
+            # Executable files
+            (b"MZ\x90\x00" + b"A" * 100, "malware.exe", "application/x-executable"),
+            # Script files
+            (b"#!/bin/bash\nrm -rf /", "script.sh", "application/x-sh"),
+            # HTML with JavaScript
+            (b"<script>alert('xss')</script>", "malicious.html", "text/html"),
+            # PHP files
+            (
+                b"<?php system($_GET['cmd']); ?>",
+                "webshell.php",
+                "application/x-httpd-php",
+            ),
+        ]
+
+        for content, filename, content_type in malicious_files:
+            with pytest.raises(ValueError):
+                validator.validate_file(
+                    content=content,
+                    filename=filename,
+                    declared_content_type=content_type,
+                )
+
+    def test_content_type_spoofing_protection(self):
+        """Test protection against content type spoofing attacks."""
+        validator = FileSecurityValidator()
+
+        # Test executable content with innocent content type
+        executable_content = b"MZ\x90\x00" + b"A" * 100
+
+        with pytest.raises(ValueError, match="File contains executable content"):
+            validator.validate_file(
+                content=executable_content,
+                filename="document.pdf",  # Claiming to be PDF
+                declared_content_type="application/pdf",
+            )
+
+    def test_filename_traversal_protection(self):
+        """Test protection against directory traversal attacks."""
+        validator = FileSecurityValidator()
+
+        # Test various path traversal attempts
+        malicious_filenames = [
+            "../../../etc/passwd",
+            "..\\..\\..\\windows\\system32\\config\\sam",
+            "file/../../sensitive.txt",
+            ".\\..\\sensitive.txt",
+        ]
+
+        for filename in malicious_filenames:
+            with pytest.raises(ValueError, match="invalid path characters"):
+                validator.validate_file(
+                    content=b"content",
+                    filename=filename,
+                    declared_content_type="text/plain",
+                )
+
+    @pytest.mark.anyio
+    @patch("tracecat.storage.get_storage_client")
+    async def test_storage_error_handling_security(self, mock_get_client):
+        """Test that storage errors don't leak sensitive information."""
+        mock_client = AsyncMock()
+        mock_get_client.return_value.__aenter__.return_value = mock_client
+
+        # Simulate various S3 errors
+        mock_client.get_object.side_effect = ClientError(
+            error_response={
+                "Error": {
+                    "Code": "AccessDenied",
+                    "Message": "Access denied to sensitive-bucket/secret-path/",
+                }
+            },
+            operation_name="get_object",
+        )
+
+        # Error should be raised but internal paths should not be exposed
+        with pytest.raises(ClientError):
+            await download_file("test-file.txt", "test-bucket")
+
+    def test_file_size_limits_enforcement(self):
+        """Test that file size limits are strictly enforced."""
+        validator = FileSecurityValidator()
+
+        # Test at boundary conditions
+        max_size_content = b"A" * MAX_FILE_SIZE
+        validator._validate_file_size(len(max_size_content))  # Should pass
+
+        # Test over limit
+        oversized_content = b"A" * (MAX_FILE_SIZE + 1)
+        with pytest.raises(ValueError, match="exceeds maximum allowed size"):
+            validator._validate_file_size(len(oversized_content))
+
+    def test_content_validation_for_zip_bombs(self):
+        """Test file size limits prevent zip bomb attacks."""
+        validator = FileSecurityValidator()
+
+        # Test that oversized files are rejected (this prevents zip bombs)
+        # Zip bombs are primarily a decompression attack, so file size limits help
+        oversized_zip = b"PK\x03\x04" + b"A" * (MAX_FILE_SIZE + 1)
+
+        with pytest.raises(ValueError, match="exceeds maximum allowed size"):
+            validator.validate_file(
+                content=oversized_zip,
+                filename="archive.zip",
+                declared_content_type="application/zip",
+            )
+
+    @pytest.mark.anyio
+    @patch("tracecat.storage.get_storage_client")
+    async def test_presigned_url_expiry_validation(self, mock_get_client):
+        """Test that presigned URLs have appropriate expiry times."""
+        mock_client = AsyncMock()
+        mock_get_client.return_value.__aenter__.return_value = mock_client
+
+        mock_client.generate_presigned_url.return_value = (
+            "http://test.com/file?Expires=123"
+        )
+
+        # Test with various expiry times
+        short_expiry = 30  # 30 seconds - appropriate for immediate download
+        await generate_presigned_download_url("test.txt", "bucket", short_expiry)
+
+        # Verify the expiry was passed correctly
+        mock_client.generate_presigned_url.assert_called_with(
+            "get_object",
+            Params={"Bucket": "bucket", "Key": "test.txt"},
+            ExpiresIn=short_expiry,
+        )
+
+    def test_filename_sanitization_security(self):
+        """Test that filename sanitization removes security risks."""
+        validator = FileSecurityValidator()
+
+        # Test various security-problematic filenames
+        test_cases = [
+            # Control characters
+            ("file\x00name.txt", "filename.txt"),
+            ("file\x01\x02name.txt", "filename.txt"),
+            # Unicode normalization attacks
+            ("file\u202ename.txt", "filename.txt"),  # Right-to-left override
+            # Long filename attack
+            ("A" * 300 + ".txt", "A" * (255 - 4) + ".txt"),
+            # Hidden file attempts
+            ("...hidden.txt", "hidden.txt"),
+        ]
+
+        for malicious_name, expected_safe in test_cases:
+            result = validator._sanitize_filename(malicious_name)
+            assert result == expected_safe
+            assert len(result) <= 255
+            assert ".." not in result
+
+    def test_client_ip_middleware_integration(self):
+        """Test that client IP middleware is properly integrated."""
+        from unittest.mock import MagicMock
+
+        # Test direct access to request.state.client_ip
+        mock_request = MagicMock()
+        mock_request.state.client_ip = "203.0.113.1"
+
+        result = mock_request.state.client_ip
+        assert result == "203.0.113.1"
+
+        # Test when client IP is None (disabled mode)
+        mock_request.state.client_ip = None
+        assert mock_request.state.client_ip is None

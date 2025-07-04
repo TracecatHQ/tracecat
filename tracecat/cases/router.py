@@ -2,7 +2,7 @@ import hashlib
 import uuid
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, HTTPException, Query, Request, UploadFile, status
 from sqlalchemy.exc import DBAPIError
 
 from tracecat.auth.credentials import RoleACL
@@ -760,6 +760,7 @@ async def download_attachment(
     session: AsyncDBSession,
     case_id: uuid.UUID,
     attachment_id: uuid.UUID,
+    request: Request,
 ) -> CaseAttachmentDownloadResponse:
     """Download an attachment."""
     service = CasesService(session, role)
@@ -776,7 +777,11 @@ async def download_attachment(
             presigned_url,
             filename,
             content_type,
-        ) = await service.attachments.get_attachment_download_url(case, attachment_id)
+        ) = await service.attachments.get_attachment_download_url(
+            case,
+            attachment_id,
+            client_ip=request.state.client_ip,
+        )
 
         logger.info(
             "Generated presigned download URL",
