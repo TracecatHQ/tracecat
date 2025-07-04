@@ -1059,7 +1059,7 @@ class CaseAttachmentService(BaseWorkspaceService):
         storage_key = attachment.storage_path
         try:
             presigned_url = await storage.generate_presigned_download_url(
-                key=storage_key, client_ip=client_ip, user_agent="Tracecat/1.0"
+                key=storage_key, client_ip=client_ip
             )
             return presigned_url, attachment.file.name, attachment.file.content_type
         except Exception as e:

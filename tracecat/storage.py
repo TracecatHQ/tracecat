@@ -825,7 +825,6 @@ async def generate_presigned_download_url(
     bucket: str | None = None,
     expiry: int | None = None,
     client_ip: str | None = None,
-    user_agent: str | None = None,
 ) -> str:
     """Generate a presigned URL for downloading a file with enhanced security.
 
@@ -834,7 +833,6 @@ async def generate_presigned_download_url(
         bucket: Optional bucket name (defaults to config)
         expiry: URL expiry time in seconds (defaults to config)
         client_ip: Client IP address for IP-based restrictions (S3 only)
-        user_agent: User agent string for validation
 
     Returns:
         Presigned URL for downloading the file
