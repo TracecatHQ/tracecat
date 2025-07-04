@@ -220,6 +220,8 @@ def send_email_smtp(
         if enable_starttls:
             server.starttls(context=context)
         if enable_auth:
+            smtp_user = secrets.get("SMTP_USER")
+            smtp_pass = secrets.get("SMTP_PASS")
             server.login(smtp_user, smtp_pass)
         response = server.send_message(msg)
 
