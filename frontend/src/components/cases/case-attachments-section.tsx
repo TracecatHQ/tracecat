@@ -5,6 +5,7 @@ import { formatDistanceToNow } from "date-fns"
 import {
   AlertCircle,
   Download,
+  Eye,
   File,
   FileSpreadsheet,
   FileText,
@@ -15,6 +16,7 @@ import {
   Trash2,
   Video,
 } from "lucide-react"
+import Image from "next/image"
 import { useCallback, useRef, useState } from "react"
 import type { ApiError, CaseAttachmentRead } from "@/client"
 import {
@@ -24,6 +26,7 @@ import {
   casesListAttachments,
 } from "@/client"
 import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   Tooltip,
@@ -110,6 +113,9 @@ export function CaseAttachmentsSection({
 }: CaseAttachmentsSectionProps) {
   const [isUploading, setIsUploading] = useState(false)
   const [isDragOver, setIsDragOver] = useState(false)
+  const [previewAttachment, setPreviewAttachment] =
+    useState<CaseAttachmentRead | null>(null)
+  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const queryClient = useQueryClient()
 
@@ -433,6 +439,33 @@ export function CaseAttachmentsSection({
     }
   }
 
+  const handlePreview = async (attachment: CaseAttachmentRead) => {
+    try {
+      const response = (await casesDownloadAttachment({
+        caseId,
+        workspaceId,
+        attachmentId: attachment.id,
+      })) as CaseAttachmentDownloadResponse
+
+      const downloadUrl = response.download_url
+      if (!downloadUrl) {
+        throw new Error("No download URL received from server")
+      }
+
+      console.log("Preview URL:", downloadUrl)
+
+      setPreviewAttachment(attachment)
+      setPreviewImageUrl(downloadUrl)
+    } catch (error) {
+      console.error("Failed to preview attachment:", error)
+      toast({
+        title: "Preview failed",
+        description: `Failed to preview ${attachment.file_name}`,
+        variant: "destructive",
+      })
+    }
+  }
+
   const handleDelete = (attachmentId: string) => {
     deleteMutation.mutate(attachmentId)
   }
@@ -495,7 +528,7 @@ export function CaseAttachmentsSection({
           <span className="text-xs text-muted-foreground group-hover:text-foreground transition-colors">
             {isUploading || uploadMutation.isPending
               ? "Uploading..."
-              : "Add new attachment (pdf, doc, xls, txt, csv, images, zip)"}
+              : "Add new attachment (pdf, doc, xls, txt, csv, png, jpeg, gif, webp, zip)"}
           </span>
         </div>
 
@@ -538,6 +571,25 @@ export function CaseAttachmentsSection({
               </div>
 
               <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                {/* Preview button - only for images */}
+                {attachment.content_type.startsWith("image/") && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handlePreview(attachment)}
+                        disabled={deleteMutation.isPending}
+                      >
+                        <Eye className="size-3.5" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <div className="text-xs">Preview image</div>
+                    </TooltipContent>
+                  </Tooltip>
+                )}
+
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
@@ -576,6 +628,82 @@ export function CaseAttachmentsSection({
           className="hidden"
           accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,.csv,.jpg,.jpeg,.png,.gif,.webp,.zip,.7z"
         />
+
+        {/* Image Preview Modal */}
+        <Dialog
+          open={!!previewAttachment}
+          onOpenChange={(open) => {
+            if (!open) {
+              setPreviewAttachment(null)
+              setPreviewImageUrl(null)
+            }
+          }}
+        >
+          <DialogContent className="max-w-[95vw] max-h-[95vh] overflow-hidden p-0 bg-transparent border-0 shadow-2xl w-fit h-fit">
+            <div className="relative inline-flex border border-gray-400/25 rounded-sm overflow-hidden bg-gray-900 group">
+              {/* Floating header overlay */}
+              <div className="absolute top-3 left-3 right-3 z-10 flex items-center justify-between opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                <div className="bg-black/70 backdrop-blur-sm rounded-full px-3 py-1.5">
+                  <span className="text-white text-xs font-medium truncate max-w-[300px] block">
+                    {previewAttachment?.file_name}
+                  </span>
+                </div>
+                <button
+                  onClick={() => {
+                    setPreviewAttachment(null)
+                    setPreviewImageUrl(null)
+                  }}
+                  className="bg-black/70 backdrop-blur-sm rounded-full p-2 text-white hover:bg-black/80 transition-colors duration-200"
+                >
+                  <svg
+                    className="w-4 h-4"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={1.5}
+                      d="M6 18L18 6M6 6l12 12"
+                    />
+                  </svg>
+                </button>
+              </div>
+
+              {previewImageUrl && (
+                <Image
+                  src={previewImageUrl}
+                  alt={previewAttachment?.file_name || "Preview image"}
+                  width={0}
+                  height={0}
+                  sizes="(max-width: 768px) 100vw, (max-width: 1200px) 90vw, 85vw"
+                  style={{
+                    maxWidth: "90vw",
+                    maxHeight: "85vh",
+                    width: "auto",
+                    height: "auto",
+                  }}
+                  className="object-contain"
+                  unoptimized
+                  onError={(e) => {
+                    console.error("Image failed to load:", e)
+                    console.error("Failed URL:", previewImageUrl)
+                    toast({
+                      title: "Image preview failed",
+                      description:
+                        "Try downloading the attachment or checking the original file for issues.",
+                      variant: "destructive",
+                    })
+                  }}
+                  onLoad={() => {
+                    console.log("Image loaded successfully:", previewImageUrl)
+                  }}
+                />
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
     </TooltipProvider>
   )
