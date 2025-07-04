@@ -1036,11 +1036,7 @@ class CaseAttachmentService(BaseWorkspaceService):
             raise TracecatException(f"Failed to download attachment: {str(e)}") from e
 
     async def get_attachment_download_url(
-        self,
-        case: Case,
-        attachment_id: uuid.UUID,
-        client_ip: str | None = None,
-        preview: bool = False,
+        self, case: Case, attachment_id: uuid.UUID, client_ip: str | None = None
     ) -> tuple[str, str, str]:
         """Generate a presigned URL for downloading an attachment.
 
@@ -1048,7 +1044,6 @@ class CaseAttachmentService(BaseWorkspaceService):
             case: The case the attachment belongs to
             attachment_id: The attachment ID
             client_ip: Client IP address
-            preview: If True, allows inline display for safe image types only
 
         Returns:
             Tuple of (presigned_url, filename, content_type)
@@ -1064,26 +1059,9 @@ class CaseAttachmentService(BaseWorkspaceService):
 
         # Generate presigned URL for blob storage
         storage_key = attachment.storage_path
-        content_type = attachment.file.content_type
-
-        # Security: Determine if we should force download or allow preview
-        safe_preview_types = {"image/png", "image/jpeg", "image/gif", "image/webp"}
-        force_download = True
-        override_content_type = None
-
-        if preview and content_type in safe_preview_types:
-            # Only allow preview for safe image types
-            force_download = False
-        else:
-            # For all other types, force download with safe content type
-            override_content_type = "application/octet-stream"
-
         try:
             presigned_url = await storage.generate_presigned_download_url(
-                key=storage_key,
-                client_ip=client_ip,
-                force_download=force_download,
-                override_content_type=override_content_type,
+                key=storage_key, client_ip=client_ip
             )
             return presigned_url, attachment.file.name, attachment.file.content_type
         except Exception as e:

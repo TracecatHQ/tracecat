@@ -165,7 +165,6 @@ ALLOWED_EXTENSIONS = {
     ".webp": "image/webp",
     ".zip": "application/zip",
     ".7z": "application/x-7z-compressed",
-    # Note: SVG is intentionally excluded due to XSS risks
 }
 
 # Dangerous extensions that should never be allowed
@@ -206,7 +205,7 @@ BLOCKED_EXTENSIONS = {
     ".ipa",
     ".html",
     ".htm",
-    ".svg",  # Blocked due to XSS risk via embedded scripts
+    ".svg",
     ".xml",
     ".xsl",
     ".xslt",
@@ -695,32 +694,9 @@ class FileSecurityValidator:
 
     def _validate_image_content(self, content: bytes) -> None:
         """Validate image-specific content."""
-        # Check for SVG content (which should already be blocked by extension)
-        if content.startswith(b"<?xml") or b"<svg" in content[:1024]:
-            # SVG detected - check for dangerous content
-            content_lower = content.lower()
-            svg_dangerous_patterns = [
-                b"<script",
-                b"javascript:",
-                b"onclick",
-                b"onload",
-                b"onerror",
-                b"onmouseover",
-                b"<iframe",
-                b"<embed",
-                b"<object",
-                b"<link",
-                b"<meta",
-                b"<foreignobject",
-            ]
-            for pattern in svg_dangerous_patterns:
-                if pattern in content_lower:
-                    raise FileSecurityError(
-                        f"SVG file contains potentially dangerous content: {pattern.decode('utf-8', errors='ignore')}"
-                    )
-
-        # For other images, we rely on magic number validation and polyfile analysis
+        # For images, we rely on magic number validation and polyfile analysis
         # Avoid checking for text patterns in binary image data as it causes false positives
+        pass
 
     def _validate_text_content(self, content: bytes) -> None:
         """Validate text file content."""
@@ -850,8 +826,6 @@ async def generate_presigned_download_url(
     bucket: str | None = None,
     expiry: int | None = None,
     client_ip: str | None = None,
-    force_download: bool = True,
-    override_content_type: str | None = None,
 ) -> str:
     """Generate a presigned URL for downloading a file with enhanced security.
 
@@ -860,8 +834,6 @@ async def generate_presigned_download_url(
         bucket: Optional bucket name (defaults to config)
         expiry: URL expiry time in seconds (defaults to config)
         client_ip: Client IP address for IP-based restrictions (S3 only)
-        force_download: If True, forces Content-Disposition: attachment
-        override_content_type: Override the Content-Type header (e.g., 'application/octet-stream')
 
     Returns:
         Presigned URL for downloading the file
@@ -872,18 +844,8 @@ async def generate_presigned_download_url(
     bucket = bucket or config.TRACECAT__BLOB_STORAGE_BUCKET
     expiry = expiry or config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY
 
-    # Build request parameters with security headers
+    # Build request parameters
     params = {"Bucket": bucket, "Key": key}
-
-    # Force download instead of inline display
-    if force_download:
-        # Extract filename from key for proper download naming
-        filename = key.split("/")[-1] if "/" in key else key
-        params["ResponseContentDisposition"] = f'attachment; filename="{filename}"'
-
-    # Override content type to prevent browser execution
-    if override_content_type:
-        params["ResponseContentType"] = override_content_type
 
     async with get_storage_client() as s3_client:
         try:

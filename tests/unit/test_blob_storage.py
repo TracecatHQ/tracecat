@@ -276,28 +276,6 @@ class TestFileSecurityValidator:
         image_with_script = b"\xff\xd8\xff\xe0<script>alert('xss')</script>"
         self.validator._validate_image_content(image_with_script)  # Should not raise
 
-        # Test SVG detection and validation
-        with pytest.raises(
-            FileSecurityError, match="SVG file contains potentially dangerous content"
-        ):
-            # SVG with script tag
-            svg_with_script = b'<svg xmlns="http://www.w3.org/2000/svg"><script>alert("XSS")</script></svg>'
-            self.validator._validate_image_content(svg_with_script)
-
-        # SVG with event handler
-        svg_with_event = b'<svg xmlns="http://www.w3.org/2000/svg"><circle onclick="alert(1)"/></svg>'
-        with pytest.raises(
-            FileSecurityError, match="SVG file contains potentially dangerous content"
-        ):
-            self.validator._validate_image_content(svg_with_event)
-
-        # SVG with JavaScript URL
-        svg_with_js_url = b'<svg xmlns="http://www.w3.org/2000/svg"><a href="javascript:alert(1)"/></svg>'
-        with pytest.raises(
-            FileSecurityError, match="SVG file contains potentially dangerous content"
-        ):
-            self.validator._validate_image_content(svg_with_js_url)
-
     def test_validate_text_content(self):
         """Test text content validation."""
         # Safe text content
@@ -517,7 +495,6 @@ class TestS3Operations:
 
         assert result is False
 
-    @pytest.mark.anyio
     @patch("tracecat.storage.get_storage_client")
     async def test_generate_presigned_download_url(self, mock_get_client):
         """Test presigned download URL generation."""
@@ -534,69 +511,7 @@ class TestS3Operations:
         assert result == expected_url
         mock_client.generate_presigned_url.assert_called_once_with(
             "get_object",
-            Params={
-                "Bucket": "test-bucket",
-                "Key": "test/file.txt",
-                "ResponseContentDisposition": 'attachment; filename="file.txt"',
-            },
-            ExpiresIn=3600,
-        )
-
-    @pytest.mark.anyio
-    @patch("tracecat.storage.get_storage_client")
-    async def test_generate_presigned_download_url_with_preview(self, mock_get_client):
-        """Test presigned download URL generation with preview mode."""
-        mock_client = AsyncMock()
-        mock_get_client.return_value.__aenter__.return_value = mock_client
-
-        expected_url = "https://example.com/presigned-url"
-        mock_client.generate_presigned_url.return_value = expected_url
-
-        # Test with preview mode disabled (force_download=False)
-        result = await generate_presigned_download_url(
-            "test/image.png", "test-bucket", 3600, force_download=False
-        )
-
-        assert result == expected_url
-        mock_client.generate_presigned_url.assert_called_once_with(
-            "get_object",
-            Params={
-                "Bucket": "test-bucket",
-                "Key": "test/image.png",
-                # No ResponseContentDisposition when force_download=False
-            },
-            ExpiresIn=3600,
-        )
-
-    @pytest.mark.anyio
-    @patch("tracecat.storage.get_storage_client")
-    async def test_generate_presigned_download_url_with_content_type_override(
-        self, mock_get_client
-    ):
-        """Test presigned download URL generation with content type override."""
-        mock_client = AsyncMock()
-        mock_get_client.return_value.__aenter__.return_value = mock_client
-
-        expected_url = "https://example.com/presigned-url"
-        mock_client.generate_presigned_url.return_value = expected_url
-
-        # Test with content type override
-        result = await generate_presigned_download_url(
-            "test/file.bin",
-            "test-bucket",
-            3600,
-            override_content_type="application/octet-stream",
-        )
-
-        assert result == expected_url
-        mock_client.generate_presigned_url.assert_called_once_with(
-            "get_object",
-            Params={
-                "Bucket": "test-bucket",
-                "Key": "test/file.bin",
-                "ResponseContentDisposition": 'attachment; filename="file.bin"',
-                "ResponseContentType": "application/octet-stream",
-            },
+            Params={"Bucket": "test-bucket", "Key": "test/file.txt"},
             ExpiresIn=3600,
         )
 
@@ -673,9 +588,6 @@ class TestSecurityConfiguration:
             ".py",
             ".sh",
             ".dll",
-            ".svg",  # SVG should be blocked due to XSS risk
-            ".html",
-            ".htm",
         ]
 
         for ext in dangerous_extensions:
@@ -931,14 +843,10 @@ class TestSecurityHardening:
         short_expiry = 30  # 30 seconds - appropriate for immediate download
         await generate_presigned_download_url("test.txt", "bucket", short_expiry)
 
-        # Verify the expiry was passed correctly with security headers
+        # Verify the expiry was passed correctly
         mock_client.generate_presigned_url.assert_called_with(
             "get_object",
-            Params={
-                "Bucket": "bucket",
-                "Key": "test.txt",
-                "ResponseContentDisposition": 'attachment; filename="test.txt"',
-            },
+            Params={"Bucket": "bucket", "Key": "test.txt"},
             ExpiresIn=short_expiry,
         )
 

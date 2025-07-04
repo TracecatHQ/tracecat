@@ -328,18 +328,6 @@ class CaseAttachmentCreate(BaseModel):
     content: bytes = Field(..., description="File content")
 
 
-class CaseAttachmentCreateBase64(BaseModel):
-    """Model for creating a case attachment with base64 encoded content."""
-
-    file_name: str = Field(
-        ...,
-        max_length=config.TRACECAT__MAX_ATTACHMENT_FILENAME_LENGTH,
-        description="Original filename",
-    )
-    content_type: str = Field(..., max_length=100, description="MIME type of the file")
-    content_base64: str = Field(..., description="Base64 encoded file content")
-
-
 class CaseAttachmentRead(BaseModel):
     """Model for reading a case attachment."""
 
