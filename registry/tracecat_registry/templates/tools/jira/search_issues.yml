@@ -26,7 +26,9 @@ definition:
       default: 100
     fields:
       type: str
-      description: "A list of fields to return for each issue, use it to retrieve a subset of fields. This parameter accepts a comma-separated list. Expand options include: *all, *navigable, summary,comment, -description, -comment. The default is id"
+      description: >
+        A list of fields to return for each issue, use it to retrieve a subset of fields.
+        This parameter accepts a comma-separated list. Expand options include: *all, *navigable, summary,comment, -description, -comment. The default is id"
       default: "id"
   steps:
     - ref: search_issues
