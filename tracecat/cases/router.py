@@ -1,8 +1,9 @@
+import base64
 import hashlib
 import uuid
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, HTTPException, Query, Request, UploadFile, status
+from fastapi import APIRouter, HTTPException, Query, Request, status
 from sqlalchemy.exc import DBAPIError
 
 from tracecat.auth.credentials import RoleACL
@@ -12,6 +13,7 @@ from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.models import (
     AssigneeChangedEventRead,
     CaseAttachmentCreate,
+    CaseAttachmentCreateBase64,
     CaseAttachmentDownloadResponse,
     CaseAttachmentRead,
     CaseCommentCreate,
@@ -518,9 +520,9 @@ async def create_attachment(
     role: WorkspaceUser,
     session: AsyncDBSession,
     case_id: uuid.UUID,
-    file: UploadFile,
+    params: CaseAttachmentCreateBase64,
 ) -> CaseAttachmentRead:
-    """Upload a new attachment to a case."""
+    """Upload a new attachment to a case with base64 encoded content."""
     service = CasesService(session, role)
     case = await service.get_case(case_id)
     if case is None:
@@ -530,71 +532,60 @@ async def create_attachment(
             detail=f"Case with ID {case_id} not found",
         )
 
-    # Read file content
+    # Decode base64 content
     try:
-        # Reset file pointer to beginning to ensure we read the full content
-        await file.seek(0)
-        content = await file.read()
+        content = base64.b64decode(params.content_base64)
 
         # Comprehensive debugging for upload
         logger.info(
-            "File upload - content read",
+            "File upload - base64 decoded",
             case_id=case_id,
-            filename=file.filename,
-            declared_content_type=file.content_type,
-            declared_size=getattr(file, "size", "unknown"),
+            filename=params.file_name,
+            declared_content_type=params.content_type,
             actual_size=len(content),
             content_hash=hashlib.sha256(content).hexdigest()[:16]
             if content
             else "empty",
         )
 
-        # Validate that we actually read content
+        # Validate that we actually have content
         if not content:
-            raise ValueError("File appears to be empty or unreadable")
-
-        # Validate size consistency if available
-        if hasattr(file, "size") and file.size and len(content) != file.size:
-            logger.warning(
-                "File size mismatch during upload",
-                case_id=case_id,
-                filename=file.filename,
-                declared_size=file.size,
-                actual_size=len(content),
-            )
+            raise ValueError("Decoded content is empty")
 
     except Exception as e:
         logger.error(
-            "Failed to read file content",
+            "Failed to decode base64 content",
             case_id=case_id,
-            filename=file.filename,
+            filename=params.file_name,
             error=str(e),
             error_type=type(e).__name__,
         )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Failed to read file content: {str(e)}",
+            detail=f"Failed to decode base64 content: {str(e)}",
         ) from e
 
     # Create attachment
     try:
-        params = CaseAttachmentCreate(
-            file_name=file.filename or "unnamed",
-            content_type=file.content_type or "application/octet-stream",
-            size=len(content),  # Use actual read size
+        attachment_params = CaseAttachmentCreate(
+            file_name=params.file_name,
+            content_type=params.content_type,
+            size=len(content),  # Use actual decoded size
             content=content,
         )
 
         logger.info(
             "Creating attachment",
             case_id=case_id,
-            file_name=params.file_name,
-            content_type=params.content_type,
-            size=params.size,
-            content_hash=hashlib.sha256(params.content).hexdigest()[:16],
+            file_name=attachment_params.file_name,
+            content_type=attachment_params.content_type,
+            size=attachment_params.size,
+            content_hash=hashlib.sha256(attachment_params.content).hexdigest()[:16],
         )
 
-        attachment = await service.attachments.create_attachment(case, params)
+        attachment = await service.attachments.create_attachment(
+            case, attachment_params
+        )
 
         logger.info(
             "Attachment created successfully",
@@ -623,7 +614,7 @@ async def create_attachment(
         logger.error(
             "File extension validation error",
             case_id=case_id,
-            filename=file.filename,
+            filename=params.file_name,
             extension=e.extension,
             allowed_extensions=e.allowed_extensions,
             error=str(e),
@@ -641,7 +632,7 @@ async def create_attachment(
         logger.error(
             "Content type validation error",
             case_id=case_id,
-            filename=file.filename,
+            filename=params.file_name,
             content_type=e.content_type,
             allowed_types=e.allowed_types,
             error=str(e),
@@ -659,7 +650,7 @@ async def create_attachment(
         logger.error(
             "File size validation error",
             case_id=case_id,
-            filename=file.filename,
+            filename=params.file_name,
             error=str(e),
         )
         raise HTTPException(
@@ -673,7 +664,7 @@ async def create_attachment(
         logger.error(
             "File security validation error",
             case_id=case_id,
-            filename=file.filename,
+            filename=params.file_name,
             error=str(e),
         )
         raise HTTPException(
@@ -687,7 +678,7 @@ async def create_attachment(
         logger.error(
             "File validation error",
             case_id=case_id,
-            filename=file.filename,
+            filename=params.file_name,
             error=str(e),
             error_type=type(e).__name__,
         )
@@ -702,7 +693,7 @@ async def create_attachment(
         logger.error(
             "Maximum attachments per case exceeded",
             case_id=case_id,
-            filename=file.filename,
+            filename=params.file_name,
             current_count=e.current_count,
             max_count=e.max_count,
             error=str(e),
@@ -723,7 +714,7 @@ async def create_attachment(
         logger.error(
             "Case storage limit exceeded",
             case_id=case_id,
-            filename=file.filename,
+            filename=params.file_name,
             current_size_mb=round(current_mb, 2),
             new_file_size_mb=round(new_mb, 2),
             max_size_mb=round(max_mb, 2),
@@ -743,7 +734,7 @@ async def create_attachment(
         logger.error(
             "Failed to create attachment",
             case_id=case_id,
-            filename=file.filename,
+            filename=params.file_name,
             error=str(e),
             error_type=type(e).__name__,
         )
@@ -761,6 +752,9 @@ async def download_attachment(
     case_id: uuid.UUID,
     attachment_id: uuid.UUID,
     request: Request,
+    preview: bool = Query(
+        False, description="If true, allows inline preview for safe image types"
+    ),
 ) -> CaseAttachmentDownloadResponse:
     """Download an attachment."""
     service = CasesService(session, role)
@@ -781,6 +775,7 @@ async def download_attachment(
             case,
             attachment_id,
             client_ip=request.state.client_ip,
+            preview=preview,
         )
 
         logger.info(

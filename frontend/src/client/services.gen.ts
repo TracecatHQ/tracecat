@@ -3486,11 +3486,11 @@ export const casesListAttachments = (
 
 /**
  * Create Attachment
- * Upload a new attachment to a case.
+ * Upload a new attachment to a case with base64 encoded content.
  * @param data The data for the request.
  * @param data.caseId
  * @param data.workspaceId
- * @param data.formData
+ * @param data.requestBody
  * @returns CaseAttachmentRead Successful Response
  * @throws ApiError
  */
@@ -3506,8 +3506,8 @@ export const casesCreateAttachment = (
     query: {
       workspace_id: data.workspaceId,
     },
-    formData: data.formData,
-    mediaType: "multipart/form-data",
+    body: data.requestBody,
+    mediaType: "application/json",
     errors: {
       422: "Validation Error",
     },
@@ -3521,7 +3521,7 @@ export const casesCreateAttachment = (
  * @param data.caseId
  * @param data.attachmentId
  * @param data.workspaceId
- * @returns unknown Successful Response
+ * @returns CaseAttachmentDownloadResponse Successful Response
  * @throws ApiError
  */
 export const casesDownloadAttachment = (

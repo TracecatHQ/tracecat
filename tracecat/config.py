@@ -351,9 +351,9 @@ TRACECAT__WORKFLOW_RETURN_STRATEGY = os.environ.get(
 
 # === File limits === #
 TRACECAT__MAX_ATTACHMENT_SIZE_BYTES = int(
-    os.environ.get("TRACECAT__MAX_ATTACHMENT_SIZE_BYTES", 50 * 1024 * 1024)
+    os.environ.get("TRACECAT__MAX_ATTACHMENT_SIZE_BYTES", 20 * 1024 * 1024)
 )
-"""The maximum size for case attachment files in bytes. Defaults to 50MB."""
+"""The maximum size for case attachment files in bytes. Defaults to 20MB."""
 
 TRACECAT__MAX_ATTACHMENT_FILENAME_LENGTH = int(
     os.environ.get("TRACECAT__MAX_ATTACHMENT_FILENAME_LENGTH", 255)
@@ -363,9 +363,9 @@ TRACECAT__MAX_ATTACHMENT_FILENAME_LENGTH = int(
 TRACECAT__MAX_CASE_STORAGE_BYTES = int(
     os.environ.get("TRACECAT__MAX_CASE_STORAGE_BYTES", 500 * 1024 * 1024)
 )
-"""The maximum total storage per case in bytes. Defaults to 500MB."""
+"""The maximum total storage per case in bytes. Defaults to 200MB."""
 
 TRACECAT__MAX_ATTACHMENTS_PER_CASE = int(
-    os.environ.get("TRACECAT__MAX_ATTACHMENTS_PER_CASE", 100)
+    os.environ.get("TRACECAT__MAX_ATTACHMENTS_PER_CASE", 10)
 )
-"""The maximum number of attachments allowed per case. Defaults to 100."""
+"""The maximum number of attachments allowed per case. Defaults to 10."""

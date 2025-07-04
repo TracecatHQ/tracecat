@@ -380,10 +380,6 @@ export type Body_auth_verify_verify = {
   token: string
 }
 
-export type Body_cases_create_attachment = {
-  file: Blob | File
-}
-
 export type Body_tables_import_csv = {
   file: Blob | File
   column_mapping: string
@@ -397,6 +393,42 @@ export type Body_workflows_create_workflow = {
    */
   use_workflow_id?: boolean
   file?: (Blob | File) | null
+}
+
+/**
+ * Model for creating a case attachment with base64 encoded content.
+ */
+export type CaseAttachmentCreateBase64 = {
+  /**
+   * Original filename
+   */
+  file_name: string
+  /**
+   * MIME type of the file
+   */
+  content_type: string
+  /**
+   * Base64 encoded file content
+   */
+  content_base64: string
+}
+
+/**
+ * Model for attachment download URL response.
+ */
+export type CaseAttachmentDownloadResponse = {
+  /**
+   * Pre-signed download URL
+   */
+  download_url: string
+  /**
+   * Original filename
+   */
+  file_name: string
+  /**
+   * MIME type of the file
+   */
+  content_type: string
 }
 
 /**
@@ -4185,7 +4217,7 @@ export type CasesListAttachmentsResponse = Array<CaseAttachmentRead>
 
 export type CasesCreateAttachmentData = {
   caseId: string
-  formData: Body_cases_create_attachment
+  requestBody: CaseAttachmentCreateBase64
   workspaceId: string
 }
 
@@ -4197,7 +4229,7 @@ export type CasesDownloadAttachmentData = {
   workspaceId: string
 }
 
-export type CasesDownloadAttachmentResponse = unknown
+export type CasesDownloadAttachmentResponse = CaseAttachmentDownloadResponse
 
 export type CasesDeleteAttachmentData = {
   attachmentId: string
@@ -6174,7 +6206,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: unknown
+        200: CaseAttachmentDownloadResponse
         /**
          * Validation Error
          */

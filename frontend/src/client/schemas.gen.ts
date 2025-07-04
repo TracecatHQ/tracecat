@@ -1252,19 +1252,6 @@ export const $Body_auth_verify_verify = {
   title: "Body_auth-verify:verify",
 } as const
 
-export const $Body_cases_create_attachment = {
-  properties: {
-    file: {
-      type: "string",
-      format: "binary",
-      title: "File",
-    },
-  },
-  type: "object",
-  required: ["file"],
-  title: "Body_cases-create_attachment",
-} as const
-
 export const $Body_tables_import_csv = {
   properties: {
     file: {
@@ -1330,6 +1317,57 @@ export const $Body_workflows_create_workflow = {
   },
   type: "object",
   title: "Body_workflows-create_workflow",
+} as const
+
+export const $CaseAttachmentCreateBase64 = {
+  properties: {
+    file_name: {
+      type: "string",
+      maxLength: 255,
+      title: "File Name",
+      description: "Original filename",
+    },
+    content_type: {
+      type: "string",
+      maxLength: 100,
+      title: "Content Type",
+      description: "MIME type of the file",
+    },
+    content_base64: {
+      type: "string",
+      title: "Content Base64",
+      description: "Base64 encoded file content",
+    },
+  },
+  type: "object",
+  required: ["file_name", "content_type", "content_base64"],
+  title: "CaseAttachmentCreateBase64",
+  description:
+    "Model for creating a case attachment with base64 encoded content.",
+} as const
+
+export const $CaseAttachmentDownloadResponse = {
+  properties: {
+    download_url: {
+      type: "string",
+      title: "Download Url",
+      description: "Pre-signed download URL",
+    },
+    file_name: {
+      type: "string",
+      title: "File Name",
+      description: "Original filename",
+    },
+    content_type: {
+      type: "string",
+      title: "Content Type",
+      description: "MIME type of the file",
+    },
+  },
+  type: "object",
+  required: ["download_url", "file_name", "content_type"],
+  title: "CaseAttachmentDownloadResponse",
+  description: "Model for attachment download URL response.",
 } as const
 
 export const $CaseAttachmentRead = {

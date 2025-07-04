@@ -132,11 +132,19 @@ export function CaseAttachmentsSection({
   // Upload attachment mutation
   const uploadMutation = useMutation({
     mutationFn: async (file: File) => {
+      // Convert file to base64
+      const arrayBuffer = await file.arrayBuffer()
+      const base64Content = btoa(
+        String.fromCharCode(...new Uint8Array(arrayBuffer))
+      )
+
       return await casesCreateAttachment({
         caseId,
         workspaceId,
-        formData: {
-          file,
+        requestBody: {
+          file_name: file.name,
+          content_type: file.type || "application/octet-stream",
+          content_base64: base64Content,
         },
       })
     },
@@ -445,6 +453,7 @@ export function CaseAttachmentsSection({
         caseId,
         workspaceId,
         attachmentId: attachment.id,
+        preview: true, // Request preview mode for safe inline display
       })) as CaseAttachmentDownloadResponse
 
       const downloadUrl = response.download_url
@@ -528,7 +537,7 @@ export function CaseAttachmentsSection({
           <span className="text-xs text-muted-foreground group-hover:text-foreground transition-colors">
             {isUploading || uploadMutation.isPending
               ? "Uploading..."
-              : "Add new attachment (pdf, doc, xls, txt, csv, png, jpeg, gif, webp, zip)"}
+              : "Add new attachment"}
           </span>
         </div>
 
