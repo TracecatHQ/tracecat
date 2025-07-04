@@ -434,7 +434,7 @@ class FileSecurityValidator:
         """Check if declared type is compatible with expected type."""
         # Allow some common variations
         compatible_types = {
-            "text/plain": ["text/csv"],
+            "text/csv": ["text/plain"],
             "image/jpeg": ["image/jpg"],
         }
 
@@ -1010,44 +1010,6 @@ def validate_file_size(size: int) -> None:
             f"File size ({size / 1024 / 1024:.1f}MB) exceeds maximum allowed size "
             f"({max_size / 1024 / 1024}MB)"
         )
-
-
-def sanitize_filename(filename: str) -> str:
-    """Sanitize filename to prevent directory traversal and other attacks.
-
-    Args:
-        filename: The original filename
-
-    Returns:
-        Sanitized filename
-    """
-    # Get just the filename without any path components
-    filename = os.path.basename(filename)
-
-    # Remove any non-alphanumeric characters except dots, hyphens, and underscores
-    filename = re.sub(r"[^\w\s.-]", "", filename)
-
-    # Replace spaces with underscores
-    filename = filename.replace(" ", "_")
-
-    # Remove multiple consecutive dots (prevent directory traversal)
-    filename = re.sub(r"\.{2,}", ".", filename)
-
-    # Ensure filename doesn't start with a dot (hidden files)
-    filename = filename.lstrip(".")
-
-    # Truncate if too long (leave room for extension)
-    max_length = config.TRACECAT__MAX_ATTACHMENT_FILENAME_LENGTH
-    if len(filename) > max_length:
-        name, ext = os.path.splitext(filename)
-        max_name_length = max_length - len(ext)
-        filename = name[:max_name_length] + ext
-
-    # If filename is empty after sanitization, generate a default
-    if not filename:
-        filename = "unnamed_file"
-
-    return filename
 
 
 async def upload_file(

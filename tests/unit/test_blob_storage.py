@@ -20,7 +20,6 @@ from tracecat.storage import (
     file_exists,
     generate_presigned_download_url,
     generate_presigned_upload_url,
-    sanitize_filename,
     upload_file,
     validate_content_type,
     validate_file_size,
@@ -286,23 +285,6 @@ class TestFileSecurityValidator:
         with pytest.raises(ValueError, match="invalid UTF-8 encoding"):
             self.validator._validate_text_content(b"\xff\xfe")
 
-    def test_sanitize_filename(self):
-        """Test filename sanitization."""
-        test_cases = [
-            ("normal-file.txt", "normal-file.txt"),
-            ("file with spaces.pdf", "file_with_spaces.pdf"),
-            ("file@#$%^&*()name.docx", "filename.docx"),
-            ("...hidden.txt", "hidden.txt"),
-            (".hidden", "hidden"),
-            ("", "unnamed_file"),
-            ("a" * 300 + ".txt", "a" * (255 - 4) + ".txt"),  # Truncated
-            ("multiple..dots.pdf", "multiple.dots.pdf"),
-        ]
-
-        for input_name, expected in test_cases:
-            result = self.validator._sanitize_filename(input_name)
-            assert result == expected
-
     @patch("tracecat.storage.MagicMatcher")
     def test_validate_file_complete_flow(self, mock_magic_matcher):
         """Test complete file validation flow."""
@@ -379,15 +361,6 @@ class TestUtilityFunctions:
         # Too large
         with pytest.raises(ValueError, match="exceeds maximum allowed size"):
             validate_file_size(MAX_FILE_SIZE + 1)
-
-    def test_sanitize_filename_function(self):
-        """Test standalone filename sanitization function."""
-        # Fixed: os.path.basename() removes path components, leaving just "file.txt"
-        result = sanitize_filename("unsafe/../file.txt")
-        assert result == "file.txt"
-
-        result = sanitize_filename("file with spaces.pdf")
-        assert result == "file_with_spaces.pdf"
 
 
 class TestS3Operations:

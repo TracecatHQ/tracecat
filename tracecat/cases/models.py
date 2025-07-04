@@ -205,23 +205,6 @@ class AssigneeChangedEvent(CaseEventBase):
     new: uuid.UUID | None
 
 
-# Type unions
-type CaseEventVariant = Annotated[
-    CreatedEvent
-    | ClosedEvent
-    | ReopenedEvent
-    | UpdatedEvent
-    | StatusChangedEvent
-    | PriorityChangedEvent
-    | SeverityChangedEvent
-    | FieldsChangedEvent
-    | AssigneeChangedEvent
-    | AttachmentCreatedEvent
-    | AttachmentDeletedEvent,
-    Field(discriminator="type"),
-]
-
-
 # Read Models (for API responses) - keep the original names for backward compatibility
 class CreatedEventRead(CaseEventReadBase, CreatedEvent):
     """Event for when a case is created."""
@@ -279,6 +262,23 @@ class AttachmentCreatedEventRead(CaseEventReadBase, AttachmentCreatedEvent):
 
 class AttachmentDeletedEventRead(CaseEventReadBase, AttachmentDeletedEvent):
     """Event for when an attachment is deleted from a case."""
+
+
+# Type unions
+type CaseEventVariant = Annotated[
+    CreatedEvent
+    | ClosedEvent
+    | ReopenedEvent
+    | UpdatedEvent
+    | StatusChangedEvent
+    | PriorityChangedEvent
+    | SeverityChangedEvent
+    | FieldsChangedEvent
+    | AssigneeChangedEvent
+    | AttachmentCreatedEvent
+    | AttachmentDeletedEvent,
+    Field(discriminator="type"),
+]
 
 
 class CaseEventRead(RootModel):

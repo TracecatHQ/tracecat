@@ -759,7 +759,7 @@ class CaseEventsService(BaseWorkspaceService):
 
 
 class CaseAttachmentService(BaseWorkspaceService):
-    """Service for managing case attachments with security measures."""
+    """Service for managing case attachments."""
 
     service_name = "case_attachments"
 
@@ -894,7 +894,9 @@ class CaseAttachmentService(BaseWorkspaceService):
         sha256 = storage.compute_sha256(params.content)
 
         # Determine uploader ID (may be None for workflow/service uploads)
-        creator_id: uuid.UUID | None = self.role.user_id if self.role else None
+        creator_id: uuid.UUID | None = (
+            self.role.user_id if self.role.type == "user" else None
+        )
 
         # Check if file already exists (deduplication)
         existing_file = await self.session.exec(
@@ -1085,8 +1087,12 @@ class CaseAttachmentService(BaseWorkspaceService):
             raise TracecatNotFoundError(f"Attachment {attachment_id} not found")
 
         # Check if user has permission (must be creator or admin)
+        # Service roles with admin access can delete any attachment
+        # TODO: This is a hack to allow service roles to delete attachments
+        # We should use API endpoint level permissions instead
         if (
-            attachment.file.creator_id != self.role.user_id
+            self.role.type == "user"
+            and attachment.file.creator_id != self.role.user_id
             and self.role.access_level < AccessLevel.ADMIN
         ):
             raise TracecatAuthorizationError(
@@ -1144,4 +1150,4 @@ class CaseAttachmentService(BaseWorkspaceService):
             )
         )
         result = await self.session.exec(statement)
-        return result.first() or 0
+        return result.one() or 0
