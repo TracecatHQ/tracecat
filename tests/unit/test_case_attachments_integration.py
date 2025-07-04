@@ -297,6 +297,18 @@ class TestCaseAttachmentsIntegration:
         with pytest.raises(ValueError, match="not allowed for security reasons"):
             await attachments_service.create_attachment(test_case, malicious_params)
 
+        # Test SVG rejection
+        svg_params = CaseAttachmentCreate(
+            file_name="image.svg",
+            content_type="image/svg+xml",
+            size=100,
+            content=b'<svg xmlns="http://www.w3.org/2000/svg"><script>alert("XSS")</script></svg>',
+        )
+
+        # Should raise ValueError due to SVG being blocked
+        with pytest.raises(ValueError, match="not allowed for security reasons"):
+            await attachments_service.create_attachment(test_case, svg_params)
+
     async def test_multiple_attachments_storage_usage(
         self,
         cases_service: CasesService,
@@ -385,6 +397,39 @@ class TestCaseAttachmentsIntegration:
         assert (
             created_attachment.file.sha256 in presigned_url
         )  # Storage key contains SHA256
+
+        # 4. Test preview mode for images
+        # Create an image attachment
+        image_params = CaseAttachmentCreate(
+            file_name="image.png",
+            content_type="image/png",
+            size=100,
+            content=b"\x89PNG\r\n\x1a\n" + b"fake png content",
+        )
+
+        with patch(
+            "tracecat.storage.FileSecurityValidator.validate_file",
+            return_value={
+                "filename": image_params.file_name,
+                "content_type": image_params.content_type,
+            },
+        ):
+            image_attachment = await attachments_service.create_attachment(
+                test_case, image_params
+            )
+
+        # Test preview mode
+        (
+            preview_url,
+            preview_filename,
+            preview_content_type,
+        ) = await attachments_service.get_attachment_download_url(
+            test_case, image_attachment.id, preview=True
+        )
+
+        assert isinstance(preview_url, str)
+        assert preview_filename == image_params.file_name
+        assert preview_content_type == image_params.content_type
 
     async def test_get_attachment_download_url_nonexistent(
         self,

@@ -761,6 +761,9 @@ async def download_attachment(
     case_id: uuid.UUID,
     attachment_id: uuid.UUID,
     request: Request,
+    preview: bool = Query(
+        False, description="If true, allows inline preview for safe image types"
+    ),
 ) -> CaseAttachmentDownloadResponse:
     """Download an attachment."""
     service = CasesService(session, role)
@@ -781,6 +784,7 @@ async def download_attachment(
             case,
             attachment_id,
             client_ip=request.state.client_ip,
+            preview=preview,
         )
 
         logger.info(

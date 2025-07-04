@@ -445,6 +445,7 @@ export function CaseAttachmentsSection({
         caseId,
         workspaceId,
         attachmentId: attachment.id,
+        preview: true, // Request preview mode for safe inline display
       })) as CaseAttachmentDownloadResponse
 
       const downloadUrl = response.download_url
