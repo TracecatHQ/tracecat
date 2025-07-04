@@ -4109,6 +4109,19 @@ export type FoldersMoveFolderData = {
 
 export type FoldersMoveFolderResponse = WorkflowFolderRead
 
+export type IntegrationsOauthCallbackData = {
+  /**
+   * Authorization code from OAuth provider
+   */
+  code: string
+  /**
+   * State parameter from authorization request
+   */
+  state: string
+}
+
+export type IntegrationsOauthCallbackResponse = IntegrationOAuthCallback
+
 export type IntegrationsListIntegrationsData = {
   workspaceId: string
 }
@@ -4143,20 +4156,6 @@ export type IntegrationsConnectProviderData = {
 }
 
 export type IntegrationsConnectProviderResponse = IntegrationOAuthConnect
-
-export type IntegrationsOauthCallbackData = {
-  /**
-   * Authorization code from OAuth provider
-   */
-  code: string
-  providerId: string
-  /**
-   * State parameter from authorization request
-   */
-  state: string
-}
-
-export type IntegrationsOauthCallbackResponse = IntegrationOAuthCallback
 
 export type IntegrationsDisconnectIntegrationData = {
   providerId: string
@@ -6095,6 +6094,21 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/integrations/callback": {
+    get: {
+      req: IntegrationsOauthCallbackData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: IntegrationOAuthCallback
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/integrations": {
     get: {
       req: IntegrationsListIntegrationsData
@@ -6159,21 +6173,6 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: IntegrationOAuthConnect
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/integrations/{provider_id}/callback": {
-    get: {
-      req: IntegrationsOauthCallbackData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: IntegrationOAuthCallback
         /**
          * Validation Error
          */
