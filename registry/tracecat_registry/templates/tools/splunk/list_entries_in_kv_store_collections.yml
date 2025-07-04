@@ -68,9 +68,9 @@ definition:
           limit: ${{ inputs.limit }}
           sort: ${{ inputs.sort }}
           skip: ${{ inputs.skip }}
-          query: ${{ inputs.query }}
+          query: ${{ FN.serialize_json(inputs.query) }}
           shared: ${{ inputs.shared }}
         form_data:
           output_mode: json
 
-  returns: ${{ steps.list_entries_in_kv_store_collections.result.data}}
+  returns: ${{ steps.list_entries_in_kv_store_collections.result.data }}
