@@ -21,7 +21,7 @@ Key benefits:
 
 ## OAuth grant types
 
-Tracecat supports two OAuth 2.0 grant types for different authentication scenarios:
+Tracecat supports two OAuth 2.0 grant types for different authentication scenarios. The grant type must be selected when configuring each provider and affects both the authentication flow and available features.
 
 ### Authorization Code Flow
 The standard OAuth flow where users are redirected to the provider to grant permissions. Best for:
@@ -40,8 +40,12 @@ Direct machine-to-machine authentication using client credentials only. Best for
 Examples: Organization-wide Microsoft Teams channel management, system-level GitHub repository access
 
 <Note>
-  The grant type is configured per provider and determines the authentication flow and available permissions.
-  Some providers support both flows while others may only support one.
+  Each provider requires a specific grant type to be selected during configuration. This choice determines:
+  - The authentication flow (user redirect vs direct authentication)
+  - Available API permissions and scopes
+  - Token refresh behavior
+  
+  Some providers support both flows while others may only support one. The provider's setup instructions will indicate which grant types are available.
 </Note>
 
 ## Setting up OAuth integrations
@@ -125,11 +129,30 @@ OAuth integrations have three possible states:
   </Step>
 </Steps>
 
+## Managing integrations
+
+Once configured, you have two options for managing OAuth integrations:
+
+### Disconnect
+Removes the OAuth tokens while preserving your configuration (client ID, secret, and scopes). Use this when:
+- You want to re-authenticate with different permissions
+- The current authentication has issues but you want to keep the configuration
+- You need to switch which account is connected
+
+### Delete
+Completely removes the integration including all configuration and tokens. Use this when:
+- You no longer need the integration
+- You want to set up with entirely different credentials
+- You're switching to a different OAuth application
+
 ## Supported providers
 
 <CardGroup cols={2}>
   <Card title="Microsoft Graph" icon="microsoft">
     Access Office 365, Azure AD, and Microsoft services
+  </Card>
+  <Card title="Microsoft Teams" icon="users">
+    Channel management and team collaboration
   </Card>
   <Card title="Google Workspace" icon="google">
     Connect to Gmail, Drive, Calendar, and Google services
