@@ -193,37 +193,6 @@ async def list_channel_messages(
 
 
 @registry.register(
-    default_title="Get user ID by email",
-    description="Get a user's ID by searching for their email address in mail or userPrincipalName Docs.",
-    display_group="Microsoft Teams",
-    doc_url="https://learn.microsoft.com/en-us/graph/api/user-list?view=graph-rest-beta&tabs=http",
-    namespace="tools.microsoft_teams",
-    secrets=[microsoft_teams_ac_oauth_secret],
-)
-async def get_user_id_by_email(
-    email: Annotated[str, Doc("The email address to search for.")],
-) -> dict[str, str]:
-    """Get a user's ID by email address.
-
-    Note: This API requires User.ReadBasic.All, User.Read.All, or Directory.Read.All permissions.
-    """
-    token = secrets.get("MICROSOFT_TEAMS_AC_ACCESS_TOKEN")
-
-    headers = {"Authorization": f"Bearer {token}"}
-
-    url = "https://graph.microsoft.com/beta/users"
-
-    filter_query = f"mail eq '{email}'"
-
-    params = {"$filter": filter_query, "$select": "id", "$top": "1"}
-
-    async with httpx.AsyncClient() as client:
-        response = await client.get(url, headers=headers, params=params)
-        response.raise_for_status()
-        return response.json()
-
-
-@registry.register(
     default_title="Delete Teams channel",
     description="Delete a channel from a Microsoft Teams team.",
     display_group="Microsoft Teams",
