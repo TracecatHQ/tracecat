@@ -43,6 +43,119 @@ providers_router = APIRouter(prefix="/providers", tags=["providers"])
 """Routes for managing static provider metadata."""
 
 
+@integrations_router.get("/callback")
+async def oauth_callback(
+    *,
+    session: AsyncDBSession,
+    role: Annotated[
+        Role,
+        RoleACL(allow_user=True, allow_service=False, require_workspace="no"),
+    ],
+    code: str = Query(..., description="Authorization code from OAuth provider"),
+    state: str = Query(..., description="State parameter from authorization request"),
+) -> IntegrationOAuthCallback:
+    """Handle OAuth callback for the specified provider.
+
+    Validates the state parameter against the database to ensure it was issued
+    by our server and hasn't expired. This prevents CSRF attacks.
+    """
+    if role.user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User ID is required",
+        )
+
+    # Look up state in database with FOR UPDATE lock
+    # Use FOR UPDATE lock to prevent concurrent access to the same OAuth state
+    # This ensures atomic read-modify-delete operations and prevents race conditions
+    # where multiple requests could process the same state simultaneously
+    oauth_state_db = await session.get(OAuthStateDB, state, with_for_update=True)
+    if oauth_state_db is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired state parameter",
+        )
+
+    # Validate state hasn't expired
+    if datetime.now(UTC) >= oauth_state_db.expires_at:
+        # Delete expired state
+        await session.delete(oauth_state_db)
+        await session.commit()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="State parameter has expired",
+        )
+
+    # Validate user matches and overwrite role with workspace context from state
+    if oauth_state_db.user_id != role.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid state parameter",
+        )
+
+    # Overwrite role with workspace context from validated state
+    provider_impl = ProviderRegistry.get().get_class(oauth_state_db.provider_id)
+    if provider_impl is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Provider not found",
+        )
+    if not issubclass(provider_impl, AuthorizationCodeOAuthProvider):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="OAuth 2.0 Authorization code grant is not supported for this provider",
+        )
+
+    role = role.model_copy(update={"workspace_id": oauth_state_db.workspace_id})
+    ctx_role.set(role)
+
+    # Delete the state now that it's been used
+    await session.delete(oauth_state_db)
+    await session.commit()
+
+    # Exchange code for tokens
+    svc = IntegrationService(session, role=role)
+    integration = await svc.get_integration(provider_id=provider_impl.id)
+    if integration is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Provider is not configured for this workspace",
+        )
+
+    # This requires that the provider is configured
+    provider_config = svc.get_provider_config(
+        integration=integration, default_scopes=provider_impl.scopes.default
+    )
+    if provider_config is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Provider is not configured for this workspace",
+        )
+    provider = provider_impl.from_config(provider_config)
+
+    token_result = await provider.exchange_code_for_token(code, str(state))
+
+    # Store integration tokens for this user
+    await svc.store_integration(
+        user_id=role.user_id,
+        provider_id=provider.id,
+        access_token=token_result.access_token,
+        refresh_token=token_result.refresh_token,
+        expires_in=token_result.expires_in,
+        scope=token_result.scope,
+    )
+    logger.info("Returning OAuth callback", status="connected", provider=provider.id)
+
+    redirect_url = (
+        f"{config.TRACECAT__PUBLIC_APP_URL}/workspaces/{role.workspace_id}/integrations"
+    )
+    return IntegrationOAuthCallback(
+        status="connected",
+        provider_id=provider.id,
+        redirect_url=redirect_url,
+    )
+
+
 # Collection-level endpoints
 @integrations_router.get("")
 async def list_integrations(
@@ -179,108 +292,6 @@ async def connect_provider(
     auth_url = await provider.get_authorization_url(state)
 
     return IntegrationOAuthConnect(auth_url=auth_url, provider_id=provider.id)
-
-
-@integrations_router.get("/{provider_id}/callback")
-async def oauth_callback(
-    *,
-    session: AsyncDBSession,
-    role: Annotated[
-        Role,
-        RoleACL(allow_user=True, allow_service=False, require_workspace="no"),
-    ],
-    provider_impl: ACProviderImplDep,
-    code: str = Query(..., description="Authorization code from OAuth provider"),
-    state: str = Query(..., description="State parameter from authorization request"),
-) -> IntegrationOAuthCallback:
-    """Handle OAuth callback for the specified provider.
-
-    Validates the state parameter against the database to ensure it was issued
-    by our server and hasn't expired. This prevents CSRF attacks.
-    """
-    if role.user_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="User ID is required",
-        )
-
-    # Look up state in database with FOR UPDATE lock
-    # Use FOR UPDATE lock to prevent concurrent access to the same OAuth state
-    # This ensures atomic read-modify-delete operations and prevents race conditions
-    # where multiple requests could process the same state simultaneously
-    oauth_state_db = await session.get(OAuthStateDB, state, with_for_update=True)
-    if oauth_state_db is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid or expired state parameter",
-        )
-
-    # Validate state hasn't expired
-    if datetime.now(UTC) >= oauth_state_db.expires_at:
-        # Delete expired state
-        await session.delete(oauth_state_db)
-        await session.commit()
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="State parameter has expired",
-        )
-
-    # Validate user matches and overwrite role with workspace context from state
-    if oauth_state_db.user_id != role.user_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid state parameter",
-        )
-
-    # Overwrite role with workspace context from validated state
-    role = role.model_copy(update={"workspace_id": oauth_state_db.workspace_id})
-    ctx_role.set(role)
-
-    # Delete the state now that it's been used
-    await session.delete(oauth_state_db)
-    await session.commit()
-
-    # Exchange code for tokens
-    svc = IntegrationService(session, role=role)
-    integration = await svc.get_integration(provider_id=provider_impl.id)
-    if integration is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Provider is not configured for this workspace",
-        )
-
-    # This requires that the provider is configured
-    provider_config = svc.get_provider_config(
-        integration=integration, default_scopes=provider_impl.scopes.default
-    )
-    if provider_config is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Provider is not configured for this workspace",
-        )
-    provider = provider_impl.from_config(provider_config)
-
-    token_result = await provider.exchange_code_for_token(code, str(state))
-
-    # Store integration tokens for this user
-    await svc.store_integration(
-        user_id=role.user_id,
-        provider_id=provider.id,
-        access_token=token_result.access_token,
-        refresh_token=token_result.refresh_token,
-        expires_in=token_result.expires_in,
-        scope=token_result.scope,
-    )
-    logger.info("Returning OAuth callback", status="connected", provider=provider.id)
-
-    redirect_url = (
-        f"{config.TRACECAT__PUBLIC_APP_URL}/workspaces/{role.workspace_id}/integrations"
-    )
-    return IntegrationOAuthCallback(
-        status="connected",
-        provider_id=provider.id,
-        redirect_url=redirect_url,
-    )
 
 
 @integrations_router.post(

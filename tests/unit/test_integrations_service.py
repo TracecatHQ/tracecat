@@ -1114,10 +1114,7 @@ class TestBaseOAuthProvider:
             "write",
         }  # Compare as sets
         assert mock_provider.grant_type == OAuthGrantType.AUTHORIZATION_CODE
-        assert (
-            mock_provider.redirect_uri()
-            == "http://localhost/integrations/mock_provider/callback"
-        )
+        assert mock_provider.redirect_uri() == "http://localhost/integrations/callback"
 
     async def test_get_authorization_url(
         self, mock_provider: MockOAuthProvider

@@ -3752,6 +3752,34 @@ export const foldersMoveFolder = (
 }
 
 /**
+ * Oauth Callback
+ * Handle OAuth callback for the specified provider.
+ *
+ * Validates the state parameter against the database to ensure it was issued
+ * by our server and hasn't expired. This prevents CSRF attacks.
+ * @param data The data for the request.
+ * @param data.code Authorization code from OAuth provider
+ * @param data.state State parameter from authorization request
+ * @returns IntegrationOAuthCallback Successful Response
+ * @throws ApiError
+ */
+export const integrationsOauthCallback = (
+  data: IntegrationsOauthCallbackData
+): CancelablePromise<IntegrationsOauthCallbackResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/integrations/callback",
+    query: {
+      code: data.code,
+      state: data.state,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * List Integrations
  * List all integrations for the current user.
  * @param data The data for the request.
@@ -3881,38 +3909,6 @@ export const integrationsConnectProvider = (
     },
     query: {
       workspace_id: data.workspaceId,
-    },
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * Oauth Callback
- * Handle OAuth callback for the specified provider.
- *
- * Validates the state parameter against the database to ensure it was issued
- * by our server and hasn't expired. This prevents CSRF attacks.
- * @param data The data for the request.
- * @param data.providerId
- * @param data.code Authorization code from OAuth provider
- * @param data.state State parameter from authorization request
- * @returns IntegrationOAuthCallback Successful Response
- * @throws ApiError
- */
-export const integrationsOauthCallback = (
-  data: IntegrationsOauthCallbackData
-): CancelablePromise<IntegrationsOauthCallbackResponse> => {
-  return __request(OpenAPI, {
-    method: "GET",
-    url: "/integrations/{provider_id}/callback",
-    path: {
-      provider_id: data.providerId,
-    },
-    query: {
-      code: data.code,
-      state: data.state,
     },
     errors: {
       422: "Validation Error",
