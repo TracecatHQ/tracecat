@@ -10,6 +10,7 @@ import {
   Loader2,
   Settings,
   Shield,
+  UnplugIcon,
   User,
   Zap,
 } from "lucide-react"
@@ -22,6 +23,17 @@ import { CenteredSpinner } from "@/components/loading/spinner"
 import { ProviderConfigForm } from "@/components/provider-config-form"
 import { RedirectUriDisplay } from "@/components/redirect-uri-display"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import {
   Breadcrumb,
@@ -35,6 +47,12 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { CollapsibleCard } from "@/components/ui/collapsible-card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { useIntegrationProvider } from "@/lib/hooks"
 import { categoryColors } from "@/lib/provider-styles"
 import { cn } from "@/lib/utils"
@@ -348,9 +366,61 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
               {/* Connection Status */}
               <Card className="border-border">
                 <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Zap className="size-5" />
-                    Connection Status
+                  <CardTitle className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Zap className="size-5" />
+                      Connection Status
+                    </div>
+                    {isConnected && (
+                      <TooltipProvider>
+                        <AlertDialog>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <AlertDialogTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  disabled={
+                                    !isEnabled || disconnectProviderIsPending
+                                  }
+                                >
+                                  {disconnectProviderIsPending ? (
+                                    <Loader2 className="size-4 animate-spin" />
+                                  ) : (
+                                    <UnplugIcon className="size-4" />
+                                  )}
+                                </Button>
+                              </AlertDialogTrigger>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p>Disconnect</p>
+                            </TooltipContent>
+                          </Tooltip>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>
+                                Disconnect Integration
+                              </AlertDialogTitle>
+                              <AlertDialogDescription>
+                                Are you sure you want to disconnect from{" "}
+                                {metadata.name}? This will remove your
+                                authentication and you'll need to reconnect to
+                                use this integration.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogAction
+                                variant="destructive"
+                                onClick={handleDisconnect}
+                              >
+                                Disconnect
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </TooltipProvider>
+                    )}
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
@@ -400,15 +470,6 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
                           )}
                         </div>
                       )}
-                      <Button
-                        variant="destructive"
-                        onClick={handleDisconnect}
-                        disabled={!isEnabled || disconnectProviderIsPending}
-                      >
-                        {disconnectProviderIsPending
-                          ? "Disconnecting..."
-                          : "Disconnect"}
-                      </Button>
                     </div>
                   ) : (
                     <div className="space-y-4">
