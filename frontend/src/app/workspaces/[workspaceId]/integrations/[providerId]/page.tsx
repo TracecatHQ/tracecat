@@ -235,7 +235,7 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
               ))}
               <Badge
                 variant="default"
-                className="text-muted-foreground bg-muted border-border border !shadow-none whitespace-nowrap hover:bg-muted hover:text-muted-foreground"
+                className="text-muted-foreground bg-muted !shadow-none whitespace-nowrap hover:bg-muted hover:text-muted-foreground"
               >
                 {provider.grant_type === "client_credentials" ? (
                   <>
@@ -439,7 +439,7 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
                                           <Badge
                                             key={scope}
                                             variant="outline"
-                                            className="text-xs bg-green-50 text-green-700 border-green-200"
+                                            className="text-xs bg-green-100 text-green-700 border-transparent"
                                           >
                                             {scope}
                                           </Badge>
