@@ -2,7 +2,6 @@
 
 import {
   AlertCircle,
-  CheckCircle,
   ChevronLeft,
   ExternalLink,
   Key,
@@ -10,18 +9,31 @@ import {
   Loader2,
   Settings,
   Shield,
+  UnplugIcon,
   User,
   Zap,
 } from "lucide-react"
 import Link from "next/link"
 import { useParams, useRouter, useSearchParams } from "next/navigation"
 import { useCallback, useState } from "react"
-import type { IntegrationStatus, ProviderRead } from "@/client"
+import type { ProviderRead } from "@/client"
 import { ProviderIcon } from "@/components/icons"
+import { SuccessIcon, statusStyles } from "@/components/integrations/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { ProviderConfigForm } from "@/components/provider-config-form"
 import { RedirectUriDisplay } from "@/components/redirect-uri-display"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import {
   Breadcrumb,
@@ -35,6 +47,12 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { CollapsibleCard } from "@/components/ui/collapsible-card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { useIntegrationProvider } from "@/lib/hooks"
 import { categoryColors } from "@/lib/provider-styles"
 import { cn } from "@/lib/utils"
@@ -80,27 +98,6 @@ export default function ProviderDetailPage() {
     )
   }
   return <ProviderDetailContent provider={provider} />
-}
-
-const statusStyles: Record<
-  IntegrationStatus,
-  {
-    label: string
-    style: string
-  }
-> = {
-  connected: {
-    label: "Connected",
-    style: "bg-green-100 text-green-800 hover:bg-green-200",
-  },
-  configured: {
-    label: "Configured",
-    style: "bg-yellow-100 text-yellow-800 hover:bg-yellow-200",
-  },
-  not_configured: {
-    label: "Not Configured",
-    style: "bg-gray-100 text-gray-800 hover:bg-gray-200",
-  },
 }
 
 type ProviderDetailTab = "overview" | "configuration"
@@ -237,8 +234,8 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
                 </Badge>
               ))}
               <Badge
-                variant="outline"
-                className="!shadow-none whitespace-nowrap"
+                variant="default"
+                className="text-muted-foreground bg-muted !shadow-none whitespace-nowrap hover:bg-muted hover:text-muted-foreground"
               >
                 {provider.grant_type === "client_credentials" ? (
                   <>
@@ -273,7 +270,7 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
       {/* Status Alert */}
       {showSuccessMessage && isConnected && (
         <Alert className="mb-6 border-green-200 bg-green-50">
-          <CheckCircle className="size-4 text-green-600" />
+          <SuccessIcon />
           <AlertDescription className="text-green-800">
             Successfully connected to {metadata.name}!
           </AlertDescription>
@@ -348,16 +345,68 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
               {/* Connection Status */}
               <Card className="border-border">
                 <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Zap className="size-5" />
-                    Connection Status
+                  <CardTitle className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Zap className="size-5" />
+                      Connection Status
+                    </div>
+                    {isConnected && (
+                      <TooltipProvider>
+                        <AlertDialog>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <AlertDialogTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  disabled={
+                                    !isEnabled || disconnectProviderIsPending
+                                  }
+                                >
+                                  {disconnectProviderIsPending ? (
+                                    <Loader2 className="size-4 animate-spin" />
+                                  ) : (
+                                    <UnplugIcon className="size-4" />
+                                  )}
+                                </Button>
+                              </AlertDialogTrigger>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p>Disconnect</p>
+                            </TooltipContent>
+                          </Tooltip>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>
+                                Disconnect Integration
+                              </AlertDialogTitle>
+                              <AlertDialogDescription>
+                                Are you sure you want to disconnect from{" "}
+                                {metadata.name}? This will remove your
+                                authentication and you'll need to reconnect to
+                                use this integration.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogAction
+                                variant="destructive"
+                                onClick={handleDisconnect}
+                              >
+                                Disconnect
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </TooltipProvider>
+                    )}
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   {isConnected ? (
                     <div className="space-y-4">
                       <div className="flex items-center gap-2 text-green-600">
-                        <CheckCircle className="size-5" />
+                        <SuccessIcon />
                         <span className="font-medium">Connected</span>
                       </div>
                       {integration && (
@@ -369,6 +418,9 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
                               {new Date(
                                 integration.expires_at
                               ).toLocaleString()}
+                              <span className="ml-2 text-xs text-muted-foreground">
+                                (auto-refreshed)
+                              </span>
                             </div>
                           )}
 
@@ -387,7 +439,7 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
                                           <Badge
                                             key={scope}
                                             variant="outline"
-                                            className="text-xs bg-green-50 text-green-700 border-green-200"
+                                            className="text-xs bg-green-100 text-green-700 border-transparent"
                                           >
                                             {scope}
                                           </Badge>
@@ -400,15 +452,6 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
                           )}
                         </div>
                       )}
-                      <Button
-                        variant="destructive"
-                        onClick={handleDisconnect}
-                        disabled={!isEnabled || disconnectProviderIsPending}
-                      >
-                        {disconnectProviderIsPending
-                          ? "Disconnecting..."
-                          : "Disconnect"}
-                      </Button>
                     </div>
                   ) : (
                     <div className="space-y-4">
@@ -508,7 +551,7 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
                         <span className="text-sm font-normal text-muted-foreground">
                           (completed)
                         </span>
-                        <CheckCircle className="size-4 text-green-600" />
+                        <SuccessIcon />
                       </>
                     )}
                   </div>
@@ -526,11 +569,7 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
                             : "bg-gray-100 text-gray-600"
                         }`}
                       >
-                        {isConnected ? (
-                          <CheckCircle className="size-3" />
-                        ) : (
-                          index + 1
-                        )}
+                        {isConnected ? <SuccessIcon /> : index + 1}
                       </div>
                       <span
                         className={`text-sm ${
