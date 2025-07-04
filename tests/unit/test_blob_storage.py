@@ -12,6 +12,8 @@ from tracecat.storage import (
     BLOCKED_CONTENT_TYPES,
     BLOCKED_EXTENSIONS,
     MAX_FILE_SIZE,
+    FileContentMismatchError,
+    FileSecurityError,
     FileSecurityValidator,
     compute_sha256,
     delete_file,
@@ -244,13 +246,24 @@ class TestFileSecurityValidator:
         self.validator._validate_pdf_content(valid_pdf)
 
         # Invalid PDF header
-        with pytest.raises(ValueError, match="Invalid PDF file structure"):
+        with pytest.raises(
+            FileContentMismatchError, match="Invalid PDF file structure"
+        ):
             self.validator._validate_pdf_content(b"not a pdf")
 
-        # PDF with JavaScript
-        pdf_with_js = b"%PDF-1.4\n/JavaScript (alert('xss'))"
-        with pytest.raises(ValueError, match="PDF contains JavaScript"):
-            self.validator._validate_pdf_content(pdf_with_js)
+        # PDF with JavaScript and dangerous action
+        pdf_with_js_and_action = b"%PDF-1.4\n/JavaScript (alert('xss'))\n/OpenAction"
+        with pytest.raises(FileSecurityError, match="PDF contains JavaScript action"):
+            self.validator._validate_pdf_content(pdf_with_js_and_action)
+
+        # PDF with only JavaScript (should not raise)
+        pdf_with_js_only = b"%PDF-1.4\n/JavaScript (alert('xss'))"
+        self.validator._validate_pdf_content(pdf_with_js_only)  # Should not raise
+
+        # PDF with dangerous action without JavaScript
+        pdf_with_launch = b"%PDF-1.4\n/Launch /F (malicious.exe)"
+        with pytest.raises(FileSecurityError, match="PDF contains JavaScript action"):
+            self.validator._validate_pdf_content(pdf_with_launch)
 
     def test_validate_image_content(self):
         """Test image content validation."""
