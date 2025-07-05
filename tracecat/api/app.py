@@ -5,6 +5,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import ORJSONResponse
 from httpx_oauth.clients.google import GoogleOAuth2
+from httpx_oauth.clients.openid import OpenID
 from pydantic import BaseModel
 from pydantic_core import to_jsonable_python
 from sqlalchemy.exc import IntegrityError
@@ -29,7 +30,9 @@ from tracecat.auth.users import (
     InvalidEmailException,
     auth_backend,
     fastapi_users,
+    get_user_manager,
 )
+from tracecat.auth.oidc import get_oidc_router
 from tracecat.cases.router import case_fields_router as case_fields_router
 from tracecat.cases.router import cases_router as cases_router
 from tracecat.contexts import ctx_role
@@ -238,6 +241,27 @@ def create_app(**kwargs) -> FastAPI:
         tags=["auth"],
         dependencies=[require_auth_type_enabled(AuthType.GOOGLE_OAUTH)],
     )
+
+    oidc_client = OpenID(
+        client_id=config.OIDC_CLIENT_ID,
+        client_secret=config.OIDC_CLIENT_SECRET,
+        openid_configuration_endpoint=config.OIDC_DISCOVERY_URL,
+        name="oidc",
+    )
+    oidc_redirect = f"{config.TRACECAT__PUBLIC_APP_URL}/auth/oidc/callback"
+    logger.info("OIDC redirect URL", url=oidc_redirect)
+    app.include_router(
+        get_oidc_router(
+            oidc_client,
+            auth_backend,
+            get_user_manager,
+            config.USER_AUTH_SECRET,
+            redirect_url=oidc_redirect,
+        ),
+        prefix="/auth/oidc",
+        tags=["auth"],
+        dependencies=[require_auth_type_enabled(AuthType.OIDC)],
+    )
     app.include_router(
         saml_router,
         dependencies=[require_auth_type_enabled(AuthType.SAML)],
@@ -297,6 +321,7 @@ class AppInfo(BaseModel):
     auth_allowed_types: list[AuthType]
     auth_basic_enabled: bool
     oauth_google_enabled: bool
+    oidc_enabled: bool
     saml_enabled: bool
 
 
@@ -304,7 +329,12 @@ class AppInfo(BaseModel):
 async def info(session: AsyncDBSession) -> AppInfo:
     """Non-sensitive information about the platform, for frontend configuration."""
 
-    keys = {"auth_basic_enabled", "oauth_google_enabled", "saml_enabled"}
+    keys = {
+        "auth_basic_enabled",
+        "oauth_google_enabled",
+        "oidc_enabled",
+        "saml_enabled",
+    }
 
     service = SettingsService(session, role=bootstrap_role())
     settings = await service.list_org_settings(keys=keys)
@@ -317,6 +347,7 @@ async def info(session: AsyncDBSession) -> AppInfo:
         auth_allowed_types=list(config.TRACECAT__AUTH_TYPES),
         auth_basic_enabled=keyvalues["auth_basic_enabled"],
         oauth_google_enabled=keyvalues["oauth_google_enabled"],
+        oidc_enabled=keyvalues["oidc_enabled"],
         saml_enabled=keyvalues["saml_enabled"],
     )
 

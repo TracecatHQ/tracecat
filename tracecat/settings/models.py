@@ -91,6 +91,7 @@ class OAuthSettingsRead(BaseSettingsGroup):
     """Settings for OAuth authentication."""
 
     oauth_google_enabled: bool
+    oidc_enabled: bool
 
 
 class OAuthSettingsUpdate(BaseSettingsGroup):
@@ -98,6 +99,9 @@ class OAuthSettingsUpdate(BaseSettingsGroup):
 
     oauth_google_enabled: bool = Field(
         default=True, description="Whether OAuth is enabled."
+    )
+    oidc_enabled: bool = Field(
+        default=True, description="Whether OIDC authentication is enabled."
     )
 
 
