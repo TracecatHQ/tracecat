@@ -3,7 +3,6 @@
 import hashlib
 import os
 import re
-from urllib.parse import urlparse, urlunparse
 
 import aioboto3
 from botocore.exceptions import ClientError
@@ -848,7 +847,6 @@ async def generate_presigned_download_url(
     key: str,
     bucket: str,
     expiry: int | None = None,
-    client_ip: str | None = None,
     force_download: bool = True,
     override_content_type: str | None = None,
 ) -> str:
@@ -858,7 +856,6 @@ async def generate_presigned_download_url(
         key: The S3 object key
         bucket: Bucket name (required)
         expiry: URL expiry time in seconds (defaults to config)
-        client_ip: Client IP address for IP-based restrictions (S3 only)
         force_download: If True, forces Content-Disposition: attachment
         override_content_type: Override the Content-Type header (e.g., 'application/octet-stream')
 
@@ -891,33 +888,18 @@ async def generate_presigned_download_url(
                 ExpiresIn=expiry,
             )
 
-            # Replace the internal endpoint with the public presigned URL endpoint
-            # Only transform URL if a public endpoint is configured
-            if config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT:
-                parsed_url = urlparse(url)
-                public_parsed = urlparse(
-                    config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT
+            if url.startswith("http://minio:9000"):
+                # If minio, assume presigned URL returned only works for the internal network Minio
+                # Replace the internal endpoint with the public presigned URL endpoint (as defined in Caddyfile)
+                url = url.replace(
+                    "http://minio:9000", f"{config.TRACECAT__PUBLIC_APP_URL}/s3"
                 )
 
-                # Replace scheme, netloc, and prepend the public path
-                new_path = public_parsed.path.rstrip("/") + parsed_url.path
-                new_url = parsed_url._replace(
-                    scheme=public_parsed.scheme,
-                    netloc=public_parsed.netloc,
-                    path=new_path,
-                )
-                url = urlunparse(new_url)
-
-            # Sanitize sensitive data for logging
-            sanitized_ip = (
-                client_ip[:8] + "***" if client_ip and len(client_ip) > 8 else "***"
-            )
             logger.debug(
                 "Generated presigned download URL",
                 key=key,
                 bucket=bucket,
                 expiry=expiry,
-                client_ip_masked=sanitized_ip,
             )
             return url
         except ClientError as e:

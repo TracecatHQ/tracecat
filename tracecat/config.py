@@ -230,13 +230,6 @@ TRACECAT__BLOB_STORAGE_ENDPOINT = os.environ.get(
 )
 """Endpoint URL for blob storage. Ignored when protocol is 's3'."""
 
-TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT = os.environ.get(
-    "TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT",
-    f"{TRACECAT__PUBLIC_APP_URL}/s3",
-)
-"""Public endpoint URL for presigned URLs. Falls back to TRACECAT__BLOB_STORAGE_ENDPOINT if not set."""
-
-# Presigned URL configuration
 TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY = int(
     os.environ.get("TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY", 10)
 )

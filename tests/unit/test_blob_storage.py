@@ -522,11 +522,9 @@ class TestS3Operations:
     @patch("tracecat.storage.config")
     async def test_generate_presigned_download_url(self, mock_config, mock_get_client):
         """Test presigned download URL generation."""
-        # Mock config to ensure predictable URL transformation
-        mock_config.TRACECAT__BLOB_STORAGE_ENDPOINT = "https://example.com"
-        mock_config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT = (
-            "https://example.com"
-        )
+        # Mock config
+        mock_config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY = 10
+        mock_config.TRACECAT__PUBLIC_APP_URL = "http://localhost"
 
         mock_client = AsyncMock()
         mock_get_client.return_value.__aenter__.return_value = mock_client
@@ -556,11 +554,9 @@ class TestS3Operations:
         self, mock_config, mock_get_client
     ):
         """Test presigned download URL generation with preview mode."""
-        # Mock config to ensure predictable URL transformation
-        mock_config.TRACECAT__BLOB_STORAGE_ENDPOINT = "https://example.com"
-        mock_config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT = (
-            "https://example.com"
-        )
+        # Mock config
+        mock_config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY = 10
+        mock_config.TRACECAT__PUBLIC_APP_URL = "http://localhost"
 
         mock_client = AsyncMock()
         mock_get_client.return_value.__aenter__.return_value = mock_client
@@ -591,11 +587,9 @@ class TestS3Operations:
         self, mock_config, mock_get_client
     ):
         """Test presigned download URL generation with content type override."""
-        # Mock config to ensure predictable URL transformation
-        mock_config.TRACECAT__BLOB_STORAGE_ENDPOINT = "https://example.com"
-        mock_config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT = (
-            "https://example.com"
-        )
+        # Mock config
+        mock_config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY = 10
+        mock_config.TRACECAT__PUBLIC_APP_URL = "http://localhost"
 
         mock_client = AsyncMock()
         mock_get_client.return_value.__aenter__.return_value = mock_client
@@ -777,10 +771,8 @@ class TestSecurityHardening:
     async def test_presigned_url_path_replacement(self, mock_config, mock_get_client):
         """Test that presigned URLs correctly include /s3 path prefix."""
         # Setup configuration
-        mock_config.TRACECAT__BLOB_STORAGE_ENDPOINT = "http://minio:9000"
-        mock_config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT = (
-            "http://localhost:8080/s3"
-        )
+        mock_config.TRACECAT__PUBLIC_APP_URL = "http://localhost"
+        mock_config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY = 10
 
         # Setup mock client
         mock_client = AsyncMock()
@@ -796,26 +788,28 @@ class TestSecurityHardening:
         )
 
         # Verify URL transformation
-        expected_url = "http://localhost:8080/s3/tracecat/attachments/test.txt?AWSAccessKeyId=minio&Signature=abc123&Expires=1234567890"
+        expected_url = "http://localhost/s3/tracecat/attachments/test.txt?AWSAccessKeyId=minio&Signature=abc123&Expires=1234567890"
         assert result == expected_url
         assert "/s3/" in result
-        assert "localhost:8080" in result
+        assert "localhost" in result
 
     @pytest.mark.anyio
     @patch("tracecat.storage.get_storage_client")
     @patch("tracecat.storage.config")
-    async def test_presigned_url_no_replacement_when_not_configured(
+    async def test_presigned_url_no_replacement_when_not_minio(
         self, mock_config, mock_get_client
     ):
-        """Test that URLs are not modified when no public endpoint is configured."""
-        # No public endpoint configured
-        mock_config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT = None
+        """Test that URLs are not modified when not from internal MinIO."""
+        # Mock config
+        mock_config.TRACECAT__PUBLIC_APP_URL = "http://localhost"
+        mock_config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY = 10
 
         # Setup mock client
         mock_client = AsyncMock()
         mock_get_client.return_value.__aenter__.return_value = mock_client
 
-        original_url = "http://minio:9000/tracecat/attachments/test.txt?AWSAccessKeyId=minio&Signature=abc123&Expires=1234567890"
+        # URL that doesn't start with http://minio:9000
+        original_url = "https://s3.amazonaws.com/bucket/test.txt?AWSAccessKeyId=key&Signature=abc123&Expires=1234567890"
         mock_client.generate_presigned_url.return_value = original_url
 
         # Generate presigned URL
@@ -823,9 +817,9 @@ class TestSecurityHardening:
             "attachments/test.txt", "tracecat", 30
         )
 
-        # URL should remain unchanged
+        # URL should remain unchanged since it's not from MinIO
         assert result == original_url
-        assert "minio:9000" in result
+        assert "s3.amazonaws.com" in result
 
     def test_file_validation_against_malicious_content(self):
         """Test comprehensive file validation against various attack vectors."""
@@ -987,18 +981,3 @@ class TestSecurityHardening:
             assert result == expected_safe
             assert len(result) <= 255
             assert ".." not in result
-
-    def test_client_ip_middleware_integration(self):
-        """Test that client IP middleware is properly integrated."""
-        from unittest.mock import MagicMock
-
-        # Test direct access to request.state.client_ip
-        mock_request = MagicMock()
-        mock_request.state.client_ip = "203.0.113.1"
-
-        result = mock_request.state.client_ip
-        assert result == "203.0.113.1"
-
-        # Test when client IP is None (disabled mode)
-        mock_request.state.client_ip = None
-        assert mock_request.state.client_ip is None
