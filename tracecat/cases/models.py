@@ -7,6 +7,7 @@ from typing import Annotated, Any, Literal
 import sqlalchemy as sa
 from pydantic import BaseModel, Field, RootModel
 
+from tracecat import config
 from tracecat.auth.models import UserRead
 from tracecat.cases.constants import RESERVED_CASE_FIELDS
 from tracecat.cases.enums import CaseEventType, CasePriority, CaseSeverity, CaseStatus
@@ -204,21 +205,6 @@ class AssigneeChangedEvent(CaseEventBase):
     new: uuid.UUID | None
 
 
-# Type unions
-type CaseEventVariant = Annotated[
-    CreatedEvent
-    | ClosedEvent
-    | ReopenedEvent
-    | UpdatedEvent
-    | StatusChangedEvent
-    | PriorityChangedEvent
-    | SeverityChangedEvent
-    | FieldsChangedEvent
-    | AssigneeChangedEvent,
-    Field(discriminator="type"),
-]
-
-
 # Read Models (for API responses) - keep the original names for backward compatibility
 class CreatedEventRead(CaseEventReadBase, CreatedEvent):
     """Event for when a case is created."""
@@ -256,6 +242,45 @@ class AssigneeChangedEventRead(CaseEventReadBase, AssigneeChangedEvent):
     """Event for when a case assignee is changed."""
 
 
+class AttachmentCreatedEvent(CaseEventBase):
+    type: Literal[CaseEventType.ATTACHMENT_CREATED] = CaseEventType.ATTACHMENT_CREATED
+    attachment_id: uuid.UUID
+    file_name: str
+    content_type: str
+    size: int
+
+
+class AttachmentDeletedEvent(CaseEventBase):
+    type: Literal[CaseEventType.ATTACHMENT_DELETED] = CaseEventType.ATTACHMENT_DELETED
+    attachment_id: uuid.UUID
+    file_name: str
+
+
+class AttachmentCreatedEventRead(CaseEventReadBase, AttachmentCreatedEvent):
+    """Event for when an attachment is created for a case."""
+
+
+class AttachmentDeletedEventRead(CaseEventReadBase, AttachmentDeletedEvent):
+    """Event for when an attachment is deleted from a case."""
+
+
+# Type unions
+type CaseEventVariant = Annotated[
+    CreatedEvent
+    | ClosedEvent
+    | ReopenedEvent
+    | UpdatedEvent
+    | StatusChangedEvent
+    | PriorityChangedEvent
+    | SeverityChangedEvent
+    | FieldsChangedEvent
+    | AssigneeChangedEvent
+    | AttachmentCreatedEvent
+    | AttachmentDeletedEvent,
+    Field(discriminator="type"),
+]
+
+
 class CaseEventRead(RootModel):
     """Base read model for all event types."""
 
@@ -269,6 +294,8 @@ class CaseEventRead(RootModel):
         | SeverityChangedEventRead
         | FieldChangedEventRead
         | AssigneeChangedEventRead
+        | AttachmentCreatedEventRead
+        | AttachmentDeletedEventRead
     ) = Field(discriminator="type")
 
 
@@ -281,3 +308,60 @@ class Change[OldType: Any, NewType: Any](BaseModel):
 class CaseEventsWithUsers(BaseModel):
     events: list[CaseEventRead] = Field(..., description="The events for the case.")
     users: list[UserRead] = Field(..., description="The users for the case.")
+
+
+class CaseAttachmentCreate(BaseModel):
+    """Model for creating a case attachment."""
+
+    file_name: str = Field(
+        ...,
+        max_length=config.TRACECAT__MAX_ATTACHMENT_FILENAME_LENGTH,
+        description="Original filename",
+    )
+    content_type: str = Field(..., max_length=100, description="MIME type of the file")
+    size: int = Field(
+        ...,
+        gt=0,
+        le=config.TRACECAT__MAX_ATTACHMENT_SIZE_BYTES,
+        description="File size in bytes",
+    )
+    content: bytes = Field(..., description="File content")
+
+
+class CaseAttachmentRead(BaseModel):
+    """Model for reading a case attachment."""
+
+    id: uuid.UUID
+    case_id: uuid.UUID
+    file_id: uuid.UUID
+    file_name: str
+    content_type: str
+    size: int
+    sha256: str
+    created_at: datetime
+    updated_at: datetime
+    creator_id: uuid.UUID | None = None
+    is_deleted: bool = False
+
+
+class CaseAttachmentDownloadResponse(BaseModel):
+    """Model for attachment download URL response."""
+
+    download_url: str = Field(..., description="Pre-signed download URL")
+    file_name: str = Field(..., description="Original filename")
+    content_type: str = Field(..., description="MIME type of the file")
+
+
+class FileRead(BaseModel):
+    """Model for reading file metadata."""
+
+    id: uuid.UUID
+    sha256: str
+    name: str
+    content_type: str
+    size: int
+    creator_id: uuid.UUID | None
+    created_at: datetime
+    updated_at: datetime
+    deleted_at: datetime | None = None
+    is_deleted: bool

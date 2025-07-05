@@ -213,6 +213,34 @@ TRACECAT__ALLOWED_GIT_DOMAINS = set(
     ).split(",")
 )
 
+# === Blob Storage Config === #
+TRACECAT__BLOB_STORAGE_PROTOCOL = os.environ.get(
+    "TRACECAT__BLOB_STORAGE_PROTOCOL", "minio"
+)
+"""Blob storage protocol: 's3' for AWS S3, 'minio' for Minio."""
+
+# Bucket for case attachments
+TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS = os.environ.get(
+    "TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS", "tracecat-attachments"
+)
+"""Bucket for case attachments."""
+
+TRACECAT__BLOB_STORAGE_ENDPOINT = os.environ.get(
+    "TRACECAT__BLOB_STORAGE_ENDPOINT", "http://minio:9000"
+)
+"""Endpoint URL for blob storage. Ignored when protocol is 's3'."""
+
+TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY = int(
+    os.environ.get("TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY", 10)
+)
+"""Default expiry time for presigned URLs in seconds (default: 10 seconds for immediate use)."""
+
+TRACECAT__DISABLE_PRESIGNED_URL_IP_CHECKING = (
+    os.environ.get("TRACECAT__DISABLE_PRESIGNED_URL_IP_CHECKING", "true").lower()
+    == "true"
+)
+"""Disable client IP checking for presigned URLs. Set to false for production with public S3, true for local MinIO (default: true)."""
+
 # === Local registry === #
 TRACECAT__LOCAL_REPOSITORY_ENABLED = os.getenv(
     "TRACECAT__LOCAL_REPOSITORY_ENABLED", "0"
@@ -315,3 +343,24 @@ TRACECAT__WORKFLOW_RETURN_STRATEGY = os.environ.get(
     "TRACECAT__WORKFLOW_RETURN_STRATEGY", "minimal"
 ).lower()
 """Strategy to use when returning a value from a workflow. Supported: context, minimal. Defaults to minimal."""
+
+# === File limits === #
+TRACECAT__MAX_ATTACHMENT_SIZE_BYTES = int(
+    os.environ.get("TRACECAT__MAX_ATTACHMENT_SIZE_BYTES", 20 * 1024 * 1024)
+)
+"""The maximum size for case attachment files in bytes. Defaults to 20MB."""
+
+TRACECAT__MAX_ATTACHMENT_FILENAME_LENGTH = int(
+    os.environ.get("TRACECAT__MAX_ATTACHMENT_FILENAME_LENGTH", 255)
+)
+"""The maximum length for attachment filenames. Defaults to 255 (Django FileField standard)."""
+
+TRACECAT__MAX_CASE_STORAGE_BYTES = int(
+    os.environ.get("TRACECAT__MAX_CASE_STORAGE_BYTES", 200 * 1024 * 1024)
+)
+"""The maximum total storage per case in bytes. Defaults to 200MB."""
+
+TRACECAT__MAX_ATTACHMENTS_PER_CASE = int(
+    os.environ.get("TRACECAT__MAX_ATTACHMENTS_PER_CASE", 10)
+)
+"""The maximum number of attachments allowed per case. Defaults to 10."""

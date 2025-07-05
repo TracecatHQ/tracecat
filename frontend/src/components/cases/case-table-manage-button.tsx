@@ -48,7 +48,7 @@ export function CaseTableInsertButton() {
           >
             <CirclePlusIcon className="size-4 text-foreground/80" />
             <div className="flex flex-col text-xs">
-              <span>Create Case</span>
+              <span>Create case</span>
               <span className="text-xs text-muted-foreground">
                 Create a new case
               </span>
@@ -62,7 +62,7 @@ export function CaseTableInsertButton() {
           >
             <BracesIcon className="size-4 text-foreground/80" />
             <div className="flex flex-col text-xs">
-              <span>Custom Fields</span>
+              <span>Custom fields</span>
               <span className="text-xs text-muted-foreground">
                 Manage custom fields
               </span>
