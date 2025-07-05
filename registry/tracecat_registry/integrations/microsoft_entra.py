@@ -3,15 +3,18 @@ from typing_extensions import Doc
 
 import httpx
 
-from tracecat_registry import RegistrySecret, registry, secrets
+from tracecat_registry import registry, secrets
+from tracecat_registry._internal.models import RegistryOAuthSecret
 
-microsoft_entra_oauth_secret = RegistrySecret.oauth("microsoft_entra")
+microsoft_entra_oauth_secret = RegistryOAuthSecret(
+    provider_id="microsoft_entra",
+    grant_type="authorization_code",
+)
 """Microsoft Entra OAuth2.0 credentials (Authorization Code grant).
 
 - name: `microsoft_entra`
 - provider_id: `microsoft_entra`
-usage:
-MICROSOFT_ENTRA_ACCESS_TOKEN
+- token_name: `MICROSOFT_ENTRA_AC_TOKEN`
 """
 
 
@@ -30,7 +33,7 @@ async def get_user_id_by_email(
 
     Note: This API requires User.ReadBasic.All, User.Read.All, or Directory.Read.All permissions.
     """
-    token = secrets.get("MICROSOFT_ENTRA_ACCESS_TOKEN")
+    token = secrets.get(microsoft_entra_oauth_secret.token_name)
 
     headers = {"Authorization": f"Bearer {token}"}
 
