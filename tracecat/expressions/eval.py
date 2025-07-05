@@ -1,16 +1,16 @@
 import re
 from collections.abc import Callable
 from functools import partial
-from typing import Any, TypeVar
+from typing import Any
 
 from tracecat.expressions import patterns
 from tracecat.expressions.common import ExprOperand, IterableExpr
 from tracecat.expressions.core import Expression, TemplateExpression
 
-T = TypeVar("T", str, list[Any], dict[str, Any])
 
-
-def _eval_templated_obj_rec(obj: T, operator: Callable[[str], Any]) -> T:
+def _eval_templated_obj_rec[T: (str, list[Any], dict[str, Any])](
+    obj: T, operator: Callable[[str], Any]
+) -> T:
     """Process jsonpaths in strings, lists, and dictionaries."""
     match obj:
         case str():
