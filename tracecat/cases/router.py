@@ -783,7 +783,6 @@ async def download_attachment(
         ) = await service.attachments.get_attachment_download_url(
             case,
             attachment_id,
-            client_ip=request.state.client_ip,
             preview=preview,
         )
 

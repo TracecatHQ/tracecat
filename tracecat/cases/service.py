@@ -1044,7 +1044,6 @@ class CaseAttachmentService(BaseWorkspaceService):
         self,
         case: Case,
         attachment_id: uuid.UUID,
-        client_ip: str | None = None,
         preview: bool = False,
     ) -> tuple[str, str, str]:
         """Generate a presigned URL for downloading an attachment.
@@ -1052,7 +1051,6 @@ class CaseAttachmentService(BaseWorkspaceService):
         Args:
             case: The case the attachment belongs to
             attachment_id: The attachment ID
-            client_ip: Client IP address
             preview: If True, allows inline display for safe image types only
 
         Returns:
@@ -1087,7 +1085,6 @@ class CaseAttachmentService(BaseWorkspaceService):
             presigned_url = await storage.generate_presigned_download_url(
                 key=storage_key,
                 bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS,
-                client_ip=client_ip,
                 force_download=force_download,
                 override_content_type=override_content_type,
             )
