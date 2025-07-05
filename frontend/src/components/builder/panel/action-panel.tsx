@@ -33,7 +33,7 @@ import {
   type ActionUpdate,
   ApiError,
   type RegistryActionRead,
-  type RegistryOAuthSecret,
+  type RegistryOAuthSecret_Output as RegistryOAuthSecret,
   type RegistrySecret,
   type ValidationResult,
 } from "@/client"
