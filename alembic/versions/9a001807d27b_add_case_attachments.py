@@ -1,7 +1,7 @@
 """add case attachments
 
 Revision ID: 9a001807d27b
-Revises: 89a8d57c3608
+Revises: 4c1a69e5b34b
 Create Date: 2025-07-02 11:30:09.686449
 
 """
@@ -13,7 +13,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "9a001807d27b"
-down_revision: str | None = "89a8d57c3608"
+down_revision: str | None = "4c1a69e5b34b"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
