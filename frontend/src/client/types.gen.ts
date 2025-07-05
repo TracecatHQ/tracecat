@@ -400,6 +400,24 @@ export type Body_workflows_create_workflow = {
 }
 
 /**
+ * Model for attachment download URL response.
+ */
+export type CaseAttachmentDownloadResponse = {
+  /**
+   * Pre-signed download URL
+   */
+  download_url: string
+  /**
+   * Original filename
+   */
+  file_name: string
+  /**
+   * MIME type of the file
+   */
+  content_type: string
+}
+
+/**
  * Model for reading a case attachment.
  */
 export type CaseAttachmentRead = {
@@ -4194,10 +4212,14 @@ export type CasesCreateAttachmentResponse = CaseAttachmentRead
 export type CasesDownloadAttachmentData = {
   attachmentId: string
   caseId: string
+  /**
+   * If true, allows inline preview for safe image types
+   */
+  preview?: boolean
   workspaceId: string
 }
 
-export type CasesDownloadAttachmentResponse = unknown
+export type CasesDownloadAttachmentResponse = CaseAttachmentDownloadResponse
 
 export type CasesDeleteAttachmentData = {
   attachmentId: string
@@ -6174,7 +6196,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: unknown
+        200: CaseAttachmentDownloadResponse
         /**
          * Validation Error
          */

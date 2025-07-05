@@ -1332,6 +1332,30 @@ export const $Body_workflows_create_workflow = {
   title: "Body_workflows-create_workflow",
 } as const
 
+export const $CaseAttachmentDownloadResponse = {
+  properties: {
+    download_url: {
+      type: "string",
+      title: "Download Url",
+      description: "Pre-signed download URL",
+    },
+    file_name: {
+      type: "string",
+      title: "File Name",
+      description: "Original filename",
+    },
+    content_type: {
+      type: "string",
+      title: "Content Type",
+      description: "MIME type of the file",
+    },
+  },
+  type: "object",
+  required: ["download_url", "file_name", "content_type"],
+  title: "CaseAttachmentDownloadResponse",
+  description: "Model for attachment download URL response.",
+} as const
+
 export const $CaseAttachmentRead = {
   properties: {
     id: {

@@ -3521,7 +3521,8 @@ export const casesCreateAttachment = (
  * @param data.caseId
  * @param data.attachmentId
  * @param data.workspaceId
- * @returns unknown Successful Response
+ * @param data.preview If true, allows inline preview for safe image types
+ * @returns CaseAttachmentDownloadResponse Successful Response
  * @throws ApiError
  */
 export const casesDownloadAttachment = (
@@ -3535,6 +3536,7 @@ export const casesDownloadAttachment = (
       attachment_id: data.attachmentId,
     },
     query: {
+      preview: data.preview,
       workspace_id: data.workspaceId,
     },
     errors: {
