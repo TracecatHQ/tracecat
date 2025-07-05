@@ -76,7 +76,7 @@ class RegistrySecret(BaseModel):
     @model_validator(mode="after")
     def validate_keys(cls, v):
         if isinstance(v.name, str) and v.name.endswith("_oauth"):
-            # Cannont have a RegistrySecret with _oauth suffix
+            # Cannot have a RegistrySecret with _oauth suffix
             raise ValueError(
                 "OAuth secrets are not allowed to have keys or optional_keys"
             )
