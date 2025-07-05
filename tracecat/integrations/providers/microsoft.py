@@ -50,7 +50,7 @@ AC_SCOPES = ProviderScopes(
 
 # Shared metadata for authorization code flow
 AC_METADATA = ProviderMetadata(
-    id="microsoft_ac",
+    id="microsoft",
     name="Microsoft",
     description="Generic Microsoft OAuth provider (Delegated user)",
     categories=[ProviderCategory.AUTH],
@@ -71,7 +71,7 @@ AC_METADATA = ProviderMetadata(
 class MicrosoftACProvider(AuthorizationCodeOAuthProvider):
     """Microsoft OAuth provider using authorization code flow."""
 
-    id: ClassVar[str] = "microsoft_ac"
+    id: ClassVar[str] = "microsoft"
 
     # Use shared constants
     _authorization_endpoint: ClassVar[str] = AUTHORIZATION_ENDPOINT
@@ -126,7 +126,7 @@ CC_SCOPES = ProviderScopes(
 
 # Shared metadata for client credentials flow
 CC_METADATA = ProviderMetadata(
-    id="microsoft_cc",
+    id="microsoft",
     name="Microsoft",
     description="Generic Microsoft OAuth provider (Service account)",
     categories=[ProviderCategory.AUTH],
@@ -148,7 +148,7 @@ CC_METADATA = ProviderMetadata(
 class MicrosoftCCProvider(ClientCredentialsOAuthProvider):
     """Microsoft OAuth provider using client credentials flow for server-to-server authentication."""
 
-    id: ClassVar[str] = "microsoft_cc"
+    id: ClassVar[str] = "microsoft"
 
     # Use shared constants
     _authorization_endpoint: ClassVar[str] = AUTHORIZATION_ENDPOINT
