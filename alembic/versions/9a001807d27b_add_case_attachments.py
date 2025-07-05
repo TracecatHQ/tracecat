@@ -1,7 +1,7 @@
 """add case attachments
 
 Revision ID: 9a001807d27b
-Revises: 4c1a69e5b34b
+Revises: 89a8d57c3608
 Create Date: 2025-07-02 11:30:09.686449
 
 """
