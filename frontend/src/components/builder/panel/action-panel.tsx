@@ -8,6 +8,7 @@ import {
   CircleCheckIcon,
   CodeIcon,
   Database,
+  ExternalLinkIcon,
   FileTextIcon,
   LayoutListIcon,
   LinkIcon,
@@ -31,6 +32,9 @@ import {
   $JoinStrategy,
   type ActionUpdate,
   ApiError,
+  type RegistryActionRead,
+  type RegistryOAuthSecret_Output as RegistryOAuthSecret,
+  type RegistrySecret,
   type ValidationResult,
 } from "@/client"
 import {
@@ -928,54 +932,9 @@ function ActionPanelContent({
                           <div className="space-y-4 px-4">
                             {registryAction.secrets &&
                             registryAction.secrets.length > 0 ? (
-                              <div className="text-xs text-muted-foreground">
-                                <span>
-                                  This action requires the following secrets:
-                                </span>
-                                <Table>
-                                  <TableHeader>
-                                    <TableRow className="h-6  text-xs capitalize">
-                                      <TableHead
-                                        className="font-bold"
-                                        colSpan={1}
-                                      >
-                                        Secret Name
-                                      </TableHead>
-                                      <TableHead
-                                        className="font-bold"
-                                        colSpan={1}
-                                      >
-                                        Required Keys
-                                      </TableHead>
-                                      <TableHead
-                                        className="font-bold"
-                                        colSpan={1}
-                                      >
-                                        Optional Keys
-                                      </TableHead>
-                                    </TableRow>
-                                  </TableHeader>
-                                  <TableBody>
-                                    {registryAction.secrets.map(
-                                      (secret, idx) => (
-                                        <TableRow
-                                          key={idx}
-                                          className="font-mono text-xs tracking-tight text-muted-foreground"
-                                        >
-                                          <TableCell>{secret.name}</TableCell>
-                                          <TableCell>
-                                            {secret.keys?.join(", ") || "-"}
-                                          </TableCell>
-                                          <TableCell>
-                                            {secret.optional_keys?.join(", ") ||
-                                              "-"}
-                                          </TableCell>
-                                        </TableRow>
-                                      )
-                                    )}
-                                  </TableBody>
-                                </Table>
-                              </div>
+                              <RegistryActionSecrets
+                                secrets={registryAction.secrets}
+                              />
                             ) : (
                               <span className="text-xs text-muted-foreground">
                                 No secrets required.
@@ -1664,6 +1623,101 @@ export function ActionPanelNotFound({
           </Button>
         )}
       </div>
+    </div>
+  )
+}
+
+function RegistryActionSecrets({
+  secrets,
+}: {
+  secrets: NonNullable<RegistryActionRead["secrets"]>
+}) {
+  const { workspaceId } = useWorkspace()
+  const customSecrets = secrets.filter(
+    (secret): secret is RegistrySecret => secret.type === "custom"
+  )
+  const oauthSecrets = secrets.filter(
+    (secret): secret is RegistryOAuthSecret => secret.type === "oauth"
+  )
+  return (
+    <div className="text-xs text-muted-foreground space-y-4">
+      {/* Regular Secrets Table */}
+      {customSecrets.length > 0 && (
+        <div>
+          <span className="block mb-2">
+            This action requires the following secrets:
+          </span>
+          <Table>
+            <TableHeader>
+              <TableRow className="h-6  text-xs capitalize">
+                <TableHead className="font-bold" colSpan={1}>
+                  Secret Name
+                </TableHead>
+                <TableHead className="font-bold" colSpan={1}>
+                  Required Keys
+                </TableHead>
+                <TableHead className="font-bold" colSpan={1}>
+                  Optional Keys
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {customSecrets.map((secret) => (
+                <TableRow
+                  key={secret.name}
+                  className="font-mono text-xs tracking-tight text-muted-foreground"
+                >
+                  <TableCell>{secret.name}</TableCell>
+                  <TableCell>{secret.keys?.join(", ") || "-"}</TableCell>
+                  <TableCell>
+                    {secret.optional_keys?.join(", ") || "-"}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+
+      {/* OAuth Secrets Table */}
+      {oauthSecrets.length > 0 && (
+        <div>
+          <span className="block mb-2">
+            This action requires the following OAuth integrations:
+          </span>
+          <Table>
+            <TableHeader>
+              <TableRow className="h-6  text-xs capitalize">
+                <TableHead className="font-bold" colSpan={1}>
+                  Provider ID
+                </TableHead>
+                <TableHead className="font-bold" colSpan={1}>
+                  Grant Type
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {oauthSecrets.map((secret) => (
+                <TableRow
+                  key={`${secret.provider_id}-${secret.grant_type}`}
+                  className="font-mono text-xs tracking-tight text-muted-foreground"
+                >
+                  <TableCell className="flex items-center gap-1">
+                    <span>{secret.provider_id}</span>
+                    <Link
+                      href={`/workspaces/${workspaceId}/integrations/${secret.provider_id}?tab=configuration`}
+                      target="_blank"
+                    >
+                      <ExternalLinkIcon className="size-3" strokeWidth={2.5} />
+                    </Link>
+                  </TableCell>
+                  <TableCell>{secret.grant_type}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
     </div>
   )
 }

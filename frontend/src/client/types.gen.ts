@@ -1131,6 +1131,10 @@ export type IntegrationTestConnectionResponse = {
  */
 export type IntegrationUpdate = {
   /**
+   * OAuth grant type for this integration
+   */
+  grant_type: OAuthGrantType
+  /**
    * OAuth client ID for the provider
    */
   client_id?: string | null
@@ -1148,10 +1152,6 @@ export type IntegrationUpdate = {
    * OAuth scopes to request for this integration
    */
   scopes?: Array<string> | null
-  /**
-   * OAuth grant type for this integration
-   */
-  grant_type?: OAuthGrantType | null
 }
 
 export type InteractionCategory = "slack"
@@ -1436,7 +1436,7 @@ export type RegistryActionCreate = {
   /**
    * The secrets required by the action
    */
-  secrets?: Array<RegistrySecret> | null
+  secrets?: Array<RegistrySecretType_Input> | null
   interface: RegistryActionInterface
   implementation: RegistryActionTemplateImpl_Input | RegistryActionUDFImpl
   /**
@@ -1512,7 +1512,7 @@ export type RegistryActionRead = {
   /**
    * The secrets required by the action
    */
-  secrets?: Array<RegistrySecret> | null
+  secrets?: Array<RegistrySecretType_Output> | null
   interface: RegistryActionInterface
   implementation: RegistryActionTemplateImpl_Output | RegistryActionUDFImpl
   /**
@@ -1646,7 +1646,7 @@ export type RegistryActionUpdate = {
   /**
    * Update the secrets of the action
    */
-  secrets?: Array<RegistrySecret> | null
+  secrets?: Array<RegistrySecretType_Input> | null
   /**
    * Update the interface of the action
    */
@@ -1690,6 +1690,27 @@ export type RegistryActionValidationErrorInfo = {
   is_template: boolean
   loc_primary: string
   loc_secondary?: string | null
+}
+
+/**
+ * OAuth secret for a provider.
+ */
+export type RegistryOAuthSecret_Input = {
+  type?: "oauth"
+  provider_id: string
+  grant_type: "authorization_code" | "client_credentials"
+}
+
+export type grant_type = "authorization_code" | "client_credentials"
+
+/**
+ * OAuth secret for a provider.
+ */
+export type RegistryOAuthSecret_Output = {
+  type?: "oauth"
+  provider_id: string
+  grant_type: "authorization_code" | "client_credentials"
+  readonly name: string
 }
 
 export type RegistryRepositoryCreate = {
@@ -1739,11 +1760,20 @@ export type RegistryRepositoryUpdate = {
 }
 
 export type RegistrySecret = {
+  type?: "custom"
   name: string
   keys?: Array<string> | null
   optional_keys?: Array<string> | null
   optional?: boolean
 }
+
+export type RegistrySecretType_Input =
+  | RegistrySecret
+  | RegistryOAuthSecret_Input
+
+export type RegistrySecretType_Output =
+  | RegistrySecret
+  | RegistryOAuthSecret_Output
 
 /**
  * Event for when a case is reopened.
@@ -2334,15 +2364,15 @@ export type TagUpdate = {
 
 export type TemplateAction_Input = {
   type?: "action"
-  definition: TemplateActionDefinition
+  definition: TemplateActionDefinition_Input
 }
 
 export type TemplateAction_Output = {
   type?: "action"
-  definition: TemplateActionDefinition
+  definition: TemplateActionDefinition_Output
 }
 
-export type TemplateActionDefinition = {
+export type TemplateActionDefinition_Input = {
   /**
    * The action name
    */
@@ -2378,7 +2408,65 @@ export type TemplateActionDefinition = {
   /**
    * The secrets to pass to the action
    */
-  secrets?: Array<RegistrySecret> | null
+  secrets?: Array<RegistrySecretType_Input> | null
+  /**
+   * The arguments to pass to the action
+   */
+  expects: {
+    [key: string]: ExpectedField
+  }
+  /**
+   * The sequence of steps for the action
+   */
+  steps: Array<ActionStep>
+  /**
+   * The result of the action
+   */
+  returns:
+    | string
+    | Array<string>
+    | {
+        [key: string]: unknown
+      }
+}
+
+export type TemplateActionDefinition_Output = {
+  /**
+   * The action name
+   */
+  name: string
+  /**
+   * The namespace of the action
+   */
+  namespace: string
+  /**
+   * The title of the action
+   */
+  title: string
+  /**
+   * The description of the action
+   */
+  description?: string
+  /**
+   * The display group of the action
+   */
+  display_group: string
+  /**
+   * Link to documentation
+   */
+  doc_url?: string | null
+  /**
+   * Author of the action
+   */
+  author?: string | null
+  /**
+   * Marks action as deprecated along with message
+   */
+  deprecated?: string | null
+  /**
+   * The secrets to pass to the action
+   */
+  secrets?: Array<RegistrySecretType_Output> | null
   /**
    * The arguments to pass to the action
    */
@@ -4129,6 +4217,7 @@ export type IntegrationsListIntegrationsData = {
 export type IntegrationsListIntegrationsResponse = Array<IntegrationReadMinimal>
 
 export type IntegrationsGetIntegrationData = {
+  grantType?: OAuthGrantType
   providerId: string
   workspaceId: string
 }
@@ -4136,6 +4225,7 @@ export type IntegrationsGetIntegrationData = {
 export type IntegrationsGetIntegrationResponse = IntegrationRead
 
 export type IntegrationsDeleteIntegrationData = {
+  grantType?: OAuthGrantType
   providerId: string
   workspaceId: string
 }
@@ -4143,6 +4233,7 @@ export type IntegrationsDeleteIntegrationData = {
 export type IntegrationsDeleteIntegrationResponse = void
 
 export type IntegrationsUpdateIntegrationData = {
+  grantType?: OAuthGrantType
   providerId: string
   requestBody: IntegrationUpdate
   workspaceId: string
@@ -4158,6 +4249,7 @@ export type IntegrationsConnectProviderData = {
 export type IntegrationsConnectProviderResponse = IntegrationOAuthConnect
 
 export type IntegrationsDisconnectIntegrationData = {
+  grantType?: OAuthGrantType
   providerId: string
   workspaceId: string
 }
@@ -4179,6 +4271,7 @@ export type ProvidersListProvidersData = {
 export type ProvidersListProvidersResponse = Array<ProviderReadMinimal>
 
 export type ProvidersGetProviderData = {
+  grantType?: OAuthGrantType
   providerId: string
   workspaceId: string
 }
@@ -4279,7 +4372,7 @@ export type PublicCheckHealthResponse = {
 
 export type $OpenApiTs = {
   "/webhooks/{workflow_id}/{secret}": {
-    get: {
+    post: {
       req: PublicIncomingWebhookData
       res: {
         /**
@@ -4292,7 +4385,7 @@ export type $OpenApiTs = {
         422: HTTPValidationError
       }
     }
-    post: {
+    get: {
       req: PublicIncomingWebhook1Data
       res: {
         /**

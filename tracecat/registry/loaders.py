@@ -5,7 +5,7 @@ from collections.abc import Callable
 from typing import Any, Literal, NoReturn
 
 from pydantic import BaseModel, TypeAdapter
-from tracecat_registry import RegistrySecret
+from tracecat_registry import RegistrySecretTypeValidator
 
 from tracecat import config
 from tracecat.db.schemas import RegistryAction
@@ -34,7 +34,10 @@ def get_bound_action_impl(
     action: RegistryAction, *, mode: LoaderMode = "validation"
 ) -> BoundRegistryAction:
     impl = RegistryActionImplValidator.validate_python(action.implementation)
-    secrets = [RegistrySecret(**secret) for secret in action.secrets or []]
+    secrets = [
+        RegistrySecretTypeValidator.validate_python(secret)
+        for secret in action.secrets or []
+    ]
     if impl.type == "udf":
         fn = load_udf_impl(impl)
         key = getattr(fn, "__tracecat_udf_key")

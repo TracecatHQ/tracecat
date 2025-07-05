@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Self
 
 from tracecat.integrations.base import BaseOAuthProvider
+from tracecat.integrations.models import ProviderKey
 
 
 def load_providers():
@@ -38,15 +39,18 @@ class ProviderRegistry:
         return cls._instance
 
     def __init__(self):
-        self._providers = {}
+        self._providers: dict[ProviderKey, type[BaseOAuthProvider]] = {}
 
         all_providers = _collect_subclasses(BaseOAuthProvider)
         for provider in all_providers:
             if not provider._include_in_registry:
                 continue
-            if provider.id in self._providers:
-                raise ValueError(f"Duplicate provider ID: {provider.id}")
-            self._providers[provider.id] = provider
+            key = ProviderKey(id=provider.id, grant_type=provider.grant_type)
+            if key in self._providers:
+                raise ValueError(
+                    f"Duplicate provider ID: {provider.id} with grant type: {provider.grant_type}"
+                )
+            self._providers[key] = provider
 
     @classmethod
     def get(cls) -> Self:
@@ -54,9 +58,9 @@ class ProviderRegistry:
             cls._instance = cls()
         return cls._instance
 
-    def get_class(self, provider_id: str) -> type[BaseOAuthProvider] | None:
+    def get_class(self, provider_key: ProviderKey) -> type[BaseOAuthProvider] | None:
         """Get an initialized provider by its ID."""
-        return self._providers.get(provider_id)
+        return self._providers.get(provider_key)
 
     @property
     def providers(self) -> list[type[BaseOAuthProvider]]:

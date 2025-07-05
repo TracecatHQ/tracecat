@@ -41,7 +41,7 @@ AC_SCOPES = ProviderScopes(
 
 # Microsoft Teams specific metadata for authorization code flow
 AC_METADATA = ProviderMetadata(
-    id="microsoft_teams_ac",
+    id="microsoft_teams",
     name="Microsoft Teams",
     description="Microsoft Teams OAuth provider (Delegated user)",
     categories=[ProviderCategory.COMMUNICATION],
@@ -63,7 +63,7 @@ AC_METADATA = ProviderMetadata(
 class MicrosoftTeamsACProvider(MicrosoftACProvider):
     """Microsoft Teams OAuth provider for collaboration and communication."""
 
-    id: ClassVar[str] = "microsoft_teams_ac"
+    id: ClassVar[str] = "microsoft_teams"
 
     # Use Teams-specific constants
     scopes: ClassVar[ProviderScopes] = AC_SCOPES
@@ -80,7 +80,7 @@ CC_SCOPES = ProviderScopes(
 
 # Microsoft Teams specific metadata for client credentials flow
 CC_METADATA = ProviderMetadata(
-    id="microsoft_teams_cc",
+    id="microsoft_teams",
     name="Microsoft Teams",
     description="Microsoft Teams OAuth provider (Service account)",
     categories=[ProviderCategory.COMMUNICATION],
@@ -103,7 +103,7 @@ CC_METADATA = ProviderMetadata(
 class MicrosoftTeamsCCProvider(MicrosoftCCProvider):
     """Microsoft Teams OAuth provider using client credentials flow for server-to-server automation."""
 
-    id: ClassVar[str] = "microsoft_teams_cc"
+    id: ClassVar[str] = "microsoft_teams"
 
     # Use Teams-specific client credentials constants
     scopes: ClassVar[ProviderScopes] = CC_SCOPES

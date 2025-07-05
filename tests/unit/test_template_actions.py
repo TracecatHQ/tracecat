@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 from pydantic import BaseModel, SecretStr, TypeAdapter
+from tracecat_registry import RegistrySecret
 
 from tests.shared import TEST_WF_ID, generate_test_exec_id
 from tracecat import config
@@ -23,7 +24,6 @@ from tracecat.registry.actions.models import (
     ActionStep,
     BoundRegistryAction,
     RegistryActionCreate,
-    RegistrySecret,
     TemplateAction,
     TemplateActionDefinition,
 )

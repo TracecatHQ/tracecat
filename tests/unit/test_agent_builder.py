@@ -729,14 +729,11 @@ class TestCallTracecatAction:
             return_value=mock_context,
         )
 
-        # Mock AuthSandbox to verify it's called with correct secrets
-        mock_auth_sandbox = mocker.patch(
-            "tracecat_registry.integrations.agents.builder.AuthSandbox"
+        # Mock get_action_secrets to return the expected secrets
+        mock_get_action_secrets = mocker.patch(
+            "tracecat_registry.integrations.agents.builder.get_action_secrets",
+            return_value={"test_secret": {"TEST_KEY": "test_value"}},
         )
-        mock_sandbox_instance = AsyncMock()
-        mock_sandbox_instance.secrets = {"test_secret": {"TEST_KEY": "test_value"}}
-        mock_sandbox_instance.__aenter__.return_value = mock_sandbox_instance
-        mock_auth_sandbox.return_value = mock_sandbox_instance
 
         # Mock env_sandbox
         mock_env_sandbox = mocker.patch(
@@ -760,11 +757,12 @@ class TestCallTracecatAction:
             "tools.test.test_action", {"param": "value"}
         )
 
-        # Verify AuthSandbox was called with correct parameters
-        mock_auth_sandbox.assert_called_once()
-        call_kwargs = mock_auth_sandbox.call_args.kwargs
-        assert "test_secret" in call_kwargs["secrets"]
-        assert call_kwargs["optional_secrets"] == set()  # No optional secrets
+        # Verify get_action_secrets was called with correct parameters
+        mock_get_action_secrets.assert_called_once()
+        call_args = mock_get_action_secrets.call_args
+        assert call_args.kwargs["args"] == {"param": "value"}
+        assert len(call_args.kwargs["action_secrets"]) == 1
+        assert list(call_args.kwargs["action_secrets"])[0].name == "test_secret"
 
         # Verify env_sandbox was called
         mock_env_sandbox.assert_called_once_with({"TEST_KEY": "test_value"})
@@ -813,16 +811,11 @@ class TestCallTracecatAction:
             return_value=mock_context,
         )
 
-        # Mock AuthSandbox
-        mock_auth_sandbox = mocker.patch(
-            "tracecat_registry.integrations.agents.builder.AuthSandbox"
+        # Mock get_action_secrets
+        mocker.patch(
+            "tracecat_registry.integrations.agents.builder.get_action_secrets",
+            return_value={"template_secret": {"TEMPLATE_KEY": "template_value"}},
         )
-        mock_sandbox_instance = AsyncMock()
-        mock_sandbox_instance.secrets = {
-            "template_secret": {"TEMPLATE_KEY": "template_value"}
-        }
-        mock_sandbox_instance.__aenter__.return_value = mock_sandbox_instance
-        mock_auth_sandbox.return_value = mock_sandbox_instance
 
         # Mock env_sandbox
         mocker.patch("tracecat_registry.integrations.agents.builder.env_sandbox")

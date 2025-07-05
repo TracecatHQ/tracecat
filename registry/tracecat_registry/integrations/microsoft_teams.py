@@ -5,16 +5,18 @@ from typing_extensions import Doc
 
 import httpx
 
-from tracecat_registry import RegistrySecret, registry, secrets
+from tracecat_registry import RegistryOAuthSecret, registry, secrets
 
 
-microsoft_teams_ac_oauth_secret = RegistrySecret.oauth("microsoft_teams_ac")
+microsoft_teams_ac_oauth_secret = RegistryOAuthSecret(
+    provider_id="microsoft_teams",
+    grant_type="authorization_code",
+)
 """Microsoft Teams OAuth2.0 credentials (Authorization Code grant).
 
-- name: `microsoft_teams_ac`
-- provider_id: `microsoft_teams_ac`
-usage:
-MICROSOFT_TEAMS_AC_ACCESS_TOKEN
+- name: `microsoft_teams`
+- provider_id: `microsoft_teams`
+- token_name: `MICROSOFT_TEAMS_[SERVICE|USER]_TOKEN`
 """
 
 TeamId = Annotated[str, Doc("The ID of the team.")]
@@ -58,7 +60,7 @@ async def send_teams_message(
     channel_id: ChannelId,
     message: Annotated[str, Doc("The message to send.")],
 ) -> dict[str, str]:
-    token = secrets.get("MICROSOFT_TEAMS_AC_ACCESS_TOKEN")
+    token = secrets.get(microsoft_teams_ac_oauth_secret.token_name)
 
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
@@ -105,7 +107,7 @@ async def create_teams_channel(
 
     For private channels, at least one owner must be specified in owner_user_ids.
     """
-    token = secrets.get("MICROSOFT_TEAMS_AC_ACCESS_TOKEN")
+    token = secrets.get(microsoft_teams_ac_oauth_secret.token_name)
 
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
@@ -171,7 +173,7 @@ async def list_channel_messages(
 
     Note: This API requires ChannelMessage.Read.All or ChannelMessage.Read.Group permissions.
     """
-    token = secrets.get("MICROSOFT_TEAMS_AC_ACCESS_TOKEN")
+    token = secrets.get(microsoft_teams_ac_oauth_secret.token_name)
 
     headers = {"Authorization": f"Bearer {token}"}
 
@@ -208,7 +210,7 @@ async def delete_teams_channel(
 
     Note: This API requires Channel.Delete.All or Channel.Delete.Group permissions.
     """
-    token = secrets.get("MICROSOFT_TEAMS_AC_ACCESS_TOKEN")
+    token = secrets.get(microsoft_teams_ac_oauth_secret.token_name)
 
     headers = {"Authorization": f"Bearer {token}"}
 
@@ -460,7 +462,7 @@ async def send_teams_buttons(
     ] = None,
 ) -> dict[str, Any]:
     """Send ActionSet buttons as a Teams thumbnail card."""
-    token = secrets.get("MICROSOFT_TEAMS_AC_ACCESS_TOKEN")
+    token = secrets.get(microsoft_teams_ac_oauth_secret.token_name)
 
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
@@ -539,7 +541,7 @@ async def send_adaptive_card(
     title: OptionalTitle = None,
 ) -> dict[str, Any]:
     """Send an Adaptive Card message to Teams (without ActionSet elements)."""
-    token = secrets.get("MICROSOFT_TEAMS_AC_ACCESS_TOKEN")
+    token = secrets.get(microsoft_teams_ac_oauth_secret.token_name)
 
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 

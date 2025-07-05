@@ -71,6 +71,13 @@ class IntegrationRead(BaseModel):
 class IntegrationUpdate(BaseModel):
     """Request model for updating an integration."""
 
+    # Additional identifier
+    grant_type: OAuthGrantType = Field(
+        ...,
+        description="OAuth grant type for this integration",
+    )
+
+    # Updateable fields
     client_id: str | None = Field(
         default=None,
         description="OAuth client ID for the provider",
@@ -88,10 +95,6 @@ class IntegrationUpdate(BaseModel):
     scopes: list[str] | None = Field(
         default=None,
         description="OAuth scopes to request for this integration",
-    )
-    grant_type: OAuthGrantType | None = Field(
-        default=None,
-        description="OAuth grant type for this integration",
     )
 
 
@@ -235,6 +238,19 @@ class OAuthProviderKwargs(TypedDict):
     client_id: Required[str]
     client_secret: Required[str]
     scopes: NotRequired[list[str] | None]
+
+
+class ProviderKey(BaseModel):
+    """Key for a provider that uniquely identifies it."""
+
+    id: str
+    grant_type: OAuthGrantType
+
+    def __str__(self) -> str:
+        return f"{self.id} ({self.grant_type.value})"
+
+    def __hash__(self) -> int:
+        return hash((self.id, self.grant_type))
 
 
 class ProviderSchema(BaseModel):

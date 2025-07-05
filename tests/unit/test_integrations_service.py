@@ -17,6 +17,7 @@ from tracecat.integrations.enums import OAuthGrantType
 from tracecat.integrations.models import (
     ProviderCategory,
     ProviderConfig,
+    ProviderKey,
     ProviderMetadata,
     ProviderScopes,
     TokenResponse,
@@ -176,28 +177,32 @@ class TestIntegrationService:
         mock_token_response: TokenResponse,
     ) -> None:
         """Test storing and retrieving an integration."""
-        provider_id = "test_provider"
+        provider_key = ProviderKey(
+            id="test_provider",
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        )
 
         # Store integration without user_id (workspace-level)
         integration = await integration_service.store_integration(
-            provider_id=provider_id,
+            provider_key=provider_key,
             access_token=mock_token_response.access_token,
             refresh_token=mock_token_response.refresh_token,
             expires_in=mock_token_response.expires_in,
             scope=mock_token_response.scope,
         )
 
-        assert integration.provider_id == provider_id
+        assert integration.provider_id == provider_key.id
         assert integration.user_id is None  # workspace-level integration
         assert integration.expires_at is not None
         assert integration.scope == mock_token_response.scope
         assert integration.grant_type == OAuthGrantType.AUTHORIZATION_CODE
 
         # Retrieve integration
-        retrieved = await integration_service.get_integration(provider_id=provider_id)
+        retrieved = await integration_service.get_integration(provider_key=provider_key)
         assert retrieved is not None
         assert retrieved.id == integration.id
-        assert retrieved.provider_id == provider_id
+        assert retrieved.provider_id == provider_key.id
+        assert retrieved.grant_type == provider_key.grant_type
 
     async def test_update_existing_integration(
         self,
@@ -205,11 +210,14 @@ class TestIntegrationService:
         mock_token_response: TokenResponse,
     ) -> None:
         """Test updating an existing integration."""
-        provider_id = "test_provider"
+        provider_key = ProviderKey(
+            id="test_provider",
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        )
 
         # Store initial integration
         initial = await integration_service.store_integration(
-            provider_id=provider_id,
+            provider_key=provider_key,
             access_token=SecretStr("initial_token"),
             refresh_token=SecretStr("initial_refresh"),
             expires_in=1800,
@@ -218,7 +226,7 @@ class TestIntegrationService:
 
         # Update with new tokens (with different expiry)
         updated = await integration_service.store_integration(
-            provider_id=provider_id,
+            provider_key=provider_key,
             access_token=mock_token_response.access_token,
             refresh_token=mock_token_response.refresh_token,
             expires_in=7200,  # Different expiry time
@@ -235,17 +243,80 @@ class TestIntegrationService:
             "New expiry should be greater than or equal to old expiry"
         )
 
+    async def test_get_integration_with_filters(
+        self,
+        integration_service: IntegrationService,
+        mock_token_response: TokenResponse,
+    ) -> None:
+        """Test get_integration with various filter combinations."""
+        # Create provider keys
+        provider1 = ProviderKey(
+            id="provider1",
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        )
+        provider2 = ProviderKey(
+            id="provider2",
+            grant_type=OAuthGrantType.CLIENT_CREDENTIALS,
+        )
+
+        # Store integrations
+        integration1 = await integration_service.store_integration(
+            provider_key=provider1,
+            access_token=mock_token_response.access_token,
+            refresh_token=mock_token_response.refresh_token,
+        )
+
+        integration2 = await integration_service.store_integration(
+            provider_key=provider2,
+            access_token=SecretStr("cc_token"),
+        )
+
+        # Test get by provider key - should find exact match
+        found = await integration_service.get_integration(provider_key=provider1)
+        assert found is not None
+        assert found.id == integration1.id
+        assert found.provider_id == provider1.id
+        assert found.grant_type == provider1.grant_type
+
+        # Test get by different provider key
+        found2 = await integration_service.get_integration(provider_key=provider2)
+        assert found2 is not None
+        assert found2.id == integration2.id
+        assert found2.provider_id == provider2.id
+        assert found2.grant_type == provider2.grant_type
+
+        # Test get non-existent provider
+        non_existent = ProviderKey(
+            id="non_existent",
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        )
+        not_found = await integration_service.get_integration(provider_key=non_existent)
+        assert not_found is None
+
+        # Test get with wrong grant type
+        wrong_grant = ProviderKey(
+            id="provider1",  # Same ID
+            grant_type=OAuthGrantType.CLIENT_CREDENTIALS,  # Different grant type
+        )
+        not_found_wrong_grant = await integration_service.get_integration(
+            provider_key=wrong_grant
+        )
+        assert not_found_wrong_grant is None
+
     async def test_store_integration_with_user_id(
         self,
         integration_service: IntegrationService,
         mock_token_response: TokenResponse,
     ) -> None:
         """Test that user_id parameter is accepted and stored correctly."""
-        provider_id = "test_provider"
+        provider_key = ProviderKey(
+            id="test_provider",
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        )
 
         # Store workspace-level integration (user_id=None is tested in other tests)
         workspace_integration = await integration_service.store_integration(
-            provider_id=provider_id,
+            provider_key=provider_key,
             access_token=SecretStr("workspace_token"),
             user_id=None,  # No user_id = workspace-level
         )
@@ -263,12 +334,15 @@ class TestIntegrationService:
         mock_token_response: TokenResponse,
     ) -> None:
         """Test updating provider_config on an existing integration."""
-        provider_id = "test_provider"
+        provider_key = ProviderKey(
+            id="test_provider",
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        )
 
         # Store initial integration with provider_config
         initial_config = {"api_endpoint": "https://api.v1.example.com", "timeout": 30}
         integration = await integration_service.store_integration(
-            provider_id=provider_id,
+            provider_key=provider_key,
             access_token=mock_token_response.access_token,
             provider_config=initial_config,
         )
@@ -282,7 +356,7 @@ class TestIntegrationService:
             "new_field": "new_value",
         }
         updated = await integration_service.store_integration(
-            provider_id=provider_id,
+            provider_key=provider_key,
             access_token=SecretStr("new_access_token"),
             provider_config=updated_config,
         )
@@ -299,10 +373,23 @@ class TestIntegrationService:
     ) -> None:
         """Test listing integrations with optional filtering."""
         # Store multiple integrations
-        providers = ["provider1", "provider2", "provider3"]
-        for provider_id in providers:
+        providers = {
+            ProviderKey(
+                id="provider1",
+                grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+            ),
+            ProviderKey(
+                id="provider2",
+                grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+            ),
+            ProviderKey(
+                id="provider3",
+                grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+            ),
+        }
+        for provider_key in providers:
             await integration_service.store_integration(
-                provider_id=provider_id,
+                provider_key=provider_key,
                 access_token=mock_token_response.access_token,
                 expires_in=3600,
             )
@@ -313,10 +400,20 @@ class TestIntegrationService:
 
         # List filtered integrations
         filtered = await integration_service.list_integrations(
-            providers={"provider1", "provider3"}
+            provider_keys={
+                ProviderKey(
+                    id="provider1", grant_type=OAuthGrantType.AUTHORIZATION_CODE
+                ),
+                ProviderKey(
+                    id="provider2", grant_type=OAuthGrantType.AUTHORIZATION_CODE
+                ),
+            }
         )
         assert len(filtered) == 2
-        assert all(i.provider_id in {"provider1", "provider3"} for i in filtered)
+        assert all(
+            ProviderKey(id=i.provider_id, grant_type=i.grant_type) in providers
+            for i in filtered
+        )
 
     async def test_disconnect_integration(
         self,
@@ -324,11 +421,14 @@ class TestIntegrationService:
         mock_token_response: TokenResponse,
     ) -> None:
         """Test disconnecting an integration (clears tokens but keeps record)."""
-        provider_id = "test_provider"
+        provider_key = ProviderKey(
+            id="test_provider",
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        )
 
         # Store integration with tokens and scope
         integration = await integration_service.store_integration(
-            provider_id=provider_id,
+            provider_key=provider_key,
             access_token=mock_token_response.access_token,
             refresh_token=mock_token_response.refresh_token,
             expires_in=3600,
@@ -352,10 +452,11 @@ class TestIntegrationService:
         assert integration.requested_scopes is None
 
         # Verify integration still exists in database
-        retrieved = await integration_service.get_integration(provider_id=provider_id)
+        retrieved = await integration_service.get_integration(provider_key=provider_key)
         assert retrieved is not None
         assert retrieved.id == integration.id
-        assert retrieved.provider_id == provider_id
+        assert retrieved.provider_id == provider_key.id
+        assert retrieved.grant_type == provider_key.grant_type
         assert retrieved.encrypted_access_token == b""
 
     async def test_disconnect_integration_with_provider_config(
@@ -364,11 +465,14 @@ class TestIntegrationService:
         mock_token_response: TokenResponse,
     ) -> None:
         """Test disconnecting an integration that has provider config (should preserve config)."""
-        provider_id = "test_provider"
+        provider_key = ProviderKey(
+            id="test_provider",
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        )
 
         # Store provider config first
         await integration_service.store_provider_config(
-            provider_id=provider_id,
+            provider_key=provider_key,
             client_id="test_client_id",
             client_secret=SecretStr("test_client_secret"),
             provider_config={"api_endpoint": "https://api.example.com"},
@@ -376,7 +480,7 @@ class TestIntegrationService:
 
         # Store integration with tokens
         integration = await integration_service.store_integration(
-            provider_id=provider_id,
+            provider_key=provider_key,
             access_token=mock_token_response.access_token,
             refresh_token=mock_token_response.refresh_token,
             scope="read write",
@@ -402,11 +506,14 @@ class TestIntegrationService:
         mock_token_response: TokenResponse,
     ) -> None:
         """Test removing an integration (deletes entire record)."""
-        provider_id = "test_provider"
+        provider_key = ProviderKey(
+            id="test_provider",
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        )
 
         # Store integration
         integration = await integration_service.store_integration(
-            provider_id=provider_id,
+            provider_key=provider_key,
             access_token=mock_token_response.access_token,
         )
 
@@ -414,7 +521,7 @@ class TestIntegrationService:
         await integration_service.remove_integration(integration=integration)
 
         # Verify it's gone
-        retrieved = await integration_service.get_integration(provider_id=provider_id)
+        retrieved = await integration_service.get_integration(provider_key=provider_key)
         assert retrieved is None
 
     async def test_remove_integration_with_provider_config(
@@ -423,11 +530,14 @@ class TestIntegrationService:
         mock_token_response: TokenResponse,
     ) -> None:
         """Test removing an integration that has provider config (deletes everything)."""
-        provider_id = "test_provider"
+        provider_key = ProviderKey(
+            id="test_provider",
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        )
 
         # Store provider config first
         await integration_service.store_provider_config(
-            provider_id=provider_id,
+            provider_key=provider_key,
             client_id="test_client_id",
             client_secret=SecretStr("test_client_secret"),
             provider_config={"api_endpoint": "https://api.example.com"},
@@ -435,7 +545,7 @@ class TestIntegrationService:
 
         # Store integration with tokens
         integration = await integration_service.store_integration(
-            provider_id=provider_id,
+            provider_key=provider_key,
             access_token=mock_token_response.access_token,
             refresh_token=mock_token_response.refresh_token,
         )
@@ -448,7 +558,7 @@ class TestIntegrationService:
         await integration_service.remove_integration(integration=integration)
 
         # Verify entire record is gone (including provider config)
-        retrieved = await integration_service.get_integration(provider_id=provider_id)
+        retrieved = await integration_service.get_integration(provider_key=provider_key)
         assert retrieved is None
 
     async def test_disconnect_vs_remove_integration_behavior(
@@ -458,12 +568,18 @@ class TestIntegrationService:
     ) -> None:
         """Test the difference between disconnect and remove operations."""
         # Create two identical integrations for comparison
-        disconnect_provider = "disconnect_provider"
-        remove_provider = "remove_provider"
+        disconnect_provider = ProviderKey(
+            id="disconnect_provider",
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        )
+        remove_provider = ProviderKey(
+            id="remove_provider",
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        )
 
         # Store first integration for disconnect test
         disconnect_integration = await integration_service.store_integration(
-            provider_id=disconnect_provider,
+            provider_key=disconnect_provider,
             access_token=mock_token_response.access_token,
             refresh_token=mock_token_response.refresh_token,
             expires_in=3600,
@@ -472,7 +588,7 @@ class TestIntegrationService:
 
         # Store second integration for remove test
         remove_integration = await integration_service.store_integration(
-            provider_id=remove_provider,
+            provider_key=remove_provider,
             access_token=mock_token_response.access_token,
             refresh_token=mock_token_response.refresh_token,
             expires_in=3600,
@@ -489,7 +605,7 @@ class TestIntegrationService:
 
         # Verify disconnect behavior: record exists but tokens are cleared
         disconnected = await integration_service.get_integration(
-            provider_id=disconnect_provider
+            provider_key=disconnect_provider
         )
         assert disconnected is not None
         assert disconnected.encrypted_access_token == b""
@@ -497,7 +613,9 @@ class TestIntegrationService:
         assert disconnected.scope is None
 
         # Verify remove behavior: record is completely gone
-        removed = await integration_service.get_integration(provider_id=remove_provider)
+        removed = await integration_service.get_integration(
+            provider_key=remove_provider
+        )
         assert removed is None
 
     async def test_token_encryption_decryption(
@@ -506,7 +624,10 @@ class TestIntegrationService:
         mock_token_response: TokenResponse,
     ) -> None:
         """Test that tokens are properly encrypted and decrypted."""
-        provider_id = "test_provider"
+        provider_key = ProviderKey(
+            id="test_provider",
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        )
 
         # Type narrow
         assert mock_token_response.refresh_token is not None, (
@@ -515,7 +636,7 @@ class TestIntegrationService:
 
         # Store integration
         integration = await integration_service.store_integration(
-            provider_id=provider_id,
+            provider_key=provider_key,
             access_token=mock_token_response.access_token,
             refresh_token=mock_token_response.refresh_token,
         )
@@ -553,11 +674,14 @@ class TestIntegrationService:
         mock_token_response: TokenResponse,
     ) -> None:
         """Test token expiration and refresh checks."""
-        provider_id = "test_provider"
+        provider_key = ProviderKey(
+            id="test_provider",
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        )
 
         # Store integration that expires in 1 hour
         integration = await integration_service.store_integration(
-            provider_id=provider_id,
+            provider_key=provider_key,
             access_token=mock_token_response.access_token,
             expires_in=3600,
         )
@@ -582,11 +706,14 @@ class TestIntegrationService:
         mock_token_response: TokenResponse,
     ) -> None:
         """Test that refresh is skipped when token doesn't need refresh."""
-        provider_id = "test_provider"
+        provider_key = ProviderKey(
+            id="test_provider",
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        )
 
         # Store provider config
         await integration_service.store_provider_config(
-            provider_id=provider_id,
+            provider_key=provider_key,
             client_id="test_client_id",
             client_secret=SecretStr("test_client_secret"),
             provider_config={},
@@ -594,7 +721,7 @@ class TestIntegrationService:
 
         # Store integration with long expiry (1 hour)
         integration = await integration_service.store_integration(
-            provider_id=provider_id,
+            provider_key=provider_key,
             access_token=mock_token_response.access_token,
             refresh_token=mock_token_response.refresh_token,
             expires_in=3600,  # 1 hour
@@ -625,7 +752,10 @@ class TestIntegrationService:
         mock_token_response: TokenResponse,
     ) -> None:
         """Test automatic token refresh when needed."""
-        provider_id = "mock_provider"
+        provider_key = ProviderKey(
+            id=mock_provider.id,
+            grant_type=mock_provider.grant_type,
+        )
 
         # Mock the provider registry
         with patch("tracecat.integrations.service.ProviderRegistry") as mock_registry:
@@ -645,7 +775,7 @@ class TestIntegrationService:
 
                 # Store provider config first to set client credentials
                 await integration_service.store_provider_config(
-                    provider_id=provider_id,
+                    provider_key=provider_key,
                     client_id="mock_client_id",
                     client_secret=SecretStr("mock_client_secret"),
                     provider_config={},
@@ -653,7 +783,7 @@ class TestIntegrationService:
 
                 # Store integration that needs refresh
                 integration = await integration_service.store_integration(
-                    provider_id=provider_id,
+                    provider_key=provider_key,
                     access_token=mock_token_response.access_token,
                     refresh_token=mock_token_response.refresh_token,
                     expires_in=60,  # Expires in 1 minute
@@ -688,11 +818,14 @@ class TestIntegrationService:
         mock_token_response: TokenResponse,
     ) -> None:
         """Test refresh when no refresh token is available."""
-        provider_id = "test_provider"
+        provider_key = ProviderKey(
+            id="test_provider",
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        )
 
         # Store integration without refresh token
         integration = await integration_service.store_integration(
-            provider_id=provider_id,
+            provider_key=provider_key,
             access_token=mock_token_response.access_token,
             refresh_token=None,  # No refresh token
             expires_in=60,  # Short expiry
@@ -717,11 +850,14 @@ class TestIntegrationService:
         mock_token_response: TokenResponse,
     ) -> None:
         """Test refresh when provider is not found in registry - should handle gracefully."""
-        provider_id = "unknown_provider"
+        provider_key = ProviderKey(
+            id="unknown_provider",
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        )
 
         # Store provider config first to set client credentials
         await integration_service.store_provider_config(
-            provider_id=provider_id,
+            provider_key=provider_key,
             client_id="unknown_client_id",
             client_secret=SecretStr("unknown_client_secret"),
             provider_config={},
@@ -729,7 +865,7 @@ class TestIntegrationService:
 
         # Store integration with tokens that will expire
         integration = await integration_service.store_integration(
-            provider_id=provider_id,
+            provider_key=provider_key,
             access_token=mock_token_response.access_token,
             refresh_token=mock_token_response.refresh_token,
             expires_in=60,  # Short expiry
@@ -763,7 +899,10 @@ class TestIntegrationService:
         mock_token_response: TokenResponse,
     ) -> None:
         """Test refresh when provider doesn't rotate refresh token."""
-        provider_id = "mock_provider"
+        provider_key = ProviderKey(
+            id=mock_provider.id,
+            grant_type=mock_provider.grant_type,
+        )
 
         # Store the original refresh token for later comparison
         original_refresh_token = mock_token_response.refresh_token
@@ -786,7 +925,7 @@ class TestIntegrationService:
 
                 # Store provider config first to set client credentials
                 await integration_service.store_provider_config(
-                    provider_id=provider_id,
+                    provider_key=provider_key,
                     client_id="mock_client_id",
                     client_secret=SecretStr("mock_client_secret"),
                     provider_config={},
@@ -794,7 +933,7 @@ class TestIntegrationService:
 
                 # Store integration that needs refresh
                 integration = await integration_service.store_integration(
-                    provider_id=provider_id,
+                    provider_key=provider_key,
                     access_token=mock_token_response.access_token,
                     refresh_token=original_refresh_token,
                     expires_in=60,  # Expires in 1 minute
@@ -840,7 +979,10 @@ class TestIntegrationService:
 
             # Store integration
             integration = await service1.store_integration(
-                provider_id="test_provider",
+                provider_key=ProviderKey(
+                    id="test_provider",
+                    grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+                ),
                 access_token=mock_token_response.access_token,
                 refresh_token=mock_token_response.refresh_token,
             )
@@ -862,14 +1004,17 @@ class TestIntegrationService:
         integration_service: IntegrationService,
     ) -> None:
         """Test storing and retrieving provider configuration."""
-        provider_id = "test_provider"
+        provider_key = ProviderKey(
+            id="test_provider",
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        )
         client_id = "test_client_id"
         client_secret = SecretStr("test_client_secret")
         provider_config = {"custom_setting": "value"}
 
         # Store provider config
         integration = await integration_service.store_provider_config(
-            provider_id=provider_id,
+            provider_key=provider_key,
             client_id=client_id,
             client_secret=client_secret,
             provider_config=provider_config,
@@ -895,11 +1040,14 @@ class TestIntegrationService:
         mock_token_response: TokenResponse,
     ) -> None:
         """Test removing provider configuration."""
-        provider_id = "test_provider"
+        provider_key = ProviderKey(
+            id="test_provider",
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        )
 
         # First, store provider config without tokens
         await integration_service.store_provider_config(
-            provider_id=provider_id,
+            provider_key=provider_key,
             client_id="test_client",
             client_secret=SecretStr("test_secret"),
             provider_config={},
@@ -907,21 +1055,23 @@ class TestIntegrationService:
 
         # Remove provider config - should delete entire record
         removed = await integration_service.remove_provider_config(
-            provider_id=provider_id
+            provider_key=provider_key
         )
         assert removed is True
 
         # Verify it's gone
-        integration = await integration_service.get_integration(provider_id=provider_id)
+        integration = await integration_service.get_integration(
+            provider_key=provider_key
+        )
         assert integration is None
 
         # Now test with existing tokens
         await integration_service.store_integration(
-            provider_id=provider_id,
+            provider_key=provider_key,
             access_token=mock_token_response.access_token,
         )
         await integration_service.store_provider_config(
-            provider_id=provider_id,
+            provider_key=provider_key,
             client_id="test_client",
             client_secret=SecretStr("test_secret"),
             provider_config={},
@@ -929,12 +1079,14 @@ class TestIntegrationService:
 
         # Remove provider config - should only clear credentials
         removed = await integration_service.remove_provider_config(
-            provider_id=provider_id
+            provider_key=provider_key,
         )
         assert removed is True
 
         # Integration should still exist but without credentials
-        integration = await integration_service.get_integration(provider_id=provider_id)
+        integration = await integration_service.get_integration(
+            provider_key=provider_key
+        )
         assert integration is not None
         assert integration.encrypted_client_id is None
         assert integration.encrypted_client_secret is None
@@ -947,7 +1099,10 @@ class TestIntegrationService:
         mock_token_response: TokenResponse,
     ) -> None:
         """Test automatic token refresh for client credentials grant type."""
-        provider_id = "mock_cc_provider"
+        provider_key = ProviderKey(
+            id="mock_cc_provider",
+            grant_type=OAuthGrantType.CLIENT_CREDENTIALS,
+        )
 
         # Mock the provider registry
         with patch("tracecat.integrations.service.ProviderRegistry") as mock_registry:
@@ -969,16 +1124,15 @@ class TestIntegrationService:
 
                 # Store provider config first to set client credentials
                 await integration_service.store_provider_config(
-                    provider_id=provider_id,
+                    provider_key=provider_key,
                     client_id="mock_cc_client_id",
                     client_secret=SecretStr("mock_cc_client_secret"),
                     provider_config={},
-                    grant_type=OAuthGrantType.CLIENT_CREDENTIALS,
                 )
 
                 # Store integration
                 integration = await integration_service.store_integration(
-                    provider_id=provider_id,
+                    provider_key=provider_key,
                     access_token=mock_token_response.access_token,
                     expires_in=60,  # Expires in 1 minute
                 )
@@ -1015,32 +1169,36 @@ class TestIntegrationService:
     ) -> None:
         """Test storing integration with grant type."""
         # Store AC integration
-        ac_provider_id = "ac_provider"
+        ac_provider_key = ProviderKey(
+            id="ac_provider",
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        )
         await integration_service.store_provider_config(
-            provider_id=ac_provider_id,
+            provider_key=ac_provider_key,
             client_id="ac_client",
             client_secret=SecretStr("ac_secret"),
             provider_config={},
-            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
         )
         ac_integration = await integration_service.store_integration(
-            provider_id=ac_provider_id,
+            provider_key=ac_provider_key,
             access_token=mock_token_response.access_token,
             refresh_token=mock_token_response.refresh_token,
         )
         assert ac_integration.grant_type == "authorization_code"
 
         # Store CC integration
-        cc_provider_id = "cc_provider"
+        cc_provider_key = ProviderKey(
+            id="cc_provider",
+            grant_type=OAuthGrantType.CLIENT_CREDENTIALS,
+        )
         await integration_service.store_provider_config(
-            provider_id=cc_provider_id,
+            provider_key=cc_provider_key,
             client_id="cc_client",
             client_secret=SecretStr("cc_secret"),
             provider_config={},
-            grant_type=OAuthGrantType.CLIENT_CREDENTIALS,
         )
         cc_integration = await integration_service.store_integration(
-            provider_id=cc_provider_id,
+            provider_key=cc_provider_key,
             access_token=mock_token_response.access_token,
         )
         assert cc_integration.grant_type == "client_credentials"
@@ -1052,31 +1210,35 @@ class TestIntegrationService:
     ) -> None:
         """Test listing integrations with different grant types."""
         # Create AC provider
-        ac_provider_id = "provider_ac"
+        ac_provider_key = ProviderKey(
+            id="provider_ac",
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        )
         await integration_service.store_provider_config(
-            provider_id=ac_provider_id,
+            provider_key=ac_provider_key,
             client_id="ac_client",
             client_secret=SecretStr("ac_secret"),
             provider_config={},
-            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
         )
         await integration_service.store_integration(
-            provider_id=ac_provider_id,
+            provider_key=ac_provider_key,
             access_token=mock_token_response.access_token,
             refresh_token=mock_token_response.refresh_token,
         )
 
         # Create CC provider
-        cc_provider_id = "provider_cc"
+        cc_provider_key = ProviderKey(
+            id="provider_cc",
+            grant_type=OAuthGrantType.CLIENT_CREDENTIALS,
+        )
         await integration_service.store_provider_config(
-            provider_id=cc_provider_id,
+            provider_key=cc_provider_key,
             client_id="cc_client",
             client_secret=SecretStr("cc_secret"),
             provider_config={},
-            grant_type=OAuthGrantType.CLIENT_CREDENTIALS,
         )
         await integration_service.store_integration(
-            provider_id=cc_provider_id,
+            provider_key=cc_provider_key,
             access_token=mock_token_response.access_token,
         )
 
@@ -1085,10 +1247,22 @@ class TestIntegrationService:
 
         # Find our integrations
         ac_integration = next(
-            (i for i in all_integrations if i.provider_id == ac_provider_id), None
+            (
+                i
+                for i in all_integrations
+                if ProviderKey(id=i.provider_id, grant_type=i.grant_type)
+                == ac_provider_key
+            ),
+            None,
         )
         cc_integration = next(
-            (i for i in all_integrations if i.provider_id == cc_provider_id), None
+            (
+                i
+                for i in all_integrations
+                if ProviderKey(id=i.provider_id, grant_type=i.grant_type)
+                == cc_provider_key
+            ),
+            None,
         )
 
         assert ac_integration is not None

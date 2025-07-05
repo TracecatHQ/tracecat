@@ -328,7 +328,7 @@ export const publicIncomingWebhook = (
   data: PublicIncomingWebhookData
 ): CancelablePromise<PublicIncomingWebhookResponse> => {
   return __request(OpenAPI, {
-    method: "GET",
+    method: "POST",
     url: "/webhooks/{workflow_id}/{secret}",
     path: {
       secret: data.secret,
@@ -368,7 +368,7 @@ export const publicIncomingWebhook1 = (
   data: PublicIncomingWebhook1Data
 ): CancelablePromise<PublicIncomingWebhook1Response> => {
   return __request(OpenAPI, {
-    method: "POST",
+    method: "GET",
     url: "/webhooks/{workflow_id}/{secret}",
     path: {
       secret: data.secret,
@@ -3808,6 +3808,7 @@ export const integrationsListIntegrations = (
  * @param data The data for the request.
  * @param data.providerId
  * @param data.workspaceId
+ * @param data.grantType
  * @returns IntegrationRead Successful Response
  * @throws ApiError
  */
@@ -3822,6 +3823,7 @@ export const integrationsGetIntegration = (
     },
     query: {
       workspace_id: data.workspaceId,
+      grant_type: data.grantType,
     },
     errors: {
       422: "Validation Error",
@@ -3835,6 +3837,7 @@ export const integrationsGetIntegration = (
  * @param data The data for the request.
  * @param data.providerId
  * @param data.workspaceId
+ * @param data.grantType
  * @returns void Successful Response
  * @throws ApiError
  */
@@ -3849,6 +3852,7 @@ export const integrationsDeleteIntegration = (
     },
     query: {
       workspace_id: data.workspaceId,
+      grant_type: data.grantType,
     },
     errors: {
       422: "Validation Error",
@@ -3863,6 +3867,7 @@ export const integrationsDeleteIntegration = (
  * @param data.providerId
  * @param data.workspaceId
  * @param data.requestBody
+ * @param data.grantType
  * @returns void Successful Response
  * @throws ApiError
  */
@@ -3877,6 +3882,7 @@ export const integrationsUpdateIntegration = (
     },
     query: {
       workspace_id: data.workspaceId,
+      grant_type: data.grantType,
     },
     body: data.requestBody,
     mediaType: "application/json",
@@ -3922,6 +3928,7 @@ export const integrationsConnectProvider = (
  * @param data The data for the request.
  * @param data.providerId
  * @param data.workspaceId
+ * @param data.grantType
  * @returns void Successful Response
  * @throws ApiError
  */
@@ -3936,6 +3943,7 @@ export const integrationsDisconnectIntegration = (
     },
     query: {
       workspace_id: data.workspaceId,
+      grant_type: data.grantType,
     },
     errors: {
       422: "Validation Error",
@@ -3998,6 +4006,7 @@ export const providersListProviders = (
  * @param data The data for the request.
  * @param data.providerId
  * @param data.workspaceId
+ * @param data.grantType
  * @returns ProviderRead Successful Response
  * @throws ApiError
  */
@@ -4012,6 +4021,7 @@ export const providersGetProvider = (
     },
     query: {
       workspace_id: data.workspaceId,
+      grant_type: data.grantType,
     },
     errors: {
       422: "Validation Error",
