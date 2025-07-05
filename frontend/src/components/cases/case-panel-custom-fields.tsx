@@ -92,7 +92,7 @@ export function CustomFieldInner({ customField, onBlur }: CustomFieldProps) {
           )}
         />
       )
-    case "DECIMAL":
+    case "NUMERIC":
     case "INTEGER":
       return (
         <FormField

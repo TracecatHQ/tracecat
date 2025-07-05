@@ -2236,7 +2236,7 @@ export type SpecialUserID = "current"
 export type SqlType =
   | "TEXT"
   | "INTEGER"
-  | "DECIMAL"
+  | "NUMERIC"
   | "BOOLEAN"
   | "TIMESTAMP"
   | "TIMESTAMPTZ"

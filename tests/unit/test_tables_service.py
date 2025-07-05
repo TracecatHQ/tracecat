@@ -537,7 +537,7 @@ class TestTableDataTypes:
         columns = [
             TableColumnCreate(name="text_col", type=SqlType.TEXT),
             TableColumnCreate(name="int_col", type=SqlType.INTEGER),
-            TableColumnCreate(name="decimal_col", type=SqlType.DECIMAL),
+            TableColumnCreate(name="decimal_col", type=SqlType.NUMERIC),
             TableColumnCreate(name="bool_col", type=SqlType.BOOLEAN),
             TableColumnCreate(name="json_col", type=SqlType.JSONB),
             TableColumnCreate(name="timestamp_col", type=SqlType.TIMESTAMP),
