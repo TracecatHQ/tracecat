@@ -15,8 +15,10 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from tracecat import config
 from tracecat.db.schemas import OAuthStateDB, User, Workspace
 from tracecat.integrations.base import AuthorizationCodeOAuthProvider
+from tracecat.integrations.enums import OAuthGrantType
 from tracecat.integrations.models import (
     ProviderCategory,
+    ProviderKey,
     ProviderMetadata,
     ProviderScopes,
 )
@@ -318,11 +320,14 @@ class TestOAuthState:
         test_role_with_user: Role,
     ) -> None:
         """Test the full OAuth flow with state management."""
-        provider_id = MockOAuthProvider.id
+        provider_key = ProviderKey(
+            id=MockOAuthProvider.id,
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        )
 
         # Store provider configuration
         await integration_service.store_provider_config(
-            provider_id=provider_id,
+            provider_key=provider_key,
             client_id="test_client_id",
             client_secret=SecretStr("test_client_secret"),
             provider_config={"redirect_uri": "http://localhost:8000/callback"},
@@ -339,7 +344,7 @@ class TestOAuthState:
             state=state_id,
             workspace_id=test_role_with_user.workspace_id,
             user_id=test_role_with_user.user_id,
-            provider_id=provider_id,
+            provider_id=provider_key.id,
             expires_at=expires_at,
         )
         session.add(oauth_state)
