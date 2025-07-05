@@ -219,18 +219,20 @@ TRACECAT__BLOB_STORAGE_PROTOCOL = os.environ.get(
 )
 """Blob storage protocol: 's3' for AWS S3, 'minio' for Minio."""
 
-TRACECAT__BLOB_STORAGE_BUCKET = os.environ.get(
-    "TRACECAT__BLOB_STORAGE_BUCKET", "tracecat"
+# Bucket for case attachments
+TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS = os.environ.get(
+    "TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS", "tracecat-attachments"
 )
-"""The name of the blob storage bucket."""
+"""Bucket for case attachments."""
 
 TRACECAT__BLOB_STORAGE_ENDPOINT = os.environ.get(
     "TRACECAT__BLOB_STORAGE_ENDPOINT", "http://minio:9000"
 )
-"""Endpoint URL for Minio. Ignored when protocol is 's3'."""
+"""Endpoint URL for blob storage. Ignored when protocol is 's3'."""
 
 TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT = os.environ.get(
-    "TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT"
+    "TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT",
+    f"{TRACECAT__PUBLIC_APP_URL}/s3",
 )
 """Public endpoint URL for presigned URLs. Falls back to TRACECAT__BLOB_STORAGE_ENDPOINT if not set."""
 

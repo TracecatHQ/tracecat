@@ -441,7 +441,7 @@ class TestS3Operations:
         key = "test/file.txt"
         content_type = "text/plain"
 
-        await upload_file(content, key, content_type, "test-bucket")
+        await upload_file(content, key, "test-bucket", content_type)
 
         mock_client.put_object.assert_called_once_with(
             Bucket="test-bucket", Key=key, Body=content, ContentType=content_type
@@ -519,8 +519,15 @@ class TestS3Operations:
 
     @pytest.mark.anyio
     @patch("tracecat.storage.get_storage_client")
-    async def test_generate_presigned_download_url(self, mock_get_client):
+    @patch("tracecat.storage.config")
+    async def test_generate_presigned_download_url(self, mock_config, mock_get_client):
         """Test presigned download URL generation."""
+        # Mock config to ensure predictable URL transformation
+        mock_config.TRACECAT__BLOB_STORAGE_ENDPOINT = "https://example.com"
+        mock_config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT = (
+            "https://example.com"
+        )
+
         mock_client = AsyncMock()
         mock_get_client.return_value.__aenter__.return_value = mock_client
 
@@ -544,8 +551,17 @@ class TestS3Operations:
 
     @pytest.mark.anyio
     @patch("tracecat.storage.get_storage_client")
-    async def test_generate_presigned_download_url_with_preview(self, mock_get_client):
+    @patch("tracecat.storage.config")
+    async def test_generate_presigned_download_url_with_preview(
+        self, mock_config, mock_get_client
+    ):
         """Test presigned download URL generation with preview mode."""
+        # Mock config to ensure predictable URL transformation
+        mock_config.TRACECAT__BLOB_STORAGE_ENDPOINT = "https://example.com"
+        mock_config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT = (
+            "https://example.com"
+        )
+
         mock_client = AsyncMock()
         mock_get_client.return_value.__aenter__.return_value = mock_client
 
@@ -570,10 +586,17 @@ class TestS3Operations:
 
     @pytest.mark.anyio
     @patch("tracecat.storage.get_storage_client")
+    @patch("tracecat.storage.config")
     async def test_generate_presigned_download_url_with_content_type_override(
-        self, mock_get_client
+        self, mock_config, mock_get_client
     ):
         """Test presigned download URL generation with content type override."""
+        # Mock config to ensure predictable URL transformation
+        mock_config.TRACECAT__BLOB_STORAGE_ENDPOINT = "https://example.com"
+        mock_config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT = (
+            "https://example.com"
+        )
+
         mock_client = AsyncMock()
         mock_get_client.return_value.__aenter__.return_value = mock_client
 
@@ -739,7 +762,7 @@ class TestEdgeCases:
             with pytest.raises(ClientError):
                 import asyncio
 
-                asyncio.run(upload_file(b"content", "key", bucket="test"))
+                asyncio.run(upload_file(b"content", "key", "test"))
 
             # Check that error was logged
             mock_logger.error.assert_called()

@@ -809,13 +809,12 @@ def get_storage_client():
         return session.client("s3")
 
 
-async def ensure_bucket_exists(bucket: str | None = None) -> None:
+async def ensure_bucket_exists(bucket: str) -> None:
     """Ensure the storage bucket exists, creating it if necessary.
 
     Args:
-        bucket: Optional bucket name (defaults to config)
+        bucket: Bucket name (required)
     """
-    bucket = bucket or config.TRACECAT__BLOB_STORAGE_BUCKET
 
     async with get_storage_client() as s3_client:
         try:
@@ -847,7 +846,7 @@ async def ensure_bucket_exists(bucket: str | None = None) -> None:
 
 async def generate_presigned_download_url(
     key: str,
-    bucket: str | None = None,
+    bucket: str,
     expiry: int | None = None,
     client_ip: str | None = None,
     force_download: bool = True,
@@ -857,7 +856,7 @@ async def generate_presigned_download_url(
 
     Args:
         key: The S3 object key
-        bucket: Optional bucket name (defaults to config)
+        bucket: Bucket name (required)
         expiry: URL expiry time in seconds (defaults to config)
         client_ip: Client IP address for IP-based restrictions (S3 only)
         force_download: If True, forces Content-Disposition: attachment
@@ -869,7 +868,6 @@ async def generate_presigned_download_url(
     Raises:
         ClientError: If URL generation fails
     """
-    bucket = bucket or config.TRACECAT__BLOB_STORAGE_BUCKET
     expiry = expiry or config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY
 
     # Build request parameters with security headers
@@ -893,33 +891,22 @@ async def generate_presigned_download_url(
                 ExpiresIn=expiry,
             )
 
-            # If we have a separate presigned URL endpoint configured, replace the endpoint
+            # Replace the internal endpoint with the public presigned URL endpoint
+            # Only transform URL if a public endpoint is configured
             if config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT:
                 parsed_url = urlparse(url)
-                internal_parsed = urlparse(config.TRACECAT__BLOB_STORAGE_ENDPOINT)
                 public_parsed = urlparse(
                     config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT
                 )
 
-                # Only replace if the URL actually starts with our internal endpoint
-                if (
-                    parsed_url.scheme == internal_parsed.scheme
-                    and parsed_url.netloc == internal_parsed.netloc
-                ):
-                    # Replace scheme, netloc, and prepend the public path
-                    new_path = public_parsed.path.rstrip("/") + parsed_url.path
-                    new_url = parsed_url._replace(
-                        scheme=public_parsed.scheme,
-                        netloc=public_parsed.netloc,
-                        path=new_path,
-                    )
-                    url = urlunparse(new_url)
-                else:
-                    logger.warning(
-                        "Presigned URL does not match expected internal endpoint",
-                        url_host=parsed_url.netloc,
-                        expected_host=internal_parsed.netloc,
-                    )
+                # Replace scheme, netloc, and prepend the public path
+                new_path = public_parsed.path.rstrip("/") + parsed_url.path
+                new_url = parsed_url._replace(
+                    scheme=public_parsed.scheme,
+                    netloc=public_parsed.netloc,
+                    path=new_path,
+                )
+                url = urlunparse(new_url)
 
             # Sanitize sensitive data for logging
             sanitized_ip = (
@@ -945,7 +932,7 @@ async def generate_presigned_download_url(
 
 async def generate_presigned_upload_url(
     key: str,
-    bucket: str | None = None,
+    bucket: str,
     expiry: int | None = None,
     content_type: str | None = None,
 ) -> str:
@@ -953,7 +940,7 @@ async def generate_presigned_upload_url(
 
     Args:
         key: The S3 object key
-        bucket: Optional bucket name (defaults to config)
+        bucket: Bucket name (required)
         expiry: URL expiry time in seconds (defaults to config)
         content_type: Optional content type constraint
 
@@ -963,7 +950,6 @@ async def generate_presigned_upload_url(
     Raises:
         ClientError: If URL generation fails
     """
-    bucket = bucket or config.TRACECAT__BLOB_STORAGE_BUCKET
     expiry = expiry or config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY
 
     params = {"Bucket": bucket, "Key": key}
@@ -1051,21 +1037,20 @@ def validate_file_size(size: int) -> None:
 async def upload_file(
     content: bytes,
     key: str,
+    bucket: str,
     content_type: str | None = None,
-    bucket: str | None = None,
 ) -> None:
     """Upload a file to S3/MinIO.
 
     Args:
         content: The file content as bytes
         key: The S3 object key
+        bucket: Bucket name (required)
         content_type: Optional MIME type of the file
-        bucket: Optional bucket name (defaults to config)
 
     Raises:
         ClientError: If the upload fails
     """
-    bucket = bucket or config.TRACECAT__BLOB_STORAGE_BUCKET
 
     try:
         async with get_storage_client() as s3_client:
@@ -1094,12 +1079,12 @@ async def upload_file(
         raise
 
 
-async def download_file(key: str, bucket: str | None = None) -> bytes:
+async def download_file(key: str, bucket: str) -> bytes:
     """Download a file from S3/MinIO.
 
     Args:
         key: The S3 object key
-        bucket: Optional bucket name (defaults to config)
+        bucket: Bucket name (required)
 
     Returns:
         File content as bytes
@@ -1108,7 +1093,6 @@ async def download_file(key: str, bucket: str | None = None) -> bytes:
         ClientError: If the download fails
         FileNotFoundError: If the file doesn't exist
     """
-    bucket = bucket or config.TRACECAT__BLOB_STORAGE_BUCKET
 
     try:
         async with get_storage_client() as s3_client:
@@ -1138,17 +1122,16 @@ async def download_file(key: str, bucket: str | None = None) -> bytes:
         raise
 
 
-async def delete_file(key: str, bucket: str | None = None) -> None:
+async def delete_file(key: str, bucket: str) -> None:
     """Delete a file from S3/MinIO.
 
     Args:
         key: The S3 object key
-        bucket: Optional bucket name (defaults to config)
+        bucket: Bucket name (required)
 
     Raises:
         ClientError: If the deletion fails
     """
-    bucket = bucket or config.TRACECAT__BLOB_STORAGE_BUCKET
 
     try:
         async with get_storage_client() as s3_client:
@@ -1168,12 +1151,12 @@ async def delete_file(key: str, bucket: str | None = None) -> None:
         raise
 
 
-async def file_exists(key: str, bucket: str | None = None) -> bool:
+async def file_exists(key: str, bucket: str) -> bool:
     """Check if a file exists in S3/MinIO.
 
     Args:
         key: The S3 object key
-        bucket: Optional bucket name (defaults to config)
+        bucket: Bucket name (required)
 
     Returns:
         True if the file exists, False otherwise
@@ -1181,7 +1164,6 @@ async def file_exists(key: str, bucket: str | None = None) -> bool:
     Raises:
         ClientError: If the check fails (other than 404)
     """
-    bucket = bucket or config.TRACECAT__BLOB_STORAGE_BUCKET
 
     try:
         async with get_storage_client() as s3_client:

@@ -923,6 +923,7 @@ class CaseAttachmentService(BaseWorkspaceService):
                 await storage.upload_file(
                     content=params.content,
                     key=storage_key,
+                    bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS,
                     content_type=validated_content_type,
                 )
             except Exception as e:
@@ -952,6 +953,7 @@ class CaseAttachmentService(BaseWorkspaceService):
                     await storage.upload_file(
                         content=params.content,
                         key=storage_key,
+                        bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS,
                         content_type=validated_content_type,
                     )
                 except Exception as e:
@@ -1022,7 +1024,10 @@ class CaseAttachmentService(BaseWorkspaceService):
         # Download from blob storage
         storage_key = attachment.storage_path
         try:
-            content = await storage.download_file(storage_key)
+            content = await storage.download_file(
+                key=storage_key,
+                bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS,
+            )
 
             # Verify integrity
             computed_hash = storage.compute_sha256(content)
@@ -1081,6 +1086,7 @@ class CaseAttachmentService(BaseWorkspaceService):
         try:
             presigned_url = await storage.generate_presigned_download_url(
                 key=storage_key,
+                bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS,
                 client_ip=client_ip,
                 force_download=force_download,
                 override_content_type=override_content_type,
@@ -1127,7 +1133,10 @@ class CaseAttachmentService(BaseWorkspaceService):
         # Delete from blob storage
         storage_key = attachment.storage_path
         try:
-            await storage.delete_file(storage_key)
+            await storage.delete_file(
+                key=storage_key,
+                bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS,
+            )
         except Exception as e:
             # Log but don't fail - we've already marked as deleted
             logger.error(

@@ -41,7 +41,9 @@ def sample_attachment_params(sample_file_content: bytes) -> CaseAttachmentCreate
 @pytest.fixture
 def configured_bucket(minio_bucket: str, monkeypatch: pytest.MonkeyPatch):
     """Configure Tracecat to use the dynamically-generated MinIO bucket."""
-    monkeypatch.setattr(config, "TRACECAT__BLOB_STORAGE_BUCKET", minio_bucket)
+    monkeypatch.setattr(
+        config, "TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS", minio_bucket
+    )
     # Ensure the MinIO credentials are available for the storage client
     monkeypatch.setenv("MINIO_ROOT_USER", "minioadmin")
     monkeypatch.setenv("MINIO_ROOT_PASSWORD", "minioadmin")

@@ -76,7 +76,7 @@ async def lifespan(app: FastAPI):
     await add_temporal_search_attributes()
 
     # Storage
-    await ensure_bucket_exists()
+    await ensure_bucket_exists(config.TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS)
 
     # App
     role = bootstrap_role()
