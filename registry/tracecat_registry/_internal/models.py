@@ -9,7 +9,6 @@ from pydantic import (
     computed_field,
     model_validator,
 )
-from tracecat.logger import logger
 
 """
 IMPORTANT: Pydantic Annotated Metadata Ordering
@@ -147,7 +146,6 @@ def _validate_registry_secret_type(value: Any) -> Any:
     3. Other legacy secrets without clear type indicators will fail validation
     4. Modern secrets with explicit 'type' field are passed through unchanged
     """
-    logger.warning("BEFORE VALIDATION")
     if isinstance(value, dict) and "type" not in value:
         if "keys" in value or "optional_keys" in value:
             # Legacy custom secret with keys - set type to "custom"
