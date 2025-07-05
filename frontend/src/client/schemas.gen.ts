@@ -5429,7 +5429,7 @@ export const $RegistrySecret = {
 } as const
 
 export const $RegistrySecretType_Input = {
-  anyOf: [
+  oneOf: [
     {
       $ref: "#/components/schemas/RegistrySecret",
     },
@@ -5437,10 +5437,17 @@ export const $RegistrySecretType_Input = {
       $ref: "#/components/schemas/RegistryOAuthSecret-Input",
     },
   ],
+  discriminator: {
+    propertyName: "type",
+    mapping: {
+      custom: "#/components/schemas/RegistrySecret",
+      oauth: "#/components/schemas/RegistryOAuthSecret-Input",
+    },
+  },
 } as const
 
 export const $RegistrySecretType_Output = {
-  anyOf: [
+  oneOf: [
     {
       $ref: "#/components/schemas/RegistrySecret",
     },
@@ -5448,6 +5455,13 @@ export const $RegistrySecretType_Output = {
       $ref: "#/components/schemas/RegistryOAuthSecret-Output",
     },
   ],
+  discriminator: {
+    propertyName: "type",
+    mapping: {
+      custom: "#/components/schemas/RegistrySecret",
+      oauth: "#/components/schemas/RegistryOAuthSecret-Output",
+    },
+  },
 } as const
 
 export const $ReopenedEventRead = {
@@ -7299,18 +7313,7 @@ export const $TemplateActionDefinition_Input = {
       anyOf: [
         {
           items: {
-            oneOf: [
-              {
-                $ref: "#/components/schemas/RegistrySecretType-Input",
-              },
-            ],
-            discriminator: {
-              propertyName: "type",
-              mapping: {
-                custom: "#/components/schemas/RegistrySecretType-Input",
-                oauth: "#/components/schemas/RegistrySecretType-Input",
-              },
-            },
+            $ref: "#/components/schemas/RegistrySecretType-Input",
           },
           type: "array",
         },
@@ -7437,18 +7440,7 @@ export const $TemplateActionDefinition_Output = {
       anyOf: [
         {
           items: {
-            oneOf: [
-              {
-                $ref: "#/components/schemas/RegistrySecretType-Output",
-              },
-            ],
-            discriminator: {
-              propertyName: "type",
-              mapping: {
-                custom: "#/components/schemas/RegistrySecretType-Output",
-                oauth: "#/components/schemas/RegistrySecretType-Output",
-              },
-            },
+            $ref: "#/components/schemas/RegistrySecretType-Output",
           },
           type: "array",
         },
