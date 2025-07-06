@@ -1,9 +1,4 @@
-import type { Metadata } from "next"
 import { CasePanelView } from "@/components/cases/case-panel-view"
-
-export const metadata: Metadata = {
-  title: "Case details",
-}
 
 interface CaseDetailPageProps {
   params: Promise<{

@@ -3,6 +3,7 @@
 import { format, formatDistanceToNow } from "date-fns"
 import {
   ActivityIcon,
+  ArrowLeftIcon,
   Braces,
   List,
   MessageCircleIcon,
@@ -10,6 +11,7 @@ import {
   PlayCircle,
   UserCircle2,
 } from "lucide-react"
+import Link from "next/link"
 import type {
   CasePriority,
   CaseSeverity,
@@ -32,6 +34,13 @@ import { CasePanelSummary } from "@/components/cases/case-panel-summary"
 import { CaseWorkflowTrigger } from "@/components/cases/case-workflow-trigger"
 import { AlertNotification } from "@/components/notifications"
 import { Badge } from "@/components/ui/badge"
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbSeparator,
+} from "@/components/ui/breadcrumb"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useGetCase, useUpdateCase } from "@/lib/hooks"
@@ -114,11 +123,34 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
   const customFields = caseData.fields.filter((field) => !field.reserved)
   return (
     <div className="flex h-full flex-col overflow-auto">
-      <div className="flex items-center justify-between border-b px-6 py-4">
-        <div className="flex items-center space-x-4">
-          <Badge variant="outline" className="text-xs font-medium">
-            {caseData.short_id}
-          </Badge>
+      {/* Breadcrumb Navigation */}
+      <div className="border-b px-6 py-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-4">
+            <Breadcrumb>
+              <BreadcrumbList>
+                <BreadcrumbItem>
+                  <BreadcrumbLink asChild>
+                    <Link
+                      href={`/workspaces/${workspaceId}/cases`}
+                      className="flex items-center"
+                    >
+                      <ArrowLeftIcon className="mr-2 size-4" />
+                      Cases
+                    </Link>
+                  </BreadcrumbLink>
+                </BreadcrumbItem>
+                <BreadcrumbSeparator>{"/"}</BreadcrumbSeparator>
+                <BreadcrumbItem>
+                  <div className="flex items-center space-x-2">
+                    <Badge variant="outline" className="text-xs font-medium">
+                      {caseData.short_id}
+                    </Badge>
+                  </div>
+                </BreadcrumbItem>
+              </BreadcrumbList>
+            </Breadcrumb>
+          </div>
           <div className="flex items-center space-x-2 text-xs text-muted-foreground">
             <span>Created {format(new Date(caseData.created_at), "PPpp")}</span>
             <span>•</span>
@@ -134,16 +166,17 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
 
       <div className="mx-auto grid w-full max-w-7xl grid-cols-1 gap-6 overflow-visible p-6 lg:grid-cols-8">
         {/* Left column - Summary & Description */}
-        <div className="lg:col-span-5 space-y-6">
-          {/* Summary */}
-          <div className="space-y-2">
+        <div className="lg:col-span-5 space-y-4">
+          {/* Editable Summary/Title */}
+          <div>
             <CasePanelSummary caseData={caseData} updateCase={updateCase} />
           </div>
 
           {/* Description */}
-          <div className="space-y-2">
+          <div>
             <CasePanelDescription caseData={caseData} updateCase={updateCase} />
           </div>
+
           <Tabs defaultValue="comments" className="w-full">
             <div className="w-full border-b">
               <TabsList className="h-8 justify-start rounded-none bg-transparent p-0">
