@@ -113,8 +113,8 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
 
   const customFields = caseData.fields.filter((field) => !field.reserved)
   return (
-    <div className="flex h-full flex-col overflow-auto px-6">
-      <div className="flex items-center justify-between border-b p-4">
+    <div className="flex h-full flex-col overflow-auto">
+      <div className="flex items-center justify-between border-b px-6 py-4">
         <div className="flex items-center space-x-4">
           <Badge variant="outline" className="text-xs font-medium">
             {caseData.short_id}
@@ -132,9 +132,9 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
         </div>
       </div>
 
-      <div className="grid grid-cols-8 gap-6 overflow-visible p-6">
+      <div className="mx-auto grid w-full max-w-7xl grid-cols-1 gap-6 overflow-visible p-6 lg:grid-cols-8">
         {/* Left column - Summary & Description */}
-        <div className="col-span-5 space-y-6">
+        <div className="lg:col-span-5 space-y-6">
           {/* Summary */}
           <div className="space-y-2">
             <CasePanelSummary caseData={caseData} updateCase={updateCase} />
@@ -186,7 +186,7 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
         </div>
 
         {/* Right column - Details & Custom Fields */}
-        <div className="col-span-3 space-y-6">
+        <div className="lg:col-span-3 space-y-6">
           <div className="bg-card p-4">
             <h3 className="mb-3 flex items-center text-sm font-semibold text-muted-foreground">
               <UserCircle2 className="mr-2 size-4" />

@@ -1,6 +1,7 @@
 "use client"
 
 import type { Row } from "@tanstack/react-table"
+import { useRouter } from "next/navigation"
 import { useCallback, useMemo, useState } from "react"
 import type { CaseReadMinimal } from "@/client"
 import {
@@ -17,13 +18,13 @@ import { useCasesPagination } from "@/hooks"
 import { getDisplayName } from "@/lib/auth"
 import { useDeleteCase } from "@/lib/hooks"
 import { useAuth } from "@/providers/auth"
-import { useCasePanelContext } from "@/providers/case-panel"
 import { useWorkspace } from "@/providers/workspace"
 
 export default function CaseTable() {
   const { user } = useAuth()
   const { workspaceId, workspace } = useWorkspace()
   const [pageSize, setPageSize] = useState(20)
+  const router = useRouter()
 
   const {
     data: cases,
@@ -39,7 +40,6 @@ export default function CaseTable() {
     startItem,
     endItem,
   } = useCasesPagination({ workspaceId, limit: pageSize })
-  const { setCaseId } = useCasePanelContext()
   const { toast } = useToast()
   const [isDeleting, setIsDeleting] = useState(false)
   const { deleteCase } = useDeleteCase({
@@ -49,7 +49,8 @@ export default function CaseTable() {
   const memoizedColumns = useMemo(() => columns, [])
 
   function handleClickRow(row: Row<CaseReadMinimal>) {
-    return () => setCaseId(row.original.id)
+    return () =>
+      router.push(`/workspaces/${workspaceId}/cases/${row.original.id}`)
   }
 
   const handleDeleteRows = useCallback(

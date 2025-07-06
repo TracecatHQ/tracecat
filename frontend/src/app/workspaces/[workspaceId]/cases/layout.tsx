@@ -22,6 +22,16 @@ function BreadcrumbNavigation() {
   const queryCategory = searchParams.get("category")
   const isFieldsPage = pathname.endsWith("/cases/fields")
 
+  // Check if we're on a case detail page
+  const pathSegments = pathname.split("/")
+  const caseIndex = pathSegments.indexOf("cases")
+  const isCaseDetailPage =
+    caseIndex !== -1 &&
+    pathSegments[caseIndex + 1] &&
+    pathSegments[caseIndex + 1] !== "fields" &&
+    pathSegments[caseIndex + 1].match(/^[a-zA-Z0-9-]+$/)
+  const caseId = isCaseDetailPage ? pathSegments[caseIndex + 1] : null
+
   return (
     <div className="flex w-full items-center justify-between">
       <div className="items-start space-y-3 text-left">
@@ -32,10 +42,12 @@ function BreadcrumbNavigation() {
                 asChild
                 className={cn(
                   "flex items-center",
-                  queryCategory || isFieldsPage
+                  queryCategory || isFieldsPage || isCaseDetailPage
                     ? "text-muted-foreground"
                     : "text-foreground",
-                  !isFieldsPage && "cursor-default text-foreground"
+                  !isFieldsPage &&
+                    !isCaseDetailPage &&
+                    "cursor-default text-foreground"
                 )}
               >
                 <Link href={`/workspaces/${workspaceId}/cases`}>
@@ -51,7 +63,19 @@ function BreadcrumbNavigation() {
                 <BreadcrumbItem>
                   <BreadcrumbLink>
                     <span className="text-2xl font-semibold tracking-tight text-foreground/80">
-                      Custom Fields
+                      Custom fields
+                    </span>
+                  </BreadcrumbLink>
+                </BreadcrumbItem>
+              </>
+            )}
+            {isCaseDetailPage && caseId && (
+              <>
+                <BreadcrumbSeparator>{"/"}</BreadcrumbSeparator>
+                <BreadcrumbItem>
+                  <BreadcrumbLink>
+                    <span className="text-2xl font-semibold tracking-tight text-foreground/80">
+                      {caseId}
                     </span>
                   </BreadcrumbLink>
                 </BreadcrumbItem>
@@ -61,7 +85,7 @@ function BreadcrumbNavigation() {
         </Breadcrumb>
       </div>
       <div className="ml-auto flex items-center space-x-2">
-        <CaseTableInsertButton />
+        {!isCaseDetailPage && <CaseTableInsertButton />}
       </div>
     </div>
   )

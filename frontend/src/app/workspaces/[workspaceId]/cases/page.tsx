@@ -1,6 +1,5 @@
 import type { Metadata } from "next"
 import CaseTable from "@/components/cases/case-table"
-import CasePanelProvider from "@/providers/case-panel"
 
 export const metadata: Metadata = {
   title: "Cases",
@@ -14,9 +13,7 @@ export default function CasesPage() {
           View your workspace&apos;s cases here.
         </p>
       </div>
-      <CasePanelProvider className="h-full overflow-auto sm:w-3/5 sm:max-w-none md:w-3/5 lg:w-4/5 lg:max-w-[1200px]">
-        <CaseTable />
-      </CasePanelProvider>
+      <CaseTable />
     </div>
   )
 }
