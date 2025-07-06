@@ -11,6 +11,7 @@ import {
   FileText,
   ImageIcon,
   Music,
+  Paperclip,
   Plus,
   Presentation,
   Trash2,
@@ -559,93 +560,108 @@ export function CaseAttachmentsSection({
         </div>
 
         {/* Attachments list */}
-        {attachments.map((attachment) => {
-          return (
-            <div
-              key={attachment.id}
-              className="flex items-center gap-4 p-2 px-3.5 rounded-md hover:bg-muted/40 transition-colors group"
-            >
+        {attachments.length === 0 ? (
+          <div className="flex flex-col items-center justify-center p-4">
+            <div className="p-2 rounded-full bg-muted/50 mb-3">
+              <Paperclip className="h-6 w-6 text-muted-foreground" />
+            </div>
+            <h3 className="text-sm font-medium text-muted-foreground mb-1">
+              No attachments found
+            </h3>
+            <p className="text-xs text-muted-foreground/75 text-center max-w-[250px]">
+              Add files by clicking the add button above or drag and drop files
+              directly.
+            </p>
+          </div>
+        ) : (
+          attachments.map((attachment) => {
+            return (
               <div
-                className={`p-1 rounded ${getFileColor(attachment.content_type)}`}
+                key={attachment.id}
+                className="flex items-center gap-4 p-2 px-3.5 rounded-md hover:bg-muted/40 transition-colors group"
               >
-                {getFileIcon(attachment.content_type)}
-              </div>
-
-              <div className="flex-1">
-                <div className="flex items-center gap-1.5">
-                  <span className="font-medium text-sm truncate">
-                    {attachment.file_name}
-                  </span>
-                  <span className="text-xs text-muted-foreground">
-                    ({formatFileSize(attachment.size)})
-                  </span>
+                <div
+                  className={`p-1 rounded ${getFileColor(attachment.content_type)}`}
+                >
+                  {getFileIcon(attachment.content_type)}
                 </div>
 
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <span>
-                    by {getUploaderName(attachment.creator_id)} •{" "}
-                    {formatDistanceToNow(new Date(attachment.created_at), {
-                      addSuffix: true,
-                    })}
-                  </span>
+                <div className="flex-1">
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-medium text-sm truncate">
+                      {attachment.file_name}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      ({formatFileSize(attachment.size)})
+                    </span>
+                  </div>
 
-                  {/* Short SHA */}
-                  <span className="font-mono text-xs bg-muted px-1 py-0.5 rounded">
-                    {truncateHash(attachment.sha256)}
-                  </span>
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <span>
+                      by {getUploaderName(attachment.creator_id)} •{" "}
+                      {formatDistanceToNow(new Date(attachment.created_at), {
+                        addSuffix: true,
+                      })}
+                    </span>
+
+                    {/* Short SHA */}
+                    <span className="font-mono text-xs bg-muted px-1 py-0.5 rounded">
+                      {truncateHash(attachment.sha256)}
+                    </span>
+                  </div>
                 </div>
-              </div>
 
-              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                {/* Preview button - only for images */}
-                {attachment.content_type.startsWith("image/") && (
+                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  {/* Preview button - only for images */}
+                  {attachment.content_type.startsWith("image/") && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handlePreview(attachment)}
+                          disabled={deleteMutation.isPending}
+                        >
+                          <Eye className="size-3.5" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <div className="text-xs">Preview image</div>
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
+
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => handlePreview(attachment)}
+                        onClick={() => handleDownload(attachment)}
                         disabled={deleteMutation.isPending}
                       >
-                        <Eye className="size-3.5" />
+                        <Download className="size-3.5" />
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>
-                      <div className="text-xs">Preview image</div>
+                      <div className="text-xs">Download attachment</div>
                     </TooltipContent>
                   </Tooltip>
-                )}
 
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleDownload(attachment)}
-                      disabled={deleteMutation.isPending}
-                    >
-                      <Download className="size-3.5" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <div className="text-xs">Download attachment</div>
-                  </TooltipContent>
-                </Tooltip>
-
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                  title="Delete attachment"
-                  onClick={() => handleDelete(attachment.id)}
-                  disabled={deleteMutation.isPending}
-                >
-                  <Trash2 className="size-3.5" />
-                </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                    title="Delete attachment"
+                    onClick={() => handleDelete(attachment.id)}
+                    disabled={deleteMutation.isPending}
+                  >
+                    <Trash2 className="size-3.5" />
+                  </Button>
+                </div>
               </div>
-            </div>
-          )
-        })}
+            )
+          })
+        )}
 
         <input
           ref={fileInputRef}
