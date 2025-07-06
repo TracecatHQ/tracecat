@@ -96,8 +96,8 @@ class TestCSVImporter:
         ):
             csv_importer.convert_value("12.34", SqlType.INTEGER)
 
-    def test_convert_value_decimal(self, csv_importer: CSVImporter) -> None:
-        """Test convert_value with decimal values."""
+    def test_convert_value_numeric(self, csv_importer: CSVImporter) -> None:
+        """Test convert_value with numeric values."""
         assert csv_importer.convert_value("123.45", SqlType.NUMERIC) == 123.45
         assert csv_importer.convert_value("-456.78", SqlType.NUMERIC) == -456.78
         with pytest.raises(

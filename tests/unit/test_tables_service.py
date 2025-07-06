@@ -537,7 +537,7 @@ class TestTableDataTypes:
         columns = [
             TableColumnCreate(name="text_col", type=SqlType.TEXT),
             TableColumnCreate(name="int_col", type=SqlType.INTEGER),
-            TableColumnCreate(name="decimal_col", type=SqlType.NUMERIC),
+            TableColumnCreate(name="numeric_col", type=SqlType.NUMERIC),
             TableColumnCreate(name="bool_col", type=SqlType.BOOLEAN),
             TableColumnCreate(name="json_col", type=SqlType.JSONB),
             TableColumnCreate(name="timestamp_col", type=SqlType.TIMESTAMP),
@@ -565,7 +565,7 @@ class TestTableDataTypes:
         test_data = {
             "text_col": "Hello, World!",
             "int_col": 42,
-            "decimal_col": Decimal("3.14159"),
+            "numeric_col": Decimal("3.14159"),
             "bool_col": True,
             "json_col": test_json,
             "timestamp_col": test_timestamp,
@@ -585,7 +585,7 @@ class TestTableDataTypes:
         # Verify each column type and value
         assert retrieved["text_col"] == "Hello, World!"
         assert retrieved["int_col"] == 42
-        assert retrieved["decimal_col"] == Decimal("3.14159")
+        assert retrieved["numeric_col"] == Decimal("3.14159")
         assert retrieved["bool_col"] is True
         assert retrieved["json_col"] == test_json
 
@@ -682,7 +682,7 @@ class TestTableDataTypes:
         edge_cases = {
             "text_col": "",  # Empty string
             "int_col": 0,  # Zero
-            "decimal_col": Decimal("0.0"),  # Zero decimal
+            "numeric_col": Decimal("0.0"),  # Zero decimal
             "bool_col": False,  # False boolean
             "json_col": {},  # Empty JSON
             "timestamp_col": datetime(
@@ -706,7 +706,7 @@ class TestTableDataTypes:
         # Verify each edge case
         assert retrieved["text_col"] == ""
         assert retrieved["int_col"] == 0
-        assert retrieved["decimal_col"] == Decimal("0.0")
+        assert retrieved["numeric_col"] == Decimal("0.0")
         assert retrieved["bool_col"] is False
         assert retrieved["json_col"] == {}
 
