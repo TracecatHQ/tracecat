@@ -15,6 +15,7 @@ import {
   Presentation,
   Trash2,
   Video,
+  XIcon,
 } from "lucide-react"
 import Image from "next/image"
 import { useCallback, useRef, useState } from "react"
@@ -680,19 +681,7 @@ export function CaseAttachmentsSection({
                   }}
                   className="bg-black/70 backdrop-blur-sm rounded-full p-2 text-white hover:bg-black/80 transition-colors duration-200"
                 >
-                  <svg
-                    className="w-4 h-4"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={1.5}
-                      d="M6 18L18 6M6 6l12 12"
-                    />
-                  </svg>
+                  <XIcon className="w-4 h-4" />
                 </button>
               </div>
 
