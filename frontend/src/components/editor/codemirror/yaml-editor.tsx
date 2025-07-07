@@ -290,6 +290,8 @@ export const YamlStyledEditor = React.forwardRef<
     }
 
     return baseExtensions.concat([
+      editingRangeField,
+      createCoreKeymap(),
       EditorView.domEventHandlers({
         blur: yamlBlurHandler(),
       }),
@@ -720,14 +722,15 @@ const yamlLiteralHighlighter = ViewPlugin.fromClass(
         // Array item: - true/false/null
         /^(\s*-)(\s+)(true|false|null)(\s*(?:#.*)?$)/gm,
         // Flow sequence: [true, false, null]
-        /([,\[])\s*(true|false|null)\s*([,\]])/g,
+        /([,[])\s*(true|false|null)\s*([,\]])/g,
         // Flow mapping: {key: true}
         /(:)\s*(true|false|null)\s*([,}])/g,
       ]
 
       for (const pattern of patterns) {
-        let match
-        while ((match = pattern.exec(text)) !== null) {
+        let match: RegExpExecArray | null
+        match = pattern.exec(text)
+        while (match !== null) {
           const valueMatch = match[0].match(/(true|false|null)/)
           if (valueMatch) {
             const value = valueMatch[0]
@@ -749,6 +752,7 @@ const yamlLiteralHighlighter = ViewPlugin.fromClass(
               }
             }
           }
+          match = pattern.exec(text)
         }
       }
 

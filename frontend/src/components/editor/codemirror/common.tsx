@@ -208,32 +208,57 @@ export async function validateTemplateExpression(
 // State management for editable pills
 export const setEditingRange = StateEffect.define<Range<Decoration> | null>()
 
+/**
+ * StateField that manages the currently editing template pill range.
+ * This field tracks which template pill (if any) is currently being edited,
+ * and provides decorations to highlight the editing state.
+ *
+ * The field handles:
+ * - Setting/clearing the editing range via setEditingRange effects
+ * - Updating range positions when document changes occur
+ * - Clearing editing state when cursor moves outside the range
+ * - Providing decorations to visually highlight the editing pill
+ */
 export const editingRangeField = StateField.define<Range<Decoration> | null>({
   create: () => null,
   update(value, tr) {
+    // Check for explicit setEditingRange effects first
     for (const effect of tr.effects) {
       if (effect.is(setEditingRange)) {
         return effect.value
       }
     }
+
+    // If we have an active editing range and the document changed,
+    // update the range positions to account for text insertions/deletions
     if (value && tr.docChanged) {
       const from = tr.changes.mapPos(value.from, 1)
       const to = tr.changes.mapPos(value.to, -1)
+
+      // If the range collapsed due to changes, clear it
       if (from >= to) {
         return null
       }
+
+      // Update the range with new positions
       value = { from, to, value: value.value }
     }
+
+    // If we have an active editing range, check if cursor is still within it
     if (value) {
       const head = tr.state.selection.main.head
+
+      // Clear editing state if cursor moved outside the range
       if (head < value.from || head > value.to) {
         return null
       }
     }
+
     return value
   },
   provide: (f) =>
     EditorView.decorations.from(f, (value) => {
+      // Convert the editing range to decorations for visual highlighting
       return value ? Decoration.set([value]) : Decoration.none
     }),
 })
