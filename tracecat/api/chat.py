@@ -1,19 +1,18 @@
 """Chat API router for real-time AI agent interactions."""
 
 import asyncio
-import uuid
 from typing import Annotated
 
 import orjson
 from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
+from tracecat_registry.integrations.agents.builder import agent
 
 from tracecat.api.chat_models import ChatRequest, ChatResponse
 from tracecat.auth.credentials import RoleACL
-from tracecat.dsl.models import ActionStatement, RunActionInput, RunContext
-from tracecat.executor.client import ExecutorClient
 from tracecat.logger import logger
 from tracecat.redis.client import get_redis_client
+from tracecat.secrets import secrets_manager
 from tracecat.types.auth import Role
 
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -39,16 +38,14 @@ async def start_chat_turn(
     This endpoint initiates an AI agent execution and returns a stream URL
     for real-time streaming of the agent's processing steps.
     """
-    action_ref = str(uuid.uuid4())
 
     # Prepare agent arguments
     agent_args = {
         "user_prompt": request.message,
-        "model_name": request.model_name,
+        "model_name": "gpt-4o",
         "model_provider": request.model_provider,
         "actions": request.actions,
         "workflow_run_id": conversation_id,
-        "action_ref": action_ref,
     }
 
     if request.instructions:
@@ -58,40 +55,24 @@ async def start_chat_turn(
         # Add context as fixed arguments if provided
         agent_args["fixed_arguments"] = request.context
 
-    # Execute the agent via the ExecutorClient
-    executor = ExecutorClient(role=role)
-
-    run_input = RunActionInput(
-        task=ActionStatement(
-            ref=action_ref,
-            action="ai.agent",
-            args=agent_args,
-        ),
-        exec_context={},
-        run_context=RunContext(
-            wf_id=conversation_id,
-            wf_exec_id=conversation_id,
-            wf_run_id=conversation_id,
-            environment="default",
-        ),
-    )
-
     try:
-        # Fire-and-forget execution
-        _ = await executor.run_action_memory_backend(run_input)
+        # Fire-and-forget execution using the agent function directly
+        secrets_manager.set(
+            "OPENAI_API_KEY",
+            "<REDACTED_API_KEY>",
+        )
+        _ = asyncio.create_task(agent(**agent_args))
 
-        stream_url = f"/api/chat/stream/{conversation_id}/{action_ref}"
+        stream_url = f"/api/chat/stream/{conversation_id}"
 
         return ChatResponse(
             stream_url=stream_url,
             conversation_id=conversation_id,
-            action_ref=action_ref,
         )
     except Exception as e:
         logger.error(
             "Failed to start chat turn",
             conversation_id=conversation_id,
-            action_ref=action_ref,
             error=str(e),
         )
         raise HTTPException(
@@ -100,11 +81,10 @@ async def start_chat_turn(
         ) from e
 
 
-@router.get("/stream/{conversation_id}/{action_ref}")
+@router.get("/stream/{conversation_id}")
 async def stream_chat_events(
     request: Request,
     conversation_id: str,
-    action_ref: str,
     role: WorkspaceUser,
 ):
     """Stream chat events via Server-Sent Events (SSE).
@@ -113,7 +93,7 @@ async def stream_chat_events(
     using Server-Sent Events. It supports automatic reconnection via the
     Last-Event-ID header.
     """
-    stream_key = f"agent-stream:{conversation_id}:{action_ref}"
+    stream_key = f"agent-stream:{conversation_id}"
     last_id = request.headers.get("Last-Event-ID", "0-0")
 
     logger.info(
@@ -121,7 +101,6 @@ async def stream_chat_events(
         stream_key=stream_key,
         last_id=last_id,
         conversation_id=conversation_id,
-        action_ref=action_ref,
     )
 
     async def event_generator():

@@ -28,7 +28,6 @@ class ChatResponse(BaseModel):
 
     stream_url: str = Field(..., description="URL to connect for SSE streaming")
     conversation_id: str = Field(..., description="Unique conversation identifier")
-    action_ref: str = Field(..., description="Unique action reference for this turn")
 
 
 class ChatStreamEvent(BaseModel):
