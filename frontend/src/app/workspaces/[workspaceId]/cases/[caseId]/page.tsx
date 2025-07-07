@@ -10,9 +10,5 @@ interface CaseDetailPageProps {
 export default async function CaseDetailPage({ params }: CaseDetailPageProps) {
   const { caseId } = await params
 
-  return (
-    <div className="flex size-full flex-col">
-      <CasePanelView caseId={caseId} />
-    </div>
-  )
+  return <CasePanelView caseId={caseId} />
 }

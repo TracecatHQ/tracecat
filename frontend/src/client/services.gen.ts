@@ -3681,7 +3681,7 @@ export const casesUpdateField = (
 }
 
 /**
- * Delete Field
+ * Delete field
  * Delete a case field.
  * @param data The data for the request.
  * @param data.fieldId
