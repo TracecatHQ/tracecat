@@ -181,6 +181,7 @@ export type AppSettingsRead = {
   app_interactions_enabled: boolean
   app_workflow_export_enabled: boolean
   app_create_workspace_on_register: boolean
+  app_editor_pills_enabled: boolean
 }
 
 /**
@@ -207,6 +208,10 @@ export type AppSettingsUpdate = {
    * Whether to automatically create a workspace when a user signs up.
    */
   app_create_workspace_on_register?: boolean
+  /**
+   * Whether to show pills in template expressions. When disabled, expressions show as plain text with syntax highlighting.
+   */
+  app_editor_pills_enabled?: boolean
 }
 
 /**
