@@ -13,6 +13,7 @@ from tracecat_registry.integrations.agents.parsers import try_parse_json
 from pydantic_ai.agent import AgentRunResult
 from typing_extensions import Doc
 from timeit import timeit
+import orjson
 
 from pydantic_ai import Agent, ModelRetry
 from pydantic_ai.messages import ModelMessage
@@ -29,6 +30,7 @@ from tracecat.executor.service import (
 )
 from tracecat.expressions.expectations import create_expectation_model
 from tracecat.logger import logger
+from tracecat.redis.client import get_redis_client
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.registry.fields import ActionType, TextArea
 from tracecat.secrets.secrets_manager import env_sandbox
@@ -145,7 +147,7 @@ async def call_tracecat_action(action_name: str, args: dict[str, Any]) -> Any:
 
     # Call action with secrets in environment
     context = create_default_execution_context()
-    context.update(SECRETS=secrets)
+    context.update(SECRETS=secrets)  # type: ignore
 
     flattened_secrets = flatten_secrets(secrets)
     try:
@@ -562,6 +564,18 @@ async def agent(
         bool, Doc("Whether to include usage information in the output.")
     ] = False,
     base_url: Annotated[str | None, Doc("Base URL of the model to use.")] = None,
+    workflow_run_id: Annotated[
+        str | None,
+        Doc(
+            "Workflow run ID for Redis streaming. If provided with action_ref, enables real-time streaming."
+        ),
+    ] = None,
+    action_ref: Annotated[
+        str | None,
+        Doc(
+            "Action reference for Redis streaming. If provided with workflow_run_id, enables real-time streaming."
+        ),
+    ] = None,
 ) -> dict[str, str | dict[str, Any] | list[dict[str, Any]]]:
     builder = TracecatAgentBuilder(
         model_name=model_name,
@@ -616,15 +630,59 @@ async def agent(
         agent = await builder.with_action_filters(*actions).build()
 
         start_time = timeit()
+        # Set up Redis streaming if both parameters are provided
+        redis_client = None
+        stream_key = None
+        if workflow_run_id and action_ref:
+            stream_key = f"agent-stream:{workflow_run_id}:{action_ref}"
+            try:
+                redis_client = await get_redis_client()
+                logger.info("Redis streaming enabled", stream_key=stream_key)
+            except Exception as e:
+                logger.warning(
+                    "Failed to initialize Redis client, continuing without streaming",
+                    error=str(e),
+                )
+
         # Use async version since this function is already async
         try:
             message_nodes = []
             async with agent.iter(user_prompt=enhanced_user_prompt) as run:
                 async for node in run:
-                    message_nodes.append(to_jsonable_python(node))
+                    node_data = to_jsonable_python(node)
+                    message_nodes.append(node_data)
+
+                    # Stream to Redis if enabled
+                    if redis_client and stream_key:
+                        try:
+                            await redis_client.xadd(
+                                stream_key,
+                                {"d": orjson.dumps(node_data).decode()},
+                                maxlen=10000,
+                                approximate=True,
+                            )
+                        except Exception as e:
+                            logger.warning(
+                                "Failed to stream message to Redis", error=str(e)
+                            )
+
                 result = run.result
                 if not isinstance(result, AgentRunResult):
                     raise ValueError("No output returned from agent run.")
+
+            # Add end-of-stream marker if streaming is enabled
+            if redis_client and stream_key:
+                try:
+                    await redis_client.xadd(
+                        stream_key,
+                        {"d": orjson.dumps({"__end__": 1}).decode()},
+                        maxlen=10000,
+                        approximate=True,
+                    )
+                    logger.info("Added end-of-stream marker", stream_key=stream_key)
+                except Exception as e:
+                    logger.warning("Failed to add end-of-stream marker", error=str(e))
+
         except Exception as e:
             raise AgentRunError(
                 exc_cls=type(e),
