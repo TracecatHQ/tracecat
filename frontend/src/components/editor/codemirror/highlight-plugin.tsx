@@ -39,6 +39,7 @@ function createTemplateHighlightDecorations(state: EditorState): DecorationSet {
           border-radius: 0.25rem;
           padding: 0.125rem 0.25rem;
           border: 1px solid rgb(59 130 246 / 0.2);
+          font-family: ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", Menlo, monospace;
         `,
       },
     })
