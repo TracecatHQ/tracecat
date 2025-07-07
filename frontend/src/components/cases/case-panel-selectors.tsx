@@ -213,7 +213,31 @@ export function AssigneeSelect({
       <SelectTrigger
         className={cn(linearStyles.trigger.base, linearStyles.trigger.hover)}
       >
-        <SelectValue placeholder={<NoAssignee className="text-xs" />} />
+        <SelectValue>
+          {assignee ? (
+            <div className="flex items-center gap-1.5">
+              <UserAvatar
+                alt={assignee.first_name || assignee.email}
+                user={
+                  new User({
+                    id: assignee.id,
+                    email: assignee.email,
+                    role: assignee.role,
+                    first_name: assignee.first_name,
+                    last_name: assignee.last_name,
+                    settings: assignee.settings || {},
+                  })
+                }
+                className="size-5 text-xs text-foreground"
+              />
+              <span className="text-xs font-medium">
+                {assignee.first_name || assignee.email.split("@")[0]}
+              </span>
+            </div>
+          ) : (
+            <NoAssignee />
+          )}
+        </SelectValue>
       </SelectTrigger>
       <SelectContent>
         <SelectItem value={UNASSIGNED}>
@@ -235,7 +259,7 @@ export function AssigneeSelect({
             })
             return (
               <SelectItem key={user.id} value={user.id}>
-                <AssignedUser user={user} className="text-xs" />
+                <AssignedUser user={user} />
               </SelectItem>
             )
           })

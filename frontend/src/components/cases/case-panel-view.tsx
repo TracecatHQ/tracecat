@@ -263,9 +263,9 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
               onOpenChange={setPropertiesOpen}
             >
               <div className="space-y-4">
-                {/* Assigned To */}
+                {/* Assign */}
                 <CasePropertyRow
-                  label="Assigned To"
+                  label="Assignee"
                   value={
                     <AssigneeSelect
                       assignee={caseData.assignee}
