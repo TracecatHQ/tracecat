@@ -121,7 +121,7 @@ class RedisClient:
             List of tuples (stream_key, [(message_id, fields)])
         """
         try:
-            result = await self.client.xread(streams=streams, count=count, block=block)
+            result = await self.client.xread(streams=streams, count=count, block=block)  # type: ignore
             return result
         except RedisError as e:
             logger.error(

@@ -3,6 +3,7 @@
 import inspect
 import textwrap
 import tempfile
+import uuid
 from pathlib import Path
 import base64
 from typing import Any, Union, Annotated, Self
@@ -16,7 +17,15 @@ from timeit import timeit
 import orjson
 
 from pydantic_ai import Agent, ModelRetry
-from pydantic_ai.messages import ModelMessage
+from pydantic_ai.messages import (
+    ModelMessage,
+    ModelRequest,
+    ModelResponse,
+    UserPromptPart,
+    TextPart,
+    ToolCallPart,
+    ToolReturnPart,
+)
 from pydantic_ai.usage import Usage
 from pydantic_ai.tools import Tool
 from pydantic_core import PydanticUndefined
@@ -337,6 +346,156 @@ async def create_tool_from_registry(
     )
 
 
+async def load_conversation_history(
+    redis_client, conversation_id: str
+) -> list[ModelMessage]:
+    """Load conversation history from Redis stream.
+
+    Args:
+        redis_client: Redis client instance
+        conversation_id: The conversation ID
+
+    Returns:
+        List of reconstructed ModelMessage objects
+    """
+    stream_key = f"agent-stream:{conversation_id}"
+
+    try:
+        # Read all messages from the stream
+        messages = await redis_client.xrange(stream_key, min_id="-", max_id="+")
+
+        history: list[ModelMessage] = []
+
+        for message_id, fields in messages:
+            try:
+                data = orjson.loads(fields["d"])
+
+                # Skip non-message entries
+                if data.get("__end__") == 1:
+                    continue
+
+                # Reconstruct message based on type
+                msg_type = data.get("type")
+
+                if msg_type == "human":
+                    # Create user message
+                    content = data.get("content", "")
+                    history.append(ModelRequest(parts=[UserPromptPart(content)]))
+                elif msg_type == "ai":
+                    # Create AI response
+                    content = data.get("content", "")
+                    if content:  # Only add if there's content
+                        history.append(ModelResponse(parts=[TextPart(content)]))
+                elif msg_type == "tool-call":
+                    # Create tool call message
+                    tool_name = data.get("tool_name", "")
+                    tool_args = data.get("args_json", {})
+                    if isinstance(tool_args, str):
+                        tool_args = orjson.loads(tool_args)
+
+                    history.append(
+                        ModelResponse(
+                            parts=[
+                                ToolCallPart(
+                                    tool_name=tool_name,
+                                    args=tool_args,
+                                    tool_call_id=data.get(
+                                        "tool_call_id", str(uuid.uuid4())
+                                    ),
+                                )
+                            ]
+                        )
+                    )
+                elif msg_type == "tool-return":
+                    # Create tool return message
+                    tool_name = data.get("tool_name", "")
+                    tool_call_id = data.get("tool_call_id", "")
+                    content = data.get("content", "")
+
+                    history.append(
+                        ModelRequest(
+                            parts=[
+                                ToolReturnPart(
+                                    tool_name=tool_name,
+                                    tool_call_id=tool_call_id,
+                                    content=content,
+                                )
+                            ]
+                        )
+                    )
+
+            except Exception as e:
+                logger.warning(
+                    "Failed to reconstruct message from history",
+                    message_id=message_id,
+                    error=str(e),
+                )
+                continue
+
+        logger.info(
+            "Loaded conversation history",
+            conversation_id=conversation_id,
+            message_count=len(history),
+        )
+
+        return history
+
+    except Exception as e:
+        logger.error(
+            "Failed to load conversation history",
+            conversation_id=conversation_id,
+            error=str(e),
+        )
+        return []
+
+
+def serialize_message_for_storage(message: ModelMessage) -> dict[str, Any]:
+    """Serialize a ModelMessage for storage in Redis.
+
+    Args:
+        message: The ModelMessage to serialize
+
+    Returns:
+        Dictionary with message data for storage
+    """
+    if isinstance(message, ModelRequest):
+        # Handle user messages
+        for part in message.parts:
+            if isinstance(part, UserPromptPart):
+                return {
+                    "type": "human",
+                    "content": part.content,
+                }
+            elif isinstance(part, ToolReturnPart):
+                return {
+                    "type": "tool-return",
+                    "tool_name": part.tool_name,
+                    "tool_call_id": part.tool_call_id,
+                    "content": part.content,
+                }
+    elif isinstance(message, ModelResponse):
+        # Handle AI responses
+        for part in message.parts:
+            if isinstance(part, TextPart):
+                return {
+                    "type": "ai",
+                    "content": part.content,
+                }
+            elif isinstance(part, ToolCallPart):
+                return {
+                    "type": "tool-call",
+                    "tool_name": part.tool_name,
+                    "args_json": orjson.dumps(part.args).decode(),
+                    "tool_call_id": part.tool_call_id,
+                }
+
+    # Fallback for unknown message types
+    return {
+        "type": "unknown",
+        "data": str(message),
+    }
+
+
 class TracecatAgentBuilder:
     """Builder for creating Pydantic AI agents with Tracecat tool calling."""
 
@@ -570,12 +729,6 @@ async def agent(
             "Workflow run ID for Redis streaming. If provided with action_ref, enables real-time streaming."
         ),
     ] = None,
-    action_ref: Annotated[
-        str | None,
-        Doc(
-            "Action reference for Redis streaming. If provided with workflow_run_id, enables real-time streaming."
-        ),
-    ] = None,
 ) -> dict[str, str | dict[str, Any] | list[dict[str, Any]]]:
     builder = TracecatAgentBuilder(
         model_name=model_name,
@@ -633,11 +786,19 @@ async def agent(
         # Set up Redis streaming if both parameters are provided
         redis_client = None
         stream_key = None
-        if workflow_run_id and action_ref:
-            stream_key = f"agent-stream:{workflow_run_id}:{action_ref}"
+        conversation_history: list[ModelMessage] = []
+
+        if workflow_run_id:
+            stream_key = f"agent-stream:{workflow_run_id}"
             try:
                 redis_client = await get_redis_client()
                 logger.info("Redis streaming enabled", stream_key=stream_key)
+
+                # Load conversation history
+                conversation_history = await load_conversation_history(
+                    redis_client, workflow_run_id
+                )
+
             except Exception as e:
                 logger.warning(
                     "Failed to initialize Redis client, continuing without streaming",
@@ -647,13 +808,17 @@ async def agent(
         # Use async version since this function is already async
         try:
             message_nodes = []
-            async with agent.iter(user_prompt=enhanced_user_prompt) as run:
+            # Pass conversation history to the agent
+            async with agent.iter(
+                user_prompt=enhanced_user_prompt, message_history=conversation_history
+            ) as run:
                 async for node in run:
                     node_data = to_jsonable_python(node)
                     message_nodes.append(node_data)
 
                     # Stream to Redis if enabled
                     if redis_client and stream_key:
+                        logger.info("Streaming message to Redis", stream_key=stream_key)
                         try:
                             await redis_client.xadd(
                                 stream_key,
@@ -667,8 +832,30 @@ async def agent(
                             )
 
                 result = run.result
+                logger.info("Agent run result", result=result)
                 if not isinstance(result, AgentRunResult):
                     raise ValueError("No output returned from agent run.")
+
+            # Store complete messages if streaming is enabled
+            if redis_client and stream_key:
+                try:
+                    # Store all messages from the conversation
+                    for message in result.all_messages():
+                        message_data = serialize_message_for_storage(message)
+                        if message_data.get("type") != "unknown":
+                            await redis_client.xadd(
+                                stream_key,
+                                {"d": orjson.dumps(message_data).decode()},
+                                maxlen=10000,
+                                approximate=True,
+                            )
+                    logger.info(
+                        "Stored complete conversation messages", stream_key=stream_key
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "Failed to store conversation messages", error=str(e)
+                    )
 
             # Add end-of-stream marker if streaming is enabled
             if redis_client and stream_key:
