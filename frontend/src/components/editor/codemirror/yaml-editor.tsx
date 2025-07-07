@@ -26,6 +26,7 @@ import React, { useCallback, useMemo, useRef, useState } from "react"
 import { type Control, type FieldValues, useController } from "react-hook-form"
 import YAML from "yaml"
 import type { ActionRead } from "@/client"
+import { useOrgAppSettings } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import { useWorkflow } from "@/providers/workflow"
 import { useWorkspace } from "@/providers/workspace"
@@ -44,6 +45,7 @@ import {
   editingRangeField,
   templatePillTheme,
 } from "./common"
+import { createSimpleTemplatePlugin } from "./highlight-plugin"
 
 const stripNewline = (value: string) => {
   return value.endsWith("\n") ? value.slice(0, -1) : value
@@ -74,6 +76,7 @@ export const YamlStyledEditor = React.forwardRef<
   })
   const { workspaceId } = useWorkspace()
   const { workflow } = useWorkflow()
+  const { appSettings } = useOrgAppSettings()
   const [hasErrors, setHasErrors] = useState(false)
   const [saveState, setSaveState] = useState<SaveState>(SaveState.IDLE)
   const [validationErrors, setValidationErrors] = useState<string[]>([])
@@ -213,6 +216,8 @@ export const YamlStyledEditor = React.forwardRef<
   }, []) // No dependencies - stable function
 
   const extensions = useMemo(() => {
+    const pillsEnabled = appSettings?.app_editor_pills_enabled ?? true
+
     const errorMonitorPlugin = ViewPlugin.fromClass(
       class {
         constructor(view: EditorView) {
@@ -240,11 +245,11 @@ export const YamlStyledEditor = React.forwardRef<
       }
     )
 
-    return [
-      createPillDeleteKeymap(), // This must be first to ensure that the delete key is handled before the core keymap
-      createCoreKeymap(),
-      createAtKeyCompletion(),
-      createExitEditModeKeyHandler(),
+    const templatePlugin = pillsEnabled
+      ? createTemplatePillPlugin(workspaceId)
+      : createSimpleTemplatePlugin()
+
+    const baseExtensions = [
       lintGutter(),
       history(),
       indentUnit.of("  "),
@@ -260,21 +265,36 @@ export const YamlStyledEditor = React.forwardRef<
         forEach: forEachExpressions,
       }),
 
-      editingRangeField,
-      createTemplatePillPlugin(workspaceId),
-      createExpressionNodeHover(workspaceId),
+      templatePlugin,
       errorMonitorPlugin,
 
-      EditorView.domEventHandlers({
-        mousedown: createPillClickHandler(),
-        blur: yamlBlurHandler(),
-      }),
-
-      templatePillTheme,
       yamlEditorTheme,
       yamlLiteralHighlighter,
     ]
-  }, [workspaceId, actions, yamlBlurHandler]) // Only stable dependencies
+
+    if (pillsEnabled) {
+      return [
+        createPillDeleteKeymap(), // This must be first to ensure that the delete key is handled before the core keymap
+        createCoreKeymap(),
+        createAtKeyCompletion(),
+        createExitEditModeKeyHandler(),
+        ...baseExtensions,
+        editingRangeField,
+        createExpressionNodeHover(workspaceId),
+        EditorView.domEventHandlers({
+          mousedown: createPillClickHandler(),
+          blur: yamlBlurHandler(),
+        }),
+        templatePillTheme,
+      ]
+    }
+
+    return baseExtensions.concat([
+      EditorView.domEventHandlers({
+        blur: yamlBlurHandler(),
+      }),
+    ])
+  }, [workspaceId, actions, yamlBlurHandler, appSettings]) // Only stable dependencies
 
   // Save-related keybindings (separate from core extensions to avoid recreation)
   const saveKeymap = useMemo(() => {
@@ -751,6 +771,7 @@ export function YamlViewOnlyEditor({
   className?: string
 }) {
   const { workspaceId } = useWorkspace()
+  const { appSettings } = useOrgAppSettings()
 
   const textValue = React.useMemo(() => {
     if (!value) return ""
@@ -760,7 +781,13 @@ export function YamlViewOnlyEditor({
   }, [value])
 
   const extensions = useMemo(() => {
-    return [
+    const pillsEnabled = appSettings?.app_editor_pills_enabled ?? true
+
+    const templatePlugin = pillsEnabled
+      ? createTemplatePillPlugin(workspaceId)
+      : createSimpleTemplatePlugin()
+
+    const baseExtensions = [
       // Core language support with proper indentation
       indentUnit.of("  "),
       yaml(),
@@ -771,16 +798,20 @@ export function YamlViewOnlyEditor({
       EditorView.editable.of(false),
       EditorState.readOnly.of(true),
 
-      // Visual features - keep pills and hover
-      editingRangeField,
-      createTemplatePillPlugin(workspaceId),
+      // Template expression plugin
+      templatePlugin,
 
       // Styling
-      templatePillTheme,
       yamlEditorTheme,
       yamlLiteralHighlighter,
     ]
-  }, [workspaceId])
+
+    if (pillsEnabled) {
+      return baseExtensions.concat([editingRangeField, templatePillTheme])
+    }
+
+    return baseExtensions
+  }, [workspaceId, appSettings])
 
   return (
     <div className="relative">
