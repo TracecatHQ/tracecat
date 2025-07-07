@@ -5,6 +5,7 @@ Revises: 4c1a69e5b34b
 Create Date: 2025-07-02 11:30:09.686449
 
 """
+
 from collections.abc import Sequence
 
 import sqlalchemy as sa
@@ -31,8 +32,18 @@ def upgrade() -> None:
 
     op.create_table(
         "file",
-        sa.Column("created_at", sa.TIMESTAMP(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.Column("updated_at", sa.TIMESTAMP(timezone=True), server_default=sa.text("now()"), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.TIMESTAMP(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.TIMESTAMP(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
         sa.Column("surrogate_id", sa.Integer(), nullable=False),
         sa.Column("owner_id", sa.UUID(), nullable=False),
         sa.Column("id", sa.UUID(), nullable=False),
@@ -48,8 +59,18 @@ def upgrade() -> None:
     op.create_index(op.f("ix_file_sha256"), "file", ["sha256"], unique=False)
     op.create_table(
         "case_attachment",
-        sa.Column("created_at", sa.TIMESTAMP(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.Column("updated_at", sa.TIMESTAMP(timezone=True), server_default=sa.text("now()"), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.TIMESTAMP(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.TIMESTAMP(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
         sa.Column("id", sa.UUID(), nullable=False),
         sa.Column("case_id", sa.UUID(), nullable=False),
         sa.Column("file_id", sa.UUID(), nullable=False),
@@ -58,7 +79,9 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("case_id", "file_id", name="uq_case_attachment_case_file"),
     )
-    op.create_index(op.f("ix_case_attachment_id"), "case_attachment", ["id"], unique=True)
+    op.create_index(
+        op.f("ix_case_attachment_id"), "case_attachment", ["id"], unique=True
+    )
     # ### end Alembic commands ###
 
 
