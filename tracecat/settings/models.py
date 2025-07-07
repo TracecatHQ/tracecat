@@ -110,6 +110,7 @@ class AppSettingsRead(BaseSettingsGroup):
     app_workflow_export_enabled: bool
     app_create_workspace_on_register: bool
     app_editor_pills_enabled: bool
+    app_action_form_mode_enabled: bool
 
 
 class AppSettingsUpdate(BaseSettingsGroup):
@@ -137,6 +138,10 @@ class AppSettingsUpdate(BaseSettingsGroup):
     app_editor_pills_enabled: bool = Field(
         default=True,
         description="Whether to show pills in template expressions. When disabled, expressions show as plain text with syntax highlighting.",
+    )
+    app_action_form_mode_enabled: bool = Field(
+        default=True,
+        description="Whether to enable form mode for action inputs. When disabled, only YAML mode is available, preserving raw YAML formatting.",
     )
 
 

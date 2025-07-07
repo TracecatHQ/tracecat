@@ -25,6 +25,7 @@ const appFormSchema = z.object({
   app_workflow_export_enabled: z.boolean(),
   app_create_workspace_on_register: z.boolean(),
   app_editor_pills_enabled: z.boolean(),
+  app_action_form_mode_enabled: z.boolean(),
 })
 
 type AppFormValues = z.infer<typeof appFormSchema>
@@ -51,6 +52,8 @@ export function OrgSettingsAppForm() {
       app_create_workspace_on_register:
         appSettings?.app_create_workspace_on_register ?? false,
       app_editor_pills_enabled: appSettings?.app_editor_pills_enabled ?? true,
+      app_action_form_mode_enabled:
+        appSettings?.app_action_form_mode_enabled ?? true,
     },
   })
 
@@ -65,6 +68,7 @@ export function OrgSettingsAppForm() {
           app_create_workspace_on_register:
             data.app_create_workspace_on_register,
           app_editor_pills_enabled: data.app_editor_pills_enabled,
+          app_action_form_mode_enabled: data.app_action_form_mode_enabled,
         },
       })
     } catch {
@@ -206,6 +210,29 @@ export function OrgSettingsAppForm() {
                 <FormDescription>
                   Show template expressions as interactive pills. When disabled,
                   expressions display as plain text with syntax highlighting.
+                </FormDescription>
+              </div>
+              <FormControl>
+                <Switch
+                  checked={field.value}
+                  onCheckedChange={field.onChange}
+                />
+              </FormControl>
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name="app_action_form_mode_enabled"
+          render={({ field }) => (
+            <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+              <div className="space-y-0.5">
+                <FormLabel>Enable action form mode</FormLabel>
+                <FormDescription>
+                  Allow form mode for action inputs. When disabled, only YAML
+                  mode is available, preserving raw YAML formatting and special
+                  characters.
                 </FormDescription>
               </div>
               <FormControl>
