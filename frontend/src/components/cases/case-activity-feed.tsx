@@ -201,23 +201,29 @@ export function CaseActivityFeed({
 
   if (caseEventsIsLoading) {
     return (
-      <div className="space-y-4">
-        {Array.from({ length: 3 }).map((_, i) => (
-          <div key={i} className="space-y-2">
-            <Skeleton className="h-6 w-full" />
-            <Skeleton className="h-4 w-3/4" />
-          </div>
-        ))}
+      <div className="mx-auto w-full">
+        <div className="space-y-4 p-4">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="space-y-2">
+              <Skeleton className="h-6 w-full" />
+              <Skeleton className="h-4 w-3/4" />
+            </div>
+          ))}
+        </div>
       </div>
     )
   }
 
   if (caseEventsError) {
     return (
-      <div className="flex items-center justify-center p-8">
-        <div className="flex items-center gap-2 text-red-600">
-          <AlertCircle className="h-4 w-4" />
-          <span className="text-sm">Failed to load activities</span>
+      <div className="mx-auto w-full">
+        <div className="space-y-4 p-4">
+          <div className="flex items-center justify-center p-8">
+            <div className="flex items-center gap-2 text-red-600">
+              <AlertCircle className="h-4 w-4" />
+              <span className="text-sm">Failed to load activities</span>
+            </div>
+          </div>
         </div>
       </div>
     )
@@ -225,14 +231,18 @@ export function CaseActivityFeed({
 
   if (events.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center p-6 text-center">
-        <div className="rounded-full bg-muted p-3">
-          <Clock className="size-6 text-muted-foreground" />
+      <div className="mx-auto w-full">
+        <div className="space-y-4 p-4">
+          <div className="flex flex-col items-center justify-center py-6 text-center">
+            <div className="rounded-full bg-muted p-3">
+              <Clock className="size-6 text-muted-foreground" />
+            </div>
+            <h3 className="mt-2 text-sm font-medium">No activity yet</h3>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Activities will appear here when changes are made to the case.
+            </p>
+          </div>
         </div>
-        <h3 className="mt-2 text-sm font-medium">No activity yet</h3>
-        <p className="mt-1 text-xs text-muted-foreground">
-          Activities will appear here when changes are made to the case.
-        </p>
       </div>
     )
   }
@@ -240,8 +250,8 @@ export function CaseActivityFeed({
   const groupedActivities = groupActivitiesByDate(events)
 
   return (
-    <div className="mx-auto w-full max-w-3xl">
-      <div className="space-y-6">
+    <div className="mx-auto w-full">
+      <div className="space-y-4 p-4">
         {groupedActivities.map(({ date, activities }) => (
           <div key={date.toISOString()} className="space-y-2">
             <div className="sticky top-0 z-10 bg-background py-2">

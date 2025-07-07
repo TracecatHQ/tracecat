@@ -499,35 +499,39 @@ export function CaseAttachmentsSection({
 
   if (attachmentsLoading) {
     return (
-      <div className="space-y-1">
-        <div className="flex items-center gap-2 p-1.5 m-2 rounded-md border border-dashed border-muted-foreground/25">
-          <div className="p-1.5 rounded bg-muted">
-            <Skeleton className="h-3.5 w-3.5" />
-          </div>
-          <Skeleton className="h-3 w-32" />
-        </div>
-        {Array.from({ length: 2 }).map((_, i) => (
-          <div
-            key={i}
-            className="flex items-center gap-4 p-2 px-3.5 rounded-md"
-          >
-            <Skeleton className="h-6 w-6 rounded" />
-            <div className="flex-1 space-y-1">
-              <Skeleton className="h-4 w-3/4" />
-              <Skeleton className="h-3 w-1/2" />
+      <div className="mx-auto w-full">
+        <div className="space-y-4 p-4">
+          <div className="flex items-center gap-2 p-1.5 rounded-md border border-dashed border-muted-foreground/25">
+            <div className="p-1.5 rounded bg-muted">
+              <Skeleton className="h-3.5 w-3.5" />
             </div>
+            <Skeleton className="h-3 w-32" />
           </div>
-        ))}
+          {Array.from({ length: 2 }).map((_, i) => (
+            <div
+              key={i}
+              className="flex items-center gap-4 p-2 px-3.5 rounded-md"
+            >
+              <Skeleton className="h-6 w-6 rounded" />
+              <div className="flex-1 space-y-1">
+                <Skeleton className="h-4 w-3/4" />
+                <Skeleton className="h-3 w-1/2" />
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
     )
   }
 
   if (attachmentsError) {
     return (
-      <div className="flex items-center justify-center p-8">
-        <div className="flex items-center gap-2 text-red-600">
-          <AlertCircle className="h-4 w-4" />
-          <span className="text-sm">Failed to load attachments</span>
+      <div className="mx-auto w-full">
+        <div className="flex items-center justify-center p-8">
+          <div className="flex items-center gap-2 text-red-600">
+            <AlertCircle className="h-4 w-4" />
+            <span className="text-sm">Failed to load attachments</span>
+          </div>
         </div>
       </div>
     )
@@ -535,205 +539,212 @@ export function CaseAttachmentsSection({
 
   return (
     <TooltipProvider>
-      <div className="space-y-1">
-        <div
-          onClick={handleAddAttachment}
-          onDragEnter={handleDragEnter}
-          onDragLeave={handleDragLeave}
-          onDragOver={handleDragOver}
-          onDrop={handleDrop}
-          className={cn(
-            "flex items-center gap-2 p-1.5 m-2 rounded-md border border-dashed transition-all cursor-pointer group",
-            isDragOver
-              ? "border-blue-500 bg-blue-50 dark:bg-blue-950/20"
-              : "border-muted-foreground/25 hover:border-muted-foreground/50 hover:bg-muted/30"
-          )}
-        >
-          <div className="p-1.5 rounded bg-muted group-hover:bg-muted-foreground/10 transition-colors">
-            <Plus className="h-3.5 w-3.5 text-muted-foreground" />
-          </div>
-          <span className="text-xs text-muted-foreground group-hover:text-foreground transition-colors">
-            {isUploading || uploadMutation.isPending
-              ? "Uploading..."
-              : "Add new attachment (max 20MB) • pdf, doc, xls, txt, csv, png, jpeg, gif, webp, zip"}
-          </span>
-        </div>
-
-        {/* Attachments list */}
-        {attachments.length === 0 ? (
-          <div className="flex flex-col items-center justify-center p-4">
-            <div className="p-2 rounded-full bg-muted/50 mb-3">
-              <Paperclip className="h-6 w-6 text-muted-foreground" />
+      <div className="mx-auto w-full">
+        <div className="space-y-4 p-4">
+          <div
+            onClick={handleAddAttachment}
+            onDragEnter={handleDragEnter}
+            onDragLeave={handleDragLeave}
+            onDragOver={handleDragOver}
+            onDrop={handleDrop}
+            className={cn(
+              "flex items-center gap-2 p-1.5 rounded-md border border-dashed transition-all cursor-pointer group",
+              isDragOver
+                ? "border-blue-500 bg-blue-50 dark:bg-blue-950/20"
+                : "border-muted-foreground/25 hover:border-muted-foreground/50 hover:bg-muted/30"
+            )}
+          >
+            <div className="p-1.5 rounded bg-muted group-hover:bg-muted-foreground/10 transition-colors">
+              <Plus className="h-3.5 w-3.5 text-muted-foreground" />
             </div>
-            <h3 className="text-sm font-medium text-muted-foreground mb-1">
-              No attachments found
-            </h3>
-            <p className="text-xs text-muted-foreground/75 text-center max-w-[250px]">
-              Add files by clicking the add button above or drag and drop files
-              directly.
-            </p>
+            <span className="text-xs text-muted-foreground group-hover:text-foreground transition-colors">
+              {isUploading || uploadMutation.isPending
+                ? "Uploading..."
+                : "Add new attachment (max 20MB) • pdf, doc, xls, txt, csv, png, jpeg, gif, webp, zip"}
+            </span>
           </div>
-        ) : (
-          attachments.map((attachment) => {
-            return (
-              <div
-                key={attachment.id}
-                className="flex items-center gap-4 p-2 px-3.5 rounded-md hover:bg-muted/40 transition-colors group"
-              >
-                <div
-                  className={`p-1 rounded ${getFileColor(attachment.content_type)}`}
-                >
-                  {getFileIcon(attachment.content_type)}
-                </div>
 
-                <div className="flex-1">
-                  <div className="flex items-center gap-1.5">
-                    <span className="font-medium text-sm truncate">
-                      {attachment.file_name}
-                    </span>
-                    <span className="text-xs text-muted-foreground">
-                      ({formatFileSize(attachment.size)})
-                    </span>
-                  </div>
+          {/* Attachments list */}
+          {attachments.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-4">
+              <div className="p-2 rounded-full bg-muted/50 mb-3">
+                <Paperclip className="h-6 w-6 text-muted-foreground" />
+              </div>
+              <h3 className="text-sm font-medium text-muted-foreground mb-1">
+                No attachments found
+              </h3>
+              <p className="text-xs text-muted-foreground/75 text-center max-w-[250px]">
+                Add files by clicking the add button above or drag and drop
+                files directly.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-1">
+              {attachments.map((attachment) => {
+                return (
+                  <div
+                    key={attachment.id}
+                    className="flex items-center gap-4 p-2 px-3.5 rounded-md hover:bg-muted/40 transition-colors group"
+                  >
+                    <div
+                      className={`p-1 rounded ${getFileColor(attachment.content_type)}`}
+                    >
+                      {getFileIcon(attachment.content_type)}
+                    </div>
 
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <span>
-                      by {getUploaderName(attachment.creator_id)} •{" "}
-                      {formatDistanceToNow(new Date(attachment.created_at), {
-                        addSuffix: true,
-                      })}
-                    </span>
+                    <div className="flex-1">
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-medium text-sm truncate">
+                          {attachment.file_name}
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          ({formatFileSize(attachment.size)})
+                        </span>
+                      </div>
 
-                    {/* Short SHA */}
-                    <span className="font-mono text-xs bg-muted px-1 py-0.5 rounded">
-                      {truncateHash(attachment.sha256)}
-                    </span>
-                  </div>
-                </div>
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <span>
+                          by {getUploaderName(attachment.creator_id)} •{" "}
+                          {formatDistanceToNow(
+                            new Date(attachment.created_at),
+                            {
+                              addSuffix: true,
+                            }
+                          )}
+                        </span>
 
-                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  {/* Preview button - only for images */}
-                  {attachment.content_type.startsWith("image/") && (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handlePreview(attachment)}
-                          disabled={deleteMutation.isPending}
-                        >
-                          <Eye className="size-3.5" />
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <div className="text-xs">Preview image</div>
-                      </TooltipContent>
-                    </Tooltip>
-                  )}
+                        {/* Short SHA */}
+                        <span className="font-mono text-xs bg-muted px-1 py-0.5 rounded">
+                          {truncateHash(attachment.sha256)}
+                        </span>
+                      </div>
+                    </div>
 
-                  <Tooltip>
-                    <TooltipTrigger asChild>
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      {/* Preview button - only for images */}
+                      {attachment.content_type.startsWith("image/") && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handlePreview(attachment)}
+                              disabled={deleteMutation.isPending}
+                            >
+                              <Eye className="size-3.5" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <div className="text-xs">Preview image</div>
+                          </TooltipContent>
+                        </Tooltip>
+                      )}
+
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDownload(attachment)}
+                            disabled={deleteMutation.isPending}
+                          >
+                            <Download className="size-3.5" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <div className="text-xs">Download attachment</div>
+                        </TooltipContent>
+                      </Tooltip>
+
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => handleDownload(attachment)}
+                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                        title="Delete attachment"
+                        onClick={() => handleDelete(attachment.id)}
                         disabled={deleteMutation.isPending}
                       >
-                        <Download className="size-3.5" />
+                        <Trash2 className="size-3.5" />
                       </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <div className="text-xs">Download attachment</div>
-                    </TooltipContent>
-                  </Tooltip>
-
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                    title="Delete attachment"
-                    onClick={() => handleDelete(attachment.id)}
-                    disabled={deleteMutation.isPending}
-                  >
-                    <Trash2 className="size-3.5" />
-                  </Button>
-                </div>
-              </div>
-            )
-          })
-        )}
-
-        <input
-          ref={fileInputRef}
-          type="file"
-          onChange={handleFileSelect}
-          className="hidden"
-          accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,.csv,.jpg,.jpeg,.png,.gif,.webp,.zip,.7z"
-        />
-
-        {/* Image Preview Modal */}
-        <Dialog
-          open={!!previewAttachment}
-          onOpenChange={(open) => {
-            if (!open) {
-              setPreviewAttachment(null)
-              setPreviewImageUrl(null)
-            }
-          }}
-        >
-          <DialogContent className="max-w-[95vw] max-h-[95vh] overflow-hidden p-0 bg-transparent border-0 shadow-2xl w-fit h-fit">
-            <div className="relative inline-flex border border-gray-400/25 rounded-sm overflow-hidden bg-gray-900 group">
-              {/* Floating header overlay */}
-              <div className="absolute top-3 left-3 right-3 z-10 flex items-center justify-between opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-                <div className="bg-black/70 backdrop-blur-sm rounded-full px-3 py-1.5">
-                  <span className="text-white text-xs font-medium truncate max-w-[300px] block">
-                    {previewAttachment?.file_name}
-                  </span>
-                </div>
-                <button
-                  onClick={() => {
-                    setPreviewAttachment(null)
-                    setPreviewImageUrl(null)
-                  }}
-                  className="bg-black/70 backdrop-blur-sm rounded-full p-2 text-white hover:bg-black/80 transition-colors duration-200"
-                >
-                  <XIcon className="w-4 h-4" />
-                </button>
-              </div>
-
-              {previewImageUrl && (
-                <Image
-                  src={previewImageUrl}
-                  alt={previewAttachment?.file_name || "Preview image"}
-                  width={1}
-                  height={0}
-                  sizes="(max-width: 768px) 100vw, (max-width: 1200px) 90vw, 85vw"
-                  style={{
-                    maxWidth: "90vw",
-                    maxHeight: "85vh",
-                    width: "auto",
-                    height: "auto",
-                  }}
-                  className="object-contain"
-                  unoptimized
-                  onError={(e) => {
-                    console.error("Image failed to load:", e)
-                    console.error("Failed URL:", previewImageUrl)
-                    toast({
-                      title: "Image preview failed",
-                      description:
-                        "Try downloading the attachment or checking the original file for issues.",
-                      variant: "destructive",
-                    })
-                  }}
-                  onLoad={() => {
-                    console.log("Image loaded successfully:", previewImageUrl)
-                  }}
-                />
-              )}
+                    </div>
+                  </div>
+                )
+              })}
             </div>
-          </DialogContent>
-        </Dialog>
+          )}
+
+          <input
+            ref={fileInputRef}
+            type="file"
+            onChange={handleFileSelect}
+            className="hidden"
+            accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,.csv,.jpg,.jpeg,.png,.gif,.webp,.zip,.7z"
+          />
+
+          {/* Image Preview Modal */}
+          <Dialog
+            open={!!previewAttachment}
+            onOpenChange={(open) => {
+              if (!open) {
+                setPreviewAttachment(null)
+                setPreviewImageUrl(null)
+              }
+            }}
+          >
+            <DialogContent className="max-w-[95vw] max-h-[95vh] overflow-hidden p-0 bg-transparent border-0 shadow-2xl w-fit h-fit">
+              <div className="relative inline-flex border border-gray-400/25 rounded-sm overflow-hidden bg-gray-900 group">
+                {/* Floating header overlay */}
+                <div className="absolute top-3 left-3 right-3 z-10 flex items-center justify-between opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                  <div className="bg-black/70 backdrop-blur-sm rounded-full px-3 py-1.5">
+                    <span className="text-white text-xs font-medium truncate max-w-[300px] block">
+                      {previewAttachment?.file_name}
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setPreviewAttachment(null)
+                      setPreviewImageUrl(null)
+                    }}
+                    className="bg-black/70 backdrop-blur-sm rounded-full p-2 text-white hover:bg-black/80 transition-colors duration-200"
+                  >
+                    <XIcon className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {previewImageUrl && (
+                  <Image
+                    src={previewImageUrl}
+                    alt={previewAttachment?.file_name || "Preview image"}
+                    width={1}
+                    height={0}
+                    sizes="(max-width: 768px) 100vw, (max-width: 1200px) 90vw, 85vw"
+                    style={{
+                      maxWidth: "90vw",
+                      maxHeight: "85vh",
+                      width: "auto",
+                      height: "auto",
+                    }}
+                    className="object-contain"
+                    unoptimized
+                    onError={(e) => {
+                      console.error("Image failed to load:", e)
+                      console.error("Failed URL:", previewImageUrl)
+                      toast({
+                        title: "Image preview failed",
+                        description:
+                          "Try downloading the attachment or checking the original file for issues.",
+                        variant: "destructive",
+                      })
+                    }}
+                    onLoad={() => {
+                      console.log("Image loaded successfully:", previewImageUrl)
+                    }}
+                  />
+                )}
+              </div>
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
     </TooltipProvider>
   )
