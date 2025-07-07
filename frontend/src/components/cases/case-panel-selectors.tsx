@@ -14,6 +14,7 @@ import {
   SEVERITIES,
   STATUSES,
 } from "@/components/cases/case-categories"
+import { CaseValueDisplay } from "@/components/cases/case-value-display"
 import {
   Select,
   SelectContent,
@@ -23,7 +24,37 @@ import {
 } from "@/components/ui/select"
 import UserAvatar from "@/components/user-avatar"
 import { User } from "@/lib/auth"
-import { cn } from "@/lib/utils"
+import { cn, linearStyles } from "@/lib/utils"
+
+// Color mappings for Linear-style display
+function getPriorityColor(priority: CasePriority): string {
+  switch (priority) {
+    case "high":
+    case "critical":
+      return "text-red-600"
+    case "medium":
+      return "text-orange-600"
+    case "low":
+      return "text-gray-600"
+    default:
+      return "text-muted-foreground"
+  }
+}
+
+function getSeverityColor(severity: CaseSeverity): string {
+  switch (severity) {
+    case "high":
+    case "critical":
+    case "fatal":
+      return "text-red-600"
+    case "medium":
+      return "text-orange-600"
+    case "low":
+      return "text-gray-600"
+    default:
+      return "text-muted-foreground"
+  }
+}
 
 interface StatusSelectProps {
   status: CaseStatus
@@ -31,10 +62,24 @@ interface StatusSelectProps {
 }
 
 export function StatusSelect({ status, onValueChange }: StatusSelectProps) {
+  const currentStatus = STATUSES[status]
+
   return (
-    <Select defaultValue={status} onValueChange={onValueChange}>
-      <SelectTrigger variant="flat">
-        <SelectValue />
+    <Select value={status} onValueChange={onValueChange}>
+      <SelectTrigger
+        className={cn(linearStyles.trigger.base, linearStyles.trigger.hover)}
+      >
+        <SelectValue>
+          <CaseValueDisplay
+            icon={currentStatus.icon}
+            label={currentStatus.label}
+            color={
+              currentStatus.value === "unknown"
+                ? "text-muted-foreground"
+                : undefined
+            }
+          />
+        </SelectValue>
       </SelectTrigger>
       <SelectContent>
         {Object.values(STATUSES).map((props) => (
@@ -43,7 +88,7 @@ export function StatusSelect({ status, onValueChange }: StatusSelectProps) {
             value={props.value}
             className="flex w-full"
           >
-            <CaseBadge {...props} />
+            <CaseBadge {...props} className="text-[10px] px-1.5 py-0.5" />
           </SelectItem>
         ))}
       </SelectContent>
@@ -60,10 +105,20 @@ export function PrioritySelect({
   priority,
   onValueChange,
 }: PrioritySelectProps) {
+  const currentPriority = PRIORITIES[priority]
+
   return (
-    <Select defaultValue={priority} onValueChange={onValueChange}>
-      <SelectTrigger variant="flat">
-        <SelectValue />
+    <Select value={priority} onValueChange={onValueChange}>
+      <SelectTrigger
+        className={cn(linearStyles.trigger.base, linearStyles.trigger.hover)}
+      >
+        <SelectValue>
+          <CaseValueDisplay
+            icon={currentPriority.icon}
+            label={currentPriority.label}
+            color={getPriorityColor(currentPriority.value)}
+          />
+        </SelectValue>
       </SelectTrigger>
       <SelectContent className="flex w-full">
         {Object.values(PRIORITIES).map((props) => (
@@ -72,7 +127,7 @@ export function PrioritySelect({
             value={props.value}
             className="flex w-full"
           >
-            <CaseBadge {...props} />
+            <CaseBadge {...props} className="text-[10px] px-1.5 py-0.5" />
           </SelectItem>
         ))}
       </SelectContent>
@@ -89,10 +144,20 @@ export function SeveritySelect({
   severity,
   onValueChange,
 }: SeveritySelectProps) {
+  const currentSeverity = SEVERITIES[severity]
+
   return (
-    <Select defaultValue={severity} onValueChange={onValueChange}>
-      <SelectTrigger variant="flat">
-        <SelectValue />
+    <Select value={severity} onValueChange={onValueChange}>
+      <SelectTrigger
+        className={cn(linearStyles.trigger.base, linearStyles.trigger.hover)}
+      >
+        <SelectValue>
+          <CaseValueDisplay
+            icon={currentSeverity.icon}
+            label={currentSeverity.label}
+            color={getSeverityColor(currentSeverity.value)}
+          />
+        </SelectValue>
       </SelectTrigger>
       <SelectContent>
         {Object.values(SEVERITIES).map((props) => (
@@ -101,7 +166,7 @@ export function SeveritySelect({
             value={props.value}
             className="flex w-full"
           >
-            <CaseBadge {...props} />
+            <CaseBadge {...props} className="text-[10px] px-1.5 py-0.5" />
           </SelectItem>
         ))}
       </SelectContent>
@@ -124,7 +189,7 @@ export function AssigneeSelect({
 }: AssigneeSelectProps) {
   return (
     <Select
-      defaultValue={assignee?.id ?? UNASSIGNED}
+      value={assignee?.id ?? UNASSIGNED}
       onValueChange={(value) => {
         if (value === UNASSIGNED) {
           onValueChange(null)
@@ -145,12 +210,38 @@ export function AssigneeSelect({
         }
       }}
     >
-      <SelectTrigger variant="flat">
-        <SelectValue placeholder={<NoAssignee />} />
+      <SelectTrigger
+        className={cn(linearStyles.trigger.base, linearStyles.trigger.hover)}
+      >
+        <SelectValue>
+          {assignee ? (
+            <div className="flex items-center gap-1.5">
+              <UserAvatar
+                alt={assignee.first_name || assignee.email}
+                user={
+                  new User({
+                    id: assignee.id,
+                    email: assignee.email,
+                    role: assignee.role,
+                    first_name: assignee.first_name,
+                    last_name: assignee.last_name,
+                    settings: assignee.settings || {},
+                  })
+                }
+                className="size-5 text-xs text-foreground"
+              />
+              <span className="text-xs font-medium">
+                {assignee.first_name || assignee.email.split("@")[0]}
+              </span>
+            </div>
+          ) : (
+            <NoAssignee />
+          )}
+        </SelectValue>
       </SelectTrigger>
       <SelectContent>
         <SelectItem value={UNASSIGNED}>
-          <NoAssignee text="Unassigned" />
+          <NoAssignee text="Unassigned" className="text-xs" />
         </SelectItem>
         {workspaceMembers.length === 0 ? (
           <div className="flex items-center justify-center p-4 text-xs text-muted-foreground">
@@ -187,12 +278,17 @@ export function NoAssignee({
 }) {
   return (
     <div
-      className={cn("flex items-center gap-2 text-muted-foreground", className)}
+      className={cn(
+        "flex items-center gap-1.5 text-muted-foreground",
+        className
+      )}
     >
-      <div className="flex size-6 items-center justify-center rounded-full border border-dashed border-muted-foreground/70 bg-muted">
-        <UserIcon className="size-4 text-muted-foreground" />
+      <div className="flex size-3.5 items-center justify-center rounded-full border border-dashed border-muted-foreground/50">
+        <UserIcon className="size-2.5 text-muted-foreground" />
       </div>
-      <span>{text ?? "Unassigned"}</span>
+      <span className="text-xs text-muted-foreground">
+        {text ?? "Unassigned"}
+      </span>
     </div>
   )
 }
@@ -206,13 +302,13 @@ export function AssignedUser({
 }) {
   const displayName = user.getDisplayName()
   return (
-    <div className={cn("flex items-center gap-2", className)}>
+    <div className={cn("flex items-center gap-1.5", className)}>
       <UserAvatar
         alt={displayName}
         user={user}
-        className="size-6 text-xs text-foreground"
+        className="size-3.5 text-[10px] text-foreground"
       />
-      <span>{displayName}</span>
+      <span className="text-xs">{displayName}</span>
     </div>
   )
 }
