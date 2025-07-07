@@ -24,6 +24,7 @@ const appFormSchema = z.object({
   app_interactions_enabled: z.boolean(),
   app_workflow_export_enabled: z.boolean(),
   app_create_workspace_on_register: z.boolean(),
+  app_editor_pills_enabled: z.boolean(),
 })
 
 type AppFormValues = z.infer<typeof appFormSchema>
@@ -49,6 +50,7 @@ export function OrgSettingsAppForm() {
         appSettings?.app_workflow_export_enabled ?? true,
       app_create_workspace_on_register:
         appSettings?.app_create_workspace_on_register ?? false,
+      app_editor_pills_enabled: appSettings?.app_editor_pills_enabled ?? true,
     },
   })
 
@@ -62,6 +64,7 @@ export function OrgSettingsAppForm() {
           app_workflow_export_enabled: data.app_workflow_export_enabled,
           app_create_workspace_on_register:
             data.app_create_workspace_on_register,
+          app_editor_pills_enabled: data.app_editor_pills_enabled,
         },
       })
     } catch {
@@ -181,6 +184,28 @@ export function OrgSettingsAppForm() {
                 <FormDescription>
                   Automatically create a workspace for new users when they sign
                   up.
+                </FormDescription>
+              </div>
+              <FormControl>
+                <Switch
+                  checked={field.value}
+                  onCheckedChange={field.onChange}
+                />
+              </FormControl>
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name="app_editor_pills_enabled"
+          render={({ field }) => (
+            <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+              <div className="space-y-0.5">
+                <FormLabel>Enable editor pills</FormLabel>
+                <FormDescription>
+                  Show template expressions as interactive pills. When disabled,
+                  expressions display as plain text with syntax highlighting.
                 </FormDescription>
               </div>
               <FormControl>
