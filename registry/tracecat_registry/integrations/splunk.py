@@ -5,10 +5,6 @@ from pydantic import Field
 
 from tracecat_registry import RegistrySecret, registry, secrets
 
-splunk_secret = RegistrySecret(
-    name="splunk",
-    keys=["SPLUNK_API_KEY"],
-)
 """Splunk API Key.
 
 - name: `splunk`
@@ -17,6 +13,24 @@ splunk_secret = RegistrySecret(
 
 Note: `SPLUNK_API_KEY` should be a valid API key for the Splunk instance.
 """
+splunk_secret = RegistrySecret(
+    name="splunk",
+    keys=["SPLUNK_API_KEY"],
+)
+
+"""Splunk HEC Token.
+
+- name: `splunk_hec`
+- keys:
+    - `SPLUNK_USERNAME` (username)
+    - `SPLUNK_PASSWORD` (password)
+
+Note: `SPLUNK_USERNAME` and `SPLUNK_PASSWORD` should be a valid username and password for the Splunk instance.
+"""
+splunk_hec_secret = RegistrySecret(
+    name="splunk",
+    keys=["SPLUNK_HEC_TOKEN"],
+)
 
 
 @registry.register(
@@ -630,9 +644,69 @@ async def add_fields_to_kv_store_collection(
 # https://help.splunk.com/en/splunk-enterprise/rest-api-reference/9.4/knowledge-endpoints/knowledge-endpoint-descriptions#ariaid-title19
 # https://help.splunk.com/en/splunk-enterprise/rest-api-reference/9.4/knowledge-endpoints/knowledge-endpoint-descriptions#ariaid-title20
 
-# TODO: Create Lookup Definition for KV Store Collections
-# TODO: List Lookup Definition for KV Store Collections
-# TODO: Get Lookup Definition for KV Store Collection
-# TODO: Delete Lookup Definition for KV Store Collection
-# TODO: Update Lookup Definisiton for KV Store Collection
+
 # TODO: HEC Push Event to Index
+@registry.register(
+    default_title="Push Event to Splunk over HEC",
+    description="Push an event to Splunk. Uses HEC token authentication.",
+    display_group="Splunk",
+    doc_url="https://help.splunk.com/en/splunk-enterprise/get-data-in/get-started-with-getting-data-in/9.4/get-data-with-http-event-collector/format-events-for-http-event-collector",
+    namespace="tools.splunk",
+    secrets=[splunk_hec_secret],
+)
+async def push_event_to_splunk(
+    base_url: Annotated[
+        str,
+        Field(
+            ...,
+            description="Splunk base URL (e.g. https://localhost:8089 or https://tracecat.splunkcloud.com:8089).",
+        ),
+    ],
+    event: Annotated[
+        dict[str, Any],
+        Field(
+            ...,
+            description="Event to push to Splunk. Example: {'title': 'Item', 'price': 5}",
+        ),
+    ],
+    index: Annotated[
+        str,
+        Field(..., description="Index to push the event to."),
+    ],
+    source: Annotated[
+        str,
+        Field(..., description="Source of the event. Default is tracecat_workflow."),
+    ] = "tracecat_workflow",
+    sourcetype: Annotated[
+        str,
+        Field(..., description="Source type of the event. Default is tracecat_log."),
+    ] = "tracecat_log",
+    host: Annotated[
+        str,
+        Field(..., description="Host of the event. Default is tracecat.com."),
+    ] = "tracecat.com",
+    verify_ssl: Annotated[
+        bool, Field(..., description="Whether to verify SSL certificates.")
+    ] = True,
+) -> dict[str, Any]:
+    """Push an event to Splunk over HEC."""
+    # Example Request: https://localhost:8089/services/collector/event -d '{"title": "Item", "price": 5}' -d 'index=main' -d 'source=tracecat_workflow' -d 'sourcetype=tracecat_log' -d 'host=tracecat.com'
+    hec_token = secrets.get("SPLUNK_HEC_TOKEN")
+    url = f"{base_url}/services/collector/event"
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "Authorization": f"Splunk {hec_token}",
+    }
+    payload = {
+        "index": index,
+        "source": source,
+        "sourcetype": sourcetype,
+        "host": host,
+        "event": event,
+    }
+
+    async with httpx.AsyncClient(verify=verify_ssl) as client:
+        response = await client.post(url, headers=headers, json=payload)
+        response.raise_for_status()
+        return response.json()
