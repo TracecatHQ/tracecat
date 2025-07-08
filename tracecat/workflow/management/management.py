@@ -471,7 +471,7 @@ class WorkflowsManagementService(BaseService):
         # NOTE: We do not support adding invalid workflows
 
         dsl = external_defn.definition
-        self.logger.info("Constructed DSL from external definition", dsl=dsl)
+        self.logger.trace("Constructed DSL from external definition", dsl=dsl)
         # We need to be able to control:
         # 1. The workspace the workflow is imported into
         # 2. The owner of the workflow
