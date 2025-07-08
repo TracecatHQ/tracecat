@@ -126,7 +126,7 @@ async def create_entry_to_kv_store_collection(
     }
 
     async with httpx.AsyncClient(verify=verify_ssl) as client:
-        response = await client.post(url, headers=headers, data=entry)
+        response = await client.post(url, headers=headers, json=entry)
         response.raise_for_status()
         return response.json()
 
@@ -170,8 +170,11 @@ async def get_kv_store_collection(
         "Content-Type": "application/json",
         "Accept": "application/json",
     }
+    params = {
+        "output_mode": "json",
+    }
     async with httpx.AsyncClient(verify=verify_ssl) as client:
-        response = await client.get(url, headers=headers)
+        response = await client.get(url, headers=headers, params=params)
         response.raise_for_status()
         return response.json()
 
@@ -249,7 +252,9 @@ async def list_kv_store_collections(
         "search": search,
         "sort_mode": sort_mode,
         "summarize": summarize,
+        "output_mode": "json",
     }
+
     async with httpx.AsyncClient(verify=verify_ssl) as client:
         response = await client.get(url, headers=headers, params=params)
         response.raise_for_status()
@@ -333,6 +338,7 @@ async def list_entries_in_kv_store_collection(
         "query": query,
         "shared": shared,
         "offset": offset,
+        "output_mode": "json",
     }
     async with httpx.AsyncClient(verify=verify_ssl) as client:
         response = await client.get(url, headers=headers, params=params)
@@ -378,10 +384,16 @@ async def delete_kv_store_collection(
         "Content-Type": "application/json",
         "Accept": "application/json",
     }
+    params = {
+        "output_mode": "json",
+    }
     async with httpx.AsyncClient(verify=verify_ssl) as client:
-        response = await client.delete(url, headers=headers)
+        response = await client.delete(url, headers=headers, params=params)
         response.raise_for_status()
-        return response.json()
+        # if there is no error, return an dictionary with a success message
+        if response.status_code == 200:
+            return {"success": True}
+        return {"success": False}
 
 
 @registry.register(
@@ -429,10 +441,17 @@ async def delete_entry_from_kv_store_collection(
         "Content-Type": "application/json",
         "Accept": "application/json",
     }
+    params = {
+        "output_mode": "json",
+    }
+
     async with httpx.AsyncClient(verify=verify_ssl) as client:
-        response = await client.delete(url, headers=headers)
+        response = await client.delete(url, headers=headers, params=params)
         response.raise_for_status()
-        return response.json()
+        # if there is no error, return an dictionary with a success message
+        if response.status_code == 200:
+            return {"success": True}
+        return {"success": False}
 
 
 @registry.register(
@@ -477,8 +496,11 @@ async def get_entry_from_kv_store_collection(
         "Content-Type": "application/json",
         "Accept": "application/json",
     }
+    params = {
+        "output_mode": "json",
+    }
     async with httpx.AsyncClient(verify=verify_ssl) as client:
-        response = await client.get(url, headers=headers)
+        response = await client.get(url, headers=headers, params=params)
         response.raise_for_status()
         return response.json()
 
@@ -534,15 +556,9 @@ async def update_entry_in_kv_store_collection(
         "Content-Type": "application/json",
         "Accept": "application/json",
     }
-    payload = {
-        "output_mode": "json",
-    }
-
-    for field, value in fields.items():
-        payload[field] = value
 
     async with httpx.AsyncClient(verify=verify_ssl) as client:
-        response = await client.post(url, headers=headers, data=payload)
+        response = await client.post(url, headers=headers, json=fields)
         response.raise_for_status()
         return response.json()
 
