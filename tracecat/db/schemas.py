@@ -1227,7 +1227,6 @@ class OAuthStateDB(SQLModel, TimestampMixin, table=True):
         default_factory=uuid.uuid4,
         primary_key=True,
         nullable=False,
-        unique=True,
         description="Unique state identifier for OAuth flow",
     )
     workspace_id: UUID4 = Field(
