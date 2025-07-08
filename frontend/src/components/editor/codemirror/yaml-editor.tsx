@@ -43,6 +43,7 @@ import {
   createTemplatePillPlugin,
   EDITOR_STYLE,
   editingRangeField,
+  pillKeybinds,
   templatePillTheme,
 } from "./common"
 import { createSimpleTemplatePlugin } from "./highlight-plugin"
@@ -188,10 +189,9 @@ export const YamlStyledEditor = React.forwardRef<
     [validateYaml]
   )
 
-  // Handle text changes - only update buffer, not RHF
+  // Handle text changes – keep text exactly as typed
   const handleChange = React.useCallback(
     (newText: string) => {
-      newText = stripNewline(newText)
       setBuffer(newText)
       // Use debounced validation to reduce re-renders during typing
       debouncedValidateYaml(newText)
@@ -275,7 +275,7 @@ export const YamlStyledEditor = React.forwardRef<
     if (pillsEnabled) {
       return [
         createPillDeleteKeymap(), // This must be first to ensure that the delete key is handled before the core keymap
-        createCoreKeymap(),
+        createCoreKeymap(...pillKeybinds),
         createAtKeyCompletion(),
         createExitEditModeKeyHandler(),
         ...baseExtensions,
@@ -290,8 +290,8 @@ export const YamlStyledEditor = React.forwardRef<
     }
 
     return baseExtensions.concat([
-      editingRangeField,
       createCoreKeymap(),
+      createExpressionNodeHover(workspaceId),
       EditorView.domEventHandlers({
         blur: yamlBlurHandler(),
       }),

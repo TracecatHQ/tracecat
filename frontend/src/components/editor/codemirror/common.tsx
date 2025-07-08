@@ -1833,28 +1833,31 @@ export function createBlurHandler() {
   }
 }
 
+export const pillKeybinds: KeyBinding[] = [
+  {
+    key: "ArrowLeft",
+    run: enhancedCursorLeft,
+  },
+  {
+    key: "ArrowRight",
+    run: enhancedCursorRight,
+  },
+  {
+    key: "Enter",
+    run: (view: EditorView): boolean => {
+      const currentEditingRange = view.state.field(editingRangeField)
+      if (currentEditingRange) {
+        // Clear editing state on Enter key
+        view.dispatch({ effects: setEditingRange.of(null) })
+        return true
+      }
+      return false
+    },
+  },
+]
+
 export function createCoreKeymap(...extraKeymaps: KeyBinding[]) {
   return keymap.of([
-    {
-      key: "ArrowLeft",
-      run: enhancedCursorLeft,
-    },
-    {
-      key: "ArrowRight",
-      run: enhancedCursorRight,
-    },
-    {
-      key: "Enter",
-      run: (view: EditorView): boolean => {
-        const currentEditingRange = view.state.field(editingRangeField)
-        if (currentEditingRange) {
-          // Clear editing state on Enter key
-          view.dispatch({ effects: setEditingRange.of(null) })
-          return true
-        }
-        return false
-      },
-    },
     ...closeBracketsKeymap,
     ...standardKeymap,
     ...historyKeymap,
