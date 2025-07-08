@@ -15,57 +15,65 @@ export function ForEachField() {
     <FormField
       name="for_each"
       control={control}
-      render={({ field }) => (
-        <FormItem>
-          <FormMessage className="whitespace-pre-line" />
-          <FormControl>
-            <div className="space-y-2">
-              {Array.isArray(field.value)
-                ? field.value.map((expr, index) => (
-                    <div key={index} className="flex gap-2">
-                      <ExpressionInput
-                        value={expr}
-                        onChange={(newValue) => {
-                          const newExpressions = [...field.value]
-                          newExpressions[index] = newValue
-                          field.onChange(newExpressions)
-                        }}
-                        placeholder="Type @foreach to begin a for loop expression..."
-                        className="flex-1"
-                      />
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => {
-                          const newExpressions = field.value.filter(
-                            (_: string, i: number) => i !== index
-                          )
-                          field.onChange(newExpressions)
-                        }}
-                      >
-                        <Trash2 className="size-4" />
-                      </Button>
-                    </div>
-                  ))
-                : null}
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-7 w-full"
-                onClick={() => {
-                  const newExpressions = Array.isArray(field.value)
-                    ? [...field.value, ""]
-                    : [""]
-                  field.onChange(newExpressions)
-                }}
-              >
-                <Plus className="mr-2 size-4" />
-                Add Expression
-              </Button>
-            </div>
-          </FormControl>
-        </FormItem>
-      )}
+      render={({ field }) => {
+        let value: string[] | null
+        if (Array.isArray(field.value)) {
+          value = field.value
+        } else if (typeof field.value === "string") {
+          value = [field.value]
+        } else {
+          value = null
+        }
+        return (
+          <FormItem>
+            <FormMessage className="whitespace-pre-line" />
+            <FormControl>
+              <div className="space-y-2">
+                {value
+                  ? value.map((expr, index) => (
+                      <div key={index} className="flex gap-2">
+                        <ExpressionInput
+                          value={expr}
+                          onChange={(newValue) => {
+                            const newExpressions = [...value]
+                            newExpressions[index] = newValue
+                            field.onChange(newExpressions)
+                          }}
+                          placeholder="Type @foreach to begin a for loop expression..."
+                          className="flex-1"
+                        />
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => {
+                            const newExpressions = value.filter(
+                              (_: string, i: number) => i !== index
+                            )
+                            field.onChange(newExpressions)
+                          }}
+                        >
+                          <Trash2 className="size-4" />
+                        </Button>
+                      </div>
+                    ))
+                  : null}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 w-full"
+                  onClick={() => {
+                    const newExpressions = [...(value || []), ""]
+                    field.onChange(newExpressions)
+                  }}
+                >
+                  <Plus className="mr-2 size-4" />
+                  Add Expression
+                </Button>
+              </div>
+            </FormControl>
+          </FormItem>
+        )
+      }}
     />
   )
 }
