@@ -5,7 +5,7 @@ import { history } from "@codemirror/commands"
 import { bracketMatching, indentUnit } from "@codemirror/language"
 import { type Diagnostic, linter } from "@codemirror/lint"
 import { EditorState } from "@codemirror/state"
-import { EditorView, placeholder, type ViewUpdate } from "@codemirror/view"
+import { EditorView, placeholder } from "@codemirror/view"
 import CodeMirror from "@uiw/react-codemirror"
 /**
  * Expression Input - A single-line input that looks like shadcn/ui Input but has
@@ -28,9 +28,11 @@ import {
   editingRangeField,
   templatePillTheme,
 } from "@/components/editor/codemirror/common"
+import { createSimpleTemplatePlugin } from "@/components/editor/codemirror/highlight-plugin"
 import { ExpressionErrorBoundary } from "@/components/error-boundaries"
 import { Input } from "@/components/ui/input"
 import { createTemplateRegex } from "@/lib/expressions"
+import { useOrgAppSettings } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import { useWorkflow } from "@/providers/workflow"
 import { useWorkspace } from "@/providers/workspace"
@@ -122,6 +124,7 @@ function ExpressionInputCore({
   const { workspaceId } = useWorkspace()
   const { workflow } = useWorkflow()
   const methods = useFormContext()
+  const { appSettings } = useOrgAppSettings()
   const actions = workflow?.actions || ({} as Record<string, ActionRead>)
   const forEach = useMemo(() => methods.watch("for_each"), [methods])
 
@@ -168,15 +171,16 @@ function ExpressionInputCore({
   }, [value])
 
   const extensions = useMemo(() => {
-    const templatePillPluginInstance = createTemplatePillPlugin(workspaceId)
+    const pillsEnabled = Boolean(
+      appSettings?.app_editor_pill_decorations_enabled
+    )
 
-    return [
-      // Keymaps
-      createPillDeleteKeymap(), // This must be first to ensure that the delete key is handled before the core keymap
-      createCoreKeymap(),
-      createAtKeyCompletion(),
-      createExitEditModeKeyHandler(),
+    // Choose between pill plugin and simple highlighting
+    const templatePlugin = pillsEnabled
+      ? createTemplatePillPlugin(workspaceId)
+      : createSimpleTemplatePlugin(workspaceId)
 
+    const baseExtensions = [
       // Core setup
       history(),
       EditorState.allowMultipleSelections.of(true),
@@ -197,20 +201,35 @@ function ExpressionInputCore({
       // Placeholder
       placeholder(placeholderText),
 
-      // Custom plugins
-      editingRangeField,
-      templatePillPluginInstance,
-      createExpressionNodeHover(workspaceId),
-
-      // Event handlers
-      EditorView.domEventHandlers({
-        mousedown: createPillClickHandler(),
-        blur: createBlurHandler(),
-      }),
-
-      // Theme
+      // Template expression plugin
+      templatePlugin,
       templatePillTheme,
+    ]
 
+    // Add pill-specific extensions only when pills are enabled
+    if (pillsEnabled) {
+      return [
+        // Keymaps (pill-specific)
+        createPillDeleteKeymap(), // This must be first to ensure that the delete key is handled before the core keymap
+        createCoreKeymap(),
+        createAtKeyCompletion(),
+        createExitEditModeKeyHandler(),
+
+        ...baseExtensions,
+
+        // Pill-specific plugins
+        editingRangeField,
+        createExpressionNodeHover(workspaceId),
+
+        // Event handlers (pill-specific)
+        EditorView.domEventHandlers({
+          mousedown: createPillClickHandler(),
+          blur: createBlurHandler(),
+        }),
+      ]
+    }
+
+    return baseExtensions.concat([
       // Input-specific styling to match shadcn Input
       EditorView.theme({
         "&": {
@@ -273,11 +292,18 @@ function ExpressionInputCore({
           padding: "0px",
         },
       }),
-    ]
-  }, [workspaceId, actions, placeholderText, forEach, defaultHeight])
+    ])
+  }, [
+    workspaceId,
+    actions,
+    placeholderText,
+    forEach,
+    defaultHeight,
+    appSettings,
+  ])
 
   const handleChange = useCallback(
-    (val: string, viewUpdate: ViewUpdate) => {
+    (val: string) => {
       onChange?.(val)
     },
     [onChange]

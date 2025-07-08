@@ -733,6 +733,14 @@ export const $AppSettingsRead = {
       type: "boolean",
       title: "App Create Workspace On Register",
     },
+    app_editor_pill_decorations_enabled: {
+      type: "boolean",
+      title: "App Editor Pill Decorations Enabled",
+    },
+    app_action_form_mode_enabled: {
+      type: "boolean",
+      title: "App Action Form Mode Enabled",
+    },
   },
   type: "object",
   required: [
@@ -741,6 +749,8 @@ export const $AppSettingsRead = {
     "app_interactions_enabled",
     "app_workflow_export_enabled",
     "app_create_workspace_on_register",
+    "app_editor_pill_decorations_enabled",
+    "app_action_form_mode_enabled",
   ],
   title: "AppSettingsRead",
   description: "Settings for the app.",
@@ -779,6 +789,20 @@ export const $AppSettingsUpdate = {
       description:
         "Whether to automatically create a workspace when a user signs up.",
       default: false,
+    },
+    app_editor_pill_decorations_enabled: {
+      type: "boolean",
+      title: "App Editor Pill Decorations Enabled",
+      description:
+        "Whether to show pills in template expressions. When disabled, expressions show as plain text with syntax highlighting.",
+      default: false,
+    },
+    app_action_form_mode_enabled: {
+      type: "boolean",
+      title: "App Action Form Mode Enabled",
+      description:
+        "Whether to enable form mode for action inputs. When disabled, only YAML mode is available, preserving raw YAML formatting.",
+      default: true,
     },
   },
   type: "object",

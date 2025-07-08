@@ -297,7 +297,11 @@ function ActionPanelContent({
   const [saveState, setSaveState] = useState<SaveState>(SaveState.IDLE)
   const [activeTab, setActiveTab] = useState<ActionPanelTabs>("inputs")
   const [open, setOpen] = useState(false)
-  const [inputMode, setInputMode] = useState<InputMode>("form")
+  // Check if form mode is enabled via organization settings
+  const formModeEnabled = appSettings?.app_action_form_mode_enabled ?? true
+  const [inputMode, setInputMode] = useState<InputMode>(
+    formModeEnabled ? "form" : "yaml"
+  )
 
   // Raw YAML state for preserving original formatting
   const [rawInputsYaml, setRawInputsYaml] = useState(() => action?.inputs || "")
@@ -378,6 +382,11 @@ function ActionPanelContent({
     // Update raw YAML when action changes
     setRawInputsYaml(action?.inputs || "")
   }, [actionId, action?.inputs])
+
+  useEffect(() => {
+    // Reset input mode based on organization setting
+    setInputMode(formModeEnabled ? "form" : "yaml")
+  }, [formModeEnabled, actionId])
 
   // Set up the ref methods
   useEffect(() => {
@@ -559,6 +568,11 @@ function ActionPanelContent({
   // Handle mode switching with YAML preservation
   const handleModeChange = useCallback(
     (newMode: InputMode) => {
+      // Don't allow switching if form mode is disabled
+      if (!formModeEnabled && newMode === "form") {
+        return
+      }
+
       if (inputMode === "form" && newMode === "yaml") {
         // Switching TO yaml: generate YAML from current form state
         const currentFormData = methods.getValues("inputs")
@@ -579,7 +593,7 @@ function ActionPanelContent({
       }
       setInputMode(newMode)
     },
-    [inputMode, methods, action?.inputs, rawInputsYaml]
+    [inputMode, methods, action?.inputs, rawInputsYaml, formModeEnabled]
   )
 
   const isInteractive = methods.watch("is_interactive")
@@ -990,42 +1004,44 @@ function ActionPanelContent({
                                     ? "Define action inputs using form fields below."
                                     : "Define action inputs in YAML below."}
                                 </span>
-                                <ToggleTabs
-                                  options={
-                                    [
-                                      {
-                                        value: "form",
-                                        content: (
-                                          <div className="flex items-center gap-1">
-                                            <ListIcon className="size-3" />
-                                            <span className="text-xs">
-                                              Form
-                                            </span>
-                                          </div>
-                                        ),
-                                        tooltip: "Use form fields",
-                                        ariaLabel: "Form mode",
-                                      },
-                                      {
-                                        value: "yaml",
-                                        content: (
-                                          <div className="flex items-center gap-1">
-                                            <CodeIcon className="size-3" />
-                                            <span className="text-xs">
-                                              YAML
-                                            </span>
-                                          </div>
-                                        ),
-                                        tooltip: "Use YAML editor",
-                                        ariaLabel: "YAML mode",
-                                      },
-                                    ] as ToggleTabOption<InputMode>[]
-                                  }
-                                  value={inputMode}
-                                  onValueChange={handleModeChange}
-                                  size="sm"
-                                  className="w-auto"
-                                />
+                                {formModeEnabled && (
+                                  <ToggleTabs
+                                    options={
+                                      [
+                                        {
+                                          value: "form",
+                                          content: (
+                                            <div className="flex items-center gap-1">
+                                              <ListIcon className="size-3" />
+                                              <span className="text-xs">
+                                                Form
+                                              </span>
+                                            </div>
+                                          ),
+                                          tooltip: "Use form fields",
+                                          ariaLabel: "Form mode",
+                                        },
+                                        {
+                                          value: "yaml",
+                                          content: (
+                                            <div className="flex items-center gap-1">
+                                              <CodeIcon className="size-3" />
+                                              <span className="text-xs">
+                                                YAML
+                                              </span>
+                                            </div>
+                                          ),
+                                          tooltip: "Use YAML editor",
+                                          ariaLabel: "YAML mode",
+                                        },
+                                      ] as ToggleTabOption<InputMode>[]
+                                    }
+                                    value={inputMode}
+                                    onValueChange={handleModeChange}
+                                    size="sm"
+                                    className="w-auto"
+                                  />
+                                )}
                               </div>
                             </div>
 
@@ -1036,7 +1052,7 @@ function ActionPanelContent({
                                 fieldName="inputs"
                               />
                             )}
-                            {inputMode === "form" && (
+                            {inputMode === "form" && formModeEnabled && (
                               <>
                                 {/* Required fields - always shown */}
                                 {requiredFields.map(

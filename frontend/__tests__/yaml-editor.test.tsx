@@ -2,6 +2,7 @@
  * @jest-environment jsdom
  */
 
+import { render } from "@testing-library/react"
 import React from "react"
 import {
   type Control,
@@ -88,10 +89,18 @@ jest.mock("@/providers/workflow", () => ({
   }),
 }))
 
+// Mock org app settings for testing with pills disabled
+jest.mock("@/lib/hooks", () => ({
+  useOrgAppSettings: () => ({
+    appSettings: { app_editor_pill_decorations_enabled: false },
+  }),
+}))
+
 // Mock common editor utilities
 jest.mock("@/components/editor/codemirror/common", () => ({
   createAtKeyCompletion: () => [],
   createEscapeKeyHandler: () => [],
+  createExitEditModeKeyHandler: () => [],
   createBlurHandler: () => () => false,
   createExpressionNodeHover: () => [],
   createFunctionCompletion: () => [],
@@ -99,10 +108,19 @@ jest.mock("@/components/editor/codemirror/common", () => ({
   createMentionCompletion: () => [],
   createTemplatePillPlugin: () => [],
   createPillClickHandler: () => () => false,
+  createPillDeleteKeymap: () => [],
+  createCoreKeymap: () => [],
+  createAutocomplete: () => [],
   editingRangeField: {},
   enhancedCursorLeft: () => false,
   enhancedCursorRight: () => false,
   templatePillTheme: [],
+  EDITOR_STYLE: "",
+}))
+
+// Mock highlight plugin
+jest.mock("@/components/editor/codemirror/highlight-plugin", () => ({
+  createSimpleTemplatePlugin: () => [],
 }))
 
 describe("YamlStyledEditor Implementation", () => {
@@ -161,6 +179,32 @@ describe("YamlStyledEditor Implementation", () => {
 
     // Component should render without errors with required props
     expect(() => <TestComponent />).not.toThrow()
+  })
+
+  it("should include core keymaps when pills are disabled", () => {
+    // Verify that createCoreKeymap is called when rendering with pills disabled
+    const createCoreKeymapSpy = jest.fn(() => [])
+    require("@/components/editor/codemirror/common").createCoreKeymap =
+      createCoreKeymapSpy
+
+    const TestComponent = () => {
+      const methods = useForm<FieldValues>({
+        defaultValues: { testField: { key: "value" } },
+      })
+
+      return (
+        <FormProvider {...methods}>
+          <YamlStyledEditor name="testField" control={methods.control} />
+        </FormProvider>
+      )
+    }
+
+    // Render the component with pills disabled (set in mock above)
+    render(<TestComponent />)
+
+    // Since we mocked app_editor_pill_decorations_enabled: false, createCoreKeymap should be used
+    // in the extensions to ensure basic key bindings work
+    expect(createCoreKeymapSpy).toHaveBeenCalled()
   })
 })
 
