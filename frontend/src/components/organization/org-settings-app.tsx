@@ -24,7 +24,7 @@ const appFormSchema = z.object({
   app_interactions_enabled: z.boolean(),
   app_workflow_export_enabled: z.boolean(),
   app_create_workspace_on_register: z.boolean(),
-  app_editor_pills_enabled: z.boolean(),
+  app_editor_pill_decorations_enabled: z.boolean(),
   app_action_form_mode_enabled: z.boolean(),
 })
 
@@ -51,7 +51,9 @@ export function OrgSettingsAppForm() {
         appSettings?.app_workflow_export_enabled ?? true,
       app_create_workspace_on_register:
         appSettings?.app_create_workspace_on_register ?? false,
-      app_editor_pills_enabled: Boolean(appSettings?.app_editor_pills_enabled),
+      app_editor_pill_decorations_enabled: Boolean(
+        appSettings?.app_editor_pill_decorations_enabled
+      ),
       app_action_form_mode_enabled:
         appSettings?.app_action_form_mode_enabled ?? true,
     },
@@ -67,7 +69,8 @@ export function OrgSettingsAppForm() {
           app_workflow_export_enabled: data.app_workflow_export_enabled,
           app_create_workspace_on_register:
             data.app_create_workspace_on_register,
-          app_editor_pills_enabled: data.app_editor_pills_enabled,
+          app_editor_pill_decorations_enabled:
+            data.app_editor_pill_decorations_enabled,
           app_action_form_mode_enabled: data.app_action_form_mode_enabled,
         },
       })
@@ -202,7 +205,7 @@ export function OrgSettingsAppForm() {
 
         <FormField
           control={form.control}
-          name="app_editor_pills_enabled"
+          name="app_editor_pill_decorations_enabled"
           render={({ field }) => (
             <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
               <div className="space-y-0.5">

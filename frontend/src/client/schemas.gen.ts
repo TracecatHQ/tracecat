@@ -733,9 +733,9 @@ export const $AppSettingsRead = {
       type: "boolean",
       title: "App Create Workspace On Register",
     },
-    app_editor_pills_enabled: {
+    app_editor_pill_decorations_enabled: {
       type: "boolean",
-      title: "App Editor Pills Enabled",
+      title: "App Editor Pill Decorations Enabled",
     },
     app_action_form_mode_enabled: {
       type: "boolean",
@@ -749,7 +749,7 @@ export const $AppSettingsRead = {
     "app_interactions_enabled",
     "app_workflow_export_enabled",
     "app_create_workspace_on_register",
-    "app_editor_pills_enabled",
+    "app_editor_pill_decorations_enabled",
     "app_action_form_mode_enabled",
   ],
   title: "AppSettingsRead",
@@ -790,12 +790,12 @@ export const $AppSettingsUpdate = {
         "Whether to automatically create a workspace when a user signs up.",
       default: false,
     },
-    app_editor_pills_enabled: {
+    app_editor_pill_decorations_enabled: {
       type: "boolean",
-      title: "App Editor Pills Enabled",
+      title: "App Editor Pill Decorations Enabled",
       description:
         "Whether to show pills in template expressions. When disabled, expressions show as plain text with syntax highlighting.",
-      default: true,
+      default: false,
     },
     app_action_form_mode_enabled: {
       type: "boolean",

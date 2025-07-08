@@ -216,7 +216,9 @@ export const YamlStyledEditor = React.forwardRef<
   }, []) // No dependencies - stable function
 
   const extensions = useMemo(() => {
-    const pillsEnabled = Boolean(appSettings?.app_editor_pills_enabled)
+    const pillsEnabled = Boolean(
+      appSettings?.app_editor_pill_decorations_enabled
+    )
 
     const errorMonitorPlugin = ViewPlugin.fromClass(
       class {
@@ -784,7 +786,9 @@ export function YamlViewOnlyEditor({
   }, [value])
 
   const extensions = useMemo(() => {
-    const pillsEnabled = Boolean(appSettings?.app_editor_pills_enabled)
+    const pillsEnabled = Boolean(
+      appSettings?.app_editor_pill_decorations_enabled
+    )
 
     const templatePlugin = pillsEnabled
       ? createTemplatePillPlugin(workspaceId)

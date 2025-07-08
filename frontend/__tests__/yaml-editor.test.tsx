@@ -92,7 +92,7 @@ jest.mock("@/providers/workflow", () => ({
 // Mock org app settings for testing with pills disabled
 jest.mock("@/lib/hooks", () => ({
   useOrgAppSettings: () => ({
-    appSettings: { app_editor_pills_enabled: false },
+    appSettings: { app_editor_pill_decorations_enabled: false },
   }),
 }))
 
@@ -202,7 +202,7 @@ describe("YamlStyledEditor Implementation", () => {
     // Render the component with pills disabled (set in mock above)
     render(<TestComponent />)
 
-    // Since we mocked app_editor_pills_enabled: false, createCoreKeymap should be used
+    // Since we mocked app_editor_pill_decorations_enabled: false, createCoreKeymap should be used
     // in the extensions to ensure basic key bindings work
     expect(createCoreKeymapSpy).toHaveBeenCalled()
   })

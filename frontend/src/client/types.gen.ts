@@ -181,7 +181,7 @@ export type AppSettingsRead = {
   app_interactions_enabled: boolean
   app_workflow_export_enabled: boolean
   app_create_workspace_on_register: boolean
-  app_editor_pills_enabled: boolean
+  app_editor_pill_decorations_enabled: boolean
   app_action_form_mode_enabled: boolean
 }
 
@@ -212,7 +212,7 @@ export type AppSettingsUpdate = {
   /**
    * Whether to show pills in template expressions. When disabled, expressions show as plain text with syntax highlighting.
    */
-  app_editor_pills_enabled?: boolean
+  app_editor_pill_decorations_enabled?: boolean
   /**
    * Whether to enable form mode for action inputs. When disabled, only YAML mode is available, preserving raw YAML formatting.
    */
@@ -4511,7 +4511,7 @@ export type PublicCheckHealthResponse = {
 
 export type $OpenApiTs = {
   "/webhooks/{workflow_id}/{secret}": {
-    get: {
+    post: {
       req: PublicIncomingWebhookData
       res: {
         /**
@@ -4524,7 +4524,7 @@ export type $OpenApiTs = {
         422: HTTPValidationError
       }
     }
-    post: {
+    get: {
       req: PublicIncomingWebhook1Data
       res: {
         /**
