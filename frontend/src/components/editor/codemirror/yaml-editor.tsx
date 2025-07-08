@@ -301,7 +301,7 @@ export const YamlStyledEditor = React.forwardRef<
         blur: yamlBlurHandler(),
       }),
     ])
-  }, [workspaceId, actions, yamlBlurHandler, appSettings]) // Only stable dependencies
+  }, [workspaceId, actions, yamlBlurHandler, appSettings, forEachExpressions]) // Only stable dependencies
 
   // Save-related keybindings (separate from core extensions to avoid recreation)
   const saveKeymap = useMemo(() => {
