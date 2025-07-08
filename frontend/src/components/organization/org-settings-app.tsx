@@ -206,10 +206,14 @@ export function OrgSettingsAppForm() {
           render={({ field }) => (
             <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
               <div className="space-y-0.5">
-                <FormLabel>Enable editor pills</FormLabel>
+                <FormLabel>
+                  Enable editor pill decorations (experimental)
+                </FormLabel>
                 <FormDescription>
-                  Show template expressions as interactive pills. When disabled,
-                  expressions display as plain text with syntax highlighting.
+                  Show template expression pills with decorations. When
+                  disabled, expressions display as plain text with simple
+                  highlighting. This is an experimental feature that may contain
+                  bugs.
                 </FormDescription>
               </div>
               <FormControl>
@@ -232,7 +236,8 @@ export function OrgSettingsAppForm() {
                 <FormDescription>
                   Allow form mode for action inputs. When disabled, only YAML
                   mode is available, preserving raw YAML formatting and special
-                  characters.
+                  characters. Enable this if you are having issues with
+                  preserving YAML formatting in the form view.
                 </FormDescription>
               </div>
               <FormControl>
