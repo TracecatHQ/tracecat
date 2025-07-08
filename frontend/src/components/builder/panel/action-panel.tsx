@@ -381,9 +381,12 @@ function ActionPanelContent({
     setValidationResults([])
     // Update raw YAML when action changes
     setRawInputsYaml(action?.inputs || "")
+  }, [actionId, action?.inputs])
+
+  useEffect(() => {
     // Reset input mode based on organization setting
     setInputMode(formModeEnabled ? "form" : "yaml")
-  }, [actionId, action?.inputs, formModeEnabled])
+  }, [formModeEnabled, actionId])
 
   // Set up the ref methods
   useEffect(() => {
