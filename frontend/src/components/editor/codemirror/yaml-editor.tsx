@@ -85,7 +85,15 @@ export const YamlStyledEditor = React.forwardRef<
   const editorRef = useRef<EditorView | null>(null)
 
   const textValue = React.useMemo(
-    () => stripNewline(field.value ? YAML.stringify(field.value) : ""),
+    () =>
+      stripNewline(
+        field.value
+          ? YAML.stringify(field.value, {
+              lineWidth: 0, // Disable line wrapping
+              minContentWidth: 0, // Allow content to extend beyond default width
+            })
+          : ""
+      ),
     [field.value]
   )
   // Internal editor value - always a string representation of the YAML
@@ -785,7 +793,12 @@ export function YamlViewOnlyEditor({
   const textValue = React.useMemo(() => {
     if (!value) return ""
     return stripNewline(
-      typeof value === "string" ? value : YAML.stringify(value)
+      typeof value === "string"
+        ? value
+        : YAML.stringify(value, {
+            lineWidth: 0, // Disable line wrapping
+            minContentWidth: 0, // Allow content to extend beyond default width
+          })
     )
   }, [value])
 
