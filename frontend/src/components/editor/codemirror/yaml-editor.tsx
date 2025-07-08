@@ -202,11 +202,15 @@ export const YamlStyledEditor = React.forwardRef<
   // Custom blur handler that commits YAML to form (stable function using refs)
   const yamlBlurHandler = useCallback(() => {
     return (event: FocusEvent, view: EditorView): boolean => {
-      // Call the original blur handler for template pills
-      const originalResult = createBlurHandler()(event, view)
+      // Call the original blur handler for template pills, but only if the
+      // necessary state field is present to avoid a crash.
+      const originalResult = view.state.field(editingRangeField, false)
+        ? createBlurHandler()(event, view)
+        : false
 
       // Commit to form on blur if there are unsaved changes
       if (saveStateRef.current === SaveState.UNSAVED) {
+        // Call the commitToForm function to commit the changes to the form
         commitToFormRef.current()
         setSaveStateRef.current(SaveState.IDLE)
       }

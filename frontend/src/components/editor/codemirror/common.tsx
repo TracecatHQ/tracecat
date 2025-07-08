@@ -1823,7 +1823,7 @@ export function createPillClickHandler() {
 
 // Blur handler to clear editing state
 export function createBlurHandler() {
-  return (event: FocusEvent, view: EditorView): boolean => {
+  return (_: FocusEvent, view: EditorView): boolean => {
     const currentEditingRange = view.state.field(editingRangeField)
     if (currentEditingRange) {
       view.dispatch({ effects: setEditingRange.of(null) })
