@@ -15,6 +15,7 @@ import {
   ViewPlugin,
   type ViewUpdate,
 } from "@codemirror/view"
+import { createNodeTooltipForPosition } from "@/components/editor/codemirror/common"
 import { createTemplateRegex } from "@/lib/expressions"
 
 /**
@@ -38,7 +39,7 @@ function createTemplateHighlightDecorations(state: EditorState): DecorationSet {
           background-color: rgb(59 130 246 / 0.1);
           color: rgb(55 65 81 / 0.9);
           border-radius: 0.25rem;
-          padding: 0.125rem 0.25rem;
+          padding: 0.05rem 0.125rem;
           border: 1px solid rgb(59 130 246 / 0.2);
           font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", Menlo, monospace;
         `,
@@ -80,39 +81,38 @@ export function createTemplateHighlightPlugin() {
 /**
  * Create hover tooltip for template expressions
  */
-export function createTemplateHoverTooltip() {
+export function createTemplateHoverTooltip(workspaceId: string) {
   return hoverTooltip(async (view, pos) => {
-    const doc = view.state.doc.toString()
+    // Find if the position is within a template expression
+    const doc = view.state.doc
+    const line = doc.lineAt(pos)
+    const lineText = line.text
+
+    // Find all template expressions in the line
     const templateRegex = createTemplateRegex()
-
     let match
-    while ((match = templateRegex.exec(doc)) !== null) {
-      const from = match.index
-      const to = match.index + match[0].length
+    templateRegex.lastIndex = 0
 
-      if (pos >= from && pos <= to) {
-        const expression = match[1]?.trim()
-        if (!expression) return null
+    while ((match = templateRegex.exec(lineText)) !== null) {
+      const templateStart = line.from + match.index
+      const templateEnd = templateStart + match[0].length
 
-        // Simple tooltip without validation for now
-        return {
-          pos: from,
-          end: to,
-          above: true,
-          create: () => {
-            const dom = document.createElement("div")
-            dom.className = "template-tooltip"
-            dom.style.cssText = `
-              background: white;
-              border: 1px solid #ccc;
-              border-radius: 4px;
-              padding: 8px;
-              box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-              max-width: 300px;
-            `
-            dom.textContent = `Expression: ${expression}`
-            return { dom }
-          },
+      // Check if position is within this template expression
+      if (pos >= templateStart && pos <= templateEnd) {
+        const innerContent = match[1].trim()
+        const innerStart = templateStart + match[0].indexOf(innerContent)
+        const innerEnd = innerStart + innerContent.length
+
+        // Check if position is within the inner content
+        if (pos >= innerStart && pos <= innerEnd) {
+          const relativePos = pos - innerStart
+          return await createNodeTooltipForPosition(
+            view,
+            innerContent,
+            relativePos,
+            templateStart,
+            workspaceId
+          )
         }
       }
     }
@@ -124,6 +124,9 @@ export function createTemplateHoverTooltip() {
 /**
  * Combined plugin that includes highlighting and hover tooltips
  */
-export function createSimpleTemplatePlugin() {
-  return [createTemplateHighlightPlugin(), createTemplateHoverTooltip()]
+export function createSimpleTemplatePlugin(workspaceId: string) {
+  return [
+    createTemplateHighlightPlugin(),
+    createTemplateHoverTooltip(workspaceId),
+  ]
 }

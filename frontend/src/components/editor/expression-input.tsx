@@ -176,7 +176,7 @@ function ExpressionInputCore({
     // Choose between pill plugin and simple highlighting
     const templatePlugin = pillsEnabled
       ? createTemplatePillPlugin(workspaceId)
-      : createSimpleTemplatePlugin()
+      : createSimpleTemplatePlugin(workspaceId)
 
     const baseExtensions = [
       // Core setup
@@ -201,6 +201,7 @@ function ExpressionInputCore({
 
       // Template expression plugin
       templatePlugin,
+      templatePillTheme,
     ]
 
     // Add pill-specific extensions only when pills are enabled
@@ -223,9 +224,6 @@ function ExpressionInputCore({
           mousedown: createPillClickHandler(),
           blur: createBlurHandler(),
         }),
-
-        // Theme (pill-specific)
-        templatePillTheme,
       ]
     }
 

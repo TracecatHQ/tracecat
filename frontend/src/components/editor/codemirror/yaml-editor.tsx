@@ -247,7 +247,7 @@ export const YamlStyledEditor = React.forwardRef<
 
     const templatePlugin = pillsEnabled
       ? createTemplatePillPlugin(workspaceId)
-      : createSimpleTemplatePlugin()
+      : createSimpleTemplatePlugin(workspaceId)
 
     const baseExtensions = [
       lintGutter(),
@@ -267,6 +267,7 @@ export const YamlStyledEditor = React.forwardRef<
 
       templatePlugin,
       errorMonitorPlugin,
+      templatePillTheme,
 
       yamlEditorTheme,
       yamlLiteralHighlighter,
@@ -285,13 +286,11 @@ export const YamlStyledEditor = React.forwardRef<
           mousedown: createPillClickHandler(),
           blur: yamlBlurHandler(),
         }),
-        templatePillTheme,
       ]
     }
 
     return baseExtensions.concat([
       createCoreKeymap(),
-      createExpressionNodeHover(workspaceId),
       EditorView.domEventHandlers({
         blur: yamlBlurHandler(),
       }),
@@ -789,7 +788,7 @@ export function YamlViewOnlyEditor({
 
     const templatePlugin = pillsEnabled
       ? createTemplatePillPlugin(workspaceId)
-      : createSimpleTemplatePlugin()
+      : createSimpleTemplatePlugin(workspaceId)
 
     const baseExtensions = [
       // Core language support with proper indentation
@@ -804,6 +803,7 @@ export function YamlViewOnlyEditor({
 
       // Template expression plugin
       templatePlugin,
+      templatePillTheme,
 
       // Styling
       yamlEditorTheme,
@@ -811,7 +811,7 @@ export function YamlViewOnlyEditor({
     ]
 
     if (pillsEnabled) {
-      return baseExtensions.concat([editingRangeField, templatePillTheme])
+      return baseExtensions.concat([editingRangeField])
     }
 
     return baseExtensions

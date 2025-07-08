@@ -802,13 +802,12 @@ export function createExpressionNodeHover(workspaceId: string) {
         }
       }
     }
-
     return null
   })
 }
 
 // Helper function to create tooltip for a specific position within an expression
-async function createNodeTooltipForPosition(
+export async function createNodeTooltipForPosition(
   view: EditorView,
   expression: string,
   relativePos: number,
@@ -1979,7 +1978,7 @@ export const templatePillTheme = EditorView.theme({
     fontFamily: "ui-monospace, monospace",
   },
   ".cm-tooltip-action-info": {
-    color: "#93c5fd",
+    color: "#3b82f6",
   },
   ".cm-tooltip-action-info .action-ref": {
     marginBottom: "2px",
@@ -2001,7 +2000,7 @@ export const templatePillTheme = EditorView.theme({
   },
   ".cm-tooltip-function-info .function-params": {
     marginBottom: "2px",
-    color: "#a5b4fc",
+    color: "#6366f1",
     fontSize: "11px",
   },
   ".cm-tooltip-function-info .function-params code": {
