@@ -76,9 +76,16 @@ export function BuilderNav() {
 
   const { workspaceId, workspace, workspaceLoading } = useWorkspace()
 
+  const { actionPanelRef } = useWorkflowBuilder()
+
   const handleCommit = async () => {
     console.log("Saving changes...")
     try {
+      // Flush any unsaved action-panel edits first
+      if (actionPanelRef?.current?.saveChanges) {
+        await actionPanelRef.current.saveChanges()
+      }
+
       const response = await commitWorkflow()
       const { status, errors } = response
       if (status === "failure") {

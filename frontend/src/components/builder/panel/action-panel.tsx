@@ -244,6 +244,8 @@ export interface ActionPanelRef extends ImperativePanelHandle {
   getActiveTab: () => ActionPanelTabs
   setOpen: (open: boolean) => void
   isOpen: () => boolean
+  /** Flush editors & submit the form. Resolves when the backend update finishes. */
+  saveChanges: () => Promise<void>
 }
 
 function ActionPanelContent({
@@ -388,27 +390,6 @@ function ActionPanelContent({
     setInputMode(formModeEnabled ? "form" : "yaml")
   }, [formModeEnabled, actionId])
 
-  // Set up the ref methods
-  useEffect(() => {
-    if (actionPanelRef.current) {
-      actionPanelRef.current.setActiveTab = setActiveTab
-      actionPanelRef.current.getActiveTab = () => activeTab
-      actionPanelRef.current.setOpen = (newOpen: boolean) => {
-        setOpen(newOpen)
-        // If the panel has a collapse method, use it
-        if (
-          actionPanelRef.current?.collapse &&
-          actionPanelRef.current?.expand
-        ) {
-          newOpen
-            ? actionPanelRef.current.expand()
-            : actionPanelRef.current.collapse()
-        }
-      }
-      actionPanelRef.current.isOpen = () => open
-    }
-  }, [actionPanelRef, activeTab, setOpen, open])
-
   const handleSave = useCallback(
     async (values: ActionFormSchema) => {
       if (!registryAction || !action) {
@@ -509,6 +490,51 @@ function ActionPanelContent({
       commitAllEditors,
     ]
   )
+
+  // Set up the ref methods
+  useEffect(() => {
+    if (actionPanelRef.current) {
+      actionPanelRef.current.setActiveTab = setActiveTab
+      actionPanelRef.current.getActiveTab = () => activeTab
+      actionPanelRef.current.setOpen = (newOpen: boolean) => {
+        setOpen(newOpen)
+        // If the panel has a collapse method, use it
+        if (
+          actionPanelRef.current?.collapse &&
+          actionPanelRef.current?.expand
+        ) {
+          newOpen
+            ? actionPanelRef.current.expand()
+            : actionPanelRef.current.collapse()
+        }
+      }
+      actionPanelRef.current.isOpen = () => open
+      actionPanelRef.current.saveChanges = async () => {
+        // Commit CodeMirror/YAML editors first
+        commitAllEditors()
+
+        // Wrap react-hook-form's submit handler into a promise
+        return new Promise<void>((resolve, reject) => {
+          methods.handleSubmit(async (values) => {
+            try {
+              await handleSave(values) // already async; performs updateAction()
+              resolve()
+            } catch (err) {
+              reject(err)
+            }
+          })() // immediately invoke
+        })
+      }
+    }
+  }, [
+    actionPanelRef,
+    activeTab,
+    setOpen,
+    open,
+    commitAllEditors,
+    methods,
+    handleSave,
+  ])
 
   // If the form is dirty, set the save state to unsaved
   useEffect(() => {
