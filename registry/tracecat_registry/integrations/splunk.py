@@ -24,7 +24,7 @@ Note: `SPLUNK_API_KEY` should be a valid API key for the Splunk instance.
     description="Create a KV Store Collection in Splunk. Uses bearer token authentication.",
     display_group="Splunk",
     doc_url="https://help.splunk.com/en/splunk-enterprise/rest-api-reference/9.4/kv-store-endpoints/kv-store-endpoint-descriptions#post-9",
-    namespace="tools.splunk_sdk",
+    namespace="tools.splunk",
     secrets=[splunk_secret],
 )
 async def create_kv_store_collection(
@@ -76,7 +76,7 @@ async def create_kv_store_collection(
     description="Create an entry in a KV Store Collection in Splunk. Uses bearer token authentication.",
     display_group="Splunk",
     doc_url="https://help.splunk.com/en/splunk-enterprise/rest-api-reference/9.4/kv-store-endpoints/kv-store-endpoint-descriptions#post-2",
-    namespace="tools.splunk_sdk",
+    namespace="tools.splunk",
     secrets=[splunk_secret],
 )
 async def create_entry_to_kv_store_collection(
@@ -136,7 +136,7 @@ async def create_entry_to_kv_store_collection(
     description="Get a KV Store Collection from Splunk. Uses bearer token authentication.",
     display_group="Splunk",
     doc_url="https://help.splunk.com/en/splunk-enterprise/rest-api-reference/9.4/kv-store-endpoints/kv-store-endpoint-descriptions#get-5",
-    namespace="tools.splunk_sdk",
+    namespace="tools.splunk",
     secrets=[splunk_secret],
 )
 async def get_kv_store_collection(
@@ -181,7 +181,7 @@ async def get_kv_store_collection(
     description="List KV Store Collections from Splunk. Uses bearer token authentication.",
     display_group="Splunk",
     doc_url="https://help.splunk.com/en/splunk-enterprise/rest-api-reference/9.4/kv-store-endpoints/kv-store-endpoint-descriptions#get-4",
-    namespace="tools.splunk_sdk",
+    namespace="tools.splunk",
     secrets=[splunk_secret],
 )
 async def list_kv_store_collections(
@@ -261,7 +261,7 @@ async def list_kv_store_collections(
     description="List entries in a KV Store Collection from Splunk. Uses bearer token authentication.",
     display_group="Splunk",
     doc_url="https://help.splunk.com/en/splunk-enterprise/rest-api-reference/9.4/kv-store-endpoints/kv-store-endpoint-descriptions#get-6",
-    namespace="tools.splunk_sdk",
+    namespace="tools.splunk",
     secrets=[splunk_secret],
 )
 async def list_entries_in_kv_store_collection(
@@ -345,7 +345,7 @@ async def list_entries_in_kv_store_collection(
     description="Delete a KV Store Collection from Splunk. Uses bearer token authentication.",
     display_group="Splunk",
     doc_url="https://help.splunk.com/en/splunk-enterprise/rest-api-reference/9.4/kv-store-endpoints/kv-store-endpoint-descriptions#delete-0",
-    namespace="tools.splunk_sdk",
+    namespace="tools.splunk",
     secrets=[splunk_secret],
 )
 async def delete_kv_store_collection(
@@ -389,7 +389,7 @@ async def delete_kv_store_collection(
     description="Delete an entry from a KV Store Collection from Splunk. Uses bearer token authentication.",
     display_group="Splunk",
     doc_url="https://help.splunk.com/en/splunk-enterprise/rest-api-reference/9.4/kv-store-endpoints/kv-store-endpoint-descriptions#delete-1",
-    namespace="tools.splunk_sdk",
+    namespace="tools.splunk",
     secrets=[splunk_secret],
 )
 async def delete_entry_from_kv_store_collection(
@@ -440,7 +440,7 @@ async def delete_entry_from_kv_store_collection(
     description="Get an entry from a KV Store Collection from Splunk. Uses bearer token authentication.",
     display_group="Splunk",
     doc_url="https://help.splunk.com/en/splunk-enterprise/rest-api-reference/9.4/kv-store-endpoints/kv-store-endpoint-descriptions#get-7",
-    namespace="tools.splunk_sdk",
+    namespace="tools.splunk",
     secrets=[splunk_secret],
 )
 async def get_entry_from_kv_store_collection(
@@ -488,7 +488,7 @@ async def get_entry_from_kv_store_collection(
     description="Update an entry in a KV Store Collection from Splunk. Uses bearer token authentication.",
     display_group="Splunk",
     doc_url="https://help.splunk.com/en/splunk-enterprise/rest-api-reference/9.4/kv-store-endpoints/kv-store-endpoint-descriptions#post-12",
-    namespace="tools.splunk_sdk",
+    namespace="tools.splunk",
     secrets=[splunk_secret],
 )
 async def update_entry_in_kv_store_collection(
@@ -552,7 +552,7 @@ async def update_entry_in_kv_store_collection(
     description="Add fields to KV Store Collections from Splunk. Uses bearer token authentication.",
     display_group="Splunk",
     doc_url="https://help.splunk.com/en/splunk-enterprise/rest-api-reference/9.4/kv-store-endpoints/kv-store-endpoint-descriptions#post-9",
-    namespace="tools.splunk_sdk",
+    namespace="tools.splunk",
     secrets=[splunk_secret],
 )
 async def add_fields_to_kv_store_collection(
