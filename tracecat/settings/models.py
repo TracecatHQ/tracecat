@@ -136,7 +136,7 @@ class AppSettingsUpdate(BaseSettingsGroup):
         description="Whether to automatically create a workspace when a user signs up.",
     )
     app_editor_pills_enabled: bool = Field(
-        default=True,
+        default=False,
         description="Whether to show pills in template expressions. When disabled, expressions show as plain text with syntax highlighting.",
     )
     app_action_form_mode_enabled: bool = Field(

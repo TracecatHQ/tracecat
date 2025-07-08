@@ -171,7 +171,7 @@ function ExpressionInputCore({
   }, [value])
 
   const extensions = useMemo(() => {
-    const pillsEnabled = appSettings?.app_editor_pills_enabled ?? true
+    const pillsEnabled = Boolean(appSettings?.app_editor_pills_enabled)
 
     // Choose between pill plugin and simple highlighting
     const templatePlugin = pillsEnabled

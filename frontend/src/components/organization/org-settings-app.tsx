@@ -51,7 +51,7 @@ export function OrgSettingsAppForm() {
         appSettings?.app_workflow_export_enabled ?? true,
       app_create_workspace_on_register:
         appSettings?.app_create_workspace_on_register ?? false,
-      app_editor_pills_enabled: appSettings?.app_editor_pills_enabled ?? true,
+      app_editor_pills_enabled: Boolean(appSettings?.app_editor_pills_enabled),
       app_action_form_mode_enabled:
         appSettings?.app_action_form_mode_enabled ?? true,
     },
