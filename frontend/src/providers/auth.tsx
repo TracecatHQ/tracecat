@@ -75,11 +75,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (userError) {
       console.error("Error loading user", userError)
       router.push("/auth/error")
-    } else if (!user && !userIsLoading) {
-      console.log("No user loaded, redirecting to login")
-      router.push("/")
     }
-  }, [user, userIsLoading, userError])
+  }, [userError])
 
   return (
     <AuthContext.Provider

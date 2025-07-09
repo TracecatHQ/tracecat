@@ -3,6 +3,7 @@
 import type { WorkspaceRead } from "@/client"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
+import { SettingsHeader } from "@/components/settings/settings-header"
 import { ConfirmDelete } from "@/components/workspaces/delete-workspace"
 import { WorkspaceGeneralSettings } from "@/components/workspaces/workspace-general"
 import { useWorkspaceManager } from "@/lib/hooks"
@@ -27,14 +28,10 @@ export default function WorkspaceGeneralSettingsPage() {
   return (
     <div className="size-full overflow-auto">
       <div className="container flex h-full max-w-[1000px] flex-col space-y-12">
-        <div className="flex w-full">
-          <div className="items-start space-y-3 text-left">
-            <h2 className="text-2xl font-semibold tracking-tight">Workspace</h2>
-            <p className="text-md text-muted-foreground">
-              Manage general settings for the workspace.
-            </p>
-          </div>
-        </div>
+        <SettingsHeader
+          title="General"
+          description="Manage general settings for the workspace."
+        />
 
         <div className="space-y-14">
           <div className="flex items-center gap-4">
