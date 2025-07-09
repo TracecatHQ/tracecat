@@ -81,7 +81,7 @@ async def send_teams_message(
     default_title="Reply to a Teams message",
     description="Send a reply to a Microsoft Teams message.",
     display_group="Microsoft Teams",
-    doc_url="https://learn.microsoft.com/en-us/graph/api/channel-post-messages",
+    doc_url="https://learn.microsoft.com/en-us/graph/api/channel-post-replies",
     namespace="tools.microsoft_teams",
     secrets=[microsoft_teams_ac_oauth_secret],
 )
