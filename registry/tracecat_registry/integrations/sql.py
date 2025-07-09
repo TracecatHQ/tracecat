@@ -2,27 +2,21 @@
 
 from typing import Annotated, Any, Literal
 
+import asyncpg
 from typing_extensions import Doc
-
-try:
-    import asyncpg
-except ImportError:
-    asyncpg = None
 
 from tracecat_registry import RegistrySecret, registry, secrets
 
 sql_secret = RegistrySecret(
     name="sql",
-    keys=["SQL_CONNECTION_STRING"],
+    keys=["SQL_USERNAME", "SQL_PASSWORD"],
 )
-"""SQL database connection.
+"""SQL database credentials.
 
 - name: `sql`
 - keys:
-    - `SQL_CONNECTION_STRING`: PostgreSQL connection string
-
-Examples:
-- PostgreSQL: `postgresql://user:password@localhost:5432/database`
+    - `SQL_USERNAME`: Database username
+    - `SQL_PASSWORD`: Database password
 """
 
 
@@ -39,6 +33,22 @@ async def execute_query(
         str,
         Doc("SQL query to execute. Use SELECT for read operations."),
     ],
+    host: Annotated[
+        str,
+        Doc("Database host address (e.g., 'localhost', '192.168.1.100')."),
+    ],
+    database_name: Annotated[
+        str,
+        Doc("Name of the database to connect to."),
+    ],
+    database_type: Annotated[
+        Literal["postgresql"],
+        Doc("Database type. Currently only PostgreSQL is supported."),
+    ] = "postgresql",
+    port: Annotated[
+        int,
+        Doc("Database port number."),
+    ] = 5432,
     fetch_mode: Annotated[
         Literal["all", "one", "many"],
         Doc(
@@ -56,11 +66,129 @@ async def execute_query(
             "asyncpg is required for SQL integration. Install with: pip install asyncpg"
         )
 
-    connection_string = secrets.get("SQL_CONNECTION_STRING")
+    if database_type != "postgresql":
+        raise ValueError(f"Unsupported database type: {database_type}")
+
+    connection_string = _build_connection_string(host, port, database_name)
 
     return await _execute_postgresql_query(
         connection_string, query, fetch_mode, fetch_size
     )
+
+
+@registry.register(
+    default_title="Execute non-query",
+    description="Execute a non-query SQL statement (INSERT, UPDATE, DELETE) against a PostgreSQL database.",
+    display_group="SQL",
+    doc_url="https://magicstack.github.io/asyncpg/current/",
+    namespace="tools.sql",
+    secrets=[sql_secret],
+)
+async def execute_non_query(
+    statement: Annotated[
+        str,
+        Doc("SQL statement to execute (INSERT, UPDATE, DELETE, CREATE, etc.)."),
+    ],
+    host: Annotated[
+        str,
+        Doc("Database host address (e.g., 'localhost', '192.168.1.100')."),
+    ],
+    database_name: Annotated[
+        str,
+        Doc("Name of the database to connect to."),
+    ],
+    database_type: Annotated[
+        Literal["postgresql"],
+        Doc("Database type. Currently only PostgreSQL is supported."),
+    ] = "postgresql",
+    port: Annotated[
+        int,
+        Doc("Database port number."),
+    ] = 5432,
+) -> dict[str, Any]:
+    """Execute a non-query SQL statement and return affected rows count."""
+    if asyncpg is None:
+        raise ImportError(
+            "asyncpg is required for SQL integration. Install with: pip install asyncpg"
+        )
+
+    if database_type != "postgresql":
+        raise ValueError(f"Unsupported database type: {database_type}")
+
+    connection_string = _build_connection_string(host, port, database_name)
+
+    return await _execute_postgresql_non_query(connection_string, statement)
+
+
+@registry.register(
+    default_title="Execute transaction",
+    description="Execute multiple SQL statements in a transaction against a PostgreSQL database.",
+    display_group="SQL",
+    doc_url="https://magicstack.github.io/asyncpg/current/",
+    namespace="tools.sql",
+    secrets=[sql_secret],
+)
+async def execute_transaction(
+    statements: Annotated[
+        list[str],
+        Doc("List of SQL statements to execute in a transaction."),
+    ],
+    host: Annotated[
+        str,
+        Doc("Database host address (e.g., 'localhost', '192.168.1.100')."),
+    ],
+    database_name: Annotated[
+        str,
+        Doc("Name of the database to connect to."),
+    ],
+    database_type: Annotated[
+        Literal["postgresql"],
+        Doc("Database type. Currently only PostgreSQL is supported."),
+    ] = "postgresql",
+    port: Annotated[
+        int,
+        Doc("Database port number."),
+    ] = 5432,
+) -> dict[str, Any]:
+    """Execute multiple SQL statements in a transaction."""
+    if asyncpg is None:
+        raise ImportError(
+            "asyncpg is required for SQL integration. Install with: pip install asyncpg"
+        )
+
+    if database_type != "postgresql":
+        raise ValueError(f"Unsupported database type: {database_type}")
+
+    connection_string = _build_connection_string(host, port, database_name)
+
+    conn = await asyncpg.connect(connection_string)
+    try:
+        async with conn.transaction():
+            results = []
+            for statement in statements:
+                result = await conn.execute(statement)
+                # Extract affected rows from result string
+                affected_rows = 0
+                if result:
+                    parts = result.split()
+                    if len(parts) >= 2:
+                        try:
+                            affected_rows = int(parts[-1])
+                        except ValueError:
+                            pass
+                results.append({"statement": statement, "affected_rows": affected_rows})
+
+            return {"results": results, "status": "success"}
+    finally:
+        await conn.close()
+
+
+def _build_connection_string(host: str, port: int, database_name: str) -> str:
+    """Build PostgreSQL connection string from components."""
+    username = secrets.get("SQL_USERNAME")
+    password = secrets.get("SQL_PASSWORD")
+
+    return f"postgresql://{username}:{password}@{host}:{port}/{database_name}"
 
 
 async def _execute_postgresql_query(
@@ -95,31 +223,6 @@ async def _execute_postgresql_query(
         await conn.close()
 
 
-@registry.register(
-    default_title="Execute non-query",
-    description="Execute a non-query SQL statement (INSERT, UPDATE, DELETE) against a PostgreSQL database.",
-    display_group="SQL",
-    doc_url="https://magicstack.github.io/asyncpg/current/",
-    namespace="tools.sql",
-    secrets=[sql_secret],
-)
-async def execute_non_query(
-    statement: Annotated[
-        str,
-        Doc("SQL statement to execute (INSERT, UPDATE, DELETE, CREATE, etc.)."),
-    ],
-) -> dict[str, Any]:
-    """Execute a non-query SQL statement and return affected rows count."""
-    if asyncpg is None:
-        raise ImportError(
-            "asyncpg is required for SQL integration. Install with: pip install asyncpg"
-        )
-
-    connection_string = secrets.get("SQL_CONNECTION_STRING")
-
-    return await _execute_postgresql_non_query(connection_string, statement)
-
-
 async def _execute_postgresql_non_query(
     connection_string: str,
     statement: str,
@@ -142,49 +245,5 @@ async def _execute_postgresql_non_query(
                     pass
 
         return {"affected_rows": affected_rows, "status": "success"}
-    finally:
-        await conn.close()
-
-
-@registry.register(
-    default_title="Execute transaction",
-    description="Execute multiple SQL statements in a transaction against a PostgreSQL database.",
-    display_group="SQL",
-    doc_url="https://magicstack.github.io/asyncpg/current/",
-    namespace="tools.sql",
-    secrets=[sql_secret],
-)
-async def execute_transaction(
-    statements: Annotated[
-        list[str],
-        Doc("List of SQL statements to execute in a transaction."),
-    ],
-) -> dict[str, Any]:
-    """Execute multiple SQL statements in a transaction."""
-    if asyncpg is None:
-        raise ImportError(
-            "asyncpg is required for SQL integration. Install with: pip install asyncpg"
-        )
-
-    connection_string = secrets.get("SQL_CONNECTION_STRING")
-
-    conn = await asyncpg.connect(connection_string)
-    try:
-        async with conn.transaction():
-            results = []
-            for statement in statements:
-                result = await conn.execute(statement)
-                # Extract affected rows from result string
-                affected_rows = 0
-                if result:
-                    parts = result.split()
-                    if len(parts) >= 2:
-                        try:
-                            affected_rows = int(parts[-1])
-                        except ValueError:
-                            pass
-                results.append({"statement": statement, "affected_rows": affected_rows})
-
-            return {"results": results, "status": "success"}
     finally:
         await conn.close()
