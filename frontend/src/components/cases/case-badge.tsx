@@ -25,10 +25,15 @@ export function CaseBadge<T extends CaseBadgeValue>({
   return (
     <Badge
       variant="outline"
-      className={cn(defaultColor, "items-center gap-1", color, className)}
+      className={cn(
+        defaultColor,
+        "items-center gap-1 border-0",
+        color,
+        className
+      )}
     >
       <Icon className="stroke-inherit/5 size-3 flex-1" strokeWidth={3} />
-      <span className="text-xs">{label}</span>
+      <span>{label}</span>
     </Badge>
   )
 }

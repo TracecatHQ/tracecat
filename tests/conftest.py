@@ -30,6 +30,7 @@ from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.logger import logger
 from tracecat.registry.repositories.models import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
+from tracecat.secrets import secrets_manager
 from tracecat.secrets.models import SecretCreate, SecretKeyValue, SecretUpdate
 from tracecat.secrets.service import SecretsService
 from tracecat.types.auth import AccessLevel, Role, system_role
@@ -585,19 +586,12 @@ async def minio_bucket(minio_client: Minio) -> AsyncGenerator[str, None]:
 
 
 @pytest.fixture
-async def mock_s3_secrets(monkeypatch):
+def mock_s3_secrets():
     """Mock S3 secrets to use MinIO credentials."""
 
-    def mock_get_secret(key: str) -> str:
-        secrets_map = {
-            "AWS_ACCESS_KEY_ID": MINIO_ACCESS_KEY,
-            "AWS_SECRET_ACCESS_KEY": MINIO_SECRET_KEY,
-            "AWS_REGION": "us-east-1",
-        }
-        return secrets_map.get(key, "")
-
-    # Mock the secrets.get function in various modules using the correct import path
-    monkeypatch.setattr("tracecat_registry.secrets.get", mock_get_secret)
+    secrets_manager.set("AWS_ACCESS_KEY_ID", MINIO_ACCESS_KEY)
+    secrets_manager.set("AWS_SECRET_ACCESS_KEY", MINIO_SECRET_KEY)
+    secrets_manager.set("AWS_REGION", "us-east-1")
 
 
 @pytest.fixture

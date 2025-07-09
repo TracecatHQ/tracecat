@@ -181,6 +181,8 @@ export type AppSettingsRead = {
   app_interactions_enabled: boolean
   app_workflow_export_enabled: boolean
   app_create_workspace_on_register: boolean
+  app_editor_pill_decorations_enabled: boolean
+  app_action_form_mode_enabled: boolean
 }
 
 /**
@@ -207,6 +209,14 @@ export type AppSettingsUpdate = {
    * Whether to automatically create a workspace when a user signs up.
    */
   app_create_workspace_on_register?: boolean
+  /**
+   * Whether to show pills in template expressions. When disabled, expressions show as plain text with syntax highlighting.
+   */
+  app_editor_pill_decorations_enabled?: boolean
+  /**
+   * Whether to enable form mode for action inputs. When disabled, only YAML mode is available, preserving raw YAML formatting.
+   */
+  app_action_form_mode_enabled?: boolean
 }
 
 /**
@@ -247,6 +257,50 @@ export type AssigneeChangedEventRead = {
   type?: "assignee_changed"
   old: string | null
   new: string | null
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
+}
+
+/**
+ * Event for when an attachment is created for a case.
+ */
+export type AttachmentCreatedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
+  wf_exec_id?: string | null
+  type?: "attachment_created"
+  attachment_id: string
+  file_name: string
+  content_type: string
+  size: number
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
+}
+
+/**
+ * Event for when an attachment is deleted from a case.
+ */
+export type AttachmentDeletedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
+  wf_exec_id?: string | null
+  type?: "attachment_deleted"
+  attachment_id: string
+  file_name: string
   /**
    * The user who performed the action.
    */
@@ -336,6 +390,10 @@ export type Body_auth_verify_verify = {
   token: string
 }
 
+export type Body_cases_create_attachment = {
+  file: Blob | File
+}
+
 export type Body_tables_import_csv = {
   file: Blob | File
   column_mapping: string
@@ -349,6 +407,41 @@ export type Body_workflows_create_workflow = {
    */
   use_workflow_id?: boolean
   file?: (Blob | File) | null
+}
+
+/**
+ * Model for attachment download URL response.
+ */
+export type CaseAttachmentDownloadResponse = {
+  /**
+   * Pre-signed download URL
+   */
+  download_url: string
+  /**
+   * Original filename
+   */
+  file_name: string
+  /**
+   * MIME type of the file
+   */
+  content_type: string
+}
+
+/**
+ * Model for reading a case attachment.
+ */
+export type CaseAttachmentRead = {
+  id: string
+  case_id: string
+  file_id: string
+  file_name: string
+  content_type: string
+  size: number
+  sha256: string
+  created_at: string
+  updated_at: string
+  creator_id?: string | null
+  is_deleted?: boolean
 }
 
 export type CaseCommentCreate = {
@@ -406,6 +499,8 @@ export type CaseEventRead =
   | SeverityChangedEventRead
   | FieldChangedEventRead
   | AssigneeChangedEventRead
+  | AttachmentCreatedEventRead
+  | AttachmentDeletedEventRead
 
 export type CaseEventsWithUsers = {
   /**
@@ -1131,6 +1226,10 @@ export type IntegrationTestConnectionResponse = {
  */
 export type IntegrationUpdate = {
   /**
+   * OAuth grant type for this integration
+   */
+  grant_type: OAuthGrantType
+  /**
    * OAuth client ID for the provider
    */
   client_id?: string | null
@@ -1148,10 +1247,6 @@ export type IntegrationUpdate = {
    * OAuth scopes to request for this integration
    */
   scopes?: Array<string> | null
-  /**
-   * OAuth grant type for this integration
-   */
-  grant_type?: OAuthGrantType | null
 }
 
 export type InteractionCategory = "slack"
@@ -1436,7 +1531,7 @@ export type RegistryActionCreate = {
   /**
    * The secrets required by the action
    */
-  secrets?: Array<RegistrySecret> | null
+  secrets?: Array<RegistrySecretType_Input> | null
   interface: RegistryActionInterface
   implementation: RegistryActionTemplateImpl_Input | RegistryActionUDFImpl
   /**
@@ -1512,7 +1607,7 @@ export type RegistryActionRead = {
   /**
    * The secrets required by the action
    */
-  secrets?: Array<RegistrySecret> | null
+  secrets?: Array<RegistrySecretType_Output> | null
   interface: RegistryActionInterface
   implementation: RegistryActionTemplateImpl_Output | RegistryActionUDFImpl
   /**
@@ -1646,7 +1741,7 @@ export type RegistryActionUpdate = {
   /**
    * Update the secrets of the action
    */
-  secrets?: Array<RegistrySecret> | null
+  secrets?: Array<RegistrySecretType_Input> | null
   /**
    * Update the interface of the action
    */
@@ -1690,6 +1785,27 @@ export type RegistryActionValidationErrorInfo = {
   is_template: boolean
   loc_primary: string
   loc_secondary?: string | null
+}
+
+/**
+ * OAuth secret for a provider.
+ */
+export type RegistryOAuthSecret_Input = {
+  type?: "oauth"
+  provider_id: string
+  grant_type: "authorization_code" | "client_credentials"
+}
+
+export type grant_type = "authorization_code" | "client_credentials"
+
+/**
+ * OAuth secret for a provider.
+ */
+export type RegistryOAuthSecret_Output = {
+  type?: "oauth"
+  provider_id: string
+  grant_type: "authorization_code" | "client_credentials"
+  readonly name: string
 }
 
 export type RegistryRepositoryCreate = {
@@ -1739,11 +1855,20 @@ export type RegistryRepositoryUpdate = {
 }
 
 export type RegistrySecret = {
+  type?: "custom"
   name: string
   keys?: Array<string> | null
   optional_keys?: Array<string> | null
   optional?: boolean
 }
+
+export type RegistrySecretType_Input =
+  | RegistrySecret
+  | RegistryOAuthSecret_Input
+
+export type RegistrySecretType_Output =
+  | RegistrySecret
+  | RegistryOAuthSecret_Output
 
 /**
  * Event for when a case is reopened.
@@ -2121,7 +2246,7 @@ export type SpecialUserID = "current"
 export type SqlType =
   | "TEXT"
   | "INTEGER"
-  | "DECIMAL"
+  | "NUMERIC"
   | "BOOLEAN"
   | "TIMESTAMP"
   | "TIMESTAMPTZ"
@@ -2334,15 +2459,15 @@ export type TagUpdate = {
 
 export type TemplateAction_Input = {
   type?: "action"
-  definition: TemplateActionDefinition
+  definition: TemplateActionDefinition_Input
 }
 
 export type TemplateAction_Output = {
   type?: "action"
-  definition: TemplateActionDefinition
+  definition: TemplateActionDefinition_Output
 }
 
-export type TemplateActionDefinition = {
+export type TemplateActionDefinition_Input = {
   /**
    * The action name
    */
@@ -2378,7 +2503,65 @@ export type TemplateActionDefinition = {
   /**
    * The secrets to pass to the action
    */
-  secrets?: Array<RegistrySecret> | null
+  secrets?: Array<RegistrySecretType_Input> | null
+  /**
+   * The arguments to pass to the action
+   */
+  expects: {
+    [key: string]: ExpectedField
+  }
+  /**
+   * The sequence of steps for the action
+   */
+  steps: Array<ActionStep>
+  /**
+   * The result of the action
+   */
+  returns:
+    | string
+    | Array<string>
+    | {
+        [key: string]: unknown
+      }
+}
+
+export type TemplateActionDefinition_Output = {
+  /**
+   * The action name
+   */
+  name: string
+  /**
+   * The namespace of the action
+   */
+  namespace: string
+  /**
+   * The title of the action
+   */
+  title: string
+  /**
+   * The description of the action
+   */
+  description?: string
+  /**
+   * The display group of the action
+   */
+  display_group: string
+  /**
+   * Link to documentation
+   */
+  doc_url?: string | null
+  /**
+   * Author of the action
+   */
+  author?: string | null
+  /**
+   * Marks action as deprecated along with message
+   */
+  deprecated?: string | null
+  /**
+   * The secrets to pass to the action
+   */
+  secrets?: Array<RegistrySecretType_Output> | null
   /**
    * The arguments to pass to the action
    */
@@ -4021,6 +4204,50 @@ export type CasesListEventsWithUsersData = {
 
 export type CasesListEventsWithUsersResponse = CaseEventsWithUsers
 
+export type CasesListAttachmentsData = {
+  caseId: string
+  workspaceId: string
+}
+
+export type CasesListAttachmentsResponse = Array<CaseAttachmentRead>
+
+export type CasesCreateAttachmentData = {
+  caseId: string
+  formData: Body_cases_create_attachment
+  workspaceId: string
+}
+
+export type CasesCreateAttachmentResponse = CaseAttachmentRead
+
+export type CasesDownloadAttachmentData = {
+  attachmentId: string
+  caseId: string
+  /**
+   * If true, allows inline preview for safe image types
+   */
+  preview?: boolean
+  workspaceId: string
+}
+
+export type CasesDownloadAttachmentResponse = CaseAttachmentDownloadResponse
+
+export type CasesDeleteAttachmentData = {
+  attachmentId: string
+  caseId: string
+  workspaceId: string
+}
+
+export type CasesDeleteAttachmentResponse = void
+
+export type CasesGetStorageUsageData = {
+  caseId: string
+  workspaceId: string
+}
+
+export type CasesGetStorageUsageResponse = {
+  [key: string]: number
+}
+
 export type CasesListFieldsData = {
   workspaceId: string
 }
@@ -4109,6 +4336,19 @@ export type FoldersMoveFolderData = {
 
 export type FoldersMoveFolderResponse = WorkflowFolderRead
 
+export type IntegrationsOauthCallbackData = {
+  /**
+   * Authorization code from OAuth provider
+   */
+  code: string
+  /**
+   * State parameter from authorization request
+   */
+  state: string
+}
+
+export type IntegrationsOauthCallbackResponse = IntegrationOAuthCallback
+
 export type IntegrationsListIntegrationsData = {
   workspaceId: string
 }
@@ -4116,20 +4356,23 @@ export type IntegrationsListIntegrationsData = {
 export type IntegrationsListIntegrationsResponse = Array<IntegrationReadMinimal>
 
 export type IntegrationsGetIntegrationData = {
+  grantType?: OAuthGrantType
   providerId: string
   workspaceId: string
 }
 
 export type IntegrationsGetIntegrationResponse = IntegrationRead
 
-export type IntegrationsDisconnectIntegrationData = {
+export type IntegrationsDeleteIntegrationData = {
+  grantType?: OAuthGrantType
   providerId: string
   workspaceId: string
 }
 
-export type IntegrationsDisconnectIntegrationResponse = void
+export type IntegrationsDeleteIntegrationResponse = void
 
 export type IntegrationsUpdateIntegrationData = {
+  grantType?: OAuthGrantType
   providerId: string
   requestBody: IntegrationUpdate
   workspaceId: string
@@ -4144,20 +4387,13 @@ export type IntegrationsConnectProviderData = {
 
 export type IntegrationsConnectProviderResponse = IntegrationOAuthConnect
 
-export type IntegrationsOauthCallbackData = {
-  /**
-   * Authorization code from OAuth provider
-   */
-  code: string
+export type IntegrationsDisconnectIntegrationData = {
+  grantType?: OAuthGrantType
   providerId: string
-  /**
-   * State parameter from authorization request
-   */
-  state: string
   workspaceId: string
 }
 
-export type IntegrationsOauthCallbackResponse = IntegrationOAuthCallback
+export type IntegrationsDisconnectIntegrationResponse = void
 
 export type IntegrationsTestConnectionData = {
   providerId: string
@@ -4174,6 +4410,7 @@ export type ProvidersListProvidersData = {
 export type ProvidersListProvidersResponse = Array<ProviderReadMinimal>
 
 export type ProvidersGetProviderData = {
+  grantType?: OAuthGrantType
   providerId: string
   workspaceId: string
 }
@@ -4274,7 +4511,7 @@ export type PublicCheckHealthResponse = {
 
 export type $OpenApiTs = {
   "/webhooks/{workflow_id}/{secret}": {
-    get: {
+    post: {
       req: PublicIncomingWebhookData
       res: {
         /**
@@ -4287,7 +4524,7 @@ export type $OpenApiTs = {
         422: HTTPValidationError
       }
     }
-    post: {
+    get: {
       req: PublicIncomingWebhook1Data
       res: {
         /**
@@ -5934,6 +6171,79 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/cases/{case_id}/attachments": {
+    get: {
+      req: CasesListAttachmentsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<CaseAttachmentRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: CasesCreateAttachmentData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: CaseAttachmentRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases/{case_id}/attachments/{attachment_id}": {
+    get: {
+      req: CasesDownloadAttachmentData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseAttachmentDownloadResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: CasesDeleteAttachmentData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases/{case_id}/storage-usage": {
+    get: {
+      req: CasesGetStorageUsageData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: {
+          [key: string]: number
+        }
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/case-fields": {
     get: {
       req: CasesListFieldsData
@@ -6089,6 +6399,21 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/integrations/callback": {
+    get: {
+      req: IntegrationsOauthCallbackData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: IntegrationOAuthCallback
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/integrations": {
     get: {
       req: IntegrationsListIntegrationsData
@@ -6119,7 +6444,7 @@ export type $OpenApiTs = {
       }
     }
     delete: {
-      req: IntegrationsDisconnectIntegrationData
+      req: IntegrationsDeleteIntegrationData
       res: {
         /**
          * Successful Response
@@ -6160,14 +6485,14 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/integrations/{provider_id}/callback": {
-    get: {
-      req: IntegrationsOauthCallbackData
+  "/integrations/{provider_id}/disconnect": {
+    post: {
+      req: IntegrationsDisconnectIntegrationData
       res: {
         /**
          * Successful Response
          */
-        200: IntegrationOAuthCallback
+        204: void
         /**
          * Validation Error
          */

@@ -24,7 +24,7 @@ from pydantic import (
 )
 from pydantic_core import to_jsonable_python
 from sqlmodel.ext.asyncio.session import AsyncSession
-from tracecat_registry import RegistrySecret
+from tracecat_registry import RegistrySecretType
 from typing_extensions import Doc
 
 from tracecat import config
@@ -65,7 +65,7 @@ class RegisterKwargs(BaseModel):
     doc_url: str | None = None
     author: str | None = None
     deprecated: str | None = None
-    secrets: list[RegistrySecret] | None = None
+    secrets: list[RegistrySecretType] | None = None
     include_in_schema: bool = True
 
 
@@ -146,7 +146,7 @@ class Repository:
         type: Literal["udf", "template"],
         namespace: str,
         description: str,
-        secrets: list[RegistrySecret] | None,
+        secrets: list[RegistrySecretType] | None,
         args_cls: ArgsClsT,
         args_docs: dict[str, str],
         rtype: type,

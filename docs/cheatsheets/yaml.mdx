@@ -49,8 +49,16 @@ key: "This is a \"string\" with a quote"
 
 <Tip>
   The best way to deal with multi-line configurations and
-  special characters in YAML is to use the block scalars `>-` and `>`.
+  special characters in YAML is to use the block scalars `|` and `|-`.
+  `|` preserves all trailing newlines, while `|-` removes all trailing newlines.
+
+  Only use `>` when you want to convert newlines to spaces: i.e. when you want to make a long single-line string more readable.
 </Tip>
+
+<Info>
+  Trailing newlines are the newlines at the end of the block.
+  Newlines are represented as `\n` in YAML.
+</Info>
 
 ```yaml
 # Literal Block Scalar (|): Preserves all newlines
@@ -63,6 +71,10 @@ description: |
 notes: |-
   This text will have
   all trailing newlines removed.
+
+  This is a multi-line description.
+  Each line break is preserved exactly as written.
+  Indentation is respected.
 
 # Folded Block Scalar (>): Converts newlines to spaces
 description: >

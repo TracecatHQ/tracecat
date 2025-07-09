@@ -26,6 +26,7 @@ import React, { useCallback, useMemo, useRef, useState } from "react"
 import { type Control, type FieldValues, useController } from "react-hook-form"
 import YAML from "yaml"
 import type { ActionRead } from "@/client"
+import { useOrgAppSettings } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import { useWorkflow } from "@/providers/workflow"
 import { useWorkspace } from "@/providers/workspace"
@@ -42,8 +43,10 @@ import {
   createTemplatePillPlugin,
   EDITOR_STYLE,
   editingRangeField,
+  pillKeybinds,
   templatePillTheme,
 } from "./common"
+import { createSimpleTemplatePlugin } from "./highlight-plugin"
 
 const stripNewline = (value: string) => {
   return value.endsWith("\n") ? value.slice(0, -1) : value
@@ -74,6 +77,7 @@ export const YamlStyledEditor = React.forwardRef<
   })
   const { workspaceId } = useWorkspace()
   const { workflow } = useWorkflow()
+  const { appSettings } = useOrgAppSettings()
   const [hasErrors, setHasErrors] = useState(false)
   const [saveState, setSaveState] = useState<SaveState>(SaveState.IDLE)
   const [validationErrors, setValidationErrors] = useState<string[]>([])
@@ -81,7 +85,15 @@ export const YamlStyledEditor = React.forwardRef<
   const editorRef = useRef<EditorView | null>(null)
 
   const textValue = React.useMemo(
-    () => stripNewline(field.value ? YAML.stringify(field.value) : ""),
+    () =>
+      stripNewline(
+        field.value
+          ? YAML.stringify(field.value, {
+              lineWidth: 0, // Disable line wrapping
+              minContentWidth: 0, // Allow content to extend beyond default width
+            })
+          : ""
+      ),
     [field.value]
   )
   // Internal editor value - always a string representation of the YAML
@@ -185,10 +197,9 @@ export const YamlStyledEditor = React.forwardRef<
     [validateYaml]
   )
 
-  // Handle text changes - only update buffer, not RHF
+  // Handle text changes – keep text exactly as typed
   const handleChange = React.useCallback(
     (newText: string) => {
-      newText = stripNewline(newText)
       setBuffer(newText)
       // Use debounced validation to reduce re-renders during typing
       debouncedValidateYaml(newText)
@@ -199,11 +210,15 @@ export const YamlStyledEditor = React.forwardRef<
   // Custom blur handler that commits YAML to form (stable function using refs)
   const yamlBlurHandler = useCallback(() => {
     return (event: FocusEvent, view: EditorView): boolean => {
-      // Call the original blur handler for template pills
-      const originalResult = createBlurHandler()(event, view)
+      // Call the original blur handler for template pills, but only if the
+      // necessary state field is present to avoid a crash.
+      const originalResult = view.state.field(editingRangeField, false)
+        ? createBlurHandler()(event, view)
+        : false
 
       // Commit to form on blur if there are unsaved changes
       if (saveStateRef.current === SaveState.UNSAVED) {
+        // Call the commitToForm function to commit the changes to the form
         commitToFormRef.current()
         setSaveStateRef.current(SaveState.IDLE)
       }
@@ -213,6 +228,10 @@ export const YamlStyledEditor = React.forwardRef<
   }, []) // No dependencies - stable function
 
   const extensions = useMemo(() => {
+    const pillsEnabled = Boolean(
+      appSettings?.app_editor_pill_decorations_enabled
+    )
+
     const errorMonitorPlugin = ViewPlugin.fromClass(
       class {
         constructor(view: EditorView) {
@@ -240,11 +259,11 @@ export const YamlStyledEditor = React.forwardRef<
       }
     )
 
-    return [
-      createPillDeleteKeymap(), // This must be first to ensure that the delete key is handled before the core keymap
-      createCoreKeymap(),
-      createAtKeyCompletion(),
-      createExitEditModeKeyHandler(),
+    const templatePlugin = pillsEnabled
+      ? createTemplatePillPlugin(workspaceId)
+      : createSimpleTemplatePlugin(workspaceId)
+
+    const baseExtensions = [
       lintGutter(),
       history(),
       indentUnit.of("  "),
@@ -260,21 +279,37 @@ export const YamlStyledEditor = React.forwardRef<
         forEach: forEachExpressions,
       }),
 
-      editingRangeField,
-      createTemplatePillPlugin(workspaceId),
-      createExpressionNodeHover(workspaceId),
+      templatePlugin,
       errorMonitorPlugin,
-
-      EditorView.domEventHandlers({
-        mousedown: createPillClickHandler(),
-        blur: yamlBlurHandler(),
-      }),
-
       templatePillTheme,
+
       yamlEditorTheme,
       yamlLiteralHighlighter,
     ]
-  }, [workspaceId, actions, yamlBlurHandler]) // Only stable dependencies
+
+    if (pillsEnabled) {
+      return [
+        createPillDeleteKeymap(), // This must be first to ensure that the delete key is handled before the core keymap
+        createCoreKeymap(...pillKeybinds),
+        createAtKeyCompletion(),
+        createExitEditModeKeyHandler(),
+        ...baseExtensions,
+        editingRangeField,
+        createExpressionNodeHover(workspaceId),
+        EditorView.domEventHandlers({
+          mousedown: createPillClickHandler(),
+          blur: yamlBlurHandler(),
+        }),
+      ]
+    }
+
+    return baseExtensions.concat([
+      createCoreKeymap(),
+      EditorView.domEventHandlers({
+        blur: yamlBlurHandler(),
+      }),
+    ])
+  }, [workspaceId, actions, yamlBlurHandler, appSettings, forEachExpressions]) // Only stable dependencies
 
   // Save-related keybindings (separate from core extensions to avoid recreation)
   const saveKeymap = useMemo(() => {
@@ -700,14 +735,15 @@ const yamlLiteralHighlighter = ViewPlugin.fromClass(
         // Array item: - true/false/null
         /^(\s*-)(\s+)(true|false|null)(\s*(?:#.*)?$)/gm,
         // Flow sequence: [true, false, null]
-        /([,\[])\s*(true|false|null)\s*([,\]])/g,
+        /([,[])\s*(true|false|null)\s*([,\]])/g,
         // Flow mapping: {key: true}
         /(:)\s*(true|false|null)\s*([,}])/g,
       ]
 
       for (const pattern of patterns) {
-        let match
-        while ((match = pattern.exec(text)) !== null) {
+        let match: RegExpExecArray | null
+        match = pattern.exec(text)
+        while (match !== null) {
           const valueMatch = match[0].match(/(true|false|null)/)
           if (valueMatch) {
             const value = valueMatch[0]
@@ -729,6 +765,7 @@ const yamlLiteralHighlighter = ViewPlugin.fromClass(
               }
             }
           }
+          match = pattern.exec(text)
         }
       }
 
@@ -751,16 +788,30 @@ export function YamlViewOnlyEditor({
   className?: string
 }) {
   const { workspaceId } = useWorkspace()
+  const { appSettings } = useOrgAppSettings()
 
   const textValue = React.useMemo(() => {
     if (!value) return ""
     return stripNewline(
-      typeof value === "string" ? value : YAML.stringify(value)
+      typeof value === "string"
+        ? value
+        : YAML.stringify(value, {
+            lineWidth: 0, // Disable line wrapping
+            minContentWidth: 0, // Allow content to extend beyond default width
+          })
     )
   }, [value])
 
   const extensions = useMemo(() => {
-    return [
+    const pillsEnabled = Boolean(
+      appSettings?.app_editor_pill_decorations_enabled
+    )
+
+    const templatePlugin = pillsEnabled
+      ? createTemplatePillPlugin(workspaceId)
+      : createSimpleTemplatePlugin(workspaceId)
+
+    const baseExtensions = [
       // Core language support with proper indentation
       indentUnit.of("  "),
       yaml(),
@@ -771,16 +822,21 @@ export function YamlViewOnlyEditor({
       EditorView.editable.of(false),
       EditorState.readOnly.of(true),
 
-      // Visual features - keep pills and hover
-      editingRangeField,
-      createTemplatePillPlugin(workspaceId),
+      // Template expression plugin
+      templatePlugin,
+      templatePillTheme,
 
       // Styling
-      templatePillTheme,
       yamlEditorTheme,
       yamlLiteralHighlighter,
     ]
-  }, [workspaceId])
+
+    if (pillsEnabled) {
+      return baseExtensions.concat([editingRangeField])
+    }
+
+    return baseExtensions
+  }, [workspaceId, appSettings])
 
   return (
     <div className="relative">

@@ -2,7 +2,7 @@ from collections.abc import Callable
 from typing import ParamSpec, TypeVar
 
 from tracecat_registry._internal.constants import DEFAULT_NAMESPACE
-from tracecat_registry._internal.models import RegistrySecret
+from tracecat_registry._internal.models import RegistrySecretType
 
 P = ParamSpec("P")
 R = TypeVar("R")
@@ -17,7 +17,7 @@ def register(
     deprecated: str | None = None,
     namespace: str = DEFAULT_NAMESPACE,
     description: str,
-    secrets: list[RegistrySecret] | None = None,
+    secrets: list[RegistrySecretType] | None = None,
     include_in_schema: bool = True,
 ) -> Callable[[Callable[P, R]], Callable[P, R]]:
     """Decorator factory to register a new UDF (User-Defined Function) with additional parameters.

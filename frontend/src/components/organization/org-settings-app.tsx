@@ -24,6 +24,8 @@ const appFormSchema = z.object({
   app_interactions_enabled: z.boolean(),
   app_workflow_export_enabled: z.boolean(),
   app_create_workspace_on_register: z.boolean(),
+  app_editor_pill_decorations_enabled: z.boolean(),
+  app_action_form_mode_enabled: z.boolean(),
 })
 
 type AppFormValues = z.infer<typeof appFormSchema>
@@ -49,6 +51,11 @@ export function OrgSettingsAppForm() {
         appSettings?.app_workflow_export_enabled ?? true,
       app_create_workspace_on_register:
         appSettings?.app_create_workspace_on_register ?? false,
+      app_editor_pill_decorations_enabled: Boolean(
+        appSettings?.app_editor_pill_decorations_enabled
+      ),
+      app_action_form_mode_enabled:
+        appSettings?.app_action_form_mode_enabled ?? true,
     },
   })
 
@@ -62,6 +69,9 @@ export function OrgSettingsAppForm() {
           app_workflow_export_enabled: data.app_workflow_export_enabled,
           app_create_workspace_on_register:
             data.app_create_workspace_on_register,
+          app_editor_pill_decorations_enabled:
+            data.app_editor_pill_decorations_enabled,
+          app_action_form_mode_enabled: data.app_action_form_mode_enabled,
         },
       })
     } catch {
@@ -181,6 +191,56 @@ export function OrgSettingsAppForm() {
                 <FormDescription>
                   Automatically create a workspace for new users when they sign
                   up.
+                </FormDescription>
+              </div>
+              <FormControl>
+                <Switch
+                  checked={field.value}
+                  onCheckedChange={field.onChange}
+                />
+              </FormControl>
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name="app_editor_pill_decorations_enabled"
+          render={({ field }) => (
+            <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+              <div className="space-y-0.5">
+                <FormLabel>
+                  Enable editor pill decorations (experimental)
+                </FormLabel>
+                <FormDescription>
+                  Show template expression pills with decorations. When
+                  disabled, expressions display as plain text with simple
+                  highlighting. This is an experimental feature that may contain
+                  bugs.
+                </FormDescription>
+              </div>
+              <FormControl>
+                <Switch
+                  checked={field.value}
+                  onCheckedChange={field.onChange}
+                />
+              </FormControl>
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name="app_action_form_mode_enabled"
+          render={({ field }) => (
+            <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+              <div className="space-y-0.5">
+                <FormLabel>Enable action form mode</FormLabel>
+                <FormDescription>
+                  Allow form mode for action inputs. When disabled, only YAML
+                  mode is available, preserving raw YAML formatting and special
+                  characters. Enable this if you are having issues with
+                  preserving YAML formatting in the form view.
                 </FormDescription>
               </div>
               <FormControl>

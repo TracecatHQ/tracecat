@@ -733,6 +733,14 @@ export const $AppSettingsRead = {
       type: "boolean",
       title: "App Create Workspace On Register",
     },
+    app_editor_pill_decorations_enabled: {
+      type: "boolean",
+      title: "App Editor Pill Decorations Enabled",
+    },
+    app_action_form_mode_enabled: {
+      type: "boolean",
+      title: "App Action Form Mode Enabled",
+    },
   },
   type: "object",
   required: [
@@ -741,6 +749,8 @@ export const $AppSettingsRead = {
     "app_interactions_enabled",
     "app_workflow_export_enabled",
     "app_create_workspace_on_register",
+    "app_editor_pill_decorations_enabled",
+    "app_action_form_mode_enabled",
   ],
   title: "AppSettingsRead",
   description: "Settings for the app.",
@@ -779,6 +789,20 @@ export const $AppSettingsUpdate = {
       description:
         "Whether to automatically create a workspace when a user signs up.",
       default: false,
+    },
+    app_editor_pill_decorations_enabled: {
+      type: "boolean",
+      title: "App Editor Pill Decorations Enabled",
+      description:
+        "Whether to show pills in template expressions. When disabled, expressions show as plain text with syntax highlighting.",
+      default: false,
+    },
+    app_action_form_mode_enabled: {
+      type: "boolean",
+      title: "App Action Form Mode Enabled",
+      description:
+        "Whether to enable form mode for action inputs. When disabled, only YAML mode is available, preserving raw YAML formatting.",
+      default: true,
     },
   },
   type: "object",
@@ -913,6 +937,130 @@ export const $AssigneeChangedEventRead = {
   required: ["old", "new", "created_at"],
   title: "AssigneeChangedEventRead",
   description: "Event for when a case assignee is changed.",
+} as const
+
+export const $AttachmentCreatedEventRead = {
+  properties: {
+    wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
+    },
+    type: {
+      type: "string",
+      const: "attachment_created",
+      title: "Type",
+      default: "attachment_created",
+    },
+    attachment_id: {
+      type: "string",
+      format: "uuid",
+      title: "Attachment Id",
+    },
+    file_name: {
+      type: "string",
+      title: "File Name",
+    },
+    content_type: {
+      type: "string",
+      title: "Content Type",
+    },
+    size: {
+      type: "integer",
+      title: "Size",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+      description: "The user who performed the action.",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "The timestamp of the event.",
+    },
+  },
+  type: "object",
+  required: [
+    "attachment_id",
+    "file_name",
+    "content_type",
+    "size",
+    "created_at",
+  ],
+  title: "AttachmentCreatedEventRead",
+  description: "Event for when an attachment is created for a case.",
+} as const
+
+export const $AttachmentDeletedEventRead = {
+  properties: {
+    wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
+    },
+    type: {
+      type: "string",
+      const: "attachment_deleted",
+      title: "Type",
+      default: "attachment_deleted",
+    },
+    attachment_id: {
+      type: "string",
+      format: "uuid",
+      title: "Attachment Id",
+    },
+    file_name: {
+      type: "string",
+      title: "File Name",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+      description: "The user who performed the action.",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "The timestamp of the event.",
+    },
+  },
+  type: "object",
+  required: ["attachment_id", "file_name", "created_at"],
+  title: "AttachmentDeletedEventRead",
+  description: "Event for when an attachment is deleted from a case.",
 } as const
 
 export const $AudioUrl = {
@@ -1128,6 +1276,19 @@ export const $Body_auth_verify_verify = {
   title: "Body_auth-verify:verify",
 } as const
 
+export const $Body_cases_create_attachment = {
+  properties: {
+    file: {
+      type: "string",
+      format: "binary",
+      title: "File",
+    },
+  },
+  type: "object",
+  required: ["file"],
+  title: "Body_cases-create_attachment",
+} as const
+
 export const $Body_tables_import_csv = {
   properties: {
     file: {
@@ -1193,6 +1354,107 @@ export const $Body_workflows_create_workflow = {
   },
   type: "object",
   title: "Body_workflows-create_workflow",
+} as const
+
+export const $CaseAttachmentDownloadResponse = {
+  properties: {
+    download_url: {
+      type: "string",
+      title: "Download Url",
+      description: "Pre-signed download URL",
+    },
+    file_name: {
+      type: "string",
+      title: "File Name",
+      description: "Original filename",
+    },
+    content_type: {
+      type: "string",
+      title: "Content Type",
+      description: "MIME type of the file",
+    },
+  },
+  type: "object",
+  required: ["download_url", "file_name", "content_type"],
+  title: "CaseAttachmentDownloadResponse",
+  description: "Model for attachment download URL response.",
+} as const
+
+export const $CaseAttachmentRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    case_id: {
+      type: "string",
+      format: "uuid",
+      title: "Case Id",
+    },
+    file_id: {
+      type: "string",
+      format: "uuid",
+      title: "File Id",
+    },
+    file_name: {
+      type: "string",
+      title: "File Name",
+    },
+    content_type: {
+      type: "string",
+      title: "Content Type",
+    },
+    size: {
+      type: "integer",
+      title: "Size",
+    },
+    sha256: {
+      type: "string",
+      title: "Sha256",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+    creator_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Creator Id",
+    },
+    is_deleted: {
+      type: "boolean",
+      title: "Is Deleted",
+      default: false,
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "case_id",
+    "file_id",
+    "file_name",
+    "content_type",
+    "size",
+    "sha256",
+    "created_at",
+    "updated_at",
+  ],
+  title: "CaseAttachmentRead",
+  description: "Model for reading a case attachment.",
 } as const
 
 export const $CaseCommentCreate = {
@@ -1440,6 +1702,12 @@ export const $CaseEventRead = {
     {
       $ref: "#/components/schemas/AssigneeChangedEventRead",
     },
+    {
+      $ref: "#/components/schemas/AttachmentCreatedEventRead",
+    },
+    {
+      $ref: "#/components/schemas/AttachmentDeletedEventRead",
+    },
   ],
   title: "CaseEventRead",
   description: "Base read model for all event types.",
@@ -1447,6 +1715,8 @@ export const $CaseEventRead = {
     propertyName: "type",
     mapping: {
       assignee_changed: "#/components/schemas/AssigneeChangedEventRead",
+      attachment_created: "#/components/schemas/AttachmentCreatedEventRead",
+      attachment_deleted: "#/components/schemas/AttachmentDeletedEventRead",
       case_closed: "#/components/schemas/ClosedEventRead",
       case_created: "#/components/schemas/CreatedEventRead",
       case_reopened: "#/components/schemas/ReopenedEventRead",
@@ -3596,6 +3866,10 @@ export const $IntegrationTestConnectionResponse = {
 
 export const $IntegrationUpdate = {
   properties: {
+    grant_type: {
+      $ref: "#/components/schemas/OAuthGrantType",
+      description: "OAuth grant type for this integration",
+    },
     client_id: {
       anyOf: [
         {
@@ -3651,19 +3925,9 @@ export const $IntegrationUpdate = {
       title: "Scopes",
       description: "OAuth scopes to request for this integration",
     },
-    grant_type: {
-      anyOf: [
-        {
-          $ref: "#/components/schemas/OAuthGrantType",
-        },
-        {
-          type: "null",
-        },
-      ],
-      description: "OAuth grant type for this integration",
-    },
   },
   type: "object",
+  required: ["grant_type"],
   title: "IntegrationUpdate",
   description: "Request model for updating an integration.",
 } as const
@@ -4457,7 +4721,7 @@ export const $RegistryActionCreate = {
       anyOf: [
         {
           items: {
-            $ref: "#/components/schemas/RegistrySecret",
+            $ref: "#/components/schemas/RegistrySecretType-Input",
           },
           type: "array",
         },
@@ -4649,7 +4913,7 @@ export const $RegistryActionRead = {
       anyOf: [
         {
           items: {
-            $ref: "#/components/schemas/RegistrySecret",
+            $ref: "#/components/schemas/RegistrySecretType-Output",
           },
           type: "array",
         },
@@ -4975,7 +5239,7 @@ export const $RegistryActionUpdate = {
       anyOf: [
         {
           items: {
-            $ref: "#/components/schemas/RegistrySecret",
+            $ref: "#/components/schemas/RegistrySecretType-Input",
           },
           type: "array",
         },
@@ -5145,6 +5409,59 @@ export const $RegistryActionValidationErrorInfo = {
   type: "object",
   required: ["type", "details", "is_template", "loc_primary"],
   title: "RegistryActionValidationErrorInfo",
+} as const
+
+export const $RegistryOAuthSecret_Input = {
+  properties: {
+    type: {
+      type: "string",
+      const: "oauth",
+      title: "Type",
+      default: "oauth",
+    },
+    provider_id: {
+      type: "string",
+      title: "Provider Id",
+    },
+    grant_type: {
+      type: "string",
+      enum: ["authorization_code", "client_credentials"],
+      title: "Grant Type",
+    },
+  },
+  type: "object",
+  required: ["provider_id", "grant_type"],
+  title: "RegistryOAuthSecret",
+  description: "OAuth secret for a provider.",
+} as const
+
+export const $RegistryOAuthSecret_Output = {
+  properties: {
+    type: {
+      type: "string",
+      const: "oauth",
+      title: "Type",
+      default: "oauth",
+    },
+    provider_id: {
+      type: "string",
+      title: "Provider Id",
+    },
+    grant_type: {
+      type: "string",
+      enum: ["authorization_code", "client_credentials"],
+      title: "Grant Type",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+      readOnly: true,
+    },
+  },
+  type: "object",
+  required: ["provider_id", "grant_type", "name"],
+  title: "RegistryOAuthSecret",
+  description: "OAuth secret for a provider.",
 } as const
 
 export const $RegistryRepositoryCreate = {
@@ -5329,6 +5646,12 @@ export const $RegistryRepositoryUpdate = {
 
 export const $RegistrySecret = {
   properties: {
+    type: {
+      type: "string",
+      const: "custom",
+      title: "Type",
+      default: "custom",
+    },
     name: {
       type: "string",
       pattern: "[a-z0-9_]+",
@@ -5373,6 +5696,42 @@ export const $RegistrySecret = {
   type: "object",
   required: ["name"],
   title: "RegistrySecret",
+} as const
+
+export const $RegistrySecretType_Input = {
+  oneOf: [
+    {
+      $ref: "#/components/schemas/RegistrySecret",
+    },
+    {
+      $ref: "#/components/schemas/RegistryOAuthSecret-Input",
+    },
+  ],
+  discriminator: {
+    propertyName: "type",
+    mapping: {
+      custom: "#/components/schemas/RegistrySecret",
+      oauth: "#/components/schemas/RegistryOAuthSecret-Input",
+    },
+  },
+} as const
+
+export const $RegistrySecretType_Output = {
+  oneOf: [
+    {
+      $ref: "#/components/schemas/RegistrySecret",
+    },
+    {
+      $ref: "#/components/schemas/RegistryOAuthSecret-Output",
+    },
+  ],
+  discriminator: {
+    propertyName: "type",
+    mapping: {
+      custom: "#/components/schemas/RegistrySecret",
+      oauth: "#/components/schemas/RegistryOAuthSecret-Output",
+    },
+  },
 } as const
 
 export const $ReopenedEventRead = {
@@ -6590,7 +6949,7 @@ export const $SqlType = {
   enum: [
     "TEXT",
     "INTEGER",
-    "DECIMAL",
+    "NUMERIC",
     "BOOLEAN",
     "TIMESTAMP",
     "TIMESTAMPTZ",
@@ -7131,7 +7490,7 @@ export const $TemplateAction_Input = {
       default: "action",
     },
     definition: {
-      $ref: "#/components/schemas/TemplateActionDefinition",
+      $ref: "#/components/schemas/TemplateActionDefinition-Input",
     },
   },
   type: "object",
@@ -7148,7 +7507,7 @@ export const $TemplateAction_Output = {
       default: "action",
     },
     definition: {
-      $ref: "#/components/schemas/TemplateActionDefinition",
+      $ref: "#/components/schemas/TemplateActionDefinition-Output",
     },
   },
   type: "object",
@@ -7156,7 +7515,7 @@ export const $TemplateAction_Output = {
   title: "TemplateAction",
 } as const
 
-export const $TemplateActionDefinition = {
+export const $TemplateActionDefinition_Input = {
   properties: {
     name: {
       type: "string",
@@ -7224,7 +7583,134 @@ export const $TemplateActionDefinition = {
       anyOf: [
         {
           items: {
-            $ref: "#/components/schemas/RegistrySecret",
+            $ref: "#/components/schemas/RegistrySecretType-Input",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Secrets",
+      description: "The secrets to pass to the action",
+    },
+    expects: {
+      additionalProperties: {
+        $ref: "#/components/schemas/ExpectedField",
+      },
+      type: "object",
+      title: "Expects",
+      description: "The arguments to pass to the action",
+    },
+    steps: {
+      items: {
+        $ref: "#/components/schemas/ActionStep",
+      },
+      type: "array",
+      title: "Steps",
+      description: "The sequence of steps for the action",
+    },
+    returns: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "object",
+        },
+      ],
+      title: "Returns",
+      description: "The result of the action",
+    },
+  },
+  type: "object",
+  required: [
+    "name",
+    "namespace",
+    "title",
+    "display_group",
+    "expects",
+    "steps",
+    "returns",
+  ],
+  title: "TemplateActionDefinition",
+} as const
+
+export const $TemplateActionDefinition_Output = {
+  properties: {
+    name: {
+      type: "string",
+      title: "Name",
+      description: "The action name",
+    },
+    namespace: {
+      type: "string",
+      title: "Namespace",
+      description: "The namespace of the action",
+    },
+    title: {
+      type: "string",
+      title: "Title",
+      description: "The title of the action",
+    },
+    description: {
+      type: "string",
+      title: "Description",
+      description: "The description of the action",
+      default: "",
+    },
+    display_group: {
+      type: "string",
+      title: "Display Group",
+      description: "The display group of the action",
+    },
+    doc_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Doc Url",
+      description: "Link to documentation",
+    },
+    author: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Author",
+      description: "Author of the action",
+    },
+    deprecated: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Deprecated",
+      description: "Marks action as deprecated along with message",
+    },
+    secrets: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/RegistrySecretType-Output",
           },
           type: "array",
         },

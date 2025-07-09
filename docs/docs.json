@@ -74,7 +74,8 @@
               "integrations/action-templates",
               "integrations/python-udfs",
               "integrations/development",
-              "integrations/openapi-converter"
+              "integrations/openapi-converter",
+              "integrations/oauth-integrations"
             ]
           }
         ]

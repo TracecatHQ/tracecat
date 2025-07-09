@@ -146,13 +146,13 @@ echo -e "\033[33mPlease review the changes before committing.\033[0m"
 
 # Copy new version to clipboard
 if command -v pbcopy &> /dev/null; then
-    echo "$NEW_VERSION" | pbcopy
+    echo -n "$NEW_VERSION" | pbcopy
     echo -e "\033[36mNew version ($NEW_VERSION) copied to clipboard!\033[0m"
 elif command -v xclip &> /dev/null; then
-    echo "$NEW_VERSION" | xclip -selection clipboard
+    echo -n "$NEW_VERSION" | xclip -selection clipboard
     echo -e "\033[36mNew version ($NEW_VERSION) copied to clipboard!\033[0m"
 elif command -v wl-copy &> /dev/null; then
-    echo "$NEW_VERSION" | wl-copy
+    echo -n "$NEW_VERSION" | wl-copy
     echo -e "\033[36mNew version ($NEW_VERSION) copied to clipboard!\033[0m"
 else
     echo -e "\033[33mClipboard functionality not available (pbcopy/xclip/wl-copy not found)\033[0m"

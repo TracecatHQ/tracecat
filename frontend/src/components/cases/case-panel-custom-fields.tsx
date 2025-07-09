@@ -1,7 +1,6 @@
 import { FormProvider, useForm, useFormContext } from "react-hook-form"
 import { z } from "zod"
 import type { CaseCustomFieldRead, CaseUpdate } from "@/client"
-
 import { Checkbox } from "@/components/ui/checkbox"
 import {
   FormControl,
@@ -10,6 +9,7 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
+import { linearStyles } from "@/lib/utils"
 
 const customFieldFormSchema = z.object({
   id: z.string(),
@@ -83,7 +83,7 @@ export function CustomFieldInner({ customField, onBlur }: CustomFieldProps) {
                   {...field}
                   placeholder="Empty"
                   value={String(field.value || "")}
-                  variant="flat"
+                  className={linearStyles.input.full}
                   onBlur={() => onBlur && onBlur(customField.id, field.value)}
                 />
               </FormControl>
@@ -92,7 +92,7 @@ export function CustomFieldInner({ customField, onBlur }: CustomFieldProps) {
           )}
         />
       )
-    case "DECIMAL":
+    case "NUMERIC":
     case "INTEGER":
       return (
         <FormField
@@ -106,7 +106,7 @@ export function CustomFieldInner({ customField, onBlur }: CustomFieldProps) {
                   {...field}
                   value={Number(field.value || 0)}
                   onChange={(e) => field.onChange(Number(e.target.value))}
-                  variant="flat"
+                  className={linearStyles.input.full}
                   onBlur={() =>
                     onBlur && onBlur(customField.id, Number(field.value))
                   }
@@ -150,7 +150,7 @@ export function CustomFieldInner({ customField, onBlur }: CustomFieldProps) {
                   type="text"
                   {...field}
                   value={String(field.value || "")}
-                  variant="flat"
+                  className={linearStyles.input.full}
                   onBlur={() => onBlur && onBlur(customField.id, field.value)}
                 />
               </FormControl>

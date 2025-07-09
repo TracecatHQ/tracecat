@@ -1,11 +1,12 @@
 """Service for managing user integrations with external services."""
 
 import os
+from collections.abc import Sequence
 from datetime import datetime, timedelta
 from typing import Any
 
 from pydantic import SecretStr
-from sqlmodel import col, select
+from sqlmodel import and_, or_, select
 
 from tracecat.db.schemas import OAuthIntegration
 from tracecat.identifiers import UserID
@@ -15,7 +16,7 @@ from tracecat.integrations.base import (
     ClientCredentialsOAuthProvider,
 )
 from tracecat.integrations.enums import OAuthGrantType
-from tracecat.integrations.models import ProviderConfig
+from tracecat.integrations.models import ProviderConfig, ProviderKey
 from tracecat.integrations.providers import ProviderRegistry
 from tracecat.secrets.encryption import decrypt_value, encrypt_value
 from tracecat.service import BaseWorkspaceService
@@ -36,13 +37,15 @@ class IntegrationService(BaseWorkspaceService):
     async def get_integration(
         self,
         *,
-        provider_id: str,
+        provider_key: ProviderKey,
         user_id: UserID | None = None,
     ) -> OAuthIntegration | None:
         """Get a user's integration for a specific provider."""
+
         statement = select(OAuthIntegration).where(
             OAuthIntegration.owner_id == self.workspace_id,
-            OAuthIntegration.provider_id == provider_id,
+            OAuthIntegration.provider_id == provider_key.id,
+            OAuthIntegration.grant_type == provider_key.grant_type,
         )
         if user_id is not None:
             statement = statement.where(OAuthIntegration.user_id == user_id)
@@ -50,23 +53,29 @@ class IntegrationService(BaseWorkspaceService):
         return result.first()
 
     async def list_integrations(
-        self, *, providers: set[str] | None = None
-    ) -> list[OAuthIntegration]:
+        self, *, provider_keys: set[ProviderKey] | None = None
+    ) -> Sequence[OAuthIntegration]:
         """List all integrations for a workspace, optionally filtered by providers."""
         statement = select(OAuthIntegration).where(
             OAuthIntegration.owner_id == self.workspace_id
         )
-        if providers:
-            statement = statement.where(
-                col(OAuthIntegration.provider_id).in_(providers)
-            )
+        if provider_keys:
+            # Create conditions for each provider (provider_id + grant_type combination)
+            provider_conditions = [
+                and_(
+                    OAuthIntegration.provider_id == provider.id,
+                    OAuthIntegration.grant_type == provider.grant_type,
+                )
+                for provider in provider_keys
+            ]
+            statement = statement.where(or_(*provider_conditions))
         result = await self.session.exec(statement)
-        return list(result.all())
+        return result.all()
 
     async def store_integration(
         self,
         *,
-        provider_id: str,
+        provider_key: ProviderKey,
         user_id: UserID | None = None,
         access_token: SecretStr,
         refresh_token: SecretStr | None = None,
@@ -82,7 +91,7 @@ class IntegrationService(BaseWorkspaceService):
 
         # Check if integration already exists
 
-        if integration := await self.get_integration(provider_id=provider_id):
+        if integration := await self.get_integration(provider_key=provider_key):
             # Update existing integration
             integration.encrypted_access_token = self._encrypt_token(
                 access_token.get_secret_value()
@@ -105,7 +114,7 @@ class IntegrationService(BaseWorkspaceService):
             self.logger.info(
                 "Updated user integration",
                 user_id=user_id,
-                provider=provider_id,
+                provider=provider_key,
             )
             return integration
         else:
@@ -113,7 +122,8 @@ class IntegrationService(BaseWorkspaceService):
             integration = OAuthIntegration(
                 owner_id=self.workspace_id,
                 user_id=user_id,
-                provider_id=provider_id,
+                provider_id=provider_key.id,
+                grant_type=provider_key.grant_type,
                 encrypted_access_token=self._encrypt_token(
                     access_token.get_secret_value()
                 ),
@@ -134,7 +144,7 @@ class IntegrationService(BaseWorkspaceService):
             self.logger.info(
                 "Created user integration",
                 user_id=user_id,
-                provider=provider_id,
+                provider=provider_key,
             )
             return integration
 
@@ -191,7 +201,8 @@ class IntegrationService(BaseWorkspaceService):
     ) -> BaseOAuthProvider | None:
         # Get provider class from registry
         registry = ProviderRegistry.get()
-        provider_impl = registry.get_class(integration.provider_id)
+        key = ProviderKey(id=integration.provider_id, grant_type=integration.grant_type)
+        provider_impl = registry.get_class(key)
         if not provider_impl:
             self.logger.error(
                 "Provider not found in registry",
@@ -402,17 +413,16 @@ class IntegrationService(BaseWorkspaceService):
     async def store_provider_config(
         self,
         *,
-        provider_id: str,
+        provider_key: ProviderKey,
         client_id: str | None = None,
         client_secret: SecretStr | None = None,
         provider_config: dict[str, Any] | None = None,
         requested_scopes: list[str] | None = None,
-        grant_type: OAuthGrantType | None = None,
     ) -> OAuthIntegration:
         """Store or update provider configuration (client credentials) for a workspace."""
         # Check if integration configuration already exists for this provider
 
-        if integration := await self.get_integration(provider_id=provider_id):
+        if integration := await self.get_integration(provider_key=provider_key):
             # Update existing integration with client credentials (patch operation)
             if not any(
                 (
@@ -420,7 +430,6 @@ class IntegrationService(BaseWorkspaceService):
                     client_secret,
                     provider_config,
                     requested_scopes,
-                    grant_type,
                 )
             ):
                 return integration
@@ -441,16 +450,13 @@ class IntegrationService(BaseWorkspaceService):
             if requested_scopes is not None:
                 integration.requested_scopes = " ".join(requested_scopes)
 
-            if grant_type is not None:
-                integration.grant_type = grant_type
-
             self.session.add(integration)
             await self.session.commit()
             await self.session.refresh(integration)
 
             self.logger.info(
                 "Updated provider configuration",
-                provider=provider_id,
+                provider=provider_key,
                 workspace_id=self.workspace_id,
             )
 
@@ -460,7 +466,8 @@ class IntegrationService(BaseWorkspaceService):
             # Access tokens will be added later during OAuth flow
             integration = OAuthIntegration(
                 owner_id=self.workspace_id,
-                provider_id=provider_id,
+                provider_id=provider_key.id,
+                grant_type=provider_key.grant_type,
                 encrypted_client_id=self.encrypt_client_credential(client_id)
                 if client_id
                 else None,
@@ -476,9 +483,6 @@ class IntegrationService(BaseWorkspaceService):
                 requested_scopes=" ".join(requested_scopes)
                 if requested_scopes
                 else None,
-                grant_type=grant_type
-                if grant_type
-                else OAuthGrantType.AUTHORIZATION_CODE,
             )
 
             self.session.add(integration)
@@ -487,7 +491,7 @@ class IntegrationService(BaseWorkspaceService):
 
             self.logger.info(
                 "Created provider configuration",
-                provider=provider_id,
+                provider=provider_key,
                 workspace_id=self.workspace_id,
             )
             return integration
@@ -530,9 +534,9 @@ class IntegrationService(BaseWorkspaceService):
             )
             return None
 
-    async def remove_provider_config(self, *, provider_id: str) -> bool:
+    async def remove_provider_config(self, *, provider_key: ProviderKey) -> bool:
         """Remove provider configuration (client credentials) for a workspace."""
-        integration = await self.get_integration(provider_id=provider_id)
+        integration = await self.get_integration(provider_key=provider_key)
 
         if not integration:
             return False
@@ -551,7 +555,7 @@ class IntegrationService(BaseWorkspaceService):
 
             self.logger.info(
                 "Removed provider configuration, kept tokens",
-                provider=provider_id,
+                provider=provider_key,
                 workspace_id=self.workspace_id,
             )
         else:
@@ -561,7 +565,7 @@ class IntegrationService(BaseWorkspaceService):
 
             self.logger.info(
                 "Removed provider configuration completely",
-                provider=provider_id,
+                provider=provider_key,
                 workspace_id=self.workspace_id,
             )
 

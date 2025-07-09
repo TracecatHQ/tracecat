@@ -35,6 +35,10 @@ const workspaceNavItems: NavItem[] = [
     title: "Members",
     href: "/settings/members",
   },
+  {
+    title: "Custom fields",
+    href: "/settings/custom-fields",
+  },
 ]
 
 type NavItem = {

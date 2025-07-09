@@ -75,11 +75,13 @@ const TEXT_AREA_THRESHOLD = 512
 interface ProviderConfigFormProps {
   provider: ProviderRead
   onSuccess?: () => void
+  additionalButtons?: React.ReactNode
 }
 
 export function ProviderConfigForm({
   provider,
   onSuccess,
+  additionalButtons,
 }: ProviderConfigFormProps) {
   const schema = provider.schema?.json_schema || {}
   const {
@@ -589,7 +591,8 @@ export function ProviderConfigForm({
           )}
 
           {/* Submit Button */}
-          <div className="flex justify-end pt-4">
+          <div className="flex justify-end items-center pt-4 gap-2">
+            <div className="flex flex-wrap gap-3">{additionalButtons}</div>
             <Button type="submit" disabled={updateIntegrationIsPending}>
               {updateIntegrationIsPending ? "Saving..." : "Save Configuration"}
             </Button>

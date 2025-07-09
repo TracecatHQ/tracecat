@@ -17,7 +17,11 @@ from pydantic import (
     computed_field,
     model_validator,
 )
-from tracecat_registry import RegistrySecret
+from tracecat_registry import (
+    RegistryOAuthSecret,
+    RegistrySecretType,
+    RegistrySecretTypeValidator,
+)
 
 from tracecat.db.schemas import RegistryAction
 from tracecat.expressions.expectations import ExpectedField, create_expectation_model
@@ -53,7 +57,7 @@ class BoundRegistryAction(BaseModel):
     # Registry details
     origin: str
     # Secrets
-    secrets: list[RegistrySecret] | None = None
+    secrets: list[RegistrySecretType] | None = None
     # Bound Interface
     args_cls: type[BaseModel]
     args_docs: dict[str, str] = Field(default_factory=dict)
@@ -183,7 +187,7 @@ class TemplateActionDefinition(BaseModel):
         default=None,
         description="Marks action as deprecated along with message",
     )
-    secrets: list[RegistrySecret] | None = Field(
+    secrets: list[RegistrySecretType] | None = Field(
         default=None, description="The secrets to pass to the action"
     )
     expects: dict[str, ExpectedField] = Field(
@@ -269,7 +273,7 @@ class RegistryActionBase(BaseModel):
         min_length=1,
         max_length=1000,
     )
-    secrets: list[RegistrySecret] | None = Field(
+    secrets: list[RegistrySecretType] | None = Field(
         None, description="The secrets required by the action"
     )
     interface: RegistryActionInterface
@@ -353,10 +357,13 @@ class RegistryActionRead(RegistryActionBase):
 
     @staticmethod
     def from_database(
-        action: RegistryAction, extra_secrets: list[RegistrySecret] | None = None
+        action: RegistryAction, extra_secrets: list[RegistrySecretType] | None = None
     ) -> RegistryActionRead:
         impl = RegistryActionImplValidator.validate_python(action.implementation)
-        secrets = {RegistrySecret(**secret) for secret in action.secrets or []}
+        secrets = {
+            RegistrySecretTypeValidator.validate_python(secret)
+            for secret in action.secrets or []
+        }
         if extra_secrets:
             secrets.update(extra_secrets)
         return RegistryActionRead(
@@ -375,7 +382,12 @@ class RegistryActionRead(RegistryActionBase):
             display_group=action.display_group,
             origin=action.origin,
             options=RegistryActionOptions(**action.options),
-            secrets=sorted(secrets, key=lambda x: x.name),
+            secrets=sorted(
+                secrets,
+                key=lambda x: x.provider_id
+                if isinstance(x, RegistryOAuthSecret)
+                else x.name,
+            ),
         )
 
 
@@ -419,7 +431,7 @@ class RegistryActionUpdate(BaseModel):
         description="Update the description of the action",
         max_length=1000,
     )
-    secrets: list[RegistrySecret] | None = Field(
+    secrets: list[RegistrySecretType] | None = Field(
         default=None,
         description="Update the secrets of the action",
     )

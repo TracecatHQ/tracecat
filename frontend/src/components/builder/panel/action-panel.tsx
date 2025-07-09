@@ -8,6 +8,7 @@ import {
   CircleCheckIcon,
   CodeIcon,
   Database,
+  ExternalLinkIcon,
   FileTextIcon,
   LayoutListIcon,
   LinkIcon,
@@ -31,6 +32,9 @@ import {
   $JoinStrategy,
   type ActionUpdate,
   ApiError,
+  type RegistryActionRead,
+  type RegistryOAuthSecret_Output as RegistryOAuthSecret,
+  type RegistrySecret,
   type ValidationResult,
 } from "@/client"
 import {
@@ -293,7 +297,11 @@ function ActionPanelContent({
   const [saveState, setSaveState] = useState<SaveState>(SaveState.IDLE)
   const [activeTab, setActiveTab] = useState<ActionPanelTabs>("inputs")
   const [open, setOpen] = useState(false)
-  const [inputMode, setInputMode] = useState<InputMode>("form")
+  // Check if form mode is enabled via organization settings
+  const formModeEnabled = appSettings?.app_action_form_mode_enabled ?? true
+  const [inputMode, setInputMode] = useState<InputMode>(
+    formModeEnabled ? "form" : "yaml"
+  )
 
   // Raw YAML state for preserving original formatting
   const [rawInputsYaml, setRawInputsYaml] = useState(() => action?.inputs || "")
@@ -374,6 +382,11 @@ function ActionPanelContent({
     // Update raw YAML when action changes
     setRawInputsYaml(action?.inputs || "")
   }, [actionId, action?.inputs])
+
+  useEffect(() => {
+    // Reset input mode based on organization setting
+    setInputMode(formModeEnabled ? "form" : "yaml")
+  }, [formModeEnabled, actionId])
 
   // Set up the ref methods
   useEffect(() => {
@@ -555,6 +568,11 @@ function ActionPanelContent({
   // Handle mode switching with YAML preservation
   const handleModeChange = useCallback(
     (newMode: InputMode) => {
+      // Don't allow switching if form mode is disabled
+      if (!formModeEnabled && newMode === "form") {
+        return
+      }
+
       if (inputMode === "form" && newMode === "yaml") {
         // Switching TO yaml: generate YAML from current form state
         const currentFormData = methods.getValues("inputs")
@@ -575,7 +593,7 @@ function ActionPanelContent({
       }
       setInputMode(newMode)
     },
-    [inputMode, methods, action?.inputs, rawInputsYaml]
+    [inputMode, methods, action?.inputs, rawInputsYaml, formModeEnabled]
   )
 
   const isInteractive = methods.watch("is_interactive")
@@ -928,54 +946,9 @@ function ActionPanelContent({
                           <div className="space-y-4 px-4">
                             {registryAction.secrets &&
                             registryAction.secrets.length > 0 ? (
-                              <div className="text-xs text-muted-foreground">
-                                <span>
-                                  This action requires the following secrets:
-                                </span>
-                                <Table>
-                                  <TableHeader>
-                                    <TableRow className="h-6  text-xs capitalize">
-                                      <TableHead
-                                        className="font-bold"
-                                        colSpan={1}
-                                      >
-                                        Secret Name
-                                      </TableHead>
-                                      <TableHead
-                                        className="font-bold"
-                                        colSpan={1}
-                                      >
-                                        Required Keys
-                                      </TableHead>
-                                      <TableHead
-                                        className="font-bold"
-                                        colSpan={1}
-                                      >
-                                        Optional Keys
-                                      </TableHead>
-                                    </TableRow>
-                                  </TableHeader>
-                                  <TableBody>
-                                    {registryAction.secrets.map(
-                                      (secret, idx) => (
-                                        <TableRow
-                                          key={idx}
-                                          className="font-mono text-xs tracking-tight text-muted-foreground"
-                                        >
-                                          <TableCell>{secret.name}</TableCell>
-                                          <TableCell>
-                                            {secret.keys?.join(", ") || "-"}
-                                          </TableCell>
-                                          <TableCell>
-                                            {secret.optional_keys?.join(", ") ||
-                                              "-"}
-                                          </TableCell>
-                                        </TableRow>
-                                      )
-                                    )}
-                                  </TableBody>
-                                </Table>
-                              </div>
+                              <RegistryActionSecrets
+                                secrets={registryAction.secrets}
+                              />
                             ) : (
                               <span className="text-xs text-muted-foreground">
                                 No secrets required.
@@ -1031,42 +1004,44 @@ function ActionPanelContent({
                                     ? "Define action inputs using form fields below."
                                     : "Define action inputs in YAML below."}
                                 </span>
-                                <ToggleTabs
-                                  options={
-                                    [
-                                      {
-                                        value: "form",
-                                        content: (
-                                          <div className="flex items-center gap-1">
-                                            <ListIcon className="size-3" />
-                                            <span className="text-xs">
-                                              Form
-                                            </span>
-                                          </div>
-                                        ),
-                                        tooltip: "Use form fields",
-                                        ariaLabel: "Form mode",
-                                      },
-                                      {
-                                        value: "yaml",
-                                        content: (
-                                          <div className="flex items-center gap-1">
-                                            <CodeIcon className="size-3" />
-                                            <span className="text-xs">
-                                              YAML
-                                            </span>
-                                          </div>
-                                        ),
-                                        tooltip: "Use YAML editor",
-                                        ariaLabel: "YAML mode",
-                                      },
-                                    ] as ToggleTabOption<InputMode>[]
-                                  }
-                                  value={inputMode}
-                                  onValueChange={handleModeChange}
-                                  size="sm"
-                                  className="w-auto"
-                                />
+                                {formModeEnabled && (
+                                  <ToggleTabs
+                                    options={
+                                      [
+                                        {
+                                          value: "form",
+                                          content: (
+                                            <div className="flex items-center gap-1">
+                                              <ListIcon className="size-3" />
+                                              <span className="text-xs">
+                                                Form
+                                              </span>
+                                            </div>
+                                          ),
+                                          tooltip: "Use form fields",
+                                          ariaLabel: "Form mode",
+                                        },
+                                        {
+                                          value: "yaml",
+                                          content: (
+                                            <div className="flex items-center gap-1">
+                                              <CodeIcon className="size-3" />
+                                              <span className="text-xs">
+                                                YAML
+                                              </span>
+                                            </div>
+                                          ),
+                                          tooltip: "Use YAML editor",
+                                          ariaLabel: "YAML mode",
+                                        },
+                                      ] as ToggleTabOption<InputMode>[]
+                                    }
+                                    value={inputMode}
+                                    onValueChange={handleModeChange}
+                                    size="sm"
+                                    className="w-auto"
+                                  />
+                                )}
                               </div>
                             </div>
 
@@ -1077,7 +1052,7 @@ function ActionPanelContent({
                                 fieldName="inputs"
                               />
                             )}
-                            {inputMode === "form" && (
+                            {inputMode === "form" && formModeEnabled && (
                               <>
                                 {/* Required fields - always shown */}
                                 {requiredFields.map(
@@ -1664,6 +1639,101 @@ export function ActionPanelNotFound({
           </Button>
         )}
       </div>
+    </div>
+  )
+}
+
+function RegistryActionSecrets({
+  secrets,
+}: {
+  secrets: NonNullable<RegistryActionRead["secrets"]>
+}) {
+  const { workspaceId } = useWorkspace()
+  const customSecrets = secrets.filter(
+    (secret): secret is RegistrySecret => secret.type === "custom"
+  )
+  const oauthSecrets = secrets.filter(
+    (secret): secret is RegistryOAuthSecret => secret.type === "oauth"
+  )
+  return (
+    <div className="text-xs text-muted-foreground space-y-4">
+      {/* Regular Secrets Table */}
+      {customSecrets.length > 0 && (
+        <div>
+          <span className="block mb-2">
+            This action requires the following secrets:
+          </span>
+          <Table>
+            <TableHeader>
+              <TableRow className="h-6  text-xs capitalize">
+                <TableHead className="font-bold" colSpan={1}>
+                  Secret Name
+                </TableHead>
+                <TableHead className="font-bold" colSpan={1}>
+                  Required Keys
+                </TableHead>
+                <TableHead className="font-bold" colSpan={1}>
+                  Optional Keys
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {customSecrets.map((secret) => (
+                <TableRow
+                  key={secret.name}
+                  className="font-mono text-xs tracking-tight text-muted-foreground"
+                >
+                  <TableCell>{secret.name}</TableCell>
+                  <TableCell>{secret.keys?.join(", ") || "-"}</TableCell>
+                  <TableCell>
+                    {secret.optional_keys?.join(", ") || "-"}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+
+      {/* OAuth Secrets Table */}
+      {oauthSecrets.length > 0 && (
+        <div>
+          <span className="block mb-2">
+            This action requires the following OAuth integrations:
+          </span>
+          <Table>
+            <TableHeader>
+              <TableRow className="h-6  text-xs capitalize">
+                <TableHead className="font-bold" colSpan={1}>
+                  Provider ID
+                </TableHead>
+                <TableHead className="font-bold" colSpan={1}>
+                  Grant Type
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {oauthSecrets.map((secret) => (
+                <TableRow
+                  key={`${secret.provider_id}-${secret.grant_type}`}
+                  className="font-mono text-xs tracking-tight text-muted-foreground"
+                >
+                  <TableCell className="flex items-center gap-1">
+                    <span>{secret.provider_id}</span>
+                    <Link
+                      href={`/workspaces/${workspaceId}/integrations/${secret.provider_id}?tab=configuration`}
+                      target="_blank"
+                    >
+                      <ExternalLinkIcon className="size-3" strokeWidth={2.5} />
+                    </Link>
+                  </TableCell>
+                  <TableCell>{secret.grant_type}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
     </div>
   )
 }

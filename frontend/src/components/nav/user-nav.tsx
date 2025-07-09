@@ -2,6 +2,7 @@
 
 import {
   BookText,
+  BracesIcon,
   ExternalLink,
   KeyRound,
   LogOut,
@@ -121,6 +122,15 @@ export default function UserNav() {
               <DropdownMenuItem className="text-xs hover:cursor-pointer">
                 <UsersRound className="mr-2 size-4" />
                 <span>Manage members</span>
+              </DropdownMenuItem>
+            </Link>
+            <Link
+              href={`${workspaceUrl}/settings/custom-fields`}
+              className="my-2 w-full"
+            >
+              <DropdownMenuItem className="text-xs hover:cursor-pointer">
+                <BracesIcon className="mr-2 size-4" />
+                <span>Custom fields</span>
               </DropdownMenuItem>
             </Link>
           </DropdownMenuGroup>

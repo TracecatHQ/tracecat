@@ -855,6 +855,13 @@ class Case(Resource, table=True):
             **DEFAULT_SA_RELATIONSHIP_KWARGS,
         },
     )
+    attachments: list["CaseAttachment"] = Relationship(
+        back_populates="case",
+        sa_relationship_kwargs={
+            "cascade": "all, delete",
+            **DEFAULT_SA_RELATIONSHIP_KWARGS,
+        },
+    )
     assignee_id: uuid.UUID | None = Field(
         default=None,
         description="The ID of the user who is assigned to the case.",
@@ -986,6 +993,104 @@ class Interaction(Resource, table=True):
     )
 
 
+class File(Resource, table=True):
+    """A file entity with content-addressable storage using SHA256."""
+
+    __tablename__: str = "file"
+
+    id: uuid.UUID = Field(
+        default_factory=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    sha256: str = Field(
+        ...,
+        max_length=64,
+        index=True,
+        description="SHA256 hash for content-addressable storage and deduplication",
+    )
+    name: str = Field(
+        ...,
+        max_length=config.TRACECAT__MAX_ATTACHMENT_FILENAME_LENGTH,
+        description="Original filename when uploaded",
+    )
+    content_type: str = Field(
+        ...,
+        max_length=100,
+        description="MIME type of the file",
+    )
+    size: int = Field(
+        ...,
+        gt=0,
+        le=config.TRACECAT__MAX_ATTACHMENT_SIZE_BYTES,
+        description="File size in bytes",
+    )
+    creator_id: uuid.UUID | None = Field(
+        default=None,
+        sa_column=Column(UUID, nullable=True),
+        description="ID of the user who uploaded the file. If None, assume is system created.",
+    )
+    deleted_at: datetime | None = Field(
+        default=None,
+        sa_type=TIMESTAMP(timezone=True),  # type: ignore
+        description="Timestamp for soft deletion",
+    )
+    attachments: list["CaseAttachment"] = Relationship(
+        back_populates="file",
+        sa_relationship_kwargs={
+            "cascade": "all, delete",
+            **DEFAULT_SA_RELATIONSHIP_KWARGS,
+        },
+    )
+
+    @computed_field
+    @property
+    def is_deleted(self) -> bool:
+        """Check if file is soft deleted."""
+        return self.deleted_at is not None
+
+
+class CaseAttachment(SQLModel, TimestampMixin, table=True):
+    """Link table between cases and files."""
+
+    __tablename__: str = "case_attachment"
+    __table_args__ = (
+        UniqueConstraint("case_id", "file_id", name="uq_case_attachment_case_file"),
+    )
+
+    id: uuid.UUID = Field(
+        default_factory=uuid.uuid4,
+        primary_key=True,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    case_id: uuid.UUID = Field(
+        sa_column=Column(
+            UUID,
+            ForeignKey("cases.id", ondelete="CASCADE"),
+            nullable=False,
+        )
+    )
+    file_id: uuid.UUID = Field(
+        sa_column=Column(
+            UUID,
+            ForeignKey("file.id", ondelete="CASCADE"),
+            nullable=False,
+        )
+    )
+    # Relationships
+    case: Case = Relationship(back_populates="attachments")
+    file: File = Relationship(back_populates="attachments")
+
+    @computed_field
+    @property
+    def storage_path(self) -> str:
+        """Generate the storage path for case attachments."""
+        return f"attachments/{self.file.sha256}"
+
+
 class OAuthIntegration(SQLModel, TimestampMixin, table=True):
     """Store user integrations with external services."""
 
@@ -1110,3 +1215,42 @@ class OAuthIntegration(SQLModel, TimestampMixin, table=True):
             return IntegrationStatus.CONFIGURED
         else:
             return IntegrationStatus.NOT_CONFIGURED
+
+
+class OAuthStateDB(SQLModel, TimestampMixin, table=True):
+    """Store OAuth state parameters for CSRF protection during OAuth flows."""
+
+    __tablename__: str = "oauth_state"
+    __table_args__ = (Index("ix_oauth_state_expires_at", "expires_at"),)
+
+    state: UUID4 = Field(
+        default_factory=uuid.uuid4,
+        primary_key=True,
+        nullable=False,
+        description="Unique state identifier for OAuth flow",
+    )
+    workspace_id: UUID4 = Field(
+        sa_column=Column(
+            UUID, ForeignKey("workspace.id", ondelete="CASCADE"), nullable=False
+        ),
+        description="Workspace ID associated with this OAuth flow",
+    )
+    user_id: UUID4 = Field(
+        sa_column=Column(
+            UUID, ForeignKey("user.id", ondelete="CASCADE"), nullable=False
+        ),
+        description="User ID initiating the OAuth flow",
+    )
+    provider_id: str = Field(
+        nullable=False,
+        description="Provider ID for this OAuth flow",
+    )
+    expires_at: datetime = Field(
+        sa_type=TIMESTAMP(timezone=True),  # type: ignore
+        nullable=False,
+        description="When this state expires",
+    )
+
+    # Relationships
+    workspace: Workspace = Relationship()
+    user: User = Relationship()
