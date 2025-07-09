@@ -87,6 +87,7 @@ export function ProviderConfigForm({
   const {
     metadata: { id },
     scopes: { default: defaultScopes, allowed_patterns: allowedPatterns },
+    grant_type: grantType,
   } = provider
   const { workspaceId } = useWorkspace()
   const {
@@ -97,6 +98,7 @@ export function ProviderConfigForm({
   } = useIntegrationProvider({
     providerId: id,
     workspaceId,
+    grantType,
   })
   const properties = Object.entries(schema.properties || {})
   const zodSchema = useMemo(() => jsonSchemaToZod(schema), [schema])
@@ -182,7 +184,7 @@ export function ProviderConfigForm({
           provider_config: config || undefined,
           // All scopes
           scopes: scopes || undefined,
-          grant_type: provider.grant_type,
+          grant_type: grantType,
         }
         await updateIntegration(params)
         onSuccess?.()
@@ -190,7 +192,7 @@ export function ProviderConfigForm({
         console.error(error)
       }
     },
-    [updateIntegration, onSuccess, defaultScopes]
+    [updateIntegration, onSuccess, defaultScopes, grantType]
   )
 
   if (integrationIsLoading) {
