@@ -640,12 +640,6 @@ async def add_fields_to_kv_store_collection(
         return response.json()
 
 
-# Look up Documentation:
-# https://help.splunk.com/en/splunk-enterprise/rest-api-reference/9.4/knowledge-endpoints/knowledge-endpoint-descriptions#ariaid-title19
-# https://help.splunk.com/en/splunk-enterprise/rest-api-reference/9.4/knowledge-endpoints/knowledge-endpoint-descriptions#ariaid-title20
-
-
-# TODO: HEC Push Event to Index
 @registry.register(
     default_title="Push Event to Splunk over HEC",
     description="Push an event to Splunk. Uses HEC token authentication.",
