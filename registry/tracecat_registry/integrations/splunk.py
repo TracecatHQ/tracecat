@@ -653,7 +653,7 @@ async def submit_event_to_splunk(
         str,
         Field(
             ...,
-            description="Splunk base URL (e.g. https://localhost:8089 or https://tracecat.splunkcloud.com:8089).",
+            description="Splunk base URL (e.g. https://localhost:8088 or https://tracecat.splunkcloud.com:8088).",
         ),
     ],
     event: Annotated[
