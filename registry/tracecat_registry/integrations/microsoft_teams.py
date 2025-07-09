@@ -21,6 +21,7 @@ microsoft_teams_ac_oauth_secret = RegistryOAuthSecret(
 
 TeamId = Annotated[str, Doc("The ID of the team.")]
 ChannelId = Annotated[str, Doc("The ID of the channel.")]
+MessageId = Annotated[str, Doc("The ID of the message.")]
 OptionalTeamId = Annotated[str | None, Doc("Team ID for context.")]
 OptionalChannelId = Annotated[str | None, Doc("Channel ID for context.")]
 
@@ -66,6 +67,36 @@ async def send_teams_message(
 
     # Microsoft Graph API endpoint for sending channel messages
     url = f"https://graph.microsoft.com/v1.0/teams/{team_id}/channels/{channel_id}/messages"
+
+    # Message payload
+    payload = {"body": {"content": message}}
+
+    async with httpx.AsyncClient() as client:
+        response = await client.post(url, headers=headers, json=payload)
+        response.raise_for_status()
+        return response.json()
+
+
+@registry.register(
+    default_title="Reply to a Teams message",
+    description="Send a reply to a Microsoft Teams message.",
+    display_group="Microsoft Teams",
+    doc_url="https://learn.microsoft.com/en-us/graph/api/channel-post-messages",
+    namespace="tools.microsoft_teams",
+    secrets=[microsoft_teams_ac_oauth_secret],
+)
+async def reply_teams_message(
+    team_id: TeamId,
+    channel_id: ChannelId,
+    message_id: MessageId,
+    message: Annotated[str, Doc("The message to send.")],
+) -> dict[str, str]:
+    token = secrets.get(microsoft_teams_ac_oauth_secret.token_name)
+
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+
+    # Microsoft Graph API endpoint for sending channel messages
+    url = f"https://graph.microsoft.com/v1.0/teams/{team_id}/channels/{channel_id}/messages/{message_id}/replies"
 
     # Message payload
     payload = {"body": {"content": message}}
