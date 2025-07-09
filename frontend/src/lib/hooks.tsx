@@ -409,7 +409,7 @@ export function useWorkflowManager(filter?: WorkflowFilter) {
         workspaceId,
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["workflows"] })
+      queryClient.invalidateQueries({ queryKey: ["workflows", workspaceId] })
       queryClient.invalidateQueries({ queryKey: ["directory-items"] })
       toast({
         title: "Deleted workflow",
@@ -439,7 +439,7 @@ export function useWorkflowManager(filter?: WorkflowFilter) {
     mutationFn: async (params: WorkflowsAddTagData) =>
       await workflowsAddTag(params),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["workflows"] })
+      queryClient.invalidateQueries({ queryKey: ["workflows", workspaceId] })
     },
     onError: (error: TracecatApiError) => {
       console.error("Failed to add tag to workflow:", error)
@@ -454,7 +454,7 @@ export function useWorkflowManager(filter?: WorkflowFilter) {
     mutationFn: async (params: WorkflowsRemoveTagData) =>
       await workflowsRemoveTag(params),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["workflows"] })
+      queryClient.invalidateQueries({ queryKey: ["workflows", workspaceId] })
     },
     onError: (error: TracecatApiError) => {
       console.error("Failed to remove tag from workflow:", error)
