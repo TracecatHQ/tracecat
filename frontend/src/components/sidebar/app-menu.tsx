@@ -12,7 +12,6 @@ import {
 } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useState } from "react"
-import { Icons } from "@/components/icons"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -94,16 +93,12 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
           <DropdownMenuTrigger asChild>
             <SidebarMenuButton
               size="default"
-              className="data-[state=open]:bg-zinc-100 dark:data-[state=open]:bg-zinc-900"
+              className="data-[state=open]:bg-zinc-100 dark:data-[state=open]:bg-zinc-900 pl-0"
             >
-              <div className="flex aspect-square size-4 items-center justify-center">
-                <Icons.logo className="size-4" />
-              </div>
-              <div className="grid flex-1 text-left text-sm leading-tight">
-                <span className="truncate font-semibold">
-                  {activeWorkspace?.name || "Select workspace"}
-                </span>
-              </div>
+              <img src="/icon.png" alt="Tracecat" className="size-6 ml-0.5" />
+              <span className="truncate font-semibold text-zinc-700 dark:text-zinc-300">
+                {activeWorkspace?.name || "Select workspace"}
+              </span>
               <ChevronsUpDown className="ml-auto size-4" />
             </SidebarMenuButton>
           </DropdownMenuTrigger>
