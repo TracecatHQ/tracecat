@@ -94,7 +94,7 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
           <DropdownMenuTrigger asChild>
             <SidebarMenuButton
               size="default"
-              className="data-[state=open]:bg-zinc-50 dark:data-[state=open]:bg-zinc-900"
+              className="data-[state=open]:bg-zinc-100 dark:data-[state=open]:bg-zinc-900"
             >
               <div className="flex aspect-square size-4 items-center justify-center">
                 <Icons.logo className="size-4" />
@@ -108,7 +108,7 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
             </SidebarMenuButton>
           </DropdownMenuTrigger>
           <DropdownMenuContent
-            className="w-[--radix-dropdown-menu-trigger-width] min-w-[220px] rounded-lg"
+            className="w-[--radix-dropdown-menu-trigger-width] min-w-[220px] rounded-lg flex flex-col gap-1"
             align="start"
             side="right"
             sideOffset={4}
@@ -121,11 +121,11 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
                 key={workspace.id}
                 onClick={() => handleWorkspaceChange(workspace.id)}
                 className={cn(
-                  "gap-2 p-2",
+                  "gap-2 py-1 px-2",
                   workspace.id === workspaceId && "bg-zinc-100 dark:bg-zinc-800"
                 )}
               >
-                <div className="flex size-6 items-center justify-center rounded-md bg-muted text-[10px] font-medium">
+                <div className="flex size-6 items-center justify-center rounded-md bg-muted text-[10px]">
                   {getWorkspaceInitials(workspace.name)}
                 </div>
                 <span className="flex-1">{workspace.name}</span>
@@ -137,7 +137,7 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
             <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
               <DialogTrigger asChild>
                 <DropdownMenuItem
-                  className="gap-2 p-2"
+                  className="gap-2 py-1 px-2"
                   onSelect={(e) => {
                     e.preventDefault()
                     setDialogOpen(true)
@@ -195,7 +195,7 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
 
             <DropdownMenuSeparator />
             <DropdownMenuItem
-              className="gap-2 p-2"
+              className="gap-2 py-1 px-2"
               onClick={() => router.push(`/workspaces/${workspaceId}/settings`)}
             >
               <div className="flex size-6 items-center justify-center">
@@ -204,7 +204,7 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
               <span>Settings</span>
             </DropdownMenuItem>
             <DropdownMenuItem
-              className="gap-2 p-2"
+              className="gap-2 py-1 px-2"
               onClick={() =>
                 router.push(`/workspaces/${workspaceId}/settings/credentials`)
               }
@@ -215,7 +215,7 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
               <span>Credentials</span>
             </DropdownMenuItem>
             <DropdownMenuItem
-              className="gap-2 p-2"
+              className="gap-2 py-1 px-2"
               onClick={() =>
                 router.push(`/workspaces/${workspaceId}/settings/members`)
               }
@@ -229,7 +229,7 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
             <DropdownMenuSeparator />
             {user?.isPrivileged() && (
               <DropdownMenuItem
-                className="gap-2 p-2"
+                className="gap-2 py-1 px-2"
                 onClick={() => router.push("/organization")}
               >
                 <div className="flex size-6 items-center justify-center">
@@ -239,7 +239,7 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
               </DropdownMenuItem>
             )}
             <DropdownMenuItem
-              className="gap-2 p-2"
+              className="gap-2 py-1 px-2"
               onClick={() => router.push("/registry/actions")}
             >
               <div className="flex size-6 items-center justify-center">
