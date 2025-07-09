@@ -90,7 +90,7 @@ async def reply_teams_message(
     channel_id: ChannelId,
     message_id: MessageId,
     message: Annotated[str, Doc("The message to send.")],
-) -> dict[str, str]:
+) -> dict[str, Any]:
     token = secrets.get(microsoft_teams_ac_oauth_secret.token_name)
 
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
