@@ -93,10 +93,10 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <SidebarMenuButton
-              size="lg"
-              className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
+              size="default"
+              className="data-[state=open]:bg-zinc-50 dark:data-[state=open]:bg-zinc-900"
             >
-              <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
+              <div className="flex aspect-square size-4 items-center justify-center">
                 <Icons.logo className="size-4" />
               </div>
               <div className="grid flex-1 text-left text-sm leading-tight">
@@ -104,7 +104,7 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
                   {activeWorkspace?.name || "Select workspace"}
                 </span>
               </div>
-              <ChevronsUpDown className="ml-auto" />
+              <ChevronsUpDown className="ml-auto size-4" />
             </SidebarMenuButton>
           </DropdownMenuTrigger>
           <DropdownMenuContent
@@ -122,7 +122,7 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
                 onClick={() => handleWorkspaceChange(workspace.id)}
                 className={cn(
                   "gap-2 p-2",
-                  workspace.id === workspaceId && "bg-sidebar-accent"
+                  workspace.id === workspaceId && "bg-zinc-100 dark:bg-zinc-800"
                 )}
               >
                 <div className="flex size-6 items-center justify-center rounded-md bg-muted text-[10px] font-medium">
