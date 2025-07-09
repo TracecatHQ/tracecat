@@ -641,14 +641,14 @@ async def add_fields_to_kv_store_collection(
 
 
 @registry.register(
-    default_title="Push Event to Splunk over HEC",
-    description="Push an event to Splunk. Uses HEC token authentication.",
+    default_title="Submit Event to Splunk with HEC",
+    description="Submit an event to Splunk. Uses HEC and HEC token authentication.",
     display_group="Splunk",
     doc_url="https://help.splunk.com/en/splunk-enterprise/get-data-in/get-started-with-getting-data-in/9.4/get-data-with-http-event-collector/format-events-for-http-event-collector",
     namespace="tools.splunk",
     secrets=[splunk_hec_secret],
 )
-async def push_event_to_splunk(
+async def submit_event_to_splunk(
     base_url: Annotated[
         str,
         Field(
@@ -664,9 +664,9 @@ async def push_event_to_splunk(
         ),
     ],
     index: Annotated[
-        str,
+        str | None,
         Field(..., description="Index to push the event to."),
-    ],
+    ] = None,
     source: Annotated[
         str,
         Field(..., description="Source of the event. Default is tracecat_workflow."),
