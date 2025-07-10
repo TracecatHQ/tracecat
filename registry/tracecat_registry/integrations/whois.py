@@ -151,9 +151,8 @@ def lookup_ip(
 
         return result
 
-    except whois.parser.PywhoisError as e:
-        raise RuntimeError(f"WHOIS lookup failed for IP '{ip_address}': {str(e)}")
     except Exception as e:
         raise RuntimeError(
             f"Unexpected error during WHOIS lookup for IP '{ip_address}': {str(e)}"
+            f" {type(e)}"
         )
