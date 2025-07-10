@@ -32,7 +32,9 @@ sql_secret = RegistrySecret(
 async def execute_query(
     query: Annotated[
         str,
-        Doc("SQL query to execute. Use SELECT for read operations."),
+        Doc(
+            "SQL query to execute. Use SELECT for read operations. Use $1, $2, etc. for parameters."
+        ),
     ],
     host: Annotated[
         str,
@@ -42,6 +44,10 @@ async def execute_query(
         str,
         Doc("Name of the database to connect to."),
     ],
+    parameters: Annotated[
+        list[Any] | None,
+        Doc("List of parameters to bind to the query placeholders ($1, $2, etc.)."),
+    ] = None,
     database_type: Annotated[
         Literal["postgresql"],
         Doc("Database type. Currently only PostgreSQL is supported."),
@@ -61,13 +67,19 @@ async def execute_query(
     if database_type != "postgresql":
         raise ValueError(f"Unsupported database type: {database_type}")
 
+    # Validate query for potential injection patterns
+    _validate_query_safety(query)
+
     connection_string = _build_connection_string(host, port, database_name)
 
     # Apply limit to query if specified
     if limit is not None:
         query = _apply_limit_to_query(query, limit)
 
-    return await _execute_postgresql_query(connection_string, query)
+    # Prepare parameters
+    params = parameters or []
+
+    return await _execute_postgresql_query(connection_string, query, params)
 
 
 @registry.register(
@@ -81,7 +93,9 @@ async def execute_query(
 async def execute_non_query(
     statement: Annotated[
         str,
-        Doc("SQL statement to execute (INSERT, UPDATE, DELETE, CREATE, etc.)."),
+        Doc(
+            "SQL statement to execute (INSERT, UPDATE, DELETE, CREATE, etc.). Use $1, $2, etc. for parameters."
+        ),
     ],
     host: Annotated[
         str,
@@ -91,6 +105,10 @@ async def execute_non_query(
         str,
         Doc("Name of the database to connect to."),
     ],
+    parameters: Annotated[
+        list[Any] | None,
+        Doc("List of parameters to bind to the statement placeholders ($1, $2, etc.)."),
+    ] = None,
     database_type: Annotated[
         Literal["postgresql"],
         Doc("Database type. Currently only PostgreSQL is supported."),
@@ -106,9 +124,15 @@ async def execute_non_query(
     if database_type != "postgresql":
         raise ValueError(f"Unsupported database type: {database_type}")
 
+    # Validate statement for potential injection patterns
+    _validate_query_safety(statement)
+
     connection_string = _build_connection_string(host, port, database_name)
 
-    return await _execute_postgresql_non_query(connection_string, statement)
+    # Prepare parameters
+    params = parameters or []
+
+    return await _execute_postgresql_non_query(connection_string, statement, params)
 
 
 @registry.register(
@@ -122,7 +146,9 @@ async def execute_non_query(
 async def execute_transaction(
     statements: Annotated[
         list[str],
-        Doc("List of SQL statements to execute in a transaction."),
+        Doc(
+            "List of SQL statements to execute in a transaction. Use $1, $2, etc. for parameters."
+        ),
     ],
     host: Annotated[
         str,
@@ -132,6 +158,12 @@ async def execute_transaction(
         str,
         Doc("Name of the database to connect to."),
     ],
+    parameters: Annotated[
+        list[list[Any]] | None,
+        Doc(
+            "List of parameter lists for each statement. Each inner list contains parameters for the corresponding statement."
+        ),
+    ] = None,
     database_type: Annotated[
         Literal["postgresql"],
         Doc("Database type. Currently only PostgreSQL is supported."),
@@ -147,14 +179,30 @@ async def execute_transaction(
     if database_type != "postgresql":
         raise ValueError(f"Unsupported database type: {database_type}")
 
+    # Validate all statements for potential injection patterns
+    for statement in statements:
+        _validate_query_safety(statement)
+
     connection_string = _build_connection_string(host, port, database_name)
+
+    # Prepare parameters - ensure we have the right number of parameter lists
+    params_list = parameters or []
+    if len(params_list) != len(statements) and params_list:
+        raise ValueError(
+            f"Number of parameter lists ({len(params_list)}) must match number of statements ({len(statements)})"
+        )
+
+    # Pad with empty lists if no parameters provided
+    if not params_list:
+        params_list = [[] for _ in statements]
 
     conn = await asyncpg.connect(connection_string)
     try:
         async with conn.transaction():
             results = []
-            for statement in statements:
-                result = await conn.execute(statement)
+            for i, statement in enumerate(statements):
+                stmt_params = params_list[i] if i < len(params_list) else []
+                result = await conn.execute(statement, *stmt_params)
                 # Extract affected rows from result string
                 affected_rows = 0
                 if result:
@@ -169,6 +217,17 @@ async def execute_transaction(
             return {"results": results, "status": "success"}
     finally:
         await conn.close()
+
+
+def _validate_query_safety(query: str) -> None:
+    """Validate query for potential injection patterns."""
+    # Check for template expressions like ${{ something }}
+    template_pattern = r"\$\{\{[^}]*\}\}"
+    if re.search(template_pattern, query):
+        raise ValueError(
+            "Query contains template expressions (${{ ... }}) which could be vulnerable to injection. "
+            "Use parameterized queries with $1, $2, etc. placeholders instead."
+        )
 
 
 def _build_connection_string(host: str, port: int, database_name: str) -> str:
@@ -201,11 +260,12 @@ def _apply_limit_to_query(query: str, limit: int) -> str:
 async def _execute_postgresql_query(
     connection_string: str,
     query: str,
+    parameters: list[Any],
 ) -> dict[str, Any] | list[dict[str, Any]]:
-    """Execute PostgreSQL query using asyncpg."""
+    """Execute PostgreSQL query using asyncpg with parameterized queries."""
     conn = await asyncpg.connect(connection_string)
     try:
-        rows = await conn.fetch(query)
+        rows = await conn.fetch(query, *parameters)
 
         # Convert rows to list of dictionaries
         return [dict(row) for row in rows]
@@ -216,11 +276,12 @@ async def _execute_postgresql_query(
 async def _execute_postgresql_non_query(
     connection_string: str,
     statement: str,
+    parameters: list[Any],
 ) -> dict[str, Any]:
-    """Execute PostgreSQL non-query statement using asyncpg."""
+    """Execute PostgreSQL non-query statement using asyncpg with parameterized queries."""
     conn = await asyncpg.connect(connection_string)
     try:
-        result = await conn.execute(statement)
+        result = await conn.execute(statement, *parameters)
         # Extract affected rows from result string like "INSERT 0 1" or "UPDATE 2"
         affected_rows = 0
         if result:
