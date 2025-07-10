@@ -1,10 +1,10 @@
 import type { Metadata } from "next"
 
 export const metadata: Metadata = {
-  title: "Security | Workspace",
+  title: "Workspace settings | Organization",
 }
 
-export default function SecurityLayout({
+export default function WorkspaceSettingsLayout({
   children,
 }: {
   children: React.ReactNode
