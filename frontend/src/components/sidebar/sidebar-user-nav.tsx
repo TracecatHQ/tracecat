@@ -1,6 +1,6 @@
 "use client"
 
-import { BookText, ExternalLink, LogOut } from "lucide-react"
+import { BookText, ExternalLink, LogOut, ShieldIcon, User } from "lucide-react"
 import Link from "next/link"
 import { Icons } from "@/components/icons"
 import { Badge } from "@/components/ui/badge"
@@ -70,6 +70,22 @@ export function SidebarUserNav() {
                 )}
               </div>
             </DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuGroup>
+              <Link href="/profile/settings" className="w-full">
+                <DropdownMenuItem className="text-xs hover:cursor-pointer">
+                  <User className="mr-2 size-4" />
+                  <span>Account</span>
+                </DropdownMenuItem>
+              </Link>
+              <Link href="/profile/security" className="w-full">
+                <DropdownMenuItem className="text-xs hover:cursor-pointer">
+                  <ShieldIcon className="mr-2 size-4" />
+                  <span>Security</span>
+                </DropdownMenuItem>
+              </Link>
+            </DropdownMenuGroup>
+
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
               <Link

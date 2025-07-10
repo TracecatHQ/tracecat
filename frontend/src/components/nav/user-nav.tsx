@@ -6,7 +6,6 @@ import {
   ExternalLink,
   KeyRound,
   LogOut,
-  Settings,
   UsersRound,
 } from "lucide-react"
 import Link from "next/link"
@@ -97,35 +96,20 @@ export default function UserNav() {
             <DropdownMenuLabel className="text-xs text-muted-foreground">
               Workspace
             </DropdownMenuLabel>
-            <Link
-              href={`${workspaceUrl}/settings/general`}
-              className="my-2 w-full"
-            >
-              <DropdownMenuItem className="text-xs hover:cursor-pointer">
-                <Settings className="mr-2 size-4" />
-                Settings
-              </DropdownMenuItem>
-            </Link>
-            <Link
-              href={`${workspaceUrl}/settings/credentials`}
-              className="my-2 w-full"
-            >
+            <Link href={`${workspaceUrl}/credentials`} className="my-2 w-full">
               <DropdownMenuItem className="text-xs hover:cursor-pointer">
                 <KeyRound className="mr-2 size-4" />
                 <span>Credentials</span>
               </DropdownMenuItem>
             </Link>
-            <Link
-              href={`${workspaceUrl}/settings/members`}
-              className="my-2 w-full"
-            >
+            <Link href={`${workspaceUrl}/members`} className="my-2 w-full">
               <DropdownMenuItem className="text-xs hover:cursor-pointer">
                 <UsersRound className="mr-2 size-4" />
                 <span>Manage members</span>
               </DropdownMenuItem>
             </Link>
             <Link
-              href={`${workspaceUrl}/settings/custom-fields`}
+              href={`${workspaceUrl}/custom-fields`}
               className="my-2 w-full"
             >
               <DropdownMenuItem className="text-xs hover:cursor-pointer">

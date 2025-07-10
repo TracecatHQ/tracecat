@@ -1,8 +1,11 @@
 "use client"
 
 import {
+  BracesIcon,
+  KeyRoundIcon,
   ShieldAlertIcon,
   Table2Icon,
+  UsersIcon,
   WorkflowIcon,
   ZapIcon,
 } from "lucide-react"
@@ -17,6 +20,7 @@ import {
   SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
+  SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
@@ -57,6 +61,27 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     },
   ]
 
+  const navWorkspace = [
+    {
+      title: "Credentials",
+      url: `${basePath}/credentials`,
+      icon: KeyRoundIcon,
+      isActive: pathname?.startsWith(`${basePath}/credentials`),
+    },
+    {
+      title: "Members",
+      url: `${basePath}/members`,
+      icon: UsersIcon,
+      isActive: pathname?.startsWith(`${basePath}/members`),
+    },
+    {
+      title: "Custom fields",
+      url: `${basePath}/custom-fields`,
+      icon: BracesIcon,
+      isActive: pathname?.startsWith(`${basePath}/custom-fields`),
+    },
+  ]
+
   return (
     <Sidebar collapsible="icon" {...props}>
       <SidebarHeader>
@@ -67,6 +92,23 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
           <SidebarGroupContent>
             <SidebarMenu>
               {navMain.map((item) => (
+                <SidebarMenuItem key={item.title}>
+                  <SidebarMenuButton asChild isActive={item.isActive}>
+                    <Link href={item.url}>
+                      <item.icon />
+                      <span>{item.title}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+        <SidebarGroup>
+          <SidebarGroupLabel>Workspace</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {navWorkspace.map((item) => (
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton asChild isActive={item.isActive}>
                     <Link href={item.url}>

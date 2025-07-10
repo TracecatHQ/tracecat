@@ -5,10 +5,7 @@ import {
   BuildingIcon,
   ChevronsUpDown,
   CircleCheck,
-  KeyRoundIcon,
   Plus,
-  Settings2,
-  UsersIcon,
 } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useState } from "react"
@@ -187,39 +184,6 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
                 </form>
               </DialogContent>
             </Dialog>
-
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              className="gap-2 py-1 px-2"
-              onClick={() => router.push(`/workspaces/${workspaceId}/settings`)}
-            >
-              <div className="flex size-6 items-center justify-center">
-                <Settings2 className="size-4" />
-              </div>
-              <span>Settings</span>
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              className="gap-2 py-1 px-2"
-              onClick={() =>
-                router.push(`/workspaces/${workspaceId}/settings/credentials`)
-              }
-            >
-              <div className="flex size-6 items-center justify-center">
-                <KeyRoundIcon className="size-4" />
-              </div>
-              <span>Credentials</span>
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              className="gap-2 py-1 px-2"
-              onClick={() =>
-                router.push(`/workspaces/${workspaceId}/settings/members`)
-              }
-            >
-              <div className="flex size-6 items-center justify-center">
-                <UsersIcon className="size-4" />
-              </div>
-              <span>Manage members</span>
-            </DropdownMenuItem>
 
             <DropdownMenuSeparator />
             {user?.isPrivileged() && (
