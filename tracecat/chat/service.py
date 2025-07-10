@@ -1,0 +1,132 @@
+import uuid
+from collections.abc import Sequence
+from typing import Any
+
+import orjson
+from sqlmodel import col, select
+from sqlmodel.ext.asyncio.session import AsyncSession
+
+from tracecat.db.schemas import Chat
+from tracecat.identifiers import UserID
+from tracecat.logger import logger
+from tracecat.redis.client import get_redis_client
+from tracecat.service import BaseWorkspaceService
+from tracecat.types.auth import Role
+
+
+class ChatService(BaseWorkspaceService):
+    service_name = "chat"
+
+    async def list_chats(
+        self,
+        *,
+        user_id: UserID,
+        entity_type: str | None = None,
+        entity_id: str | None = None,
+        limit: int = 50,
+    ) -> Sequence[Chat]:
+        """List chats for the current workspace with optional entity filtering."""
+
+        stmt = select(Chat).where(Chat.owner_id == self.role.workspace_id)
+        if user_id:
+            stmt = stmt.where(Chat.user_id == user_id)
+
+        if entity_type:
+            stmt = stmt.where(Chat.entity_type == entity_type)
+
+        if entity_id:
+            stmt = stmt.where(Chat.entity_id == entity_id)
+
+        stmt = stmt.order_by(col(Chat.created_at).desc()).limit(limit)
+
+        result = await self.session.exec(stmt)
+        return result.all()
+
+    async def create_chat(
+        self,
+        *,
+        title: str,
+        entity_type: str,
+        entity_id: uuid.UUID,
+    ) -> Chat:
+        """Create a new chat associated with an entity."""
+        if self.role.user_id is None:
+            raise ValueError("User ID is required")
+
+        chat = Chat(
+            title=title,
+            user_id=self.role.user_id,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            owner_id=self.workspace_id,
+        )
+
+        self.session.add(chat)
+        await self.session.commit()
+        await self.session.refresh(chat)
+
+        logger.info(
+            "Created chat",
+            chat_id=str(chat.id),
+            title=title,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            workspace_id=self.workspace_id,
+        )
+
+        return chat
+
+    async def get_chat(self, chat_id: str) -> Chat | None:
+        """Get a chat by ID, ensuring it belongs to the current workspace."""
+        stmt = select(Chat).where(
+            Chat.id == chat_id,
+            Chat.owner_id == self.workspace_id,
+        )
+
+        result = await self.session.exec(stmt)
+        return result.first()
+
+    async def get_chat_messages(self, chat_id: str) -> list[dict[str, Any]]:
+        """Get chat messages from Redis stream."""
+        try:
+            redis_client = await get_redis_client()
+            stream_key = f"agent-stream:{chat_id}"
+
+            # Read all messages from the Redis stream
+            messages = await redis_client.xrange(stream_key, min_id="-", max_id="+")
+
+            parsed_messages = []
+            for message_id, fields in messages:
+                try:
+                    data = orjson.loads(fields["d"])
+
+                    # Skip end-of-stream markers
+                    if data.get("__end__") == 1:
+                        continue
+
+                    # Add metadata
+                    data["redis_id"] = message_id
+                    parsed_messages.append(data)
+
+                except (orjson.JSONDecodeError, KeyError) as e:
+                    logger.warning(
+                        "Failed to parse Redis message",
+                        message_id=message_id,
+                        error=str(e),
+                    )
+                    continue
+
+            return parsed_messages
+
+        except Exception as e:
+            logger.error(
+                "Failed to fetch chat messages from Redis",
+                chat_id=chat_id,
+                error=str(e),
+            )
+            return []
+
+    @classmethod
+    async def from_role(cls, session: AsyncSession, role: Role) -> "ChatService":
+        """Create service instance from role."""
+        return cls(session, role)
