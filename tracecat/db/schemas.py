@@ -179,6 +179,11 @@ class User(SQLModelBaseUserDB, table=True):
         back_populates="user",
         sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
     )
+    # Relationships
+    chats: list["Chat"] = Relationship(
+        back_populates="user",
+        sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
+    )
 
 
 class AccessToken(SQLModelBaseAccessToken, table=True):
@@ -1258,3 +1263,37 @@ class OAuthStateDB(SQLModel, TimestampMixin, table=True):
     # Relationships
     workspace: Workspace = Relationship()
     user: User = Relationship()
+
+
+class Chat(Resource, table=True):
+    """A chat between a user and an AI agent."""
+
+    __tablename__: str = "chat"
+
+    id: uuid.UUID = Field(
+        default_factory=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    title: str = Field(
+        default="New Chat",
+        description="Human-readable title for the chat",
+        nullable=False,
+    )
+    user_id: UUID4 = Field(
+        sa_column=Column(
+            UUID, ForeignKey("user.id", ondelete="CASCADE"), nullable=False
+        )
+    )
+    entity_type: str = Field(
+        ...,
+        description="The entity associated with this chat. e.g. a case",
+        nullable=False,
+    )
+    entity_id: UUID4 = Field(
+        ..., description="The polymorphic id of the associated entity."
+    )
+
+    # Relationships
+    user: User = Relationship(back_populates="chats")

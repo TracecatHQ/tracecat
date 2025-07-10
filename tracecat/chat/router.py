@@ -1,15 +1,24 @@
 """Chat API router for real-time AI agent interactions."""
 
 import asyncio
+import os
 from typing import Annotated
 
 import orjson
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
-from tracecat_registry.integrations.agents.builder import agent
+from tracecat_registry.integrations.agents.builder import ModelMessageTA, agent
 
-from tracecat.api.chat_models import ChatRequest, ChatResponse
 from tracecat.auth.credentials import RoleACL
+from tracecat.chat.models import (
+    ChatCreate,
+    ChatRead,
+    ChatRequest,
+    ChatResponse,
+    ChatWithMessages,
+)
+from tracecat.chat.service import ChatService
+from tracecat.db.dependencies import AsyncDBSession
 from tracecat.logger import logger
 from tracecat.redis.client import get_redis_client
 from tracecat.secrets import secrets_manager
@@ -27,9 +36,81 @@ WorkspaceUser = Annotated[
 ]
 
 
-@router.post("/{conversation_id}")
+@router.post("/")
+async def create_chat(
+    request: ChatCreate,
+    role: WorkspaceUser,
+    session: AsyncDBSession,
+) -> ChatRead:
+    """Create a new chat associated with an entity."""
+    chat_service = ChatService(session, role)
+    chat = await chat_service.create_chat(
+        title=request.title,
+        entity_type=request.entity_type,
+        entity_id=request.entity_id,
+    )
+    return ChatRead.model_validate(chat, from_attributes=True)
+
+
+@router.get("/")
+async def list_chats(
+    role: WorkspaceUser,
+    session: AsyncDBSession,
+    entity_type: str | None = Query(None, description="Filter by entity type"),
+    entity_id: str | None = Query(None, description="Filter by entity ID"),
+    limit: int = Query(
+        50, ge=1, le=100, description="Maximum number of chats to return"
+    ),
+) -> list[ChatRead]:
+    """List chats for the current workspace with optional filtering."""
+    if role.user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User ID is required",
+        )
+
+    svc = ChatService(session, role)
+    chats = await svc.list_chats(
+        user_id=role.user_id,
+        entity_type=entity_type,
+        entity_id=entity_id,
+        limit=limit,
+    )
+
+    chats = [ChatRead.model_validate(chat, from_attributes=True) for chat in chats]
+    return chats
+
+
+@router.get("/{chat_id}")
+async def get_chat(
+    chat_id: str,
+    role: WorkspaceUser,
+    session: AsyncDBSession,
+) -> ChatWithMessages:
+    """Get a chat with its message history."""
+    svc = ChatService(session, role)
+
+    # Get chat metadata
+    chat = await svc.get_chat(chat_id)
+    if not chat:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Chat not found",
+        )
+
+    # Get messages from Redis
+    messages = await svc.get_chat_messages(chat_id)
+
+    chat_data = ChatRead.model_validate(chat, from_attributes=True)
+    return ChatWithMessages(
+        **chat_data.model_dump(),
+        messages=messages,
+    )
+
+
+@router.post("/{chat_id}")
 async def start_chat_turn(
-    conversation_id: str,
+    chat_id: str,
     request: ChatRequest,
     role: WorkspaceUser,
 ) -> ChatResponse:
@@ -45,7 +126,7 @@ async def start_chat_turn(
         "model_name": "gpt-4o",
         "model_provider": request.model_provider,
         "actions": request.actions,
-        "workflow_run_id": conversation_id,
+        "workflow_run_id": chat_id,
     }
 
     if request.instructions:
@@ -57,22 +138,21 @@ async def start_chat_turn(
 
     try:
         # Fire-and-forget execution using the agent function directly
-        secrets_manager.set(
-            "OPENAI_API_KEY",
-            "<REDACTED_API_KEY>",
-        )
-        _ = asyncio.create_task(agent(**agent_args))
+        with secrets_manager.env_sandbox(
+            {"OPENAI_API_KEY": os.environ["OPENAI_API_KEY"]}
+        ):
+            _ = asyncio.create_task(agent(**agent_args))
 
-        stream_url = f"/api/chat/stream/{conversation_id}"
+        stream_url = f"/api/chat/{chat_id}/stream"
 
         return ChatResponse(
             stream_url=stream_url,
-            conversation_id=conversation_id,
+            chat_id=chat_id,
         )
     except Exception as e:
         logger.error(
             "Failed to start chat turn",
-            conversation_id=conversation_id,
+            chat_id=chat_id,
             error=str(e),
         )
         raise HTTPException(
@@ -81,10 +161,10 @@ async def start_chat_turn(
         ) from e
 
 
-@router.get("/stream/{conversation_id}")
+@router.get("/{chat_id}/stream")
 async def stream_chat_events(
     request: Request,
-    conversation_id: str,
+    chat_id: str,
     role: WorkspaceUser,
 ):
     """Stream chat events via Server-Sent Events (SSE).
@@ -93,14 +173,14 @@ async def stream_chat_events(
     using Server-Sent Events. It supports automatic reconnection via the
     Last-Event-ID header.
     """
-    stream_key = f"agent-stream:{conversation_id}"
+    stream_key = f"agent-stream:{chat_id}"
     last_id = request.headers.get("Last-Event-ID", "0-0")
 
     logger.info(
         "Starting chat stream",
         stream_key=stream_key,
         last_id=last_id,
-        conversation_id=conversation_id,
+        chat_id=chat_id,
     )
 
     async def event_generator():
@@ -133,7 +213,10 @@ async def stream_chat_events(
                                         return
 
                                     # Send the message
-                                    data_json = orjson.dumps(data).decode()
+                                    # Validate the message is a valid ModelMessage
+                                    # perf: delete this
+                                    validated_msg = ModelMessageTA.validate_python(data)
+                                    data_json = orjson.dumps(validated_msg).decode()
                                     yield f"id: {message_id}\nevent: message\ndata: {data_json}\n\n"
 
                                     current_id = message_id
