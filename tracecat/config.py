@@ -82,7 +82,10 @@ it cannot be enabled."""
 
 TRACECAT__AUTH_REQUIRE_EMAIL_VERIFICATION = os.environ.get(
     "TRACECAT__AUTH_REQUIRE_EMAIL_VERIFICATION", ""
-).lower() in ("true", "1")  # Default to False
+).lower() in (
+    "true",
+    "1",
+)  # Default to False
 SESSION_EXPIRE_TIME_SECONDS = int(
     os.environ.get("SESSION_EXPIRE_TIME_SECONDS") or 86400 * 7
 )  # 7 days
@@ -109,6 +112,11 @@ OAUTH_CLIENT_SECRET = (
     or os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET")
     or ""
 )
+
+# OIDC configuration
+OIDC_CLIENT_ID = os.environ.get("OIDC_CLIENT_ID", "")
+OIDC_CLIENT_SECRET = os.environ.get("OIDC_CLIENT_SECRET", "")
+OIDC_DISCOVERY_URL = os.environ.get("OIDC_DISCOVERY_URL", "")
 USER_AUTH_SECRET = os.environ.get("USER_AUTH_SECRET", "")
 
 # SAML SSO

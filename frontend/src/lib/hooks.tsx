@@ -201,6 +201,7 @@ interface AppInfo {
   auth_allowed_types: string[]
   auth_basic_enabled: boolean
   oauth_google_enabled: boolean
+  oidc_enabled: boolean
   saml_enabled: boolean
 }
 
@@ -2031,14 +2032,26 @@ export function useOrgOAuthSettings() {
   } = useMutation({
     mutationFn: async (params: SettingsUpdateOauthSettingsData) =>
       await settingsUpdateOauthSettings(params),
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["org-oauth-settings"] })
+      const isOidc = Boolean(
+        variables?.requestBody &&
+          Object.keys(variables.requestBody).length === 1 &&
+          "oidc_enabled" in variables.requestBody
+      )
+      const prefix = isOidc ? "OpenID Connect" : "OAuth"
       toast({
-        title: "Updated OAuth settings",
-        description: "OAuth settings updated successfully.",
+        title: `Updated ${prefix} settings`,
+        description: `${prefix} settings updated successfully.`,
       })
     },
-    onError: (error: TracecatApiError) => {
+    onError: (error: TracecatApiError, variables) => {
+      const isOidc = Boolean(
+        variables?.requestBody &&
+          Object.keys(variables.requestBody).length === 1 &&
+          "oidc_enabled" in variables.requestBody
+      )
+      const prefix = isOidc ? "OpenID Connect" : "OAuth"
       switch (error.status) {
         case 403:
           toast({
@@ -2047,10 +2060,10 @@ export function useOrgOAuthSettings() {
           })
           break
         default:
-          console.error("Failed to update OAuth settings", error)
+          console.error(`Failed to update ${prefix} settings`, error)
           toast({
-            title: "Failed to update OAuth settings",
-            description: `An error occurred while updating the OAuth settings: ${error.body.detail}`,
+            title: `Failed to update ${prefix} settings`,
+            description: `An error occurred while updating the ${prefix} settings: ${error.body.detail}`,
           })
       }
     },

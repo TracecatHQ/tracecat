@@ -10,5 +10,6 @@ SENSITIVE_SETTINGS_KEYS = {"saml_idp_metadata_url"}
 AUTH_TYPE_TO_SETTING_KEY = {
     AuthType.BASIC: "auth_basic_enabled",
     AuthType.GOOGLE_OAUTH: "oauth_google_enabled",
+    AuthType.OIDC: "oidc_enabled",
     AuthType.SAML: "saml_enabled",
 }

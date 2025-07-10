@@ -1343,6 +1343,7 @@ export type OAuthGrantType = "authorization_code" | "client_credentials"
  */
 export type OAuthSettingsRead = {
   oauth_google_enabled: boolean
+  oidc_enabled: boolean
 }
 
 /**
@@ -1353,6 +1354,10 @@ export type OAuthSettingsUpdate = {
    * Whether OAuth is enabled.
    */
   oauth_google_enabled?: boolean
+  /**
+   * Whether OIDC authentication is enabled.
+   */
+  oidc_enabled?: boolean
 }
 
 export type OrgMemberRead = {
@@ -4497,6 +4502,21 @@ export type AuthOauthGoogleDatabaseCallbackData = {
 
 export type AuthOauthGoogleDatabaseCallbackResponse = unknown
 
+export type AuthOidcDatabaseAuthorizeData = {
+  scopes?: Array<string>
+}
+
+export type AuthOidcDatabaseAuthorizeResponse = OAuth2AuthorizeResponse
+
+export type AuthOidcDatabaseCallbackData = {
+  code?: string | null
+  codeVerifier?: string | null
+  error?: string | null
+  state?: string | null
+}
+
+export type AuthOidcDatabaseCallbackResponse = unknown
+
 export type AuthSamlDatabaseLoginResponse = SAMLDatabaseLoginResponse
 
 export type AuthSsoAcsData = {
@@ -6819,6 +6839,25 @@ export type $OpenApiTs = {
         /**
          * Validation Error
          */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/auth/oidc/authorize": {
+    get: {
+      req: AuthOidcDatabaseAuthorizeData
+      res: {
+        200: OAuth2AuthorizeResponse
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/auth/oidc/callback": {
+    get: {
+      req: AuthOidcDatabaseCallbackData
+      res: {
+        200: unknown
+        400: ErrorModel
         422: HTTPValidationError
       }
     }

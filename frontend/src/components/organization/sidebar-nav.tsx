@@ -31,6 +31,10 @@ const settingsNavItems: NavItem[] = [
     href: "/organization/settings/oauth",
   },
   {
+    title: "OpenID Connect",
+    href: "/organization/settings/oidc",
+  },
+  {
     title: "Email authentication",
     href: "/organization/settings/auth",
   },

@@ -9,7 +9,7 @@ import type React from "react"
 import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
-import { GoogleOAuthButton } from "@/components/auth/oauth-buttons"
+import { GoogleOAuthButton, OidcOAuthButton } from "@/components/auth/oauth-buttons"
 import { SamlSSOButton } from "@/components/auth/saml"
 import { Icons } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
@@ -55,6 +55,8 @@ export function SignIn({ className }: React.HTMLProps<HTMLDivElement>) {
     allowedAuthTypes.includes("basic") && appInfo?.auth_basic_enabled
   const showGoogleOauthAuth =
     allowedAuthTypes.includes("google_oauth") && appInfo?.oauth_google_enabled
+  const showOidcAuth =
+    allowedAuthTypes.includes("oidc") && appInfo?.oidc_enabled
   const showSamlAuth =
     allowedAuthTypes.includes("saml") && appInfo?.saml_enabled
   return (
@@ -87,6 +89,7 @@ export function SignIn({ className }: React.HTMLProps<HTMLDivElement>) {
             </div>
           )}
           {showGoogleOauthAuth && <GoogleOAuthButton className="w-full" />}
+          {showOidcAuth && <OidcOAuthButton className="w-full" />}
           {showSamlAuth && <SamlSSOButton className="w-full" />}
           {/* <GithubOAuthButton disabled className="hover:cur" /> */}
         </CardContent>

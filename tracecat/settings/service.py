@@ -337,6 +337,7 @@ def get_setting_override(key: str) -> Any | None:
     allowed_override_keys = {
         "saml_enabled",
         "oauth_google_enabled",
+        "oidc_enabled",
         "auth_basic_enabled",
     }
 
