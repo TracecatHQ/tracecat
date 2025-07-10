@@ -18,7 +18,7 @@ export default function OrganizationLayout({
         <SidebarInset>
           <div className="flex h-full flex-1 flex-col">
             <div className="flex-1 overflow-auto">
-              <div className="container my-16">
+              <div className="container py-16">
                 <Suspense fallback={<CenteredSpinner />}>{children}</Suspense>
               </div>
             </div>
