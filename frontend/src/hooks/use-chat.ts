@@ -25,6 +25,7 @@ export function useCreateChat(workspaceId: string) {
       chatCreateChat({ requestBody: request, workspaceId }),
     onSuccess: () => {
       // Invalidate and refetch chat lists
+      // TODO: Add entityType/entityId here
       queryClient.invalidateQueries({ queryKey: ["chats", workspaceId] })
     },
   })
@@ -73,39 +74,8 @@ export function useChat({
   const [messages, setMessages] = useState<ModelMessage[]>([])
   const [isConnected, setIsConnected] = useState(false)
   const [isThinking, setIsThinking] = useState(false)
+  const [isResponding, setIsResponding] = useState(false)
   const [eventSource, setEventSource] = useState<EventSource | null>(null)
-
-  // // Historical messages query using the new chat API
-  // const {
-  // 	data: chatData,
-  // 	isLoading: messagesLoading,
-  // 	error: messagesError,
-  // } = useQuery({
-  // 	queryKey: ["chat-messages", chatId],
-  // 	queryFn: async () => {
-  // 		if (!chatId) return null;
-  // 		const response = await chatGetChat({ chatId, workspaceId });
-
-  // 		// Convert Redis messages to ChatMessage format
-  // 		const messages = (response.messages || []).map(
-  // 			(msg: unknown, index: number) => {
-  // 				const msgObj = msg as Record<string, unknown>;
-  // 				return {
-  // 					id: (msgObj.redis_id as string) || index.toString(),
-  // 					type: (msgObj.type as string) || "unknown",
-  // 					content: (msgObj.content as string) || "",
-  // 					tool_name: msgObj.tool_name as string | undefined,
-  // 					timestamp: new Date().toISOString(), // Redis doesn't store timestamps
-  // 				};
-  // 			},
-  // 		) as ChatMessage[];
-
-  // 		return messages;
-  // 	},
-  // 	enabled: !!chatId,
-  // });
-
-  // const historicalMessages = chatData || [];
 
   // Start chat turn mutation
   const mutation = useMutation({
@@ -121,6 +91,12 @@ export function useChat({
       })
 
       return response
+    },
+    onSuccess: () => {
+      setIsResponding(true)
+    },
+    onError: () => {
+      setIsResponding(false)
     },
   })
 
@@ -152,8 +128,6 @@ export function useChat({
       try {
         const data = JSON.parse(event.data)
 
-        console.log({ data })
-
         // Validate that the data is a model message using the type guard
         if (!isModelMessage(data)) {
           console.warn("Received invalid message format:", data)
@@ -172,9 +146,11 @@ export function useChat({
       setIsConnected(true)
     })
 
-    newEventSource.addEventListener("end", () => {
+    newEventSource.addEventListener("end", async () => {
       setIsConnected(false)
       setIsThinking(false)
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+      setIsResponding(false)
     })
 
     newEventSource.addEventListener("error", () => {
@@ -182,10 +158,12 @@ export function useChat({
       if (!isConnected) return
       console.error("Chat stream error")
       setIsConnected(false)
+      setIsResponding(false)
     })
 
     newEventSource.onerror = () => {
       setIsConnected(false)
+      setIsResponding(false)
     }
 
     setEventSource(newEventSource)
@@ -193,6 +171,7 @@ export function useChat({
     return () => {
       newEventSource.close()
       setIsConnected(false)
+      setIsResponding(false)
     }
   }, [chatId, workspaceId])
 
@@ -209,11 +188,8 @@ export function useChat({
 
   return {
     messages,
-    // messagesLoading,
-    // messagesError,
     sendMessage: mutation.mutateAsync,
-    isSending: mutation.isPending,
-    sendError: mutation.error,
+    isResponding,
     isConnected,
     isThinking,
   }
