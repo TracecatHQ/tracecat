@@ -2191,6 +2191,237 @@ export const $CaseUpdate = {
   title: "CaseUpdate",
 } as const
 
+export const $ChatCreate = {
+  properties: {
+    title: {
+      type: "string",
+      title: "Title",
+      description: "Human-readable title for the chat",
+    },
+    entity_type: {
+      $ref: "#/components/schemas/ChatEntity",
+      description: "Type of entity this chat is associated with",
+    },
+    entity_id: {
+      type: "string",
+      format: "uuid4",
+      title: "Entity Id",
+      description: "ID of the associated entity",
+    },
+  },
+  type: "object",
+  required: ["title", "entity_type", "entity_id"],
+  title: "ChatCreate",
+  description: "Request model for creating a new chat.",
+} as const
+
+export const $ChatEntity = {
+  type: "string",
+  enum: ["case"],
+  title: "ChatEntity",
+  description: "The type of entity associated with a chat.",
+} as const
+
+export const $ChatRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid4",
+      title: "Id",
+      description: "Unique chat identifier",
+    },
+    title: {
+      type: "string",
+      title: "Title",
+      description: "Human-readable title for the chat",
+    },
+    user_id: {
+      type: "string",
+      format: "uuid4",
+      title: "User Id",
+      description: "ID of the user who owns the chat",
+    },
+    entity_type: {
+      type: "string",
+      title: "Entity Type",
+      description: "Type of entity this chat is associated with",
+    },
+    entity_id: {
+      type: "string",
+      format: "uuid4",
+      title: "Entity Id",
+      description: "ID of the associated entity",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "When the chat was created",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+      description: "When the chat was last updated",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "title",
+    "user_id",
+    "entity_type",
+    "entity_id",
+    "created_at",
+    "updated_at",
+  ],
+  title: "ChatRead",
+  description: "Model for chat metadata without messages.",
+} as const
+
+export const $ChatRequest = {
+  properties: {
+    message: {
+      type: "string",
+      title: "Message",
+      description: "User message to send to the agent",
+    },
+    model_name: {
+      type: "string",
+      title: "Model Name",
+      description: "AI model to use",
+      default: "gpt-4o-mini",
+    },
+    model_provider: {
+      type: "string",
+      title: "Model Provider",
+      description: "AI model provider",
+      default: "openai",
+    },
+    actions: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Actions",
+      description:
+        "List of actions the agent can use (e.g., 'core.cases.get_case')",
+    },
+    instructions: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Instructions",
+      description: "Optional instructions for the agent",
+    },
+    context: {
+      anyOf: [
+        {
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Context",
+      description: "Optional context data for the agent",
+    },
+  },
+  type: "object",
+  required: ["message"],
+  title: "ChatRequest",
+  description: "Request model for starting a chat with an AI agent.",
+} as const
+
+export const $ChatResponse = {
+  properties: {
+    stream_url: {
+      type: "string",
+      title: "Stream Url",
+      description: "URL to connect for SSE streaming",
+    },
+    chat_id: {
+      type: "string",
+      title: "Chat Id",
+      description: "Unique chat identifier",
+    },
+  },
+  type: "object",
+  required: ["stream_url", "chat_id"],
+  title: "ChatResponse",
+  description: "Response model for chat initiation.",
+} as const
+
+export const $ChatWithMessages = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid4",
+      title: "Id",
+      description: "Unique chat identifier",
+    },
+    title: {
+      type: "string",
+      title: "Title",
+      description: "Human-readable title for the chat",
+    },
+    user_id: {
+      type: "string",
+      format: "uuid4",
+      title: "User Id",
+      description: "ID of the user who owns the chat",
+    },
+    entity_type: {
+      type: "string",
+      title: "Entity Type",
+      description: "Type of entity this chat is associated with",
+    },
+    entity_id: {
+      type: "string",
+      format: "uuid4",
+      title: "Entity Id",
+      description: "ID of the associated entity",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "When the chat was created",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+      description: "When the chat was last updated",
+    },
+    messages: {
+      items: {
+        type: "object",
+      },
+      type: "array",
+      title: "Messages",
+      description: "Chat messages from Redis stream",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "title",
+    "user_id",
+    "entity_type",
+    "entity_id",
+    "created_at",
+    "updated_at",
+  ],
+  title: "ChatWithMessages",
+  description: "Model for chat metadata with message history.",
+} as const
+
 export const $ClosedEventRead = {
   properties: {
     wf_exec_id: {

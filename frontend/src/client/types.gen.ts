@@ -668,6 +668,149 @@ export type CaseUpdate = {
 }
 
 /**
+ * Request model for creating a new chat.
+ */
+export type ChatCreate = {
+  /**
+   * Human-readable title for the chat
+   */
+  title: string
+  /**
+   * Type of entity this chat is associated with
+   */
+  entity_type: ChatEntity
+  /**
+   * ID of the associated entity
+   */
+  entity_id: string
+}
+
+/**
+ * The type of entity associated with a chat.
+ */
+export type ChatEntity = "case"
+
+/**
+ * Model for chat metadata without messages.
+ */
+export type ChatRead = {
+  /**
+   * Unique chat identifier
+   */
+  id: string
+  /**
+   * Human-readable title for the chat
+   */
+  title: string
+  /**
+   * ID of the user who owns the chat
+   */
+  user_id: string
+  /**
+   * Type of entity this chat is associated with
+   */
+  entity_type: string
+  /**
+   * ID of the associated entity
+   */
+  entity_id: string
+  /**
+   * When the chat was created
+   */
+  created_at: string
+  /**
+   * When the chat was last updated
+   */
+  updated_at: string
+}
+
+/**
+ * Request model for starting a chat with an AI agent.
+ */
+export type ChatRequest = {
+  /**
+   * User message to send to the agent
+   */
+  message: string
+  /**
+   * AI model to use
+   */
+  model_name?: string
+  /**
+   * AI model provider
+   */
+  model_provider?: string
+  /**
+   * List of actions the agent can use (e.g., 'core.cases.get_case')
+   */
+  actions?: Array<string>
+  /**
+   * Optional instructions for the agent
+   */
+  instructions?: string | null
+  /**
+   * Optional context data for the agent
+   */
+  context?: {
+    [key: string]: unknown
+  } | null
+}
+
+/**
+ * Response model for chat initiation.
+ */
+export type ChatResponse = {
+  /**
+   * URL to connect for SSE streaming
+   */
+  stream_url: string
+  /**
+   * Unique chat identifier
+   */
+  chat_id: string
+}
+
+/**
+ * Model for chat metadata with message history.
+ */
+export type ChatWithMessages = {
+  /**
+   * Unique chat identifier
+   */
+  id: string
+  /**
+   * Human-readable title for the chat
+   */
+  title: string
+  /**
+   * ID of the user who owns the chat
+   */
+  user_id: string
+  /**
+   * Type of entity this chat is associated with
+   */
+  entity_type: string
+  /**
+   * ID of the associated entity
+   */
+  entity_id: string
+  /**
+   * When the chat was created
+   */
+  created_at: string
+  /**
+   * When the chat was last updated
+   */
+  updated_at: string
+  /**
+   * Chat messages from Redis stream
+   */
+  messages?: Array<{
+    [key: string]: unknown
+  }>
+}
+
+/**
  * Event for when a case is closed.
  */
 export type ClosedEventRead = {
@@ -4260,6 +4403,53 @@ export type CasesDeleteFieldData = {
 
 export type CasesDeleteFieldResponse = void
 
+export type ChatCreateChatData = {
+  requestBody: ChatCreate
+  workspaceId: string
+}
+
+export type ChatCreateChatResponse = ChatRead
+
+export type ChatListChatsData = {
+  /**
+   * Filter by entity ID
+   */
+  entityId?: string | null
+  /**
+   * Filter by entity type
+   */
+  entityType?: string | null
+  /**
+   * Maximum number of chats to return
+   */
+  limit?: number
+  workspaceId: string
+}
+
+export type ChatListChatsResponse = Array<ChatRead>
+
+export type ChatGetChatData = {
+  chatId: string
+  workspaceId: string
+}
+
+export type ChatGetChatResponse = ChatWithMessages
+
+export type ChatStartChatTurnData = {
+  chatId: string
+  requestBody: ChatRequest
+  workspaceId: string
+}
+
+export type ChatStartChatTurnResponse = ChatResponse
+
+export type ChatStreamChatEventsData = {
+  chatId: string
+  workspaceId: string
+}
+
+export type ChatStreamChatEventsResponse = unknown
+
 export type FoldersGetDirectoryData = {
   /**
    * Folder path
@@ -6277,6 +6467,77 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/chat/": {
+    post: {
+      req: ChatCreateChatData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ChatRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    get: {
+      req: ChatListChatsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<ChatRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/chat/{chat_id}": {
+    get: {
+      req: ChatGetChatData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ChatWithMessages
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: ChatStartChatTurnData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ChatResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/chat/{chat_id}/stream": {
+    get: {
+      req: ChatStreamChatEventsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: unknown
         /**
          * Validation Error
          */

@@ -74,6 +74,16 @@ import type {
   CasesUpdateCommentResponse,
   CasesUpdateFieldData,
   CasesUpdateFieldResponse,
+  ChatCreateChatData,
+  ChatCreateChatResponse,
+  ChatGetChatData,
+  ChatGetChatResponse,
+  ChatListChatsData,
+  ChatListChatsResponse,
+  ChatStartChatTurnData,
+  ChatStartChatTurnResponse,
+  ChatStreamChatEventsData,
+  ChatStreamChatEventsResponse,
   EditorFieldSchemaResponse,
   EditorListActionsData,
   EditorListActionsResponse,
@@ -3697,6 +3707,152 @@ export const casesDeleteField = (
     url: "/case-fields/{field_id}",
     path: {
       field_id: data.fieldId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Chat
+ * Create a new chat associated with an entity.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns ChatRead Successful Response
+ * @throws ApiError
+ */
+export const chatCreateChat = (
+  data: ChatCreateChatData
+): CancelablePromise<ChatCreateChatResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/chat/",
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Chats
+ * List chats for the current workspace with optional filtering.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.entityType Filter by entity type
+ * @param data.entityId Filter by entity ID
+ * @param data.limit Maximum number of chats to return
+ * @returns ChatRead Successful Response
+ * @throws ApiError
+ */
+export const chatListChats = (
+  data: ChatListChatsData
+): CancelablePromise<ChatListChatsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/chat/",
+    query: {
+      entity_type: data.entityType,
+      entity_id: data.entityId,
+      limit: data.limit,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Chat
+ * Get a chat with its message history.
+ * @param data The data for the request.
+ * @param data.chatId
+ * @param data.workspaceId
+ * @returns ChatWithMessages Successful Response
+ * @throws ApiError
+ */
+export const chatGetChat = (
+  data: ChatGetChatData
+): CancelablePromise<ChatGetChatResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/chat/{chat_id}",
+    path: {
+      chat_id: data.chatId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Start Chat Turn
+ * Start a new chat turn with an AI agent.
+ *
+ * This endpoint initiates an AI agent execution and returns a stream URL
+ * for real-time streaming of the agent's processing steps.
+ * @param data The data for the request.
+ * @param data.chatId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns ChatResponse Successful Response
+ * @throws ApiError
+ */
+export const chatStartChatTurn = (
+  data: ChatStartChatTurnData
+): CancelablePromise<ChatStartChatTurnResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/chat/{chat_id}",
+    path: {
+      chat_id: data.chatId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Stream Chat Events
+ * Stream chat events via Server-Sent Events (SSE).
+ *
+ * This endpoint provides real-time streaming of AI agent execution steps
+ * using Server-Sent Events. It supports automatic reconnection via the
+ * Last-Event-ID header.
+ * @param data The data for the request.
+ * @param data.chatId
+ * @param data.workspaceId
+ * @returns unknown Successful Response
+ * @throws ApiError
+ */
+export const chatStreamChatEvents = (
+  data: ChatStreamChatEventsData
+): CancelablePromise<ChatStreamChatEventsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/chat/{chat_id}/stream",
+    path: {
+      chat_id: data.chatId,
     },
     query: {
       workspace_id: data.workspaceId,
