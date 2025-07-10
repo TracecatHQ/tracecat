@@ -7,8 +7,8 @@ import uuid
 from pathlib import Path
 import base64
 from typing import Any, Union, Annotated, Self
-from pydantic import BaseModel
-from pydantic_core import to_jsonable_python
+from pydantic import BaseModel, TypeAdapter
+from pydantic_core import to_json, to_jsonable_python
 from tracecat_registry import RegistrySecretType
 from tracecat_registry.integrations.agents.parsers import try_parse_json
 from pydantic_ai.agent import AgentRunResult
@@ -667,6 +667,9 @@ async def collect_secrets_for_filters(
     return collected_secrets
 
 
+ModelMessageTA: TypeAdapter[ModelMessage] = TypeAdapter(ModelMessage)
+
+
 class AgentOutput(BaseModel):
     output: Any
     files: dict[str, str] | None = None
@@ -730,11 +733,30 @@ async def agent(
         ),
     ] = None,
 ) -> dict[str, str | dict[str, Any] | list[dict[str, Any]]]:
+    # Generate the enhanced user prompt with tool guidance
+    tools_prompt = generate_default_tools_prompt(files) if files else ""
+    # Provide current date context using Tracecat expression
+    current_date_prompt = "<current_date>${{ FN.utcnow() }}</current_date>"
+    error_handling_prompt = """
+    <error_handling>
+    - Use `raise_error` when a <task> or any task-like instruction requires clarification or missing information
+    - Be specific about what's needed: "Missing API key" not "Cannot proceed"
+    - Stop execution immediately - don't attempt workarounds or assumptions
+    </error_handling>
+    """
+
+    # Build the final enhanced user prompt including date context
+    if tools_prompt:
+        enhanced_instrs = f"{instructions}\n{current_date_prompt}\n{tools_prompt}\n{error_handling_prompt}"
+    else:
+        enhanced_instrs = (
+            f"{instructions}\n{current_date_prompt}\n{error_handling_prompt}"
+        )
     builder = TracecatAgentBuilder(
         model_name=model_name,
         model_provider=model_provider,
         base_url=base_url,
-        instructions=instructions,
+        instructions=enhanced_instrs,
         output_type=output_type,
         model_settings=model_settings,
         retries=retries,
@@ -750,26 +772,6 @@ async def agent(
     blocked_actions = set(actions) - ALLOWED_TOOLS
     if len(blocked_actions) > 0:
         raise ValueError(f"Forbidden actions: {blocked_actions}")
-
-    # Generate the enhanced user prompt with tool guidance
-    tools_prompt = generate_default_tools_prompt(files) if files else ""
-    # Provide current date context using Tracecat expression
-    current_date_prompt = "<current_date>${{ FN.utcnow() }}</current_date>"
-    error_handling_prompt = """
-    <error_handling>
-    - Use `raise_error` when a <task> or any task-like instruction requires clarification or missing information
-    - Be specific about what's needed: "Missing API key" not "Cannot proceed"
-    - Stop execution immediately - don't attempt workarounds or assumptions
-    </error_handling>
-    """
-
-    # Build the final enhanced user prompt including date context
-    if tools_prompt:
-        enhanced_user_prompt = f"{user_prompt}\n{current_date_prompt}\n{tools_prompt}\n{error_handling_prompt}"
-    else:
-        enhanced_user_prompt = (
-            f"{user_prompt}\n{current_date_prompt}\n{error_handling_prompt}"
-        )
 
     with tempfile.TemporaryDirectory() as temp_dir:
         if files:
@@ -794,10 +796,19 @@ async def agent(
                 redis_client = await get_redis_client()
                 logger.info("Redis streaming enabled", stream_key=stream_key)
 
-                # Load conversation history
-                conversation_history = await load_conversation_history(
-                    redis_client, workflow_run_id
-                )
+                messages = await redis_client.xrange(stream_key, min_id="-", max_id="+")
+
+                for message_id, fields in messages:
+                    try:
+                        data = orjson.loads(fields["d"])
+                        if data.get("__end__") == 1:
+                            # This is an end-of-stream marker, skip
+                            continue
+
+                        validated_msg = ModelMessageTA.validate_python(data)
+                        conversation_history.append(validated_msg)
+                    except Exception as e:
+                        logger.warning("Failed to load message", error=str(e))
 
             except Exception as e:
                 logger.warning(
@@ -807,22 +818,38 @@ async def agent(
 
         # Use async version since this function is already async
         try:
-            message_nodes = []
+            message_nodes: list[ModelMessage] = []
             # Pass conversation history to the agent
             async with agent.iter(
-                user_prompt=enhanced_user_prompt, message_history=conversation_history
+                user_prompt=user_prompt,
+                message_history=conversation_history,
             ) as run:
                 async for node in run:
-                    node_data = to_jsonable_python(node)
-                    message_nodes.append(node_data)
+                    curr: ModelMessage
+                    if Agent.is_user_prompt_node(node):
+                        continue
+                    elif Agent.is_model_request_node(node):
+                        logger.info("Model request node", node=to_json(node).decode())
+                        curr = node.request
+                    elif Agent.is_call_tools_node(node):
+                        logger.info("Call tools node", node=to_json(node).decode())
+                        curr = node.model_response
+                    elif Agent.is_end_node(node):
+                        break
+                    else:
+                        raise ValueError(f"Unknown node type: {node}")
+
+                    message_nodes.append(curr)
 
                     # Stream to Redis if enabled
                     if redis_client and stream_key:
-                        logger.info("Streaming message to Redis", stream_key=stream_key)
+                        logger.debug(
+                            "Streaming message to Redis", stream_key=stream_key
+                        )
                         try:
                             await redis_client.xadd(
                                 stream_key,
-                                {"d": orjson.dumps(node_data).decode()},
+                                {"d": orjson.dumps(curr).decode()},
                                 maxlen=10000,
                                 approximate=True,
                             )
@@ -835,27 +862,6 @@ async def agent(
                 logger.info("Agent run result", result=result)
                 if not isinstance(result, AgentRunResult):
                     raise ValueError("No output returned from agent run.")
-
-            # Store complete messages if streaming is enabled
-            if redis_client and stream_key:
-                try:
-                    # Store all messages from the conversation
-                    for message in result.all_messages():
-                        message_data = serialize_message_for_storage(message)
-                        if message_data.get("type") != "unknown":
-                            await redis_client.xadd(
-                                stream_key,
-                                {"d": orjson.dumps(message_data).decode()},
-                                maxlen=10000,
-                                approximate=True,
-                            )
-                    logger.info(
-                        "Stored complete conversation messages", stream_key=stream_key
-                    )
-                except Exception as e:
-                    logger.warning(
-                        "Failed to store conversation messages", error=str(e)
-                    )
 
             # Add end-of-stream marker if streaming is enabled
             if redis_client and stream_key:
@@ -874,8 +880,9 @@ async def agent(
             raise AgentRunError(
                 exc_cls=type(e),
                 exc_msg=str(e),
-                message_history=message_nodes,
+                message_history=[to_jsonable_python(m) for m in message_nodes],
             )
+
         end_time = timeit()
 
         # Read potentially modified files from temp directory
@@ -891,6 +898,7 @@ async def agent(
             message_history=result.all_messages(),
             duration=end_time - start_time,
         )
+        logger.warning(to_json(output, indent=2).decode())
         if include_usage:
             output.usage = result.usage()
 

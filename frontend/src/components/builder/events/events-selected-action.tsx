@@ -60,6 +60,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { SYSTEM_USER } from "@/lib/auth"
+import type { ModelMessage } from "@/lib/chat"
 import {
   groupEventsByActionRef,
   isAgentOutput,
@@ -246,11 +247,26 @@ export function AgentOutputEvent({
       <div className="space-y-4">
         {agentOutput.message_history.map((m, index) => (
           <div key={index}>
-            {m.kind === "response" && <AgentResponsePart parts={m.parts} />}
-            {m.kind === "request" && <AgentRequestPart parts={m.parts} />}
+            <ModelMessagePart part={m} />
           </div>
         ))}
       </div>
+    </div>
+  )
+}
+
+export function ModelMessagePart({ part }: { part: ModelMessage }) {
+  if (part.kind === "response") {
+    return <AgentResponsePart parts={part.parts} />
+  }
+  if (part.kind === "request") {
+    return <AgentRequestPart parts={part.parts} />
+  }
+  return (
+    <div className="flex items-center justify-center gap-2 p-4 text-xs text-muted-foreground">
+      <CircleDot className="size-3 text-muted-foreground" />
+      <span>Unknown model message kind: {part.kind}</span>
+      <JsonViewWithControls src={part} defaultExpanded={true} />
     </div>
   )
 }
