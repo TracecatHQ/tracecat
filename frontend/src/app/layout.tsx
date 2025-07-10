@@ -5,6 +5,7 @@ import dynamic from "next/dynamic"
 import { PublicEnvScript } from "next-runtime-env"
 import React from "react"
 import { Toaster } from "@/components/ui/toaster"
+import { TooltipProvider } from "@/components/ui/tooltip"
 import { siteConfig } from "@/config/site"
 import { fontSans } from "@/lib/fonts"
 import { cn } from "@/lib/utils"
@@ -55,8 +56,10 @@ export default async function RootLayout({ children }: RootLayoutProps) {
         >
           <DefaultQueryClientProvider>
             <AuthProvider>
-              {PostHogPageView && <PostHogPageView />}
-              {children}
+              <TooltipProvider>
+                {PostHogPageView && <PostHogPageView />}
+                {children}
+              </TooltipProvider>
             </AuthProvider>
           </DefaultQueryClientProvider>
           <Toaster />
