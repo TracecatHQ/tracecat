@@ -14,9 +14,14 @@ import {
   Zap,
 } from "lucide-react"
 import Link from "next/link"
-import { useParams, useRouter, useSearchParams } from "next/navigation"
+import {
+  notFound,
+  useParams,
+  useRouter,
+  useSearchParams,
+} from "next/navigation"
 import { useCallback, useState } from "react"
-import type { ProviderRead } from "@/client"
+import type { OAuthGrantType, ProviderRead } from "@/client"
 import { ProviderIcon } from "@/components/icons"
 import { SuccessIcon, statusStyles } from "@/components/integrations/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
@@ -59,16 +64,23 @@ import { cn } from "@/lib/utils"
 import { useWorkspace } from "@/providers/workspace"
 
 export default function ProviderDetailPage() {
+  const searchParams = useSearchParams()
   const params = useParams()
   const { workspaceId } = useWorkspace()
   const providerId = params.providerId as string
+  const grantType = searchParams.get("grant_type") as OAuthGrantType | null
 
   const { provider, providerIsLoading, providerError } = useIntegrationProvider(
     {
       providerId,
       workspaceId,
+      grantType: grantType || undefined,
     }
   )
+
+  if (!grantType) {
+    notFound()
+  }
 
   if (providerIsLoading) {
     return <CenteredSpinner />
@@ -137,7 +149,11 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
     disconnectProviderIsPending,
     testConnection,
     testConnectionIsPending,
-  } = useIntegrationProvider({ providerId, workspaceId })
+  } = useIntegrationProvider({
+    providerId,
+    workspaceId,
+    grantType: provider.grant_type,
+  })
   const { metadata, integration_status: integrationStatus } = provider
 
   // Check if actually connected based on backend status

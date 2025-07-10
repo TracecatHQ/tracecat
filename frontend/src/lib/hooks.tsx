@@ -53,6 +53,7 @@ import {
   integrationsListIntegrations,
   integrationsTestConnection,
   integrationsUpdateIntegration,
+  type OAuthGrantType,
   type OAuthSettingsRead,
   type OrganizationDeleteOrgMemberData,
   type OrganizationDeleteSessionData,
@@ -3144,9 +3145,11 @@ export function useIntegrations(workspaceId: string) {
 export function useIntegrationProvider({
   providerId,
   workspaceId,
+  grantType,
 }: {
   providerId: string
   workspaceId: string
+  grantType?: OAuthGrantType
 }) {
   const queryClient = useQueryClient()
 
@@ -3156,9 +3159,13 @@ export function useIntegrationProvider({
     isLoading: integrationIsLoading,
     error: integrationError,
   } = useQuery<IntegrationRead, TracecatApiError>({
-    queryKey: ["integration", providerId, workspaceId],
+    queryKey: ["integration", providerId, workspaceId, grantType],
     queryFn: async () =>
-      await integrationsGetIntegration({ providerId, workspaceId }),
+      await integrationsGetIntegration({
+        providerId,
+        workspaceId,
+        grantType,
+      }),
     retry: retryHandler,
   })
 
@@ -3168,9 +3175,9 @@ export function useIntegrationProvider({
     isLoading: providerIsLoading,
     error: providerError,
   } = useQuery<ProviderRead, TracecatApiError>({
-    queryKey: ["provider-schema", providerId, workspaceId],
+    queryKey: ["provider-schema", providerId, workspaceId, grantType],
     queryFn: async () =>
-      await providersGetProvider({ providerId, workspaceId }),
+      await providersGetProvider({ providerId, workspaceId, grantType }),
   })
 
   // Update
@@ -3187,13 +3194,13 @@ export function useIntegrationProvider({
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: ["integration", providerId, workspaceId],
+        queryKey: ["integration", providerId, workspaceId, grantType],
       })
       queryClient.invalidateQueries({
         queryKey: ["providers", workspaceId],
       })
       queryClient.invalidateQueries({
-        queryKey: ["provider-schema", providerId, workspaceId],
+        queryKey: ["provider-schema", providerId, workspaceId, grantType],
       })
     },
     onError: (error: TracecatApiError) => {
@@ -3236,13 +3243,13 @@ export function useIntegrationProvider({
       await integrationsDisconnectIntegration({ providerId, workspaceId }),
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: ["integration", providerId, workspaceId],
+        queryKey: ["integration", providerId, workspaceId, grantType],
       })
       queryClient.invalidateQueries({
         queryKey: ["providers", workspaceId],
       })
       queryClient.invalidateQueries({
-        queryKey: ["provider-schema", providerId, workspaceId],
+        queryKey: ["provider-schema", providerId, workspaceId, grantType],
       })
       toast({
         title: "Disconnected",
@@ -3270,13 +3277,13 @@ export function useIntegrationProvider({
     onSuccess: (result) => {
       if (result.success) {
         queryClient.invalidateQueries({
-          queryKey: ["integration", providerId, workspaceId],
+          queryKey: ["integration", providerId, workspaceId, grantType],
         })
         queryClient.invalidateQueries({
           queryKey: ["providers", workspaceId],
         })
         queryClient.invalidateQueries({
-          queryKey: ["provider-schema", providerId, workspaceId],
+          queryKey: ["provider-schema", providerId, workspaceId, grantType],
         })
         toast({
           title: "Connection successful",

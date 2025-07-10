@@ -120,10 +120,18 @@ export default function IntegrationsPage() {
     })
   }, [providers, searchQuery, selectedCategory, selectedStatus])
 
-  const handleProviderClick = (providerId: string, enabled: boolean) => {
+  const handleProviderClick = ({
+    id,
+    enabled,
+    grantType,
+  }: {
+    id: string
+    enabled: boolean
+    grantType: OAuthGrantType
+  }) => {
     if (enabled) {
       router.push(
-        `/workspaces/${workspaceId}/integrations/${providerId}?tab=overview`
+        `/workspaces/${workspaceId}/integrations/${id}?tab=overview&grant_type=${grantType}`
       )
     }
   }
@@ -243,19 +251,26 @@ export default function IntegrationsPage() {
                 name,
                 description,
                 categories: providerCategories,
+                grant_type: grantType,
               } = provider
               const statusInfo = getStatusInfo(provider.integration_status)
 
-              const { icon: Icon, label } = grantTypeStyles[provider.grant_type]
+              const { icon: Icon, label } = grantTypeStyles[grantType]
               return (
                 <Card
-                  key={id}
+                  key={`${id}-${grantType}`}
                   className={cn(
                     !!enabled
                       ? "cursor-pointer transition-colors duration-200 hover:bg-accent/50"
                       : "cursor-not-allowed opacity-50"
                   )}
-                  onClick={() => handleProviderClick(id, enabled)}
+                  onClick={() =>
+                    handleProviderClick({
+                      id,
+                      enabled,
+                      grantType,
+                    })
+                  }
                 >
                   <CardHeader className="flex flex-col gap-1">
                     <div className="flex items-start justify-between">
