@@ -221,13 +221,8 @@ async def execute_transaction(
 
 def _validate_query_safety(query: str) -> None:
     """Validate query for potential injection patterns."""
-    # Check for template expressions like ${{ something }}
-    template_pattern = r"\$\{\{[^}]*\}\}"
-    if re.search(template_pattern, query):
-        raise ValueError(
-            "Query contains template expressions (${{ ... }}) which could be vulnerable to injection. "
-            "Use parameterized queries with $1, $2, etc. placeholders instead."
-        )
+    if re.search(r"\$\{\{.*?\}\}", query) is not None:
+        raise ValueError("Query contains potential injection patterns.")
 
 
 def _build_connection_string(host: str, port: int, database_name: str) -> str:
