@@ -38,7 +38,7 @@ export function ChatManager({
 
   return (
     <div className={className}>
-      <ResizablePanelGroup direction="horizontal" className="h-full">
+      <ResizablePanelGroup direction="horizontal" className="h-full rounded-lg">
         {/* Chat List Panel */}
         <ResizablePanel defaultSize={30} minSize={25} maxSize={50}>
           <ChatList
