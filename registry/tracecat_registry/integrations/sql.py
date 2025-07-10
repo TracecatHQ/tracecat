@@ -1,5 +1,6 @@
 """SQL database integration for PostgreSQL."""
 
+import re
 from typing import Annotated, Any, Literal
 
 import asyncpg
@@ -49,15 +50,9 @@ async def execute_query(
         int,
         Doc("Database port number."),
     ] = 5432,
-    fetch_mode: Annotated[
-        Literal["all", "one", "many"],
-        Doc(
-            "Fetch mode: 'all' for all rows, 'one' for single row, 'many' for multiple rows."
-        ),
-    ] = "all",
-    fetch_size: Annotated[
+    limit: Annotated[
         int | None,
-        Doc("Number of rows to fetch when using 'many' mode."),
+        Doc("Maximum number of rows to return. If None, returns all rows."),
     ] = None,
 ) -> dict[str, Any] | list[dict[str, Any]]:
     """Execute a SQL query and return results."""
@@ -68,9 +63,11 @@ async def execute_query(
 
     connection_string = _build_connection_string(host, port, database_name)
 
-    return await _execute_postgresql_query(
-        connection_string, query, fetch_mode, fetch_size
-    )
+    # Apply limit to query if specified
+    if limit is not None:
+        query = _apply_limit_to_query(query, limit)
+
+    return await _execute_postgresql_query(connection_string, query)
 
 
 @registry.register(
@@ -104,10 +101,7 @@ async def execute_non_query(
     ] = 5432,
 ) -> dict[str, Any]:
     """Execute a non-query SQL statement and return affected rows count."""
-    if asyncpg is None:
-        raise ImportError(
-            "asyncpg is required for SQL integration. Install with: pip install asyncpg"
-        )
+    # asyncpg is always available if this module loads; no guard needed
 
     if database_type != "postgresql":
         raise ValueError(f"Unsupported database type: {database_type}")
@@ -148,10 +142,7 @@ async def execute_transaction(
     ] = 5432,
 ) -> dict[str, Any]:
     """Execute multiple SQL statements in a transaction."""
-    if asyncpg is None:
-        raise ImportError(
-            "asyncpg is required for SQL integration. Install with: pip install asyncpg"
-        )
+    # asyncpg is always available if this module loads; no guard needed
 
     if database_type != "postgresql":
         raise ValueError(f"Unsupported database type: {database_type}")
@@ -188,31 +179,33 @@ def _build_connection_string(host: str, port: int, database_name: str) -> str:
     return f"postgresql://{username}:{password}@{host}:{port}/{database_name}"
 
 
+def _apply_limit_to_query(query: str, limit: int) -> str:
+    """Apply or replace LIMIT clause in a SQL query."""
+    # Remove any trailing semicolon and whitespace
+    query = query.rstrip("; \t\n\r")
+
+    # Check if query already has a LIMIT clause (case-insensitive)
+    # This regex matches LIMIT followed by a number, optionally with whitespace
+    limit_pattern = r"\s+LIMIT\s+\d+\s*$"
+
+    if re.search(limit_pattern, query, re.IGNORECASE):
+        # Replace existing LIMIT clause
+        query = re.sub(limit_pattern, f" LIMIT {limit}", query, flags=re.IGNORECASE)
+    else:
+        # Add new LIMIT clause
+        query += f" LIMIT {limit}"
+
+    return query
+
+
 async def _execute_postgresql_query(
     connection_string: str,
     query: str,
-    fetch_mode: str,
-    fetch_size: int | None,
 ) -> dict[str, Any] | list[dict[str, Any]]:
     """Execute PostgreSQL query using asyncpg."""
-    if asyncpg is None:
-        raise ImportError("asyncpg is required for SQL integration")
-
     conn = await asyncpg.connect(connection_string)
     try:
-        if fetch_mode == "all":
-            rows = await conn.fetch(query)
-        elif fetch_mode == "one":
-            row = await conn.fetchrow(query)
-            if row:
-                return dict(row)
-            return {}
-        elif fetch_mode == "many":
-            if fetch_size is None:
-                raise ValueError("fetch_size is required when using 'many' mode")
-            rows = await conn.fetch(query, limit=fetch_size)
-        else:
-            raise ValueError(f"Invalid fetch_mode: {fetch_mode}")
+        rows = await conn.fetch(query)
 
         # Convert rows to list of dictionaries
         return [dict(row) for row in rows]
@@ -225,9 +218,6 @@ async def _execute_postgresql_non_query(
     statement: str,
 ) -> dict[str, Any]:
     """Execute PostgreSQL non-query statement using asyncpg."""
-    if asyncpg is None:
-        raise ImportError("asyncpg is required for SQL integration")
-
     conn = await asyncpg.connect(connection_string)
     try:
         result = await conn.execute(statement)
