@@ -7,7 +7,7 @@ import {
   Paperclip,
 } from "lucide-react"
 import Link from "next/link"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import type {
   CasePriority,
   CaseSeverity,
@@ -17,6 +17,7 @@ import type {
 } from "@/client"
 import { CaseActivityFeed } from "@/components/cases/case-activity-feed"
 import { CaseAttachmentsSection } from "@/components/cases/case-attachments-section"
+import { CaseChat } from "@/components/cases/case-chat"
 import { CommentSection } from "@/components/cases/case-comments-section"
 import { CustomField } from "@/components/cases/case-panel-custom-fields"
 import { CasePanelDescription } from "@/components/cases/case-panel-description"
@@ -44,9 +45,15 @@ import { useWorkspace } from "@/providers/workspace"
 
 interface CasePanelContentProps {
   caseId: string
+  onChatToggle?: (isOpen: boolean) => void
+  isChatOpen?: boolean
 }
 
-export function CasePanelView({ caseId }: CasePanelContentProps) {
+export function CasePanelView({
+  caseId,
+  onChatToggle,
+  isChatOpen: externalChatOpen,
+}: CasePanelContentProps) {
   const { workspaceId, workspace } = useWorkspace()
   const { caseData, caseDataIsLoading, caseDataError } = useGetCase({
     caseId,
@@ -59,6 +66,25 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
   const [propertiesOpen, setPropertiesOpen] = useState(true)
   const [workflowOpen, setWorkflowOpen] = useState(true)
   const [activeTab, setActiveTab] = useState("comments")
+
+  // Chat state management
+  const [localChatOpen, setLocalChatOpen] = useState(true)
+  const isChatOpen =
+    externalChatOpen !== undefined ? externalChatOpen : localChatOpen
+
+  // Load chat panel state from localStorage
+  useEffect(() => {
+    const savedState = localStorage.getItem(`case-chat-panel-${caseId}`)
+    if (savedState === "true") {
+      setLocalChatOpen(true)
+      onChatToggle?.(true)
+    }
+  }, [caseId, onChatToggle])
+
+  // Save chat panel state to localStorage
+  useEffect(() => {
+    localStorage.setItem(`case-chat-panel-${caseId}`, isChatOpen.toString())
+  }, [caseId, isChatOpen])
 
   if (caseDataIsLoading) {
     return (
@@ -124,7 +150,7 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
   return (
     <div className="min-h-screen bg-background">
       {/* Main Content */}
-      <div className="flex">
+      <div className="flex h-[calc(100vh-2.75rem)]">
         {/* Left Panel */}
         <div className="flex-1 p-4">
           <div className="max-w-4xl">
@@ -199,8 +225,8 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
           </div>
         </div>
 
-        {/* Right Panel */}
-        <div className="w-72 border-l p-4">
+        {/* Right Panel - Properties */}
+        <div className="w-72 border-l overflow-y-auto p-4">
           <div className="space-y-10">
             {/* Properties Section */}
             <CasePanelSection
@@ -312,6 +338,9 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
             </CasePanelSection>
           </div>
         </div>
+
+        {/* Chat Panel */}
+        <CaseChat caseId={caseId} isChatOpen={isChatOpen} />
       </div>
     </div>
   )
