@@ -924,9 +924,9 @@ export function MicrosoftTeamsIcon({ className, ...rest }: IconProps) {
         gradientTransform="matrix(1 0 0 -1 0 2075)"
         gradientUnits="userSpaceOnUse"
       >
-        <stop offset="0" stop-color="#5a62c3" />
-        <stop offset=".5" stop-color="#4d55bd" />
-        <stop offset="1" stop-color="#3940ab" />
+        <stop offset="0" stopColor="#5a62c3" />
+        <stop offset=".5" stopColor="#4d55bd" />
+        <stop offset="1" stopColor="#3940ab" />
       </linearGradient>
       <path
         fill="url(#a)"
@@ -949,12 +949,12 @@ export function MicrosoftSentinelIcon({ className, ...rest }: IconProps) {
           y2=".6"
           gradientUnits="userSpaceOnUse"
         >
-          <stop offset="0" stop-color="#1b93eb" />
-          <stop offset=".2" stop-color="#2095eb" />
-          <stop offset=".4" stop-color="#2e9ced" />
-          <stop offset=".7" stop-color="#45a7ef" />
-          <stop offset=".9" stop-color="#64b6f1" />
-          <stop offset="1" stop-color="#6bb9f2" />
+          <stop offset="0" stopColor="#1b93eb" />
+          <stop offset=".2" stopColor="#2095eb" />
+          <stop offset=".4" stopColor="#2e9ced" />
+          <stop offset=".7" stopColor="#45a7ef" />
+          <stop offset=".9" stopColor="#64b6f1" />
+          <stop offset="1" stopColor="#6bb9f2" />
         </linearGradient>
       </defs>
       <path fill="#1b93eb" d="M16 8c0 5-6 9-7 9s-7-4-7-9V2l7-1 7 2Z" />
