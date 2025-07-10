@@ -18,6 +18,8 @@ import orjson
 
 from pydantic_ai import Agent, ModelRetry
 from pydantic_ai.messages import (
+    FunctionToolCallEvent,
+    FunctionToolResultEvent,
     ModelMessage,
     ModelRequest,
     ModelResponse,
@@ -53,6 +55,8 @@ from tracecat.types.exceptions import RegistryError
 from tracecat_registry.integrations.agents.exceptions import AgentRunError
 from tracecat_registry.integrations.agents.tools import (
     create_secure_file_tools,
+    create_tool_call,
+    create_tool_return,
     generate_default_tools_prompt,
 )
 
@@ -606,13 +610,13 @@ class TracecatAgentBuilder:
             )
 
         # Add raise_error tool
-        self.tools.append(
-            Tool(
-                name="raise_error",
-                description="Raise an error with a custom message to be displayed to the user.",
-                function=raise_error,
-            )
-        )
+        # self.tools.append(
+        #     Tool(
+        #         name="raise_error",
+        #         description="Raise an error with a custom message to be displayed to the user.",
+        #         function=raise_error,
+        #     )
+        # )
 
         # Create the agent using build_agent
         agent = build_agent(
@@ -817,6 +821,20 @@ async def agent(
                 )
 
         # Use async version since this function is already async
+        async def write_to_redis(msg: ModelMessage):
+            # Stream to Redis if enabled
+            if redis_client and stream_key:
+                logger.debug("Streaming message to Redis", stream_key=stream_key)
+                try:
+                    await redis_client.xadd(
+                        stream_key,
+                        {"d": orjson.dumps(msg, default=to_jsonable_python).decode()},
+                        maxlen=10000,
+                        approximate=True,
+                    )
+                except Exception as e:
+                    logger.warning("Failed to stream message to Redis", error=str(e))
+
         try:
             message_nodes: list[ModelMessage] = []
             # Pass conversation history to the agent
@@ -826,37 +844,67 @@ async def agent(
             ) as run:
                 async for node in run:
                     curr: ModelMessage
+                    logger.info("Node", node=to_json(node).decode())
                     if Agent.is_user_prompt_node(node):
                         continue
+
+                    # 1️⃣  Model request (may be a normal user/tool-return message)
                     elif Agent.is_model_request_node(node):
                         logger.info("Model request node", node=to_json(node).decode())
                         curr = node.request
+
+                        # If this request is ONLY a tool-return we have
+                        # already streamed it via FunctionToolResultEvent.
+                        if any(isinstance(p, ToolReturnPart) for p in curr.parts):
+                            message_nodes.append(curr)  # keep history
+                            continue  # ← skip duplicate stream
+                    # assistant tool-call + tool-return events
                     elif Agent.is_call_tools_node(node):
                         logger.info("Call tools node", node=to_json(node).decode())
                         curr = node.model_response
+                        async with node.stream(run.ctx) as stream:
+                            async for event in stream:
+                                if isinstance(event, FunctionToolCallEvent):
+                                    message = create_tool_call(
+                                        tool_name=event.part.tool_name,
+                                        tool_args=event.part.args,
+                                        tool_call_id=event.part.tool_call_id,
+                                    )
+                                elif isinstance(
+                                    event, FunctionToolResultEvent
+                                ) and isinstance(event.result, ToolReturnPart):
+                                    message = create_tool_return(
+                                        tool_name=event.result.tool_name,
+                                        content=event.result.content,
+                                        tool_call_id=event.tool_call_id,
+                                    )
+                                else:
+                                    continue
+
+                                message_nodes.append(message)
+                                await write_to_redis(message)
+                        continue
                     elif Agent.is_end_node(node):
-                        break
+                        logger.info("End node", node=to_json(node).decode())
+                        final = node.data
+                        if final.tool_name:
+                            curr = create_tool_return(
+                                tool_name=final.tool_name,
+                                content=final.output,
+                                tool_call_id=final.tool_call_id or "",
+                            )
+                        else:
+                            # Plain text output
+                            curr = ModelResponse(
+                                parts=[
+                                    TextPart(content=final.output),
+                                ]
+                            )
                     else:
                         raise ValueError(f"Unknown node type: {node}")
 
                     message_nodes.append(curr)
-
-                    # Stream to Redis if enabled
-                    if redis_client and stream_key:
-                        logger.debug(
-                            "Streaming message to Redis", stream_key=stream_key
-                        )
-                        try:
-                            await redis_client.xadd(
-                                stream_key,
-                                {"d": orjson.dumps(curr).decode()},
-                                maxlen=10000,
-                                approximate=True,
-                            )
-                        except Exception as e:
-                            logger.warning(
-                                "Failed to stream message to Redis", error=str(e)
-                            )
+                    await write_to_redis(curr)
 
                 result = run.result
                 logger.info("Agent run result", result=result)
@@ -898,6 +946,7 @@ async def agent(
             message_history=result.all_messages(),
             duration=end_time - start_time,
         )
+        logger.error(to_json(message_nodes, indent=2).decode())
         logger.warning(to_json(output, indent=2).decode())
         if include_usage:
             output.usage = result.usage()
