@@ -11,7 +11,7 @@ export function CaseChat({
   return (
     <div
       className={cn(
-        "w-96 border-l bg-background transition-all duration-300 ease-in-out flex flex-col",
+        "w-96 border-l bg-background transition-all duration-300 ease-in-out flex flex-col rounded-br-lg",
         isChatOpen
           ? "translate-x-0"
           : "translate-x-full absolute right-0 top-0 h-full"

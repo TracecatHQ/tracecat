@@ -201,7 +201,7 @@ export function ChatInterface({
   }
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col rounded-b-lg">
       {/* Chat Header */}
       <div className="bg-background px-4 py-2">
         <div className="flex items-center justify-between">
