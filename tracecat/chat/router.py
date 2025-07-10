@@ -210,7 +210,7 @@ async def stream_chat_events(
                                     # Check for end-of-stream marker
                                     if data.get("__end__") == 1:
                                         yield f"id: {message_id}\nevent: end\ndata: {{}}\n\n"
-                                        return
+                                        continue
 
                                     # Send the message
                                     # Validate the message is a valid ModelMessage
