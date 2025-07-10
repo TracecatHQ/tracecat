@@ -501,7 +501,7 @@ export function ToolReturnPartComponent({ part }: { part: ToolReturnPart }) {
               <TooltipTrigger>
                 <div>
                   {getIcon(actionType, {
-                    className: "size-4 p-[3px] border-[0.5px]",
+                    className: "size-4 p-[3px]",
                   })}
                 </div>
               </TooltipTrigger>
@@ -620,7 +620,7 @@ export function TextPartComponent({
     >
       <div className="flex items-center justify-between gap-1">
         <div className="flex items-center gap-1">
-          <MessageCircle className="size-4" />
+          <MessageCircle className="size-3" />
           <span className="text-xs font-semibold text-foreground/80">
             Agent
           </span>
@@ -744,7 +744,7 @@ export function ToolCallPartComponent({
             <TooltipTrigger>
               <div>
                 {getIcon(actionType, {
-                  className: "size-4 p-[3px] border-[0.5px]",
+                  className: "size-4 p-[3px]",
                 })}
               </div>
             </TooltipTrigger>
