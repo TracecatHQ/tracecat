@@ -3149,7 +3149,7 @@ export function useIntegrationProvider({
 }: {
   providerId: string
   workspaceId: string
-  grantType: OAuthGrantType
+  grantType?: OAuthGrantType
 }) {
   const queryClient = useQueryClient()
 
