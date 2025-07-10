@@ -3,7 +3,7 @@
 import { zodResolver } from "@hookform/resolvers/zod"
 import { ArrowUpIcon, PaperclipIcon } from "lucide-react"
 import type React from "react"
-import { useCallback } from "react"
+import { useCallback, useEffect, useRef } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import { Button } from "@/components/ui/button"
@@ -36,6 +36,8 @@ export function ChatInput({
   disabled = false,
   placeholder = "Type your message...",
 }: ChatInputProps) {
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+
   const form = useForm<ChatMessageSchema>({
     resolver: zodResolver(chatMessageSchema),
     defaultValues: {
@@ -55,6 +57,29 @@ export function ChatInput({
 
   const isMessageEmpty = !form.watch("message").trim()
 
+  const adjustTextareaHeight = useCallback(() => {
+    const textarea = textareaRef.current
+    if (!textarea) return
+
+    // Reset height to recalculate
+    textarea.style.height = "auto"
+
+    // Calculate new height based on scroll height
+    const minHeight = 60 // min-h-[60px]
+    const maxHeight = 400 // max-h-[400px]
+    const scrollHeight = textarea.scrollHeight
+    const newHeight = Math.min(Math.max(scrollHeight, minHeight), maxHeight)
+
+    textarea.style.height = `${newHeight}px`
+
+    // Handle overflow - if content exceeds max height, enable scrolling
+    if (scrollHeight > maxHeight) {
+      textarea.style.overflowY = "auto"
+    } else {
+      textarea.style.overflowY = "hidden"
+    }
+  }, [])
+
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       // Only submit if Cmd+Enter or Ctrl+Enter is pressed
@@ -71,13 +96,19 @@ export function ChatInput({
     [isMessageEmpty]
   )
 
+  // Watch for message changes to auto-resize
+  const messageValue = form.watch("message")
+  useEffect(() => {
+    adjustTextareaHeight()
+  }, [messageValue, adjustTextareaHeight])
+
   return (
-    <div className="bg-background p-3 pt-0">
-      <div className="relative flex w-full">
+    <div className="bg-background p-3 pt-0 rounded-b-lg">
+      <div className="relative flex w-full rounded-md transition-colors border hover:border-muted-foreground/40">
         <Form {...form}>
           <form
             onSubmit={form.handleSubmit(handleMessageSubmit)}
-            className="flex w-full space-x-2"
+            className="flex flex-col w-full gap-2"
           >
             <FormField
               control={form.control}
@@ -86,19 +117,21 @@ export function ChatInput({
                 <FormItem className="w-full">
                   <FormControl>
                     <Textarea
+                      ref={textareaRef}
                       placeholder={placeholder}
-                      className="min-h-[80px] w-full resize-none rounded-md pr-16 placeholder:text-muted-foreground focus-visible:ring-muted-foreground/30"
+                      className="shadow-none size-full resize-none placeholder:text-muted-foreground focus-visible:ring-0 border-none min-h-[60px]"
                       value={field.value}
                       onChange={field.onChange}
                       onKeyDown={handleKeyDown}
                       disabled={disabled}
+                      style={{ height: "60px" }} // Initial height
                     />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
               )}
             />
-            <div className="absolute bottom-3 right-3 flex gap-2">
+            <div className="flex gap-2 justify-end">
               <Button
                 variant="ghost"
                 size="icon"
