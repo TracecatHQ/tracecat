@@ -150,7 +150,7 @@ export function CasePanelView({
   return (
     <div className="min-h-screen bg-background">
       {/* Main Content */}
-      <div className="flex h-[calc(100vh-2.75rem)]">
+      <div className="flex h-[calc(100vh-10rem)]">
         {/* Left Panel */}
         <div className="flex-1 p-4">
           <div className="max-w-4xl">
