@@ -3,6 +3,7 @@
 import { zodResolver } from "@hookform/resolvers/zod"
 import { ArrowUpIcon, PaperclipIcon } from "lucide-react"
 import type React from "react"
+import { useCallback } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import { Button } from "@/components/ui/button"
@@ -43,15 +44,6 @@ export function ChatInput({
     mode: "onSubmit",
   })
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    // Only submit if Cmd+Enter or Ctrl+Enter is pressed
-    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-      e.preventDefault()
-      form.handleSubmit(handleMessageSubmit)()
-    }
-    // Regular Enter will create newlines by default (no special handling needed)
-  }
-
   const handleMessageSubmit = async (values: ChatMessageSchema) => {
     try {
       onSendMessage(values.message)
@@ -62,6 +54,22 @@ export function ChatInput({
   }
 
   const isMessageEmpty = !form.watch("message").trim()
+
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      // Only submit if Cmd+Enter or Ctrl+Enter is pressed
+      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault()
+        if (isMessageEmpty) {
+          console.debug("Message is empty, skipping")
+          return
+        }
+        form.handleSubmit(handleMessageSubmit)()
+      }
+      // Regular Enter will create newlines by default (no special handling needed)
+    },
+    [isMessageEmpty]
+  )
 
   return (
     <div className="bg-background p-3 pt-0">
