@@ -9,5 +9,9 @@ export default function CaseDetailLayout({
 }: {
   children: React.ReactNode
 }) {
-  return <div className="h-full bg-background">{children}</div>
+  return (
+    <div className="h-full bg-background rounded-lg border border-border shadow-sm">
+      {children}
+    </div>
+  )
 }
