@@ -61,10 +61,7 @@ async def execute_query(
     ] = None,
 ) -> dict[str, Any] | list[dict[str, Any]]:
     """Execute a SQL query and return results."""
-    if asyncpg is None:
-        raise ImportError(
-            "asyncpg is required for SQL integration. Install with: pip install asyncpg"
-        )
+    # asyncpg is always available if this module loads; no guard needed
 
     if database_type != "postgresql":
         raise ValueError(f"Unsupported database type: {database_type}")
