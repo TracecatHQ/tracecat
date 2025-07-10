@@ -64,7 +64,7 @@ export function ChatInput({
   const isMessageEmpty = !form.watch("message").trim()
 
   return (
-    <div className="border-t bg-background p-4">
+    <div className="bg-background p-3 pt-0">
       <div className="relative flex w-full">
         <Form {...form}>
           <form
