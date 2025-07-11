@@ -1,7 +1,7 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
-import { ArrowUpIcon, PaperclipIcon } from "lucide-react"
+import { ArrowUpIcon, HammerIcon, PaperclipIcon } from "lucide-react"
 import type React from "react"
 import { useCallback, useEffect, useRef } from "react"
 import { useForm } from "react-hook-form"
@@ -15,6 +15,11 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Textarea } from "@/components/ui/textarea"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 
 const chatMessageSchema = z.object({
   message: z
@@ -104,11 +109,11 @@ export function ChatInput({
 
   return (
     <div className="bg-background p-3 pt-0 rounded-b-lg">
-      <div className="relative flex w-full rounded-md transition-colors border hover:border-muted-foreground/40">
+      <div className="relative flex flex-col w-full gap-2 rounded-md transition-colors border hover:border-muted-foreground/40">
         <Form {...form}>
           <form
             onSubmit={form.handleSubmit(handleMessageSubmit)}
-            className="flex flex-col w-full gap-2"
+            className="w-full"
           >
             <FormField
               control={form.control}
@@ -131,29 +136,77 @@ export function ChatInput({
                 </FormItem>
               )}
             />
-            <div className="flex gap-2 justify-end">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-8 rounded-md text-muted-foreground hover:text-foreground"
-                disabled
-              >
-                <PaperclipIcon className="size-4" />
-                <span className="sr-only">Attach file</span>
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                type="submit"
-                className="size-8 rounded-md text-muted-foreground hover:text-foreground disabled:opacity-50"
-                disabled={disabled || isMessageEmpty}
-              >
-                <ArrowUpIcon className="size-4" />
-                <span className="sr-only">Send message</span>
-              </Button>
-            </div>
           </form>
+          <ChatControls
+            sendMessage={form.handleSubmit(handleMessageSubmit)}
+            disabled={disabled || isMessageEmpty}
+          />
         </Form>
+      </div>
+    </div>
+  )
+}
+
+function ChatControls({
+  sendMessage,
+  disabled = false,
+}: {
+  sendMessage: () => void
+  disabled?: boolean
+}) {
+  return (
+    <div className="flex h-full gap-2 items-end justify-between p-1 text-muted-foreground/80">
+      {/* Controls */}
+      <div className="flex gap-1">
+        {/* Attach file */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-6 rounded-md hover:text-muted-foreground"
+              disabled
+            >
+              <PaperclipIcon className="size-3.5" />
+              <span className="sr-only">Attach file</span>
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>
+            <p>Attach file</p>
+          </TooltipContent>
+        </Tooltip>
+
+        {/* Change tools */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              className="h-6 flex items-center p-1 gap-1 rounded-md hover:text-muted-foreground"
+            >
+              <HammerIcon className="size-3.5" />
+              <span className="text-xs">Tools</span>
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>
+            <p>Configure tools for the agent</p>
+          </TooltipContent>
+        </Tooltip>
+      </div>
+
+      {/*  Actions */}
+      <div className="flex gap-2">
+        {/* Send message */}
+        <Button
+          variant="ghost"
+          size="icon"
+          type="submit"
+          className="size-6 rounded-md hover:text-muted-foreground"
+          disabled={disabled}
+          onClick={sendMessage}
+        >
+          <ArrowUpIcon className="size-3.5" />
+          <span className="sr-only">Send message</span>
+        </Button>
       </div>
     </div>
   )
