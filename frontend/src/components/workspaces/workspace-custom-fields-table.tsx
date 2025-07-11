@@ -61,7 +61,7 @@ export function WorkspaceCustomFieldsTable({
               />
             ),
             cell: ({ row }) => (
-              <div className="text-xs font-medium">
+              <div className="text-xs text-foreground/80">
                 {row.getValue<CaseFieldRead["id"]>("id")}
               </div>
             ),
