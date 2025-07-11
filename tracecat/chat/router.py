@@ -246,15 +246,17 @@ async def stream_chat_events(
                                     # Check for end-of-stream marker
                                     if data.get("__end__") == 1:
                                         yield f"id: {message_id}\nevent: end\ndata: {{}}\n\n"
-                                        continue
+                                    else:
+                                        # Send the message
+                                        # Validate the message is a valid ModelMessage
+                                        # perf: delete this
+                                        validated_msg = ModelMessageTA.validate_python(
+                                            data
+                                        )
+                                        data_json = orjson.dumps(validated_msg).decode()
+                                        yield f"id: {message_id}\nevent: message\ndata: {data_json}\n\n"
 
-                                    # Send the message
-                                    # Validate the message is a valid ModelMessage
-                                    # perf: delete this
-                                    validated_msg = ModelMessageTA.validate_python(data)
-                                    data_json = orjson.dumps(validated_msg).decode()
-                                    yield f"id: {message_id}\nevent: message\ndata: {data_json}\n\n"
-
+                                    # Ensure in all cases we advance the current ID
                                     current_id = message_id
 
                                 except Exception as e:
