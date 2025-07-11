@@ -11,11 +11,23 @@ from tracecat.chat.enums import ChatEntity
 class ChatRequest(BaseModel):
     """Request model for starting a chat with an AI agent."""
 
-    message: str = Field(..., description="User message to send to the agent")
-    model_name: str = Field(default="gpt-4o-mini", description="AI model to use")
-    model_provider: str = Field(default="openai", description="AI model provider")
+    message: str = Field(
+        ...,
+        description="User message to send to the agent",
+        min_length=1,
+        max_length=10000,
+    )
+    model_name: str = Field(
+        default="gpt-4o-mini",
+        description="AI model to use",
+        min_length=1,
+        max_length=100,
+    )
+    model_provider: str = Field(
+        default="openai", description="AI model provider", min_length=1, max_length=50
+    )
     instructions: str | None = Field(
-        default=None, description="Optional instructions for the agent"
+        default=None, description="Optional instructions for the agent", max_length=5000
     )
     context: dict[str, Any] | None = Field(
         default=None, description="Optional context data for the agent"
@@ -29,24 +41,23 @@ class ChatResponse(BaseModel):
     chat_id: str = Field(..., description="Unique chat identifier")
 
 
-class ChatStreamEvent(BaseModel):
-    """Model for individual SSE events in the chat stream."""
-
-    event: str = Field(..., description="Event type (e.g., 'message', 'error', 'end')")
-    data: dict[str, Any] = Field(..., description="Event data payload")
-    id: str | None = Field(default=None, description="Event ID for reconnection")
-
-
 class ChatCreate(BaseModel):
     """Request model for creating a new chat."""
 
-    title: str = Field(..., description="Human-readable title for the chat")
+    title: str = Field(
+        ...,
+        description="Human-readable title for the chat",
+        min_length=1,
+        max_length=200,
+    )
     entity_type: ChatEntity = Field(
         ..., description="Type of entity this chat is associated with"
     )
     entity_id: UUID4 = Field(..., description="ID of the associated entity")
     tools: list[str] | None = Field(
-        default=None, description="Tools available to the agent for this chat"
+        default=None,
+        description="Tools available to the agent for this chat",
+        max_length=50,
     )
 
 
@@ -73,17 +84,12 @@ class ChatWithMessages(ChatRead):
     )
 
 
-class ChatListResponse(BaseModel):
-    """Response model for listing chats."""
-
-    chats: list[ChatRead] = Field(..., description="List of chats")
-    total: int = Field(..., description="Total number of chats matching the query")
-
-
 class ChatUpdate(BaseModel):
     """Request model for updating chat properties."""
 
     tools: list[str] | None = Field(
-        default=None, description="Tools available to the agent"
+        default=None, description="Tools available to the agent", max_length=50
     )
-    title: str | None = Field(default=None, description="Chat title")
+    title: str | None = Field(
+        default=None, description="Chat title", min_length=1, max_length=200
+    )

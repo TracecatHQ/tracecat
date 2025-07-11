@@ -2195,6 +2195,8 @@ export const $ChatCreate = {
   properties: {
     title: {
       type: "string",
+      maxLength: 200,
+      minLength: 1,
       title: "Title",
       description: "Human-readable title for the chat",
     },
@@ -2215,6 +2217,7 @@ export const $ChatCreate = {
             type: "string",
           },
           type: "array",
+          maxItems: 50,
         },
         {
           type: "null",
@@ -2307,17 +2310,23 @@ export const $ChatRequest = {
   properties: {
     message: {
       type: "string",
+      maxLength: 10000,
+      minLength: 1,
       title: "Message",
       description: "User message to send to the agent",
     },
     model_name: {
       type: "string",
+      maxLength: 100,
+      minLength: 1,
       title: "Model Name",
       description: "AI model to use",
       default: "gpt-4o-mini",
     },
     model_provider: {
       type: "string",
+      maxLength: 50,
+      minLength: 1,
       title: "Model Provider",
       description: "AI model provider",
       default: "openai",
@@ -2326,6 +2335,7 @@ export const $ChatRequest = {
       anyOf: [
         {
           type: "string",
+          maxLength: 5000,
         },
         {
           type: "null",
@@ -2381,6 +2391,7 @@ export const $ChatUpdate = {
             type: "string",
           },
           type: "array",
+          maxItems: 50,
         },
         {
           type: "null",
@@ -2393,6 +2404,8 @@ export const $ChatUpdate = {
       anyOf: [
         {
           type: "string",
+          maxLength: 200,
+          minLength: 1,
         },
         {
           type: "null",
