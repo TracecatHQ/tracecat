@@ -5,6 +5,7 @@ import {
   BracesIcon,
   ChevronDownIcon,
   FolderIcon,
+  Plus,
   PlusCircleIcon,
 } from "lucide-react"
 import { useRouter } from "next/navigation"
@@ -319,11 +320,13 @@ export function CreateWorkflowButton({
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
-            role="combobox"
-            className="h-7 items-center space-x-1 bg-emerald-500/80 px-3 py-1 text-xs text-white shadow-sm hover:border-emerald-500 hover:bg-emerald-400/80"
+            variant="outline"
+            size="sm"
+            className="h-7 bg-white"
           >
-            <ChevronDownIcon className="size-3" />
-            <span>Create new</span>
+            <Plus className="mr-1 h-3.5 w-3.5" />
+            Create new
+            <ChevronDownIcon className="ml-1 h-3.5 w-3.5" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent

@@ -1,7 +1,6 @@
 "use client"
 
 import { FolderIcon, LayoutIcon, TagIcon } from "lucide-react"
-import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -23,21 +22,19 @@ export enum ViewMode {
 }
 
 interface FolderViewToggleProps {
-  defaultView?: ViewMode
+  view: ViewMode
   onViewChange?: (view: ViewMode) => void
   variant?: "icon" | "dropdown" | "minimal"
   className?: string
 }
 
 export function FolderViewToggle({
-  defaultView = ViewMode.Tags,
+  view,
   onViewChange,
   variant = "minimal",
   className,
 }: FolderViewToggleProps) {
-  const [activeView, setActiveView] = useState<ViewMode>(defaultView)
   const handleViewChange = (view: ViewMode) => {
-    setActiveView(view)
     onViewChange?.(view)
   }
 
@@ -52,7 +49,7 @@ export function FolderViewToggle({
               size="icon"
               onClick={() =>
                 handleViewChange(
-                  activeView === ViewMode.Folders
+                  view === ViewMode.Folders
                     ? ViewMode.Tags
                     : ViewMode.Folders
                 )
@@ -60,7 +57,7 @@ export function FolderViewToggle({
               className="size-8 border-input text-muted-foreground hover:bg-muted/50"
               aria-label="Toggle view"
             >
-              {activeView === ViewMode.Folders ? (
+              {view === ViewMode.Folders ? (
                 <FolderIcon className="size-4" />
               ) : (
                 <TagIcon className="size-4" />
@@ -70,7 +67,7 @@ export function FolderViewToggle({
           <TooltipContent>
             <p>
               Switch to{" "}
-              {activeView === ViewMode.Folders
+              {view === ViewMode.Folders
                 ? ViewMode.Tags
                 : ViewMode.Folders}{" "}
               view
@@ -98,14 +95,14 @@ export function FolderViewToggle({
         <DropdownMenuContent align="end">
           <DropdownMenuItem
             onClick={() => handleViewChange(ViewMode.Folders)}
-            className={cn(activeView === ViewMode.Folders && "bg-muted")}
+            className={cn(view === ViewMode.Folders && "bg-muted")}
           >
             <FolderIcon className="mr-2 size-4" />
             <span>Folder view</span>
           </DropdownMenuItem>
           <DropdownMenuItem
             onClick={() => handleViewChange(ViewMode.Tags)}
-            className={cn(activeView === ViewMode.Tags && "bg-muted")}
+            className={cn(view === ViewMode.Tags && "bg-muted")}
           >
             <TagIcon className="mr-2 size-4" />
             <span>Tags view</span>
@@ -129,12 +126,12 @@ export function FolderViewToggle({
             <button
               onClick={() => handleViewChange(ViewMode.Tags)}
               className={cn(
-                "flex size-7 items-center justify-center rounded-r-sm transition-colors",
-                activeView === ViewMode.Tags
+                "flex size-7 items-center justify-center rounded-l-sm transition-colors",
+                view === ViewMode.Tags
                   ? "bg-background text-accent-foreground"
                   : "bg-accent text-muted-foreground hover:bg-muted/50"
               )}
-              aria-current={activeView === ViewMode.Tags}
+              aria-current={view === ViewMode.Tags}
               aria-label="Tags view"
             >
               <TagIcon className="size-3.5" />
@@ -151,12 +148,12 @@ export function FolderViewToggle({
             <button
               onClick={() => handleViewChange(ViewMode.Folders)}
               className={cn(
-                "flex size-7 items-center justify-center rounded-l-sm transition-colors",
-                activeView === ViewMode.Folders
+                "flex size-7 items-center justify-center rounded-r-sm transition-colors",
+                view === ViewMode.Folders
                   ? "bg-background text-accent-foreground"
                   : "bg-accent text-muted-foreground hover:bg-muted/50"
               )}
-              aria-current={activeView === ViewMode.Folders}
+              aria-current={view === ViewMode.Folders}
               aria-label="Folder view"
             >
               <FolderIcon className="size-3.5" />
