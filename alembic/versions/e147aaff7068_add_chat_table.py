@@ -1,8 +1,8 @@
 """Add chat table
 
-Revision ID: d550de3ed0ac
+Revision ID: e147aaff7068
 Revises: 419454d1c5c5
-Create Date: 2025-07-08 12:36:06.259286
+Create Date: 2025-07-10 17:32:07.568809
 
 """
 
@@ -10,11 +10,12 @@ from collections.abc import Sequence
 
 import sqlalchemy as sa
 import sqlmodel.sql.sqltypes
+from sqlalchemy.dialects import postgresql
 
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = "d550de3ed0ac"
+revision: str = "e147aaff7068"
 down_revision: str | None = "419454d1c5c5"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
@@ -43,6 +44,7 @@ def upgrade() -> None:
         sa.Column("user_id", sa.UUID(), nullable=False),
         sa.Column("entity_type", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
         sa.Column("entity_id", sqlmodel.sql.sqltypes.GUID(), nullable=False),
+        sa.Column("tools", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
         sa.ForeignKeyConstraint(["user_id"], ["user.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("surrogate_id"),
     )
