@@ -16,8 +16,8 @@ hacker_one_secret = RegistrySecret(
 
 - name: `hacker_one`
 - keys:
-    - `HACKER_ONE_API_USERNAME`
-    - `HACKER_ONE_API_TOKEN`
+    - `HACKERONE_API_USERNAME`
+    - `HACKERONE_API_TOKEN`
 """
 
 
