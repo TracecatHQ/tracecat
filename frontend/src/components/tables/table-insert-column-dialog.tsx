@@ -105,7 +105,7 @@ export function TableInsertColumnDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Add Column</DialogTitle>
+          <DialogTitle>Add column</DialogTitle>
           <DialogDescription>
             Add a new column to the {table.name} table.
           </DialogDescription>

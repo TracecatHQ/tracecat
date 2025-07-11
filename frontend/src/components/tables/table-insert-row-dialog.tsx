@@ -139,7 +139,7 @@ export function TableInsertRowDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Add New Row</DialogTitle>
+          <DialogTitle>Add new row</DialogTitle>
           <DialogDescription>
             Add a new row to the {table.name} table.
           </DialogDescription>
