@@ -12,13 +12,13 @@ import {
 import { CreateTableDialog } from "@/components/tables/table-create-dialog"
 import { Button } from "@/components/ui/button"
 import { SidebarTrigger, useSidebar } from "@/components/ui/sidebar"
+import { AddCustomField } from "@/components/workspaces/add-custom-field"
 import { AddWorkspaceMember } from "@/components/workspaces/add-workspace-member"
 import {
   NewCredentialsDialog,
   NewCredentialsDialogTrigger,
 } from "@/components/workspaces/add-workspace-secret"
 import { useLocalStorage } from "@/lib/hooks"
-import { cn } from "@/lib/utils"
 import { useWorkspace } from "@/providers/workspace"
 
 interface PageConfig {
@@ -103,6 +103,10 @@ function CredentialsActions() {
   )
 }
 
+function CustomFieldsActions() {
+  return <AddCustomField />
+}
+
 function getPageConfig(
   pathname: string,
   workspaceId: string
@@ -157,6 +161,7 @@ function getPageConfig(
   if (pagePath.startsWith("/custom-fields")) {
     return {
       title: "Custom fields",
+      actions: <CustomFieldsActions />,
     }
   }
 

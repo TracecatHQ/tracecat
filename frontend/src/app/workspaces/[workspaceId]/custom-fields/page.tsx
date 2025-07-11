@@ -1,118 +1,22 @@
 "use client"
 
-import { zodResolver } from "@hookform/resolvers/zod"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { DatabaseIcon, TrashIcon } from "lucide-react"
-import { useState } from "react"
-import { useForm } from "react-hook-form"
-import { z } from "zod"
-import {
-  type CaseFieldCreate,
-  casesCreateField,
-  casesDeleteField,
-} from "@/client"
+import { DatabaseIcon } from "lucide-react"
+import { casesDeleteField } from "@/client"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
-import { Button } from "@/components/ui/button"
-import { Checkbox } from "@/components/ui/checkbox"
-import {
-  Form,
-  FormControl,
-  FormDescription,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form"
-import { Input } from "@/components/ui/input"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
 import { toast } from "@/components/ui/use-toast"
+import { WorkspaceCustomFieldsTable } from "@/components/workspaces/workspace-custom-fields-table"
 import { useCaseFields } from "@/lib/hooks"
-import { SqlTypeEnum } from "@/lib/tables"
 import { useWorkspace } from "@/providers/workspace"
-
-const caseFieldFormSchema = z.object({
-  name: z
-    .string()
-    .min(1, "Field name is required")
-    .max(100, "Field name must be less than 100 characters")
-    .refine(
-      (value) => /^[a-zA-Z][a-zA-Z0-9_]*$/.test(value),
-      "Field name must start with a letter and contain only letters, numbers, and underscores"
-    ),
-  type: z.enum(SqlTypeEnum),
-  nullable: z.boolean().default(true),
-  default: z.string().nullable().optional(),
-})
-
-type CaseFieldFormValues = z.infer<typeof caseFieldFormSchema>
 
 export default function CustomFieldsPage() {
   const { workspaceId, workspace, workspaceError, workspaceLoading } =
     useWorkspace()
   const queryClient = useQueryClient()
-  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
-  const [fieldToDelete, setFieldToDelete] = useState<string | null>(null)
 
   const { caseFields, caseFieldsIsLoading, caseFieldsError } =
     useCaseFields(workspaceId)
-
-  const { mutateAsync: createCaseField, isPending: createCaseFieldIsPending } =
-    useMutation({
-      mutationFn: async (data: CaseFieldCreate) => {
-        return await casesCreateField({
-          workspaceId,
-          requestBody: data,
-        })
-      },
-      onSuccess: () => {
-        queryClient.invalidateQueries({
-          queryKey: ["case-fields", workspaceId],
-        })
-        toast({
-          title: "Field created",
-          description: "The case field was created successfully.",
-        })
-        form.reset({
-          name: "",
-          type: "TEXT",
-          nullable: true,
-          default: null,
-        })
-      },
-      onError: (error) => {
-        console.error("Failed to create case field", error)
-        toast({
-          title: "Error creating field",
-          description: "Failed to create the case field. Please try again.",
-          variant: "destructive",
-        })
-      },
-    })
 
   const { mutateAsync: deleteCaseField, isPending: deleteCaseFieldIsPending } =
     useMutation({
@@ -141,29 +45,6 @@ export default function CustomFieldsPage() {
       },
     })
 
-  const form = useForm<CaseFieldFormValues>({
-    resolver: zodResolver(caseFieldFormSchema),
-    defaultValues: {
-      name: "",
-      type: "TEXT",
-      nullable: true,
-      default: null,
-    },
-  })
-
-  const onSubmit = async (data: CaseFieldFormValues) => {
-    try {
-      await createCaseField({
-        name: data.name,
-        type: data.type,
-        nullable: data.nullable,
-        default: data.default || null,
-      })
-    } catch (error) {
-      console.error("Failed to create case field", error)
-    }
-  }
-
   const handleDeleteField = async (fieldId: string) => {
     // Ensure caseFields exists before attempting to find a field
     if (!caseFields) {
@@ -178,16 +59,7 @@ export default function CustomFieldsPage() {
       return
     }
 
-    setFieldToDelete(fieldId)
-    setIsDeleteDialogOpen(true)
-  }
-
-  const confirmDeleteField = async () => {
-    if (fieldToDelete) {
-      await deleteCaseField(fieldToDelete)
-      setFieldToDelete(null)
-    }
-    setIsDeleteDialogOpen(false)
+    await deleteCaseField(fieldId)
   }
 
   if (workspaceLoading || caseFieldsIsLoading) {
@@ -218,232 +90,31 @@ export default function CustomFieldsPage() {
 
   return (
     <div className="size-full overflow-auto">
-      <div className="container flex h-full max-w-[1000px] flex-col space-y-12">
-        <div className="flex w-full">
-          <div className="items-start space-y-3 text-left">
-            <h2 className="text-2xl font-semibold tracking-tight">
-              Custom fields
-            </h2>
-            <p className="text-md text-muted-foreground">
-              Manage custom fields for cases in the{" "}
-              <b className="inline-block">{workspace.name}</b> workspace.
-            </p>
+      <div className="container flex h-full max-w-[1000px] flex-col space-y-8 py-8">
+        {caseFields.filter((field) => !field.reserved).length === 0 ? (
+          <div className="flex h-full flex-col items-center justify-center gap-4">
+            <div className="rounded-full bg-muted p-3">
+              <DatabaseIcon className="size-8 text-muted-foreground" />
+            </div>
+            <div className="space-y-1 text-center">
+              <h4 className="text-sm font-semibold text-muted-foreground">
+                No custom fields defined yet
+              </h4>
+              <p className="text-xs text-muted-foreground">
+                Add your first custom field using the button in the header
+              </p>
+            </div>
           </div>
-        </div>
-
-        <div className="space-y-8">
+        ) : (
           <div className="space-y-4">
-            <h6 className="text-sm font-semibold">Existing fields</h6>
-            <p className="text-sm text-muted-foreground">
-              These are the custom fields currently available for cases.
-            </p>
-
-            {caseFields.filter((field) => !field.reserved).length === 0 ? (
-              <div className="flex h-48 flex-col items-center justify-center gap-4 rounded-md border border-dashed">
-                <div className="rounded-full bg-muted p-3">
-                  <DatabaseIcon className="size-8 text-muted-foreground" />
-                </div>
-                <div className="space-y-1 text-center">
-                  <h4 className="text-sm font-semibold text-muted-foreground">
-                    No custom fields defined yet
-                  </h4>
-                  <p className="text-xs text-muted-foreground">
-                    Add your first custom field using the form below
-                  </p>
-                </div>
-              </div>
-            ) : (
-              <div className="rounded-md border">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Type</TableHead>
-                      <TableHead>Description</TableHead>
-                      <TableHead>Nullable</TableHead>
-                      <TableHead>Default</TableHead>
-                      <TableHead className="w-[50px]"></TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {caseFields
-                      .filter((field) => !field.reserved)
-                      .map((field) => (
-                        <TableRow key={field.id}>
-                          <TableCell className="font-medium">
-                            {field.id}
-                          </TableCell>
-                          <TableCell>{field.type}</TableCell>
-                          <TableCell>{field.description || "-"}</TableCell>
-                          <TableCell>{field.nullable ? "Yes" : "No"}</TableCell>
-                          <TableCell>{field.default || "-"}</TableCell>
-                          <TableCell>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => handleDeleteField(field.id)}
-                              disabled={deleteCaseFieldIsPending}
-                            >
-                              <TrashIcon className="size-4" />
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                  </TableBody>
-                </Table>
-              </div>
-            )}
+            <WorkspaceCustomFieldsTable
+              fields={caseFields}
+              onDeleteField={handleDeleteField}
+              isDeleting={deleteCaseFieldIsPending}
+            />
           </div>
-
-          <div className="space-y-4">
-            <h6 className="text-sm font-semibold">Add new field</h6>
-            <p className="text-sm text-muted-foreground">
-              Create a new custom field for cases.
-            </p>
-
-            <Form {...form}>
-              <form
-                onSubmit={form.handleSubmit(onSubmit)}
-                className="space-y-6"
-              >
-                <FormField
-                  control={form.control}
-                  name="name"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Field ID</FormLabel>
-                      <FormControl>
-                        <Input placeholder="e.g., customer_id" {...field} />
-                      </FormControl>
-                      <FormDescription>
-                        A human readable ID of the field. Use snake_case for
-                        best compatibility.
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="type"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Field Type</FormLabel>
-                      <Select
-                        onValueChange={field.onChange}
-                        defaultValue={field.value}
-                      >
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select a field type" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {SqlTypeEnum.filter((type) => type !== "JSONB").map(
-                            (type) => (
-                              <SelectItem key={type} value={type}>
-                                {type}
-                              </SelectItem>
-                            )
-                          )}
-                        </SelectContent>
-                      </Select>
-                      <FormDescription>
-                        The SQL data type for this field.
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="nullable"
-                  render={({ field }) => (
-                    <FormItem className="flex flex-row items-start space-x-3 space-y-0">
-                      <FormControl>
-                        <Checkbox
-                          checked={field.value}
-                          onCheckedChange={field.onChange}
-                          disabled
-                        />
-                      </FormControl>
-                      <div className="space-y-1 leading-none">
-                        <FormLabel>Nullable</FormLabel>
-                        <FormDescription>
-                          Allow this field to have null values.
-                        </FormDescription>
-                      </div>
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="default"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Default Value (optional)</FormLabel>
-                      <FormControl>
-                        <Input
-                          placeholder="Default value"
-                          {...field}
-                          value={field.value || ""}
-                          onChange={(e) => {
-                            const value = e.target.value
-                            field.onChange(value === "" ? null : value)
-                          }}
-                        />
-                      </FormControl>
-                      <FormDescription>
-                        The default value for this field if not specified.
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <Button
-                  type="submit"
-                  className="w-full"
-                  disabled={createCaseFieldIsPending}
-                >
-                  Create Field
-                </Button>
-              </form>
-            </Form>
-          </div>
-        </div>
+        )}
       </div>
-
-      <AlertDialog
-        open={isDeleteDialogOpen}
-        onOpenChange={setIsDeleteDialogOpen}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete Field</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to delete the field{" "}
-              <strong>{fieldToDelete}</strong>? This action cannot be undone and
-              will delete all existing values for this field across all cases.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleteCaseFieldIsPending}>
-              Cancel
-            </AlertDialogCancel>
-            <AlertDialogAction
-              onClick={confirmDeleteField}
-              disabled={deleteCaseFieldIsPending}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   )
 }
