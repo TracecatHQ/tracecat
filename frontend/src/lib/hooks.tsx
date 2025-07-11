@@ -236,7 +236,7 @@ export function useLocalStorage<T>(
     const storedValue = localStorage.getItem(key)
     return storedValue ? JSON.parse(storedValue) : defaultValue
   })
-  
+
   // Listen for changes from other tabs or components
   useEffect(() => {
     const handleStorageChange = (e: StorageEvent) => {
@@ -248,36 +248,44 @@ export function useLocalStorage<T>(
         }
       }
     }
-    
+
     // Custom event for same-tab updates
     const handleCustomStorageChange = ((e: CustomEvent) => {
       if (e.detail.key === key && e.detail.value !== undefined) {
         setValue(e.detail.value)
       }
     }) as EventListener
-    
+
     window.addEventListener("storage", handleStorageChange)
     window.addEventListener("localStorage-update", handleCustomStorageChange)
-    
+
     return () => {
       window.removeEventListener("storage", handleStorageChange)
-      window.removeEventListener("localStorage-update", handleCustomStorageChange)
+      window.removeEventListener(
+        "localStorage-update",
+        handleCustomStorageChange
+      )
     }
   }, [key])
-  
-  const setValueAndBroadcast = useCallback((newValue: T) => {
-    // Update localStorage first
-    localStorage.setItem(key, JSON.stringify(newValue))
-    
-    // Update local state
-    setValue(newValue)
-    
-    // Dispatch custom event for other same-tab instances
-    window.dispatchEvent(new CustomEvent("localStorage-update", {
-      detail: { key, value: newValue }
-    }))
-  }, [key])
-  
+
+  const setValueAndBroadcast = useCallback(
+    (newValue: T) => {
+      // Update localStorage first
+      localStorage.setItem(key, JSON.stringify(newValue))
+
+      // Update local state
+      setValue(newValue)
+
+      // Dispatch custom event for other same-tab instances
+      window.dispatchEvent(
+        new CustomEvent("localStorage-update", {
+          detail: { key, value: newValue },
+        })
+      )
+    },
+    [key]
+  )
+
   return [value, setValueAndBroadcast]
 }
 
