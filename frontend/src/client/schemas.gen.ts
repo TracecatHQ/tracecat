@@ -2183,6 +2183,21 @@ export const $ChatCreate = {
       title: "Entity Id",
       description: "ID of the associated entity",
     },
+    tools: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tools",
+      description: "Tools available to the agent for this chat",
+    },
   },
   type: "object",
   required: ["title", "entity_type", "entity_id"],
@@ -2227,6 +2242,14 @@ export const $ChatRead = {
       title: "Entity Id",
       description: "ID of the associated entity",
     },
+    tools: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Tools",
+      description: "Tools available to the agent",
+    },
     created_at: {
       type: "string",
       format: "date-time",
@@ -2247,6 +2270,7 @@ export const $ChatRead = {
     "user_id",
     "entity_type",
     "entity_id",
+    "tools",
     "created_at",
     "updated_at",
   ],
@@ -2272,15 +2296,6 @@ export const $ChatRequest = {
       title: "Model Provider",
       description: "AI model provider",
       default: "openai",
-    },
-    actions: {
-      items: {
-        type: "string",
-      },
-      type: "array",
-      title: "Actions",
-      description:
-        "List of actions the agent can use (e.g., 'core.cases.get_case')",
     },
     instructions: {
       anyOf: [
@@ -2332,6 +2347,41 @@ export const $ChatResponse = {
   description: "Response model for chat initiation.",
 } as const
 
+export const $ChatUpdate = {
+  properties: {
+    tools: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tools",
+      description: "Tools available to the agent",
+    },
+    title: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Title",
+      description: "Chat title",
+    },
+  },
+  type: "object",
+  title: "ChatUpdate",
+  description: "Request model for updating chat properties.",
+} as const
+
 export const $ChatWithMessages = {
   properties: {
     id: {
@@ -2362,6 +2412,14 @@ export const $ChatWithMessages = {
       title: "Entity Id",
       description: "ID of the associated entity",
     },
+    tools: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Tools",
+      description: "Tools available to the agent",
+    },
     created_at: {
       type: "string",
       format: "date-time",
@@ -2390,6 +2448,7 @@ export const $ChatWithMessages = {
     "user_id",
     "entity_type",
     "entity_id",
+    "tools",
     "created_at",
     "updated_at",
   ],

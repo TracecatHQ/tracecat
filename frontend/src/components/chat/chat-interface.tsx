@@ -94,14 +94,6 @@ export function ChatInterface({
       await sendMessage({
         message,
         // TODO: Make this dynamic
-        actions: [
-          "core.cases.get_case",
-          "core.cases.list_cases",
-          "core.cases.update_case",
-          "tools.slack.post_message",
-          "tools.virustotal.lookup_domain",
-          "tools.tavily.web_search",
-        ],
         model_provider: "openai",
         instructions: `You are a helpful AI assistant helping with ${entityType} management.
         The current ${entityType} ID is ${entityId}. Be concise but thorough in your responses.`,

@@ -6,6 +6,7 @@ import orjson
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from tracecat.chat.tools import get_default_tools
 from tracecat.db.schemas import Chat
 from tracecat.identifiers import UserID
 from tracecat.logger import logger
@@ -48,6 +49,7 @@ class ChatService(BaseWorkspaceService):
         title: str,
         entity_type: str,
         entity_id: uuid.UUID,
+        tools: list[str] | None = None,
     ) -> Chat:
         """Create a new chat associated with an entity."""
         if self.role.user_id is None:
@@ -59,6 +61,7 @@ class ChatService(BaseWorkspaceService):
             entity_type=entity_type,
             entity_id=entity_id,
             owner_id=self.workspace_id,
+            tools=tools or get_default_tools(entity_type),
         )
 
         self.session.add(chat)
@@ -85,6 +88,26 @@ class ChatService(BaseWorkspaceService):
 
         result = await self.session.exec(stmt)
         return result.first()
+
+    async def update_chat(
+        self,
+        chat: Chat,
+        *,
+        tools: list[str] | None = None,
+        title: str | None = None,
+    ) -> Chat:
+        """Update chat properties."""
+        # Update fields if provided
+        if tools is not None:
+            chat.tools = tools
+        if title is not None:
+            chat.title = title
+
+        self.session.add(chat)
+        await self.session.commit()
+        await self.session.refresh(chat)
+
+        return chat
 
     async def get_chat_messages(self, chat_id: str) -> list[dict[str, Any]]:
         """Get chat messages from Redis stream."""
