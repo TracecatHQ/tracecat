@@ -9,8 +9,8 @@ from pydantic import Field
 from tracecat_registry import RegistrySecret, registry, secrets
 
 hacker_one_secret = RegistrySecret(
-    name="hacker_one",
-    keys=["HACKER_ONE_API_USERNAME", "HACKER_ONE_API_TOKEN"],
+    name="hackerone",
+    keys=["HACKERONE_API_USERNAME", "HACKERONE_API_TOKEN"],
 )
 """HackerOne API credentials.
 
@@ -26,7 +26,7 @@ hacker_one_secret = RegistrySecret(
     description="Get a paginated list of programs from HackerOne.",
     display_group="HackerOne (H1)",
     doc_url="https://api.hackerone.com/customer-resources/?python#programs-get-programs",
-    namespace="tools.hacker_one",
+    namespace="tools.hackerone",
     secrets=[hacker_one_secret],
 )
 async def get_programs(
@@ -64,7 +64,7 @@ async def get_programs(
     description="Get a paginated list of reports from HackerOne.",
     display_group="HackerOne (H1)",
     doc_url="https://api.hackerone.com/customer-resources/?python#reports-update-weakness",
-    namespace="tools.hacker_one",
+    namespace="tools.hackerone",
     secrets=[hacker_one_secret],
 )
 async def get_reports(
@@ -85,17 +85,12 @@ async def get_reports(
     ] = 25,
 ) -> dict[str, Any]:
     """Get a paginated list of reports from HackerOne."""
-    if filters is None:
-        params = {
-            "page[number]": page_number,
-            "page[size]": page_size,
-        }
-    else:
-        params = {
-            "page[number]": page_number,
-            "page[size]": page_size,
-            **filters,
-        }
+
+    params = {
+        "page[number]": page_number,
+        "page[size]": page_size,
+        **filters,
+    }
 
     async with httpx.AsyncClient() as client:
         response = await client.get(
@@ -116,7 +111,7 @@ async def get_reports(
     description="Get details of a specific program from HackerOne.",
     display_group="HackerOne (H1)",
     doc_url="https://api.hackerone.com/customer-resources/?python#programs-get-program",
-    namespace="tools.hacker_one",
+    namespace="tools.hackerone",
     secrets=[hacker_one_secret],
 )
 async def get_program(
@@ -143,7 +138,7 @@ async def get_program(
     description="Get details of a specific report from HackerOne.",
     display_group="HackerOne (H1)",
     doc_url="https://api.hackerone.com/customer-resources/?python#reports-get-report",
-    namespace="tools.hacker_one",
+    namespace="tools.hackerone",
     secrets=[hacker_one_secret],
 )
 async def get_report(
