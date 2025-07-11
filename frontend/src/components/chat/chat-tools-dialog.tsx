@@ -18,7 +18,7 @@ import { Form, FormItem, FormMessage } from "@/components/ui/form"
 import { useGetChat, useUpdateChat } from "@/hooks/use-chat"
 import { useWorkspace } from "@/providers/workspace"
 
-interface ChatToolsModalProps {
+interface ChatToolsDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   chatId: string
@@ -34,7 +34,7 @@ export function ChatToolsDialog({
   open,
   onOpenChange,
   chatId,
-}: ChatToolsModalProps) {
+}: ChatToolsDialogProps) {
   const { workspaceId } = useWorkspace()
   const { chat } = useGetChat({ chatId, workspaceId })
   const { updateChat, isUpdating } = useUpdateChat(workspaceId)
@@ -64,7 +64,6 @@ export function ChatToolsDialog({
       <DialogContent
         className="sm:max-w-[800px]"
         aria-label="Configure chat tools"
-        // onEscapeKeyDown={(e) => e.preventDefault()}
       >
         <DialogHeader>
           <DialogTitle>Configure Tools</DialogTitle>
