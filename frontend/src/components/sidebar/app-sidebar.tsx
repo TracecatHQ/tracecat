@@ -46,12 +46,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       isActive: pathname?.startsWith(`${basePath}/workflows`),
     },
     {
-      title: "Tables",
-      url: `${basePath}/tables`,
-      icon: Table2Icon,
-      isActive: pathname?.startsWith(`${basePath}/tables`),
-    },
-    {
       title: "Cases",
       url: `${basePath}/cases`,
       icon: ShieldAlertIcon,
@@ -66,6 +60,12 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   ]
 
   const navWorkspace = [
+    {
+      title: "Tables",
+      url: `${basePath}/tables`,
+      icon: Table2Icon,
+      isActive: pathname?.startsWith(`${basePath}/tables`),
+    },
     {
       title: "Credentials",
       url: `${basePath}/credentials`,
