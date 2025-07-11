@@ -252,11 +252,14 @@ export function ChatInterface({
       />
 
       {/* Chat Input */}
-      <ChatInput
-        onSendMessage={handleSendMessage}
-        disabled={isResponding || !selectedChatId}
-        placeholder={`Ask about this ${entityType}...`}
-      />
+      {selectedChatId && (
+        <ChatInput
+          onSendMessage={handleSendMessage}
+          disabled={isResponding || !selectedChatId}
+          placeholder={`Ask about this ${entityType}...`}
+          chatId={selectedChatId}
+        />
+      )}
     </div>
   )
 }

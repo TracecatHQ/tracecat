@@ -3,9 +3,10 @@
 import { zodResolver } from "@hookform/resolvers/zod"
 import { ArrowUpIcon, HammerIcon, PaperclipIcon } from "lucide-react"
 import type React from "react"
-import { useCallback, useEffect, useRef } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
+import { ChatToolsDialog } from "@/components/chat/chat-tools-dialog"
 import { Button } from "@/components/ui/button"
 import {
   Form,
@@ -34,12 +35,14 @@ interface ChatInputProps {
   onSendMessage: (message: string) => void
   disabled?: boolean
   placeholder?: string
+  chatId: string
 }
 
 export function ChatInput({
   onSendMessage,
   disabled = false,
   placeholder = "Type your message...",
+  chatId,
 }: ChatInputProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -140,6 +143,7 @@ export function ChatInput({
           <ChatControls
             sendMessage={form.handleSubmit(handleMessageSubmit)}
             disabled={disabled || isMessageEmpty}
+            chatId={chatId}
           />
         </Form>
       </div>
@@ -150,10 +154,14 @@ export function ChatInput({
 function ChatControls({
   sendMessage,
   disabled = false,
+  chatId,
 }: {
   sendMessage: () => void
   disabled?: boolean
+  chatId: string
 }) {
+  const [toolsModalOpen, setToolsModalOpen] = useState(false)
+
   return (
     <div className="flex h-full gap-2 items-end justify-between p-1 text-muted-foreground/80">
       {/* Controls */}
@@ -182,6 +190,7 @@ function ChatControls({
             <Button
               variant="ghost"
               className="h-6 flex items-center p-1 gap-1 rounded-md hover:text-muted-foreground"
+              onClick={() => setToolsModalOpen(true)}
             >
               <HammerIcon className="size-3.5" />
               <span className="text-xs">Tools</span>
@@ -208,6 +217,12 @@ function ChatControls({
           <span className="sr-only">Send message</span>
         </Button>
       </div>
+      {/* Tools Modal */}
+      <ChatToolsDialog
+        open={toolsModalOpen}
+        onOpenChange={setToolsModalOpen}
+        chatId={chatId}
+      />
     </div>
   )
 }

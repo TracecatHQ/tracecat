@@ -5,9 +5,13 @@ import {
   type ChatCreate,
   type ChatRead,
   type ChatRequest,
+  type ChatUpdate,
+  type ChatWithMessages,
   chatCreateChat,
+  chatGetChat,
   chatListChats,
   chatStartChatTurn,
+  chatUpdateChat,
 } from "@/client"
 import { getBaseUrl } from "@/lib/api"
 import { isModelMessage, type ModelMessage } from "@/lib/chat"
@@ -192,5 +196,59 @@ export function useChat({
     isResponding,
     isConnected,
     isThinking,
+  }
+}
+
+// Hook for getting a single chat
+export function useGetChat({
+  chatId,
+  workspaceId,
+}: {
+  chatId: string
+  workspaceId: string
+}) {
+  const {
+    data: chat,
+    isLoading,
+    error,
+  } = useQuery<ChatWithMessages, ApiError>({
+    queryKey: ["chat", chatId, workspaceId],
+    queryFn: () => chatGetChat({ chatId, workspaceId }),
+    enabled: !!chatId && !!workspaceId,
+  })
+
+  return { chat, isLoading, error }
+}
+
+// Hook for updating a chat
+export function useUpdateChat(workspaceId: string) {
+  const queryClient = useQueryClient()
+
+  const mutation = useMutation<
+    ChatRead,
+    ApiError,
+    { chatId: string; update: ChatUpdate }
+  >({
+    mutationFn: ({ chatId, update }) =>
+      chatUpdateChat({
+        chatId,
+        workspaceId,
+        requestBody: update,
+      }),
+    onSuccess: (data, variables) => {
+      // Invalidate and refetch chat data
+      queryClient.invalidateQueries({
+        queryKey: ["chat", variables.chatId, workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["chats", workspaceId],
+      })
+    },
+  })
+
+  return {
+    updateChat: mutation.mutateAsync,
+    isUpdating: mutation.isPending,
+    updateError: mutation.error,
   }
 }
