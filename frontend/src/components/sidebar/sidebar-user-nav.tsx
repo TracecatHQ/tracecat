@@ -57,7 +57,7 @@ export function SidebarUserNav() {
                     {displayName}
                   </p>
                   <p className="text-xs leading-none text-muted-foreground">
-                    {user?.email.toString() ?? userDefaults.email}
+                    {user?.email?.toString() ?? userDefaults.email}
                   </p>
                 </div>
                 {user?.isPrivileged() && (
@@ -91,6 +91,7 @@ export function SidebarUserNav() {
               <Link
                 href={siteConfig.links.docs}
                 target="_blank"
+                rel="noopener noreferrer"
                 className="my-2 w-full"
               >
                 <DropdownMenuItem className="text-xs hover:cursor-pointer">
@@ -102,6 +103,7 @@ export function SidebarUserNav() {
               <Link
                 href={siteConfig.links.github}
                 target="_blank"
+                rel="noopener noreferrer"
                 className="my-2 w-full"
               >
                 <DropdownMenuItem className="text-xs hover:cursor-pointer">

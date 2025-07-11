@@ -240,11 +240,16 @@ export function useLocalStorage<T>(
   // Listen for changes from other tabs or components
   useEffect(() => {
     const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === key && e.newValue) {
-        try {
-          setValue(JSON.parse(e.newValue))
-        } catch (error) {
-          console.error("Failed to parse localStorage value:", error)
+      if (e.key === key) {
+        if (e.newValue === null) {
+          // Storage was removed, reset to default value
+          setValue(defaultValue)
+        } else if (e.newValue) {
+          try {
+            setValue(JSON.parse(e.newValue))
+          } catch (error) {
+            console.error("Failed to parse localStorage value:", error)
+          }
         }
       }
     }
