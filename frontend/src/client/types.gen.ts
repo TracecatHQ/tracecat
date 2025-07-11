@@ -683,6 +683,10 @@ export type ChatCreate = {
    * ID of the associated entity
    */
   entity_id: string
+  /**
+   * Tools available to the agent for this chat
+   */
+  tools?: Array<string> | null
 }
 
 /**
@@ -715,6 +719,10 @@ export type ChatRead = {
    */
   entity_id: string
   /**
+   * Tools available to the agent
+   */
+  tools: Array<string>
+  /**
    * When the chat was created
    */
   created_at: string
@@ -740,10 +748,6 @@ export type ChatRequest = {
    * AI model provider
    */
   model_provider?: string
-  /**
-   * List of actions the agent can use (e.g., 'core.cases.get_case')
-   */
-  actions?: Array<string>
   /**
    * Optional instructions for the agent
    */
@@ -771,6 +775,20 @@ export type ChatResponse = {
 }
 
 /**
+ * Request model for updating chat properties.
+ */
+export type ChatUpdate = {
+  /**
+   * Tools available to the agent
+   */
+  tools?: Array<string> | null
+  /**
+   * Chat title
+   */
+  title?: string | null
+}
+
+/**
  * Model for chat metadata with message history.
  */
 export type ChatWithMessages = {
@@ -794,6 +812,10 @@ export type ChatWithMessages = {
    * ID of the associated entity
    */
   entity_id: string
+  /**
+   * Tools available to the agent
+   */
+  tools: Array<string>
   /**
    * When the chat was created
    */
@@ -4435,6 +4457,14 @@ export type ChatGetChatData = {
 
 export type ChatGetChatResponse = ChatWithMessages
 
+export type ChatUpdateChatData = {
+  chatId: string
+  requestBody: ChatUpdate
+  workspaceId: string
+}
+
+export type ChatUpdateChatResponse = ChatRead
+
 export type ChatStartChatTurnData = {
   chatId: string
   requestBody: ChatRequest
@@ -6510,6 +6540,19 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: ChatWithMessages
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: ChatUpdateChatData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ChatRead
         /**
          * Validation Error
          */

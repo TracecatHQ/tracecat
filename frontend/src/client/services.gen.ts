@@ -84,6 +84,8 @@ import type {
   ChatStartChatTurnResponse,
   ChatStreamChatEventsData,
   ChatStreamChatEventsResponse,
+  ChatUpdateChatData,
+  ChatUpdateChatResponse,
   EditorFieldSchemaResponse,
   EditorListActionsData,
   EditorListActionsResponse,
@@ -3793,6 +3795,36 @@ export const chatGetChat = (
     query: {
       workspace_id: data.workspaceId,
     },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Chat
+ * Update chat properties.
+ * @param data The data for the request.
+ * @param data.chatId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns ChatRead Successful Response
+ * @throws ApiError
+ */
+export const chatUpdateChat = (
+  data: ChatUpdateChatData
+): CancelablePromise<ChatUpdateChatResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/chat/{chat_id}",
+    path: {
+      chat_id: data.chatId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
     errors: {
       422: "Validation Error",
     },

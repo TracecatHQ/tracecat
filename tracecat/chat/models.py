@@ -14,10 +14,6 @@ class ChatRequest(BaseModel):
     message: str = Field(..., description="User message to send to the agent")
     model_name: str = Field(default="gpt-4o-mini", description="AI model to use")
     model_provider: str = Field(default="openai", description="AI model provider")
-    actions: list[str] = Field(
-        default_factory=list,
-        description="List of actions the agent can use (e.g., 'core.cases.get_case')",
-    )
     instructions: str | None = Field(
         default=None, description="Optional instructions for the agent"
     )
@@ -49,6 +45,9 @@ class ChatCreate(BaseModel):
         ..., description="Type of entity this chat is associated with"
     )
     entity_id: UUID4 = Field(..., description="ID of the associated entity")
+    tools: list[str] | None = Field(
+        default=None, description="Tools available to the agent for this chat"
+    )
 
 
 class ChatRead(BaseModel):
@@ -61,6 +60,7 @@ class ChatRead(BaseModel):
         ..., description="Type of entity this chat is associated with"
     )
     entity_id: UUID4 = Field(..., description="ID of the associated entity")
+    tools: list[str] = Field(..., description="Tools available to the agent")
     created_at: datetime = Field(..., description="When the chat was created")
     updated_at: datetime = Field(..., description="When the chat was last updated")
 
@@ -78,3 +78,12 @@ class ChatListResponse(BaseModel):
 
     chats: list[ChatRead] = Field(..., description="List of chats")
     total: int = Field(..., description="Total number of chats matching the query")
+
+
+class ChatUpdate(BaseModel):
+    """Request model for updating chat properties."""
+
+    tools: list[str] | None = Field(
+        default=None, description="Tools available to the agent"
+    )
+    title: str | None = Field(default=None, description="Chat title")

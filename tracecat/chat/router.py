@@ -15,6 +15,7 @@ from tracecat.chat.models import (
     ChatRead,
     ChatRequest,
     ChatResponse,
+    ChatUpdate,
     ChatWithMessages,
 )
 from tracecat.chat.service import ChatService
@@ -48,6 +49,7 @@ async def create_chat(
         title=request.title,
         entity_type=request.entity_type,
         entity_id=request.entity_id,
+        tools=request.tools,
     )
     return ChatRead.model_validate(chat, from_attributes=True)
 
@@ -108,11 +110,36 @@ async def get_chat(
     )
 
 
+@router.patch("/{chat_id}")
+async def update_chat(
+    chat_id: str,
+    request: ChatUpdate,
+    role: WorkspaceUser,
+    session: AsyncDBSession,
+) -> ChatRead:
+    """Update chat properties."""
+    svc = ChatService(session, role)
+    chat = await svc.get_chat(chat_id)
+    if not chat:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Chat not found",
+        )
+
+    chat = await svc.update_chat(
+        chat,
+        tools=request.tools,
+        title=request.title,
+    )
+    return ChatRead.model_validate(chat, from_attributes=True)
+
+
 @router.post("/{chat_id}")
 async def start_chat_turn(
     chat_id: str,
     request: ChatRequest,
     role: WorkspaceUser,
+    session: AsyncDBSession,
 ) -> ChatResponse:
     """Start a new chat turn with an AI agent.
 
@@ -120,12 +147,20 @@ async def start_chat_turn(
     for real-time streaming of the agent's processing steps.
     """
 
+    # Load chat to get stored tools
+    svc = ChatService(session, role)
+    chat = await svc.get_chat(chat_id)
+    if not chat:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Chat not found",
+        )
     # Prepare agent arguments
     agent_args = {
         "user_prompt": request.message,
         "model_name": "gpt-4o",
         "model_provider": request.model_provider,
-        "actions": request.actions,
+        "actions": chat.tools,
         "workflow_run_id": chat_id,
     }
 
@@ -138,6 +173,7 @@ async def start_chat_turn(
 
     try:
         # Fire-and-forget execution using the agent function directly
+        # TODO: How to configure this properly??
         with secrets_manager.env_sandbox(
             {"OPENAI_API_KEY": os.environ["OPENAI_API_KEY"]}
         ):
