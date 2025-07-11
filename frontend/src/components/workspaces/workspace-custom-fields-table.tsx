@@ -192,9 +192,14 @@ export function WorkspaceCustomFieldsTable({
             variant="destructive"
             onClick={async () => {
               if (selectedField) {
-                await onDeleteField(selectedField.id)
+                try {
+                  await onDeleteField(selectedField.id)
+                  setSelectedField(null)
+                } catch (error) {
+                  console.error("Failed to delete field:", error)
+                  // Keep dialog open so user can see error and retry
+                }
               }
-              setSelectedField(null)
             }}
             disabled={isDeleting}
           >

@@ -34,8 +34,13 @@ export function OrgWorkspaceDeleteDialog({
 
   const handleConfirm = async () => {
     if (isConfirmValid) {
-      await onConfirm()
-      setConfirmText("")
+      try {
+        await onConfirm()
+        setConfirmText("")
+      } catch (error) {
+        console.error("Failed to delete workspace:", error)
+        // Keep dialog open and confirmText intact so user can retry
+      }
     }
   }
 

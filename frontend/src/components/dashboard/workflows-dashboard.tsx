@@ -29,7 +29,9 @@ export function WorkflowsDashboard({
     ViewMode.Tags
   )
   const workflowView = propWorkflowView ?? localWorkflowView
-  const onWorkflowViewChange = propOnWorkflowViewChange ?? setLocalWorkflowView
+  const onWorkflowViewChange =
+    propOnWorkflowViewChange ??
+    (propWorkflowView === undefined ? setLocalWorkflowView : () => {})
 
   // If we navigate to a tag that doesn't exist, redirect to the workflows page
   if (queryTag && !tags?.some((tag) => tag.name === queryTag)) {
