@@ -49,9 +49,7 @@ export function FolderViewToggle({
               size="icon"
               onClick={() =>
                 handleViewChange(
-                  view === ViewMode.Folders
-                    ? ViewMode.Tags
-                    : ViewMode.Folders
+                  view === ViewMode.Folders ? ViewMode.Tags : ViewMode.Folders
                 )
               }
               className="size-8 border-input text-muted-foreground hover:bg-muted/50"
@@ -67,9 +65,7 @@ export function FolderViewToggle({
           <TooltipContent>
             <p>
               Switch to{" "}
-              {view === ViewMode.Folders
-                ? ViewMode.Tags
-                : ViewMode.Folders}{" "}
+              {view === ViewMode.Folders ? ViewMode.Tags : ViewMode.Folders}{" "}
               view
             </p>
           </TooltipContent>

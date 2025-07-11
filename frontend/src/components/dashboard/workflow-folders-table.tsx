@@ -4,9 +4,8 @@ import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import type { Row } from "@tanstack/react-table"
 import { format, formatDistanceToNow } from "date-fns"
 import { CircleDot, FolderIcon, WorkflowIcon } from "lucide-react"
-import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
-import React, { useState } from "react"
+import { useState } from "react"
 import type {
   ApiError,
   FolderDirectoryItem,
@@ -17,7 +16,7 @@ import { DeleteWorkflowAlertDialog } from "@/components/dashboard/delete-workflo
 import { FolderDeleteAlertDialog } from "@/components/dashboard/folder-delete-dialog"
 import { FolderMoveDialog } from "@/components/dashboard/folder-move-dialog"
 import { FolderRenameDialog } from "@/components/dashboard/folder-rename-dialog"
-import { type ViewMode } from "@/components/dashboard/folder-view-toggle"
+import type { ViewMode } from "@/components/dashboard/folder-view-toggle"
 import {
   FolderActions,
   WorkflowActions,
@@ -43,7 +42,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { type DirectoryItem, useGetDirectoryItems } from "@/lib/hooks"
-import { capitalizeFirst, cn } from "@/lib/utils"
+import { capitalizeFirst } from "@/lib/utils"
 import { useAuth } from "@/providers/auth"
 import { useWorkspace } from "@/providers/workspace"
 
@@ -56,7 +55,7 @@ export function WorkflowFoldersTable({
 }) {
   const { workspaceId } = useWorkspace()
   const path = useSearchParams().get("path") || "/"
-  const segments = path.split("/").filter(Boolean)
+  const _segments = path.split("/").filter(Boolean)
 
   // We should read the structure directly from the backend
   // i.e. the backend should return us the

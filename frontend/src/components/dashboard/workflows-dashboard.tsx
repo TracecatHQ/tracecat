@@ -13,15 +13,21 @@ interface WorkflowsDashboardProps {
   onWorkflowViewChange?: (view: ViewMode) => void
 }
 
-export function WorkflowsDashboard({ workflowView: propWorkflowView, onWorkflowViewChange: propOnWorkflowViewChange }: WorkflowsDashboardProps) {
+export function WorkflowsDashboard({
+  workflowView: propWorkflowView,
+  onWorkflowViewChange: propOnWorkflowViewChange,
+}: WorkflowsDashboardProps) {
   const router = useRouter()
   const { workspaceId } = useWorkspace()
   const { tags } = useTags(workspaceId)
   const searchParams = useSearchParams()
   const queryTag = searchParams.get("tag")
-  
+
   // Use local state if props are not provided (for Next.js page components)
-  const [localWorkflowView, setLocalWorkflowView] = useLocalStorage("folder-view", ViewMode.Tags)
+  const [localWorkflowView, setLocalWorkflowView] = useLocalStorage(
+    "folder-view",
+    ViewMode.Tags
+  )
   const workflowView = propWorkflowView ?? localWorkflowView
   const onWorkflowViewChange = propOnWorkflowViewChange ?? setLocalWorkflowView
 
@@ -35,7 +41,10 @@ export function WorkflowsDashboard({ workflowView: propWorkflowView, onWorkflowV
     return (
       <div className="size-full overflow-auto">
         <div className="container h-full gap-8 py-8">
-          <WorkflowFoldersTable view={workflowView} setView={onWorkflowViewChange} />
+          <WorkflowFoldersTable
+            view={workflowView}
+            setView={onWorkflowViewChange}
+          />
         </div>
       </div>
     )

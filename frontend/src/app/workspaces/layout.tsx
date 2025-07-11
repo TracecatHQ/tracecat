@@ -4,11 +4,11 @@ import { ReactFlowProvider } from "@xyflow/react"
 import { LogOut } from "lucide-react"
 import Image from "next/image"
 import { useParams, usePathname } from "next/navigation"
-import React from "react"
 import TracecatIcon from "public/icon.png"
+import type React from "react"
 import { CenteredSpinner } from "@/components/loading/spinner"
-import { DynamicNavbar } from "@/components/nav/dynamic-nav"
 import { ControlsHeader } from "@/components/nav/controls-header"
+import { DynamicNavbar } from "@/components/nav/dynamic-nav"
 import { AppSidebar } from "@/components/sidebar/app-sidebar"
 import { Button } from "@/components/ui/button"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
@@ -55,7 +55,6 @@ export default function WorkspaceLayout({
   )
 }
 
-
 function WorkspaceChildren({ children }: { children: React.ReactNode }) {
   const params = useParams<{ workflowId?: string }>()
   const pathname = usePathname()
@@ -86,9 +85,7 @@ function WorkspaceChildren({ children }: { children: React.ReactNode }) {
       <SidebarInset>
         <div className="flex h-full flex-1 flex-col">
           <ControlsHeader />
-          <div className="flex-1 overflow-auto">
-            {children}
-          </div>
+          <div className="flex-1 overflow-auto">{children}</div>
         </div>
       </SidebarInset>
     </SidebarProvider>
