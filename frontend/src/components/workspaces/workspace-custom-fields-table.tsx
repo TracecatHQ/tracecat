@@ -101,7 +101,7 @@ export function WorkspaceCustomFieldsTable({
               </div>
             ),
             enableSorting: false,
-            enableHiding: true,
+            enableHiding: false,
           },
           {
             accessorKey: "nullable",
@@ -120,7 +120,7 @@ export function WorkspaceCustomFieldsTable({
               </div>
             ),
             enableSorting: true,
-            enableHiding: true,
+            enableHiding: false,
           },
           {
             accessorKey: "default",
@@ -137,7 +137,7 @@ export function WorkspaceCustomFieldsTable({
               </div>
             ),
             enableSorting: false,
-            enableHiding: true,
+            enableHiding: false,
           },
           {
             id: "actions",
