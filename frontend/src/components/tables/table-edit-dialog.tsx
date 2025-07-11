@@ -1,13 +1,11 @@
 "use client"
 
-import { ApiError, TableReadMinimal } from "@/client"
-import { useWorkspace } from "@/providers/workspace"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { PlusCircle } from "lucide-react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
-
-import { useUpdateTable } from "@/lib/hooks"
+import { ApiError, type TableReadMinimal } from "@/client"
+import { Spinner } from "@/components/loading/spinner"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -27,7 +25,8 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
-import { Spinner } from "@/components/loading/spinner"
+import { useUpdateTable } from "@/lib/hooks"
+import { useWorkspace } from "@/providers/workspace"
 
 const updateTableSchema = z.object({
   name: z

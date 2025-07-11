@@ -1,5 +1,5 @@
+import { type ReactFlowState, useStore } from "@xyflow/react"
 import { useMemo } from "react"
-import { ReactFlowState, useStore } from "@xyflow/react"
 
 // Selector to get the current zoom level from the store with a custom equality function
 // to only trigger updates when the zoom level crosses a threshold boundary

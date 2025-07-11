@@ -1,7 +1,6 @@
-import { $TriggerType, TriggerType } from "@/client"
 import { FilterIcon } from "lucide-react"
-
-import { useLocalStorage } from "@/lib/hooks"
+import { $TriggerType, type TriggerType } from "@/client"
+import { getTriggerTypeIcon } from "@/components/builder/events/events-workflow"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -11,7 +10,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { getTriggerTypeIcon } from "@/components/builder/events/events-workflow"
+import { useLocalStorage } from "@/lib/hooks"
 
 const AVAILABLE_TRIGGER_TYPES: readonly TriggerType[] = $TriggerType.enum
 export function EventsSidebarToolbar() {

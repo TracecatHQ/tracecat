@@ -1,6 +1,6 @@
-import { cn } from "@/lib/utils"
-import { Skeleton } from "@/components/ui/skeleton"
 import { CenteredSpinner } from "@/components/loading/spinner"
+import { Skeleton } from "@/components/ui/skeleton"
+import { cn } from "@/lib/utils"
 
 export function SkeletonFormLoading({
   numPanels = 10,

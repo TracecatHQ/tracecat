@@ -1,10 +1,9 @@
 "use client"
 
-import { useEffect } from "react"
 import { useRouter } from "next/navigation"
-
-import { useWorkspaceManager } from "@/lib/hooks"
+import { useEffect } from "react"
 import { CenteredSpinner } from "@/components/loading/spinner"
+import { useWorkspaceManager } from "@/lib/hooks"
 
 export default function WorkspacesPage() {
   const { workspaces, createWorkspace, getLastWorkspaceId } =

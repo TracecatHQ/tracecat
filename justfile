@@ -29,12 +29,13 @@ lint-app:
 	ruff check
 
 lint-fix-ui:
-	cd frontend && pnpm lint:fix && pnpm format:write && cd ..
+	cd frontend && pnpm check && cd ..
 lint-fix-app:
 	ruff check . && ruff format .
 
 lint: lint-ui lint-app
 lint-fix: lint-fix-ui lint-fix-app
+fix: lint-fix
 
 mypy path:
 	mypy --ignore-missing-imports {{path}}

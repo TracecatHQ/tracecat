@@ -2,29 +2,23 @@
 
 import "react18-json-view/src/style.css"
 
-import React from "react"
-import {
-  $WebhookMethod,
-  ApiError,
-  WebhookMethod,
-  WebhookRead,
-  WorkflowRead,
-} from "@/client"
-import { useWorkflow } from "@/providers/workflow"
-import { useWorkspace } from "@/providers/workspace"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { CheckIcon, DotsHorizontalIcon } from "@radix-ui/react-icons"
 import { CalendarClockIcon, PlusCircleIcon, WebhookIcon } from "lucide-react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
-
-import { useSchedules, useUpdateWebhook } from "@/lib/hooks"
 import {
-  durationSchema,
-  durationToHumanReadable,
-  durationToISOString,
-} from "@/lib/time"
-import { cn } from "@/lib/utils"
+  $WebhookMethod,
+  ApiError,
+  type WebhookMethod,
+  type WebhookRead,
+  type WorkflowRead,
+} from "@/client"
+import { TriggerTypename } from "@/components/builder/canvas/trigger-node"
+import { CopyButton } from "@/components/copy-button"
+import { getIcon } from "@/components/icons"
+import { CenteredSpinner } from "@/components/loading/spinner"
+import { AlertNotification } from "@/components/notifications"
 import {
   Accordion,
   AccordionContent,
@@ -89,11 +83,15 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
-import { TriggerTypename } from "@/components/builder/canvas/trigger-node"
-import { CopyButton } from "@/components/copy-button"
-import { getIcon } from "@/components/icons"
-import { CenteredSpinner } from "@/components/loading/spinner"
-import { AlertNotification } from "@/components/notifications"
+import { useSchedules, useUpdateWebhook } from "@/lib/hooks"
+import {
+  durationSchema,
+  durationToHumanReadable,
+  durationToISOString,
+} from "@/lib/time"
+import { cn } from "@/lib/utils"
+import { useWorkflow } from "@/providers/workflow"
+import { useWorkspace } from "@/providers/workspace"
 
 const HTTP_METHODS: readonly WebhookMethod[] = $WebhookMethod.enum
 

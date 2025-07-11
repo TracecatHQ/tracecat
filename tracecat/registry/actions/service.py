@@ -7,7 +7,7 @@ from pydantic import UUID4, ValidationError
 from pydantic_core import ErrorDetails, to_jsonable_python
 from sqlalchemy import Boolean
 from sqlmodel import cast, func, or_, select
-from tracecat_registry import RegistrySecret
+from tracecat_registry import RegistrySecretType, RegistrySecretTypeValidator
 
 from tracecat import config
 from tracecat.db.schemas import RegistryAction, RegistryRepository
@@ -323,7 +323,7 @@ class RegistryActionsService(BaseService):
 
     async def fetch_all_action_secrets(
         self, action: RegistryAction
-    ) -> set[RegistrySecret]:
+    ) -> set[RegistrySecretType]:
         """Recursively fetch all secrets from the action and its template steps.
 
         Args:
@@ -336,7 +336,10 @@ class RegistryActionsService(BaseService):
         impl = RegistryActionImplValidator.validate_python(action.implementation)
         if impl.type == "udf":
             if action.secrets:
-                secrets.update(RegistrySecret(**secret) for secret in action.secrets)
+                secrets.update(
+                    RegistrySecretTypeValidator.validate_python(secret)
+                    for secret in action.secrets
+                )
         elif impl.type == "template":
             ta = impl.template_action
             if ta is None:

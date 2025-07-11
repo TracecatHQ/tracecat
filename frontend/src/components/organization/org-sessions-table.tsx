@@ -1,12 +1,13 @@
 "use client"
 
-import { useCallback, useState } from "react"
-import { SessionRead } from "@/client"
-import { useAuth } from "@/providers/auth"
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
-
-import { getRelativeTime } from "@/lib/event-history"
-import { useSessions } from "@/lib/hooks"
+import { useCallback, useState } from "react"
+import type { SessionRead } from "@/client"
+import {
+  DataTable,
+  DataTableColumnHeader,
+  type DataTableToolbarProps,
+} from "@/components/data-table"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -27,11 +28,9 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import {
-  DataTable,
-  DataTableColumnHeader,
-  type DataTableToolbarProps,
-} from "@/components/data-table"
+import { getRelativeTime } from "@/lib/event-history"
+import { useSessions } from "@/lib/hooks"
+import { useAuth } from "@/providers/auth"
 
 export function OrgSessionsTable() {
   const [selectedSession, setSelectedSession] = useState<SessionRead | null>(

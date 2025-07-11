@@ -1,10 +1,9 @@
 import Image from "next/image"
 import Link from "next/link"
 import TracecatIcon from "public/icon.png"
-
-import { siteConfig } from "@/config/site"
 import { Icons } from "@/components/icons"
 import { AlertNotification } from "@/components/notifications"
+import { siteConfig } from "@/config/site"
 
 export default async function Page() {
   return (

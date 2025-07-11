@@ -1,10 +1,9 @@
 "use client"
 
-import * as React from "react"
 import {
-  Column,
-  ColumnDef,
-  ColumnFiltersState,
+  type Column,
+  type ColumnDef,
+  type ColumnFiltersState,
   flexRender,
   getCoreRowModel,
   getFacetedRowModel,
@@ -12,15 +11,23 @@ import {
   getFilteredRowModel,
   getPaginationRowModel,
   getSortedRowModel,
-  Row,
-  SortingState,
-  TableState,
+  type Row,
+  type SortingState,
+  type TableState,
   useReactTable,
-  VisibilityState,
+  type VisibilityState,
 } from "@tanstack/react-table"
 import { AlertTriangleIcon } from "lucide-react"
-
-import { useLocalStorage } from "@/lib/hooks"
+import * as React from "react"
+import AuxClickMenu, {
+  type AuxClickMenuOptionProps,
+} from "@/components/aux-click-menu"
+import {
+  DataTablePagination,
+  DataTableToolbar,
+  type ServerSidePaginationProps,
+} from "@/components/data-table"
+import { Skeleton } from "@/components/ui/skeleton"
 import {
   Table,
   TableBody,
@@ -29,13 +36,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import AuxClickMenu, {
-  AuxClickMenuOptionProps,
-} from "@/components/aux-click-menu"
-import { DataTablePagination, DataTableToolbar } from "@/components/data-table"
-import { CenteredSpinner } from "@/components/loading/spinner"
+import { useLocalStorage } from "@/lib/hooks"
 
-import { DataTableToolbarProps } from "./toolbar"
+import type { DataTableToolbarProps } from "./toolbar"
 
 export type TableCol<TData> = {
   table: ReturnType<typeof useReactTable<TData>>
@@ -56,6 +59,7 @@ interface DataTableProps<TData, TValue> {
   initialColumnVisibility?: VisibilityState
   tableId?: string
   onDeleteRows?: (selectedRows: Row<TData>[]) => void
+  serverSidePagination?: ServerSidePaginationProps
 }
 
 export function DataTable<TData, TValue>({
@@ -73,6 +77,7 @@ export function DataTable<TData, TValue>({
   initialColumnVisibility,
   tableId,
   onDeleteRows,
+  serverSidePagination,
 }: DataTableProps<TData, TValue>) {
   const [tableState, setTableState] = useLocalStorage<Partial<TableState>>(
     `table-state:${tableId}`,
@@ -115,6 +120,12 @@ export function DataTable<TData, TValue>({
       rowSelection,
       columnFilters,
     },
+    initialState: {
+      pagination: {
+        pageSize: serverSidePagination?.pageSize ?? data?.length ?? 10,
+        pageIndex: serverSidePagination?.currentPage ?? 0,
+      },
+    },
     enableRowSelection: true,
     onRowSelectionChange: setRowSelection,
     onSortingChange: setSorting,
@@ -127,6 +138,13 @@ export function DataTable<TData, TValue>({
     getFacetedRowModel: getFacetedRowModel(),
     getFacetedUniqueValues: getFacetedUniqueValues(),
   })
+
+  React.useEffect(() => {
+    if (serverSidePagination) {
+      table.setPageSize(serverSidePagination.pageSize)
+      table.setPageIndex(serverSidePagination.currentPage)
+    }
+  }, [serverSidePagination])
 
   return (
     <div>
@@ -173,6 +191,10 @@ export function DataTable<TData, TValue>({
                 onClickRow={onClickRow}
                 emptyMessage={emptyMessage}
                 errorMessage={errorMessage}
+                pageSize={
+                  serverSidePagination?.pageSize ??
+                  table.getState().pagination.pageSize
+                }
               />
             </TableBody>
           </Table>
@@ -180,6 +202,7 @@ export function DataTable<TData, TValue>({
         <DataTablePagination
           table={table}
           showSelectedRows={showSelectedRows}
+          serverSide={serverSidePagination}
         />
       </div>
     </div>
@@ -194,6 +217,7 @@ function TableContents<TData>({
   onClickRow,
   emptyMessage = "No results.",
   errorMessage = "Failed to fetch data",
+  pageSize,
 }: {
   isLoading?: boolean
   error?: Error | null
@@ -202,17 +226,23 @@ function TableContents<TData>({
   onClickRow?: (row: Row<TData>) => () => void
   emptyMessage?: string
   errorMessage?: string
+  pageSize?: number
 }) {
   if (isLoading) {
+    // Show skeleton rows equivalent to page size
+    const skeletonRowCount = pageSize || 10
     return (
-      <TableRow>
-        <TableCell
-          colSpan={colSpan}
-          className="font-sm h-24 text-center text-xs text-muted-foreground"
-        >
-          <CenteredSpinner />
-        </TableCell>
-      </TableRow>
+      <>
+        {Array.from({ length: skeletonRowCount }).map((_, index) => (
+          <TableRow key={`skeleton-${index}`}>
+            {Array.from({ length: colSpan }).map((_, cellIndex) => (
+              <TableCell key={`skeleton-cell-${cellIndex}`} className="py-3">
+                <Skeleton className="h-4 w-full" />
+              </TableCell>
+            ))}
+          </TableRow>
+        ))}
+      </>
     )
   }
   if (error) {

@@ -3,7 +3,7 @@ import Papa from "papaparse"
 export const SqlTypeEnum = [
   "TEXT",
   "INTEGER",
-  "DECIMAL",
+  "NUMERIC",
   "BOOLEAN",
   "JSONB",
 ] as const

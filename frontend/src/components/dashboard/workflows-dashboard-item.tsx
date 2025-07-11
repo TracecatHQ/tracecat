@@ -1,5 +1,5 @@
 import Link from "next/link"
-import { WorkflowReadMinimal } from "@/client"
+import type { WorkflowReadMinimal } from "@/client"
 
 import { cn } from "@/lib/utils"
 

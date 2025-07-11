@@ -1,9 +1,7 @@
 "use client"
 
-import React, { useState } from "react"
-
-import { client, type Client } from "@/lib/api"
-import { cn } from "@/lib/utils"
+import type React from "react"
+import { useState } from "react"
 import {
   ContextMenu,
   ContextMenuCheckboxItem,
@@ -19,6 +17,8 @@ import {
   ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu"
+import { type Client, client } from "@/lib/api"
+import { cn } from "@/lib/utils"
 
 export interface BaseAuxClickMenuOption<TData> {
   type: "item" | "sub" | "radio" | "checkbox" | "separator"

@@ -12,6 +12,8 @@ import uvloop
 from ray.exceptions import RayTaskError
 from ray.runtime_env import RuntimeEnv
 from sqlmodel.ext.asyncio.session import AsyncSession
+from tracecat_registry import RegistrySecretType
+from tracecat_registry._internal.models import RegistryOAuthSecret
 
 from tracecat import config
 from tracecat.auth.sandbox import AuthSandbox
@@ -34,6 +36,9 @@ from tracecat.expressions.eval import (
     get_iterables_from_expression,
 )
 from tracecat.git import prepare_git_url
+from tracecat.integrations.enums import OAuthGrantType
+from tracecat.integrations.models import ProviderKey
+from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
 from tracecat.parse import get_pyproject_toml_required_deps, traverse_leaves
 from tracecat.registry.actions.models import BoundRegistryAction
@@ -194,6 +199,86 @@ async def run_template_action(
     )
 
 
+async def get_action_secrets(
+    args: ArgsT,
+    action_secrets: set[RegistrySecretType],
+) -> dict[str, Any]:
+    # Handle secrets from the task args
+    args_secrets = extract_templated_secrets(args)
+    # Get oauth integrations from the action secrets
+    args_oauth_secrets: set[str] = set()
+    args_basic_secrets: set[str] = set()
+    for secret in args_secrets:
+        if secret.endswith("_oauth"):
+            args_oauth_secrets.add(secret)
+        else:
+            args_basic_secrets.add(secret)
+
+    # Handle secrets from the action
+    required_basic_secrets: set[str] = set()
+    optional_basic_secrets: set[str] = set()
+    oauth_secrets: dict[ProviderKey, RegistryOAuthSecret] = {}
+    for secret in action_secrets:
+        if secret.type == "oauth":
+            oauth_secrets[
+                ProviderKey(
+                    id=secret.provider_id, grant_type=OAuthGrantType(secret.grant_type)
+                )
+            ] = secret
+        elif secret.optional:
+            optional_basic_secrets.add(secret.name)
+        else:
+            required_basic_secrets.add(secret.name)
+
+    # Get secrets to fetch
+    all_basic_secrets = (
+        required_basic_secrets | args_basic_secrets | optional_basic_secrets
+    )
+    logger.info(
+        "Handling secrets",
+        required_basic_secrets=required_basic_secrets,
+        optional_basic_secrets=optional_basic_secrets,
+        oauth_provider_ids=oauth_secrets,
+        args_secrets=args_secrets,
+        secrets_to_fetch=all_basic_secrets,
+    )
+
+    # Get all basic secrets in one call
+    secrets: dict[str, Any] = {}
+    async with AuthSandbox(
+        secrets=all_basic_secrets,
+        environment=get_runtime_env(),
+        optional_secrets=optional_basic_secrets,
+    ) as sandbox:
+        secrets |= sandbox.secrets.copy()
+
+    # Get oauth integrations
+    try:
+        if oauth_secrets:
+            async with IntegrationService.with_session() as service:
+                oauth_integrations = await service.list_integrations(
+                    provider_keys=set(oauth_secrets.keys())
+                )
+                for integration in oauth_integrations:
+                    await service.refresh_token_if_needed(integration)
+                    access_token = await service.get_access_token(integration)
+                    secret = oauth_secrets[
+                        ProviderKey(
+                            id=integration.provider_id,
+                            grant_type=integration.grant_type,
+                        )
+                    ]
+                    # SECRETS.<provider_id>.[<prefix>_[SERVICE|USER]_TOKEN]
+                    # NOTE: We are overriding the provider_id key here assuming its unique
+                    # <prefix> is the provider_id in uppercase.
+                    secrets[integration.provider_id] = {
+                        secret.token_name: access_token.get_secret_value()
+                    }
+    except Exception as e:
+        logger.warning("Could not get oauth secrets", error=e)
+    return secrets
+
+
 async def run_action_from_input(input: RunActionInput, role: Role) -> Any:
     """Main entrypoint for running an action."""
     ctx_role.set(role)
@@ -211,27 +296,7 @@ async def run_action_from_input(input: RunActionInput, role: Role) -> Any:
         action_secrets = await service.fetch_all_action_secrets(reg_action)
         action = service.get_bound(reg_action, mode="execution")
 
-    args_secrets = set(extract_templated_secrets(task.args))
-    optional_secrets = {s.name for s in action_secrets if s.optional}
-    required_secrets = {s.name for s in action_secrets if not s.optional}
-    secrets_to_fetch = required_secrets | args_secrets | optional_secrets
-
-    logger.info(
-        "Handling secrets",
-        required_secrets=required_secrets,
-        optional_secrets=optional_secrets,
-        args_secrets=args_secrets,
-        secrets_to_fetch=secrets_to_fetch,
-    )
-
-    # Get all secrets in one call
-    async with AuthSandbox(
-        secrets=secrets_to_fetch,
-        environment=get_runtime_env(),
-        optional_secrets=optional_secrets,
-    ) as sandbox:
-        secrets = sandbox.secrets.copy()
-
+    secrets = await get_action_secrets(args=task.args, action_secrets=action_secrets)
     if config.TRACECAT__UNSAFE_DISABLE_SM_MASKING:
         log.warning(
             "Secrets masking is disabled. This is unsafe in production workflows."
@@ -288,18 +353,26 @@ def flatten_secrets(secrets: dict[str, Any]):
 
     For example, if you have the secret `my_secret.KEY`, then you access this in the UDF
     as `KEY`. This means you cannot have a clashing key in different secrets.
+
+    OAuth secrets are handled differently - they're stored as direct string values
+    and are accessible as environment variables using their provider_id.
     """
     flattened_secrets: dict[str, str] = {}
     for name, keyvalues in secrets.items():
-        for key, value in keyvalues.items():
-            if key in flattened_secrets:
-                raise ValueError(
-                    f"Key {key!r} is duplicated in {name!r}! "
-                    "Please ensure only one secret with a given name is set. "
-                    "e.g. If you have `first_secret.KEY` set, then you cannot "
-                    "also set `second_secret.KEY` as `KEY` is duplicated."
-                )
-            flattened_secrets[key] = value
+        if name.endswith("_oauth"):
+            # OAuth secrets are stored as direct string values
+            flattened_secrets[name] = str(keyvalues)
+        else:
+            # Regular secrets are stored as key-value dictionaries
+            for key, value in keyvalues.items():
+                if key in flattened_secrets:
+                    raise ValueError(
+                        f"Key {key!r} is duplicated in {name!r}! "
+                        "Please ensure only one secret with a given name is set. "
+                        "e.g. If you have `first_secret.KEY` set, then you cannot "
+                        "also set `second_secret.KEY` as `KEY` is duplicated."
+                    )
+                flattened_secrets[key] = value
     return flattened_secrets
 
 
@@ -319,6 +392,10 @@ async def run_action_on_ray_cluster(
     """
     # Initialize runtime environment variables
     env_vars = {"GIT_SSH_COMMAND": ctx.ssh_command} if ctx.ssh_command else {}
+    # Override UV_SYSTEM_PYTHON to allow uv to respect Ray's virtual environment
+    # The global UV_SYSTEM_PYTHON=1 in Dockerfile forces system Python usage,
+    # but Ray creates its own virtual environment and expects uv to use it
+    env_vars["UV_SYSTEM_PYTHON"] = "false"
     additional_vars: dict[str, Any] = {}
 
     # Add git URL to pip dependencies if SHA is present
@@ -351,9 +428,9 @@ async def run_action_on_ray_cluster(
         )
         pip_deps.extend([local_repo_path, *required_deps])
 
-    # Add pip dependencies to runtime env
+    # Add pip dependencies to runtime env using uv
     if pip_deps:
-        additional_vars["pip"] = pip_deps
+        additional_vars["uv"] = pip_deps
 
     runtime_env = RuntimeEnv(env_vars=env_vars, **additional_vars)
 

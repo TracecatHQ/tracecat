@@ -1,10 +1,25 @@
-import { clsx, type ClassValue } from "clsx"
+import { type ClassValue, clsx } from "clsx"
 import { twMerge } from "tailwind-merge"
 import YAML from "yaml"
+import type { IntegrationOAuthCallback } from "@/client"
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
+
+// Linear-style design tokens
+export const linearStyles = {
+  input: {
+    base: "h-7 border-0 bg-transparent px-2 py-1 text-xs transition-colors",
+    interactive:
+      "hover:bg-muted/50 focus:bg-muted/70 focus:outline-none focus:ring-0 focus-visible:ring-0",
+    full: "h-7 border-0 bg-transparent px-2 py-1 text-xs hover:bg-muted/50 focus:bg-muted/70 focus:outline-none focus:ring-0 focus-visible:ring-0 transition-colors",
+  },
+  trigger: {
+    base: "w-auto border-none shadow-none px-1.5 py-0.5 h-auto bg-transparent rounded focus:ring-0 text-xs [&>svg]:hidden transition-colors duration-150",
+    hover: "hover:bg-muted/50",
+  },
+} as const
 export const copyToClipboard = async ({
   target,
   message,
@@ -107,4 +122,16 @@ export function shortTimeAgo(date: Date) {
  */
 export function reconstructActionType(type: string) {
   return type.replaceAll("__", ".")
+}
+
+export function isIntegrationOAuthCallback(
+  obj: unknown
+): obj is IntegrationOAuthCallback {
+  return (
+    typeof obj === "object" &&
+    obj !== null &&
+    "status" in obj &&
+    "provider_id" in obj &&
+    "redirect_url" in obj
+  )
 }

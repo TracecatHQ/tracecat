@@ -1,14 +1,18 @@
 "use client"
 
-import React, { PropsWithChildren } from "react"
-import { SecretCreate } from "@/client"
 import { zodResolver } from "@hookform/resolvers/zod"
-import { DialogProps } from "@radix-ui/react-dialog"
+import type { DialogProps } from "@radix-ui/react-dialog"
 import { KeyRoundIcon, PlusCircle, Trash2Icon } from "lucide-react"
-import { ArrayPath, FieldPath, useFieldArray, useForm } from "react-hook-form"
+import React, { type PropsWithChildren } from "react"
+import {
+  type ArrayPath,
+  type FieldPath,
+  useFieldArray,
+  useForm,
+} from "react-hook-form"
 import { z } from "zod"
-
-import { useOrgSecrets } from "@/lib/hooks"
+import type { SecretCreate } from "@/client"
+import { CreateSecretTooltip } from "@/components/secrets/create-secret-tooltip"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -30,7 +34,7 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { toast } from "@/components/ui/use-toast"
-import { CreateSecretTooltip } from "@/components/secrets/create-secret-tooltip"
+import { useOrgSecrets } from "@/lib/hooks"
 
 interface CreateOrgSecretDialogProps
   extends PropsWithChildren<

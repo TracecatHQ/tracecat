@@ -1,17 +1,13 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
-import { useParams } from "next/navigation"
-import { ApiError, TableRead } from "@/client"
-import { useWorkspace } from "@/providers/workspace"
 import { zodResolver } from "@hookform/resolvers/zod"
-import { DialogProps } from "@radix-ui/react-dialog"
+import type { DialogProps } from "@radix-ui/react-dialog"
+import { useParams } from "next/navigation"
+import { useCallback, useEffect, useState } from "react"
 import { FormProvider, useForm, useFormContext } from "react-hook-form"
 import { z } from "zod"
-
-import { TracecatApiError } from "@/lib/errors"
-import { useGetTable, useImportCsv } from "@/lib/hooks"
-import { CsvPreviewData, getCsvPreview } from "@/lib/tables"
+import { ApiError, type TableRead } from "@/client"
+import { Spinner } from "@/components/loading/spinner"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -45,7 +41,10 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { toast } from "@/components/ui/use-toast"
-import { Spinner } from "@/components/loading/spinner"
+import type { TracecatApiError } from "@/lib/errors"
+import { useGetTable, useImportCsv } from "@/lib/hooks"
+import { type CsvPreviewData, getCsvPreview } from "@/lib/tables"
+import { useWorkspace } from "@/providers/workspace"
 
 const BYTES_PER_MB = 1024 * 1024
 const FILE_SIZE_LIMIT_MB = 5

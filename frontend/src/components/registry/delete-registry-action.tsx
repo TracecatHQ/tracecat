@@ -1,9 +1,8 @@
 "use client"
 
-import React, { useState } from "react"
-import { RegistryActionReadMinimal } from "@/client"
-
-import { useRegistryActions } from "@/lib/hooks"
+import type React from "react"
+import { useState } from "react"
+import type { RegistryActionReadMinimal } from "@/client"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -17,6 +16,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Input } from "@/components/ui/input"
 import { toast } from "@/components/ui/use-toast"
+import { useRegistryActions } from "@/lib/hooks"
 
 export function DeleteRegistryActionAlertDialog({
   selectedAction,

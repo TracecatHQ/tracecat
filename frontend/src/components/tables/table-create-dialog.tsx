@@ -1,14 +1,10 @@
 "use client"
 
-import { ApiError } from "@/client"
-import { useWorkspace } from "@/providers/workspace"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { PlusCircle, Trash2Icon } from "lucide-react"
 import { useFieldArray, useForm } from "react-hook-form"
 import { z } from "zod"
-
-import { useCreateTable } from "@/lib/hooks"
-import { SqlTypeEnum } from "@/lib/tables"
+import { ApiError } from "@/client"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -35,6 +31,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { useCreateTable } from "@/lib/hooks"
+import { SqlTypeEnum } from "@/lib/tables"
+import { useWorkspace } from "@/providers/workspace"
 
 const createTableSchema = z.object({
   name: z
@@ -56,11 +55,6 @@ const createTableSchema = z.object({
 })
 
 type CreateTableSchema = z.infer<typeof createTableSchema>
-
-interface SelectItem {
-  label: string
-  value: string
-}
 
 export function CreateTableDialog({
   open,

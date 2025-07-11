@@ -1,7 +1,6 @@
-import * as React from "react"
-
-import { cn } from "@/lib/utils"
+import type * as React from "react"
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
+import { cn } from "@/lib/utils"
 
 interface SlidingPanelProps
   extends React.PropsWithChildren<React.HTMLAttributes<HTMLDivElement>> {

@@ -1,4 +1,4 @@
-import { Block } from "@blocknote/core"
+import type { Block } from "@blocknote/core"
 
 import { getSpacedBlocks } from "@/lib/rich-text-editor"
 

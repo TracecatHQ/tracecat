@@ -1,7 +1,5 @@
 "use client"
 
-import React from "react"
-import { WorkflowEventType, WorkflowExecutionEvent } from "@/client"
 import {
   AlarmClockOffIcon,
   BookCheckIcon,
@@ -14,9 +12,11 @@ import {
   PlayIcon,
   WorkflowIcon,
 } from "lucide-react"
-
-import { useWorkflowExecution } from "@/lib/hooks"
-import { cn, undoSlugify } from "@/lib/utils"
+import type React from "react"
+import type { WorkflowEventType, WorkflowExecutionEvent } from "@/client"
+import { CenteredSpinner } from "@/components/loading/spinner"
+import NoContent from "@/components/no-content"
+import { AlertNotification } from "@/components/notifications"
 import { Badge } from "@/components/ui/badge"
 import { Button, buttonVariants } from "@/components/ui/button"
 import {
@@ -24,9 +24,8 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { CenteredSpinner } from "@/components/loading/spinner"
-import NoContent from "@/components/no-content"
-import { AlertNotification } from "@/components/notifications"
+import { useWorkflowExecution } from "@/lib/hooks"
+import { cn, undoSlugify } from "@/lib/utils"
 
 import "react18-json-view/src/style.css"
 

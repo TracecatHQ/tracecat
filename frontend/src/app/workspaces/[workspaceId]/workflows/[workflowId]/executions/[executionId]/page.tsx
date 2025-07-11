@@ -1,7 +1,7 @@
 "use client"
 
 import React from "react"
-import { WorkflowExecutionEvent } from "@/client"
+import type { WorkflowExecutionEvent } from "@/client"
 
 import {
   ResizableHandle,
@@ -11,13 +11,12 @@ import {
 
 import "react18-json-view/src/style.css"
 
-import { useParams } from "next/navigation"
 import { History } from "lucide-react"
-
-import { formatExecutionId } from "@/lib/event-history"
+import { useParams } from "next/navigation"
 import { WorkflowExecutionEventDetailView } from "@/components/executions/event-details"
 import { WorkflowExecutionEventHistory } from "@/components/executions/event-history"
 import { SectionHead } from "@/components/executions/section"
+import { formatExecutionId } from "@/lib/event-history"
 
 const defaultLayout = [15, 15, 70]
 

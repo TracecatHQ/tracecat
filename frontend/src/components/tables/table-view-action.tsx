@@ -1,11 +1,11 @@
 "use client"
 
-import React, { useState } from "react"
-import { TableRowRead } from "@/client"
-import { useAuth } from "@/providers/auth"
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
-import { Row } from "@tanstack/react-table"
+import type { Row } from "@tanstack/react-table"
 import { CopyIcon, Trash2Icon } from "lucide-react"
+import { useState } from "react"
+import type { TableRowRead } from "@/client"
+import { TableViewActionDeleteDialog } from "@/components/tables/table-view-action-delete-dialog"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -15,7 +15,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { TableViewActionDeleteDialog } from "@/components/tables/table-view-action-delete-dialog"
+import { useAuth } from "@/providers/auth"
 
 type TableViewActionType = "delete" | "insert" | null
 

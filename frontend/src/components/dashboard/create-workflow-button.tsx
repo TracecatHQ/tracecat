@@ -1,9 +1,5 @@
 "use client"
 
-import { useState } from "react"
-import { useRouter } from "next/navigation"
-import { ApiError } from "@/client"
-import { useWorkspace } from "@/providers/workspace"
 import { zodResolver } from "@hookform/resolvers/zod"
 import {
   BracesIcon,
@@ -11,12 +7,12 @@ import {
   FolderIcon,
   PlusCircleIcon,
 } from "lucide-react"
+import { useRouter } from "next/navigation"
+import { useState } from "react"
 import { useForm } from "react-hook-form"
 import YAML from "yaml"
 import { z } from "zod"
-
-import { TracecatApiError } from "@/lib/errors"
-import { useFolders, useWorkflowManager } from "@/lib/hooks"
+import { ApiError } from "@/client"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
@@ -44,6 +40,9 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
+import type { TracecatApiError } from "@/lib/errors"
+import { useFolders, useWorkflowManager } from "@/lib/hooks"
+import { useWorkspace } from "@/providers/workspace"
 
 const importFormSchema = z.object({
   file: z.instanceof(File).refine((file) => file.size <= 5000000, {

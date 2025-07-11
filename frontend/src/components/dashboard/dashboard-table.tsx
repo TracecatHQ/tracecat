@@ -1,17 +1,21 @@
 "use client"
 
-import React, { useState } from "react"
-import { useRouter, useSearchParams } from "next/navigation"
-import { TagRead, WorkflowReadMinimal } from "@/client"
-import { useAuth } from "@/providers/auth"
-import { useWorkspace } from "@/providers/workspace"
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
-import { Row } from "@tanstack/react-table"
+import type { Row } from "@tanstack/react-table"
 import { format, formatDistanceToNow } from "date-fns"
 import { CircleDot } from "lucide-react"
-
-import { useWorkflowManager } from "@/lib/hooks"
-import { capitalizeFirst } from "@/lib/utils"
+import { useRouter, useSearchParams } from "next/navigation"
+import { useState } from "react"
+import type { TagRead, WorkflowReadMinimal } from "@/client"
+import { DeleteWorkflowAlertDialog } from "@/components/dashboard/delete-workflow-dialog"
+import { ViewMode } from "@/components/dashboard/folder-view-toggle"
+import { WorkflowActions } from "@/components/dashboard/table-actions"
+import { NO_DATA } from "@/components/dashboard/table-common"
+import {
+  DataTable,
+  DataTableColumnHeader,
+  type DataTableToolbarProps,
+} from "@/components/data-table"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -25,15 +29,10 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { DeleteWorkflowAlertDialog } from "@/components/dashboard/delete-workflow-dialog"
-import { ViewMode } from "@/components/dashboard/folder-view-toggle"
-import { WorkflowActions } from "@/components/dashboard/table-actions"
-import { NO_DATA } from "@/components/dashboard/table-common"
-import {
-  DataTable,
-  DataTableColumnHeader,
-  type DataTableToolbarProps,
-} from "@/components/data-table"
+import { useWorkflowManager } from "@/lib/hooks"
+import { capitalizeFirst } from "@/lib/utils"
+import { useAuth } from "@/providers/auth"
+import { useWorkspace } from "@/providers/workspace"
 
 export function WorkflowsDashboardTable() {
   const router = useRouter()

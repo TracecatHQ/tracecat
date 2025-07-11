@@ -79,11 +79,11 @@
   }
 
   .editor-wrapper .monaco-editor {
-    border-radius: 10px;
+    border-radius: 8px;
   }
   .editor-wrapper .overflow-guard {
-    border-radius: 10px;
-    border: 1px solid #d9d9d9;
+    border-radius: 8px;
+    border: 1px solid hsl(var(--border));
   }
   /* Custom styles for the Monaco editor suggestion widget */
   .editor-wrapper .monaco-editor .suggest-widget {
@@ -115,40 +115,37 @@
   }
 
   /* Style the highlighted/selected suggestion */
-  .editor-wrapper
-    .monaco-editor
+  .editor-wrapper .monaco-editor
     .suggest-widget
     .monaco-list
     .monaco-list-row.focused {
-    background-color: #d5f0ff !important; /* Selected background */
-    color: black !important; /* Selected text color */
+    background-color: hsl(var(--accent)) !important;
+    color: hsl(var(--accent-foreground)) !important;
   }
 
   /* Style the matching text highlight */
-  .editor-wrapper
-    .monaco-editor
+  .editor-wrapper .monaco-editor
     .suggest-widget
     .monaco-list
     .monaco-list-row.focused
     .highlight {
-    color: black !important; /* Highlighted text in selected item */
+    color: hsl(var(--accent-foreground)) !important;
     font-weight: bold;
   }
 
   /* Style the matching text in non-selected items */
-  .editor-wrapper
-    .monaco-editor
+  .editor-wrapper .monaco-editor
     .suggest-widget
     .monaco-list
     .monaco-list-row
     .highlight {
-    color: #0078d4 !important; /* Highlighted text color */
+    color: hsl(var(--primary)) !important;
     font-weight: bold;
   }
   /* Hover styles */
   .editor-wrapper .monaco-editor .monaco-hover {
-    background-color: #ffffff;
-    border: 1px solid #d9d9d9;
+    background-color: hsl(var(--popover));
+    border: 1px solid hsl(var(--border));
     border-radius: 4px;
     box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
   }

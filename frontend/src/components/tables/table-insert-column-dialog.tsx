@@ -1,16 +1,12 @@
 "use client"
 
-import { useParams } from "next/navigation"
-import { ApiError } from "@/client"
-import { useWorkspace } from "@/providers/workspace"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { PlusCircle } from "lucide-react"
+import { useParams } from "next/navigation"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
-
-import { TracecatApiError } from "@/lib/errors"
-import { useGetTable, useInsertColumn } from "@/lib/hooks"
-import { SqlTypeEnum } from "@/lib/tables"
+import { ApiError } from "@/client"
+import { Spinner } from "@/components/loading/spinner"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -36,7 +32,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Spinner } from "@/components/loading/spinner"
+import type { TracecatApiError } from "@/lib/errors"
+import { useGetTable, useInsertColumn } from "@/lib/hooks"
+import { SqlTypeEnum } from "@/lib/tables"
+import { useWorkspace } from "@/providers/workspace"
 
 // Update schema for column creation
 const createInsertTableColumnSchema = z.object({

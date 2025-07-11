@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Json
 from pydantic_ai import Agent, Tool
 from pydantic_ai.agent import AgentRunResult
 import orjson
@@ -28,6 +28,7 @@ from tracecat_registry import RegistrySecret
 
 
 from tracecat_registry.integrations.aws_boto3 import get_sync_session
+from tracecat_registry.integrations.agents.parsers import try_parse_json
 
 
 from typing import Annotated, Any, Literal, TypeVar
@@ -297,7 +298,7 @@ def call(
     ] = None,
     retries: Annotated[int, Doc("Number of retries")] = 3,
     base_url: Annotated[str | None, Doc("Base URL for the model")] = None,
-) -> Any:
+) -> Json[Any]:
     """Call an LLM via Pydantic AI agent."""
     agent = build_agent(
         model_name=model_name,
@@ -317,7 +318,8 @@ def call(
         message_history=messages,
     )
 
-    output = result.output
+    output = try_parse_json(result.output)
+
     if isinstance(output, BaseModel):
         return output.model_dump()
     return output

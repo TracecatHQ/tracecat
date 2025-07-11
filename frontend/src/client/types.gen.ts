@@ -130,6 +130,11 @@ export type ActionStep = {
   }
 }
 
+export type ActionType = {
+  component_id?: "action-type"
+  multiple?: boolean
+}
+
 export type ActionUpdate = {
   title?: string | null
   description?: string | null
@@ -158,7 +163,10 @@ export type ActionValidationResult = {
 export type status = "success" | "error"
 
 export type AgentOutput = {
-  output: string
+  output: unknown
+  files?: {
+    [key: string]: string
+  } | null
   message_history: Array<ModelRequest | ModelResponse>
   duration: number
   usage?: Usage | null
@@ -173,6 +181,8 @@ export type AppSettingsRead = {
   app_interactions_enabled: boolean
   app_workflow_export_enabled: boolean
   app_create_workspace_on_register: boolean
+  app_editor_pill_decorations_enabled: boolean
+  app_action_form_mode_enabled: boolean
 }
 
 /**
@@ -199,6 +209,14 @@ export type AppSettingsUpdate = {
    * Whether to automatically create a workspace when a user signs up.
    */
   app_create_workspace_on_register?: boolean
+  /**
+   * Whether to show pills in template expressions. When disabled, expressions show as plain text with syntax highlighting.
+   */
+  app_editor_pill_decorations_enabled?: boolean
+  /**
+   * Whether to enable form mode for action inputs. When disabled, only YAML mode is available, preserving raw YAML formatting.
+   */
+  app_action_form_mode_enabled?: boolean
 }
 
 /**
@@ -239,6 +257,50 @@ export type AssigneeChangedEventRead = {
   type?: "assignee_changed"
   old: string | null
   new: string | null
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
+}
+
+/**
+ * Event for when an attachment is created for a case.
+ */
+export type AttachmentCreatedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
+  wf_exec_id?: string | null
+  type?: "attachment_created"
+  attachment_id: string
+  file_name: string
+  content_type: string
+  size: number
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
+}
+
+/**
+ * Event for when an attachment is deleted from a case.
+ */
+export type AttachmentDeletedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
+  wf_exec_id?: string | null
+  type?: "attachment_deleted"
+  attachment_id: string
+  file_name: string
   /**
    * The user who performed the action.
    */
@@ -328,6 +390,10 @@ export type Body_auth_verify_verify = {
   token: string
 }
 
+export type Body_cases_create_attachment = {
+  file: Blob | File
+}
+
 export type Body_tables_import_csv = {
   file: Blob | File
   column_mapping: string
@@ -341,6 +407,41 @@ export type Body_workflows_create_workflow = {
    */
   use_workflow_id?: boolean
   file?: (Blob | File) | null
+}
+
+/**
+ * Model for attachment download URL response.
+ */
+export type CaseAttachmentDownloadResponse = {
+  /**
+   * Pre-signed download URL
+   */
+  download_url: string
+  /**
+   * Original filename
+   */
+  file_name: string
+  /**
+   * MIME type of the file
+   */
+  content_type: string
+}
+
+/**
+ * Model for reading a case attachment.
+ */
+export type CaseAttachmentRead = {
+  id: string
+  case_id: string
+  file_id: string
+  file_name: string
+  content_type: string
+  size: number
+  sha256: string
+  created_at: string
+  updated_at: string
+  creator_id?: string | null
+  is_deleted?: boolean
 }
 
 export type CaseCommentCreate = {
@@ -398,6 +499,8 @@ export type CaseEventRead =
   | SeverityChangedEventRead
   | FieldChangedEventRead
   | AssigneeChangedEventRead
+  | AttachmentCreatedEventRead
+  | AttachmentDeletedEventRead
 
 export type CaseEventsWithUsers = {
   /**
@@ -577,6 +680,13 @@ export type ClosedEventRead = {
   created_at: string
 }
 
+export type Code = {
+  component_id?: "code"
+  lang?: "yaml" | "python"
+}
+
+export type lang = "yaml" | "python"
+
 /**
  * Event for when a case is created.
  */
@@ -594,6 +704,78 @@ export type CreatedEventRead = {
    * The timestamp of the event.
    */
   created_at: string
+}
+
+export type CursorPaginatedResponse_CaseReadMinimal_ = {
+  items: Array<CaseReadMinimal>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
+export type CursorPaginatedResponse_TableRowRead_ = {
+  items: Array<TableRowRead>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
+export type CursorPaginatedResponse_WorkflowReadMinimal_ = {
+  items: Array<WorkflowReadMinimal>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
 }
 
 /**
@@ -725,6 +907,19 @@ export type EditorActionRead = {
   description: string
 }
 
+export type EditorComponent =
+  | Text
+  | Code
+  | Select
+  | TextArea
+  | Integer
+  | Float
+  | Toggle
+  | Yaml
+  | TagInput
+  | ActionType
+  | WorkflowAlias
+
 export type EditorFunctionRead = {
   name: string
   description: string
@@ -763,7 +958,7 @@ export type EventFailure = {
   } | null
 }
 
-export type EventGroup = {
+export type EventGroup_TypeVar_ = {
   event_id: number
   udf_namespace: string
   udf_name: string
@@ -835,6 +1030,16 @@ export type ExprValidationResult = {
   expression_type: ExprType
 }
 
+export type ExpressionValidationRequest = {
+  expression: string
+}
+
+export type ExpressionValidationResponse = {
+  is_valid: boolean
+  errors?: Array<ValidationError>
+  tokens?: Array<SyntaxToken>
+}
+
 /**
  * Event for when a case field is changed.
  */
@@ -859,6 +1064,13 @@ export type FieldDiff = {
   field: string
   old: unknown
   new: unknown
+}
+
+export type Float = {
+  component_id?: "float"
+  min_val?: number | null
+  max_val?: number | null
+  step?: number
 }
 
 export type FolderDirectoryItem = {
@@ -901,6 +1113,140 @@ export type HTTPValidationError = {
 export type ImageUrl = {
   url: string
   kind?: "image-url"
+}
+
+export type Integer = {
+  component_id?: "integer"
+  min_val?: number | null
+  max_val?: number | null
+  step?: number
+}
+
+/**
+ * Response for OAuth callback.
+ */
+export type IntegrationOAuthCallback = {
+  /**
+   * The status of the OAuth callback
+   */
+  status?: string
+  /**
+   * The provider that the user connected to
+   */
+  provider_id: string
+  /**
+   * The URL to redirect to after the OAuth callback
+   */
+  redirect_url: string
+}
+
+/**
+ * Request model for connecting an integration.
+ */
+export type IntegrationOAuthConnect = {
+  /**
+   * The URL to redirect to for OAuth authentication
+   */
+  auth_url: string
+  /**
+   * The provider that the user connected to
+   */
+  provider_id: string
+}
+
+/**
+ * Response model for user integration.
+ */
+export type IntegrationRead = {
+  id: string
+  created_at: string
+  updated_at: string
+  user_id?: string | null
+  provider_id: string
+  provider_config: {
+    [key: string]: unknown
+  }
+  token_type: string
+  expires_at: string | null
+  /**
+   * OAuth client ID for the provider
+   */
+  client_id?: string | null
+  /**
+   * OAuth scopes granted for this integration
+   */
+  granted_scopes?: Array<string> | null
+  /**
+   * OAuth scopes requested by user for this integration
+   */
+  requested_scopes?: Array<string> | null
+  status: IntegrationStatus
+  is_expired: boolean
+}
+
+/**
+ * Response model for user integration.
+ */
+export type IntegrationReadMinimal = {
+  id: string
+  provider_id: string
+  status: IntegrationStatus
+  is_expired: boolean
+}
+
+/**
+ * Status of an integration.
+ */
+export type IntegrationStatus = "not_configured" | "configured" | "connected"
+
+/**
+ * Response for testing integration connection.
+ */
+export type IntegrationTestConnectionResponse = {
+  /**
+   * Whether the connection test was successful
+   */
+  success: boolean
+  /**
+   * The provider that was tested
+   */
+  provider_id: string
+  /**
+   * Message describing the test result
+   */
+  message: string
+  /**
+   * Error message if the test failed
+   */
+  error?: string | null
+}
+
+/**
+ * Request model for updating an integration.
+ */
+export type IntegrationUpdate = {
+  /**
+   * OAuth grant type for this integration
+   */
+  grant_type: OAuthGrantType
+  /**
+   * OAuth client ID for the provider
+   */
+  client_id?: string | null
+  /**
+   * OAuth client secret for the provider
+   */
+  client_secret?: string | null
+  /**
+   * Provider-specific configuration
+   */
+  provider_config?: {
+    [key: string]: unknown
+  } | null
+  /**
+   * OAuth scopes to request for this integration
+   */
+  scopes?: Array<string> | null
 }
 
 export type InteractionCategory = "slack"
@@ -988,6 +1334,11 @@ export type OAuth2AuthorizeResponse = {
 }
 
 /**
+ * Grant type for OAuth 2.0.
+ */
+export type OAuthGrantType = "authorization_code" | "client_credentials"
+
+/**
  * Settings for OAuth authentication.
  */
 export type OAuthSettingsRead = {
@@ -1037,6 +1388,118 @@ export type PriorityChangedEventRead = {
   created_at: string
 }
 
+/**
+ * Category of a provider.
+ */
+export type ProviderCategory =
+  | "auth"
+  | "communication"
+  | "cloud"
+  | "monitoring"
+  | "alerting"
+  | "other"
+
+/**
+ * Metadata for a provider.
+ */
+export type ProviderMetadata = {
+  /**
+   * Provider identifier
+   */
+  id: string
+  /**
+   * Human-readable provider name
+   */
+  name: string
+  /**
+   * Provider description
+   */
+  description: string
+  /**
+   * URL to provider logo
+   */
+  logo_url?: string | null
+  /**
+   * Setup instructions for the provider
+   */
+  setup_instructions?: string | null
+  /**
+   * Whether this provider requires additional configuration
+   */
+  requires_config?: boolean
+  /**
+   * Categories of the provider (e.g., auth, communication)
+   */
+  categories?: Array<ProviderCategory>
+  /**
+   * Step-by-step instructions for setting up the provider
+   */
+  setup_steps?: Array<string>
+  /**
+   * Whether this provider is available for use
+   */
+  enabled?: boolean
+  /**
+   * URL to API documentation
+   */
+  api_docs_url?: string | null
+  /**
+   * URL to setup guide
+   */
+  setup_guide_url?: string | null
+  /**
+   * URL to troubleshooting documentation
+   */
+  troubleshooting_url?: string | null
+}
+
+export type ProviderRead = {
+  grant_type: OAuthGrantType
+  metadata: ProviderMetadata
+  scopes: ProviderScopes
+  schema?: ProviderSchema
+  integration_status: IntegrationStatus
+  redirect_uri?: string | null
+}
+
+export type ProviderReadMinimal = {
+  id: string
+  name: string
+  description: string
+  requires_config: boolean
+  categories: Array<ProviderCategory>
+  integration_status: IntegrationStatus
+  enabled: boolean
+  grant_type: OAuthGrantType
+}
+
+/**
+ * Schema for a provider.
+ */
+export type ProviderSchema = {
+  json_schema: {
+    [key: string]: unknown
+  }
+}
+
+/**
+ * Scope metadata for a provider.
+ */
+export type ProviderScopes = {
+  /**
+   * Default scopes for this provider. Ultra thin layer
+   */
+  default: Array<string>
+  /**
+   * Regex patterns to validate additional scopes for this provider.
+   */
+  allowed_patterns?: Array<string> | null
+  /**
+   * Whether this provider accepts additional scopes beyond the default ones. Set to False for providers like Microsoft Graph that require exactly the default scopes.
+   */
+  accepts_additional_scopes?: boolean
+}
+
 export type ReceiveInteractionResponse = {
   message: string
 }
@@ -1068,7 +1531,7 @@ export type RegistryActionCreate = {
   /**
    * The secrets required by the action
    */
-  secrets?: Array<RegistrySecret> | null
+  secrets?: Array<RegistrySecretType_Input> | null
   interface: RegistryActionInterface
   implementation: RegistryActionTemplateImpl_Input | RegistryActionUDFImpl
   /**
@@ -1144,7 +1607,7 @@ export type RegistryActionRead = {
   /**
    * The secrets required by the action
    */
-  secrets?: Array<RegistrySecret> | null
+  secrets?: Array<RegistrySecretType_Output> | null
   interface: RegistryActionInterface
   implementation: RegistryActionTemplateImpl_Output | RegistryActionUDFImpl
   /**
@@ -1278,7 +1741,7 @@ export type RegistryActionUpdate = {
   /**
    * Update the secrets of the action
    */
-  secrets?: Array<RegistrySecret> | null
+  secrets?: Array<RegistrySecretType_Input> | null
   /**
    * Update the interface of the action
    */
@@ -1322,6 +1785,27 @@ export type RegistryActionValidationErrorInfo = {
   is_template: boolean
   loc_primary: string
   loc_secondary?: string | null
+}
+
+/**
+ * OAuth secret for a provider.
+ */
+export type RegistryOAuthSecret_Input = {
+  type?: "oauth"
+  provider_id: string
+  grant_type: "authorization_code" | "client_credentials"
+}
+
+export type grant_type = "authorization_code" | "client_credentials"
+
+/**
+ * OAuth secret for a provider.
+ */
+export type RegistryOAuthSecret_Output = {
+  type?: "oauth"
+  provider_id: string
+  grant_type: "authorization_code" | "client_credentials"
+  readonly name: string
 }
 
 export type RegistryRepositoryCreate = {
@@ -1371,11 +1855,20 @@ export type RegistryRepositoryUpdate = {
 }
 
 export type RegistrySecret = {
+  type?: "custom"
   name: string
   keys?: Array<string> | null
   optional_keys?: Array<string> | null
   optional?: boolean
 }
+
+export type RegistrySecretType_Input =
+  | RegistrySecret
+  | RegistryOAuthSecret_Input
+
+export type RegistrySecretType_Output =
+  | RegistrySecret
+  | RegistryOAuthSecret_Output
 
 /**
  * Event for when a case is reopened.
@@ -1708,6 +2201,12 @@ export type SecretValidationResult = {
   ref?: string | null
 }
 
+export type Select = {
+  component_id?: "select"
+  options?: Array<string> | null
+  multiple?: boolean
+}
+
 export type SessionRead = {
   id: string
   created_at: string
@@ -1747,7 +2246,7 @@ export type SpecialUserID = "current"
 export type SqlType =
   | "TEXT"
   | "INTEGER"
-  | "DECIMAL"
+  | "NUMERIC"
   | "BOOLEAN"
   | "TIMESTAMP"
   | "TIMESTAMPTZ"
@@ -1773,6 +2272,13 @@ export type StatusChangedEventRead = {
    * The timestamp of the event.
    */
   created_at: string
+}
+
+export type SyntaxToken = {
+  type: string
+  value: string
+  start: number
+  end: number
 }
 
 export type SystemPromptPart = {
@@ -1924,6 +2430,10 @@ export type TagCreate = {
   color?: string | null
 }
 
+export type TagInput = {
+  component_id?: "tag-input"
+}
+
 /**
  * Model for reading tag data with validation.
  */
@@ -1949,15 +2459,15 @@ export type TagUpdate = {
 
 export type TemplateAction_Input = {
   type?: "action"
-  definition: TemplateActionDefinition
+  definition: TemplateActionDefinition_Input
 }
 
 export type TemplateAction_Output = {
   type?: "action"
-  definition: TemplateActionDefinition
+  definition: TemplateActionDefinition_Output
 }
 
-export type TemplateActionDefinition = {
+export type TemplateActionDefinition_Input = {
   /**
    * The action name
    */
@@ -1993,7 +2503,65 @@ export type TemplateActionDefinition = {
   /**
    * The secrets to pass to the action
    */
-  secrets?: Array<RegistrySecret> | null
+  secrets?: Array<RegistrySecretType_Input> | null
+  /**
+   * The arguments to pass to the action
+   */
+  expects: {
+    [key: string]: ExpectedField
+  }
+  /**
+   * The sequence of steps for the action
+   */
+  steps: Array<ActionStep>
+  /**
+   * The result of the action
+   */
+  returns:
+    | string
+    | Array<string>
+    | {
+        [key: string]: unknown
+      }
+}
+
+export type TemplateActionDefinition_Output = {
+  /**
+   * The action name
+   */
+  name: string
+  /**
+   * The namespace of the action
+   */
+  namespace: string
+  /**
+   * The title of the action
+   */
+  title: string
+  /**
+   * The description of the action
+   */
+  description?: string
+  /**
+   * The display group of the action
+   */
+  display_group: string
+  /**
+   * Link to documentation
+   */
+  doc_url?: string | null
+  /**
+   * Author of the action
+   */
+  author?: string | null
+  /**
+   * Marks action as deprecated along with message
+   */
+  deprecated?: string | null
+  /**
+   * The secrets to pass to the action
+   */
+  secrets?: Array<RegistrySecretType_Output> | null
   /**
    * The arguments to pass to the action
    */
@@ -2035,9 +2603,25 @@ export type TemplateActionValidationErrorType =
   | "STEP_VALIDATION_ERROR"
   | "EXPRESSION_VALIDATION_ERROR"
 
+export type Text = {
+  component_id?: "text"
+}
+
+export type TextArea = {
+  component_id?: "text-area"
+  rows?: number
+  placeholder?: string
+}
+
 export type TextPart = {
   content: string
   part_kind?: "text"
+}
+
+export type Toggle = {
+  label_on?: string
+  label_off?: string
+  component_id?: "toggle"
 }
 
 export type ToolCallPart = {
@@ -2220,6 +2804,10 @@ export type WebhookUpdate = {
   entrypoint_ref?: string | null
 }
 
+export type WorkflowAlias = {
+  component_id?: "workflow-alias"
+}
+
 export type WorkflowCommitResponse = {
   workflow_id: string
   status: "success" | "failure"
@@ -2339,7 +2927,7 @@ export type WorkflowExecutionEvent = {
   /**
    * The action group of the event. We use this to keep track of what events are related to each other.
    */
-  event_group?: EventGroup | null
+  event_group?: EventGroup_TypeVar_ | null
   failure?: EventFailure | null
   result?: unknown | null
   role?: Role | null
@@ -2690,6 +3278,10 @@ export type WorkspaceUpdate = {
   } | null
 }
 
+export type Yaml = {
+  component_id?: "yaml"
+}
+
 export type login = {
   grant_type?: string | null
   username: string
@@ -2826,6 +3418,9 @@ export type WorkspacesDeleteWorkspaceMembershipData = {
 export type WorkspacesDeleteWorkspaceMembershipResponse = void
 
 export type WorkflowsListWorkflowsData = {
+  cursor?: string | null
+  limit?: number
+  reverse?: boolean
   /**
    * Filter workflows by tags
    */
@@ -2833,7 +3428,8 @@ export type WorkflowsListWorkflowsData = {
   workspaceId: string
 }
 
-export type WorkflowsListWorkflowsResponse = Array<WorkflowReadMinimal>
+export type WorkflowsListWorkflowsResponse =
+  CursorPaginatedResponse_WorkflowReadMinimal_
 
 export type WorkflowsCreateWorkflowData = {
   formData?: Body_workflows_create_workflow
@@ -3221,6 +3817,15 @@ export type EditorListActionsData = {
 
 export type EditorListActionsResponse = Array<EditorActionRead>
 
+export type EditorValidateExpressionData = {
+  requestBody: ExpressionValidationRequest
+  workspaceId: string
+}
+
+export type EditorValidateExpressionResponse = ExpressionValidationResponse
+
+export type EditorFieldSchemaResponse = EditorComponent
+
 export type RegistryRepositoriesReloadRegistryRepositoriesResponse = void
 
 export type RegistryRepositoriesSyncRegistryRepositoryData = {
@@ -3424,19 +4029,14 @@ export type TablesDeleteColumnData = {
 export type TablesDeleteColumnResponse = void
 
 export type TablesListRowsData = {
-  /**
-   * Maximum number of rows to return
-   */
+  cursor?: string | null
   limit?: number
-  /**
-   * Number of rows to skip
-   */
-  offset?: number
+  reverse?: boolean
   tableId: string
   workspaceId: string
 }
 
-export type TablesListRowsResponse = Array<TableRowRead>
+export type TablesListRowsResponse = CursorPaginatedResponse_TableRowRead_
 
 export type TablesInsertRowData = {
   requestBody: TableRowInsert
@@ -3479,10 +4079,22 @@ export type TablesImportCsvData = {
 export type TablesImportCsvResponse = TableRowInsertBatchResponse
 
 export type CasesListCasesData = {
+  /**
+   * Cursor for pagination
+   */
+  cursor?: string | null
+  /**
+   * Maximum items per page
+   */
+  limit?: number
+  /**
+   * Reverse pagination direction
+   */
+  reverse?: boolean
   workspaceId: string
 }
 
-export type CasesListCasesResponse = Array<CaseReadMinimal>
+export type CasesListCasesResponse = CursorPaginatedResponse_CaseReadMinimal_
 
 export type CasesCreateCaseData = {
   requestBody: CaseCreate
@@ -3592,6 +4204,50 @@ export type CasesListEventsWithUsersData = {
 
 export type CasesListEventsWithUsersResponse = CaseEventsWithUsers
 
+export type CasesListAttachmentsData = {
+  caseId: string
+  workspaceId: string
+}
+
+export type CasesListAttachmentsResponse = Array<CaseAttachmentRead>
+
+export type CasesCreateAttachmentData = {
+  caseId: string
+  formData: Body_cases_create_attachment
+  workspaceId: string
+}
+
+export type CasesCreateAttachmentResponse = CaseAttachmentRead
+
+export type CasesDownloadAttachmentData = {
+  attachmentId: string
+  caseId: string
+  /**
+   * If true, allows inline preview for safe image types
+   */
+  preview?: boolean
+  workspaceId: string
+}
+
+export type CasesDownloadAttachmentResponse = CaseAttachmentDownloadResponse
+
+export type CasesDeleteAttachmentData = {
+  attachmentId: string
+  caseId: string
+  workspaceId: string
+}
+
+export type CasesDeleteAttachmentResponse = void
+
+export type CasesGetStorageUsageData = {
+  caseId: string
+  workspaceId: string
+}
+
+export type CasesGetStorageUsageResponse = {
+  [key: string]: number
+}
+
 export type CasesListFieldsData = {
   workspaceId: string
 }
@@ -3679,6 +4335,87 @@ export type FoldersMoveFolderData = {
 }
 
 export type FoldersMoveFolderResponse = WorkflowFolderRead
+
+export type IntegrationsOauthCallbackData = {
+  /**
+   * Authorization code from OAuth provider
+   */
+  code: string
+  /**
+   * State parameter from authorization request
+   */
+  state: string
+}
+
+export type IntegrationsOauthCallbackResponse = IntegrationOAuthCallback
+
+export type IntegrationsListIntegrationsData = {
+  workspaceId: string
+}
+
+export type IntegrationsListIntegrationsResponse = Array<IntegrationReadMinimal>
+
+export type IntegrationsGetIntegrationData = {
+  grantType?: OAuthGrantType
+  providerId: string
+  workspaceId: string
+}
+
+export type IntegrationsGetIntegrationResponse = IntegrationRead
+
+export type IntegrationsDeleteIntegrationData = {
+  grantType?: OAuthGrantType
+  providerId: string
+  workspaceId: string
+}
+
+export type IntegrationsDeleteIntegrationResponse = void
+
+export type IntegrationsUpdateIntegrationData = {
+  grantType?: OAuthGrantType
+  providerId: string
+  requestBody: IntegrationUpdate
+  workspaceId: string
+}
+
+export type IntegrationsUpdateIntegrationResponse = void
+
+export type IntegrationsConnectProviderData = {
+  providerId: string
+  workspaceId: string
+}
+
+export type IntegrationsConnectProviderResponse = IntegrationOAuthConnect
+
+export type IntegrationsDisconnectIntegrationData = {
+  grantType?: OAuthGrantType
+  providerId: string
+  workspaceId: string
+}
+
+export type IntegrationsDisconnectIntegrationResponse = void
+
+export type IntegrationsTestConnectionData = {
+  providerId: string
+  workspaceId: string
+}
+
+export type IntegrationsTestConnectionResponse =
+  IntegrationTestConnectionResponse
+
+export type ProvidersListProvidersData = {
+  workspaceId: string
+}
+
+export type ProvidersListProvidersResponse = Array<ProviderReadMinimal>
+
+export type ProvidersGetProviderData = {
+  grantType?: OAuthGrantType
+  providerId: string
+  workspaceId: string
+}
+
+export type ProvidersGetProviderResponse = ProviderRead
 
 export type UsersUsersCurrentUserResponse = UserRead
 
@@ -3774,7 +4511,7 @@ export type PublicCheckHealthResponse = {
 
 export type $OpenApiTs = {
   "/webhooks/{workflow_id}/{secret}": {
-    get: {
+    post: {
       req: PublicIncomingWebhookData
       res: {
         /**
@@ -3787,7 +4524,7 @@ export type $OpenApiTs = {
         422: HTTPValidationError
       }
     }
-    post: {
+    get: {
       req: PublicIncomingWebhook1Data
       res: {
         /**
@@ -3986,7 +4723,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Array<WorkflowReadMinimal>
+        200: CursorPaginatedResponse_WorkflowReadMinimal_
         /**
          * Validation Error
          */
@@ -4709,6 +5446,31 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/editor/expressions/validate": {
+    post: {
+      req: EditorValidateExpressionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ExpressionValidationResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/editor/field-schema": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: EditorComponent
+      }
+    }
+  }
   "/registry/repos/reload": {
     post: {
       res: {
@@ -5175,7 +5937,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Array<TableRowRead>
+        200: CursorPaginatedResponse_TableRowRead_
         /**
          * Validation Error
          */
@@ -5261,7 +6023,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Array<CaseReadMinimal>
+        200: CursorPaginatedResponse_CaseReadMinimal_
         /**
          * Validation Error
          */
@@ -5402,6 +6164,79 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: CaseEventsWithUsers
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases/{case_id}/attachments": {
+    get: {
+      req: CasesListAttachmentsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<CaseAttachmentRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: CasesCreateAttachmentData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: CaseAttachmentRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases/{case_id}/attachments/{attachment_id}": {
+    get: {
+      req: CasesDownloadAttachmentData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseAttachmentDownloadResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: CasesDeleteAttachmentData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases/{case_id}/storage-usage": {
+    get: {
+      req: CasesGetStorageUsageData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: {
+          [key: string]: number
+        }
         /**
          * Validation Error
          */
@@ -5557,6 +6392,152 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: WorkflowFolderRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/integrations/callback": {
+    get: {
+      req: IntegrationsOauthCallbackData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: IntegrationOAuthCallback
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/integrations": {
+    get: {
+      req: IntegrationsListIntegrationsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<IntegrationReadMinimal>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/integrations/{provider_id}": {
+    get: {
+      req: IntegrationsGetIntegrationData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: IntegrationRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: IntegrationsDeleteIntegrationData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    put: {
+      req: IntegrationsUpdateIntegrationData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/integrations/{provider_id}/connect": {
+    post: {
+      req: IntegrationsConnectProviderData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: IntegrationOAuthConnect
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/integrations/{provider_id}/disconnect": {
+    post: {
+      req: IntegrationsDisconnectIntegrationData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/integrations/{provider_id}/test": {
+    post: {
+      req: IntegrationsTestConnectionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: IntegrationTestConnectionResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/providers": {
+    get: {
+      req: ProvidersListProvidersData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<ProviderReadMinimal>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/providers/{provider_id}": {
+    get: {
+      req: ProvidersGetProviderData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ProviderRead
         /**
          * Validation Error
          */

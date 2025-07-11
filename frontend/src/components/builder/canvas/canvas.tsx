@@ -1,3 +1,28 @@
+import {
+  addEdge,
+  applyNodeChanges,
+  Background,
+  type Connection,
+  ConnectionLineType,
+  Controls,
+  type Edge,
+  type EdgeChange,
+  type FitViewOptions,
+  MarkerType,
+  type Node,
+  type NodeChange,
+  type NodeRemoveChange,
+  type OnConnectStartParams,
+  Panel,
+  Position,
+  ReactFlow,
+  type ReactFlowInstance,
+  type ReactFlowJsonObject,
+  useEdgesState,
+  useNodesState,
+  useReactFlow,
+  type XYPosition,
+} from "@xyflow/react"
 import React, {
   useCallback,
   useEffect,
@@ -5,59 +30,33 @@ import React, {
   useRef,
   useState,
 } from "react"
-import {
-  addEdge,
-  applyNodeChanges,
-  Background,
-  Connection,
-  ConnectionLineType,
-  Controls,
-  Edge,
-  EdgeChange,
-  FitViewOptions,
-  MarkerType,
-  NodeChange,
-  NodeRemoveChange,
-  OnConnectStartParams,
-  Panel,
-  Position,
-  ReactFlow,
-  ReactFlowInstance,
-  useEdgesState,
-  useNodesState,
-  useReactFlow,
-  XYPosition,
-  type Node,
-  type ReactFlowJsonObject,
-} from "@xyflow/react"
 import { v4 as uuid4 } from "uuid"
 
 import "@xyflow/react/dist/style.css"
 
-import { useWorkflow } from "@/providers/workflow"
 import Dagre from "@dagrejs/dagre"
 import { MoveHorizontalIcon, MoveVerticalIcon, PlusIcon } from "lucide-react"
-
-import { useDeleteAction } from "@/lib/hooks"
-import { pruneGraphObject, pruneReactFlowInstance } from "@/lib/workflow"
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-import { useToast } from "@/components/ui/use-toast"
 import actionNode, {
-  ActionNodeData,
-  ActionNodeType,
+  type ActionNodeData,
+  type ActionNodeType,
 } from "@/components/builder/canvas/action-node"
 import { DeleteActionNodeDialog } from "@/components/builder/canvas/delete-node-dialog"
 import selectorNode, {
-  SelectorNodeData,
-  SelectorNodeType,
+  type SelectorNodeData,
+  type SelectorNodeType,
   SelectorTypename,
 } from "@/components/builder/canvas/selector-node"
 import triggerNode, {
-  TriggerNodeData,
-  TriggerNodeType,
+  type TriggerNodeData,
+  type TriggerNodeType,
   TriggerTypename,
 } from "@/components/builder/canvas/trigger-node"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { useToast } from "@/components/ui/use-toast"
+import { useDeleteAction } from "@/lib/hooks"
+import { pruneGraphObject, pruneReactFlowInstance } from "@/lib/workflow"
+import { useWorkflow } from "@/providers/workflow"
 
 const dagreGraph = new Dagre.graphlib.Graph().setDefaultEdgeLabel(() => ({}))
 const defaultNodeWidth = 172

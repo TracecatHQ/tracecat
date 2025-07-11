@@ -15,7 +15,20 @@ def is_valid_sql_type(type: str) -> bool:
 
 
 def handle_default_value(type: SqlType, default: Any) -> str:
-    """Handle converting default values to SQL-compatible strings based on type."""
+    """Handle converting default values to SQL-compatible strings based on type.
+
+    SECURITY NOTICE: Only used in a SQL DDL statement where parameter binding is not supported.
+
+    Args:
+        type: The SQL type to format the default value for
+        default: The default value to format
+
+    Returns:
+        A properly escaped and formatted SQL literal string
+
+    Raises:
+        ValueError: If the SQL type is not supported
+    """
     match type:
         case SqlType.JSONB:
             # For JSONB, ensure default is properly quoted and cast
@@ -32,7 +45,7 @@ def handle_default_value(type: SqlType, default: Any) -> str:
         case SqlType.BOOLEAN:
             # For boolean, convert to lowercase string representation
             default_value = str(bool(default)).lower()
-        case SqlType.INTEGER | SqlType.DECIMAL:
+        case SqlType.INTEGER | SqlType.NUMERIC:
             # For numeric types, use the value directly
             default_value = str(default)
         case SqlType.UUID:
@@ -81,7 +94,7 @@ def to_sql_clause(value: Any, name: str, sql_type: SqlType) -> sa.BindParameter:
             return sa.bindparam(key=name, value=bool_value, type_=sa.Boolean)
         case SqlType.INTEGER:
             return sa.bindparam(key=name, value=value, type_=sa.Integer)
-        case SqlType.DECIMAL:
+        case SqlType.NUMERIC:
             return sa.bindparam(key=name, value=value, type_=sa.Numeric)
         case SqlType.UUID:
             return sa.bindparam(key=name, value=value, type_=sa.UUID)
@@ -94,7 +107,7 @@ def convert_value(value: str, type: SqlType) -> Any:
         match type:
             case SqlType.INTEGER:
                 return int(value)
-            case SqlType.DECIMAL:
+            case SqlType.NUMERIC:
                 return float(value)
             case SqlType.BOOLEAN:
                 match value.lower():

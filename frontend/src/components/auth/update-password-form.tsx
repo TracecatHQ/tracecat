@@ -1,12 +1,11 @@
 "use client"
 
-import { useState } from "react"
-import { UserUpdate } from "@/client"
 import { zodResolver } from "@hookform/resolvers/zod"
+import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
-
-import { useUserManager } from "@/lib/hooks"
+import type { UserUpdate } from "@/client"
+import { Icons } from "@/components/icons"
 import { Button } from "@/components/ui/button"
 import {
   Form,
@@ -19,7 +18,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { toast } from "@/components/ui/use-toast"
-import { Icons } from "@/components/icons"
+import { useUserManager } from "@/lib/hooks"
 
 const resetPasswordSchema = z
   .object({

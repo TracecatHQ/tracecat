@@ -1,23 +1,13 @@
 "use client"
 
-import { useMemo } from "react"
-import Link from "next/link"
-import { CaseEventRead } from "@/client"
-import { useWorkspace } from "@/providers/workspace"
 import { AlertCircle, Clock, ExternalLinkIcon, PlusIcon } from "lucide-react"
-
-import { SYSTEM_USER, User } from "@/lib/auth"
-import { executionId, getWorkflowExecutionUrl } from "@/lib/event-history"
-import { useAppInfo, useCaseEvents } from "@/lib/hooks"
-import { Skeleton } from "@/components/ui/skeleton"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
+import Link from "next/link"
+import { useMemo } from "react"
+import type { CaseEventRead } from "@/client"
 import {
   AssigneeChangedEvent,
+  AttachmentCreatedEvent,
+  AttachmentDeletedEvent,
   CaseClosedEvent,
   CaseReopenedEvent,
   CaseUpdatedEvent,
@@ -29,6 +19,17 @@ import {
   StatusChangedEvent,
 } from "@/components/cases/case-activity-feed-event"
 import { CaseEventTimestamp } from "@/components/cases/case-panel-common"
+import { Skeleton } from "@/components/ui/skeleton"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
+import { SYSTEM_USER, User } from "@/lib/auth"
+import { executionId, getWorkflowExecutionUrl } from "@/lib/event-history"
+import { useAppInfo, useCaseEvents } from "@/lib/hooks"
+import { useWorkspace } from "@/providers/workspace"
 
 import { InlineDotSeparator } from "../separator"
 
@@ -89,6 +90,15 @@ function ActivityFeedEvent({
         {/* Assignee events */}
         {event.type === "assignee_changed" && (
           <AssigneeChangedEvent event={event} actor={actor} userMap={users} />
+        )}
+
+        {/* Attachment events */}
+        {event.type === "attachment_created" && (
+          <AttachmentCreatedEvent event={event} actor={actor} />
+        )}
+
+        {event.type === "attachment_deleted" && (
+          <AttachmentDeletedEvent event={event} actor={actor} />
         )}
 
         {/* Add a dot separator */}
@@ -191,9 +201,8 @@ export function CaseActivityFeed({
 
   if (caseEventsIsLoading) {
     return (
-      <div className="space-y-4">
-        <Skeleton className="h-8 w-40" />
-        <div className="space-y-4">
+      <div className="mx-auto w-full">
+        <div className="space-y-4 p-4">
           {Array.from({ length: 3 }).map((_, i) => (
             <div key={i} className="space-y-2">
               <Skeleton className="h-6 w-full" />
@@ -207,27 +216,33 @@ export function CaseActivityFeed({
 
   if (caseEventsError) {
     return (
-      <div className="flex flex-col items-center justify-center p-6 text-center">
-        <AlertCircle className="size-8 text-destructive" />
-        <h3 className="mt-2 text-sm font-medium">Error loading activities</h3>
-        <p className="mt-1 text-xs text-muted-foreground">
-          {caseEventsError.message ||
-            "An error occurred while loading activities."}
-        </p>
+      <div className="mx-auto w-full">
+        <div className="space-y-4 p-4">
+          <div className="flex items-center justify-center p-8">
+            <div className="flex items-center gap-2 text-red-600">
+              <AlertCircle className="h-4 w-4" />
+              <span className="text-sm">Failed to load activities</span>
+            </div>
+          </div>
+        </div>
       </div>
     )
   }
 
   if (events.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center p-6 text-center">
-        <div className="rounded-full bg-muted p-3">
-          <Clock className="size-6 text-muted-foreground" />
+      <div className="mx-auto w-full">
+        <div className="space-y-4 p-4">
+          <div className="flex flex-col items-center justify-center py-6 text-center">
+            <div className="rounded-full bg-muted p-3">
+              <Clock className="size-6 text-muted-foreground" />
+            </div>
+            <h3 className="mt-2 text-sm font-medium">No activity yet</h3>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Activities will appear here when changes are made to the case.
+            </p>
+          </div>
         </div>
-        <h3 className="mt-2 text-sm font-medium">No activity yet</h3>
-        <p className="mt-1 text-xs text-muted-foreground">
-          Activities will appear here when changes are made to the case.
-        </p>
       </div>
     )
   }
@@ -235,8 +250,8 @@ export function CaseActivityFeed({
   const groupedActivities = groupActivitiesByDate(events)
 
   return (
-    <div className="mx-auto w-full max-w-3xl">
-      <div className="space-y-6">
+    <div className="mx-auto w-full">
+      <div className="space-y-4 p-4">
         {groupedActivities.map(({ date, activities }) => (
           <div key={date.toISOString()} className="space-y-2">
             <div className="sticky top-0 z-10 bg-background py-2">

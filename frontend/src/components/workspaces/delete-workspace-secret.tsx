@@ -1,9 +1,7 @@
 "use client"
 
-import React from "react"
-import { SecretReadMinimal } from "@/client"
-
-import { useWorkspaceSecrets } from "@/lib/hooks"
+import type React from "react"
+import type { SecretReadMinimal } from "@/client"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -15,6 +13,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
+import { useWorkspaceSecrets } from "@/lib/hooks"
 
 export function DeleteSecretAlertDialog({
   selectedSecret,

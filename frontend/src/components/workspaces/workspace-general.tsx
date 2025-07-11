@@ -2,14 +2,10 @@
 
 import "react18-json-view/src/style.css"
 
-import React from "react"
-import { WorkspaceRead } from "@/client"
-import { useAuth } from "@/providers/auth"
-import { useWorkspace } from "@/providers/workspace"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { FormProvider, useForm } from "react-hook-form"
 import { z } from "zod"
-
+import type { WorkspaceRead } from "@/client"
 import { Button } from "@/components/ui/button"
 import {
   FormControl,
@@ -19,6 +15,8 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
+import { useAuth } from "@/providers/auth"
+import { useWorkspace } from "@/providers/workspace"
 
 const workspaceConfigFormSchema = z.object({
   name: z.string(),
@@ -43,7 +41,7 @@ export function WorkspaceGeneralSettings({
     console.log("SUBMIT WORKSPACE CONFIG", values)
     try {
       await updateWorkspace({ name: values.name })
-    } catch (e) {
+    } catch (_e) {
       console.error("Error updating workspace")
     }
   }

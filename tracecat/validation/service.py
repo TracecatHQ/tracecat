@@ -5,7 +5,11 @@ from typing import Any
 from pydantic import ConfigDict, ValidationError
 from sqlalchemy.exc import MultipleResultsFound
 from sqlmodel.ext.asyncio.session import AsyncSession
-from tracecat_registry import RegistrySecret
+from tracecat_registry import (
+    RegistryOAuthSecret,
+    RegistrySecret,
+    RegistrySecretTypeValidator,
+)
 
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.db.engine import get_async_session_context_manager
@@ -19,6 +23,9 @@ from tracecat.expressions.validator.validator import (
     ExprValidationContext,
     ExprValidator,
 )
+from tracecat.integrations.enums import OAuthGrantType
+from tracecat.integrations.models import ProviderKey
+from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
 from tracecat.registry.actions.models import RegistryActionInterface
 from tracecat.registry.actions.service import RegistryActionsService
@@ -114,19 +121,77 @@ async def check_action_secrets(
 ) -> list[SecretValidationResult]:
     """Check all secrets for a single action."""
     results: list[SecretValidationResult] = []
-    secrets = [RegistrySecret(**secret) for secret in action.secrets or []]
+    secrets = [
+        RegistrySecretTypeValidator.validate_python(secret)
+        for secret in action.secrets or []
+    ]
     implicit_secrets = await registry_service.fetch_all_action_secrets(action)
     secrets.extend(implicit_secrets)
 
     for registry_secret in secrets:
-        secret_results = await validate_single_secret(
-            secrets_service,
-            checked_keys,
-            environment,
-            action,
-            registry_secret,
-        )
+        if registry_secret.type == "oauth":
+            # Workspace integration
+            secret_results = await validate_workspace_integration(
+                secrets_service.session,
+                checked_keys,
+                environment,
+                registry_secret,
+            )
+        else:
+            # Workspace secret
+            secret_results = await validate_single_secret(
+                secrets_service,
+                checked_keys,
+                environment,
+                action,
+                registry_secret,
+            )
         results.extend(secret_results)
+
+    return results
+
+
+async def validate_workspace_integration(
+    session: AsyncSession,
+    checked_keys: set[str],
+    environment: str,
+    registry_secret: RegistryOAuthSecret,
+) -> list[SecretValidationResult]:
+    """Validate that a workspace has the required OAuth integration.
+
+    Args:
+        secrets_service: The secrets service to use for validation.
+        checked_keys: Set of keys that have already been checked.
+        environment: The environment to validate secrets for.
+        action: The registry action that requires the integration.
+        registry_secret: The registry secret definition for the OAuth integration.
+
+    Returns:
+        A list of validation results.
+    """
+    results: list[SecretValidationResult] = []
+
+    # Skip if we've already checked this key
+    if registry_secret.provider_id in checked_keys:
+        return results
+
+    checked_keys.add(registry_secret.provider_id)
+
+    # Get the integration from the workspace
+    key = ProviderKey(
+        id=registry_secret.provider_id,
+        grant_type=OAuthGrantType(registry_secret.grant_type),
+    )
+    svc = IntegrationService(session)
+    integration = await svc.get_integration(provider_key=key)
+
+    if not integration:
+        results.append(
+            SecretValidationResult(
+                status="error",
+                msg=f"Required OAuth integration {registry_secret.provider_id!r} is not configured",
+            )
+        )
 
     return results
 

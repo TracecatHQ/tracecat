@@ -1,6 +1,6 @@
-import { User } from "@/lib/auth"
-import { cn } from "@/lib/utils"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import type { User } from "@/lib/auth"
+import { cn } from "@/lib/utils"
 
 interface UserAvatarProps extends React.HTMLAttributes<HTMLElement> {
   src?: string

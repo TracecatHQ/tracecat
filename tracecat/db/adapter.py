@@ -1,3 +1,4 @@
+# ruff: noqa
 """FastAPI Users database adapter for SQLModel.
 
 Adapted from https://github.com/fastapi-users/fastapi-users-db-sqlmodel for our internal use
@@ -53,7 +54,7 @@ class SQLModelBaseOAuthAccount(SQLModel):
     account_email: str = Field(nullable=False)
 
 
-class SQLModelUserDatabaseAsync(Generic[UP, ID], BaseUserDatabase[UP, ID]):
+class SQLModelUserDatabaseAsync(BaseUserDatabase[UP, ID]):
     """
     Database adapter for SQLModel working purely asynchronously.
 

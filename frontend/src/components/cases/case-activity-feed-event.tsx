@@ -1,5 +1,16 @@
 import {
+  BracesIcon,
+  type LucideIcon,
+  PaperclipIcon,
+  PencilIcon,
+  TrashIcon,
+  UserIcon,
+  UserXIcon,
+} from "lucide-react"
+import type {
   AssigneeChangedEventRead,
+  AttachmentCreatedEventRead,
+  AttachmentDeletedEventRead,
   ClosedEventRead,
   FieldChangedEventRead,
   PriorityChangedEventRead,
@@ -9,28 +20,20 @@ import {
   UpdatedEventRead,
 } from "@/client"
 import {
-  BracesIcon,
-  LucideIcon,
-  PencilIcon,
-  UserIcon,
-  UserXIcon,
-} from "lucide-react"
-
-import { User } from "@/lib/auth"
-import { cn } from "@/lib/utils"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
-import {
   PRIORITIES,
   SEVERITIES,
   STATUSES,
 } from "@/components/cases/case-categories"
 import { UserHoverCard } from "@/components/cases/case-panel-common"
 import { InlineDotSeparator } from "@/components/separator"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
+import type { User } from "@/lib/auth"
+import { cn } from "@/lib/utils"
 
 export function EventIcon({
   icon: Icon,
@@ -85,12 +88,12 @@ export function AssigneeChangedEvent({
       )
     }
     return (
-      <div className="flex items-center space-x-1 text-xs">
+      <div className="flex items-center space-x-2 text-xs">
         <EventIcon icon={UserIcon} />
         <span>
-          <EventActor user={actor} /> assigned the case to
+          <EventActor user={actor} /> assigned the case to{" "}
+          <EventActor user={userMap[assigneeId]} />
         </span>
-        <EventActor user={userMap[assigneeId]} />
       </div>
     )
   }
@@ -224,23 +227,25 @@ export function CaseUpdatedEvent({
       return (
         <div className="flex items-center space-x-2 text-xs">
           <EventIcon icon={PencilIcon} />
-          <TooltipProvider>
-            <Tooltip>
-              <EventActor user={actor} />{" "}
-              <TooltipTrigger asChild>
-                <span className="cursor-default">
-                  {event.new
-                    ? `changed summary to ${event.new}`
-                    : "removed summary"}
-                </span>
-              </TooltipTrigger>
-              {event.old && (
-                <TooltipContent>
-                  <p>Previously: {event.old}</p>
-                </TooltipContent>
-              )}
-            </Tooltip>
-          </TooltipProvider>
+          <span>
+            <EventActor user={actor} />{" "}
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="cursor-default">
+                    {event.new
+                      ? `changed summary to ${event.new}`
+                      : "removed summary"}
+                  </span>
+                </TooltipTrigger>
+                {event.old && (
+                  <TooltipContent>
+                    <p>Previously: {event.old}</p>
+                  </TooltipContent>
+                )}
+              </Tooltip>
+            </TooltipProvider>
+          </span>
         </div>
       )
     default:
@@ -289,5 +294,65 @@ export function FieldsChangedEvent({
         </div>
       </div>
     </TooltipProvider>
+  )
+}
+
+export function AttachmentCreatedEvent({
+  event,
+  actor,
+}: {
+  event: AttachmentCreatedEventRead
+  actor: User
+}) {
+  const formatFileSize = (bytes: number): string => {
+    if (bytes === 0) return "0 Bytes"
+    const k = 1024
+    const sizes = ["Bytes", "KB", "MB", "GB"]
+    const i = Math.floor(Math.log(bytes) / Math.log(k))
+    return (
+      Number.parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i]
+    )
+  }
+
+  return (
+    <div className="flex items-center space-x-2 text-xs">
+      <EventIcon icon={PaperclipIcon} />
+      <span>
+        <EventActor user={actor} /> uploaded{" "}
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="cursor-default font-medium hover:underline">
+                {event.file_name}
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>
+              <div className="space-y-1">
+                <p>Size: {formatFileSize(event.size)}</p>
+                <p>Type: {event.content_type}</p>
+              </div>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      </span>
+    </div>
+  )
+}
+
+export function AttachmentDeletedEvent({
+  event,
+  actor,
+}: {
+  event: AttachmentDeletedEventRead
+  actor: User
+}) {
+  return (
+    <div className="flex items-center space-x-2 text-xs">
+      <EventIcon icon={TrashIcon} className="text-red-600 bg-red-50" />
+      <span>
+        <EventActor user={actor} /> deleted{" "}
+        <span className="font-medium">{event.file_name}</span>
+      </span>
+    </div>
   )
 }

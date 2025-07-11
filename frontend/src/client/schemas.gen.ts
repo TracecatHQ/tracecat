@@ -471,6 +471,24 @@ export const $ActionStep = {
   title: "ActionStep",
 } as const
 
+export const $ActionType = {
+  properties: {
+    component_id: {
+      type: "string",
+      const: "action-type",
+      title: "Component Id",
+      default: "action-type",
+    },
+    multiple: {
+      type: "boolean",
+      title: "Multiple",
+      default: false,
+    },
+  },
+  type: "object",
+  title: "ActionType",
+} as const
+
 export const $ActionUpdate = {
   properties: {
     title: {
@@ -636,8 +654,21 @@ export const $ActionValidationResult = {
 export const $AgentOutput = {
   properties: {
     output: {
-      type: "string",
       title: "Output",
+    },
+    files: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "string",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Files",
     },
     message_history: {
       items: {
@@ -702,6 +733,14 @@ export const $AppSettingsRead = {
       type: "boolean",
       title: "App Create Workspace On Register",
     },
+    app_editor_pill_decorations_enabled: {
+      type: "boolean",
+      title: "App Editor Pill Decorations Enabled",
+    },
+    app_action_form_mode_enabled: {
+      type: "boolean",
+      title: "App Action Form Mode Enabled",
+    },
   },
   type: "object",
   required: [
@@ -710,6 +749,8 @@ export const $AppSettingsRead = {
     "app_interactions_enabled",
     "app_workflow_export_enabled",
     "app_create_workspace_on_register",
+    "app_editor_pill_decorations_enabled",
+    "app_action_form_mode_enabled",
   ],
   title: "AppSettingsRead",
   description: "Settings for the app.",
@@ -748,6 +789,20 @@ export const $AppSettingsUpdate = {
       description:
         "Whether to automatically create a workspace when a user signs up.",
       default: false,
+    },
+    app_editor_pill_decorations_enabled: {
+      type: "boolean",
+      title: "App Editor Pill Decorations Enabled",
+      description:
+        "Whether to show pills in template expressions. When disabled, expressions show as plain text with syntax highlighting.",
+      default: false,
+    },
+    app_action_form_mode_enabled: {
+      type: "boolean",
+      title: "App Action Form Mode Enabled",
+      description:
+        "Whether to enable form mode for action inputs. When disabled, only YAML mode is available, preserving raw YAML formatting.",
+      default: true,
     },
   },
   type: "object",
@@ -882,6 +937,130 @@ export const $AssigneeChangedEventRead = {
   required: ["old", "new", "created_at"],
   title: "AssigneeChangedEventRead",
   description: "Event for when a case assignee is changed.",
+} as const
+
+export const $AttachmentCreatedEventRead = {
+  properties: {
+    wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
+    },
+    type: {
+      type: "string",
+      const: "attachment_created",
+      title: "Type",
+      default: "attachment_created",
+    },
+    attachment_id: {
+      type: "string",
+      format: "uuid",
+      title: "Attachment Id",
+    },
+    file_name: {
+      type: "string",
+      title: "File Name",
+    },
+    content_type: {
+      type: "string",
+      title: "Content Type",
+    },
+    size: {
+      type: "integer",
+      title: "Size",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+      description: "The user who performed the action.",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "The timestamp of the event.",
+    },
+  },
+  type: "object",
+  required: [
+    "attachment_id",
+    "file_name",
+    "content_type",
+    "size",
+    "created_at",
+  ],
+  title: "AttachmentCreatedEventRead",
+  description: "Event for when an attachment is created for a case.",
+} as const
+
+export const $AttachmentDeletedEventRead = {
+  properties: {
+    wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
+    },
+    type: {
+      type: "string",
+      const: "attachment_deleted",
+      title: "Type",
+      default: "attachment_deleted",
+    },
+    attachment_id: {
+      type: "string",
+      format: "uuid",
+      title: "Attachment Id",
+    },
+    file_name: {
+      type: "string",
+      title: "File Name",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+      description: "The user who performed the action.",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "The timestamp of the event.",
+    },
+  },
+  type: "object",
+  required: ["attachment_id", "file_name", "created_at"],
+  title: "AttachmentDeletedEventRead",
+  description: "Event for when an attachment is deleted from a case.",
 } as const
 
 export const $AudioUrl = {
@@ -1097,6 +1276,19 @@ export const $Body_auth_verify_verify = {
   title: "Body_auth-verify:verify",
 } as const
 
+export const $Body_cases_create_attachment = {
+  properties: {
+    file: {
+      type: "string",
+      format: "binary",
+      title: "File",
+    },
+  },
+  type: "object",
+  required: ["file"],
+  title: "Body_cases-create_attachment",
+} as const
+
 export const $Body_tables_import_csv = {
   properties: {
     file: {
@@ -1162,6 +1354,107 @@ export const $Body_workflows_create_workflow = {
   },
   type: "object",
   title: "Body_workflows-create_workflow",
+} as const
+
+export const $CaseAttachmentDownloadResponse = {
+  properties: {
+    download_url: {
+      type: "string",
+      title: "Download Url",
+      description: "Pre-signed download URL",
+    },
+    file_name: {
+      type: "string",
+      title: "File Name",
+      description: "Original filename",
+    },
+    content_type: {
+      type: "string",
+      title: "Content Type",
+      description: "MIME type of the file",
+    },
+  },
+  type: "object",
+  required: ["download_url", "file_name", "content_type"],
+  title: "CaseAttachmentDownloadResponse",
+  description: "Model for attachment download URL response.",
+} as const
+
+export const $CaseAttachmentRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    case_id: {
+      type: "string",
+      format: "uuid",
+      title: "Case Id",
+    },
+    file_id: {
+      type: "string",
+      format: "uuid",
+      title: "File Id",
+    },
+    file_name: {
+      type: "string",
+      title: "File Name",
+    },
+    content_type: {
+      type: "string",
+      title: "Content Type",
+    },
+    size: {
+      type: "integer",
+      title: "Size",
+    },
+    sha256: {
+      type: "string",
+      title: "Sha256",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+    creator_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Creator Id",
+    },
+    is_deleted: {
+      type: "boolean",
+      title: "Is Deleted",
+      default: false,
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "case_id",
+    "file_id",
+    "file_name",
+    "content_type",
+    "size",
+    "sha256",
+    "created_at",
+    "updated_at",
+  ],
+  title: "CaseAttachmentRead",
+  description: "Model for reading a case attachment.",
 } as const
 
 export const $CaseCommentCreate = {
@@ -1409,6 +1702,12 @@ export const $CaseEventRead = {
     {
       $ref: "#/components/schemas/AssigneeChangedEventRead",
     },
+    {
+      $ref: "#/components/schemas/AttachmentCreatedEventRead",
+    },
+    {
+      $ref: "#/components/schemas/AttachmentDeletedEventRead",
+    },
   ],
   title: "CaseEventRead",
   description: "Base read model for all event types.",
@@ -1416,6 +1715,8 @@ export const $CaseEventRead = {
     propertyName: "type",
     mapping: {
       assignee_changed: "#/components/schemas/AssigneeChangedEventRead",
+      attachment_created: "#/components/schemas/AttachmentCreatedEventRead",
+      attachment_deleted: "#/components/schemas/AttachmentDeletedEventRead",
       case_closed: "#/components/schemas/ClosedEventRead",
       case_created: "#/components/schemas/CreatedEventRead",
       case_reopened: "#/components/schemas/ReopenedEventRead",
@@ -1917,6 +2218,25 @@ export const $ClosedEventRead = {
   description: "Event for when a case is closed.",
 } as const
 
+export const $Code = {
+  properties: {
+    component_id: {
+      type: "string",
+      const: "code",
+      title: "Component Id",
+      default: "code",
+    },
+    lang: {
+      type: "string",
+      enum: ["yaml", "python"],
+      title: "Lang",
+      default: "python",
+    },
+  },
+  type: "object",
+  title: "Code",
+} as const
+
 export const $CreatedEventRead = {
   properties: {
     wf_exec_id: {
@@ -1961,6 +2281,195 @@ export const $CreatedEventRead = {
   required: ["created_at"],
   title: "CreatedEventRead",
   description: "Event for when a case is created.",
+} as const
+
+export const $CursorPaginatedResponse_CaseReadMinimal_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/CaseReadMinimal",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[CaseReadMinimal]",
+} as const
+
+export const $CursorPaginatedResponse_TableRowRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/TableRowRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[TableRowRead]",
+} as const
+
+export const $CursorPaginatedResponse_WorkflowReadMinimal_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/WorkflowReadMinimal",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[WorkflowReadMinimal]",
 } as const
 
 export const $DSLConfig_Input = {
@@ -2280,6 +2789,61 @@ export const $EditorActionRead = {
   title: "EditorActionRead",
 } as const
 
+export const $EditorComponent = {
+  oneOf: [
+    {
+      $ref: "#/components/schemas/Text",
+    },
+    {
+      $ref: "#/components/schemas/Code",
+    },
+    {
+      $ref: "#/components/schemas/Select",
+    },
+    {
+      $ref: "#/components/schemas/TextArea",
+    },
+    {
+      $ref: "#/components/schemas/Integer",
+    },
+    {
+      $ref: "#/components/schemas/Float",
+    },
+    {
+      $ref: "#/components/schemas/Toggle",
+    },
+    {
+      $ref: "#/components/schemas/Yaml",
+    },
+    {
+      $ref: "#/components/schemas/TagInput",
+    },
+    {
+      $ref: "#/components/schemas/ActionType",
+    },
+    {
+      $ref: "#/components/schemas/WorkflowAlias",
+    },
+  ],
+  title: "EditorComponent",
+  discriminator: {
+    propertyName: "component_id",
+    mapping: {
+      "action-type": "#/components/schemas/ActionType",
+      code: "#/components/schemas/Code",
+      float: "#/components/schemas/Float",
+      integer: "#/components/schemas/Integer",
+      select: "#/components/schemas/Select",
+      "tag-input": "#/components/schemas/TagInput",
+      text: "#/components/schemas/Text",
+      "text-area": "#/components/schemas/TextArea",
+      toggle: "#/components/schemas/Toggle",
+      "workflow-alias": "#/components/schemas/WorkflowAlias",
+      yaml: "#/components/schemas/Yaml",
+    },
+  },
+} as const
+
 export const $EditorFunctionRead = {
   properties: {
     name: {
@@ -2409,7 +2973,7 @@ export const $EventFailure = {
   title: "EventFailure",
 } as const
 
-export const $EventGroup = {
+export const $EventGroup_TypeVar_ = {
   properties: {
     event_id: {
       type: "integer",
@@ -2545,7 +3109,7 @@ export const $EventGroup = {
     "udf_key",
     "action_input",
   ],
-  title: "EventGroup",
+  title: "EventGroup[TypeVar]",
 } as const
 
 export const $ExpectedField = {
@@ -2682,6 +3246,46 @@ export const $ExprValidationResult = {
   description: "Result of visiting an expression node.",
 } as const
 
+export const $ExpressionValidationRequest = {
+  properties: {
+    expression: {
+      type: "string",
+      title: "Expression",
+    },
+  },
+  type: "object",
+  required: ["expression"],
+  title: "ExpressionValidationRequest",
+} as const
+
+export const $ExpressionValidationResponse = {
+  properties: {
+    is_valid: {
+      type: "boolean",
+      title: "Is Valid",
+    },
+    errors: {
+      items: {
+        $ref: "#/components/schemas/ValidationError",
+      },
+      type: "array",
+      title: "Errors",
+      default: [],
+    },
+    tokens: {
+      items: {
+        $ref: "#/components/schemas/SyntaxToken",
+      },
+      type: "array",
+      title: "Tokens",
+      default: [],
+    },
+  },
+  type: "object",
+  required: ["is_valid"],
+  title: "ExpressionValidationResponse",
+} as const
+
 export const $FieldChangedEventRead = {
   properties: {
     wf_exec_id: {
@@ -2751,6 +3355,46 @@ export const $FieldDiff = {
   type: "object",
   required: ["field", "old", "new"],
   title: "FieldDiff",
+} as const
+
+export const $Float = {
+  properties: {
+    component_id: {
+      type: "string",
+      const: "float",
+      title: "Component Id",
+      default: "float",
+    },
+    min_val: {
+      anyOf: [
+        {
+          type: "number",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Min Val",
+    },
+    max_val: {
+      anyOf: [
+        {
+          type: "number",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Val",
+    },
+    step: {
+      type: "number",
+      title: "Step",
+      default: 0.1,
+    },
+  },
+  type: "object",
+  title: "Float",
 } as const
 
 export const $FolderDirectoryItem = {
@@ -2947,6 +3591,345 @@ export const $ImageUrl = {
   type: "object",
   required: ["url"],
   title: "ImageUrl",
+} as const
+
+export const $Integer = {
+  properties: {
+    component_id: {
+      type: "string",
+      const: "integer",
+      title: "Component Id",
+      default: "integer",
+    },
+    min_val: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Min Val",
+    },
+    max_val: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Val",
+    },
+    step: {
+      type: "integer",
+      title: "Step",
+      default: 1,
+    },
+  },
+  type: "object",
+  title: "Integer",
+} as const
+
+export const $IntegrationOAuthCallback = {
+  properties: {
+    status: {
+      type: "string",
+      title: "Status",
+      description: "The status of the OAuth callback",
+      default: "connected",
+    },
+    provider_id: {
+      type: "string",
+      title: "Provider Id",
+      description: "The provider that the user connected to",
+    },
+    redirect_url: {
+      type: "string",
+      title: "Redirect Url",
+      description: "The URL to redirect to after the OAuth callback",
+    },
+  },
+  type: "object",
+  required: ["provider_id", "redirect_url"],
+  title: "IntegrationOAuthCallback",
+  description: "Response for OAuth callback.",
+} as const
+
+export const $IntegrationOAuthConnect = {
+  properties: {
+    auth_url: {
+      type: "string",
+      title: "Auth Url",
+      description: "The URL to redirect to for OAuth authentication",
+    },
+    provider_id: {
+      type: "string",
+      title: "Provider Id",
+      description: "The provider that the user connected to",
+    },
+  },
+  type: "object",
+  required: ["auth_url", "provider_id"],
+  title: "IntegrationOAuthConnect",
+  description: "Request model for connecting an integration.",
+} as const
+
+export const $IntegrationRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid4",
+      title: "Id",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid4",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+    },
+    provider_id: {
+      type: "string",
+      title: "Provider Id",
+    },
+    provider_config: {
+      type: "object",
+      title: "Provider Config",
+    },
+    token_type: {
+      type: "string",
+      title: "Token Type",
+    },
+    expires_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Expires At",
+    },
+    client_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Client Id",
+      description: "OAuth client ID for the provider",
+    },
+    granted_scopes: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Granted Scopes",
+      description: "OAuth scopes granted for this integration",
+    },
+    requested_scopes: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Requested Scopes",
+      description: "OAuth scopes requested by user for this integration",
+    },
+    status: {
+      $ref: "#/components/schemas/IntegrationStatus",
+    },
+    is_expired: {
+      type: "boolean",
+      title: "Is Expired",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "created_at",
+    "updated_at",
+    "provider_id",
+    "provider_config",
+    "token_type",
+    "expires_at",
+    "status",
+    "is_expired",
+  ],
+  title: "IntegrationRead",
+  description: "Response model for user integration.",
+} as const
+
+export const $IntegrationReadMinimal = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid4",
+      title: "Id",
+    },
+    provider_id: {
+      type: "string",
+      title: "Provider Id",
+    },
+    status: {
+      $ref: "#/components/schemas/IntegrationStatus",
+    },
+    is_expired: {
+      type: "boolean",
+      title: "Is Expired",
+    },
+  },
+  type: "object",
+  required: ["id", "provider_id", "status", "is_expired"],
+  title: "IntegrationReadMinimal",
+  description: "Response model for user integration.",
+} as const
+
+export const $IntegrationStatus = {
+  type: "string",
+  enum: ["not_configured", "configured", "connected"],
+  title: "IntegrationStatus",
+  description: "Status of an integration.",
+} as const
+
+export const $IntegrationTestConnectionResponse = {
+  properties: {
+    success: {
+      type: "boolean",
+      title: "Success",
+      description: "Whether the connection test was successful",
+    },
+    provider_id: {
+      type: "string",
+      title: "Provider Id",
+      description: "The provider that was tested",
+    },
+    message: {
+      type: "string",
+      title: "Message",
+      description: "Message describing the test result",
+    },
+    error: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Error",
+      description: "Error message if the test failed",
+    },
+  },
+  type: "object",
+  required: ["success", "provider_id", "message"],
+  title: "IntegrationTestConnectionResponse",
+  description: "Response for testing integration connection.",
+} as const
+
+export const $IntegrationUpdate = {
+  properties: {
+    grant_type: {
+      $ref: "#/components/schemas/OAuthGrantType",
+      description: "OAuth grant type for this integration",
+    },
+    client_id: {
+      anyOf: [
+        {
+          type: "string",
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Client Id",
+      description: "OAuth client ID for the provider",
+    },
+    client_secret: {
+      anyOf: [
+        {
+          type: "string",
+          minLength: 1,
+          format: "password",
+          writeOnly: true,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Client Secret",
+      description: "OAuth client secret for the provider",
+    },
+    provider_config: {
+      anyOf: [
+        {
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Provider Config",
+      description: "Provider-specific configuration",
+    },
+    scopes: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Scopes",
+      description: "OAuth scopes to request for this integration",
+    },
+  },
+  type: "object",
+  required: ["grant_type"],
+  title: "IntegrationUpdate",
+  description: "Request model for updating an integration.",
 } as const
 
 export const $InteractionCategory = {
@@ -3270,6 +4253,13 @@ export const $OAuth2AuthorizeResponse = {
   title: "OAuth2AuthorizeResponse",
 } as const
 
+export const $OAuthGrantType = {
+  type: "string",
+  enum: ["authorization_code", "client_credentials"],
+  title: "OAuthGrantType",
+  description: "Grant type for OAuth 2.0.",
+} as const
+
 export const $OAuthSettingsRead = {
   properties: {
     oauth_google_enabled: {
@@ -3426,6 +4416,262 @@ export const $PriorityChangedEventRead = {
   description: "Event for when a case priority is changed.",
 } as const
 
+export const $ProviderCategory = {
+  type: "string",
+  enum: ["auth", "communication", "cloud", "monitoring", "alerting", "other"],
+  title: "ProviderCategory",
+  description: "Category of a provider.",
+} as const
+
+export const $ProviderMetadata = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+      description: "Provider identifier",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+      description: "Human-readable provider name",
+    },
+    description: {
+      type: "string",
+      title: "Description",
+      description: "Provider description",
+    },
+    logo_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Logo Url",
+      description: "URL to provider logo",
+    },
+    setup_instructions: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Setup Instructions",
+      description: "Setup instructions for the provider",
+    },
+    requires_config: {
+      type: "boolean",
+      title: "Requires Config",
+      description: "Whether this provider requires additional configuration",
+      default: false,
+    },
+    categories: {
+      items: {
+        $ref: "#/components/schemas/ProviderCategory",
+      },
+      type: "array",
+      title: "Categories",
+      description: "Categories of the provider (e.g., auth, communication)",
+    },
+    setup_steps: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Setup Steps",
+      description: "Step-by-step instructions for setting up the provider",
+    },
+    enabled: {
+      type: "boolean",
+      title: "Enabled",
+      description: "Whether this provider is available for use",
+      default: true,
+    },
+    api_docs_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Api Docs Url",
+      description: "URL to API documentation",
+    },
+    setup_guide_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Setup Guide Url",
+      description: "URL to setup guide",
+    },
+    troubleshooting_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Troubleshooting Url",
+      description: "URL to troubleshooting documentation",
+    },
+  },
+  type: "object",
+  required: ["id", "name", "description"],
+  title: "ProviderMetadata",
+  description: "Metadata for a provider.",
+} as const
+
+export const $ProviderRead = {
+  properties: {
+    grant_type: {
+      $ref: "#/components/schemas/OAuthGrantType",
+    },
+    metadata: {
+      $ref: "#/components/schemas/ProviderMetadata",
+    },
+    scopes: {
+      $ref: "#/components/schemas/ProviderScopes",
+    },
+    schema: {
+      $ref: "#/components/schemas/ProviderSchema",
+    },
+    integration_status: {
+      $ref: "#/components/schemas/IntegrationStatus",
+    },
+    redirect_uri: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Redirect Uri",
+    },
+  },
+  type: "object",
+  required: ["grant_type", "metadata", "scopes", "integration_status"],
+  title: "ProviderRead",
+} as const
+
+export const $ProviderReadMinimal = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    description: {
+      type: "string",
+      title: "Description",
+    },
+    requires_config: {
+      type: "boolean",
+      title: "Requires Config",
+    },
+    categories: {
+      items: {
+        $ref: "#/components/schemas/ProviderCategory",
+      },
+      type: "array",
+      title: "Categories",
+    },
+    integration_status: {
+      $ref: "#/components/schemas/IntegrationStatus",
+    },
+    enabled: {
+      type: "boolean",
+      title: "Enabled",
+    },
+    grant_type: {
+      $ref: "#/components/schemas/OAuthGrantType",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "name",
+    "description",
+    "requires_config",
+    "categories",
+    "integration_status",
+    "enabled",
+    "grant_type",
+  ],
+  title: "ProviderReadMinimal",
+} as const
+
+export const $ProviderSchema = {
+  properties: {
+    json_schema: {
+      type: "object",
+      title: "Json Schema",
+    },
+  },
+  type: "object",
+  required: ["json_schema"],
+  title: "ProviderSchema",
+  description: "Schema for a provider.",
+} as const
+
+export const $ProviderScopes = {
+  properties: {
+    default: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Default",
+      description: "Default scopes for this provider. Ultra thin layer",
+    },
+    allowed_patterns: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Allowed Patterns",
+      description:
+        "Regex patterns to validate additional scopes for this provider.",
+    },
+    accepts_additional_scopes: {
+      type: "boolean",
+      title: "Accepts Additional Scopes",
+      description:
+        "Whether this provider accepts additional scopes beyond the default ones. Set to False for providers like Microsoft Graph that require exactly the default scopes.",
+      default: true,
+    },
+  },
+  type: "object",
+  required: ["default"],
+  title: "ProviderScopes",
+  description: "Scope metadata for a provider.",
+} as const
+
 export const $ReceiveInteractionResponse = {
   properties: {
     message: {
@@ -3475,7 +4721,7 @@ export const $RegistryActionCreate = {
       anyOf: [
         {
           items: {
-            $ref: "#/components/schemas/RegistrySecret",
+            $ref: "#/components/schemas/RegistrySecretType-Input",
           },
           type: "array",
         },
@@ -3667,7 +4913,7 @@ export const $RegistryActionRead = {
       anyOf: [
         {
           items: {
-            $ref: "#/components/schemas/RegistrySecret",
+            $ref: "#/components/schemas/RegistrySecretType-Output",
           },
           type: "array",
         },
@@ -3993,7 +5239,7 @@ export const $RegistryActionUpdate = {
       anyOf: [
         {
           items: {
-            $ref: "#/components/schemas/RegistrySecret",
+            $ref: "#/components/schemas/RegistrySecretType-Input",
           },
           type: "array",
         },
@@ -4163,6 +5409,59 @@ export const $RegistryActionValidationErrorInfo = {
   type: "object",
   required: ["type", "details", "is_template", "loc_primary"],
   title: "RegistryActionValidationErrorInfo",
+} as const
+
+export const $RegistryOAuthSecret_Input = {
+  properties: {
+    type: {
+      type: "string",
+      const: "oauth",
+      title: "Type",
+      default: "oauth",
+    },
+    provider_id: {
+      type: "string",
+      title: "Provider Id",
+    },
+    grant_type: {
+      type: "string",
+      enum: ["authorization_code", "client_credentials"],
+      title: "Grant Type",
+    },
+  },
+  type: "object",
+  required: ["provider_id", "grant_type"],
+  title: "RegistryOAuthSecret",
+  description: "OAuth secret for a provider.",
+} as const
+
+export const $RegistryOAuthSecret_Output = {
+  properties: {
+    type: {
+      type: "string",
+      const: "oauth",
+      title: "Type",
+      default: "oauth",
+    },
+    provider_id: {
+      type: "string",
+      title: "Provider Id",
+    },
+    grant_type: {
+      type: "string",
+      enum: ["authorization_code", "client_credentials"],
+      title: "Grant Type",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+      readOnly: true,
+    },
+  },
+  type: "object",
+  required: ["provider_id", "grant_type", "name"],
+  title: "RegistryOAuthSecret",
+  description: "OAuth secret for a provider.",
 } as const
 
 export const $RegistryRepositoryCreate = {
@@ -4347,6 +5646,12 @@ export const $RegistryRepositoryUpdate = {
 
 export const $RegistrySecret = {
   properties: {
+    type: {
+      type: "string",
+      const: "custom",
+      title: "Type",
+      default: "custom",
+    },
     name: {
       type: "string",
       pattern: "[a-z0-9_]+",
@@ -4391,6 +5696,42 @@ export const $RegistrySecret = {
   type: "object",
   required: ["name"],
   title: "RegistrySecret",
+} as const
+
+export const $RegistrySecretType_Input = {
+  oneOf: [
+    {
+      $ref: "#/components/schemas/RegistrySecret",
+    },
+    {
+      $ref: "#/components/schemas/RegistryOAuthSecret-Input",
+    },
+  ],
+  discriminator: {
+    propertyName: "type",
+    mapping: {
+      custom: "#/components/schemas/RegistrySecret",
+      oauth: "#/components/schemas/RegistryOAuthSecret-Input",
+    },
+  },
+} as const
+
+export const $RegistrySecretType_Output = {
+  oneOf: [
+    {
+      $ref: "#/components/schemas/RegistrySecret",
+    },
+    {
+      $ref: "#/components/schemas/RegistryOAuthSecret-Output",
+    },
+  ],
+  discriminator: {
+    propertyName: "type",
+    mapping: {
+      custom: "#/components/schemas/RegistrySecret",
+      oauth: "#/components/schemas/RegistryOAuthSecret-Output",
+    },
+  },
 } as const
 
 export const $ReopenedEventRead = {
@@ -5484,6 +6825,38 @@ export const $SecretValidationResult = {
   description: "Result of validating credentials.",
 } as const
 
+export const $Select = {
+  properties: {
+    component_id: {
+      type: "string",
+      const: "select",
+      title: "Component Id",
+      default: "select",
+    },
+    options: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Options",
+    },
+    multiple: {
+      type: "boolean",
+      title: "Multiple",
+      default: false,
+    },
+  },
+  type: "object",
+  title: "Select",
+} as const
+
 export const $SessionRead = {
   properties: {
     id: {
@@ -5576,7 +6949,7 @@ export const $SqlType = {
   enum: [
     "TEXT",
     "INTEGER",
-    "DECIMAL",
+    "NUMERIC",
     "BOOLEAN",
     "TIMESTAMP",
     "TIMESTAMPTZ",
@@ -5637,6 +7010,30 @@ export const $StatusChangedEventRead = {
   required: ["old", "new", "created_at"],
   title: "StatusChangedEventRead",
   description: "Event for when a case status is changed.",
+} as const
+
+export const $SyntaxToken = {
+  properties: {
+    type: {
+      type: "string",
+      title: "Type",
+    },
+    value: {
+      type: "string",
+      title: "Value",
+    },
+    start: {
+      type: "integer",
+      title: "Start",
+    },
+    end: {
+      type: "integer",
+      title: "End",
+    },
+  },
+  type: "object",
+  required: ["type", "value", "start", "end"],
+  title: "SyntaxToken",
 } as const
 
 export const $SystemPromptPart = {
@@ -6006,6 +7403,19 @@ export const $TagCreate = {
   description: "Model for creating new tags with validation.",
 } as const
 
+export const $TagInput = {
+  properties: {
+    component_id: {
+      type: "string",
+      const: "tag-input",
+      title: "Component Id",
+      default: "tag-input",
+    },
+  },
+  type: "object",
+  title: "TagInput",
+} as const
+
 export const $TagRead = {
   properties: {
     id: {
@@ -6080,7 +7490,7 @@ export const $TemplateAction_Input = {
       default: "action",
     },
     definition: {
-      $ref: "#/components/schemas/TemplateActionDefinition",
+      $ref: "#/components/schemas/TemplateActionDefinition-Input",
     },
   },
   type: "object",
@@ -6097,7 +7507,7 @@ export const $TemplateAction_Output = {
       default: "action",
     },
     definition: {
-      $ref: "#/components/schemas/TemplateActionDefinition",
+      $ref: "#/components/schemas/TemplateActionDefinition-Output",
     },
   },
   type: "object",
@@ -6105,7 +7515,7 @@ export const $TemplateAction_Output = {
   title: "TemplateAction",
 } as const
 
-export const $TemplateActionDefinition = {
+export const $TemplateActionDefinition_Input = {
   properties: {
     name: {
       type: "string",
@@ -6173,7 +7583,134 @@ export const $TemplateActionDefinition = {
       anyOf: [
         {
           items: {
-            $ref: "#/components/schemas/RegistrySecret",
+            $ref: "#/components/schemas/RegistrySecretType-Input",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Secrets",
+      description: "The secrets to pass to the action",
+    },
+    expects: {
+      additionalProperties: {
+        $ref: "#/components/schemas/ExpectedField",
+      },
+      type: "object",
+      title: "Expects",
+      description: "The arguments to pass to the action",
+    },
+    steps: {
+      items: {
+        $ref: "#/components/schemas/ActionStep",
+      },
+      type: "array",
+      title: "Steps",
+      description: "The sequence of steps for the action",
+    },
+    returns: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "object",
+        },
+      ],
+      title: "Returns",
+      description: "The result of the action",
+    },
+  },
+  type: "object",
+  required: [
+    "name",
+    "namespace",
+    "title",
+    "display_group",
+    "expects",
+    "steps",
+    "returns",
+  ],
+  title: "TemplateActionDefinition",
+} as const
+
+export const $TemplateActionDefinition_Output = {
+  properties: {
+    name: {
+      type: "string",
+      title: "Name",
+      description: "The action name",
+    },
+    namespace: {
+      type: "string",
+      title: "Namespace",
+      description: "The namespace of the action",
+    },
+    title: {
+      type: "string",
+      title: "Title",
+      description: "The title of the action",
+    },
+    description: {
+      type: "string",
+      title: "Description",
+      description: "The description of the action",
+      default: "",
+    },
+    display_group: {
+      type: "string",
+      title: "Display Group",
+      description: "The display group of the action",
+    },
+    doc_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Doc Url",
+      description: "Link to documentation",
+    },
+    author: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Author",
+      description: "Author of the action",
+    },
+    deprecated: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Deprecated",
+      description: "Marks action as deprecated along with message",
+    },
+    secrets: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/RegistrySecretType-Output",
           },
           type: "array",
         },
@@ -6321,6 +7858,42 @@ export const $TemplateActionValidationErrorType = {
   title: "TemplateActionValidationErrorType",
 } as const
 
+export const $Text = {
+  properties: {
+    component_id: {
+      type: "string",
+      const: "text",
+      title: "Component Id",
+      default: "text",
+    },
+  },
+  type: "object",
+  title: "Text",
+} as const
+
+export const $TextArea = {
+  properties: {
+    component_id: {
+      type: "string",
+      const: "text-area",
+      title: "Component Id",
+      default: "text-area",
+    },
+    rows: {
+      type: "integer",
+      title: "Rows",
+      default: 4,
+    },
+    placeholder: {
+      type: "string",
+      title: "Placeholder",
+      default: "",
+    },
+  },
+  type: "object",
+  title: "TextArea",
+} as const
+
 export const $TextPart = {
   properties: {
     content: {
@@ -6337,6 +7910,29 @@ export const $TextPart = {
   type: "object",
   required: ["content"],
   title: "TextPart",
+} as const
+
+export const $Toggle = {
+  properties: {
+    label_on: {
+      type: "string",
+      title: "Label On",
+      default: "On",
+    },
+    label_off: {
+      type: "string",
+      title: "Label Off",
+      default: "Off",
+    },
+    component_id: {
+      type: "string",
+      const: "toggle",
+      title: "Component Id",
+      default: "toggle",
+    },
+  },
+  type: "object",
+  title: "Toggle",
 } as const
 
 export const $ToolCallPart = {
@@ -7142,6 +8738,19 @@ export const $WebhookUpdate = {
   title: "WebhookUpdate",
 } as const
 
+export const $WorkflowAlias = {
+  properties: {
+    component_id: {
+      type: "string",
+      const: "workflow-alias",
+      title: "Component Id",
+      default: "workflow-alias",
+    },
+  },
+  type: "object",
+  title: "WorkflowAlias",
+} as const
+
 export const $WorkflowCommitResponse = {
   properties: {
     workflow_id: {
@@ -7507,7 +9116,7 @@ export const $WorkflowExecutionEvent = {
     event_group: {
       anyOf: [
         {
-          $ref: "#/components/schemas/EventGroup",
+          $ref: "#/components/schemas/EventGroup_TypeVar_",
         },
         {
           type: "null",
@@ -8882,6 +10491,19 @@ export const $WorkspaceUpdate = {
   },
   type: "object",
   title: "WorkspaceUpdate",
+} as const
+
+export const $Yaml = {
+  properties: {
+    component_id: {
+      type: "string",
+      const: "yaml",
+      title: "Component Id",
+      default: "yaml",
+    },
+  },
+  type: "object",
+  title: "Yaml",
 } as const
 
 export const $login = {

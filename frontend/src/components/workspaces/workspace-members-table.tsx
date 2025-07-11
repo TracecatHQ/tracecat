@@ -1,12 +1,13 @@
 "use client"
 
-import { useCallback, useState } from "react"
-import { WorkspaceMember, WorkspaceRead, WorkspaceRole } from "@/client"
-import { useAuth } from "@/providers/auth"
-import { useWorkspace } from "@/providers/workspace"
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
-
-import { WorkspaceRoleEnum } from "@/lib/workspace"
+import { useCallback, useState } from "react"
+import type { WorkspaceMember, WorkspaceRead, WorkspaceRole } from "@/client"
+import {
+  DataTable,
+  DataTableColumnHeader,
+  type DataTableToolbarProps,
+} from "@/components/data-table"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -42,11 +43,9 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { toast } from "@/components/ui/use-toast"
-import {
-  DataTable,
-  DataTableColumnHeader,
-  type DataTableToolbarProps,
-} from "@/components/data-table"
+import { WorkspaceRoleEnum } from "@/lib/workspace"
+import { useAuth } from "@/providers/auth"
+import { useWorkspace } from "@/providers/workspace"
 
 export function WorkspaceMembersTable({
   workspace,

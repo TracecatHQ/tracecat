@@ -34,20 +34,30 @@ import type {
   AuthVerifyRequestTokenResponse,
   AuthVerifyVerifyData,
   AuthVerifyVerifyResponse,
+  CasesCreateAttachmentData,
+  CasesCreateAttachmentResponse,
   CasesCreateCaseData,
   CasesCreateCaseResponse,
   CasesCreateCommentData,
   CasesCreateCommentResponse,
   CasesCreateFieldData,
   CasesCreateFieldResponse,
+  CasesDeleteAttachmentData,
+  CasesDeleteAttachmentResponse,
   CasesDeleteCaseData,
   CasesDeleteCaseResponse,
   CasesDeleteCommentData,
   CasesDeleteCommentResponse,
   CasesDeleteFieldData,
   CasesDeleteFieldResponse,
+  CasesDownloadAttachmentData,
+  CasesDownloadAttachmentResponse,
   CasesGetCaseData,
   CasesGetCaseResponse,
+  CasesGetStorageUsageData,
+  CasesGetStorageUsageResponse,
+  CasesListAttachmentsData,
+  CasesListAttachmentsResponse,
   CasesListCasesData,
   CasesListCasesResponse,
   CasesListCommentsData,
@@ -64,10 +74,13 @@ import type {
   CasesUpdateCommentResponse,
   CasesUpdateFieldData,
   CasesUpdateFieldResponse,
+  EditorFieldSchemaResponse,
   EditorListActionsData,
   EditorListActionsResponse,
   EditorListFunctionsData,
   EditorListFunctionsResponse,
+  EditorValidateExpressionData,
+  EditorValidateExpressionResponse,
   FoldersCreateFolderData,
   FoldersCreateFolderResponse,
   FoldersDeleteFolderData,
@@ -82,6 +95,22 @@ import type {
   FoldersMoveFolderResponse,
   FoldersUpdateFolderData,
   FoldersUpdateFolderResponse,
+  IntegrationsConnectProviderData,
+  IntegrationsConnectProviderResponse,
+  IntegrationsDeleteIntegrationData,
+  IntegrationsDeleteIntegrationResponse,
+  IntegrationsDisconnectIntegrationData,
+  IntegrationsDisconnectIntegrationResponse,
+  IntegrationsGetIntegrationData,
+  IntegrationsGetIntegrationResponse,
+  IntegrationsListIntegrationsData,
+  IntegrationsListIntegrationsResponse,
+  IntegrationsOauthCallbackData,
+  IntegrationsOauthCallbackResponse,
+  IntegrationsTestConnectionData,
+  IntegrationsTestConnectionResponse,
+  IntegrationsUpdateIntegrationData,
+  IntegrationsUpdateIntegrationResponse,
   OrganizationDeleteOrgMemberData,
   OrganizationDeleteOrgMemberResponse,
   OrganizationDeleteSessionData,
@@ -100,6 +129,10 @@ import type {
   OrganizationSecretsUpdateOrgSecretByIdResponse,
   OrganizationUpdateOrgMemberData,
   OrganizationUpdateOrgMemberResponse,
+  ProvidersGetProviderData,
+  ProvidersGetProviderResponse,
+  ProvidersListProvidersData,
+  ProvidersListProvidersResponse,
   PublicCheckHealthResponse,
   PublicIncomingWebhook1Data,
   PublicIncomingWebhook1Response,
@@ -305,7 +338,7 @@ export const publicIncomingWebhook = (
   data: PublicIncomingWebhookData
 ): CancelablePromise<PublicIncomingWebhookResponse> => {
   return __request(OpenAPI, {
-    method: "GET",
+    method: "POST",
     url: "/webhooks/{workflow_id}/{secret}",
     path: {
       secret: data.secret,
@@ -345,7 +378,7 @@ export const publicIncomingWebhook1 = (
   data: PublicIncomingWebhook1Data
 ): CancelablePromise<PublicIncomingWebhook1Response> => {
   return __request(OpenAPI, {
-    method: "POST",
+    method: "GET",
     url: "/webhooks/{workflow_id}/{secret}",
     path: {
       secret: data.secret,
@@ -712,7 +745,10 @@ export const workspacesDeleteWorkspaceMembership = (
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.tag Filter workflows by tags
- * @returns WorkflowReadMinimal Successful Response
+ * @param data.limit
+ * @param data.cursor
+ * @param data.reverse
+ * @returns CursorPaginatedResponse_WorkflowReadMinimal_ Successful Response
  * @throws ApiError
  */
 export const workflowsListWorkflows = (
@@ -723,6 +759,9 @@ export const workflowsListWorkflows = (
     url: "/workflows",
     query: {
       tag: data.tag,
+      limit: data.limit,
+      cursor: data.cursor,
+      reverse: data.reverse,
       workspace_id: data.workspaceId,
     },
     errors: {
@@ -2097,6 +2136,48 @@ export const editorListActions = (
 }
 
 /**
+ * Validate Expression
+ * LSP endpoint for validating template expressions using the Lark grammar.
+ *
+ * This endpoint provides syntax validation and token information for syntax highlighting
+ * of template expressions like: ACTIONS.step1.result, SECRETS.api_key, etc.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns ExpressionValidationResponse Successful Response
+ * @throws ApiError
+ */
+export const editorValidateExpression = (
+  data: EditorValidateExpressionData
+): CancelablePromise<EditorValidateExpressionResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/editor/expressions/validate",
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Field Schema
+ * @returns EditorComponent Successful Response
+ * @throws ApiError
+ */
+export const editorFieldSchema =
+  (): CancelablePromise<EditorFieldSchemaResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/editor/field-schema",
+    })
+  }
+
+/**
  * Reload Registry Repositories
  * Refresh all registry repositories.
  * @returns void Successful Response
@@ -2877,9 +2958,10 @@ export const tablesDeleteColumn = (
  * @param data The data for the request.
  * @param data.tableId
  * @param data.workspaceId
- * @param data.limit Maximum number of rows to return
- * @param data.offset Number of rows to skip
- * @returns TableRowRead Successful Response
+ * @param data.limit
+ * @param data.cursor
+ * @param data.reverse
+ * @returns CursorPaginatedResponse_TableRowRead_ Successful Response
  * @throws ApiError
  */
 export const tablesListRows = (
@@ -2893,7 +2975,8 @@ export const tablesListRows = (
     },
     query: {
       limit: data.limit,
-      offset: data.offset,
+      cursor: data.cursor,
+      reverse: data.reverse,
       workspace_id: data.workspaceId,
     },
     errors: {
@@ -3055,10 +3138,13 @@ export const tablesImportCsv = (
 
 /**
  * List Cases
- * List all cases.
+ * List cases with cursor-based pagination.
  * @param data The data for the request.
  * @param data.workspaceId
- * @returns CaseReadMinimal Successful Response
+ * @param data.limit Maximum items per page
+ * @param data.cursor Cursor for pagination
+ * @param data.reverse Reverse pagination direction
+ * @returns CursorPaginatedResponse_CaseReadMinimal_ Successful Response
  * @throws ApiError
  */
 export const casesListCases = (
@@ -3068,6 +3154,9 @@ export const casesListCases = (
     method: "GET",
     url: "/cases",
     query: {
+      limit: data.limit,
+      cursor: data.cursor,
+      reverse: data.reverse,
       workspace_id: data.workspaceId,
     },
     errors: {
@@ -3356,6 +3445,150 @@ export const casesListEventsWithUsers = (
   return __request(OpenAPI, {
     method: "GET",
     url: "/cases/{case_id}/events",
+    path: {
+      case_id: data.caseId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Attachments
+ * List all attachments for a case.
+ * @param data The data for the request.
+ * @param data.caseId
+ * @param data.workspaceId
+ * @returns CaseAttachmentRead Successful Response
+ * @throws ApiError
+ */
+export const casesListAttachments = (
+  data: CasesListAttachmentsData
+): CancelablePromise<CasesListAttachmentsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/cases/{case_id}/attachments",
+    path: {
+      case_id: data.caseId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Attachment
+ * Upload a new attachment to a case.
+ * @param data The data for the request.
+ * @param data.caseId
+ * @param data.workspaceId
+ * @param data.formData
+ * @returns CaseAttachmentRead Successful Response
+ * @throws ApiError
+ */
+export const casesCreateAttachment = (
+  data: CasesCreateAttachmentData
+): CancelablePromise<CasesCreateAttachmentResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/cases/{case_id}/attachments",
+    path: {
+      case_id: data.caseId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    formData: data.formData,
+    mediaType: "multipart/form-data",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Download Attachment
+ * Download an attachment.
+ * @param data The data for the request.
+ * @param data.caseId
+ * @param data.attachmentId
+ * @param data.workspaceId
+ * @param data.preview If true, allows inline preview for safe image types
+ * @returns CaseAttachmentDownloadResponse Successful Response
+ * @throws ApiError
+ */
+export const casesDownloadAttachment = (
+  data: CasesDownloadAttachmentData
+): CancelablePromise<CasesDownloadAttachmentResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/cases/{case_id}/attachments/{attachment_id}",
+    path: {
+      case_id: data.caseId,
+      attachment_id: data.attachmentId,
+    },
+    query: {
+      preview: data.preview,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Attachment
+ * Delete an attachment (soft delete).
+ * @param data The data for the request.
+ * @param data.caseId
+ * @param data.attachmentId
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const casesDeleteAttachment = (
+  data: CasesDeleteAttachmentData
+): CancelablePromise<CasesDeleteAttachmentResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/cases/{case_id}/attachments/{attachment_id}",
+    path: {
+      case_id: data.caseId,
+      attachment_id: data.attachmentId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Storage Usage
+ * Get total storage used by a case's attachments.
+ * @param data The data for the request.
+ * @param data.caseId
+ * @param data.workspaceId
+ * @returns number Successful Response
+ * @throws ApiError
+ */
+export const casesGetStorageUsage = (
+  data: CasesGetStorageUsageData
+): CancelablePromise<CasesGetStorageUsageResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/cases/{case_id}/storage-usage",
     path: {
       case_id: data.caseId,
     },
@@ -3666,6 +3899,284 @@ export const foldersMoveFolder = (
     },
     body: data.requestBody,
     mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Oauth Callback
+ * Handle OAuth callback for the specified provider.
+ *
+ * Validates the state parameter against the database to ensure it was issued
+ * by our server and hasn't expired. This prevents CSRF attacks.
+ * @param data The data for the request.
+ * @param data.code Authorization code from OAuth provider
+ * @param data.state State parameter from authorization request
+ * @returns IntegrationOAuthCallback Successful Response
+ * @throws ApiError
+ */
+export const integrationsOauthCallback = (
+  data: IntegrationsOauthCallbackData
+): CancelablePromise<IntegrationsOauthCallbackResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/integrations/callback",
+    query: {
+      code: data.code,
+      state: data.state,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Integrations
+ * List all integrations for the current user.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @returns IntegrationReadMinimal Successful Response
+ * @throws ApiError
+ */
+export const integrationsListIntegrations = (
+  data: IntegrationsListIntegrationsData
+): CancelablePromise<IntegrationsListIntegrationsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/integrations",
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Integration
+ * Get integration for the specified provider.
+ * @param data The data for the request.
+ * @param data.providerId
+ * @param data.workspaceId
+ * @param data.grantType
+ * @returns IntegrationRead Successful Response
+ * @throws ApiError
+ */
+export const integrationsGetIntegration = (
+  data: IntegrationsGetIntegrationData
+): CancelablePromise<IntegrationsGetIntegrationResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/integrations/{provider_id}",
+    path: {
+      provider_id: data.providerId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+      grant_type: data.grantType,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Integration
+ * Delete integration for the specified provider (removes the integration record completely).
+ * @param data The data for the request.
+ * @param data.providerId
+ * @param data.workspaceId
+ * @param data.grantType
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const integrationsDeleteIntegration = (
+  data: IntegrationsDeleteIntegrationData
+): CancelablePromise<IntegrationsDeleteIntegrationResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/integrations/{provider_id}",
+    path: {
+      provider_id: data.providerId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+      grant_type: data.grantType,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Integration
+ * Update OAuth client credentials for the specified provider integration.
+ * @param data The data for the request.
+ * @param data.providerId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @param data.grantType
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const integrationsUpdateIntegration = (
+  data: IntegrationsUpdateIntegrationData
+): CancelablePromise<IntegrationsUpdateIntegrationResponse> => {
+  return __request(OpenAPI, {
+    method: "PUT",
+    url: "/integrations/{provider_id}",
+    path: {
+      provider_id: data.providerId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+      grant_type: data.grantType,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Connect Provider
+ * Initiate OAuth integration for the specified provider.
+ *
+ * Creates a secure state parameter stored in the database to prevent CSRF attacks.
+ * The state is validated on the callback to ensure it was issued by our server.
+ * @param data The data for the request.
+ * @param data.providerId
+ * @param data.workspaceId
+ * @returns IntegrationOAuthConnect Successful Response
+ * @throws ApiError
+ */
+export const integrationsConnectProvider = (
+  data: IntegrationsConnectProviderData
+): CancelablePromise<IntegrationsConnectProviderResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/integrations/{provider_id}/connect",
+    path: {
+      provider_id: data.providerId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Disconnect Integration
+ * Disconnect integration for the specified provider (revokes tokens but keeps configuration).
+ * @param data The data for the request.
+ * @param data.providerId
+ * @param data.workspaceId
+ * @param data.grantType
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const integrationsDisconnectIntegration = (
+  data: IntegrationsDisconnectIntegrationData
+): CancelablePromise<IntegrationsDisconnectIntegrationResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/integrations/{provider_id}/disconnect",
+    path: {
+      provider_id: data.providerId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+      grant_type: data.grantType,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Test Connection
+ * Test client credentials connection for the specified provider.
+ * @param data The data for the request.
+ * @param data.providerId
+ * @param data.workspaceId
+ * @returns IntegrationTestConnectionResponse Successful Response
+ * @throws ApiError
+ */
+export const integrationsTestConnection = (
+  data: IntegrationsTestConnectionData
+): CancelablePromise<IntegrationsTestConnectionResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/integrations/{provider_id}/test",
+    path: {
+      provider_id: data.providerId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Providers
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @returns ProviderReadMinimal Successful Response
+ * @throws ApiError
+ */
+export const providersListProviders = (
+  data: ProvidersListProvidersData
+): CancelablePromise<ProvidersListProvidersResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/providers",
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Provider
+ * Get provider metadata, scopes, and schema.
+ * @param data The data for the request.
+ * @param data.providerId
+ * @param data.workspaceId
+ * @param data.grantType
+ * @returns ProviderRead Successful Response
+ * @throws ApiError
+ */
+export const providersGetProvider = (
+  data: ProvidersGetProviderData
+): CancelablePromise<ProvidersGetProviderResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/providers/{provider_id}",
+    path: {
+      provider_id: data.providerId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+      grant_type: data.grantType,
+    },
     errors: {
       422: "Validation Error",
     },

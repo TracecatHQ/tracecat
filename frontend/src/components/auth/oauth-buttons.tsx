@@ -1,10 +1,9 @@
 "use client"
 
-import { ComponentPropsWithoutRef, useState } from "react"
+import { type ComponentPropsWithoutRef, useState } from "react"
 import { authOauthGoogleDatabaseAuthorize } from "@/client"
-
-import { Button } from "@/components/ui/button"
 import { Icons } from "@/components/icons"
+import { Button } from "@/components/ui/button"
 
 type OAuthButtonProps = ComponentPropsWithoutRef<typeof Button>
 export function GithubOAuthButton(props: OAuthButtonProps) {

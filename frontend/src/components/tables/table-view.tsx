@@ -1,18 +1,17 @@
 "use client"
 
-import React, { useEffect } from "react"
-import { TableColumnRead, TableRead, TableRowRead } from "@/client"
-import { useWorkspace } from "@/providers/workspace"
-import { CellContext, ColumnDef } from "@tanstack/react-table"
+import type { CellContext, ColumnDef } from "@tanstack/react-table"
 import { DatabaseZapIcon } from "lucide-react"
-
-import { useListRows } from "@/lib/hooks"
-import { Button } from "@/components/ui/button"
-import { TooltipProvider } from "@/components/ui/tooltip"
+import React, { useEffect, useState } from "react"
+import type { TableColumnRead, TableRead, TableRowRead } from "@/client"
 import { DataTable } from "@/components/data-table"
 import { JsonViewWithControls } from "@/components/json-viewer"
 import { TableViewAction } from "@/components/tables/table-view-action"
 import { TableViewColumnMenu } from "@/components/tables/table-view-column-menu"
+import { Button } from "@/components/ui/button"
+import { TooltipProvider } from "@/components/ui/tooltip"
+import { useTablesPagination } from "@/hooks/pagination/use-tables-pagination"
+import { useWorkspace } from "@/providers/workspace"
 
 function CollapsibleText({ text }: { text: string }) {
   const [isExpanded, setIsExpanded] = React.useState(false)
@@ -81,9 +80,25 @@ export function DatabaseTable({
   table: TableRead
 }) {
   const { workspaceId } = useWorkspace()
-  const { rows, rowsIsLoading, rowsError } = useListRows({
+  const [pageSize, setPageSize] = useState(20)
+
+  const {
+    data: rows,
+    isLoading: rowsIsLoading,
+    error: rowsError,
+    goToNextPage,
+    goToPreviousPage,
+    goToFirstPage,
+    hasNextPage,
+    hasPreviousPage,
+    currentPage,
+    totalEstimate,
+    startItem,
+    endItem,
+  } = useTablesPagination({
     tableId: id,
     workspaceId,
+    limit: pageSize,
   })
 
   useEffect(() => {
@@ -91,6 +106,11 @@ export function DatabaseTable({
       document.title = `${name} | Tables`
     }
   }, [id, name])
+
+  const handlePageSizeChange = (newPageSize: number) => {
+    setPageSize(newPageSize)
+    goToFirstPage()
+  }
 
   type CellT = CellContext<TableRowRead, TableColumnRead>
   const allColumns: ColumnDef<TableRowRead, TableColumnRead>[] = [
@@ -116,11 +136,20 @@ export function DatabaseTable({
         return (
           <div className="w-full text-xs">
             {typeof value === "object" && value ? (
-              <div onClick={(e) => e.stopPropagation()} className="w-full">
+              <button
+                type="button"
+                onClick={(e) => e.stopPropagation()}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.stopPropagation()
+                  }
+                }}
+                className="w-full cursor-default text-left"
+              >
                 <TooltipProvider>
                   <JsonViewWithControls src={value} />
                 </TooltipProvider>
-              </div>
+              </button>
             ) : typeof value === "string" && value.length > 25 ? (
               <CollapsibleText text={String(value)} />
             ) : (
@@ -148,6 +177,20 @@ export function DatabaseTable({
       emptyMessage="No rows found."
       errorMessage="Error loading rows."
       columns={allColumns}
+      serverSidePagination={{
+        currentPage,
+        hasNextPage,
+        hasPreviousPage,
+        pageSize,
+        totalEstimate,
+        startItem,
+        endItem,
+        onNextPage: goToNextPage,
+        onPreviousPage: goToPreviousPage,
+        onFirstPage: goToFirstPage,
+        onPageSizeChange: handlePageSizeChange,
+        isLoading: rowsIsLoading,
+      }}
     />
   )
 }

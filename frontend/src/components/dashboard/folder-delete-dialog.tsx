@@ -1,10 +1,7 @@
 "use client"
 
-import React, { useState } from "react"
-import { FolderDirectoryItem } from "@/client"
-import { useWorkspace } from "@/providers/workspace"
-
-import { useFolders } from "@/lib/hooks"
+import { useState } from "react"
+import type { FolderDirectoryItem } from "@/client"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -16,6 +13,8 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Input } from "@/components/ui/input"
+import { useFolders } from "@/lib/hooks"
+import { useWorkspace } from "@/providers/workspace"
 
 export function FolderDeleteAlertDialog({
   open,

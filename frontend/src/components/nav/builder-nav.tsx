@@ -1,12 +1,5 @@
 "use client"
 
-import React from "react"
-import Link from "next/link"
-import { usePathname } from "next/navigation"
-import { ApiError } from "@/client"
-import { useWorkflowBuilder } from "@/providers/builder"
-import { useWorkflow } from "@/providers/workflow"
-import { useWorkspace } from "@/providers/workspace"
 import { zodResolver } from "@hookform/resolvers/zod"
 import {
   AlertTriangleIcon,
@@ -18,16 +11,16 @@ import {
   SquarePlay,
   WorkflowIcon,
 } from "lucide-react"
+import Link from "next/link"
+import { usePathname } from "next/navigation"
+import React from "react"
 import { useForm } from "react-hook-form"
 import YAML from "yaml"
 import { z } from "zod"
-
-import { TracecatApiError } from "@/lib/errors"
-import {
-  useCreateManualWorkflowExecution,
-  useOrgAppSettings,
-} from "@/lib/hooks"
-import { cn } from "@/lib/utils"
+import { ApiError } from "@/client"
+import { CodeEditor } from "@/components/editor/codemirror/code-editor"
+import { ExportMenuItem } from "@/components/export-workflow-dropdown-item"
+import { Spinner } from "@/components/loading/spinner"
 import { Badge } from "@/components/ui/badge"
 import {
   Breadcrumb,
@@ -61,10 +54,16 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { DynamicCustomEditor } from "@/components/editor/dynamic"
-import { ExportMenuItem } from "@/components/export-workflow-dropdown-item"
-import { Spinner } from "@/components/loading/spinner"
 import { ValidationErrorView } from "@/components/validation-errors"
+import type { TracecatApiError } from "@/lib/errors"
+import {
+  useCreateManualWorkflowExecution,
+  useOrgAppSettings,
+} from "@/lib/hooks"
+import { cn } from "@/lib/utils"
+import { useWorkflowBuilder } from "@/providers/builder"
+import { useWorkflow } from "@/providers/workflow"
+import { useWorkspace } from "@/providers/workspace"
 
 export function BuilderNav() {
   const {
@@ -97,7 +96,6 @@ export function BuilderNav() {
   }
 
   const manualTriggerDisabled = workflow.version === null
-  const workflowsPath = `/workspaces/${workspaceId}/workflows`
 
   return (
     <div className="flex w-full items-center">
@@ -105,8 +103,10 @@ export function BuilderNav() {
         <Breadcrumb>
           <BreadcrumbList className="flex-nowrap overflow-hidden whitespace-nowrap">
             <BreadcrumbItem>
-              <BreadcrumbLink href={workflowsPath}>
-                {workspace.name}
+              <BreadcrumbLink asChild>
+                <Link href={`/workspaces/${workspaceId}/workflows`}>
+                  {workspace.name}
+                </Link>
               </BreadcrumbLink>
             </BreadcrumbItem>
             <BreadcrumbSeparator className="shrink-0 font-semibold">
@@ -247,7 +247,6 @@ function WorkflowManualTrigger({
   const { createExecution, createExecutionIsPending } =
     useCreateManualWorkflowExecution(workflowId)
   const [open, setOpen] = React.useState(false)
-  const { workspaceId } = useWorkspace()
   const [lastTriggerInput, setLastTriggerInput] = React.useState<string | null>(
     null
   )
@@ -259,7 +258,9 @@ function WorkflowManualTrigger({
   const form = useForm<TWorkflowControlsForm>({
     resolver: zodResolver(workflowControlsFormSchema),
     defaultValues: {
-      payload: lastTriggerInput || '{"sampleWebhookParam": "sampleValue"}',
+      payload:
+        lastTriggerInput ||
+        JSON.stringify({ sampleWebhookParam: "sampleValue" }, null, 2),
     },
   })
 
@@ -361,13 +362,10 @@ function WorkflowManualTrigger({
                     render={({ field }) => (
                       <FormItem>
                         <FormControl>
-                          <DynamicCustomEditor
-                            className="max-h-[50rem] min-h-60 min-w-[30rem] max-w-[50rem] resize overflow-auto"
-                            defaultLanguage="yaml-extended"
+                          <CodeEditor
                             value={field.value}
+                            language="json"
                             onChange={field.onChange}
-                            workspaceId={workspaceId}
-                            workflowId={workflowId}
                           />
                         </FormControl>
                         <FormMessage />

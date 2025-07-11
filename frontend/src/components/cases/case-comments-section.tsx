@@ -1,26 +1,24 @@
 "use client"
 
-import type React from "react"
-import { useState } from "react"
-import { CaseCommentRead } from "@/client"
 import { zodResolver } from "@hookform/resolvers/zod"
 import {
+  AlertCircle,
   ArrowUpIcon,
   MoreHorizontal,
   PaperclipIcon,
   PencilIcon,
   Trash2Icon,
 } from "lucide-react"
+import type React from "react"
+import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
-
-import { SYSTEM_USER_READ, User } from "@/lib/auth"
+import type { CaseCommentRead } from "@/client"
+import { CaseCommentViewer } from "@/components/cases/case-description-editor"
 import {
-  useCaseComments,
-  useCreateCaseComment,
-  useDeleteCaseComment,
-  useUpdateCaseComment,
-} from "@/lib/hooks"
+  CaseEventTimestamp,
+  CaseUserAvatar,
+} from "@/components/cases/case-panel-common"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -48,11 +46,13 @@ import {
 import { Skeleton } from "@/components/ui/skeleton"
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/use-toast"
-import { CaseCommentViewer } from "@/components/cases/case-description-editor"
+import { SYSTEM_USER_READ, User } from "@/lib/auth"
 import {
-  CaseEventTimestamp,
-  CaseUserAvatar,
-} from "@/components/cases/case-panel-common"
+  useCaseComments,
+  useCreateCaseComment,
+  useDeleteCaseComment,
+  useUpdateCaseComment,
+} from "@/lib/hooks"
 
 export function CommentSection({
   caseId,
@@ -61,20 +61,32 @@ export function CommentSection({
   caseId: string
   workspaceId: string
 }) {
-  const { caseComments, caseCommentsIsLoading } = useCaseComments({
-    caseId,
-    workspaceId,
-  })
+  const { caseComments, caseCommentsIsLoading, caseCommentsError } =
+    useCaseComments({
+      caseId,
+      workspaceId,
+    })
 
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null)
 
   if (caseCommentsIsLoading) {
     return (
-      <>
+      <div className="space-y-4 p-4">
         <CommentSkeleton />
         <CommentSkeleton />
         <CommentSkeleton />
-      </>
+      </div>
+    )
+  }
+
+  if (caseCommentsError) {
+    return (
+      <div className="flex items-center justify-center p-8">
+        <div className="flex items-center gap-2 text-red-600">
+          <AlertCircle className="h-4 w-4" />
+          <span className="text-sm">Failed to load comments</span>
+        </div>
+      </div>
     )
   }
   return (

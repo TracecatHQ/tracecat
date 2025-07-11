@@ -1,6 +1,6 @@
-import { JSONSchema7 } from "json-schema"
+import type { JSONSchema7 } from "json-schema"
 
-import { getType, transformJsonSchemaToTableRows } from "@/lib/jsonschema"
+import { getType, jsonSchemaToParams } from "@/lib/jsonschema"
 
 const jsonSchema: JSONSchema7 = {
   properties: {
@@ -54,10 +54,10 @@ const jsonSchema: JSONSchema7 = {
   type: "object",
 }
 
-describe("transformJsonSchemaToTableRows", () => {
-  it("should transform a JSON schema to table rows", () => {
-    const rows = transformJsonSchemaToTableRows(jsonSchema)
-    expect(rows).toEqual([
+describe("jsonSchemaToParams", () => {
+  it("should transform a JSON schema to table params", () => {
+    const params = jsonSchemaToParams(jsonSchema)
+    expect(params).toEqual([
       {
         parameter: "url",
         type: "string",

@@ -1,0 +1,32 @@
+type: action
+definition:
+  title: Delete trip
+  description: Delete a trip from AlertMedia.
+  display_group: AlertMedia
+  doc_url: https://docs.alertmedia.com/reference/steps-deleting-a-trip-or-itinerary
+  namespace: tools.alertmedia
+  name: delete_trip
+  secrets:
+    - name: alertmedia
+      keys: ["ALERTMEDIA_API_KEY"]
+  expects:
+    base_url:
+      type: str
+      description: AlertMedia base URL (e.g. https://tracecat.alertmedia.com)
+    user_id:
+      type: str
+      description: User ID of the user to delete the trip for.
+    trip_id:
+      type: str
+      description: ID of the trip to delete.
+  steps:
+    - ref: delete_trip
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/api/users/${{ inputs.user_id }}/trips/${{ inputs.trip_id }}
+        method: DELETE
+        headers:
+          Authorization: Bearer ${{ SECRETS.alertmedia.ALERTMEDIA_API_KEY }}
+  returns:
+    error: ${{ steps.delete_trip.result.data }}
+    status: ${{ steps.delete_trip.result.status_code }}

@@ -44,7 +44,7 @@ def table_columns() -> list[TableColumn]:
             id=uuid4(),
             table_id=table_id,
             name="score",
-            type=SqlType.DECIMAL,
+            type=SqlType.NUMERIC,
             nullable=True,
             default=None,
         ),
@@ -75,7 +75,7 @@ class TestCSVImporter:
         assert importer.columns["name"].type == SqlType.TEXT
         assert importer.columns["age"].type == SqlType.INTEGER
         assert importer.columns["active"].type == SqlType.BOOLEAN
-        assert importer.columns["score"].type == SqlType.DECIMAL
+        assert importer.columns["score"].type == SqlType.NUMERIC
 
     def test_convert_value_empty(self, csv_importer: CSVImporter) -> None:
         """Test convert_value with empty values."""
@@ -96,14 +96,14 @@ class TestCSVImporter:
         ):
             csv_importer.convert_value("12.34", SqlType.INTEGER)
 
-    def test_convert_value_decimal(self, csv_importer: CSVImporter) -> None:
-        """Test convert_value with decimal values."""
-        assert csv_importer.convert_value("123.45", SqlType.DECIMAL) == 123.45
-        assert csv_importer.convert_value("-456.78", SqlType.DECIMAL) == -456.78
+    def test_convert_value_numeric(self, csv_importer: CSVImporter) -> None:
+        """Test convert_value with numeric values."""
+        assert csv_importer.convert_value("123.45", SqlType.NUMERIC) == 123.45
+        assert csv_importer.convert_value("-456.78", SqlType.NUMERIC) == -456.78
         with pytest.raises(
-            TypeError, match="Cannot convert value 'abc' to SqlType DECIMAL"
+            TypeError, match="Cannot convert value 'abc' to SqlType NUMERIC"
         ):
-            csv_importer.convert_value("abc", SqlType.DECIMAL)
+            csv_importer.convert_value("abc", SqlType.NUMERIC)
 
     def test_convert_value_boolean(self, csv_importer: CSVImporter) -> None:
         """Test convert_value with boolean values."""

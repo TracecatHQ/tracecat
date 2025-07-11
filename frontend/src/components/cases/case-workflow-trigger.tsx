@@ -1,16 +1,10 @@
 "use client"
 
-import React, { useCallback, useMemo, useState } from "react"
+import { ArrowUpRight, PlayIcon } from "lucide-react"
 import Link from "next/link"
-import { CaseRead, WorkflowReadMinimal } from "@/client"
-import { useWorkspace } from "@/providers/workspace"
-import { PlayIcon, SquareArrowOutUpRightIcon } from "lucide-react"
-
-import {
-  useCreateManualWorkflowExecution,
-  useLocalStorage,
-  useWorkflowManager,
-} from "@/lib/hooks"
+import { useCallback, useMemo, useState } from "react"
+import type { CaseRead } from "@/client"
+import { JsonViewWithControls } from "@/components/json-viewer"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -36,7 +30,12 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Switch } from "@/components/ui/switch"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
-import { JsonViewWithControls } from "@/components/json-viewer"
+import {
+  useCreateManualWorkflowExecution,
+  useLocalStorage,
+  useWorkflowManager,
+} from "@/lib/hooks"
+import { useWorkspace } from "@/providers/workspace"
 
 interface CaseWorkflowTriggerProps {
   caseData: CaseRead
@@ -100,7 +99,7 @@ export function CaseWorkflowTrigger({ caseData }: CaseWorkflowTriggerProps) {
           rel="noopener noreferrer"
         >
           <div className="flex items-center space-x-1">
-            <SquareArrowOutUpRightIcon className="size-3" />
+            <ArrowUpRight className="size-3" />
             <span>View workflow run</span>
           </div>
         </Link>
@@ -110,7 +109,7 @@ export function CaseWorkflowTrigger({ caseData }: CaseWorkflowTriggerProps) {
 
   // Loading state
   if (workflowsLoading) {
-    return <Skeleton className="h-10 w-full" />
+    return <Skeleton className="h-8 w-full" />
   }
 
   // Error state
@@ -124,123 +123,104 @@ export function CaseWorkflowTrigger({ caseData }: CaseWorkflowTriggerProps) {
 
   const selectedWorkflow = workflows?.find((wf) => wf.id === selectedWorkflowId)
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex items-center space-x-2">
-        <Select
-          onValueChange={setSelectedWorkflowId}
-          value={selectedWorkflowId || "Select a workflow..."}
-        >
-          <SelectTrigger className="flex-1 text-xs text-muted-foreground">
-            <SelectValue asChild>
-              {selectedWorkflow ? (
-                <CaseWorkflowTriggerSelectItem workflow={selectedWorkflow} />
-              ) : (
-                <span className="text-xs text-muted-foreground">
-                  Select a workflow...
-                </span>
-              )}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            {workflows && workflows.length > 0 ? (
-              workflows.map((workflow) => (
-                <SelectItem key={workflow.id} value={workflow.id}>
-                  <div className="flex flex-col text-xs">
-                    <CaseWorkflowTriggerSelectItem workflow={workflow} />
-                    {workflow.description && (
-                      <span className="text-xs text-muted-foreground">
-                        {workflow.description}
-                      </span>
-                    )}
-                  </div>
-                </SelectItem>
-              ))
-            ) : (
-              <div className="p-2 text-center text-xs text-muted-foreground">
-                No workflows found.
-              </div>
-            )}
-          </SelectContent>
-        </Select>
-
-        <AlertDialog open={isConfirmOpen} onOpenChange={setIsConfirmOpen}>
-          <AlertDialogTrigger asChild>
-            <Button
-              size="sm"
-              disabled={!selectedWorkflowId || createExecutionIsPending}
-              className="bg-emerald-400 hover:bg-emerald-400/80 hover:text-white"
-            >
-              <PlayIcon className="size-3 fill-white stroke-white" />
-            </Button>
-          </AlertDialogTrigger>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Confirm Workflow Trigger</AlertDialogTitle>
-              <AlertDialogDescription>
-                Are you sure you want to trigger the workflow &quot;
-                <span className="font-semibold">{selectedWorkflow?.title}</span>
-                &quot; with the following trigger inputs?
-                <br />
-                <br />
-                <TooltipProvider>
-                  <JsonViewWithControls
-                    src={triggerInputs}
-                    showControls={false}
-                    defaultTab="nested"
-                    defaultExpanded
-                  />
-                </TooltipProvider>
-                <div className="mt-4 flex items-center space-x-2">
-                  <Switch
-                    id="group-fields-toggle"
-                    checked={groupCaseFields}
-                    onCheckedChange={setGroupCaseFields}
-                    className="ring-0 focus:ring-0 focus-visible:ring-0"
-                  />
-                  <Label htmlFor="group-fields-toggle" className="text-xs">
-                    Group case fields
-                  </Label>
+    <div className="space-y-3">
+      <Select
+        onValueChange={setSelectedWorkflowId}
+        value={selectedWorkflowId || ""}
+      >
+        <SelectTrigger className="h-8 border-muted text-xs">
+          <SelectValue placeholder="Select a workflow..." />
+        </SelectTrigger>
+        <SelectContent>
+          {workflows && workflows.length > 0 ? (
+            workflows.map((workflow) => (
+              <SelectItem key={workflow.id} value={workflow.id}>
+                <div className="flex items-center gap-2 text-xs">
+                  <span>{workflow.title}</span>
+                  {workflow.alias && (
+                    <Badge
+                      variant="secondary"
+                      className="px-1 py-0 text-[10px] font-normal"
+                    >
+                      {workflow.alias}
+                    </Badge>
+                  )}
                 </div>
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction onClick={handleTrigger}>
-                <PlayIcon className="mr-2 size-3 fill-white stroke-white" />
-                <span>Trigger</span>
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-      </div>
+              </SelectItem>
+            ))
+          ) : (
+            <div className="p-2 text-center text-xs text-muted-foreground">
+              No workflows found
+            </div>
+          )}
+        </SelectContent>
+      </Select>
+
+      <AlertDialog open={isConfirmOpen} onOpenChange={setIsConfirmOpen}>
+        <AlertDialogTrigger asChild>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={!selectedWorkflowId || createExecutionIsPending}
+            className="w-full h-8 text-xs"
+          >
+            <PlayIcon className="mr-1.5 h-3 w-3" />
+            Trigger
+          </Button>
+        </AlertDialogTrigger>
+        <AlertDialogContent className="max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-sm">
+              Confirm Workflow Trigger
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-xs">
+              Are you sure you want to trigger &quot;{selectedWorkflow?.title}
+              &quot; with the following inputs?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          <div className="mt-4">
+            <TooltipProvider>
+              <JsonViewWithControls
+                src={triggerInputs}
+                showControls={false}
+                defaultTab="nested"
+                defaultExpanded
+              />
+            </TooltipProvider>
+
+            <div className="mt-4 flex items-center space-x-2">
+              <Switch
+                id="group-fields"
+                checked={groupCaseFields}
+                onCheckedChange={setGroupCaseFields}
+                className="h-4 w-8"
+              />
+              <Label htmlFor="group-fields" className="text-xs">
+                Group case fields
+              </Label>
+            </div>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="text-xs">Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleTrigger} className="text-xs">
+              <PlayIcon className="mr-1.5 h-3 w-3" />
+              Trigger
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {selectedWorkflowId && (
         <Link
           href={selectedWorkflowUrl}
           target="_blank"
           rel="noopener noreferrer"
+          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
         >
-          <div className="flex items-center space-x-2 text-xs text-muted-foreground">
-            <SquareArrowOutUpRightIcon className="size-3" />
-            <span>View workflow</span>
-          </div>
+          <ArrowUpRight className="h-3 w-3" />
+          <span>View workflow</span>
         </Link>
-      )}
-    </div>
-  )
-}
-
-function CaseWorkflowTriggerSelectItem({
-  workflow,
-}: {
-  workflow: WorkflowReadMinimal
-}) {
-  return (
-    <div className="flex items-center space-x-2">
-      <span>{workflow.title}</span>
-      {workflow.alias && (
-        <Badge variant="secondary" className="ml-2 text-xs font-normal">
-          {workflow.alias}
-        </Badge>
       )}
     </div>
   )

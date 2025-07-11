@@ -1,5 +1,3 @@
-import React, { useCallback, useEffect, useState } from "react"
-import { CaseRead, CaseUpdate } from "@/client"
 import { zodResolver } from "@hookform/resolvers/zod"
 import {
   AlertTriangleIcon,
@@ -7,12 +5,13 @@ import {
   Loader2Icon,
   SaveIcon,
 } from "lucide-react"
+import { useCallback, useEffect, useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
-
-import { cn } from "@/lib/utils"
-import { Form, FormControl, FormField, FormItem } from "@/components/ui/form"
+import type { CaseRead, CaseUpdate } from "@/client"
 import { CaseDescriptionEditor } from "@/components/cases/case-description-editor"
+import { Form, FormControl, FormField, FormItem } from "@/components/ui/form"
+import { cn } from "@/lib/utils"
 
 const descriptionFormSchema = z.object({
   description: z.string().optional(),

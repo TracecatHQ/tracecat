@@ -1,0 +1,8 @@
+[allowlist]
+paths = [
+    '''tracecat/integrations/providers/microsoft\.py''',
+    '''tracecat/integrations/providers/microsoft_teams\.py''',
+]
+
+# Or allowlist the specific pattern:
+regexes = ['''learn\.microsoft\.com.*oauth2.*grant.*flow''']

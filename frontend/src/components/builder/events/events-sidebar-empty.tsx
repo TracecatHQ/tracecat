@@ -1,7 +1,6 @@
-import { LucideIcon, Plus, WorkflowIcon } from "lucide-react"
-
-import { cn } from "@/lib/utils"
+import { type LucideIcon, Plus, WorkflowIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { cn } from "@/lib/utils"
 
 export interface EventsSidebarEmptyProps
   extends React.HTMLAttributes<HTMLDivElement> {

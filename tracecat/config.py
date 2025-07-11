@@ -116,9 +116,49 @@ USER_AUTH_SECRET = os.environ.get("USER_AUTH_SECRET", "")
 SAML_PUBLIC_ACS_URL = f"{TRACECAT__PUBLIC_APP_URL}/auth/saml/acs"
 
 SAML_IDP_METADATA_URL = os.environ.get("SAML_IDP_METADATA_URL")
-"""Deprecated: This config has been moved into the settings service"""
+"""Sets the default SAML metadata URL for cold start."""
+
+SAML_ALLOW_UNSOLICITED = (
+    os.environ.get("SAML_ALLOW_UNSOLICITED", "false").lower() == "true"
+)
+"""Whether to allow unsolicited SAML responses (default false)
+Do not set to true if authn requests are signed are false
+"""
+
+SAML_AUTHN_REQUESTS_SIGNED = (
+    os.environ.get("SAML_AUTHN_REQUESTS_SIGNED", "false").lower() == "true"
+)
+"""Whether to require signed SAML authentication requests. (default false)
+Do not set to true if authn requests are signed are false
+"""
+
+SAML_SIGNED_ASSERTIONS = (
+    os.environ.get("SAML_SIGNED_ASSERTIONS", "true").lower() == "true"
+)
+"""Whether to require signed SAML assertions."""
+
+SAML_SIGNED_RESPONSES = (
+    os.environ.get("SAML_SIGNED_RESPONSES", "true").lower() == "true"
+)
+"""Whether to require signed SAML responses."""
+
+SAML_ACCEPTED_TIME_DIFF = int(os.environ.get("SAML_ACCEPTED_TIME_DIFF", "3"))
+"""The time difference in seconds for SAML authentication."""
 
 XMLSEC_BINARY_PATH = os.environ.get("XMLSEC_BINARY_PATH", "/usr/bin/xmlsec1")
+
+SAML_CA_CERTS = os.environ.get("SAML_CA_CERTS")
+"""Base64 encoded CA certificates for validating self-signed certificates."""
+
+SAML_VERIFY_SSL_ENTITY = (
+    os.environ.get("SAML_VERIFY_SSL_ENTITY", "true").lower() == "true"
+)
+"""Whether to verify SSL certificates for general SAML entity operations."""
+
+SAML_VERIFY_SSL_METADATA = (
+    os.environ.get("SAML_VERIFY_SSL_METADATA", "true").lower() == "true"
+)
+"""Whether to verify SSL certificates for SAML metadata operations."""
 
 # === CORS config === #
 # NOTE: If you are using Tracecat self-hosted, please replace with your
@@ -147,6 +187,12 @@ TEMPORAL__TASK_TIMEOUT = os.environ.get("TEMPORAL__TASK_TIMEOUT")
 TEMPORAL__METRICS_PORT = os.environ.get("TEMPORAL__METRICS_PORT")
 """Port for the Temporal metrics server."""
 
+
+TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION = os.environ.get(
+    "TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION", "true"
+).lower() in ("true", "1")
+"""Disable eager activity execution for Temporal workflows."""
+
 # Secrets manager config
 TRACECAT__UNSAFE_DISABLE_SM_MASKING = os.environ.get(
     "TRACECAT__UNSAFE_DISABLE_SM_MASKING",
@@ -166,6 +212,34 @@ TRACECAT__ALLOWED_GIT_DOMAINS = set(
         "TRACECAT__ALLOWED_GIT_DOMAINS", "github.com,gitlab.com,bitbucket.org"
     ).split(",")
 )
+
+# === Blob Storage Config === #
+TRACECAT__BLOB_STORAGE_PROTOCOL = os.environ.get(
+    "TRACECAT__BLOB_STORAGE_PROTOCOL", "minio"
+)
+"""Blob storage protocol: 's3' for AWS S3, 'minio' for Minio."""
+
+# Bucket for case attachments
+TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS = os.environ.get(
+    "TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS", "tracecat-attachments"
+)
+"""Bucket for case attachments."""
+
+TRACECAT__BLOB_STORAGE_ENDPOINT = os.environ.get(
+    "TRACECAT__BLOB_STORAGE_ENDPOINT", "http://minio:9000"
+)
+"""Endpoint URL for blob storage. Ignored when protocol is 's3'."""
+
+TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY = int(
+    os.environ.get("TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY", 10)
+)
+"""Default expiry time for presigned URLs in seconds (default: 10 seconds for immediate use)."""
+
+TRACECAT__DISABLE_PRESIGNED_URL_IP_CHECKING = (
+    os.environ.get("TRACECAT__DISABLE_PRESIGNED_URL_IP_CHECKING", "true").lower()
+    == "true"
+)
+"""Disable client IP checking for presigned URLs. Set to false for production with public S3, true for local MinIO (default: true)."""
 
 # === Local registry === #
 TRACECAT__LOCAL_REPOSITORY_ENABLED = os.getenv(
@@ -243,3 +317,50 @@ TRACECAT__S3_CONCURRENCY_LIMIT = int(
     os.environ.get("TRACECAT__S3_CONCURRENCY_LIMIT", 50)
 )
 """Maximum number of concurrent S3 operations to prevent resource exhaustion. Defaults to 50."""
+
+TRACECAT__MAX_ROWS_CLIENT_POSTGRES = int(
+    os.environ.get("TRACECAT__MAX_ROWS_CLIENT_POSTGRES", 1000)
+)
+"""Maximum number of rows that can be returned from PostgreSQL client queries. Defaults to 1,000."""
+
+# === Context Compression === #
+TRACECAT__CONTEXT_COMPRESSION_ENABLED = os.environ.get(
+    "TRACECAT__CONTEXT_COMPRESSION_ENABLED", "false"
+).lower() in ("true", "1")
+"""Enable compression of large action results in workflow contexts. Defaults to False."""
+
+TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB = int(
+    os.environ.get("TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB", 16)
+)
+"""Threshold in KB above which action results are compressed. Defaults to 16KB."""
+
+TRACECAT__CONTEXT_COMPRESSION_ALGORITHM = os.environ.get(
+    "TRACECAT__CONTEXT_COMPRESSION_ALGORITHM", "zstd"
+)
+"""Compression algorithm to use. Supported: zstd, gzip, brotli. Defaults to zstd."""
+
+TRACECAT__WORKFLOW_RETURN_STRATEGY = os.environ.get(
+    "TRACECAT__WORKFLOW_RETURN_STRATEGY", "minimal"
+).lower()
+"""Strategy to use when returning a value from a workflow. Supported: context, minimal. Defaults to minimal."""
+
+# === File limits === #
+TRACECAT__MAX_ATTACHMENT_SIZE_BYTES = int(
+    os.environ.get("TRACECAT__MAX_ATTACHMENT_SIZE_BYTES", 20 * 1024 * 1024)
+)
+"""The maximum size for case attachment files in bytes. Defaults to 20MB."""
+
+TRACECAT__MAX_ATTACHMENT_FILENAME_LENGTH = int(
+    os.environ.get("TRACECAT__MAX_ATTACHMENT_FILENAME_LENGTH", 255)
+)
+"""The maximum length for attachment filenames. Defaults to 255 (Django FileField standard)."""
+
+TRACECAT__MAX_CASE_STORAGE_BYTES = int(
+    os.environ.get("TRACECAT__MAX_CASE_STORAGE_BYTES", 200 * 1024 * 1024)
+)
+"""The maximum total storage per case in bytes. Defaults to 200MB."""
+
+TRACECAT__MAX_ATTACHMENTS_PER_CASE = int(
+    os.environ.get("TRACECAT__MAX_ATTACHMENTS_PER_CASE", 10)
+)
+"""The maximum number of attachments allowed per case. Defaults to 10."""

@@ -1,14 +1,13 @@
 "use client"
 
 import { PlusCircle } from "lucide-react"
-
-import { Button } from "@/components/ui/button"
 import { ConfirmationDialog } from "@/components/confirmation-dialog"
 import { OrgSSHKeysTable } from "@/components/organization/org-secrets-table"
 import {
   CreateOrgSSHKeyDialog,
   CreateOrgSSHKeyDialogTrigger,
 } from "@/components/organization/org-ssh-key-create"
+import { Button } from "@/components/ui/button"
 
 export default function SSHKeysPage() {
   return (

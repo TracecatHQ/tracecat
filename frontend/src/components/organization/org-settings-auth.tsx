@@ -1,11 +1,12 @@
 "use client"
 
-import { AuthSettingsUpdate } from "@/client"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
-
-import { useAppInfo, useOrgAuthSettings } from "@/lib/hooks"
+import type { AuthSettingsUpdate } from "@/client"
+import { CenteredSpinner } from "@/components/loading/spinner"
+import { AlertNotification } from "@/components/notifications"
+import { CustomTagInput } from "@/components/tags-input"
 import { Button } from "@/components/ui/button"
 import {
   Form,
@@ -17,9 +18,7 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Switch } from "@/components/ui/switch"
-import { CenteredSpinner } from "@/components/loading/spinner"
-import { AlertNotification } from "@/components/notifications"
-import { CustomTagInput } from "@/components/tags-input"
+import { useAppInfo, useOrgAuthSettings } from "@/lib/hooks"
 
 const authFormSchema = z.object({
   auth_basic_enabled: z.boolean(),

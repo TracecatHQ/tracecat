@@ -13,6 +13,10 @@ class RegistryActionError(TracecatException):
     """Exception raised when a registry UDF error occurs."""
 
 
+class SecretNotFoundError(TracecatException):
+    """Exception raised when a required secret is not set."""
+
+
 class ActionIsInterfaceError(RegistryActionError):
     """Exception raised when attempting to directly call an action that only defines an interface."""
 

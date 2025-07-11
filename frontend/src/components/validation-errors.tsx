@@ -1,14 +1,13 @@
-import React, { PropsWithChildren } from "react"
-import { ValidationDetail, ValidationResult } from "@/client"
 import { CornerDownRightIcon } from "lucide-react"
-
-import { cn } from "@/lib/utils"
+import React, { type PropsWithChildren } from "react"
+import type { ValidationDetail, ValidationResult } from "@/client"
 import { Separator } from "@/components/ui/separator"
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { cn } from "@/lib/utils"
 
 export const VALIDATION_ERROR_TYPES = [
   "pydantic.missing",

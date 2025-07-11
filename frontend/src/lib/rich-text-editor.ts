@@ -1,4 +1,4 @@
-import { Block } from "@blocknote/core"
+import type { Block } from "@blocknote/core"
 import { v4 as uuidv4 } from "uuid"
 
 interface SpacingOptions {

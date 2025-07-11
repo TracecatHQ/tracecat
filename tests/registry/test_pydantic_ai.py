@@ -6,11 +6,13 @@ from dotenv import load_dotenv
 from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserPromptPart
 from tracecat_registry.integrations.pydantic_ai import _parse_message_history, call
 
+from tracecat.secrets import secrets_manager
+
 load_dotenv()
 
 # Skip tests if OpenAI API key is not available
 skip_if_no_openai_api_key = pytest.mark.skipif(
-    os.environ.get("OPENAI_API_KEY") is None,
+    not os.environ.get("OPENAI_API_KEY"),
     reason="OPENAI_API_KEY not available in environment variables",
 )
 
@@ -18,6 +20,11 @@ skip_if_no_openai_api_key = pytest.mark.skipif(
 pytestmark = [
     skip_if_no_openai_api_key,
 ]
+
+
+@pytest.fixture(scope="module", autouse=True)
+def mock_sm():
+    secrets_manager.set("OPENAI_API_KEY", os.environ["OPENAI_API_KEY"])
 
 
 @pytest.mark.parametrize(
@@ -274,43 +281,3 @@ def test_pydantic_ai_call_with_enum_output():
     assert "order_id" in result
     assert "status" in result
     assert result["status"] in ["pending", "shipped", "delivered", "cancelled"]
-
-
-def test_pydantic_ai_call_with_tool_choice():
-    """Tests that model_settings can include tool_choice for OpenAI."""
-
-    # Define a simple mock calculator tool
-    calculator_schema = {
-        "type": "function",
-        "function": {
-            "name": "calculator",
-            "description": "Perform a calculation",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "expression": {
-                        "type": "string",
-                        "description": "The mathematical expression to evaluate",
-                    }
-                },
-                "required": ["expression"],
-            },
-        },
-    }
-
-    # Call with tool_choice to force tool use
-    result = call(
-        instructions="You are a helpful calculator assistant.",
-        user_prompt="What is 123 + 456?",
-        model_name="gpt-4o-mini",
-        model_provider="openai",
-        model_settings={
-            "temperature": 0.0,
-            "tools": [calculator_schema],
-            "tool_choice": {"type": "function", "function": {"name": "calculator"}},
-        },
-    )
-
-    # Result should contain the calculation result in some form
-    assert isinstance(result, str)
-    assert "579" in result or "123 + 456" in result

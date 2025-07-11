@@ -36,8 +36,12 @@ from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.editor.router import router as editor_router
+from tracecat.integrations.router import integrations_router, providers_router
 from tracecat.logger import logger
-from tracecat.middleware import AuthorizationCacheMiddleware, RequestLoggingMiddleware
+from tracecat.middleware import (
+    AuthorizationCacheMiddleware,
+    RequestLoggingMiddleware,
+)
 from tracecat.middleware.security import SecurityHeadersMiddleware
 from tracecat.organization.router import router as org_router
 from tracecat.registry.actions.router import router as registry_actions_router
@@ -47,6 +51,7 @@ from tracecat.secrets.router import org_router as org_secrets_router
 from tracecat.secrets.router import router as secrets_router
 from tracecat.settings.router import router as org_settings_router
 from tracecat.settings.service import SettingsService, get_setting_override
+from tracecat.storage import ensure_bucket_exists
 from tracecat.tables.router import router as tables_router
 from tracecat.tags.router import router as tags_router
 from tracecat.types.auth import Role
@@ -68,6 +73,9 @@ from tracecat.workspaces.service import WorkspaceService
 async def lifespan(app: FastAPI):
     # Temporal
     await add_temporal_search_attributes()
+
+    # Storage
+    await ensure_bucket_exists(config.TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS)
 
     # App
     role = bootstrap_role()
@@ -186,6 +194,8 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(cases_router)
     app.include_router(case_fields_router)
     app.include_router(workflow_folders_router)
+    app.include_router(integrations_router)
+    app.include_router(providers_router)
     app.include_router(
         fastapi_users.get_users_router(UserRead, UserUpdate),
         prefix="/users",

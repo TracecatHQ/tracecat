@@ -1,20 +1,17 @@
 "use client"
 
-import Link from "next/link"
-import { useParams } from "next/navigation"
-import { useAuth } from "@/providers/auth"
 import {
   BookText,
+  BracesIcon,
   ExternalLink,
   KeyRound,
   LogOut,
   Settings,
   UsersRound,
 } from "lucide-react"
-
-import { siteConfig } from "@/config/site"
-import { userDefaults } from "@/config/user"
-import { useWorkspaceManager } from "@/lib/hooks"
+import Link from "next/link"
+import { useParams } from "next/navigation"
+import { Icons } from "@/components/icons"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -26,8 +23,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Icons } from "@/components/icons"
 import UserAvatar from "@/components/user-avatar"
+import { siteConfig } from "@/config/site"
+import { userDefaults } from "@/config/user"
+import { useWorkspaceManager } from "@/lib/hooks"
+import { useAuth } from "@/providers/auth"
 
 export default function UserNav() {
   const { user, logout } = useAuth()
@@ -122,6 +122,15 @@ export default function UserNav() {
               <DropdownMenuItem className="text-xs hover:cursor-pointer">
                 <UsersRound className="mr-2 size-4" />
                 <span>Manage members</span>
+              </DropdownMenuItem>
+            </Link>
+            <Link
+              href={`${workspaceUrl}/settings/custom-fields`}
+              className="my-2 w-full"
+            >
+              <DropdownMenuItem className="text-xs hover:cursor-pointer">
+                <BracesIcon className="mr-2 size-4" />
+                <span>Custom fields</span>
               </DropdownMenuItem>
             </Link>
           </DropdownMenuGroup>

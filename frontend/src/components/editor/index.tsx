@@ -1,1 +1,0 @@
-export { CustomEditor } from "./editor"

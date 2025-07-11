@@ -4,7 +4,7 @@ import {
   DoubleArrowLeftIcon,
   DoubleArrowRightIcon,
 } from "@radix-ui/react-icons"
-import { Table } from "@tanstack/react-table"
+import type { Table } from "@tanstack/react-table"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -15,15 +15,55 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 
+export interface ServerSidePaginationProps {
+  currentPage: number
+  hasNextPage: boolean
+  hasPreviousPage: boolean
+  pageSize: number
+  totalEstimate?: number
+  startItem?: number
+  endItem?: number
+  onNextPage: () => void
+  onPreviousPage: () => void
+  onFirstPage: () => void
+  onPageSizeChange: (pageSize: number) => void
+  isLoading?: boolean
+}
+
 interface DataTablePaginationProps<TData> {
   table: Table<TData>
   showSelectedRows?: boolean
+  serverSide?: ServerSidePaginationProps
 }
 
 export function DataTablePagination<TData>({
   table,
   showSelectedRows,
+  serverSide,
 }: DataTablePaginationProps<TData>) {
+  const isServerSide = !!serverSide
+
+  // Use server-side values when available, otherwise use table values
+  const currentPageSize = isServerSide
+    ? serverSide.pageSize
+    : table.getState().pagination.pageSize
+  const currentPageIndex = isServerSide
+    ? serverSide.currentPage
+    : table.getState().pagination.pageIndex
+  const canPreviousPage = isServerSide
+    ? serverSide.hasPreviousPage
+    : table.getCanPreviousPage()
+  const canNextPage = isServerSide
+    ? serverSide.hasNextPage
+    : table.getCanNextPage()
+  const totalPages = isServerSide
+    ? serverSide.totalEstimate
+      ? Math.ceil(serverSide.totalEstimate / serverSide.pageSize)
+      : serverSide.hasNextPage
+        ? "..."
+        : currentPageIndex + 1
+    : table.getPageCount()
+  const isLoading = isServerSide ? serverSide.isLoading : false
   return (
     <div className="flex items-center justify-between px-2">
       <div className="flex-1 text-xs text-muted-foreground">
@@ -31,6 +71,14 @@ export function DataTablePagination<TData>({
           <p>
             {table.getFilteredSelectedRowModel().rows.length} of{" "}
             {table.getFilteredRowModel().rows.length} row(s) selected.
+          </p>
+        ) : isServerSide &&
+          serverSide.startItem &&
+          serverSide.endItem &&
+          serverSide.totalEstimate ? (
+          <p className="text-xs text-muted-foreground">
+            Showing {serverSide.startItem}-{serverSide.endItem} of{" "}
+            {serverSide.totalEstimate}
           </p>
         ) : null}
       </div>
@@ -40,16 +88,22 @@ export function DataTablePagination<TData>({
             Rows per page
           </p>
           <Select
-            value={`${table.getState().pagination.pageSize}`}
+            value={`${currentPageSize}`}
             onValueChange={(value) => {
-              table.setPageSize(Number(value))
+              const newPageSize = Number(value)
+              if (isServerSide) {
+                serverSide.onPageSizeChange(newPageSize)
+              } else {
+                table.setPageSize(newPageSize)
+              }
             }}
+            disabled={isLoading}
           >
             <SelectTrigger className="h-8 w-[70px]">
-              <SelectValue placeholder={table.getState().pagination.pageSize} />
+              <SelectValue placeholder={currentPageSize} />
             </SelectTrigger>
             <SelectContent side="top">
-              {[25, 50, 75, 100].map((pageSize) => (
+              {[10, 20, 50, 75, 100].map((pageSize) => (
                 <SelectItem key={pageSize} value={`${pageSize}`}>
                   <p className="text-xs">{pageSize}</p>
                 </SelectItem>
@@ -58,15 +112,32 @@ export function DataTablePagination<TData>({
           </Select>
         </div>
         <div className="flex w-[100px] items-center justify-center text-xs font-medium text-foreground/70">
-          Page {table.getState().pagination.pageIndex + 1} of{" "}
-          {table.getPageCount()}
+          {isServerSide ? (
+            serverSide.totalEstimate ? (
+              <span>
+                Page {currentPageIndex + 1} of {totalPages}
+              </span>
+            ) : (
+              <span>Page {currentPageIndex + 1}</span>
+            )
+          ) : (
+            <span>
+              Page {currentPageIndex + 1} of {totalPages}
+            </span>
+          )}
         </div>
         <div className="flex items-center space-x-2">
           <Button
             variant="outline"
             className="hidden size-8 p-0 lg:flex"
-            onClick={() => table.setPageIndex(0)}
-            disabled={!table.getCanPreviousPage()}
+            onClick={() => {
+              if (isServerSide) {
+                serverSide.onFirstPage()
+              } else {
+                table.setPageIndex(0)
+              }
+            }}
+            disabled={!canPreviousPage || isLoading}
           >
             <span className="sr-only">Go to first page</span>
             <DoubleArrowLeftIcon className="size-4" />
@@ -74,8 +145,14 @@ export function DataTablePagination<TData>({
           <Button
             variant="outline"
             className="size-8 p-0"
-            onClick={() => table.previousPage()}
-            disabled={!table.getCanPreviousPage()}
+            onClick={() => {
+              if (isServerSide) {
+                serverSide.onPreviousPage()
+              } else {
+                table.previousPage()
+              }
+            }}
+            disabled={!canPreviousPage || isLoading}
           >
             <span className="sr-only">Go to previous page</span>
             <ChevronLeftIcon className="size-4" />
@@ -83,21 +160,29 @@ export function DataTablePagination<TData>({
           <Button
             variant="outline"
             className="size-8 p-0"
-            onClick={() => table.nextPage()}
-            disabled={!table.getCanNextPage()}
+            onClick={() => {
+              if (isServerSide) {
+                serverSide.onNextPage()
+              } else {
+                table.nextPage()
+              }
+            }}
+            disabled={!canNextPage || isLoading}
           >
             <span className="sr-only">Go to next page</span>
             <ChevronRightIcon className="size-4" />
           </Button>
-          <Button
-            variant="outline"
-            className="hidden size-8 p-0 lg:flex"
-            onClick={() => table.setPageIndex(table.getPageCount() - 1)}
-            disabled={!table.getCanNextPage()}
-          >
-            <span className="sr-only">Go to last page</span>
-            <DoubleArrowRightIcon className="size-4" />
-          </Button>
+          {!isServerSide && (
+            <Button
+              variant="outline"
+              className="hidden size-8 p-0 lg:flex"
+              onClick={() => table.setPageIndex(table.getPageCount() - 1)}
+              disabled={!canNextPage || isLoading}
+            >
+              <span className="sr-only">Go to last page</span>
+              <DoubleArrowRightIcon className="size-4" />
+            </Button>
+          )}
         </div>
       </div>
     </div>

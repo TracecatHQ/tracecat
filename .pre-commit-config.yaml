@@ -32,3 +32,11 @@ repos:
     rev: v8.25.1
     hooks:
       - id: gitleaks
+  - repo: local
+    hooks:
+      - id: biome-check
+        name: biome check
+        entry: bash -c 'cd frontend && npx biome check --write .'
+        language: system
+        files: ^frontend/
+        require_serial: true

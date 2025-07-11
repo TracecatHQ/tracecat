@@ -1,10 +1,12 @@
 "use client"
 
-import { useParams } from "next/navigation"
-import { useWorkspace } from "@/providers/workspace"
 import { ArrowLeftIcon } from "lucide-react"
-
-import { useGetTable } from "@/lib/hooks"
+import Link from "next/link"
+import { useParams } from "next/navigation"
+import { CenteredSpinner } from "@/components/loading/spinner"
+import { AlertNotification } from "@/components/notifications"
+import { TableInsertButton } from "@/components/tables/table-insert-button"
+import { DatabaseTable } from "@/components/tables/table-view"
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -12,10 +14,8 @@ import {
   BreadcrumbList,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
-import { CenteredSpinner } from "@/components/loading/spinner"
-import { AlertNotification } from "@/components/notifications"
-import { TableInsertButton } from "@/components/tables/table-insert-button"
-import { DatabaseTable } from "@/components/tables/table-view"
+import { useGetTable } from "@/lib/hooks"
+import { useWorkspace } from "@/providers/workspace"
 
 export default function TablePage() {
   const params = useParams<{ tableId: string }>()
@@ -42,12 +42,14 @@ export default function TablePage() {
           <Breadcrumb>
             <BreadcrumbList>
               <BreadcrumbItem>
-                <BreadcrumbLink
-                  href={`/workspaces/${workspaceId}/tables`}
-                  className="flex items-center"
-                >
-                  <ArrowLeftIcon className="mr-2 size-4" />
-                  Tables
+                <BreadcrumbLink asChild>
+                  <Link
+                    href={`/workspaces/${workspaceId}/tables`}
+                    className="flex items-center"
+                  >
+                    <ArrowLeftIcon className="mr-2 size-4" />
+                    Tables
+                  </Link>
                 </BreadcrumbLink>
               </BreadcrumbItem>
               <BreadcrumbSeparator>{"/"}</BreadcrumbSeparator>

@@ -1,4 +1,5 @@
 from collections.abc import Mapping, Sequence
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
@@ -39,6 +40,11 @@ from tracecat.tables.models import (
 )
 from tracecat.types.auth import AccessLevel, Role
 from tracecat.types.exceptions import TracecatAuthorizationError, TracecatNotFoundError
+from tracecat.types.pagination import (
+    BaseCursorPaginator,
+    CursorPaginatedResponse,
+    CursorPaginationParams,
+)
 
 _RETRYABLE_DB_EXCEPTIONS = (
     InvalidCachedStatementError,
@@ -66,7 +72,8 @@ class BaseTablesService(BaseService):
     ) -> str:
         """Get the full table name for a table."""
         schema_name = self._get_schema_name(workspace_id)
-        return f'"{schema_name}".{table_name}'
+        sanitized_table_name = self._sanitize_identifier(table_name)
+        return f'"{schema_name}".{sanitized_table_name}'
 
     def _workspace_id(self) -> WorkspaceUUID:
         """Get the workspace ID for the current role."""
@@ -223,10 +230,11 @@ class BaseTablesService(BaseService):
             try:
                 conn = await self.session.connection()
                 old_full_table_name = self._full_table_name(table.name)
+                sanitized_new_name = self._sanitize_identifier(new_name)
                 await conn.execute(
                     sa.DDL(
                         "ALTER TABLE %s RENAME TO %s",
-                        (old_full_table_name, new_name),
+                        (old_full_table_name, sanitized_new_name),
                     )
                 )
             except ProgrammingError as e:
@@ -368,30 +376,61 @@ class BaseTablesService(BaseService):
             if not is_valid_sql_type(new_type):
                 raise ValueError(f"Invalid type: {new_type}")
 
-            # Build ALTER COLUMN statement
-            alter_stmts = []
+            # Build ALTER COLUMN statement using safe DDL construction
             if "name" in set_fields:
-                alter_stmts.append(f"RENAME COLUMN {old_name} TO {new_name}")
+                await conn.execute(
+                    sa.DDL(
+                        "ALTER TABLE %s RENAME COLUMN %s TO %s",
+                        (full_table_name, old_name, new_name),
+                    )
+                )
             if "type" in set_fields:
-                alter_stmts.append(f"ALTER COLUMN {new_name} TYPE {new_type}")
+                await conn.execute(
+                    sa.DDL(
+                        "ALTER TABLE %s ALTER COLUMN %s TYPE %s",
+                        (full_table_name, new_name, new_type),
+                    )
+                )
             if "nullable" in set_fields:
                 constraint = (
                     "DROP NOT NULL" if set_fields["nullable"] else "SET NOT NULL"
                 )
-                alter_stmts.append(f'ALTER COLUMN "{new_name}" {constraint}')
+                await conn.execute(
+                    sa.DDL(
+                        # SAFE f-string: constraint is a controlled literal string ("DROP NOT NULL" or "SET NOT NULL")
+                        # No user input is interpolated here - only predefined SQL keywords
+                        f"ALTER TABLE %s ALTER COLUMN %s {constraint}",
+                        (full_table_name, new_name),
+                    )
+                )
             if "default" in set_fields:
                 updated_default = set_fields["default"]
                 if updated_default is None:
-                    alter_stmts.append(f'ALTER COLUMN "{new_name}" DROP DEFAULT')
-                else:
-                    alter_stmts.append(
-                        f"ALTER COLUMN \"{new_name}\" SET DEFAULT '{updated_default}'"
+                    await conn.execute(
+                        sa.DDL(
+                            "ALTER TABLE %s ALTER COLUMN %s DROP DEFAULT",
+                            (full_table_name, new_name),
+                        )
                     )
-
-            # Execute all ALTER statements
-            self.logger.info("Updating column", stmts=alter_stmts)
-            for stmt in alter_stmts:
-                await conn.execute(sa.DDL(f"ALTER TABLE {full_table_name} {stmt}"))
+                else:
+                    # SECURITY NOTE: PostgreSQL DDL does not support parameter binding for DEFAULT clauses.
+                    # We must use string interpolation here, but it's SAFE because:
+                    # 1. handle_default_value() sanitizes and properly formats the value based on SQL type
+                    # 2. It applies proper quoting, escaping, and type casting (e.g., 'value'::text, 123, true)
+                    # 3. The function validates the SQL type and rejects invalid inputs
+                    # 4. This is the ONLY way to set DEFAULT values in PostgreSQL DDL statements
+                    formatted_default = handle_default_value(
+                        SqlType(new_type if "type" in set_fields else column.type),
+                        updated_default,
+                    )
+                    await conn.execute(
+                        sa.DDL(
+                            # SAFE f-string: formatted_default is pre-sanitized by handle_default_value()
+                            # Other parameters (table/column names) still use secure parameter binding
+                            f"ALTER TABLE %s ALTER COLUMN %s SET DEFAULT {formatted_default}",
+                            (full_table_name, new_name),
+                        )
+                    )
 
         # Update the column metadata
         for key, value in set_fields.items():
@@ -464,10 +503,11 @@ class BaseTablesService(BaseService):
     ) -> Sequence[Mapping[str, Any]]:
         """List all rows in a table."""
         schema_name = self._get_schema_name()
+        sanitized_table_name = self._sanitize_identifier(table.name)
         conn = await self.session.connection()
         stmt = (
             sa.select("*")
-            .select_from(sa.table(table.name, schema=schema_name))
+            .select_from(sa.table(sanitized_table_name, schema=schema_name))
             .limit(limit)
             .offset(offset)
         )
@@ -477,10 +517,11 @@ class BaseTablesService(BaseService):
     async def get_row(self, table: Table, row_id: UUID) -> Any:
         """Get a row by ID."""
         schema_name = self._get_schema_name()
+        sanitized_table_name = self._sanitize_identifier(table.name)
         conn = await self.session.connection()
         stmt = (
             sa.select("*")
-            .select_from(sa.table(table.name, schema=schema_name))
+            .select_from(sa.table(sanitized_table_name, schema=schema_name))
             .where(sa.column("id") == row_id)
         )
         result = await conn.execute(stmt)
@@ -518,6 +559,7 @@ class BaseTablesService(BaseService):
         cols = []
 
         table_name_for_logging = table.name
+        sanitized_table_name = self._sanitize_identifier(table.name)
 
         for col, value in row_data.items():
             value_clauses[col] = to_sql_clause(
@@ -527,13 +569,13 @@ class BaseTablesService(BaseService):
 
         if not upsert:
             stmt = (
-                sa.insert(sa.table(table.name, *cols, schema=schema_name))
+                sa.insert(sa.table(sanitized_table_name, *cols, schema=schema_name))
                 .values(**value_clauses)
                 .returning(sa.text("*"))
             )
         else:
             # For upsert operations
-            table_obj = sa.table(table.name, *cols, schema=schema_name)
+            table_obj = sa.table(sanitized_table_name, *cols, schema=schema_name)
             pg_stmt = insert(table_obj)
             pg_stmt = pg_stmt.values(**value_clauses)
 
@@ -639,9 +681,10 @@ class BaseTablesService(BaseService):
         conn = await self.session.connection()
 
         # Build update statement using SQLAlchemy
+        sanitized_table_name = self._sanitize_identifier(table.name)
         cols = [sa.column(self._sanitize_identifier(k)) for k in data.keys()]
         stmt = (
-            sa.update(sa.table(table.name, *cols, schema=schema_name))
+            sa.update(sa.table(sanitized_table_name, *cols, schema=schema_name))
             .where(sa.column("id") == row_id)
             .values(**data)
             .returning(sa.text("*"))
@@ -663,13 +706,12 @@ class BaseTablesService(BaseService):
     async def delete_row(self, table: Table, row_id: UUID) -> None:
         """Delete a row from the table."""
         schema_name = self._get_schema_name()
+        sanitized_table_name = self._sanitize_identifier(table.name)
         conn = await self.session.connection()
-        table_clause = sa.table(table.name, schema=schema_name)
+        table_clause = sa.table(sanitized_table_name, schema=schema_name)
         stmt = sa.delete(table_clause).where(sa.column("id") == row_id)
         await conn.execute(stmt)
         await self.session.flush()
-
-    "Lookups"
 
     @retry(
         retry=retry_if_exception_type(_RETRYABLE_DB_EXCEPTIONS),
@@ -690,11 +732,12 @@ class BaseTablesService(BaseService):
             raise ValueError("Values and column names must have the same length")
 
         schema_name = self._get_schema_name()
+        sanitized_table_name = self._sanitize_identifier(table_name)
 
         cols = [sa.column(self._sanitize_identifier(c)) for c in columns]
         stmt = (
             sa.select(sa.text("*"))
-            .select_from(sa.table(table_name, schema=schema_name))
+            .select_from(sa.table(sanitized_table_name, schema=schema_name))
             .where(
                 sa.and_(
                     *[col == value for col, value in zip(cols, values, strict=True)]
@@ -743,6 +786,337 @@ class BaseTablesService(BaseService):
                 )
                 raise
 
+    async def search_rows(
+        self,
+        table: Table,
+        *,
+        search_term: str | None = None,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
+        updated_before: datetime | None = None,
+        updated_after: datetime | None = None,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        """Search rows in a table with optional text search and filtering.
+
+        Args:
+            table: The table to search in
+            search_term: Text to search for across all text and JSONB columns
+            start_time: Filter records created after this time
+            end_time: Filter records created before this time
+            updated_before: Filter records updated before this time
+            updated_after: Filter records updated after this time
+            limit: Maximum number of rows to return
+            offset: Number of rows to skip
+
+        Returns:
+            List of matching rows as dictionaries
+
+        Raises:
+            TracecatNotFoundError: If the table does not exist
+            ValueError: If search parameters are invalid
+        """
+        schema_name = self._get_schema_name()
+        sanitized_table_name = self._sanitize_identifier(table.name)
+        conn = await self.session.connection()
+
+        # Build the base query
+        stmt = sa.select(sa.text("*")).select_from(
+            sa.table(sanitized_table_name, schema=schema_name)
+        )
+
+        # Build WHERE conditions
+        where_conditions = []
+
+        # Add text search conditions
+        if search_term:
+            # Validate search term to prevent abuse
+            if len(search_term) > 1000:
+                raise ValueError("Search term cannot exceed 1000 characters")
+            if "\x00" in search_term:
+                raise ValueError("Search term cannot contain null bytes")
+
+            # Get all text-searchable columns (TEXT and JSONB types)
+            searchable_columns = [
+                col.name
+                for col in table.columns
+                if col.type in (SqlType.TEXT.value, SqlType.JSONB.value)
+            ]
+
+            if searchable_columns:
+                # Use SQLAlchemy's concat function for proper parameter binding
+                search_pattern = sa.func.concat("%", search_term, "%")
+                search_conditions = []
+                for col_name in searchable_columns:
+                    sanitized_col = self._sanitize_identifier(col_name)
+                    if col_name in [
+                        c.name for c in table.columns if c.type == SqlType.JSONB.value
+                    ]:
+                        # For JSONB columns, convert to text for searching
+                        search_conditions.append(
+                            sa.func.cast(sa.column(sanitized_col), sa.TEXT).ilike(
+                                search_pattern
+                            )
+                        )
+                    else:
+                        # For TEXT columns, search directly
+                        search_conditions.append(
+                            sa.column(sanitized_col).ilike(search_pattern)
+                        )
+                where_conditions.append(sa.or_(*search_conditions))
+            else:
+                # No searchable columns found, search_term will have no effect
+                self.logger.warning(
+                    "No searchable columns found for text search",
+                    table=table.name,
+                    search_term=search_term,
+                )
+
+        # Add date filters
+        if start_time:
+            where_conditions.append(sa.column("created_at") >= start_time)
+        if end_time:
+            where_conditions.append(sa.column("created_at") <= end_time)
+        if updated_after:
+            where_conditions.append(sa.column("updated_at") >= updated_after)
+        if updated_before:
+            where_conditions.append(sa.column("updated_at") <= updated_before)
+
+        # Apply WHERE conditions if any
+        if where_conditions:
+            stmt = stmt.where(sa.and_(*where_conditions))
+
+        # Apply limit and offset
+        if limit is not None:
+            stmt = stmt.limit(limit)
+        if offset > 0:
+            stmt = stmt.offset(offset)
+
+        try:
+            result = await conn.execute(stmt)
+            return [dict(row) for row in result.mappings().all()]
+        except ProgrammingError as e:
+            while (cause := e.__cause__) is not None:
+                e = cause
+            if isinstance(e, UndefinedTableError):
+                raise TracecatNotFoundError(
+                    f"Table '{table.name}' does not exist"
+                ) from e
+            raise ValueError(str(e)) from e
+        except Exception as e:
+            self.logger.error(
+                "Unexpected DB exception occurred during search",
+                kind=type(e).__name__,
+                error=str(e),
+                table=table.name,
+                schema=schema_name,
+            )
+            raise
+
+    async def list_rows_paginated(
+        self,
+        table: Table,
+        params: CursorPaginationParams,
+        search_term: str | None = None,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
+        updated_before: datetime | None = None,
+        updated_after: datetime | None = None,
+    ) -> CursorPaginatedResponse[dict[str, Any]]:
+        """List rows in a table with cursor-based pagination.
+
+        Args:
+            table: The table to search in
+            params: Cursor pagination parameters
+            search_term: Text to search for across all text and JSONB columns
+            start_time: Filter records created after this time
+            end_time: Filter records created before this time
+            updated_before: Filter records updated before this time
+            updated_after: Filter records updated after this time
+
+        Returns:
+            Cursor paginated response with matching rows
+
+        Raises:
+            TracecatNotFoundError: If the table does not exist
+            ValueError: If search parameters are invalid
+        """
+        schema_name = self._get_schema_name()
+        sanitized_table_name = self._sanitize_identifier(table.name)
+        conn = await self.session.connection()
+
+        # Build the base query
+        stmt = sa.select(sa.text("*")).select_from(
+            sa.table(sanitized_table_name, schema=schema_name)
+        )
+
+        # Build WHERE conditions
+        where_conditions = []
+
+        # Add text search conditions
+        if search_term:
+            # Validate search term to prevent abuse
+            if len(search_term) > 1000:
+                raise ValueError("Search term cannot exceed 1000 characters")
+            if "\x00" in search_term:
+                raise ValueError("Search term cannot contain null bytes")
+
+            # Get all text-searchable columns (TEXT and JSONB types)
+            searchable_columns = [
+                col.name
+                for col in table.columns
+                if col.type in (SqlType.TEXT.value, SqlType.JSONB.value)
+            ]
+
+            if searchable_columns:
+                # Use SQLAlchemy's concat function for proper parameter binding
+                search_pattern = sa.func.concat("%", search_term, "%")
+                search_conditions = []
+                for col_name in searchable_columns:
+                    sanitized_col = self._sanitize_identifier(col_name)
+                    if col_name in [
+                        c.name for c in table.columns if c.type == SqlType.JSONB.value
+                    ]:
+                        # For JSONB columns, convert to text for searching
+                        search_conditions.append(
+                            sa.func.cast(sa.column(sanitized_col), sa.TEXT).ilike(
+                                search_pattern
+                            )
+                        )
+                    else:
+                        # For TEXT columns, search directly
+                        search_conditions.append(
+                            sa.column(sanitized_col).ilike(search_pattern)
+                        )
+                where_conditions.append(sa.or_(*search_conditions))
+            else:
+                # No searchable columns found, search_term will have no effect
+                self.logger.warning(
+                    "No searchable columns found for text search",
+                    table=table.name,
+                    search_term=search_term,
+                )
+
+        # Add date filters
+        if start_time:
+            where_conditions.append(sa.column("created_at") >= start_time)
+        if end_time:
+            where_conditions.append(sa.column("created_at") <= end_time)
+        if updated_after:
+            where_conditions.append(sa.column("updated_at") >= updated_after)
+        if updated_before:
+            where_conditions.append(sa.column("updated_at") <= updated_before)
+
+        # Apply WHERE conditions if any
+        if where_conditions:
+            stmt = stmt.where(sa.and_(*where_conditions))
+
+        # Apply cursor-based pagination
+        # Decode cursor if provided
+        cursor_data = None
+        if params.cursor:
+            try:
+                cursor_data = BaseCursorPaginator.decode_cursor(params.cursor)
+            except Exception as e:
+                raise ValueError(f"Invalid cursor: {e}") from e
+
+            # Apply cursor filtering for table rows
+            cursor_time = cursor_data.created_at
+            cursor_id = UUID(cursor_data.id)
+
+            if params.reverse:
+                # For reverse pagination (going backwards)
+                stmt = stmt.where(
+                    sa.or_(
+                        sa.column("created_at") > cursor_time,
+                        sa.and_(
+                            sa.column("created_at") == cursor_time,
+                            sa.column("id") > cursor_id,
+                        ),
+                    )
+                )
+            else:
+                # For forward pagination (going forwards)
+                stmt = stmt.where(
+                    sa.or_(
+                        sa.column("created_at") < cursor_time,
+                        sa.and_(
+                            sa.column("created_at") == cursor_time,
+                            sa.column("id") < cursor_id,
+                        ),
+                    )
+                )
+
+        # Apply consistent ordering for cursor pagination
+        if params.reverse:
+            # For reverse pagination, use ASC ordering
+            stmt = stmt.order_by(sa.column("created_at").asc(), sa.column("id").asc())
+        else:
+            # For forward pagination, use DESC ordering (newest first)
+            stmt = stmt.order_by(sa.column("created_at").desc(), sa.column("id").desc())
+
+        # Fetch limit + 1 to determine if there are more items
+        stmt = stmt.limit(params.limit + 1)
+
+        try:
+            result = await conn.execute(stmt)
+            rows = [dict(row) for row in result.mappings().all()]
+        except ProgrammingError as e:
+            while (cause := e.__cause__) is not None:
+                e = cause
+            if isinstance(e, UndefinedTableError):
+                raise TracecatNotFoundError(
+                    f"Table '{table.name}' does not exist"
+                ) from e
+            raise ValueError(str(e)) from e
+        except Exception as e:
+            self.logger.error(
+                "Unexpected DB exception occurred during paginated search",
+                kind=type(e).__name__,
+                error=str(e),
+                table=table.name,
+                schema=schema_name,
+            )
+            raise
+
+        # Check if there are more items
+        has_more = len(rows) > params.limit
+        if has_more:
+            rows = rows[: params.limit]
+
+        # Generate cursors
+        next_cursor = None
+        prev_cursor = None
+
+        if rows:
+            if has_more:
+                # Generate next cursor from the last item
+                last_item = rows[-1]
+                next_cursor = BaseCursorPaginator.encode_cursor(
+                    last_item["created_at"], last_item["id"]
+                )
+
+            if params.cursor:
+                # If we used a cursor to get here, we can go back
+                first_item = rows[0]
+                prev_cursor = BaseCursorPaginator.encode_cursor(
+                    first_item["created_at"], first_item["id"]
+                )
+
+        # If we were doing reverse pagination, swap the cursors and reverse items
+        if params.reverse:
+            rows = list(reversed(rows))
+            next_cursor, prev_cursor = prev_cursor, next_cursor
+
+        return CursorPaginatedResponse(
+            items=rows,
+            next_cursor=next_cursor,
+            prev_cursor=prev_cursor,
+            has_more=has_more,
+            has_previous=params.cursor is not None,
+        )
+
     async def batch_insert_rows(
         self,
         table: Table,
@@ -779,12 +1153,15 @@ class BaseTablesService(BaseService):
 
         # Create sanitized column list
         cols = [sa.column(self._sanitize_identifier(k)) for k in all_columns]
+        sanitized_table_name = self._sanitize_identifier(table.name)
 
         # Start transaction
         conn = await self.session.connection()
 
         # Build multi-row insert statement without returning clause
-        stmt = sa.insert(sa.table(table.name, *cols, schema=schema_name)).values(rows)
+        stmt = sa.insert(
+            sa.table(sanitized_table_name, *cols, schema=schema_name)
+        ).values(rows)
 
         try:
             # Execute insert and get rowcount directly
@@ -873,7 +1250,7 @@ class TableEditorService(BaseService):
         role: Role | None = None,
     ):
         super().__init__(session, role)
-        self.table_name = table_name
+        self.table_name = sanitize_identifier(table_name)
         self.schema_name = schema_name
 
     def _full_table_name(self) -> str:
@@ -953,31 +1330,63 @@ class TableEditorService(BaseService):
         set_fields = params.model_dump(exclude_unset=True)
         conn = await self.session.connection()
 
-        statements = []
         new_name = column_name
+        full_table_name = self._full_table_name()
+
+        # Execute ALTER statements using safe DDL construction
         if "name" in set_fields:
             new_name = sanitize_identifier(set_fields["name"])
-            statements.append(f"RENAME COLUMN {column_name} TO {new_name}")
+            await conn.execute(
+                sa.DDL(
+                    "ALTER TABLE %s RENAME COLUMN %s TO %s",
+                    (full_table_name, column_name, new_name),
+                )
+            )
         if "type" in set_fields:
             new_type = set_fields["type"]
-            statements.append(f"ALTER COLUMN {new_name} TYPE {new_type}")
+            await conn.execute(
+                sa.DDL(
+                    "ALTER TABLE %s ALTER COLUMN %s TYPE %s",
+                    (full_table_name, new_name, new_type),
+                )
+            )
         if "nullable" in set_fields:
             constraint = "DROP NOT NULL" if set_fields["nullable"] else "SET NOT NULL"
-            statements.append(f'ALTER COLUMN "{new_name}" {constraint}')
+            await conn.execute(
+                sa.DDL(
+                    # SAFE f-string: constraint is a controlled literal string ("DROP NOT NULL" or "SET NOT NULL")
+                    # No user input is interpolated here - only predefined SQL keywords
+                    f"ALTER TABLE %s ALTER COLUMN %s {constraint}",
+                    (full_table_name, new_name),
+                )
+            )
         if "default" in set_fields:
             updated_default = set_fields["default"]
             if updated_default is None:
-                statements.append(f'ALTER COLUMN "{new_name}" DROP DEFAULT')
-            else:
-                statements.append(
-                    f"ALTER COLUMN \"{new_name}\" SET DEFAULT '{updated_default}'"
+                await conn.execute(
+                    sa.DDL(
+                        "ALTER TABLE %s ALTER COLUMN %s DROP DEFAULT",
+                        (full_table_name, new_name),
+                    )
                 )
-
-        # Execute all ALTER statements
-        self.logger.info("Updating column", stmts=statements)
-        full_table_name = self._full_table_name()
-        for stmt in statements:
-            await conn.execute(sa.DDL(f"ALTER TABLE {full_table_name} {stmt}"))
+            else:
+                # SECURITY NOTE: PostgreSQL DDL does not support parameter binding for DEFAULT clauses.
+                # We must use string interpolation here, but it's SAFE because:
+                # 1. handle_default_value() sanitizes and properly formats the value based on SQL type
+                # 2. It applies proper quoting, escaping, and type casting (e.g., 'value'::text, 123, true)
+                # 3. The function validates the SQL type and rejects invalid inputs
+                # 4. This is the ONLY way to set DEFAULT values in PostgreSQL DDL statements
+                formatted_default = handle_default_value(
+                    SqlType(set_fields.get("type", "TEXT")), updated_default
+                )
+                await conn.execute(
+                    sa.DDL(
+                        # SAFE f-string: formatted_default is pre-sanitized by handle_default_value()
+                        # Other parameters (table/column names) still use secure parameter binding
+                        f"ALTER TABLE %s ALTER COLUMN %s SET DEFAULT {formatted_default}",
+                        (full_table_name, new_name),
+                    )
+                )
 
         await self.session.flush()
 

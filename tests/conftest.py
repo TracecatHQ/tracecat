@@ -3,7 +3,9 @@ import os
 import subprocess
 import time
 import uuid
-from collections.abc import AsyncGenerator, Iterator
+from collections.abc import AsyncGenerator, Callable, Iterator
+from concurrent.futures import ThreadPoolExecutor
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -14,6 +16,8 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlmodel import SQLModel
 from sqlmodel.ext.asyncio.session import AsyncSession
+from temporalio.client import Client
+from temporalio.worker import Worker
 
 from tests.database import TEST_DB_CONFIG
 from tracecat import config
@@ -21,9 +25,12 @@ from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_engine, get_async_session_context_manager
 from tracecat.db.schemas import Workspace
 from tracecat.dsl.client import get_temporal_client
+from tracecat.dsl.worker import get_activities, new_sandbox_runner
+from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.logger import logger
 from tracecat.registry.repositories.models import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
+from tracecat.secrets import secrets_manager
 from tracecat.secrets.models import SecretCreate, SecretKeyValue, SecretUpdate
 from tracecat.secrets.service import SecretsService
 from tracecat.types.auth import AccessLevel, Role, system_role
@@ -173,6 +180,16 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
     monkeysession.setattr(config, "TRACECAT__AUTH_ALLOWED_DOMAINS", ["tracecat.com"])
     # Need this for local unit tests
     monkeysession.setattr(config, "TRACECAT__EXECUTOR_URL", "http://localhost:8001")
+    if os.getenv("TRACECAT__CONTEXT_COMPRESSION_ENABLED"):
+        logger.info("Enabling compression for workflow context")
+        monkeysession.setattr(config, "TRACECAT__CONTEXT_COMPRESSION_ENABLED", True)
+        # Force compression for local unit tests
+        monkeysession.setattr(config, "TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB", 0)
+
+    # test_workflows.py was written when we returned the full context by default
+    monkeysession.setattr(config, "TRACECAT__WORKFLOW_RETURN_STRATEGY", "context")
+    monkeysession.setenv("TRACECAT__WORKFLOW_RETURN_STRATEGY", "context")
+
     # Add Homebrew path for macOS development environments
     monkeysession.setattr(
         config,
@@ -569,19 +586,12 @@ async def minio_bucket(minio_client: Minio) -> AsyncGenerator[str, None]:
 
 
 @pytest.fixture
-async def mock_s3_secrets(monkeypatch):
+def mock_s3_secrets():
     """Mock S3 secrets to use MinIO credentials."""
 
-    def mock_get_secret(key: str) -> str:
-        secrets_map = {
-            "AWS_ACCESS_KEY_ID": MINIO_ACCESS_KEY,
-            "AWS_SECRET_ACCESS_KEY": MINIO_SECRET_KEY,
-            "AWS_REGION": "us-east-1",
-        }
-        return secrets_map.get(key, "")
-
-    # Mock the secrets.get function in various modules using the correct import path
-    monkeypatch.setattr("tracecat_registry.secrets.get", mock_get_secret)
+    secrets_manager.set("AWS_ACCESS_KEY_ID", MINIO_ACCESS_KEY)
+    secrets_manager.set("AWS_SECRET_ACCESS_KEY", MINIO_SECRET_KEY)
+    secrets_manager.set("AWS_REGION", "us-east-1")
 
 
 @pytest.fixture
@@ -611,3 +621,34 @@ async def aioboto3_minio_client(monkeypatch):
     monkeypatch.setattr(aioboto3.Session, "client", mock_client)
 
     yield
+
+
+@pytest.fixture(scope="function")
+def threadpool() -> Iterator[ThreadPoolExecutor]:
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        yield executor
+
+
+@pytest.fixture(scope="function")
+async def test_worker_factory(
+    threadpool: ThreadPoolExecutor,
+) -> AsyncGenerator[Callable[..., Worker], Any]:
+    """Factory fixture to create workers with proper ThreadPoolExecutor cleanup."""
+
+    def create_worker(
+        client: Client,
+        *,
+        activities: list[Callable] | None = None,
+        task_queue: str | None = None,
+    ) -> Worker:
+        """Create a worker with the same configuration as production."""
+        return Worker(
+            client=client,
+            task_queue=task_queue or os.environ["TEMPORAL__CLUSTER_QUEUE"],
+            activities=activities or get_activities(),
+            workflows=[DSLWorkflow],
+            workflow_runner=new_sandbox_runner(),
+            activity_executor=threadpool,
+        )
+
+    yield create_worker

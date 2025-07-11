@@ -1,13 +1,12 @@
-import React from "react"
 import { CheckCheckIcon, CopyIcon } from "lucide-react"
-
-import { copyToClipboard } from "@/lib/utils"
+import React from "react"
 import { Button } from "@/components/ui/button"
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { copyToClipboard } from "@/lib/utils"
 
 export function CopyButton({
   value,

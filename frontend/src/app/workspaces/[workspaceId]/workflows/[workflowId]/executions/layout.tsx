@@ -1,19 +1,18 @@
 "use client"
 
 import React from "react"
-import { useWorkflow } from "@/providers/workflow"
-import { ImperativePanelHandle } from "react-resizable-panels"
-
-import { useWorkflowExecutions } from "@/lib/hooks"
-import { cn } from "@/lib/utils"
+import type { ImperativePanelHandle } from "react-resizable-panels"
+import { CenteredSpinner } from "@/components/loading/spinner"
+import { AlertNotification } from "@/components/notifications"
 import {
   ResizableHandle,
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable"
 import { TooltipProvider } from "@/components/ui/tooltip"
-import { CenteredSpinner } from "@/components/loading/spinner"
-import { AlertNotification } from "@/components/notifications"
+import { useWorkflowExecutions } from "@/lib/hooks"
+import { cn } from "@/lib/utils"
+import { useWorkflow } from "@/providers/workflow"
 
 import "react18-json-view/src/style.css"
 

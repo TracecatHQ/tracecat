@@ -1,11 +1,13 @@
 "use client"
 
-import React, { useEffect, useState } from "react"
-import { WorkflowReadMinimal } from "@/client"
-import { useWorkspace } from "@/providers/workspace"
 import { ChevronDownIcon, FolderIcon } from "lucide-react"
-
-import { useFolders, useWorkflowManager } from "@/lib/hooks"
+import { useEffect, useState } from "react"
+import type { WorkflowReadMinimal } from "@/client"
+import {
+  FileTreeCommand,
+  getFileTreeItems,
+  ROOT_FOLDER_NAME,
+} from "@/components/dashboard/file-tree-command"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -21,11 +23,8 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover"
 import { toast } from "@/components/ui/use-toast"
-import {
-  FileTreeCommand,
-  getFileTreeItems,
-  ROOT_FOLDER_NAME,
-} from "@/components/dashboard/file-tree-command"
+import { useFolders, useWorkflowManager } from "@/lib/hooks"
+import { useWorkspace } from "@/providers/workspace"
 
 interface WorkflowMoveDialogProps {
   open: boolean

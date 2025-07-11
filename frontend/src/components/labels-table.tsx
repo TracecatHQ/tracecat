@@ -1,3 +1,4 @@
+import NoContent from "@/components/no-content"
 import {
   Table,
   TableBody,
@@ -6,7 +7,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import NoContent from "@/components/no-content"
 
 interface FlatKVTableProps<T> {
   keyName: keyof T

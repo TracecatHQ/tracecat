@@ -1,19 +1,19 @@
 "use client"
 
-import React, {
+import { useRouter, useSearchParams } from "next/navigation"
+import type React from "react"
+import {
   createContext,
-  Dispatch,
-  PropsWithChildren,
-  SetStateAction,
+  type Dispatch,
+  type PropsWithChildren,
+  type SetStateAction,
   useContext,
   useEffect,
   useState,
 } from "react"
-import { useRouter, useSearchParams } from "next/navigation"
-
-import { cn } from "@/lib/utils"
 import { CasePanelView } from "@/components/cases/case-panel-view"
 import { SlidingPanel } from "@/components/sliding-panel"
+import { cn } from "@/lib/utils"
 
 interface CasePanelContextType {
   caseId?: string

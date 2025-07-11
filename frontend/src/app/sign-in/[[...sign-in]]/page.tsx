@@ -1,11 +1,10 @@
 "use client"
 
-import { useEffect } from "react"
 import { useRouter } from "next/navigation"
-import { useAuth } from "@/providers/auth"
-
+import { useEffect } from "react"
 import { SignIn } from "@/components/auth/sign-in"
 import { CenteredSpinner } from "@/components/loading/spinner"
+import { useAuth } from "@/providers/auth"
 
 export default function Page() {
   const { user, userIsLoading } = useAuth()

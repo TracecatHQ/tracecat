@@ -1,11 +1,5 @@
 "use client"
 
-import React, { useCallback, useState } from "react"
-import {
-  RegistryRepositoryErrorDetail,
-  RegistryRepositoryReadMinimal,
-} from "@/client"
-import { useAuth } from "@/providers/auth"
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import {
   AlertTriangleIcon,
@@ -17,9 +11,16 @@ import {
   Trash2Icon,
   TrashIcon,
 } from "lucide-react"
-
-import { getRelativeTime } from "@/lib/event-history"
-import { useRegistryRepositories } from "@/lib/hooks"
+import { useCallback, useState } from "react"
+import type {
+  RegistryRepositoryErrorDetail,
+  RegistryRepositoryReadMinimal,
+} from "@/client"
+import {
+  DataTable,
+  DataTableColumnHeader,
+  type DataTableToolbarProps,
+} from "@/components/data-table"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -45,11 +46,9 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
-import {
-  DataTable,
-  DataTableColumnHeader,
-  type DataTableToolbarProps,
-} from "@/components/data-table"
+import { getRelativeTime } from "@/lib/event-history"
+import { useRegistryRepositories } from "@/lib/hooks"
+import { useAuth } from "@/providers/auth"
 
 enum AlertAction {
   SYNC,

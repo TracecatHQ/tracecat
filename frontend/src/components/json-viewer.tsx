@@ -1,11 +1,9 @@
 "use client"
 
-import React from "react"
 import { CheckCheckIcon, CopyIcon } from "lucide-react"
+import React from "react"
 import JsonView from "react18-json-view"
-import { NodeMeta } from "react18-json-view/dist/types"
-
-import { cn } from "@/lib/utils"
+import type { NodeMeta } from "react18-json-view/dist/types"
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -15,6 +13,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
+import { cn } from "@/lib/utils"
 
 import "react18-json-view/src/style.css"
 

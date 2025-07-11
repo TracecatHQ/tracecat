@@ -1,15 +1,13 @@
 "use client"
 
-import { useParams } from "next/navigation"
-import { TableColumnRead, TableRead } from "@/client"
-import { useWorkspace } from "@/providers/workspace"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { Checkbox } from "@radix-ui/react-checkbox"
 import { PlusCircle } from "lucide-react"
-import { ControllerRenderProps, useForm } from "react-hook-form"
+import { useParams } from "next/navigation"
+import { type ControllerRenderProps, useForm } from "react-hook-form"
 import { z } from "zod"
-
-import { useGetTable, useInsertRow } from "@/lib/hooks"
+import type { TableColumnRead, TableRead } from "@/client"
+import { Spinner } from "@/components/loading/spinner"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -28,7 +26,8 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
-import { Spinner } from "@/components/loading/spinner"
+import { useGetTable, useInsertRow } from "@/lib/hooks"
+import { useWorkspace } from "@/providers/workspace"
 
 // Update the schema to be dynamic based on table columns
 const createInsertTableRowSchema = (table: TableRead) => {
@@ -71,7 +70,7 @@ const createInsertTableRowSchema = (table: TableRead) => {
               try {
                 JSON.parse(val)
                 return true
-              } catch (e) {
+              } catch (_e) {
                 return false
               }
             },

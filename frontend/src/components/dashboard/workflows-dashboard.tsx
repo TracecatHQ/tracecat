@@ -1,19 +1,7 @@
 "use client"
 
-import React from "react"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
-import { useWorkspace } from "@/providers/workspace"
-
-import { useLocalStorage, useTags } from "@/lib/hooks"
-import { cn } from "@/lib/utils"
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb"
 import { CreateWorkflowButton } from "@/components/dashboard/create-workflow-button"
 import { WorkflowsDashboardTable } from "@/components/dashboard/dashboard-table"
 import {
@@ -22,6 +10,16 @@ import {
 } from "@/components/dashboard/folder-view-toggle"
 import { WorkflowFoldersTable } from "@/components/dashboard/workflow-folders-table"
 import { WorkflowTagsSidebar } from "@/components/dashboard/workflow-tags-sidebar"
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbSeparator,
+} from "@/components/ui/breadcrumb"
+import { useLocalStorage, useTags } from "@/lib/hooks"
+import { cn } from "@/lib/utils"
+import { useWorkspace } from "@/providers/workspace"
 
 export function WorkflowsDashboard() {
   const router = useRouter()

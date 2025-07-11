@@ -1,27 +1,27 @@
 "use client"
 
-import React, { createContext, ReactNode, useContext } from "react"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { createContext, type ReactNode, useContext } from "react"
 import {
-  ApiError,
-  WorkspaceMembershipRead,
-  WorkspaceRead,
+  type ApiError,
+  type WorkspaceMembershipRead,
+  type WorkspaceRead,
+  type WorkspacesCreateWorkspaceMembershipData,
+  type WorkspacesCreateWorkspaceMembershipResponse,
+  type WorkspacesUpdateWorkspaceMembershipData,
+  type WorkspacesUpdateWorkspaceMembershipResponse,
+  type WorkspaceUpdate,
   workspacesCreateWorkspaceMembership,
-  WorkspacesCreateWorkspaceMembershipData,
-  WorkspacesCreateWorkspaceMembershipResponse,
   workspacesDeleteWorkspaceMembership,
   workspacesGetWorkspace,
   workspacesGetWorkspaceMembership,
   workspacesUpdateWorkspace,
   workspacesUpdateWorkspaceMembership,
-  WorkspacesUpdateWorkspaceMembershipData,
-  WorkspacesUpdateWorkspaceMembershipResponse,
-  WorkspaceUpdate,
 } from "@/client"
-import { useAuth } from "@/providers/auth"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-
-import { retryHandler, TracecatApiError } from "@/lib/errors"
 import { toast } from "@/components/ui/use-toast"
+
+import { retryHandler, type TracecatApiError } from "@/lib/errors"
+import { useAuth } from "@/providers/auth"
 
 type WorkspaceContextType = {
   workspaceId: string

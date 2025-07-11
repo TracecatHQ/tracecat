@@ -1,5 +1,5 @@
-import { PropsWithoutRef } from "react"
-import { AlertDialogProps } from "@radix-ui/react-alert-dialog"
+import type { AlertDialogProps } from "@radix-ui/react-alert-dialog"
+import type { PropsWithoutRef } from "react"
 
 import {
   AlertDialog,

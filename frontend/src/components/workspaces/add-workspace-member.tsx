@@ -1,13 +1,14 @@
-import { useState } from "react"
-import { ApiError, UserRead, usersSearchUser, WorkspaceRead } from "@/client"
-import { useAuth } from "@/providers/auth"
-import { useWorkspace } from "@/providers/workspace"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { CirclePlusIcon } from "lucide-react"
+import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
-
-import { WorkspaceRoleEnum } from "@/lib/workspace"
+import {
+  ApiError,
+  type UserRead,
+  usersSearchUser,
+  type WorkspaceRead,
+} from "@/client"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -33,6 +34,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { WorkspaceRoleEnum } from "@/lib/workspace"
+import { useAuth } from "@/providers/auth"
+import { useWorkspace } from "@/providers/workspace"
 
 const addUserSchema = z.object({
   email: z.string().email(),

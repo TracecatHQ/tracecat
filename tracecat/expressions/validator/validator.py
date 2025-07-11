@@ -165,7 +165,7 @@ class ExprValidator(BaseExprValidator):
 
     def secrets(self, node: Tree[Token]):
         name_key = super().secrets(node)
-        logger.warning("secrets", name_key=name_key)
+        logger.trace("Visit secrets expression", name_key=name_key)
         if name_key is None:
             return
         name, key = name_key

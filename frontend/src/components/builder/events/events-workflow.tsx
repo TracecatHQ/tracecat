@@ -1,9 +1,3 @@
-import { useCallback, useState } from "react"
-import Link from "next/link"
-import { TriggerType, WorkflowExecutionEventStatus } from "@/client"
-import { useWorkflowBuilder } from "@/providers/builder"
-import { useWorkflow } from "@/providers/workflow"
-import { useWorkspace } from "@/providers/workspace"
 import { DotsHorizontalIcon, QuestionMarkIcon } from "@radix-ui/react-icons"
 import {
   AlarmClockCheckIcon,
@@ -28,14 +22,11 @@ import {
   WorkflowIcon,
   ZapIcon,
 } from "lucide-react"
-
-import {
-  executionId,
-  groupEventsByActionRef,
-  WorkflowExecutionEventCompact,
-  WorkflowExecutionReadCompact,
-} from "@/lib/event-history"
-import { cn, slugify, undoSlugify } from "@/lib/utils"
+import Link from "next/link"
+import { useCallback, useState } from "react"
+import type { TriggerType, WorkflowExecutionEventStatus } from "@/client"
+import { getExecutionStatusIcon } from "@/components/executions/nav"
+import { Spinner } from "@/components/loading/spinner"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -50,8 +41,16 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { getExecutionStatusIcon } from "@/components/executions/nav"
-import { Spinner } from "@/components/loading/spinner"
+import {
+  executionId,
+  groupEventsByActionRef,
+  type WorkflowExecutionEventCompact,
+  type WorkflowExecutionReadCompact,
+} from "@/lib/event-history"
+import { cn, slugify, undoSlugify } from "@/lib/utils"
+import { useWorkflowBuilder } from "@/providers/builder"
+import { useWorkflow } from "@/providers/workflow"
+import { useWorkspace } from "@/providers/workspace"
 
 export function WorkflowEventsHeader({
   execution,
@@ -222,7 +221,7 @@ export function WorkflowEvents({
     sidebarRef,
   } = useWorkflowBuilder()
   const { workflow } = useWorkflow()
-  const [isOpen, setIsOpen] = useState(true)
+  const [isOpen, _setIsOpen] = useState(true)
 
   // Group events by action_ref
   const groupedEvents = groupEventsByActionRef(events)

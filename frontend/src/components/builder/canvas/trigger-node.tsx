@@ -1,18 +1,15 @@
-import React from "react"
-import { Schedule, WebhookRead } from "@/client"
-import { useWorkflow } from "@/providers/workflow"
-import { Node, NodeProps } from "@xyflow/react"
+import type { Node, NodeProps } from "@xyflow/react"
 import {
   CalendarCheck,
   TimerOffIcon,
   UnplugIcon,
   WebhookIcon,
 } from "lucide-react"
-
-import { useSchedules } from "@/lib/hooks"
-import { durationToHumanReadable } from "@/lib/time"
-import { cn } from "@/lib/utils"
-import { useTriggerNodeZoomBreakpoint } from "@/hooks/canvas"
+import React from "react"
+import type { Schedule, WebhookRead } from "@/client"
+import { TriggerSourceHandle } from "@/components/builder/canvas/custom-handle"
+import { nodeStyles } from "@/components/builder/canvas/node-styles"
+import { getIcon } from "@/components/icons"
 import {
   Card,
   CardDescription,
@@ -29,9 +26,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { TriggerSourceHandle } from "@/components/builder/canvas/custom-handle"
-import { nodeStyles } from "@/components/builder/canvas/node-styles"
-import { getIcon } from "@/components/icons"
+import { useTriggerNodeZoomBreakpoint } from "@/hooks/canvas"
+import { useSchedules } from "@/lib/hooks"
+import { durationToHumanReadable } from "@/lib/time"
+import { cn } from "@/lib/utils"
+import { useWorkflow } from "@/providers/workflow"
 
 export type TriggerNodeData = {
   type: "trigger"

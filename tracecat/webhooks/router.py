@@ -73,7 +73,8 @@ async def incoming_webhook(
     This is an external facing endpoint is used to trigger a workflow by sending a webhook request.
     The workflow is identified by the `path` parameter, which is equivalent to the workflow id.
     """
-    logger.info("Webhook hit", path=workflow_id, payload=payload, role=ctx_role.get())
+    logger.info("Webhook hit", path=workflow_id, role=ctx_role.get())
+    logger.trace("Webhook payload", payload=payload)
 
     dsl_input = DSLInput(**defn.content)
 
@@ -147,7 +148,8 @@ async def incoming_webhook_wait(
     This is an external facing endpoint is used to trigger a workflow by sending a webhook request.
     The workflow is identified by the `path` parameter, which is equivalent to the workflow id.
     """
-    logger.info("Webhook hit", path=workflow_id, payload=payload, role=ctx_role.get())
+    logger.info("Webhook hit", path=workflow_id, role=ctx_role.get())
+    logger.trace("Webhook payload", payload=payload)
 
     dsl_input = DSLInput(**defn.content)
 
@@ -185,9 +187,9 @@ async def receive_interaction(
         "Received interaction",
         workflow_id=workflow_id,
         category=category,
-        input=input,
         role=ctx_role.get(),
     )
+    logger.trace("Interaction input", input=input)
 
     try:
         # Get temporal client and workflow handle

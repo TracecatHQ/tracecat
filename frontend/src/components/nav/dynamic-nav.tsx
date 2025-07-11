@@ -1,6 +1,5 @@
 "use client"
 
-import React from "react"
 import { useParams, usePathname } from "next/navigation"
 
 import { BuilderNav } from "@/components/nav/builder-nav"
@@ -33,6 +32,8 @@ function getNavBar(pathname: string, params: DynamicNavbarParams) {
     return <RegistryNav />
   } else if (pathname.includes("/organization")) {
     return <OrganizationNav />
+  } else if (pathname.includes("/integrations")) {
+    return <WorkspaceNav />
   } else {
     console.log("Hit NULL", pathname)
     return null

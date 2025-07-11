@@ -1,11 +1,10 @@
 "use client"
 
-import { UserRead, UserUpdate } from "@/client"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
-
-import { useUserManager } from "@/lib/hooks"
+import type { UserRead, UserUpdate } from "@/client"
+import { Icons } from "@/components/icons"
 import { Button } from "@/components/ui/button"
 import {
   Form,
@@ -17,7 +16,7 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { toast } from "@/components/ui/use-toast"
-import { Icons } from "@/components/icons"
+import { useUserManager } from "@/lib/hooks"
 
 const updateEmailSchema = z.object({
   email: z.string().email("Invalid email address"),

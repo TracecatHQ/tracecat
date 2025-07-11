@@ -1,14 +1,12 @@
 "use client"
 
-import React, { PropsWithChildren, useCallback } from "react"
-import { SecretReadMinimal, SecretUpdate } from "@/client"
 import { zodResolver } from "@hookform/resolvers/zod"
-import { DialogProps } from "@radix-ui/react-dialog"
+import type { DialogProps } from "@radix-ui/react-dialog"
 import { PlusCircle, SaveIcon, Trash2Icon } from "lucide-react"
+import React, { type PropsWithChildren, useCallback } from "react"
 import { useFieldArray, useForm } from "react-hook-form"
 import { z } from "zod"
-
-import { useOrgSecrets } from "@/lib/hooks"
+import type { SecretReadMinimal, SecretUpdate } from "@/client"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -30,6 +28,7 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { toast } from "@/components/ui/use-toast"
+import { useOrgSecrets } from "@/lib/hooks"
 
 interface UpdateOrgSecretDialogProps
   extends PropsWithChildren<

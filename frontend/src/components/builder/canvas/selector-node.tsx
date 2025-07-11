@@ -1,12 +1,17 @@
-import React, { useCallback, useEffect, useMemo, useRef } from "react"
-import { actionsCreateAction, RegistryActionReadMinimal } from "@/client"
-import { useWorkflowBuilder } from "@/providers/builder"
-import { Handle, Node, NodeProps, Position, useNodeId } from "@xyflow/react"
+import {
+  Handle,
+  type Node,
+  type NodeProps,
+  Position,
+  useNodeId,
+} from "@xyflow/react"
 import fuzzysort from "fuzzysort"
 import { CloudOffIcon, XIcon } from "lucide-react"
-
-import { useBuilderRegistryActions } from "@/lib/hooks"
-import { cn } from "@/lib/utils"
+import React, { useCallback, useEffect, useMemo, useRef } from "react"
+import { actionsCreateAction, type RegistryActionReadMinimal } from "@/client"
+import type { ActionNodeType } from "@/components/builder/canvas/action-node"
+import { isEphemeral } from "@/components/builder/canvas/canvas"
+import { getIcon } from "@/components/icons"
 import {
   Command,
   CommandEmpty,
@@ -20,9 +25,9 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import { toast } from "@/components/ui/use-toast"
-import { ActionNodeType } from "@/components/builder/canvas/action-node"
-import { isEphemeral } from "@/components/builder/canvas/canvas"
-import { getIcon } from "@/components/icons"
+import { useBuilderRegistryActions } from "@/lib/hooks"
+import { cn } from "@/lib/utils"
+import { useWorkflowBuilder } from "@/providers/builder"
 
 export const SelectorTypename = "selector" as const
 

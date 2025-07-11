@@ -1,14 +1,12 @@
 "use client"
 
-import React, { PropsWithChildren } from "react"
-import { SecretCreate } from "@/client"
 import { zodResolver } from "@hookform/resolvers/zod"
-import { DialogProps } from "@radix-ui/react-dialog"
+import type { DialogProps } from "@radix-ui/react-dialog"
 import { KeyRoundIcon } from "lucide-react"
+import React, { type PropsWithChildren } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
-
-import { useOrgSecrets } from "@/lib/hooks"
+import type { SecretCreate } from "@/client"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -31,6 +29,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/use-toast"
+import { useOrgSecrets } from "@/lib/hooks"
 
 interface CreateOrgSSHKeyDialogProps
   extends PropsWithChildren<

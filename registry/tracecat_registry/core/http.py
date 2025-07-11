@@ -34,7 +34,7 @@ from tracecat.config import (
 from tracecat.types.exceptions import TracecatException
 from tracecat_registry import RegistrySecret, registry, secrets
 
-RequestMethods = Literal["GET", "POST", "PUT", "PATCH", "DELETE"]
+RequestMethods = Literal["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
 JSONObjectOrArray = dict[str, Any] | list[Any]
 
 
@@ -561,9 +561,9 @@ async def http_request(
         logger.error(f"File processing error in http_request: {str(e)}")
         raise TracecatException(str(e)) from e
 
-    client_cert_str = secrets.get("SSL_CLIENT_CERT")
-    client_key_str = secrets.get("SSL_CLIENT_KEY")
-    client_key_password = secrets.get("SSL_CLIENT_PASSWORD")
+    client_cert_str = secrets.get_or_default("SSL_CLIENT_CERT")
+    client_key_str = secrets.get_or_default("SSL_CLIENT_KEY")
+    client_key_password = secrets.get_or_default("SSL_CLIENT_PASSWORD")
 
     # Manage SSL certificates with proper cleanup
     with TemporaryClientCertificate(
@@ -699,9 +699,9 @@ async def http_poll(
         reraise=True,
     )
     async def call() -> httpx.Response:
-        client_cert_str = secrets.get("SSL_CLIENT_CERT")
-        client_key_str = secrets.get("SSL_CLIENT_KEY")
-        client_key_password = secrets.get("SSL_CLIENT_PASSWORD")
+        client_cert_str = secrets.get_or_default("SSL_CLIENT_CERT")
+        client_key_str = secrets.get_or_default("SSL_CLIENT_KEY")
+        client_key_password = secrets.get_or_default("SSL_CLIENT_PASSWORD")
 
         # SSL certificate management for each polling attempt
         with TemporaryClientCertificate(

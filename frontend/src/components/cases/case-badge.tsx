@@ -1,9 +1,9 @@
-import React, { PropsWithChildren } from "react"
-import { CasePriority, CaseSeverity, CaseStatus } from "@/client"
-import { LucideIcon } from "lucide-react"
-
-import { cn } from "@/lib/utils"
+import type { LucideIcon } from "lucide-react"
+import type React from "react"
+import type { PropsWithChildren } from "react"
+import type { CasePriority, CaseSeverity, CaseStatus } from "@/client"
 import { Badge } from "@/components/ui/badge"
+import { cn } from "@/lib/utils"
 
 type CaseBadgeValue = CaseStatus | CasePriority | CaseSeverity
 export interface CaseBadgeProps<T extends CaseBadgeValue>
@@ -25,10 +25,15 @@ export function CaseBadge<T extends CaseBadgeValue>({
   return (
     <Badge
       variant="outline"
-      className={cn(defaultColor, "items-center gap-1", color, className)}
+      className={cn(
+        defaultColor,
+        "items-center gap-1 border-0",
+        color,
+        className
+      )}
     >
       <Icon className="stroke-inherit/5 size-3 flex-1" strokeWidth={3} />
-      <span className="text-xs">{label}</span>
+      <span>{label}</span>
     </Badge>
   )
 }

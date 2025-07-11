@@ -1,9 +1,8 @@
 "use client"
 
 import { useRouter } from "next/navigation"
-import { useAuth } from "@/providers/auth"
-
 import { UpdatePasswordForm } from "@/components/auth/update-password-form"
+import { useAuth } from "@/providers/auth"
 
 export default function SecuritySettingsPage() {
   const { user } = useAuth()

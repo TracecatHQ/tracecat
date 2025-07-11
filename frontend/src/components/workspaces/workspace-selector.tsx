@@ -1,16 +1,16 @@
 "use client"
 
-import React, { useEffect, useState } from "react"
-import { usePathname, useRouter } from "next/navigation"
-import { ApiError, WorkspaceCreate, WorkspaceReadMinimal } from "@/client"
-import { useAuth } from "@/providers/auth"
-import { useWorkspace } from "@/providers/workspace"
 import { CaretSortIcon, CheckIcon } from "@radix-ui/react-icons"
 import { KeyRoundIcon, PlusCircleIcon } from "lucide-react"
+import { usePathname, useRouter } from "next/navigation"
+import type React from "react"
+import { useEffect, useState } from "react"
 import { useForm } from "react-hook-form"
-
-import { useWorkspaceManager } from "@/lib/hooks"
-import { cn } from "@/lib/utils"
+import {
+  ApiError,
+  type WorkspaceCreate,
+  type WorkspaceReadMinimal,
+} from "@/client"
 import { Button } from "@/components/ui/button"
 import {
   Command,
@@ -44,6 +44,10 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
+import { useWorkspaceManager } from "@/lib/hooks"
+import { cn } from "@/lib/utils"
+import { useAuth } from "@/providers/auth"
+import { useWorkspace } from "@/providers/workspace"
 
 export function WorkspaceSelector(props: React.HTMLAttributes<HTMLElement>) {
   const { user } = useAuth()

@@ -1,8 +1,5 @@
-import type React from "react"
 import { Clock } from "lucide-react"
-
-import { User } from "@/lib/auth"
-import { cn, shortTimeAgo } from "@/lib/utils"
+import type React from "react"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import {
   HoverCard,
@@ -15,6 +12,8 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import type { User } from "@/lib/auth"
+import { cn, shortTimeAgo } from "@/lib/utils"
 
 export function UserHoverCard({
   user,

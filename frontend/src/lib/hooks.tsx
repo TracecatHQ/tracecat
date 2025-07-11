@@ -1,51 +1,66 @@
-import { useEffect, useState } from "react"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import Cookies from "js-cookie"
+import { AlertTriangleIcon, CircleCheck } from "lucide-react"
 import { useRouter } from "next/navigation"
+import { useEffect, useState } from "react"
 import {
-  ActionRead,
+  type ActionRead,
+  type ActionsDeleteActionData,
+  type ActionUpdate,
+  type ApiError,
+  type AppSettingsRead,
+  type AuthSettingsRead,
   actionsDeleteAction,
-  ActionsDeleteActionData,
   actionsGetAction,
   actionsUpdateAction,
-  ActionUpdate,
-  ApiError,
-  AppSettingsRead,
-  AuthSettingsRead,
-  CaseCommentCreate,
-  CaseCommentRead,
-  CaseCommentUpdate,
-  CaseCreate,
-  CaseEventsWithUsers,
-  CaseFieldRead,
-  CaseRead,
-  CaseReadMinimal,
+  type CaseCommentCreate,
+  type CaseCommentRead,
+  type CaseCommentUpdate,
+  type CaseCreate,
+  type CaseEventsWithUsers,
+  type CaseFieldRead,
+  type CaseRead,
+  type CaseReadMinimal,
+  type CasesGetCaseData,
+  type CasesListCasesData,
+  type CasesListCommentsData,
+  type CaseUpdate,
   casesCreateCase,
   casesCreateComment,
   casesDeleteCase,
   casesDeleteComment,
   casesGetCase,
-  CasesGetCaseData,
   casesListCases,
-  CasesListCasesData,
   casesListComments,
-  CasesListCommentsData,
   casesListEventsWithUsers,
   casesListFields,
   casesUpdateCase,
   casesUpdateComment,
-  CaseUpdate,
-  FolderDirectoryItem,
+  type FolderDirectoryItem,
   foldersCreateFolder,
   foldersDeleteFolder,
   foldersGetDirectory,
   foldersListFolders,
   foldersMoveFolder,
   foldersUpdateFolder,
-  GitSettingsRead,
-  OAuthSettingsRead,
+  type GitSettingsRead,
+  type IntegrationRead,
+  type IntegrationReadMinimal,
+  type IntegrationUpdate,
+  integrationsConnectProvider,
+  integrationsDisconnectIntegration,
+  integrationsGetIntegration,
+  integrationsListIntegrations,
+  integrationsTestConnection,
+  integrationsUpdateIntegration,
+  type OAuthGrantType,
+  type OAuthSettingsRead,
+  type OrganizationDeleteOrgMemberData,
+  type OrganizationDeleteSessionData,
+  type OrganizationUpdateOrgMemberData,
+  type OrgMemberRead,
   organizationDeleteOrgMember,
-  OrganizationDeleteOrgMemberData,
   organizationDeleteSession,
-  OrganizationDeleteSessionData,
   organizationListOrgMembers,
   organizationListSessions,
   organizationSecretsCreateOrgSecret,
@@ -53,136 +68,132 @@ import {
   organizationSecretsListOrgSecrets,
   organizationSecretsUpdateOrgSecretById,
   organizationUpdateOrgMember,
-  OrganizationUpdateOrgMemberData,
-  OrgMemberRead,
-  RegistryActionCreate,
-  RegistryActionRead,
-  RegistryActionReadMinimal,
+  type ProviderRead,
+  type ProviderReadMinimal,
+  providersGetProvider,
+  providersListProviders,
+  type RegistryActionCreate,
+  type RegistryActionRead,
+  type RegistryActionReadMinimal,
+  type RegistryActionsDeleteRegistryActionData,
+  type RegistryActionsUpdateRegistryActionData,
+  type RegistryRepositoriesDeleteRegistryRepositoryData,
+  type RegistryRepositoriesSyncRegistryRepositoryData,
+  type RegistryRepositoryErrorDetail,
+  type RegistryRepositoryReadMinimal,
   registryActionsCreateRegistryAction,
   registryActionsDeleteRegistryAction,
-  RegistryActionsDeleteRegistryActionData,
   registryActionsGetRegistryAction,
   registryActionsListRegistryActions,
   registryActionsUpdateRegistryAction,
-  RegistryActionsUpdateRegistryActionData,
   registryRepositoriesDeleteRegistryRepository,
-  RegistryRepositoriesDeleteRegistryRepositoryData,
   registryRepositoriesListRegistryRepositories,
   registryRepositoriesReloadRegistryRepositories,
   registryRepositoriesSyncRegistryRepository,
-  RegistryRepositoriesSyncRegistryRepositoryData,
-  RegistryRepositoryErrorDetail,
-  RegistryRepositoryReadMinimal,
-  SAMLSettingsRead,
-  Schedule,
+  type SAMLSettingsRead,
+  type Schedule,
+  type SchedulesCreateScheduleData,
+  type SchedulesDeleteScheduleData,
+  type SchedulesUpdateScheduleData,
+  type SecretCreate,
+  type SecretReadMinimal,
+  type SecretUpdate,
+  type SessionRead,
+  type SettingsUpdateAppSettingsData,
+  type SettingsUpdateAuthSettingsData,
+  type SettingsUpdateGitSettingsData,
+  type SettingsUpdateOauthSettingsData,
+  type SettingsUpdateSamlSettingsData,
   schedulesCreateSchedule,
-  SchedulesCreateScheduleData,
   schedulesDeleteSchedule,
-  SchedulesDeleteScheduleData,
   schedulesListSchedules,
   schedulesUpdateSchedule,
-  SchedulesUpdateScheduleData,
-  SecretCreate,
-  SecretReadMinimal,
   secretsCreateSecret,
   secretsDeleteSecretById,
   secretsListSecrets,
   secretsUpdateSecretById,
-  SecretUpdate,
-  SessionRead,
   settingsGetAppSettings,
   settingsGetAuthSettings,
   settingsGetGitSettings,
   settingsGetOauthSettings,
   settingsGetSamlSettings,
   settingsUpdateAppSettings,
-  SettingsUpdateAppSettingsData,
   settingsUpdateAuthSettings,
-  SettingsUpdateAuthSettingsData,
   settingsUpdateGitSettings,
-  SettingsUpdateGitSettingsData,
   settingsUpdateOauthSettings,
-  SettingsUpdateOauthSettingsData,
   settingsUpdateSamlSettings,
-  SettingsUpdateSamlSettingsData,
-  TableRead,
-  TableReadMinimal,
-  TableRowRead,
+  type TableRead,
+  type TableReadMinimal,
+  type TablesBatchInsertRowsData,
+  type TablesCreateColumnData,
+  type TablesCreateTableData,
+  type TablesCreateTableResponse,
+  type TablesDeleteColumnData,
+  type TablesDeleteRowData,
+  type TablesDeleteTableData,
+  type TablesGetTableData,
+  type TablesImportCsvData,
+  type TablesInsertRowData,
+  type TablesListTablesData,
+  type TablesUpdateColumnData,
+  type TablesUpdateTableData,
+  type TagRead,
+  type TagsCreateTagData,
+  type TagsDeleteTagData,
+  type TagsUpdateTagData,
+  type TriggerType,
   tablesBatchInsertRows,
-  TablesBatchInsertRowsData,
   tablesCreateColumn,
-  TablesCreateColumnData,
   tablesCreateTable,
-  TablesCreateTableData,
-  TablesCreateTableResponse,
   tablesDeleteColumn,
-  TablesDeleteColumnData,
   tablesDeleteRow,
-  TablesDeleteRowData,
   tablesDeleteTable,
-  TablesDeleteTableData,
   tablesGetTable,
-  TablesGetTableData,
   tablesImportCsv,
-  TablesImportCsvData,
   tablesInsertRow,
-  TablesInsertRowData,
-  tablesListRows,
-  TablesListRowsData,
   tablesListTables,
-  TablesListTablesData,
   tablesUpdateColumn,
-  TablesUpdateColumnData,
   tablesUpdateTable,
-  TablesUpdateTableData,
-  TagRead,
   tagsCreateTag,
-  TagsCreateTagData,
   tagsDeleteTag,
-  TagsDeleteTagData,
   tagsListTags,
   tagsUpdateTag,
-  TagsUpdateTagData,
   triggersUpdateWebhook,
-  TriggerType,
+  type UserUpdate,
   usersUsersPatchCurrentUser,
-  UserUpdate,
-  WebhookUpdate,
-  WorkflowDirectoryItem,
-  WorkflowExecutionCreate,
-  WorkflowExecutionRead,
-  WorkflowExecutionReadMinimal,
+  type WebhookUpdate,
+  type WorkflowDirectoryItem,
+  type WorkflowExecutionCreate,
+  type WorkflowExecutionRead,
+  type WorkflowExecutionReadMinimal,
+  type WorkflowFolderCreate,
+  type WorkflowFolderRead,
+  type WorkflowReadMinimal,
+  type WorkflowsAddTagData,
+  type WorkflowsCreateWorkflowData,
+  type WorkflowsMoveWorkflowToFolderData,
+  type WorkflowsRemoveTagData,
+  type WorkspaceCreate,
   workflowExecutionsCreateWorkflowExecution,
   workflowExecutionsGetWorkflowExecution,
   workflowExecutionsGetWorkflowExecutionCompact,
   workflowExecutionsListWorkflowExecutions,
-  WorkflowFolderCreate,
-  WorkflowFolderRead,
-  WorkflowReadMinimal,
   workflowsAddTag,
-  WorkflowsAddTagData,
   workflowsCreateWorkflow,
-  WorkflowsCreateWorkflowData,
   workflowsDeleteWorkflow,
   workflowsListWorkflows,
   workflowsMoveWorkflowToFolder,
-  WorkflowsMoveWorkflowToFolderData,
   workflowsRemoveTag,
-  WorkflowsRemoveTagData,
-  WorkspaceCreate,
   workspacesCreateWorkspace,
   workspacesDeleteWorkspace,
   workspacesListWorkspaces,
 } from "@/client"
-import { useWorkspace } from "@/providers/workspace"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import Cookies from "js-cookie"
-import { AlertTriangleIcon, CircleCheck } from "lucide-react"
+import { toast } from "@/components/ui/use-toast"
 
 import { getBaseUrl } from "@/lib/api"
-import { retryHandler, TracecatApiError } from "@/lib/errors"
-import { WorkflowExecutionReadCompact } from "@/lib/event-history"
-import { toast } from "@/components/ui/use-toast"
+import { retryHandler, type TracecatApiError } from "@/lib/errors"
+import type { WorkflowExecutionReadCompact } from "@/lib/event-history"
+import { useWorkspace } from "@/providers/workspace"
 
 interface AppInfo {
   version: string
@@ -201,10 +212,10 @@ export function useAppInfo() {
   } = useQuery<AppInfo, Error>({
     queryKey: ["app-info"],
     queryFn: async () => {
-      const resp = await fetch(getBaseUrl() + "/info")
+      const resp = await fetch(`${getBaseUrl()}/info`)
       try {
         return await resp.json()
-      } catch (error) {
+      } catch (_error) {
         throw new Error(
           "Unable to fetch authentication settings. This could be a network issue with the Tracecat API."
         )
@@ -343,9 +354,14 @@ export function useWorkflowManager(filter?: WorkflowFilter) {
     isLoading: workflowsLoading,
     error: workflowsError,
   } = useQuery<WorkflowReadMinimal[], ApiError>({
-    queryKey: ["workflows", filter?.tag],
-    queryFn: async () =>
-      await workflowsListWorkflows({ workspaceId, tag: filter?.tag }),
+    queryKey: ["workflows", workspaceId, filter?.tag],
+    queryFn: async () => {
+      const response = await workflowsListWorkflows({
+        workspaceId,
+        tag: filter?.tag,
+      })
+      return response.items
+    },
     retry: retryHandler,
   })
 
@@ -1393,7 +1409,7 @@ export function useRegistryRepositories() {
             title: "Forbidden",
             description: "You are not authorized to perform this action",
           })
-        case 422:
+        case 422: {
           const { message } = error.body.detail as RegistryRepositoryErrorDetail
           return toast({
             title: "Repository validation failed",
@@ -1404,6 +1420,7 @@ export function useRegistryRepositories() {
               </div>
             ),
           })
+        }
         default:
           return toast({
             title: "Unexpected error syncing repositories",
@@ -2197,23 +2214,6 @@ export function useDeleteTable() {
   }
 }
 
-export function useListRows({ tableId, workspaceId }: TablesListRowsData) {
-  const {
-    data: rows,
-    isLoading: rowsIsLoading,
-    error: rowsError,
-  } = useQuery<TableRowRead[], TracecatApiError>({
-    queryKey: ["rows", tableId],
-    queryFn: async () => await tablesListRows({ tableId, workspaceId }),
-  })
-
-  return {
-    rows,
-    rowsIsLoading,
-    rowsError,
-  }
-}
-
 export function useInsertColumn() {
   const queryClient = useQueryClient()
   const {
@@ -2400,7 +2400,7 @@ export function useInsertRow() {
         queryKey: ["rows", variables.tableId],
       })
     },
-    onError: (error: TracecatApiError, variables) => {
+    onError: (error: TracecatApiError) => {
       if (error.status === 409) {
         toast({
           title: "Duplicate value error",
@@ -2485,7 +2485,10 @@ export function useListCases({ workspaceId }: CasesListCasesData) {
     error: casesError,
   } = useQuery<CaseReadMinimal[], TracecatApiError>({
     queryKey: ["cases", workspaceId],
-    queryFn: async () => await casesListCases({ workspaceId }),
+    queryFn: async () => {
+      const response = await casesListCases({ workspaceId })
+      return response.items
+    },
   })
 
   return {
@@ -2810,7 +2813,10 @@ export function useGetWorkflows(workspaceId: string) {
     error: workflowsError,
   } = useQuery<WorkflowReadMinimal[], ApiError>({
     queryKey: ["workflows", workspaceId],
-    queryFn: async () => await workflowsListWorkflows({ workspaceId }),
+    queryFn: async () => {
+      const response = await workflowsListWorkflows({ workspaceId })
+      return response.items
+    },
     retry: retryHandler,
   })
 
@@ -3101,5 +3107,224 @@ export function useCaseEvents({
     caseEvents,
     caseEventsIsLoading,
     caseEventsError,
+  }
+}
+
+/* Integrations */
+export function useIntegrations(workspaceId: string) {
+  // List workspace integrations
+  const {
+    data: integrations,
+    isLoading: integrationsIsLoading,
+    error: integrationsError,
+  } = useQuery<IntegrationReadMinimal[], TracecatApiError>({
+    queryKey: ["integrations", workspaceId],
+    queryFn: async () => await integrationsListIntegrations({ workspaceId }),
+  })
+
+  // List providers
+  const {
+    data: providers,
+    isLoading: providersIsLoading,
+    error: providersError,
+  } = useQuery<ProviderReadMinimal[], TracecatApiError>({
+    queryKey: ["providers", workspaceId],
+    queryFn: async () => await providersListProviders({ workspaceId }),
+  })
+
+  return {
+    integrations,
+    integrationsIsLoading,
+    integrationsError,
+    providers,
+    providersIsLoading,
+    providersError,
+  }
+}
+
+export function useIntegrationProvider({
+  providerId,
+  workspaceId,
+  grantType,
+}: {
+  providerId: string
+  workspaceId: string
+  grantType?: OAuthGrantType
+}) {
+  const queryClient = useQueryClient()
+
+  // Read
+  const {
+    data: integration,
+    isLoading: integrationIsLoading,
+    error: integrationError,
+  } = useQuery<IntegrationRead, TracecatApiError>({
+    queryKey: ["integration", providerId, workspaceId, grantType],
+    queryFn: async () =>
+      await integrationsGetIntegration({
+        providerId,
+        workspaceId,
+        grantType,
+      }),
+    retry: retryHandler,
+  })
+
+  // Get provider schema
+  const {
+    data: provider,
+    isLoading: providerIsLoading,
+    error: providerError,
+  } = useQuery<ProviderRead, TracecatApiError>({
+    queryKey: ["provider-schema", providerId, workspaceId, grantType],
+    queryFn: async () =>
+      await providersGetProvider({ providerId, workspaceId, grantType }),
+  })
+
+  // Update
+  const {
+    mutateAsync: updateIntegration,
+    isPending: updateIntegrationIsPending,
+    error: updateIntegrationError,
+  } = useMutation({
+    mutationFn: async (params: IntegrationUpdate) =>
+      await integrationsUpdateIntegration({
+        providerId,
+        workspaceId,
+        requestBody: params,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["integration", providerId, workspaceId, grantType],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["providers", workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["provider-schema", providerId, workspaceId, grantType],
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      console.error("Failed to update integration:", error)
+      toast({
+        title: "Failed to update",
+        description: `Could not update integration: ${JSON.stringify(error.body?.detail) || error.message}`,
+      })
+    },
+  })
+
+  // Connect to provider
+  const {
+    mutateAsync: connectProvider,
+    isPending: connectProviderIsPending,
+    error: connectProviderError,
+  } = useMutation({
+    mutationFn: async (providerId: string) =>
+      await integrationsConnectProvider({ providerId, workspaceId }),
+    onSuccess: (result) => {
+      // Redirect to OAuth provider if auth_url is returned
+      window.location.href = result.auth_url
+    },
+    onError: (error: TracecatApiError) => {
+      console.error("Failed to connect provider:", error)
+      toast({
+        title: "Failed to connect",
+        description: `Could not connect to provider: ${error.body?.detail || error.message}`,
+      })
+    },
+  })
+
+  // Disconnect from provider
+  const {
+    mutateAsync: disconnectProvider,
+    isPending: disconnectProviderIsPending,
+    error: disconnectProviderError,
+  } = useMutation({
+    mutationFn: async (providerId: string) =>
+      await integrationsDisconnectIntegration({ providerId, workspaceId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["integration", providerId, workspaceId, grantType],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["providers", workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["provider-schema", providerId, workspaceId, grantType],
+      })
+      toast({
+        title: "Disconnected",
+        description: "Successfully disconnected from provider",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      console.error("Failed to disconnect provider:", error)
+      toast({
+        title: "Failed to disconnect",
+        description: `Could not disconnect from provider: ${error.body?.detail || error.message}`,
+        variant: "destructive",
+      })
+    },
+  })
+
+  // Test connection for client credentials providers
+  const {
+    mutateAsync: testConnection,
+    isPending: testConnectionIsPending,
+    error: testConnectionError,
+  } = useMutation({
+    mutationFn: async (providerId: string) =>
+      await integrationsTestConnection({ providerId, workspaceId }),
+    onSuccess: (result) => {
+      if (result.success) {
+        queryClient.invalidateQueries({
+          queryKey: ["integration", providerId, workspaceId, grantType],
+        })
+        queryClient.invalidateQueries({
+          queryKey: ["providers", workspaceId],
+        })
+        queryClient.invalidateQueries({
+          queryKey: ["provider-schema", providerId, workspaceId, grantType],
+        })
+        toast({
+          title: "Connection successful",
+          description: result.message,
+        })
+      } else {
+        toast({
+          title: "Connection failed",
+          description: result.error || result.message,
+          variant: "destructive",
+        })
+      }
+    },
+    onError: (error: TracecatApiError) => {
+      console.error("Failed to test connection:", error)
+      toast({
+        title: "Test failed",
+        description: `Could not test connection: ${error.body?.detail || error.message}`,
+        variant: "destructive",
+      })
+    },
+  })
+
+  return {
+    integration,
+    integrationIsLoading,
+    integrationError,
+    updateIntegration,
+    updateIntegrationIsPending,
+    updateIntegrationError,
+    connectProvider,
+    connectProviderIsPending,
+    connectProviderError,
+    disconnectProvider,
+    disconnectProviderIsPending,
+    disconnectProviderError,
+    testConnection,
+    testConnectionIsPending,
+    testConnectionError,
+    provider,
+    providerIsLoading,
+    providerError,
   }
 }

@@ -1,14 +1,13 @@
 "use client"
 
-import { WorkspaceRead } from "@/client"
-import { useAuth } from "@/providers/auth"
-import { useWorkspace } from "@/providers/workspace"
-
-import { useWorkspaceManager } from "@/lib/hooks"
+import type { WorkspaceRead } from "@/client"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { ConfirmDelete } from "@/components/workspaces/delete-workspace"
 import { WorkspaceGeneralSettings } from "@/components/workspaces/workspace-general"
+import { useWorkspaceManager } from "@/lib/hooks"
+import { useAuth } from "@/providers/auth"
+import { useWorkspace } from "@/providers/workspace"
 
 export default function WorkspaceGeneralSettingsPage() {
   const { workspace, workspaceError, workspaceLoading } = useWorkspace()

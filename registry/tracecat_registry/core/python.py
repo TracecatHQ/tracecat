@@ -10,6 +10,7 @@ from typing import Annotated, Any, TypedDict
 
 from tracecat.config import TRACECAT__PYODIDE_VERSION, TRACECAT__NODE_MODULES_DIR
 from tracecat.logger import logger
+from tracecat.registry.fields import Code
 from tracecat_registry import registry
 from typing_extensions import Doc
 
@@ -160,6 +161,7 @@ async def run_python(
             "If multiple functions are defined, one must be named 'main'. "
             "Returns the output of the function. "
         ),
+        Code(lang="python"),
     ],
     inputs: Annotated[
         dict[str, Any] | None,
