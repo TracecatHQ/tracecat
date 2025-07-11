@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import itertools
 import traceback
 from collections.abc import Iterator, Mapping
 from pathlib import Path
@@ -30,6 +29,7 @@ from tracecat.executor.models import DispatchActionContext, ExecutorActionErrorI
 from tracecat.expressions.common import ExprContext, ExprOperand
 from tracecat.expressions.eval import (
     eval_templated_object,
+    eval_templated_object_selective,
     extract_templated_secrets,
     get_iterables_from_expression,
 )
@@ -304,7 +304,7 @@ async def run_action_from_input(input: RunActionInput, role: Role) -> Any:
 
     flattened_secrets = flatten_secrets(secrets)
     with env_sandbox(flattened_secrets):
-        args = evaluate_templated_args(task, context)
+        args = evaluate_templated_args(task, context, action)
         result = await run_single_action(action=action, args=args, context=context)
 
     if mask_values:
@@ -315,37 +315,31 @@ async def run_action_from_input(input: RunActionInput, role: Role) -> Any:
 
 
 def get_runtime_env() -> str:
-    """Get the runtime environment from `ctx_run` contextvar. Defaults to `default` if not set."""
-    return getattr(ctx_run.get(), "environment", DEFAULT_SECRETS_ENVIRONMENT)
+    """Get the runtime environment."""
+    return DEFAULT_SECRETS_ENVIRONMENT
 
 
-def flatten_secrets(secrets: dict[str, Any]):
-    """Given secrets in the format of {name: {key: value}}, we need to flatten
-    it to a dict[str, str] to set in the environment context.
-
-    For example, if you have the secret `my_secret.KEY`, then you access this in the UDF
-    as `KEY`. This means you cannot have a clashing key in different secrets.
-
-    OAuth secrets are handled differently - they're stored as direct string values
-    and are accessible as environment variables using their provider_id.
-    """
-    flattened_secrets: dict[str, str] = {}
-    for name, keyvalues in secrets.items():
-        if name.endswith("_oauth"):
-            # OAuth secrets are stored as direct string values
-            flattened_secrets[name] = str(keyvalues)
+def flatten_secrets(secrets: dict[str, Any]) -> dict[str, str]:
+    """Flatten secrets into a single level dictionary."""
+    flattened = {}
+    for secret_name, secret_value in secrets.items():
+        if isinstance(secret_value, dict):
+            for key, value in secret_value.items():
+                flattened[key] = str(value)
         else:
-            # Regular secrets are stored as key-value dictionaries
-            for key, value in keyvalues.items():
-                if key in flattened_secrets:
-                    raise ValueError(
-                        f"Key {key!r} is duplicated in {name!r}! "
-                        "Please ensure only one secret with a given name is set. "
-                        "e.g. If you have `first_secret.KEY` set, then you cannot "
-                        "also set `second_secret.KEY` as `KEY` is duplicated."
-                    )
-                flattened_secrets[key] = value
-    return flattened_secrets
+            flattened[secret_name] = str(secret_value)
+    return flattened
+
+
+def patch_object(obj: dict, path: str, value: Any) -> None:
+    """Patch an object at the given path with the given value."""
+    keys = path.split(".")
+    current = obj
+    for key in keys[:-1]:
+        if key not in current:
+            current[key] = {}
+        current = current[key]
+    current[keys[-1]] = value
 
 
 @ray.remote
@@ -529,15 +523,21 @@ async def _dispatch_action(
 """Utilities"""
 
 
-def evaluate_templated_args(task: ActionStatement, context: ExecutionContext) -> ArgsT:
-    return cast(ArgsT, eval_templated_object(task.args, operand=context))
-
-
-def patch_object(obj: dict[str, Any], *, path: str, value: Any, sep: str = ".") -> None:
-    *stem, leaf = path.split(sep=sep)
-    for key in stem:
-        obj = obj.setdefault(key, {})
-    obj[leaf] = value
+def evaluate_templated_args(
+    task: ActionStatement, context: ExecutionContext, action: BoundRegistryAction
+) -> ArgsT:
+    """Evaluate templated arguments, but preserve raw fields for specific actions."""
+    if action.raw_fields:
+        # Use selective evaluation to skip raw fields
+        return cast(
+            ArgsT,
+            eval_templated_object_selective(
+                task.args, operand=context, skip_keys=action.raw_fields
+            ),
+        )
+    else:
+        # Use regular evaluation for backward compatibility
+        return cast(ArgsT, eval_templated_object(task.args, operand=context))
 
 
 def iter_for_each(
@@ -569,25 +569,25 @@ def iter_for_each(
                 path=assign_context + iterator_path,
                 value=iterator_value,
             )
-        patched_args = evaluate_templated_args(task=task, context=patched_context)
+        # Note: We can't preserve raw fields in for_each loops since we don't have action context
+        patched_args = cast(
+            ArgsT, eval_templated_object(task.args, operand=patched_context)
+        )
         yield patched_args
 
 
 def flatten_wrapped_exc_error_group(
-    eg: BaseExceptionGroup[ExecutionError] | ExecutionError,
+    exc_group: BaseExceptionGroup[ExecutionError],
 ) -> list[ExecutionError]:
-    """Flattens an ExceptionGroup or single exception into a list of exceptions.
+    """Flatten a wrapped exception group."""
+    errors: list[ExecutionError] = []
 
-    Args:
-        eg: Either an ExceptionGroup containing exceptions of type T, or a single exception of type T
+    def extract_errors(group: BaseExceptionGroup[ExecutionError]) -> None:
+        for exc in group.exceptions:
+            if isinstance(exc, ExecutionError):
+                errors.append(exc)
+            elif isinstance(exc, BaseExceptionGroup):
+                extract_errors(exc)
 
-    Returns:
-        A list of exceptions of type T extracted from the ExceptionGroup or containing just the single exception
-    """
-    if isinstance(eg, BaseExceptionGroup):
-        return list(
-            itertools.chain.from_iterable(
-                flatten_wrapped_exc_error_group(e) for e in eg.exceptions
-            )
-        )
-    return [eg]
+    extract_errors(exc_group)
+    return errors

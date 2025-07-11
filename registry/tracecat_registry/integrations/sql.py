@@ -4,6 +4,7 @@ import re
 from typing import Annotated, Any, Literal
 
 import asyncpg
+from tracecat.expressions.validation import RawTemplate
 from typing_extensions import Doc
 
 from tracecat_registry import RegistrySecret, registry, secrets
@@ -32,6 +33,7 @@ sql_secret = RegistrySecret(
 async def execute_query(
     query: Annotated[
         str,
+        RawTemplate(),
         Doc(
             "SQL query to execute. Use SELECT for read operations. Use $1, $2, etc. for parameters."
         ),
@@ -93,6 +95,7 @@ async def execute_query(
 async def execute_non_query(
     statement: Annotated[
         str,
+        RawTemplate(),
         Doc(
             "SQL statement to execute (INSERT, UPDATE, DELETE, CREATE, etc.). Use $1, $2, etc. for parameters."
         ),
@@ -146,6 +149,7 @@ async def execute_non_query(
 async def execute_transaction(
     statements: Annotated[
         list[str],
+        RawTemplate(),
         Doc(
             "List of SQL statements to execute in a transaction. Use $1, $2, etc. for parameters."
         ),

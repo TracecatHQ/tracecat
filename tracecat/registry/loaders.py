@@ -46,7 +46,7 @@ def get_bound_action_impl(
             attach_validators(fn, TemplateValidator())
         args_docs = get_signature_docs(fn)
         # Generate the model from the function signature
-        args_cls, rtype, rtype_adapter = generate_model_from_function(
+        args_cls, rtype, rtype_adapter, raw_fields = generate_model_from_function(
             func=fn, udf_kwargs=validated_kwargs
         )
         return BoundRegistryAction(
@@ -66,6 +66,7 @@ def get_bound_action_impl(
             author=action.author,
             deprecated=action.deprecated,
             origin=action.origin,
+            raw_fields=raw_fields,
         )
     else:
         logger.trace("Binding template action", name=action.name)

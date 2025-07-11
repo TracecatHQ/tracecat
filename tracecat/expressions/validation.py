@@ -90,5 +90,20 @@ class RequiredTemplateValidator:
         return handler(v)
 
 
+class RawTemplate:
+    """Marker class to indicate that a field should preserve its raw expression string
+    instead of being evaluated during action execution.
+
+    Use this annotation when you need to access the original expression string
+    rather than its evaluated value.
+
+    Example:
+        query: Annotated[str, RawTemplate(), Doc("SQL query with expressions")]
+    """
+
+    pass
+
+
 ExpressionStr = Annotated[str, TemplateValidator()]
 RequiredExpressionStr = Annotated[str, RequiredTemplateValidator()]
+RawExpressionStr = Annotated[str, RawTemplate(), TemplateValidator()]

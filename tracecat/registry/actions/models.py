@@ -59,6 +59,8 @@ class BoundRegistryAction(BaseModel):
     args_docs: dict[str, str] = Field(default_factory=dict)
     rtype_cls: Any | None = None
     rtype_adapter: TypeAdapter[Any] | None = None
+    # Raw fields (fields that should not have expressions evaluated)
+    raw_fields: set[str] = Field(default_factory=set)
     # Presentation
     default_title: str | None
     display_group: str | None

@@ -159,6 +159,7 @@ class Repository:
         include_in_schema: bool,
         template_action: TemplateAction | None = None,
         origin: str = DEFAULT_REGISTRY_ORIGIN,
+        raw_fields: set[str] | None = None,
     ):
         reg_action = BoundRegistryAction(
             fn=fn,
@@ -179,6 +180,7 @@ class Repository:
             origin=origin,
             template_action=template_action,
             include_in_schema=include_in_schema,
+            raw_fields=raw_fields or set(),
         )
 
         logger.debug(f"Registering action {reg_action.action=}")
@@ -464,7 +466,7 @@ class Repository:
         attach_validators(fn, TemplateValidator())
         args_docs = get_signature_docs(fn)
         # Generate the model from the function signature
-        args_cls, rtype, rtype_adapter = generate_model_from_function(
+        args_cls, rtype, rtype_adapter, raw_fields = generate_model_from_function(
             func=fn, udf_kwargs=validated_kwargs
         )
 
@@ -485,6 +487,7 @@ class Repository:
             args_docs=args_docs,
             rtype=rtype,
             rtype_adapter=rtype_adapter,
+            raw_fields=raw_fields,
             origin=origin,
         )
 
@@ -665,11 +668,13 @@ def attach_validators(func: F, *validators: Any):
 
 def generate_model_from_function(
     func: F, udf_kwargs: RegisterKwargs
-) -> tuple[type[BaseModel], Any, TypeAdapter]:
+) -> tuple[type[BaseModel], Any, TypeAdapter, set[str]]:
     # Get the signature of the function
     sig = inspect.signature(func)
     # Create a dictionary to hold field definitions
     fields = {}
+    raw_fields = set()
+
     for name, param in sig.parameters.items():
         # Use the annotation and default value of the parameter to define the model field
         field_annotation = param.annotation
@@ -688,6 +693,9 @@ def generate_model_from_function(
                     # Only set the component if no default UI is provided
                     case Component():
                         manually_set_components.append(meta)
+                    # Check for RawTemplate marker
+                    case _ if meta.__class__.__name__ == "RawTemplate":
+                        raw_fields.add(name)
 
         final_components = manually_set_components or components
         if final_components:
@@ -709,7 +717,7 @@ def generate_model_from_function(
     rtype = sig.return_annotation if sig.return_annotation is not sig.empty else Any
     rtype_adapter = TypeAdapter(rtype)
 
-    return input_model, rtype, rtype_adapter
+    return input_model, rtype, rtype_adapter, raw_fields
 
 
 def get_signature_docs(fn: F) -> dict[str, str]:
