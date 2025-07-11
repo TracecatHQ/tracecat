@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import Cookies from "js-cookie"
 import { AlertTriangleIcon, CircleCheck } from "lucide-react"
 import { useRouter } from "next/navigation"
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import {
   type ActionRead,
   type ActionsDeleteActionData,
@@ -236,10 +236,49 @@ export function useLocalStorage<T>(
     const storedValue = localStorage.getItem(key)
     return storedValue ? JSON.parse(storedValue) : defaultValue
   })
+  
+  // Listen for changes from other tabs or components
   useEffect(() => {
-    localStorage.setItem(key, JSON.stringify(value))
-  }, [key, value])
-  return [value, setValue]
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === key && e.newValue) {
+        try {
+          setValue(JSON.parse(e.newValue))
+        } catch (error) {
+          console.error("Failed to parse localStorage value:", error)
+        }
+      }
+    }
+    
+    // Custom event for same-tab updates
+    const handleCustomStorageChange = ((e: CustomEvent) => {
+      if (e.detail.key === key && e.detail.value !== undefined) {
+        setValue(e.detail.value)
+      }
+    }) as EventListener
+    
+    window.addEventListener("storage", handleStorageChange)
+    window.addEventListener("localStorage-update", handleCustomStorageChange)
+    
+    return () => {
+      window.removeEventListener("storage", handleStorageChange)
+      window.removeEventListener("localStorage-update", handleCustomStorageChange)
+    }
+  }, [key])
+  
+  const setValueAndBroadcast = useCallback((newValue: T) => {
+    // Update localStorage first
+    localStorage.setItem(key, JSON.stringify(newValue))
+    
+    // Update local state
+    setValue(newValue)
+    
+    // Dispatch custom event for other same-tab instances
+    window.dispatchEvent(new CustomEvent("localStorage-update", {
+      detail: { key, value: newValue }
+    }))
+  }, [key])
+  
+  return [value, setValueAndBroadcast]
 }
 
 export function useAction(
@@ -2874,7 +2913,6 @@ export function useFolders(workspaceId: string) {
         title: "Created folder",
         description: (
           <div className="flex items-center space-x-2">
-            <CircleCheck className="size-4 fill-emerald-500 stroke-white" />
             <span>Folder created successfully.</span>
           </div>
         ),
