@@ -49,8 +49,10 @@ export function ChatInterface({
   // Create chat mutation
   const { createChat, createChatPending } = useCreateChat(workspaceId)
 
-  const { sendMessage, isResponding, messages, isConnected, isThinking } =
-    useChat({ chatId: selectedChatId, workspaceId })
+  const { sendMessage, isResponding, messages, isConnected } = useChat({
+    chatId: selectedChatId,
+    workspaceId,
+  })
 
   // Set the first chat as selected when chats are loaded and no chat is selected
   useEffect(() => {
@@ -244,7 +246,6 @@ export function ChatInterface({
       {/* Messages Area */}
       <Messages
         messages={messages}
-        isThinking={isThinking}
         isResponding={isResponding}
         entityType={entityType}
         entityId={entityId}

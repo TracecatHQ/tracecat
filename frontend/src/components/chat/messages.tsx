@@ -1,7 +1,7 @@
 "use client"
 
 import { useQueryClient } from "@tanstack/react-query"
-import { Bot, MessageSquare } from "lucide-react"
+import { MessageSquare } from "lucide-react"
 import { motion } from "motion/react"
 import Image from "next/image"
 import TracecatIcon from "public/icon.png"
@@ -12,7 +12,6 @@ import type { ModelMessage } from "@/lib/chat"
 
 interface MessagesProps {
   messages: ModelMessage[]
-  isThinking: boolean
   isResponding: boolean
   entityType: string
   entityId: string
@@ -21,7 +20,6 @@ interface MessagesProps {
 
 export function Messages({
   messages,
-  isThinking,
   isResponding,
   entityType,
   entityId,
@@ -67,36 +65,6 @@ export function Messages({
       {messages.map((message, index) => (
         <ModelMessagePart key={index} part={message} />
       ))}
-      {isThinking && (
-        <div className="flex gap-3 mb-4">
-          <div className="flex-shrink-0 w-8 h-8 rounded-full bg-muted flex items-center justify-center">
-            <Bot className="w-4 h-4 text-muted-foreground" />
-          </div>
-          <div className="flex-1 max-w-xs sm:max-w-md md:max-w-lg">
-            <div className="px-4 py-2 rounded-lg bg-muted">
-              <div className="flex items-center gap-2">
-                <div className="flex space-x-1">
-                  <div
-                    className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce"
-                    style={{ animationDelay: "0ms" }}
-                  />
-                  <div
-                    className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce"
-                    style={{ animationDelay: "150ms" }}
-                  />
-                  <div
-                    className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce"
-                    style={{ animationDelay: "300ms" }}
-                  />
-                </div>
-                <span className="text-sm text-muted-foreground">
-                  AI is thinking...
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
       {isResponding && (
         <motion.div
           className="flex gap-3 items-center"
