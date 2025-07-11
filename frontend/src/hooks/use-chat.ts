@@ -77,7 +77,6 @@ export function useChat({
 }) {
   const [messages, setMessages] = useState<ModelMessage[]>([])
   const [isConnected, setIsConnected] = useState(false)
-  const [isThinking, setIsThinking] = useState(false)
   const [isResponding, setIsResponding] = useState(false)
   const [eventSource, setEventSource] = useState<EventSource | null>(null)
 
@@ -150,10 +149,8 @@ export function useChat({
       setIsConnected(true)
     })
 
-    newEventSource.addEventListener("end", async () => {
+    newEventSource.addEventListener("end", () => {
       setIsConnected(false)
-      setIsThinking(false)
-      await new Promise((resolve) => setTimeout(resolve, 1000))
       setIsResponding(false)
     })
 
@@ -195,7 +192,6 @@ export function useChat({
     sendMessage: mutation.mutateAsync,
     isResponding,
     isConnected,
-    isThinking,
   }
 }
 
