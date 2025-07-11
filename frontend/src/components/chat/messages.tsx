@@ -60,7 +60,7 @@ export function Messages({
   }, [messages, entityType, entityId, workspaceId, queryClient])
 
   return (
-    <div className="flex flex-col min-w-0 gap-6 flex-1 overflow-y-scroll p-4 relative no-scrollbar">
+    <div className="flex flex-col min-w-0 gap-6 flex-1 overflow-y-scroll p-4 relative">
       {messages.length === 0 && <NoMessages />}
       {messages.map((message, index) => (
         <ModelMessagePart key={index} part={message} />
