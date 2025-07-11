@@ -54,7 +54,8 @@ export function WorkflowFoldersTable({
   setView?: (view: ViewMode) => void
 }) {
   const { workspaceId } = useWorkspace()
-  const path = useSearchParams().get("path") || "/"
+  const searchParams = useSearchParams()
+  const path = searchParams?.get("path") || "/"
   const _segments = path.split("/").filter(Boolean)
 
   // We should read the structure directly from the backend

@@ -38,7 +38,7 @@ interface PageConfig {
 
 function WorkflowsActions() {
   const searchParams = useSearchParams()
-  const currentPath = searchParams.get("path") || null
+  const currentPath = searchParams?.get("path") || null
   const [view, setView] = useLocalStorage("folder-view", ViewMode.Tags)
 
   return (
@@ -253,14 +253,16 @@ export function ControlsHeader() {
   const pathname = usePathname()
   const { workspaceId } = useWorkspace()
 
-  const pageConfig = getPageConfig(pathname, workspaceId)
+  const pageConfig = pathname ? getPageConfig(pathname, workspaceId) : null
 
   if (!pageConfig) {
     return null
   }
 
   // Check if this is a case detail page to show timestamp
-  const pagePath = pathname.replace(`/workspaces/${workspaceId}`, "") || "/"
+  const pagePath = pathname
+    ? pathname.replace(`/workspaces/${workspaceId}`, "") || "/"
+    : "/"
   const isCaseDetail = pagePath.match(/^\/cases\/([^/]+)$/)
 
   return (

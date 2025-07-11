@@ -21,7 +21,7 @@ export function WorkflowsDashboard({
   const { workspaceId } = useWorkspace()
   const { tags } = useTags(workspaceId)
   const searchParams = useSearchParams()
-  const queryTag = searchParams.get("tag")
+  const queryTag = searchParams?.get("tag")
 
   // Use local state if props are not provided (for Next.js page components)
   const [localWorkflowView, setLocalWorkflowView] = useLocalStorage(

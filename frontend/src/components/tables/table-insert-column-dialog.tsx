@@ -52,9 +52,10 @@ export function TableInsertColumnDialog({
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
-  const { tableId } = useParams<{ tableId: string }>()
+  const params = useParams<{ tableId: string }>()
+  const tableId = params?.tableId
   const { workspaceId } = useWorkspace()
-  const { table } = useGetTable({ tableId, workspaceId })
+  const { table } = useGetTable({ tableId: tableId || "", workspaceId })
   const { insertColumn, insertColumnIsPending } = useInsertColumn()
 
   const form = useForm<ColumnFormData>({
@@ -66,6 +67,10 @@ export function TableInsertColumnDialog({
 
   const onSubmit = async (data: ColumnFormData) => {
     try {
+      if (!tableId) {
+        console.error("Table ID is missing")
+        return
+      }
       await insertColumn({
         requestBody: data,
         tableId,

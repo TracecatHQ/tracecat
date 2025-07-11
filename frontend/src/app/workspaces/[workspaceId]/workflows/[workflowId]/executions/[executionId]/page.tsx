@@ -21,10 +21,25 @@ import { formatExecutionId } from "@/lib/event-history"
 const defaultLayout = [15, 15, 70]
 
 export default function ExecutionPage() {
-  const { workflowId, executionId } = useParams<{
+  const params = useParams<{
     workflowId: string
     executionId: string
   }>()
+
+  if (!params) {
+    return (
+      <main className="container flex size-full max-w-[400px] flex-col items-center justify-center space-y-4">
+        <h1 className="text-lg font-semibold tracking-tight">
+          Invalid parameters
+        </h1>
+        <span className="text-center text-sm text-muted-foreground">
+          Unable to load execution details.
+        </span>
+      </main>
+    )
+  }
+
+  const { workflowId, executionId } = params
 
   const [selectedEvent, setSelectedEvent] = React.useState<
     WorkflowExecutionEvent | undefined

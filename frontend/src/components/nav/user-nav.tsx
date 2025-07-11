@@ -31,7 +31,8 @@ import { useAuth } from "@/providers/auth"
 export default function UserNav() {
   const { user, logout } = useAuth()
   const { clearLastWorkspaceId } = useWorkspaceManager()
-  const { workspaceId } = useParams<{ workspaceId?: string }>()
+  const params = useParams<{ workspaceId?: string }>()
+  const workspaceId = params?.workspaceId
   const workspaceUrl = workspaceId ? `/workspaces/${workspaceId}` : null
 
   const handleLogout = async () => {

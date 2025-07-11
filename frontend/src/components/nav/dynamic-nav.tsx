@@ -15,7 +15,8 @@ type DynamicNavbarParams = {
 export function DynamicNavbar() {
   const pathname = usePathname()
   const params = useParams<DynamicNavbarParams>()
-  const { workspaceId, workflowId } = params
+  const workspaceId = params?.workspaceId
+  const workflowId = params?.workflowId
 
   // Only show navbar for workflow builder
   if (

@@ -39,7 +39,7 @@ export function WorkflowsDashboardTable() {
   const { workspaceId } = useWorkspace()
   const { user } = useAuth()
   const searchParams = useSearchParams()
-  const queryTags = searchParams.getAll("tag") || undefined
+  const queryTags = searchParams?.getAll("tag") || undefined
   const { workflows, workflowsLoading, workflowsError } = useWorkflowManager({
     tag: queryTags,
   })

@@ -4,7 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { useRouter } from "next/navigation"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
-import type { CasePriority, CaseSeverity, CaseStatus } from "@/client"
+import type { CasePriority, CaseRead, CaseSeverity, CaseStatus } from "@/client"
 import { ApiError } from "@/client"
 import {
   PRIORITIES,
@@ -93,8 +93,10 @@ export function CreateCaseDialog({
       form.reset()
 
       // Navigate to the newly created case
-      if (response?.id) {
-        router.push(`/workspaces/${workspaceId}/cases/${response.id}`)
+      // Note: The response type is unknown, so we need to cast it
+      const caseResponse = response as CaseRead | undefined
+      if (caseResponse?.id) {
+        router.push(`/workspaces/${workspaceId}/cases/${caseResponse.id}`)
       }
     } catch (error) {
       if (error instanceof ApiError) {

@@ -26,7 +26,8 @@ export default function WorkspaceLayout({
   const { workspaces, workspacesLoading, workspacesError } =
     useWorkspaceManager()
   const params = useParams<{ workspaceId?: string; workflowId?: string }>()
-  const { workspaceId, workflowId } = params
+  const workspaceId = params?.workspaceId
+  const workflowId = params?.workflowId
   if (workspacesLoading) {
     return <CenteredSpinner />
   }
@@ -58,7 +59,7 @@ export default function WorkspaceLayout({
 function WorkspaceChildren({ children }: { children: React.ReactNode }) {
   const params = useParams<{ workflowId?: string }>()
   const pathname = usePathname()
-  const isWorkflowBuilder = !!params.workflowId
+  const isWorkflowBuilder = !!params?.workflowId
   const isSettingsPage = pathname?.includes("/settings")
   const isOrganizationPage = pathname?.includes("/organization")
   const isRegistryPage = pathname?.includes("/registry")
