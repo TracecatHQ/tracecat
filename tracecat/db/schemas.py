@@ -1294,6 +1294,11 @@ class Chat(Resource, table=True):
     entity_id: UUID4 = Field(
         ..., description="The polymorphic id of the associated entity."
     )
+    tools: list[str] = Field(
+        default_factory=list,
+        sa_column=Column(JSONB),
+        description="The tools available to the agent for this chat.",
+    )
 
     # Relationships
     user: User = Relationship(back_populates="chats")
