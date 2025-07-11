@@ -2,6 +2,7 @@
 
 import { format, formatDistanceToNow } from "date-fns"
 import { Calendar, PanelLeftClose, PanelLeftOpen, Plus } from "lucide-react"
+import Link from "next/link"
 import { usePathname, useSearchParams } from "next/navigation"
 import { type ReactNode, useState } from "react"
 import { CreateCaseDialog } from "@/components/cases/case-create-dialog"
@@ -129,11 +130,8 @@ function CaseBreadcrumb({
     <Breadcrumb>
       <BreadcrumbList className="flex items-center gap-2 text-sm">
         <BreadcrumbItem>
-          <BreadcrumbLink
-            href={`/workspaces/${workspaceId}/cases`}
-            className="font-semibold hover:no-underline"
-          >
-            Cases
+          <BreadcrumbLink asChild className="font-semibold hover:no-underline">
+            <Link href={`/workspaces/${workspaceId}/cases`}>Cases</Link>
           </BreadcrumbLink>
         </BreadcrumbItem>
         <BreadcrumbSeparator>
