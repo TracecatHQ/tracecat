@@ -12,6 +12,7 @@ import {
   ViewMode,
 } from "@/components/dashboard/folder-view-toggle"
 import { CreateTableDialog } from "@/components/tables/table-create-dialog"
+import { TableInsertButton } from "@/components/tables/table-insert-button"
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -28,7 +29,7 @@ import {
   NewCredentialsDialog,
   NewCredentialsDialogTrigger,
 } from "@/components/workspaces/add-workspace-secret"
-import { useGetCase, useLocalStorage } from "@/lib/hooks"
+import { useGetCase, useGetTable, useLocalStorage } from "@/lib/hooks"
 import { useWorkspace } from "@/providers/workspace"
 
 interface PageConfig {
@@ -177,6 +178,40 @@ function CaseTimestamp({
   )
 }
 
+function TableBreadcrumb({
+  tableId,
+  workspaceId,
+}: {
+  tableId: string
+  workspaceId: string
+}) {
+  const { table } = useGetTable({ tableId, workspaceId })
+
+  return (
+    <Breadcrumb>
+      <BreadcrumbList className="flex items-center gap-2 text-sm">
+        <BreadcrumbItem>
+          <BreadcrumbLink asChild className="font-semibold hover:no-underline">
+            <Link href={`/workspaces/${workspaceId}/tables`}>Tables</Link>
+          </BreadcrumbLink>
+        </BreadcrumbItem>
+        <BreadcrumbSeparator>
+          <span className="text-muted-foreground">/</span>
+        </BreadcrumbSeparator>
+        <BreadcrumbItem>
+          <BreadcrumbPage className="font-semibold">
+            {table?.name || tableId}
+          </BreadcrumbPage>
+        </BreadcrumbItem>
+      </BreadcrumbList>
+    </Breadcrumb>
+  )
+}
+
+function TableDetailsActions() {
+  return <TableInsertButton />
+}
+
 function getPageConfig(
   pathname: string,
   workspaceId: string
@@ -212,6 +247,16 @@ function getPageConfig(
   }
 
   if (pagePath.startsWith("/tables")) {
+    // Check if this is a table detail page
+    const tableMatch = pagePath.match(/^\/tables\/([^/]+)$/)
+    if (tableMatch) {
+      const tableId = tableMatch[1]
+      return {
+        title: <TableBreadcrumb tableId={tableId} workspaceId={workspaceId} />,
+        actions: <TableDetailsActions />,
+      }
+    }
+
     return {
       title: "Tables",
       actions: <TablesActions />,

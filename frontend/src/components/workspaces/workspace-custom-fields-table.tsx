@@ -144,33 +144,35 @@ export function WorkspaceCustomFieldsTable({
             enableHiding: false,
             cell: ({ row }) => {
               return (
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" className="size-8 p-0">
-                      <span className="sr-only">Open menu</span>
-                      <DotsHorizontalIcon className="size-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent>
-                    <DropdownMenuItem
-                      onClick={() =>
-                        navigator.clipboard.writeText(row.original.id)
-                      }
-                    >
-                      Copy field ID
-                    </DropdownMenuItem>
-                    <AlertDialogTrigger asChild>
+                <div className="flex justify-end">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" className="size-8 p-0">
+                        <span className="sr-only">Open menu</span>
+                        <DotsHorizontalIcon className="size-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
                       <DropdownMenuItem
-                        className="text-rose-500 focus:text-rose-600"
-                        onClick={() => {
-                          setSelectedField(row.original)
-                        }}
+                        onClick={() =>
+                          navigator.clipboard.writeText(row.original.id)
+                        }
                       >
-                        Delete field
+                        Copy field ID
                       </DropdownMenuItem>
-                    </AlertDialogTrigger>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                      <AlertDialogTrigger asChild>
+                        <DropdownMenuItem
+                          className="text-rose-500 focus:text-rose-600"
+                          onClick={() => {
+                            setSelectedField(row.original)
+                          }}
+                        >
+                          Delete field
+                        </DropdownMenuItem>
+                      </AlertDialogTrigger>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
               )
             },
           },
