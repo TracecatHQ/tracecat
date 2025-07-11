@@ -29,6 +29,10 @@ import {
 } from "@/components/ui/sidebar"
 import { useWorkspace } from "@/providers/workspace"
 
+function SidebarHeaderContent({ workspaceId }: { workspaceId: string }) {
+  return <AppMenu workspaceId={workspaceId} />
+}
+
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const pathname = usePathname()
   const { workspaceId } = useWorkspace()
@@ -83,9 +87,9 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   ]
 
   return (
-    <Sidebar collapsible="icon" variant="inset" {...props}>
+    <Sidebar collapsible="offcanvas" variant="inset" {...props}>
       <SidebarHeader>
-        <AppMenu workspaceId={workspaceId} />
+        <SidebarHeaderContent workspaceId={workspaceId} />
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>
