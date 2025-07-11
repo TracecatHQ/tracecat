@@ -1,6 +1,7 @@
 "use client"
 
-import { PanelLeftClose, PanelLeftOpen, Plus } from "lucide-react"
+import { format, formatDistanceToNow } from "date-fns"
+import { Calendar, PanelLeftClose, PanelLeftOpen, Plus } from "lucide-react"
 import { usePathname, useSearchParams } from "next/navigation"
 import { type ReactNode, useState } from "react"
 import { CreateCaseDialog } from "@/components/cases/case-create-dialog"
@@ -10,6 +11,14 @@ import {
   ViewMode,
 } from "@/components/dashboard/folder-view-toggle"
 import { CreateTableDialog } from "@/components/tables/table-create-dialog"
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from "@/components/ui/breadcrumb"
 import { Button } from "@/components/ui/button"
 import { SidebarTrigger, useSidebar } from "@/components/ui/sidebar"
 import { AddCustomField } from "@/components/workspaces/add-custom-field"
@@ -18,11 +27,11 @@ import {
   NewCredentialsDialog,
   NewCredentialsDialogTrigger,
 } from "@/components/workspaces/add-workspace-secret"
-import { useLocalStorage } from "@/lib/hooks"
+import { useGetCase, useLocalStorage } from "@/lib/hooks"
 import { useWorkspace } from "@/providers/workspace"
 
 interface PageConfig {
-  title: string
+  title: string | ReactNode
   actions?: ReactNode
 }
 
@@ -107,6 +116,69 @@ function CustomFieldsActions() {
   return <AddCustomField />
 }
 
+function CaseBreadcrumb({
+  caseId,
+  workspaceId,
+}: {
+  caseId: string
+  workspaceId: string
+}) {
+  const { caseData } = useGetCase({ caseId, workspaceId })
+
+  return (
+    <Breadcrumb>
+      <BreadcrumbList className="flex items-center gap-2 text-sm">
+        <BreadcrumbItem>
+          <BreadcrumbLink
+            href={`/workspaces/${workspaceId}/cases`}
+            className="font-semibold hover:no-underline"
+          >
+            Cases
+          </BreadcrumbLink>
+        </BreadcrumbItem>
+        <BreadcrumbSeparator>
+          <span className="text-muted-foreground">/</span>
+        </BreadcrumbSeparator>
+        <BreadcrumbItem>
+          <BreadcrumbPage className="font-semibold">
+            {caseData?.short_id || caseId}
+          </BreadcrumbPage>
+        </BreadcrumbItem>
+      </BreadcrumbList>
+    </Breadcrumb>
+  )
+}
+
+function CaseTimestamp({
+  caseId,
+  workspaceId,
+}: {
+  caseId: string
+  workspaceId: string
+}) {
+  const { caseData } = useGetCase({ caseId, workspaceId })
+
+  if (!caseData) {
+    return null
+  }
+
+  return (
+    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+      <span className="flex items-center gap-1">
+        <Calendar className="h-3 w-3" />
+        Created {format(new Date(caseData.created_at), "MMM d, yyyy, h:mm a")}
+      </span>
+      <span>•</span>
+      <span>
+        Updated{" "}
+        {formatDistanceToNow(new Date(caseData.updated_at), {
+          addSuffix: true,
+        })}
+      </span>
+    </div>
+  )
+}
+
 function getPageConfig(
   pathname: string,
   workspaceId: string
@@ -125,6 +197,16 @@ function getPageConfig(
   }
 
   if (pagePath.startsWith("/cases")) {
+    // Check if this is a case detail page
+    const caseMatch = pagePath.match(/^\/cases\/([^/]+)$/)
+    if (caseMatch) {
+      const caseId = caseMatch[1]
+      return {
+        title: <CaseBreadcrumb caseId={caseId} workspaceId={workspaceId} />,
+        // No actions for case detail pages
+      }
+    }
+
     return {
       title: "Cases",
       actions: <CasesActions />,
@@ -179,6 +261,10 @@ export function ControlsHeader() {
     return null
   }
 
+  // Check if this is a case detail page to show timestamp
+  const pagePath = pathname.replace(`/workspaces/${workspaceId}`, "") || "/"
+  const isCaseDetail = pagePath.match(/^\/cases\/([^/]+)$/)
+
   return (
     <header className="flex h-14 items-center justify-between border-b px-6">
       <div className="flex items-center gap-3">
@@ -189,12 +275,18 @@ export function ControlsHeader() {
             <PanelLeftClose className="h-4 w-4" />
           )}
         </SidebarTrigger>
-        <h1 className="text-sm font-semibold">{pageConfig.title}</h1>
+        {typeof pageConfig.title === "string" ? (
+          <h1 className="text-sm font-semibold">{pageConfig.title}</h1>
+        ) : (
+          pageConfig.title
+        )}
       </div>
 
-      {pageConfig.actions && (
+      {pageConfig.actions ? (
         <div className="flex items-center gap-2">{pageConfig.actions}</div>
-      )}
+      ) : isCaseDetail ? (
+        <CaseTimestamp caseId={isCaseDetail[1]} workspaceId={workspaceId} />
+      ) : null}
     </header>
   )
 }

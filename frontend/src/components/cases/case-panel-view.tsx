@@ -1,10 +1,7 @@
 "use client"
 
-import { format, formatDistanceToNow } from "date-fns"
 import {
   Activity,
-  ArrowLeft,
-  Calendar,
   MessageSquare,
   MoreHorizontal,
   Paperclip,
@@ -34,14 +31,6 @@ import { CasePanelSummary } from "@/components/cases/case-panel-summary"
 import { CasePropertyRow } from "@/components/cases/case-property-row"
 import { CaseWorkflowTrigger } from "@/components/cases/case-workflow-trigger"
 import { AlertNotification } from "@/components/notifications"
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -134,56 +123,13 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Header */}
-      <div className="border-b">
-        <div className="flex h-11 items-center px-4">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="mr-1 h-7 w-7 p-0"
-            asChild
-          >
-            <Link href={`/workspaces/${workspaceId}/cases`}>
-              <ArrowLeft className="h-3.5 w-3.5" />
-            </Link>
-          </Button>
-          <Breadcrumb>
-            <BreadcrumbList className="text-xs">
-              <BreadcrumbItem>
-                <BreadcrumbLink href={`/workspaces/${workspaceId}/cases`}>
-                  Cases
-                </BreadcrumbLink>
-              </BreadcrumbItem>
-              <BreadcrumbSeparator />
-              <BreadcrumbItem>
-                <BreadcrumbPage>{caseData.short_id}</BreadcrumbPage>
-              </BreadcrumbItem>
-            </BreadcrumbList>
-          </Breadcrumb>
-          <div className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
-            <span className="flex items-center gap-1">
-              <Calendar className="h-3 w-3" />
-              Created{" "}
-              {format(new Date(caseData.created_at), "MMM d, yyyy, h:mm a")}
-            </span>
-            <span>•</span>
-            <span>
-              Updated{" "}
-              {formatDistanceToNow(new Date(caseData.updated_at), {
-                addSuffix: true,
-              })}
-            </span>
-          </div>
-        </div>
-      </div>
-
       {/* Main Content */}
       <div className="flex">
         {/* Left Panel */}
         <div className="flex-1 p-4">
           <div className="max-w-4xl">
-            {/* Case Header */}
-            <div className="mb-4">
+            {/* Case Summary */}
+            <div className="mb-6">
               <CasePanelSummary caseData={caseData} updateCase={updateCase} />
             </div>
 
