@@ -603,9 +603,9 @@ export function TextPartComponent({
         contentToLoad = text.content
       } else {
         // For collapsed view: normalize whitespace and truncate
-        const normalizedContent = text.content.replace(/\s+/g, " ").trim()
+        const normalizedContent = text.content.trim()
         contentToLoad = shouldTruncate
-          ? normalizedContent.substring(0, TRUNCATE_LIMIT) + "..."
+          ? `${normalizedContent.substring(0, TRUNCATE_LIMIT)}...`
           : normalizedContent
       }
 
@@ -627,7 +627,10 @@ export function TextPartComponent({
         </div>
         {shouldTruncate && (
           <ChevronRightIcon
-            className={`size-4 transition-transform ${isExpanded ? "rotate-90" : ""}`}
+            className={cn(
+              "size-4 transition-transform",
+              isExpanded && "rotate-90"
+            )}
           />
         )}
       </div>
