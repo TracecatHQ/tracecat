@@ -14,6 +14,7 @@ import {
   EventActor,
   EventIcon,
   FieldsChangedEvent,
+  PayloadChangedEvent,
   PriorityChangedEvent,
   SeverityChangedEvent,
   StatusChangedEvent,
@@ -101,6 +102,9 @@ function ActivityFeedEvent({
           <AttachmentDeletedEvent event={event} actor={actor} />
         )}
 
+        {event.type === "payload_changed" && (
+          <PayloadChangedEvent event={event} actor={actor} />
+        )}
         {/* Add a dot separator */}
         <InlineDotSeparator />
         <div className="flex items-center gap-1 text-xs text-muted-foreground">

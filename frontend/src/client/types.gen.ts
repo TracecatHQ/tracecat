@@ -474,6 +474,9 @@ export type CaseCreate = {
     [key: string]: unknown
   } | null
   assignee_id?: string | null
+  payload?: {
+    [key: string]: unknown
+  } | null
 }
 
 export type CaseCustomFieldRead = {
@@ -501,6 +504,7 @@ export type CaseEventRead =
   | AssigneeChangedEventRead
   | AttachmentCreatedEventRead
   | AttachmentDeletedEventRead
+  | PayloadChangedEventRead
 
 export type CaseEventsWithUsers = {
   /**
@@ -598,6 +602,9 @@ export type CaseRead = {
   description: string
   fields: Array<CaseCustomFieldRead>
   assignee?: UserRead | null
+  payload: {
+    [key: string]: unknown
+  } | null
 }
 
 export type CaseReadMinimal = {
@@ -657,6 +664,9 @@ export type CaseUpdate = {
     [key: string]: unknown
   } | null
   assignee_id?: string | null
+  payload?: {
+    [key: string]: unknown
+  } | null
 }
 
 /**
@@ -1530,6 +1540,25 @@ export type OrgMemberRead = {
   is_superuser: boolean
   is_verified: boolean
   last_login_at: string | null
+}
+
+/**
+ * Event for when a case payload is changed.
+ */
+export type PayloadChangedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
+  wf_exec_id?: string | null
+  type?: "payload_changed"
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
 }
 
 /**
@@ -4731,7 +4760,7 @@ export type PublicCheckHealthResponse = {
 
 export type $OpenApiTs = {
   "/webhooks/{workflow_id}/{secret}": {
-    get: {
+    post: {
       req: PublicIncomingWebhookData
       res: {
         /**
@@ -4744,7 +4773,7 @@ export type $OpenApiTs = {
         422: HTTPValidationError
       }
     }
-    post: {
+    get: {
       req: PublicIncomingWebhook1Data
       res: {
         /**

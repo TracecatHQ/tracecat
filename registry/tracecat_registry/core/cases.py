@@ -132,6 +132,10 @@ async def update_case(
         dict[str, Any] | None,
         Doc("Updated custom fields for the case."),
     ] = None,
+    payload: Annotated[
+        dict[str, Any] | None,
+        Doc("Updated payload for the case."),
+    ] = None,
 ) -> dict[str, Any]:
     async with CasesService.with_session() as service:
         case = await service.get_case(UUID(case_id))
@@ -154,6 +158,8 @@ async def update_case(
             # You must explicitly set fields to None to remove their values
             # If we don't pass fields, the service will not try to update the fields
             params["fields"] = fields
+        if payload is not None:
+            params["payload"] = payload
         updated_case = await service.update_case(case, CaseUpdate(**params))
     return updated_case.model_dump()
 
@@ -277,6 +283,7 @@ async def get_case(
         severity=case.severity,
         description=case.description,
         fields=final_fields,
+        payload=case.payload,
     )
 
     # Use model_dump(mode="json") to ensure UUIDs are converted to strings

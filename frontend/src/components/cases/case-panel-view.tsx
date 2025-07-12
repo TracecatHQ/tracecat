@@ -2,6 +2,7 @@
 
 import {
   Activity,
+  Braces,
   MessageSquare,
   MoreHorizontal,
   Paperclip,
@@ -29,6 +30,7 @@ import {
   StatusSelect,
 } from "@/components/cases/case-panel-selectors"
 import { CasePanelSummary } from "@/components/cases/case-panel-summary"
+import { CasePayloadSection } from "@/components/cases/case-payload-section"
 import { CasePropertyRow } from "@/components/cases/case-property-row"
 import { CaseWorkflowTrigger } from "@/components/cases/case-workflow-trigger"
 import { AlertNotification } from "@/components/notifications"
@@ -65,7 +67,9 @@ export function CasePanelView({
   })
   const [propertiesOpen, setPropertiesOpen] = useState(true)
   const [workflowOpen, setWorkflowOpen] = useState(true)
-  const [activeTab, setActiveTab] = useState("comments")
+  const [activeTab, setActiveTab] = useState<
+    "comments" | "activity" | "attachments" | "payload"
+  >("comments")
 
   // Chat state management
   const [localChatOpen, setLocalChatOpen] = useState(true)
@@ -267,7 +271,7 @@ export function CasePanelView({
           </div>
         </div>
         {/* Main section */}
-        <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="flex-1 flex flex-col overflow-hidden items-center">
           <div className="flex-1 overflow-y-auto py-4 px-6">
             <div className="max-w-4xl">
               {/* Case Summary */}
@@ -319,6 +323,17 @@ export function CasePanelView({
                     <Paperclip className="h-3.5 w-3.5" />
                     Attachments
                   </button>
+                  <button
+                    onClick={() => setActiveTab("payload")}
+                    className={`flex items-center gap-1.5 px-0.5 py-2 ml-6 text-xs font-medium border-b-2 transition-colors ${
+                      activeTab === "payload"
+                        ? "border-foreground text-foreground"
+                        : "border-transparent text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    <Braces className="h-3.5 w-3.5" />
+                    Payload
+                  </button>
                 </div>
 
                 <div className="mt-4">
@@ -338,6 +353,10 @@ export function CasePanelView({
                       caseId={caseId}
                       workspaceId={workspaceId}
                     />
+                  )}
+
+                  {activeTab === "payload" && (
+                    <CasePayloadSection caseData={caseData} />
                   )}
                 </div>
               </div>
