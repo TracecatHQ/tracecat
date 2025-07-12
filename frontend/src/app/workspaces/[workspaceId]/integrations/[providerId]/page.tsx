@@ -73,7 +73,7 @@ export default function ProviderDetailPage() {
   }
 
   const providerId = params.providerId as string
-  const grantType = searchParams.get("grant_type") as OAuthGrantType | null
+  const grantType = searchParams?.get("grant_type") as OAuthGrantType | null
 
   const { provider, providerIsLoading, providerError } = useIntegrationProvider(
     {
