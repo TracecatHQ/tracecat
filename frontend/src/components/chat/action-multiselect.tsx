@@ -137,7 +137,7 @@ export function ActionMultiselect<T extends FieldValues>({
                   <div
                     key={suggestion.value}
                     className={cn(
-                      "flex items-start space-x-3 p-3 rounded-lg border transition-all duration-200 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800",
+                      "flex items-start space-x-3 p-3 rounded-lg transition-all duration-200 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800",
                       isSelected
                         ? "bg-blue-50 dark:bg-blue-950 border-blue-200 dark:border-blue-800"
                         : "border-gray-200 dark:border-gray-700"
@@ -158,14 +158,16 @@ export function ActionMultiselect<T extends FieldValues>({
                             )
                       }
                       onClick={(e) => e.stopPropagation()}
-                      className="mt-1"
+                      className="mt-1 border-input"
                     />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center space-x-2 mb-1">
-                        {suggestion.icon}
-                        <span className="font-medium">{suggestion.label}</span>
+                        <div className="size-6">{suggestion.icon}</div>
+                        <span className="font-medium text-xs">
+                          {suggestion.label}
+                        </span>
                       </div>
-                      <p className="text-sm text-gray-600 dark:text-gray-400 line-clamp-2">
+                      <p className="text-xs text-muted-foreground line-clamp-2">
                         {suggestion.description}
                       </p>
                     </div>
