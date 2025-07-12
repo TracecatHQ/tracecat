@@ -132,7 +132,7 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
   const activeTab = (
     searchParams &&
     ["overview", "configuration"].includes(searchParams.get("tab") || "")
-      ? searchParams.get("tab")
+      ? (searchParams.get("tab") ?? "overview")
       : "overview"
   ) as ProviderDetailTab
 
