@@ -86,7 +86,7 @@ function WorkspaceChildren({ children }: { children: React.ReactNode }) {
       <SidebarInset className="h-screen">
         <div className="flex h-full flex-1 flex-col">
           <ControlsHeader />
-          <div className="flex-1 overflow-auto">{children}</div>
+          <div className="flex-1 overflow-y-scroll">{children}</div>
         </div>
       </SidebarInset>
     </SidebarProvider>
