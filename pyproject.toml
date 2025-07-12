@@ -22,7 +22,7 @@ classifiers = [
 ]
 dependencies = [
     "alembic_utils==0.8.4",
-    "alembic-postgresql-enum==1.3.0",
+    "alembic-postgresql-enum==1.7.0",
     "alembic==1.13.2",
     "async-lru==2.0.4",
     "asyncpg==0.29.0",
