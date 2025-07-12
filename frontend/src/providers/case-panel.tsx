@@ -32,7 +32,7 @@ export default function CasePanelProvider({
 }: PropsWithChildren<React.HTMLAttributes<HTMLDivElement>>) {
   const searchParams = useSearchParams()
   const router = useRouter()
-  const caseId = searchParams.get("caseId") || undefined
+  const caseId = searchParams?.get("caseId") || undefined
   const [isOpen, setIsOpen] = useState(false)
 
   useEffect(() => {

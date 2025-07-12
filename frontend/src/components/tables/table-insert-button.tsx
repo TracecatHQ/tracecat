@@ -5,6 +5,7 @@ import {
   BetweenVerticalStartIcon,
   ChevronDownIcon,
   FileUpIcon,
+  Plus,
 } from "lucide-react"
 import { useState } from "react"
 import { TableImportCsvDialog } from "@/components/tables/table-import-csv-dialog"
@@ -27,19 +28,20 @@ export function TableInsertButton() {
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button
-            role="combobox"
-            className="h-7 items-center space-x-1 bg-emerald-500/80 px-3 py-1 text-xs text-white shadow-sm hover:border-emerald-500 hover:bg-emerald-400/80"
-          >
-            <ChevronDownIcon className="size-3" />
-            <span>Insert</span>
+          <Button variant="outline" size="sm" className="h-7 bg-white">
+            <Plus className="mr-1 h-3.5 w-3.5" />
+            Insert
+            <ChevronDownIcon className="ml-1 h-3.5 w-3.5" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent>
-          <DropdownMenuItem
-            className="flex items-center gap-2"
-            onSelect={() => setActiveDialog("row")}
-          >
+        <DropdownMenuContent
+          className="
+            [&_[data-radix-collection-item]]:flex
+            [&_[data-radix-collection-item]]:items-center
+            [&_[data-radix-collection-item]]:gap-2
+          "
+        >
+          <DropdownMenuItem onSelect={() => setActiveDialog("row")}>
             <BetweenHorizonalStartIcon className="size-4 text-foreground/80" />
             <div className="flex flex-col text-xs">
               <span>Insert row</span>
@@ -48,10 +50,7 @@ export function TableInsertButton() {
               </span>
             </div>
           </DropdownMenuItem>
-          <DropdownMenuItem
-            className="flex items-center gap-2"
-            onSelect={() => setActiveDialog("column")}
-          >
+          <DropdownMenuItem onSelect={() => setActiveDialog("column")}>
             <BetweenVerticalStartIcon className="size-4 text-foreground/80" />
             <div className="flex flex-col text-xs">
               <span>Insert column</span>
@@ -60,10 +59,7 @@ export function TableInsertButton() {
               </span>
             </div>
           </DropdownMenuItem>
-          <DropdownMenuItem
-            className="flex items-center gap-2"
-            onSelect={() => setActiveDialog("csv")}
-          >
+          <DropdownMenuItem onSelect={() => setActiveDialog("csv")}>
             <FileUpIcon className="size-4 text-foreground/80" />
             <div className="flex flex-col text-xs">
               <span>Add rows from CSV</span>

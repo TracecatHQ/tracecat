@@ -1,5 +1,5 @@
 import { zodResolver } from "@hookform/resolvers/zod"
-import { CirclePlusIcon } from "lucide-react"
+import { Plus } from "lucide-react"
 import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
@@ -107,11 +107,11 @@ export function AddWorkspaceMember({
       <DialogTrigger asChild>
         <Button
           variant="outline"
-          role="combobox"
+          size="sm"
           disabled={!user?.isPrivileged(membership)}
-          className="disabled:cursor-not-allowed"
+          className="h-7 bg-white disabled:cursor-not-allowed"
         >
-          <CirclePlusIcon className="mr-2 size-4" />
+          <Plus className="mr-1 h-3.5 w-3.5" />
           Add member
         </Button>
       </DialogTrigger>

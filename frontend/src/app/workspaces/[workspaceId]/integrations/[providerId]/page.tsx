@@ -67,8 +67,13 @@ export default function ProviderDetailPage() {
   const searchParams = useSearchParams()
   const params = useParams()
   const { workspaceId } = useWorkspace()
+
+  if (!params) {
+    return <div>Error: Invalid parameters</div>
+  }
+
   const providerId = params.providerId as string
-  const grantType = searchParams.get("grant_type") as OAuthGrantType | null
+  const grantType = searchParams?.get("grant_type") as OAuthGrantType | null
 
   const { provider, providerIsLoading, providerError } = useIntegrationProvider(
     {
@@ -125,8 +130,9 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
 
   // Get active tab from URL query params, default to "overview"
   const activeTab = (
+    searchParams &&
     ["overview", "configuration"].includes(searchParams.get("tab") || "")
-      ? searchParams.get("tab")
+      ? (searchParams.get("tab") ?? "overview")
       : "overview"
   ) as ProviderDetailTab
 

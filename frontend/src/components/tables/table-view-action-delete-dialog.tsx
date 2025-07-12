@@ -26,7 +26,8 @@ export function TableViewActionDeleteDialog({
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
-  const { tableId } = useParams<{ tableId?: string }>()
+  const params = useParams<{ tableId?: string }>()
+  const tableId = params?.tableId
   const { workspaceId } = useWorkspace()
   const { deleteRow } = useDeleteRow()
   if (!tableId || !workspaceId) {

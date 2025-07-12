@@ -97,9 +97,10 @@ export function TableInsertRowDialog({
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
-  const { tableId } = useParams<{ tableId: string }>()
+  const params = useParams<{ tableId: string }>()
+  const tableId = params?.tableId
   const { workspaceId } = useWorkspace()
-  const { table } = useGetTable({ tableId, workspaceId })
+  const { table } = useGetTable({ tableId: tableId || "", workspaceId })
   const { insertRow, insertRowIsPending } = useInsertRow()
 
   // Create form schema once table data is available
@@ -112,6 +113,10 @@ export function TableInsertRowDialog({
 
   const onSubmit = async (data: DynamicFormData) => {
     try {
+      if (!tableId) {
+        console.error("Table ID is missing")
+        return
+      }
       await insertRow({
         requestBody: {
           data,
@@ -134,7 +139,7 @@ export function TableInsertRowDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Add New Row</DialogTitle>
+          <DialogTitle>Add new row</DialogTitle>
           <DialogDescription>
             Add a new row to the {table.name} table.
           </DialogDescription>

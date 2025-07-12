@@ -49,11 +49,14 @@ export function WorkflowExecutionNav({
 }: {
   executions?: WorkflowExecutionReadMinimal[]
 }) {
-  const { executionId: currExecutionId } = useParams<{ executionId: string }>()
-  const currExecutionIdDecoded = decodeURIComponent(currExecutionId)
+  const params = useParams<{ executionId: string }>()
+  const currExecutionId = params?.executionId
+  const currExecutionIdDecoded = currExecutionId
+    ? decodeURIComponent(currExecutionId)
+    : null
   const router = useRouter()
   const pathname = usePathname()
-  const baseUrl = pathname.split("/executions")[0]
+  const baseUrl = pathname ? pathname.split("/executions")[0] : ""
   const { workspaceId } = useWorkspace()
   if (!workflowExecutions) {
     return <NoContent message="No workflow executions found." />

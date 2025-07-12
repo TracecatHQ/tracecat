@@ -216,7 +216,7 @@ export function WorkflowFoldersSidebar({
   workspaceId: string
 }) {
   const searchParams = useSearchParams()
-  const currentFolderPath = searchParams.get("folder") || "/"
+  const currentFolderPath = searchParams?.get("folder") || "/"
 
   const { subFolders, foldersIsLoading } = useFolders(workspaceId)
 

@@ -3,11 +3,15 @@
 import { ReactFlowProvider } from "@xyflow/react"
 import { LogOut } from "lucide-react"
 import Image from "next/image"
-import { useParams } from "next/navigation"
+import { useParams, usePathname } from "next/navigation"
 import TracecatIcon from "public/icon.png"
+import type React from "react"
 import { CenteredSpinner } from "@/components/loading/spinner"
+import { ControlsHeader } from "@/components/nav/controls-header"
 import { DynamicNavbar } from "@/components/nav/dynamic-nav"
+import { AppSidebar } from "@/components/sidebar/app-sidebar"
 import { Button } from "@/components/ui/button"
+import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { useWorkspaceManager } from "@/lib/hooks"
 import { useAuth } from "@/providers/auth"
 import { WorkflowBuilderProvider } from "@/providers/builder"
@@ -22,7 +26,8 @@ export default function WorkspaceLayout({
   const { workspaces, workspacesLoading, workspacesError } =
     useWorkspaceManager()
   const params = useParams<{ workspaceId?: string; workflowId?: string }>()
-  const { workspaceId, workflowId } = params
+  const workspaceId = params?.workspaceId
+  const workflowId = params?.workflowId
   if (workspacesLoading) {
     return <CenteredSpinner />
   }
@@ -52,12 +57,39 @@ export default function WorkspaceLayout({
 }
 
 function WorkspaceChildren({ children }: { children: React.ReactNode }) {
+  const params = useParams<{ workflowId?: string }>()
+  const pathname = usePathname()
+  const isWorkflowBuilder = !!params?.workflowId
+  const isSettingsPage = pathname?.includes("/settings")
+  const isOrganizationPage = pathname?.includes("/organization")
+  const isRegistryPage = pathname?.includes("/registry")
+
+  // Use old navbar for workflow builder
+  if (isWorkflowBuilder) {
+    return (
+      <div className="no-scrollbar flex h-screen max-h-screen flex-col overflow-hidden">
+        <DynamicNavbar />
+        <div className="grow overflow-auto">{children}</div>
+      </div>
+    )
+  }
+
+  // Settings, organization and registry pages have their own sidebars
+  if (isSettingsPage || isOrganizationPage || isRegistryPage) {
+    return <>{children}</>
+  }
+
+  // All other workspace pages get the app sidebar
   return (
-    <div className="no-scrollbar flex h-screen max-h-screen flex-col overflow-hidden">
-      {/* DynamicNavbar needs a WorkflowProvider and a WorkspaceProvider */}
-      <DynamicNavbar />
-      <div className="grow overflow-auto">{children}</div>
-    </div>
+    <SidebarProvider>
+      <AppSidebar />
+      <SidebarInset>
+        <div className="flex h-full flex-1 flex-col">
+          <ControlsHeader />
+          <div className="flex-1 overflow-auto">{children}</div>
+        </div>
+      </SidebarInset>
+    </SidebarProvider>
   )
 }
 
