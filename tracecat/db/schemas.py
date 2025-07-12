@@ -841,6 +841,11 @@ class Case(Resource, table=True):
         default=CaseStatus.NEW,
         description="Current case status (open, closed, escalated)",
     )
+    payload: dict[str, Any] | None = Field(
+        default=None,
+        sa_column=Column(JSONB),
+        description="Additional data payload for the case",
+    )
     # Relationships
     fields: CaseFields | None = Relationship(
         back_populates="case",

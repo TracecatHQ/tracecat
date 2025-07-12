@@ -1643,6 +1643,17 @@ export const $CaseCreate = {
       ],
       title: "Assignee Id",
     },
+    payload: {
+      anyOf: [
+        {
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Payload",
+    },
   },
   type: "object",
   required: ["summary", "description", "status", "priority", "severity"],
@@ -1733,6 +1744,9 @@ export const $CaseEventRead = {
     {
       $ref: "#/components/schemas/AttachmentDeletedEventRead",
     },
+    {
+      $ref: "#/components/schemas/PayloadChangedEventRead",
+    },
   ],
   title: "CaseEventRead",
   description: "Base read model for all event types.",
@@ -1747,6 +1761,7 @@ export const $CaseEventRead = {
       case_reopened: "#/components/schemas/ReopenedEventRead",
       case_updated: "#/components/schemas/UpdatedEventRead",
       fields_changed: "#/components/schemas/FieldChangedEventRead",
+      payload_changed: "#/components/schemas/PayloadChangedEventRead",
       priority_changed: "#/components/schemas/PriorityChangedEventRead",
       severity_changed: "#/components/schemas/SeverityChangedEventRead",
       status_changed: "#/components/schemas/StatusChangedEventRead",
@@ -1992,6 +2007,17 @@ export const $CaseRead = {
         },
       ],
     },
+    payload: {
+      anyOf: [
+        {
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Payload",
+    },
   },
   type: "object",
   required: [
@@ -2005,6 +2031,7 @@ export const $CaseRead = {
     "severity",
     "description",
     "fields",
+    "payload",
   ],
   title: "CaseRead",
 } as const
@@ -2185,6 +2212,17 @@ export const $CaseUpdate = {
         },
       ],
       title: "Assignee Id",
+    },
+    payload: {
+      anyOf: [
+        {
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Payload",
     },
   },
   type: "object",
@@ -4690,6 +4728,52 @@ export const $OrgMemberRead = {
     "last_login_at",
   ],
   title: "OrgMemberRead",
+} as const
+
+export const $PayloadChangedEventRead = {
+  properties: {
+    wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
+    },
+    type: {
+      type: "string",
+      const: "payload_changed",
+      title: "Type",
+      default: "payload_changed",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+      description: "The user who performed the action.",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "The timestamp of the event.",
+    },
+  },
+  type: "object",
+  required: ["created_at"],
+  title: "PayloadChangedEventRead",
+  description: "Event for when a case payload is changed.",
 } as const
 
 export const $PriorityChangedEventRead = {
