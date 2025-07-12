@@ -3,13 +3,19 @@ import logging
 import os
 from logging.config import fileConfig
 
-import alembic_postgresql_enum  # noqa: F401
+import alembic_postgresql_enum
 import boto3
 from sqlalchemy import engine_from_config, pool
 from sqlmodel import SQLModel
 
 from alembic import context
 from tracecat.db import schemas  # noqa: F401
+
+alembic_postgresql_enum.set_configuration(
+    alembic_postgresql_enum.Config(
+        add_type_ignore=True,
+    )
+)
 
 TRACECAT__DB_URI = os.getenv("TRACECAT__DB_URI")
 if not TRACECAT__DB_URI:
