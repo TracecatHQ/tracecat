@@ -148,198 +148,204 @@ export function CasePanelView({
   const customFields = caseData.fields.filter((field) => !field.reserved)
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="h-screen bg-background flex flex-col">
       {/* Main Content */}
-      <div className="flex h-[calc(100vh-10rem)]">
-        {/* Left Panel */}
-        <div className="flex-1 p-4">
-          <div className="max-w-4xl">
-            {/* Case Summary */}
-            <div className="mb-6">
-              <CasePanelSummary caseData={caseData} updateCase={updateCase} />
-            </div>
-
-            {/* Description */}
-            <div className="mb-6">
-              <CasePanelDescription
-                caseData={caseData}
-                updateCase={updateCase}
-              />
-            </div>
-
-            {/* Tabs - Clean underline style */}
-            <div className="w-full">
-              <div className="flex border-b">
-                <button
-                  onClick={() => setActiveTab("comments")}
-                  className={`flex items-center gap-1.5 px-0.5 py-2 text-xs font-medium border-b-2 transition-colors ${
-                    activeTab === "comments"
-                      ? "border-foreground text-foreground"
-                      : "border-transparent text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  <MessageSquare className="h-3.5 w-3.5" />
-                  Comments
-                </button>
-                <button
-                  onClick={() => setActiveTab("activity")}
-                  className={`flex items-center gap-1.5 px-0.5 py-2 ml-6 text-xs font-medium border-b-2 transition-colors ${
-                    activeTab === "activity"
-                      ? "border-foreground text-foreground"
-                      : "border-transparent text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  <Activity className="h-3.5 w-3.5" />
-                  Activity
-                </button>
-                <button
-                  onClick={() => setActiveTab("attachments")}
-                  className={`flex items-center gap-1.5 px-0.5 py-2 ml-6 text-xs font-medium border-b-2 transition-colors ${
-                    activeTab === "attachments"
-                      ? "border-foreground text-foreground"
-                      : "border-transparent text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  <Paperclip className="h-3.5 w-3.5" />
-                  Attachments
-                </button>
-              </div>
-
-              <div className="mt-4">
-                {activeTab === "comments" && (
-                  <CommentSection caseId={caseId} workspaceId={workspaceId} />
-                )}
-
-                {activeTab === "activity" && (
-                  <CaseActivityFeed caseId={caseId} workspaceId={workspaceId} />
-                )}
-
-                {activeTab === "attachments" && (
-                  <CaseAttachmentsSection
-                    caseId={caseId}
-                    workspaceId={workspaceId}
+      <div className="flex flex-1 overflow-hidden">
+        {/* Case properties section */}
+        <div className="w-72 border-r flex flex-col">
+          <div className="flex-1 overflow-y-auto p-4">
+            <div className="space-y-10">
+              {/* Properties Section */}
+              <CasePanelSection
+                title="Properties"
+                isOpen={propertiesOpen}
+                onOpenChange={setPropertiesOpen}
+              >
+                <div className="space-y-4">
+                  {/* Assign */}
+                  <CasePropertyRow
+                    label="Assignee"
+                    value={
+                      <AssigneeSelect
+                        assignee={caseData.assignee}
+                        workspaceMembers={workspace?.members ?? []}
+                        onValueChange={handleAssigneeChange}
+                      />
+                    }
                   />
-                )}
-              </div>
+
+                  {/* Status */}
+                  <CasePropertyRow
+                    label="Status"
+                    value={
+                      <StatusSelect
+                        status={caseData.status}
+                        onValueChange={handleStatusChange}
+                      />
+                    }
+                  />
+
+                  {/* Priority */}
+                  <CasePropertyRow
+                    label="Priority"
+                    value={
+                      <PrioritySelect
+                        priority={caseData.priority || "unknown"}
+                        onValueChange={handlePriorityChange}
+                      />
+                    }
+                  />
+
+                  {/* Severity */}
+                  <CasePropertyRow
+                    label="Severity"
+                    value={
+                      <SeveritySelect
+                        severity={caseData.severity || "unknown"}
+                        onValueChange={handleSeverityChange}
+                      />
+                    }
+                  />
+
+                  {/* Custom fields */}
+                  <div className="pt-2">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs">Custom fields</span>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-5 w-5 p-0"
+                          >
+                            <MoreHorizontal className="h-3 w-3" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="text-xs">
+                          <DropdownMenuItem asChild>
+                            <Link
+                              href={`/workspaces/${workspaceId}/custom-fields`}
+                            >
+                              Manage fields
+                            </Link>
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                    {customFields.length === 0 ? (
+                      <div className="text-xs text-muted-foreground">
+                        No fields configured.
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        {customFields.map((field) => (
+                          <CasePropertyRow
+                            key={field.id}
+                            label={field.id}
+                            value={
+                              <CustomField
+                                customField={field}
+                                updateCase={updateCase}
+                              />
+                            }
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </CasePanelSection>
+              {/* Workflow Triggers */}
+              <CasePanelSection
+                title="Workflows"
+                isOpen={workflowOpen}
+                onOpenChange={setWorkflowOpen}
+              >
+                <CaseWorkflowTrigger caseData={caseData} />
+              </CasePanelSection>
             </div>
           </div>
         </div>
+        {/* Main section */}
+        <div className="flex-1 flex flex-col overflow-hidden">
+          <div className="flex-1 overflow-y-auto py-4 px-6">
+            <div className="max-w-4xl">
+              {/* Case Summary */}
+              <div className="mb-6">
+                <CasePanelSummary caseData={caseData} updateCase={updateCase} />
+              </div>
 
-        {/* Right Panel - Properties */}
-        <div className="w-72 border-l overflow-y-auto p-4">
-          <div className="space-y-10">
-            {/* Properties Section */}
-            <CasePanelSection
-              title="Properties"
-              isOpen={propertiesOpen}
-              onOpenChange={setPropertiesOpen}
-            >
-              <div className="space-y-4">
-                {/* Assign */}
-                <CasePropertyRow
-                  label="Assignee"
-                  value={
-                    <AssigneeSelect
-                      assignee={caseData.assignee}
-                      workspaceMembers={workspace?.members ?? []}
-                      onValueChange={handleAssigneeChange}
-                    />
-                  }
+              {/* Description */}
+              <div className="mb-6">
+                <CasePanelDescription
+                  caseData={caseData}
+                  updateCase={updateCase}
                 />
+              </div>
 
-                {/* Status */}
-                <CasePropertyRow
-                  label="Status"
-                  value={
-                    <StatusSelect
-                      status={caseData.status}
-                      onValueChange={handleStatusChange}
+              {/* Tabs - Clean underline style */}
+              <div className="w-full">
+                <div className="flex border-b">
+                  <button
+                    onClick={() => setActiveTab("comments")}
+                    className={`flex items-center gap-1.5 px-0.5 py-2 text-xs font-medium border-b-2 transition-colors ${
+                      activeTab === "comments"
+                        ? "border-foreground text-foreground"
+                        : "border-transparent text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    <MessageSquare className="h-3.5 w-3.5" />
+                    Comments
+                  </button>
+                  <button
+                    onClick={() => setActiveTab("activity")}
+                    className={`flex items-center gap-1.5 px-0.5 py-2 ml-6 text-xs font-medium border-b-2 transition-colors ${
+                      activeTab === "activity"
+                        ? "border-foreground text-foreground"
+                        : "border-transparent text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    <Activity className="h-3.5 w-3.5" />
+                    Activity
+                  </button>
+                  <button
+                    onClick={() => setActiveTab("attachments")}
+                    className={`flex items-center gap-1.5 px-0.5 py-2 ml-6 text-xs font-medium border-b-2 transition-colors ${
+                      activeTab === "attachments"
+                        ? "border-foreground text-foreground"
+                        : "border-transparent text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    <Paperclip className="h-3.5 w-3.5" />
+                    Attachments
+                  </button>
+                </div>
+
+                <div className="mt-4">
+                  {activeTab === "comments" && (
+                    <CommentSection caseId={caseId} workspaceId={workspaceId} />
+                  )}
+
+                  {activeTab === "activity" && (
+                    <CaseActivityFeed
+                      caseId={caseId}
+                      workspaceId={workspaceId}
                     />
-                  }
-                />
+                  )}
 
-                {/* Priority */}
-                <CasePropertyRow
-                  label="Priority"
-                  value={
-                    <PrioritySelect
-                      priority={caseData.priority || "unknown"}
-                      onValueChange={handlePriorityChange}
+                  {activeTab === "attachments" && (
+                    <CaseAttachmentsSection
+                      caseId={caseId}
+                      workspaceId={workspaceId}
                     />
-                  }
-                />
-
-                {/* Severity */}
-                <CasePropertyRow
-                  label="Severity"
-                  value={
-                    <SeveritySelect
-                      severity={caseData.severity || "unknown"}
-                      onValueChange={handleSeverityChange}
-                    />
-                  }
-                />
-
-                {/* Custom fields */}
-                <div className="pt-2">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs">Custom fields</span>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-5 w-5 p-0"
-                        >
-                          <MoreHorizontal className="h-3 w-3" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="text-xs">
-                        <DropdownMenuItem asChild>
-                          <Link
-                            href={`/workspaces/${workspaceId}/custom-fields`}
-                          >
-                            Manage fields
-                          </Link>
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                  {customFields.length === 0 ? (
-                    <div className="text-xs text-muted-foreground">
-                      No fields configured.
-                    </div>
-                  ) : (
-                    <div className="space-y-4">
-                      {customFields.map((field) => (
-                        <CasePropertyRow
-                          key={field.id}
-                          label={field.id}
-                          value={
-                            <CustomField
-                              customField={field}
-                              updateCase={updateCase}
-                            />
-                          }
-                        />
-                      ))}
-                    </div>
                   )}
                 </div>
               </div>
-            </CasePanelSection>
-            {/* Workflow Triggers */}
-            <CasePanelSection
-              title="Workflows"
-              isOpen={workflowOpen}
-              onOpenChange={setWorkflowOpen}
-            >
-              <CaseWorkflowTrigger caseData={caseData} />
-            </CasePanelSection>
+            </div>
           </div>
         </div>
 
-        {/* Chat Panel */}
+        {/* Chat section */}
         <CaseChat caseId={caseId} isChatOpen={isChatOpen} />
       </div>
     </div>
