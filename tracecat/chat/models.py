@@ -1,9 +1,13 @@
 """Chat API models for agent streaming."""
 
+from __future__ import annotations
+
+import uuid
 from datetime import datetime
 from typing import Any
 
 from pydantic import UUID4, BaseModel, Field
+from pydantic_ai.messages import ModelMessage
 
 from tracecat.chat.enums import ChatEntity
 
@@ -38,7 +42,7 @@ class ChatResponse(BaseModel):
     """Response model for chat initiation."""
 
     stream_url: str = Field(..., description="URL to connect for SSE streaming")
-    chat_id: str = Field(..., description="Unique chat identifier")
+    chat_id: uuid.UUID = Field(..., description="Unique chat identifier")
 
 
 class ChatCreate(BaseModel):
@@ -79,7 +83,7 @@ class ChatRead(BaseModel):
 class ChatWithMessages(ChatRead):
     """Model for chat metadata with message history."""
 
-    messages: list[dict[str, Any]] = Field(
+    messages: list[ChatMessage] = Field(
         default_factory=list, description="Chat messages from Redis stream"
     )
 
@@ -93,3 +97,10 @@ class ChatUpdate(BaseModel):
     title: str | None = Field(
         default=None, description="Chat title", min_length=1, max_length=200
     )
+
+
+class ChatMessage(BaseModel):
+    """Model for chat metadata with a single message."""
+
+    id: str = Field(..., description="Unique chat identifier")
+    message: ModelMessage = Field(..., description="The message from the chat")

@@ -1,11 +1,12 @@
 import uuid
 from collections.abc import Sequence
-from typing import Any
 
 import orjson
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
+from tracecat_registry.integrations.agents.builder import ModelMessageTA
 
+from tracecat.chat.models import ChatMessage
 from tracecat.chat.tools import get_default_tools
 from tracecat.db.schemas import Chat
 from tracecat.identifiers import UserID
@@ -79,7 +80,7 @@ class ChatService(BaseWorkspaceService):
 
         return chat
 
-    async def get_chat(self, chat_id: str) -> Chat | None:
+    async def get_chat(self, chat_id: uuid.UUID) -> Chat | None:
         """Get a chat by ID, ensuring it belongs to the current workspace."""
         stmt = select(Chat).where(
             Chat.id == chat_id,
@@ -109,17 +110,17 @@ class ChatService(BaseWorkspaceService):
 
         return chat
 
-    async def get_chat_messages(self, chat_id: str) -> list[dict[str, Any]]:
+    async def get_chat_messages(self, chat: Chat) -> list[ChatMessage]:
         """Get chat messages from Redis stream."""
         try:
             redis_client = await get_redis_client()
-            stream_key = f"agent-stream:{chat_id}"
+            stream_key = f"agent-stream:{chat.id}"
 
             # Read all messages from the Redis stream
             messages = await redis_client.xrange(stream_key, min_id="-", max_id="+")
 
-            parsed_messages = []
-            for message_id, fields in messages:
+            parsed_messages: list[ChatMessage] = []
+            for id, fields in messages:
                 try:
                     data = orjson.loads(fields["d"])
 
@@ -127,14 +128,14 @@ class ChatService(BaseWorkspaceService):
                     if data.get("__end__") == 1:
                         continue
 
-                    # Add metadata
-                    data["redis_id"] = message_id
-                    parsed_messages.append(data)
+                    validated_msg = ModelMessageTA.validate_python(data)
+                    msg_with_id = ChatMessage(id=id, message=validated_msg)
+                    parsed_messages.append(msg_with_id)
 
                 except (orjson.JSONDecodeError, KeyError) as e:
                     logger.warning(
                         "Failed to parse Redis message",
-                        message_id=message_id,
+                        message_id=id,
                         error=str(e),
                     )
                     continue
@@ -144,7 +145,7 @@ class ChatService(BaseWorkspaceService):
         except Exception as e:
             logger.error(
                 "Failed to fetch chat messages from Redis",
-                chat_id=chat_id,
+                chat_id=chat.id,
                 error=str(e),
             )
             return []
