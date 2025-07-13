@@ -1,7 +1,14 @@
 "use client"
 
 import { formatDistanceToNow } from "date-fns"
-import { ChevronDown, History, MessageSquare, Plus } from "lucide-react"
+import {
+  ChevronDown,
+  History,
+  MessageSquare,
+  MoreHorizontal,
+  Plus,
+  Save,
+} from "lucide-react"
 import { useEffect, useState } from "react"
 import type { ChatRead } from "@/client"
 import { ChatInput } from "@/components/chat/chat-input"
@@ -18,6 +25,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { useChat, useCreateChat, useListChats } from "@/hooks/use-chat"
+import { useCreatePrompt } from "@/hooks/use-prompt"
 import { cn } from "@/lib/utils"
 import { useWorkspace } from "@/providers/workspace"
 
@@ -48,6 +56,9 @@ export function ChatInterface({
 
   // Create chat mutation
   const { createChat, createChatPending } = useCreateChat(workspaceId)
+
+  // Create prompt mutation
+  const { createPrompt, createPromptPending } = useCreatePrompt(workspaceId)
 
   const { sendMessage, isResponding, messages, isConnected } = useChat({
     chatId: selectedChatId,
@@ -87,6 +98,29 @@ export function ChatInterface({
   const handleSelectChat = (chatId: string) => {
     setSelectedChatId(chatId)
     onChatSelect?.(chatId)
+  }
+
+  const handleSaveAsPrompt = async () => {
+    if (!selectedChatId) {
+      console.warn("No chat selected")
+      return
+    }
+
+    // Check if chat has messages
+    if (!messages || messages.length === 0) {
+      console.warn("Cannot save empty chat as prompt")
+      return
+    }
+
+    try {
+      const prompt = await createPrompt({
+        chat_id: selectedChatId,
+      })
+
+      console.log(`Chat saved as prompt: "${prompt.title}"`)
+    } catch (error) {
+      console.error("Failed to save chat as prompt:", error)
+    }
   }
 
   const handleSendMessage = async (message: string) => {
@@ -237,6 +271,31 @@ export function ChatInterface({
                     ))}
                   </ScrollArea>
                 )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            {/* Chat Actions Dropdown */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="size-6 p-0"
+                  disabled={!selectedChatId}
+                >
+                  <MoreHorizontal className="h-3 w-3" />
+                  <span className="sr-only">More options</span>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuItem
+                  onClick={handleSaveAsPrompt}
+                  disabled={createPromptPending || !messages?.length}
+                  className="text-xs"
+                >
+                  <Save className="mr-2 h-3 w-3" />
+                  Save as prompt
+                </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
