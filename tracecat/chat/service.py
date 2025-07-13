@@ -3,7 +3,6 @@ from collections.abc import Sequence
 
 import orjson
 from sqlmodel import col, select
-from sqlmodel.ext.asyncio.session import AsyncSession
 from tracecat_registry.integrations.agents.builder import ModelMessageTA
 
 from tracecat.chat.models import ChatMessage
@@ -13,7 +12,6 @@ from tracecat.identifiers import UserID
 from tracecat.logger import logger
 from tracecat.redis.client import get_redis_client
 from tracecat.service import BaseWorkspaceService
-from tracecat.types.auth import Role
 
 
 class ChatService(BaseWorkspaceService):
@@ -149,8 +147,3 @@ class ChatService(BaseWorkspaceService):
                 error=str(e),
             )
             return []
-
-    @classmethod
-    async def from_role(cls, session: AsyncSession, role: Role) -> "ChatService":
-        """Create service instance from role."""
-        return cls(session, role)
