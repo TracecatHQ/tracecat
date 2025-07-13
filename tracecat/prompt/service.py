@@ -193,26 +193,19 @@ class PromptService(BaseWorkspaceService):
 
         for msg in messages:
             # Extract role and content from message
-            inner = msg.message
-            if isinstance(inner, ModelRequest):
-                role = (
-                    "user"
-                    if any(isinstance(part, UserPromptPart) for part in inner.parts)
-                    else "assistant"
-                )
-                content = yaml.dump(inner.parts)
-                prompt_parts.append(f"{role}: {content}")
-            elif isinstance(inner, ModelResponse):
-                role = "assistant"
-                content = yaml.dump(inner.parts)
-                prompt_parts.append(f"{role}: {content}")
-            else:
-                self.logger.warning(
-                    "Skipping message",
-                    message=msg.message,
-                )
-                continue
-
+            match msg.message:
+                case ModelRequest(parts=parts):
+                    role = (
+                        "user"
+                        if any(isinstance(part, UserPromptPart) for part in parts)
+                        else "assistant"
+                    )
+                    content = yaml.dump(parts)
+                    prompt_parts.append(f"{role}: {content}")
+                case ModelResponse(parts=parts):
+                    role = "assistant"
+                    content = yaml.dump(parts)
+                    prompt_parts.append(f"{role}: {content}")
         return "\n".join(prompt_parts)
 
     def _calculate_tool_sha(self, tools: list[str]) -> str:
