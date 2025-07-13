@@ -82,6 +82,10 @@ async def create_case(
         dict[str, Any] | None,
         Doc("Custom fields for the case."),
     ] = None,
+    payload: Annotated[
+        dict[str, Any] | None,
+        Doc("Payload for the case."),
+    ] = None,
 ) -> dict[str, Any]:
     async with CasesService.with_session() as service:
         case = await service.create_case(
@@ -92,6 +96,7 @@ async def create_case(
                 severity=CaseSeverity(severity),
                 status=CaseStatus(status),
                 fields=fields,
+                payload=payload,
             )
         )
     return case.model_dump()
