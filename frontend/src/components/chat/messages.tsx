@@ -18,6 +18,11 @@ interface MessagesProps {
   workspaceId: string
 }
 
+const caseUpdateActions = [
+  "core__cases__update_case",
+  "core__cases__create_comment",
+]
+
 export function Messages({
   messages,
   isResponding,
@@ -46,7 +51,7 @@ export function Messages({
     if (
       lastMsg.kind === "response" &&
       lastMsg.parts.some(
-        (p) => "tool_name" in p && p.tool_name === "core__cases__update_case"
+        (p) => "tool_name" in p && caseUpdateActions.includes(p.tool_name)
       )
     ) {
       console.log("Invalidating case queries")
