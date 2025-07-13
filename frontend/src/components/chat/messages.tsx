@@ -56,6 +56,9 @@ export function Messages({
       queryClient.invalidateQueries({
         queryKey: ["case-events", entityId, workspaceId],
       })
+      queryClient.invalidateQueries({
+        queryKey: ["case-comments", entityId, workspaceId],
+      })
     }
   }, [messages, entityType, entityId, workspaceId, queryClient])
 
