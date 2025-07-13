@@ -2,6 +2,7 @@
 
 import asyncio
 import os
+import uuid
 from typing import Annotated
 
 import orjson
@@ -12,6 +13,7 @@ from tracecat_registry.integrations.agents.builder import ModelMessageTA, agent
 from tracecat.auth.credentials import RoleACL
 from tracecat.chat.models import (
     ChatCreate,
+    ChatMessage,
     ChatRead,
     ChatRequest,
     ChatResponse,
@@ -85,7 +87,7 @@ async def list_chats(
 
 @router.get("/{chat_id}")
 async def get_chat(
-    chat_id: str,
+    chat_id: uuid.UUID,
     role: WorkspaceUser,
     session: AsyncDBSession,
 ) -> ChatWithMessages:
@@ -101,18 +103,18 @@ async def get_chat(
         )
 
     # Get messages from Redis
-    messages = await svc.get_chat_messages(chat_id)
+    messages = await svc.get_chat_messages(chat)
 
     chat_data = ChatRead.model_validate(chat, from_attributes=True)
     return ChatWithMessages(
         **chat_data.model_dump(),
-        messages=messages,
+        messages=[ChatMessage(id=msg.id, message=msg.message) for msg in messages],
     )
 
 
 @router.patch("/{chat_id}")
 async def update_chat(
-    chat_id: str,
+    chat_id: uuid.UUID,
     request: ChatUpdate,
     role: WorkspaceUser,
     session: AsyncDBSession,
@@ -136,7 +138,7 @@ async def update_chat(
 
 @router.post("/{chat_id}")
 async def start_chat_turn(
-    chat_id: str,
+    chat_id: uuid.UUID,
     request: ChatRequest,
     role: WorkspaceUser,
     session: AsyncDBSession,
@@ -199,9 +201,9 @@ async def start_chat_turn(
 
 @router.get("/{chat_id}/stream")
 async def stream_chat_events(
-    request: Request,
-    chat_id: str,
     role: WorkspaceUser,
+    request: Request,
+    chat_id: uuid.UUID,
 ):
     """Stream chat events via Server-Sent Events (SSE).
 

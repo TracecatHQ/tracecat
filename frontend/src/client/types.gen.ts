@@ -705,6 +705,20 @@ export type ChatCreate = {
 export type ChatEntity = "case"
 
 /**
+ * Model for chat metadata with a single message.
+ */
+export type ChatMessage = {
+  /**
+   * Unique chat identifier
+   */
+  id: string
+  /**
+   * The message from the chat
+   */
+  message: ModelRequest | ModelResponse
+}
+
+/**
  * Model for chat metadata without messages.
  */
 export type ChatRead = {
@@ -837,9 +851,7 @@ export type ChatWithMessages = {
   /**
    * Chat messages from Redis stream
    */
-  messages?: Array<{
-    [key: string]: unknown
-  }>
+  messages?: Array<ChatMessage>
 }
 
 /**
@@ -1588,6 +1600,92 @@ export type PriorityChangedEventRead = {
    * The timestamp of the event.
    */
   created_at: string
+}
+
+/**
+ * Request model for creating a prompt from a chat.
+ */
+export type PromptCreate = {
+  /**
+   * ID of the chat to freeze into a prompt
+   */
+  chat_id: string
+}
+
+/**
+ * Model for prompt details.
+ */
+export type PromptRead = {
+  /**
+   * Unique prompt identifier
+   */
+  id: string
+  /**
+   * ID of the source chat
+   */
+  chat_id: string
+  /**
+   * Human-readable title for the prompt
+   */
+  title: string
+  /**
+   * The instruction prompt/agenda string
+   */
+  content: string
+  /**
+   * The tools available to the agent for this prompt
+   */
+  tools: Array<string>
+  /**
+   * When the prompt was created
+   */
+  created_at: string
+  /**
+   * Metadata including schema version, tool SHA, token count
+   */
+  meta?: {
+    [key: string]: unknown
+  }
+}
+
+/**
+ * Request model for running a prompt on cases.
+ */
+export type PromptRunRequest = {
+  /**
+   * List of case IDs to run the prompt on
+   */
+  case_ids: Array<string>
+}
+
+/**
+ * Response model for prompt execution.
+ */
+export type PromptRunResponse = {
+  /**
+   * Mapping of case_id to SSE stream URL
+   */
+  stream_urls: {
+    [key: string]: string
+  }
+}
+
+/**
+ * Request model for updating prompt properties.
+ */
+export type PromptUpdate = {
+  /**
+   * New title for the prompt
+   */
+  title?: string | null
+  /**
+   * New content for the prompt
+   */
+  content?: string | null
+  /**
+   * New tools for the prompt
+   */
+  tools?: Array<string> | null
 }
 
 /**
@@ -4509,6 +4607,61 @@ export type ChatStreamChatEventsData = {
 
 export type ChatStreamChatEventsResponse = unknown
 
+export type PromptCreatePromptData = {
+  requestBody: PromptCreate
+  workspaceId: string
+}
+
+export type PromptCreatePromptResponse = PromptRead
+
+export type PromptListPromptsData = {
+  /**
+   * Maximum number of prompts to return
+   */
+  limit?: number
+  workspaceId: string
+}
+
+export type PromptListPromptsResponse = Array<PromptRead>
+
+export type PromptGetPromptData = {
+  promptId: string
+  workspaceId: string
+}
+
+export type PromptGetPromptResponse = PromptRead
+
+export type PromptUpdatePromptData = {
+  promptId: string
+  requestBody: PromptUpdate
+  workspaceId: string
+}
+
+export type PromptUpdatePromptResponse = PromptRead
+
+export type PromptDeletePromptData = {
+  promptId: string
+  workspaceId: string
+}
+
+export type PromptDeletePromptResponse = void
+
+export type PromptRunPromptData = {
+  promptId: string
+  requestBody: PromptRunRequest
+  workspaceId: string
+}
+
+export type PromptRunPromptResponse = PromptRunResponse
+
+export type PromptStreamPromptExecutionData = {
+  caseId: string
+  promptId: string
+  workspaceId: string
+}
+
+export type PromptStreamPromptExecutionResponse = unknown
+
 export type FoldersGetDirectoryData = {
   /**
    * Folder path
@@ -6605,6 +6758,105 @@ export type $OpenApiTs = {
   "/chat/{chat_id}/stream": {
     get: {
       req: ChatStreamChatEventsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/prompt/": {
+    post: {
+      req: PromptCreatePromptData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: PromptRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    get: {
+      req: PromptListPromptsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<PromptRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/prompt/{prompt_id}": {
+    get: {
+      req: PromptGetPromptData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: PromptRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: PromptUpdatePromptData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: PromptRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: PromptDeletePromptData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/prompt/{prompt_id}/run": {
+    post: {
+      req: PromptRunPromptData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: PromptRunResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/prompt/{prompt_id}/case/{case_id}/stream": {
+    get: {
+      req: PromptStreamPromptExecutionData
       res: {
         /**
          * Successful Response

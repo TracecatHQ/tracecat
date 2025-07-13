@@ -2278,6 +2278,39 @@ export const $ChatEntity = {
   description: "The type of entity associated with a chat.",
 } as const
 
+export const $ChatMessage = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+      description: "Unique chat identifier",
+    },
+    message: {
+      oneOf: [
+        {
+          $ref: "#/components/schemas/ModelRequest",
+        },
+        {
+          $ref: "#/components/schemas/ModelResponse",
+        },
+      ],
+      title: "Message",
+      description: "The message from the chat",
+      discriminator: {
+        propertyName: "kind",
+        mapping: {
+          request: "#/components/schemas/ModelRequest",
+          response: "#/components/schemas/ModelResponse",
+        },
+      },
+    },
+  },
+  type: "object",
+  required: ["id", "message"],
+  title: "ChatMessage",
+  description: "Model for chat metadata with a single message.",
+} as const
+
 export const $ChatRead = {
   properties: {
     id: {
@@ -2410,6 +2443,7 @@ export const $ChatResponse = {
     },
     chat_id: {
       type: "string",
+      format: "uuid",
       title: "Chat Id",
       description: "Unique chat identifier",
     },
@@ -2510,7 +2544,7 @@ export const $ChatWithMessages = {
     },
     messages: {
       items: {
-        type: "object",
+        $ref: "#/components/schemas/ChatMessage",
       },
       type: "array",
       title: "Messages",
@@ -4826,6 +4860,159 @@ export const $PriorityChangedEventRead = {
   required: ["old", "new", "created_at"],
   title: "PriorityChangedEventRead",
   description: "Event for when a case priority is changed.",
+} as const
+
+export const $PromptCreate = {
+  properties: {
+    chat_id: {
+      type: "string",
+      format: "uuid4",
+      title: "Chat Id",
+      description: "ID of the chat to freeze into a prompt",
+    },
+  },
+  type: "object",
+  required: ["chat_id"],
+  title: "PromptCreate",
+  description: "Request model for creating a prompt from a chat.",
+} as const
+
+export const $PromptRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid4",
+      title: "Id",
+      description: "Unique prompt identifier",
+    },
+    chat_id: {
+      type: "string",
+      format: "uuid4",
+      title: "Chat Id",
+      description: "ID of the source chat",
+    },
+    title: {
+      type: "string",
+      title: "Title",
+      description: "Human-readable title for the prompt",
+    },
+    content: {
+      type: "string",
+      title: "Content",
+      description: "The instruction prompt/agenda string",
+    },
+    tools: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Tools",
+      description: "The tools available to the agent for this prompt",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "When the prompt was created",
+    },
+    meta: {
+      type: "object",
+      title: "Meta",
+      description: "Metadata including schema version, tool SHA, token count",
+    },
+  },
+  type: "object",
+  required: ["id", "chat_id", "title", "content", "tools", "created_at"],
+  title: "PromptRead",
+  description: "Model for prompt details.",
+} as const
+
+export const $PromptRunRequest = {
+  properties: {
+    case_ids: {
+      items: {
+        type: "string",
+        format: "uuid4",
+      },
+      type: "array",
+      maxItems: 100,
+      minItems: 1,
+      title: "Case Ids",
+      description: "List of case IDs to run the prompt on",
+    },
+  },
+  type: "object",
+  required: ["case_ids"],
+  title: "PromptRunRequest",
+  description: "Request model for running a prompt on cases.",
+} as const
+
+export const $PromptRunResponse = {
+  properties: {
+    stream_urls: {
+      additionalProperties: {
+        type: "string",
+      },
+      type: "object",
+      title: "Stream Urls",
+      description: "Mapping of case_id to SSE stream URL",
+    },
+  },
+  type: "object",
+  required: ["stream_urls"],
+  title: "PromptRunResponse",
+  description: "Response model for prompt execution.",
+} as const
+
+export const $PromptUpdate = {
+  properties: {
+    title: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 200,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Title",
+      description: "New title for the prompt",
+    },
+    content: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 10000,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Content",
+      description: "New content for the prompt",
+    },
+    tools: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tools",
+      description: "New tools for the prompt",
+    },
+  },
+  type: "object",
+  title: "PromptUpdate",
+  description: "Request model for updating prompt properties.",
 } as const
 
 export const $ProviderMetadata = {

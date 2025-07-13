@@ -1307,3 +1307,44 @@ class Chat(Resource, table=True):
 
     # Relationships
     user: User = Relationship(back_populates="chats")
+
+
+class Prompt(Resource, table=True):
+    """A frozen chat that can be replayed on multiple cases."""
+
+    __tablename__: str = "prompt"
+
+    id: uuid.UUID = Field(
+        default_factory=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    chat_id: UUID4 = Field(
+        sa_column=Column(
+            UUID, ForeignKey("chat.id", ondelete="CASCADE"), nullable=False
+        )
+    )
+    title: str = Field(
+        ...,
+        description="Human-readable title for the prompt",
+        nullable=False,
+    )
+    content: str = Field(
+        ...,
+        description="The instruction prompt/agenda string passed to the agent",
+        nullable=False,
+    )
+    tools: list[str] = Field(
+        default_factory=list,
+        sa_column=Column(JSONB),
+        description="The tools available to the agent for this prompt.",
+    )
+    meta: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=Column(JSONB),
+        description="Metadata including schema version, tool SHA, token count",
+    )
+
+    # Relationships
+    chat: Chat = Relationship(sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS)

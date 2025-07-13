@@ -141,6 +141,20 @@ import type {
   OrganizationSecretsUpdateOrgSecretByIdResponse,
   OrganizationUpdateOrgMemberData,
   OrganizationUpdateOrgMemberResponse,
+  PromptCreatePromptData,
+  PromptCreatePromptResponse,
+  PromptDeletePromptData,
+  PromptDeletePromptResponse,
+  PromptGetPromptData,
+  PromptGetPromptResponse,
+  PromptListPromptsData,
+  PromptListPromptsResponse,
+  PromptRunPromptData,
+  PromptRunPromptResponse,
+  PromptStreamPromptExecutionData,
+  PromptStreamPromptExecutionResponse,
+  PromptUpdatePromptData,
+  PromptUpdatePromptResponse,
   ProvidersGetProviderData,
   ProvidersGetProviderResponse,
   ProvidersListProvidersData,
@@ -3885,6 +3899,204 @@ export const chatStreamChatEvents = (
     url: "/chat/{chat_id}/stream",
     path: {
       chat_id: data.chatId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Prompt
+ * Freeze a chat into a reusable prompt.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns PromptRead Successful Response
+ * @throws ApiError
+ */
+export const promptCreatePrompt = (
+  data: PromptCreatePromptData
+): CancelablePromise<PromptCreatePromptResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/prompt/",
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Prompts
+ * List prompts for the current workspace.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.limit Maximum number of prompts to return
+ * @returns PromptRead Successful Response
+ * @throws ApiError
+ */
+export const promptListPrompts = (
+  data: PromptListPromptsData
+): CancelablePromise<PromptListPromptsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/prompt/",
+    query: {
+      limit: data.limit,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Prompt
+ * Get a prompt by ID.
+ * @param data The data for the request.
+ * @param data.promptId
+ * @param data.workspaceId
+ * @returns PromptRead Successful Response
+ * @throws ApiError
+ */
+export const promptGetPrompt = (
+  data: PromptGetPromptData
+): CancelablePromise<PromptGetPromptResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/prompt/{prompt_id}",
+    path: {
+      prompt_id: data.promptId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Prompt
+ * Update prompt properties.
+ * @param data The data for the request.
+ * @param data.promptId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns PromptRead Successful Response
+ * @throws ApiError
+ */
+export const promptUpdatePrompt = (
+  data: PromptUpdatePromptData
+): CancelablePromise<PromptUpdatePromptResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/prompt/{prompt_id}",
+    path: {
+      prompt_id: data.promptId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Prompt
+ * Delete a prompt.
+ * @param data The data for the request.
+ * @param data.promptId
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const promptDeletePrompt = (
+  data: PromptDeletePromptData
+): CancelablePromise<PromptDeletePromptResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/prompt/{prompt_id}",
+    path: {
+      prompt_id: data.promptId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Run Prompt
+ * Execute a prompt on multiple cases.
+ * @param data The data for the request.
+ * @param data.promptId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns PromptRunResponse Successful Response
+ * @throws ApiError
+ */
+export const promptRunPrompt = (
+  data: PromptRunPromptData
+): CancelablePromise<PromptRunPromptResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/prompt/{prompt_id}/run",
+    path: {
+      prompt_id: data.promptId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Stream Prompt Execution
+ * Stream prompt execution events via Server-Sent Events (SSE).
+ *
+ * This endpoint provides real-time streaming of AI agent execution steps
+ * when a prompt is run on a case. It reuses the same Redis stream pattern
+ * as the chat service.
+ * @param data The data for the request.
+ * @param data.promptId
+ * @param data.caseId
+ * @param data.workspaceId
+ * @returns unknown Successful Response
+ * @throws ApiError
+ */
+export const promptStreamPromptExecution = (
+  data: PromptStreamPromptExecutionData
+): CancelablePromise<PromptStreamPromptExecutionResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/prompt/{prompt_id}/case/{case_id}/stream",
+    path: {
+      prompt_id: data.promptId,
+      case_id: data.caseId,
     },
     query: {
       workspace_id: data.workspaceId,
