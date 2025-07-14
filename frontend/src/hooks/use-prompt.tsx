@@ -21,13 +21,27 @@ export function useCreatePrompt(workspaceId: string) {
 
   const { mutateAsync: createPrompt, isPending: createPromptPending } =
     useMutation<PromptRead, ApiError, PromptCreate>({
-      mutationFn: (request: PromptCreate) =>
-        promptCreatePrompt({ requestBody: request, workspaceId }),
+      mutationFn: (request: PromptCreate) => {
+        // Kick off the prompt creation
+        const result = promptCreatePrompt({
+          requestBody: request,
+          workspaceId,
+        })
+        // Concurrently toast to show accepted
+        toast({
+          title: "Creating agenda",
+          description:
+            "Processing your chat into a reusable agenda. This may take up to 30 seconds.",
+        })
+        return result
+      },
       onSuccess: () => {
         // Invalidate and refetch prompt lists
         queryClient.invalidateQueries({ queryKey: ["prompts", workspaceId] })
         toast({
-          title: "Prompt created successfully",
+          title: "Agenda created successfully",
+          description:
+            "The agenda has been created and is available for replay.",
         })
       },
     })
