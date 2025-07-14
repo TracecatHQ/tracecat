@@ -1649,13 +1649,27 @@ export type PromptRead = {
 }
 
 /**
+ * Request model for running a prompt on an entity.
+ */
+export type PromptRunEntity = {
+  /**
+   * ID of the entity to run the prompt on
+   */
+  entity_id: string
+  /**
+   * Type of the entity to run the prompt on
+   */
+  entity_type: ChatEntity
+}
+
+/**
  * Request model for running a prompt on cases.
  */
 export type PromptRunRequest = {
   /**
-   * List of case IDs to run the prompt on
+   * Entities to run the prompt on
    */
-  case_ids: Array<string>
+  entities: Array<PromptRunEntity>
 }
 
 /**

@@ -4927,22 +4927,38 @@ export const $PromptRead = {
   description: "Model for prompt details.",
 } as const
 
-export const $PromptRunRequest = {
+export const $PromptRunEntity = {
   properties: {
-    case_ids: {
-      items: {
-        type: "string",
-        format: "uuid4",
-      },
-      type: "array",
-      maxItems: 100,
-      minItems: 1,
-      title: "Case Ids",
-      description: "List of case IDs to run the prompt on",
+    entity_id: {
+      type: "string",
+      format: "uuid4",
+      title: "Entity Id",
+      description: "ID of the entity to run the prompt on",
+    },
+    entity_type: {
+      $ref: "#/components/schemas/ChatEntity",
+      description: "Type of the entity to run the prompt on",
     },
   },
   type: "object",
-  required: ["case_ids"],
+  required: ["entity_id", "entity_type"],
+  title: "PromptRunEntity",
+  description: "Request model for running a prompt on an entity.",
+} as const
+
+export const $PromptRunRequest = {
+  properties: {
+    entities: {
+      items: {
+        $ref: "#/components/schemas/PromptRunEntity",
+      },
+      type: "array",
+      title: "Entities",
+      description: "Entities to run the prompt on",
+    },
+  },
+  type: "object",
+  required: ["entities"],
   title: "PromptRunRequest",
   description: "Request model for running a prompt on cases.",
 } as const
