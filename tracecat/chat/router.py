@@ -157,29 +157,27 @@ async def start_chat_turn(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Chat not found",
         )
-    # Prepare agent arguments
-    agent_args = {
-        "user_prompt": request.message,
-        "model_name": "gpt-4o",
-        "model_provider": request.model_provider,
-        "actions": chat.tools,
-        "workflow_run_id": chat_id,
-    }
-
-    if request.instructions:
-        agent_args["instructions"] = request.instructions
-
-    if request.context:
-        # Add context as fixed arguments if provided
-        agent_args["fixed_arguments"] = request.context
 
     try:
         # Fire-and-forget execution using the agent function directly
         # TODO: How to configure this properly??
         with secrets_manager.env_sandbox(
-            {"OPENAI_API_KEY": os.environ["OPENAI_API_KEY"]}
+            {
+                "AWS_ACCESS_KEY_ID": os.environ["AWS_ACCESS_KEY_ID"],
+                "AWS_SECRET_ACCESS_KEY": os.environ["AWS_SECRET_ACCESS_KEY"],
+                "AWS_REGION": os.environ["AWS_REGION"],
+            }
         ):
-            _ = asyncio.create_task(agent(**agent_args))
+            coro = agent(
+                instructions=request.instructions,
+                user_prompt=request.message,
+                fixed_arguments=request.context,
+                model_name=os.environ["CHAT_MODEL_NAME"],
+                model_provider=os.environ["CHAT_MODEL_PROVIDER"],
+                actions=chat.tools,
+                workflow_run_id=str(chat_id),
+            )
+            _ = asyncio.create_task(coro)
 
         stream_url = f"/api/chat/{chat_id}/stream"
 
