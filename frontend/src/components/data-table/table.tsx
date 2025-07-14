@@ -62,6 +62,7 @@ interface DataTableProps<TData, TValue> {
   initialColumnVisibility?: VisibilityState
   tableId?: string
   onDeleteRows?: (selectedRows: Row<TData>[]) => void
+  onSelectionChange?: (selectedRows: Row<TData>[]) => void
   serverSidePagination?: ServerSidePaginationProps
 }
 
@@ -81,6 +82,7 @@ export function DataTable<TData, TValue>({
   initialColumnVisibility,
   tableId,
   onDeleteRows,
+  onSelectionChange,
   serverSidePagination,
 }: DataTableProps<TData, TValue>) {
   const [tableState, setTableState] = useLocalStorage<Partial<TableState>>(
@@ -149,6 +151,27 @@ export function DataTable<TData, TValue>({
       table.setPageIndex(serverSidePagination.currentPage)
     }
   }, [serverSidePagination])
+
+  // Notify parent of selection changes
+  React.useEffect(() => {
+    if (onSelectionChange) {
+      const selectedRows = table.getFilteredSelectedRowModel().rows
+      onSelectionChange(selectedRows)
+    }
+  }, [rowSelection, onSelectionChange, table])
+
+  // Handle initial sync when data is first loaded
+  const [hasData, setHasData] = React.useState(false)
+  React.useEffect(() => {
+    if (data && data.length > 0 && !hasData) {
+      setHasData(true)
+      if (onSelectionChange && Object.keys(rowSelection).length > 0) {
+        // Force a sync of the initial selection
+        const selectedRows = table.getFilteredSelectedRowModel().rows
+        onSelectionChange(selectedRows)
+      }
+    }
+  }, [data, hasData, rowSelection, onSelectionChange, table])
 
   return (
     <div>

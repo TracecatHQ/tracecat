@@ -1,5 +1,4 @@
 import { ChatInterface } from "@/components/chat/chat-interface"
-import { cn } from "@/lib/utils"
 
 export function CaseChat({
   caseId,
@@ -9,14 +8,7 @@ export function CaseChat({
   isChatOpen: boolean
 }) {
   return (
-    <div
-      className={cn(
-        "w-96 border-l bg-background transition-all duration-300 ease-in-out flex flex-col rounded-br-lg",
-        isChatOpen
-          ? "translate-x-0"
-          : "translate-x-full absolute right-0 top-0 h-full"
-      )}
-    >
+    <div className="h-full border-l bg-background flex flex-col">
       {isChatOpen && <ChatInterface entityType="case" entityId={caseId} />}
     </div>
   )
