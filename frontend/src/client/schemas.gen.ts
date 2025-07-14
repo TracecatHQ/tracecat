@@ -4920,6 +4920,18 @@ export const $PromptRead = {
       title: "Meta",
       description: "Metadata including schema version, tool SHA, token count",
     },
+    summary: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Summary",
+      description: "A summary of the prompt.",
+    },
   },
   type: "object",
   required: ["id", "chat_id", "title", "content", "tools", "created_at"],
@@ -5024,6 +5036,20 @@ export const $PromptUpdate = {
       ],
       title: "Tools",
       description: "New tools for the prompt",
+    },
+    summary: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 10000,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Summary",
+      description: "New summary for the prompt",
     },
   },
   type: "object",

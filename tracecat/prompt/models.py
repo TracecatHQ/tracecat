@@ -32,6 +32,10 @@ class PromptRead(BaseModel):
         default_factory=dict,
         description="Metadata including schema version, tool SHA, token count",
     )
+    summary: str | None = Field(
+        default=None,
+        description="A summary of the prompt.",
+    )
 
 
 class PromptUpdate(BaseModel):
@@ -52,6 +56,12 @@ class PromptUpdate(BaseModel):
     tools: list[str] | None = Field(
         default=None,
         description="New tools for the prompt",
+    )
+    summary: str | None = Field(
+        default=None,
+        description="New summary for the prompt",
+        min_length=1,
+        max_length=10000,
     )
 
 
