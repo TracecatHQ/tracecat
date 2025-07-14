@@ -193,15 +193,6 @@ export function AgendasDashboard() {
 
   return (
     <div className="container mx-auto space-y-6 p-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Agendas</h1>
-          <p className="text-muted-foreground">
-            Saved chat prompts that can be reused across cases
-          </p>
-        </div>
-      </div>
-
       <DataTable
         columns={columns}
         data={prompts || []}
