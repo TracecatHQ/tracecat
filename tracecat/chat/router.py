@@ -161,13 +161,7 @@ async def start_chat_turn(
     try:
         # Fire-and-forget execution using the agent function directly
         # TODO: How to configure this properly??
-        with secrets_manager.env_sandbox(
-            {
-                "AWS_ACCESS_KEY_ID": os.environ["AWS_ACCESS_KEY_ID"],
-                "AWS_SECRET_ACCESS_KEY": os.environ["AWS_SECRET_ACCESS_KEY"],
-                "AWS_REGION": os.environ["AWS_REGION"],
-            }
-        ):
+        with secrets_manager.use_agent_credentials():
             coro = agent(
                 instructions=request.instructions,
                 user_prompt=request.message,

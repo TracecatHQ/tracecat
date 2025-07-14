@@ -43,14 +43,7 @@ async def run_prompts_for_case(
 
     # Create task with proper environment
     # NOTE: In production, this should use workspace-specific credentials
-    with secrets_manager.env_sandbox(
-        # {"OPENAI_API_KEY": os.environ.get("OPENAI_API_KEY", "")}
-        {
-            "AWS_ACCESS_KEY_ID": os.environ["AWS_ACCESS_KEY_ID"],
-            "AWS_SECRET_ACCESS_KEY": os.environ["AWS_SECRET_ACCESS_KEY"],
-            "AWS_REGION": os.environ["AWS_REGION"],
-        }
-    ):
+    with secrets_manager.use_agent_credentials():
         coro = agent(
             instructions=prompt.content,
             model_name=os.environ["CHAT_MODEL_NAME"],
