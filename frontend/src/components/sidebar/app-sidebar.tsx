@@ -3,6 +3,7 @@
 import {
   BracesIcon,
   KeyRoundIcon,
+  ListTodoIcon,
   ShieldAlertIcon,
   Table2Icon,
   UsersIcon,
@@ -56,6 +57,12 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       url: `${basePath}/integrations`,
       icon: ZapIcon,
       isActive: pathname?.startsWith(`${basePath}/integrations`),
+    },
+    {
+      title: "Agendas",
+      url: `${basePath}/agendas`,
+      icon: ListTodoIcon,
+      isActive: pathname?.startsWith(`${basePath}/agendas`),
     },
   ]
 
