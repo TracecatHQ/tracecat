@@ -176,7 +176,7 @@ export function CasePanelView({
   return (
     <div className="h-full bg-background flex">
       {/* Main Content */}
-      <div className="flex flex-1 overflow-hidden">
+      <div className="w-full flex flex-1 overflow-hidden">
         {/* Case properties section */}
         <div className="h-full border-r flex flex-col w-1/6">
           <div className="flex-1 overflow-y-auto p-4">
@@ -378,7 +378,7 @@ export function CasePanelView({
         </div>
 
         {/* Chat section */}
-        <div className="max-w-sm">
+        <div className="max-w-md">
           <CaseChat caseId={caseId} isChatOpen={isChatOpen} />
         </div>
       </div>
