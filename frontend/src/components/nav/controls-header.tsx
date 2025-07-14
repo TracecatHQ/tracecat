@@ -353,6 +353,12 @@ function getPageConfig(
     }
   }
 
+  if (pagePath.startsWith("/agendas")) {
+    return {
+      title: "Agendas",
+    }
+  }
+
   return null
 }
 
