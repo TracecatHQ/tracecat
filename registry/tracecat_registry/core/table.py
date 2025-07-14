@@ -252,3 +252,15 @@ async def create_table(
     async with TablesService.with_session() as service:
         table = await service.create_table(params)
     return table.model_dump()
+
+
+@registry.register(
+    default_title="List tables",
+    description="Get a list of all available tables in the workspace.",
+    display_group="Tables",
+    namespace="core.table",
+)
+async def list_tables() -> list[dict[str, Any]]:
+    async with TablesService.with_session() as service:
+        tables = await service.list_tables()
+    return [table.model_dump() for table in tables]
