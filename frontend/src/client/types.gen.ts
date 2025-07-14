@@ -1638,6 +1638,10 @@ export type PromptRead = {
   meta?: {
     [key: string]: unknown
   }
+  /**
+   * A summary of the prompt.
+   */
+  summary?: string | null
 }
 
 /**
@@ -1692,6 +1696,10 @@ export type PromptUpdate = {
    * New tools for the prompt
    */
   tools?: Array<string> | null
+  /**
+   * New summary for the prompt
+   */
+  summary?: string | null
 }
 
 /**
