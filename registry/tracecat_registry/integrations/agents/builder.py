@@ -840,7 +840,15 @@ async def agent(
             # Pass conversation history to the agent
             async with agent.iter(
                 user_prompt=user_prompt,
-                message_history=conversation_history,
+                message_history=[
+                    ModelResponse(
+                        parts=[
+                            TextPart(
+                                content=f"Chat history thus far: <chat_history>{to_json(conversation_history, indent=2).decode()}</chat_history>"
+                            )
+                        ]
+                    ),
+                ],
             ) as run:
                 async for node in run:
                     curr: ModelMessage
