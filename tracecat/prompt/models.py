@@ -1,9 +1,13 @@
 """Prompt API models."""
 
+from __future__ import annotations
+
 from datetime import datetime
 from typing import Any
 
 from pydantic import UUID4, BaseModel, Field
+
+from tracecat.chat.enums import ChatEntity
 
 
 class PromptCreate(BaseModel):
@@ -54,11 +58,17 @@ class PromptUpdate(BaseModel):
 class PromptRunRequest(BaseModel):
     """Request model for running a prompt on cases."""
 
-    case_ids: list[UUID4] = Field(
-        ...,
-        description="List of case IDs to run the prompt on",
-        min_length=1,
-        max_length=100,
+    entities: list[PromptRunEntity] = Field(
+        ..., description="Entities to run the prompt on"
+    )
+
+
+class PromptRunEntity(BaseModel):
+    """Request model for running a prompt on an entity."""
+
+    entity_id: UUID4 = Field(..., description="ID of the entity to run the prompt on")
+    entity_type: ChatEntity = Field(
+        ..., description="Type of the entity to run the prompt on"
     )
 
 

@@ -1,21 +1,28 @@
 """Prompt service for freezing and replaying chats."""
 
-import asyncio
 import hashlib
 import json
-import os
+import textwrap
 import uuid
 from collections.abc import Sequence
 
-import yaml
-from pydantic_ai.messages import ModelRequest, ModelResponse, UserPromptPart
+from pydantic_ai.messages import (
+    ModelRequest,
+    ModelResponse,
+    ToolCallPart,
+    ToolReturnPart,
+    UserPromptPart,
+)
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from tracecat.chat.models import ChatMessage
+from tracecat.chat.enums import ChatEntity
+from tracecat.chat.models import ChatMessage, ChatResponse
 from tracecat.chat.service import ChatService
 from tracecat.db.schemas import Chat, Prompt
 from tracecat.logger import logger
+from tracecat.prompt.flows import run_prompts_for_case
+from tracecat.prompt.models import PromptRunEntity
 from tracecat.service import BaseWorkspaceService
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatNotFoundError
@@ -39,22 +46,56 @@ class PromptService(BaseWorkspaceService):
 
         messages = await self.chats.get_chat_messages(chat)
 
-        prompt_content = self._reduce_messages_to_prompt(messages)
+        steps = self._reduce_messages_to_steps(messages)
 
         tool_sha = self._calculate_tool_sha(chat.tools)
-        token_count = self._estimate_token_count(prompt_content)
+        token_count = self._estimate_token_count(steps)
 
         # Create prompt with default title
+        content = textwrap.dedent(f"""
+# Task
+You are an expert automation agent.
+
+You will be given a JSON <Alert> by the user.
+Execute each <Step> in the list of <Steps> EXACTLY as they appear, on the user-provided <Alert>.
+
+Here are the steps that you need to execute:
+{steps}
+
+It is important you note that these steps contain example tool call inputs and outputs that you should not reuse on the user-provided <Alert>.
+You must determine yourself the inputs to each tool call, and observe the responses.
+
+## Handling steps
+If a <Step> is ...
+
+... a user-prompt: follow the user's instructions
+
+... a tool-call: pay attention to the tool name, understand where the arguments came from
+
+... a tool-return: pay attention to the tool name and what *kind* of data is returned, but not the actual _value_ of the data.
+
+Sticking to the above will help you successfully run the <Steps> over the new user-provided <Alert>
+
+<Rules>
+1. Do NOT call tools outside of <Steps>
+2. Preserve the order of <Steps>
+3. Do NOT use any data from the example <Steps> in the task, as this is only an example of a successful run. Instead you must use data only from the user-provided <Alert>
+4. Do NOT add conversational chatter
+5. When using Splunk tools, use `verify_ssl=false`
+</Rules>
+
+        """)
         prompt = Prompt(
             chat_id=chat.id,
             title=f"{chat.title} - Frozen",
-            content=prompt_content,
+            content=content,
             owner_id=self.workspace_id,
             meta={
                 "schema": "v1",
                 "tool_sha": tool_sha,
                 "token_count": token_count,
             },
+            tools=chat.tools,
         )
 
         self.session.add(prompt)
@@ -129,84 +170,83 @@ class PromptService(BaseWorkspaceService):
     async def run_prompt(
         self,
         prompt: Prompt,
-        case_ids: list[uuid.UUID],
-    ) -> dict[str, str]:
+        entities: list[PromptRunEntity],
+    ) -> list[ChatResponse]:
         """Execute a prompt on multiple cases."""
-        # Import here to avoid circular imports
-        from tracecat_registry.integrations.agents.builder import agent
-
-        from tracecat.secrets import secrets_manager
-
-        # Get the chat to access tools
-        stmt = select(Chat).where(Chat.id == prompt.chat_id)
-        result = await self.session.exec(stmt)
-        chat = result.first()
-        if not chat:
-            raise TracecatNotFoundError(f"Chat {prompt.chat_id} not found")
-
-        # Prepare stream URLs
-        stream_urls = {}
 
         # Fire off tasks for each case
-        for case_id in case_ids:
-            agent_args = {
-                "user_prompt": prompt.content,
-                "model_name": "gpt-4o",
-                "model_provider": "openai",
-                "actions": chat.tools,
-                "workflow_run_id": case_id,  # Use case_id as workflow_run_id
-            }
+        responses = []
+        for entity in entities:
+            if entity.entity_type == ChatEntity.CASE:
+                try:
+                    response = await run_prompts_for_case(
+                        case_id=entity.entity_id,
+                        prompt=prompt,
+                        session=self.session,
+                        role=self.role,
+                    )
+                except TracecatNotFoundError:
+                    logger.warning(
+                        "Case not found",
+                        case_id=entity.entity_id,
+                        prompt_id=prompt.id,
+                        workspace_id=self.workspace_id,
+                    )
+                else:
+                    responses.append(response)
+        return responses
 
-            # Create task with proper environment
-            # NOTE: In production, this should use workspace-specific credentials
-            with secrets_manager.env_sandbox(
-                {"OPENAI_API_KEY": os.environ.get("OPENAI_API_KEY", "")}
-            ):
-                _ = asyncio.create_task(agent(**agent_args))
-
-            # Generate stream URL
-            stream_urls[case_id] = f"/api/prompt/{prompt.id}/case/{case_id}/stream"
-
-        logger.info(
-            "Started prompt execution",
-            prompt_id=prompt.id,
-            case_count=len(case_ids),
-            workspace_id=self.workspace_id,
-        )
-
-        return stream_urls
-
-    def _reduce_messages_to_prompt(self, messages: list[ChatMessage]) -> str:
+    def _reduce_messages_to_steps(self, messages: list[ChatMessage]) -> str:
         """
         Reduce chat messages to a single prompt string.
 
         The prompt string should be an executable instruction set for an agent.
 
         Phase 1:
-        - Just serialize as yaml or something
+        - Just serialize as XML objects
 
         Phase 2:
         - Prompt optimization
         """
         # Simple concatenation approach for MVP
-        prompt_parts = ["You are an incident assistant helping with security cases.\n"]
+        prompt_parts = []
 
+        # Turn these into steps
         for msg in messages:
             # Extract role and content from message
             match msg.message:
                 case ModelRequest(parts=parts):
-                    role = (
-                        "user"
-                        if any(isinstance(part, UserPromptPart) for part in parts)
-                        else "assistant"
-                    )
-                    content = yaml.dump(parts)
-                    prompt_parts.append(f"{role}: {content}")
+                    xml_parts = []
+                    for part in parts:
+                        match part:
+                            case UserPromptPart(content=content):
+                                xml_parts.append(
+                                    f'<Step type="user-prompt">\n'
+                                    f'\t<Content type="json">{json.dumps(content, indent=2)}</Content>\n'
+                                    "</Step>\n"
+                                )
+                            case ToolReturnPart(tool_name=tool_name, content=content):
+                                xml_parts.append(
+                                    f'<Step type="tool-return" tool_name="{tool_name}">\n'
+                                    f'\t<Content type="json">{json.dumps(content, indent=2)}</Content>\n'
+                                    "</Step>\n"
+                                )
+                    content = "".join(xml_parts)
+                    prompt_parts.append(content)
                 case ModelResponse(parts=parts):
-                    role = "assistant"
-                    content = yaml.dump(parts)
-                    prompt_parts.append(f"{role}: {content}")
-        return "\n".join(prompt_parts)
+                    # Convert each part to XML
+                    xml_parts = []
+                    for part in parts:
+                        match part:
+                            case ToolCallPart(tool_name=tool_name, args=args):
+                                xml_parts.append(
+                                    f'<Step type="tool-call" tool_name="{tool_name}">\n'
+                                    f'\t<Args type="json">{json.dumps(args, indent=2)}</Args>\n'
+                                    "</Step>\n"
+                                )
+                    content = "".join(xml_parts)
+                    prompt_parts.append(content)
+        return f"<Steps>\n{''.join(prompt_parts)}\n</Steps>"
 
     def _calculate_tool_sha(self, tools: list[str]) -> str:
         """Calculate SHA256 hash of tools list."""

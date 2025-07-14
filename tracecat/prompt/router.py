@@ -145,8 +145,12 @@ async def run_prompt(
         )
 
     try:
-        stream_urls = await svc.run_prompt(prompt, params.case_ids)
-        return PromptRunResponse(stream_urls=stream_urls)
+        responses = await svc.run_prompt(prompt, params.entities)
+        return PromptRunResponse(
+            stream_urls={
+                str(response.chat_id): response.stream_url for response in responses
+            }
+        )
     except Exception as e:
         logger.error(
             "Failed to run prompt",
