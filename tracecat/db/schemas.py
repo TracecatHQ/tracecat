@@ -1340,6 +1340,10 @@ class Prompt(Resource, table=True):
         sa_column=Column(JSONB),
         description="The tools available to the agent for this prompt.",
     )
+    summary: str | None = Field(
+        default=None,
+        description="A summary of the prompt.",
+    )
     meta: dict[str, Any] = Field(
         default_factory=dict,
         sa_column=Column(JSONB),

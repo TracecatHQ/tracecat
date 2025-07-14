@@ -1,8 +1,8 @@
 """Add prompt table
 
-Revision ID: ce40b3e4c06d
+Revision ID: 4410b3fd2e7e
 Revises: ca530d6ba081
-Create Date: 2025-07-13 13:55:34.623733
+Create Date: 2025-07-14 14:02:08.628866
 
 """
 
@@ -15,7 +15,7 @@ from sqlalchemy.dialects import postgresql
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = "ce40b3e4c06d"
+revision: str = "4410b3fd2e7e"
 down_revision: str | None = "ca530d6ba081"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
@@ -44,6 +44,7 @@ def upgrade() -> None:
         sa.Column("title", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
         sa.Column("content", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
         sa.Column("tools", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+        sa.Column("summary", sqlmodel.sql.sqltypes.AutoString(), nullable=True),
         sa.Column("meta", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
         sa.ForeignKeyConstraint(["chat_id"], ["chat.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("surrogate_id"),

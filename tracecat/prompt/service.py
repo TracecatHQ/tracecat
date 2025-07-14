@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import os
 import textwrap
 import uuid
 from collections.abc import Sequence
@@ -15,6 +16,7 @@ from pydantic_ai.messages import (
 )
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
+from tracecat_registry.integrations.pydantic_ai import build_agent
 
 from tracecat.chat.enums import ChatEntity
 from tracecat.chat.models import ChatMessage, ChatResponse
@@ -23,6 +25,7 @@ from tracecat.db.schemas import Chat, Prompt
 from tracecat.logger import logger
 from tracecat.prompt.flows import run_prompts_for_case
 from tracecat.prompt.models import PromptRunEntity
+from tracecat.secrets.secrets_manager import use_agent_credentials
 from tracecat.service import BaseWorkspaceService
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatNotFoundError
@@ -47,6 +50,17 @@ class PromptService(BaseWorkspaceService):
         messages = await self.chats.get_chat_messages(chat)
 
         steps = self._reduce_messages_to_steps(messages)
+
+        try:
+            summary = await self._prompt_summary(steps, tools=chat.tools)
+        except Exception as e:
+            logger.error(
+                "Failed to create prompt summary",
+                error=e,
+                steps=steps,
+                tools=chat.tools,
+            )
+            summary = None
 
         tool_sha = self._calculate_tool_sha(chat.tools)
         token_count = self._estimate_token_count(steps)
@@ -82,6 +96,7 @@ Sticking to the above will help you successfully run the <Steps> over the new us
 3. Do NOT use any data from the example <Steps> in the task, as this is only an example of a successful run. Instead you must use data only from the user-provided <Alert>
 4. Do NOT add conversational chatter
 5. When using Splunk tools, use `verify_ssl=false`
+6. Do your best to interpret the user's instructions, but if you are unsure, ask the user for clarification. For example, you shouldn't write all your thoughts to the case comments if not asked to do so.
 </Rules>
 
         """)
@@ -96,6 +111,7 @@ Sticking to the above will help you successfully run the <Steps> over the new us
                 "token_count": token_count,
             },
             tools=chat.tools,
+            summary=summary,
         )
 
         self.session.add(prompt)
@@ -256,3 +272,45 @@ Sticking to the above will help you successfully run the <Steps> over the new us
     def _estimate_token_count(self, text: str) -> int:
         """Rough estimation of token count (1 token ≈ 4 characters)."""
         return len(text) // 4
+
+    async def _prompt_summary(self, steps: str, tools: list[str]) -> str:
+        """Convert a prompt to a runbook."""
+        instructions = textwrap.dedent("""
+        You are an expert runbook creation agent.
+
+        You will be given a list of <Steps> by the user.
+        Each <Step> in the list of <Steps> is extracted from messages between the user and an AI agent.
+
+        <Task>
+        Your task is to post-process the <Steps> into a generalized runbook.
+        </Task>
+
+        <PostProcessingRules>
+        - Remove steps that are not relevant to achieving the user's objective
+        - Remove duplicate steps
+        - Remove failed steps (e.g. malformed tool calls)
+        - Combine steps that are related or part of a "loop" (e.g. multiple tool calls for a list of items)
+        - Generalize and summarize each <Step> into a concise task description that a human or agent can follow
+        </PostProcessingRules>
+
+        <Requirements>
+        - Return ONLY the runbook as a formatted markdown string, nothing else
+        - Include a section `Objective` on the user's objective. You must infer the objective from the <Steps>.
+        - Include a section `Tools` on the tools that are required for the runbook. This will be provided by the user as <Tools>.
+        </Requirements>
+        """)
+        with use_agent_credentials():
+            agent = build_agent(
+                model_name=os.environ["CHAT_MODEL_NAME"],
+                model_provider=os.environ["CHAT_MODEL_PROVIDER"],
+                instructions=instructions,
+            )
+            user_prompt = f"""
+            {steps}
+
+            <Tools>
+            {json.dumps(tools, indent=2)}
+            </Tools>
+            """
+            response = await agent.run(user_prompt)
+        return response.output
