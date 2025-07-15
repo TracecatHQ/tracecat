@@ -42,6 +42,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+} from "@/components/ui/resizable"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useGetCase, useUpdateCase } from "@/lib/hooks"
@@ -174,12 +179,14 @@ export function CasePanelView({
   const customFields = caseData.fields.filter((field) => !field.reserved)
 
   return (
-    <div className="h-full bg-background flex">
-      {/* Main Content */}
-      <div className="w-full flex flex-1 overflow-hidden">
+    <div className="h-full bg-background flex w-full">
+      <ResizablePanelGroup
+        direction="horizontal"
+        className="h-full w-full min-w-0"
+      >
         {/* Case properties section */}
-        <div className="h-full border-r flex flex-col w-1/6">
-          <div className="flex-1 overflow-y-auto p-4">
+        <ResizablePanel defaultSize={16} minSize={10} maxSize={30}>
+          <div className="h-full overflow-y-auto p-4 border-r min-w-0">
             <div className="space-y-10">
               {/* Properties Section */}
               <CasePanelSection
@@ -291,13 +298,12 @@ export function CasePanelView({
               </CasePanelSection>
             </div>
           </div>
-        </div>
-
+        </ResizablePanel>
+        <ResizableHandle className="bg-transparent" />
         {/* Main section */}
-
-        <div className="h-full flex flex-col flex-1 overflow-hidden items-center">
-          <div className="flex-1 overflow-y-auto py-4 px-6 min-w-[800px]">
-            <div className="max-w-4xl">
+        <ResizablePanel defaultSize={60} minSize={30}>
+          <div className="h-full overflow-auto min-w-0">
+            <div className="py-4 px-6 max-w-4xl mx-auto">
               {/* Header with Chat Toggle */}
               <div className="flex items-center justify-between mb-4">
                 <div className="flex-1">
@@ -375,13 +381,15 @@ export function CasePanelView({
               </Tabs>
             </div>
           </div>
-        </div>
-
+        </ResizablePanel>
         {/* Chat section */}
-        <div className="max-w-md">
-          <CaseChat caseId={caseId} isChatOpen={isChatOpen} />
-        </div>
-      </div>
+        <ResizableHandle className="bg-transparent" />
+        <ResizablePanel defaultSize={24} minSize={20} maxSize={40}>
+          <div className="h-full min-w-0 max-w-md">
+            <CaseChat caseId={caseId} isChatOpen={isChatOpen} />
+          </div>
+        </ResizablePanel>
+      </ResizablePanelGroup>
     </div>
   )
 }
