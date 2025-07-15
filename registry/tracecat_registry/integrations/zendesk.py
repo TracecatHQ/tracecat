@@ -9,21 +9,19 @@ from pydantic import Field
 from tracecat_registry import RegistrySecret, registry, secrets
 
 zendesk_secret = RegistrySecret(
-    name="zendesk", keys=["ZENDESK_SUBDOMAIN", "ZENDESK_EMAIL", "ZENDESK_API_TOKEN"]
+    name="zendesk", keys=["ZENDESK_EMAIL", "ZENDESK_API_TOKEN"]
 )
 """Zendesk API credentials.
 
 - name: `zendesk`
 - keys:
-    - `ZENDESK_SUBDOMAIN`: Your Zendesk subdomain (e.g., 'company' for company.zendesk.com)
     - `ZENDESK_EMAIL`: Email address of the API user
     - `ZENDESK_API_TOKEN`: API token for authentication
 """
 
 
-def _get_zendesk_client() -> tuple[httpx.AsyncClient, str]:
+def _get_zendesk_client(subdomain: str) -> tuple[httpx.AsyncClient, str]:
     """Create authenticated Zendesk HTTP client."""
-    subdomain = secrets.get("ZENDESK_SUBDOMAIN")
     email = secrets.get("ZENDESK_EMAIL")
     api_token = secrets.get("ZENDESK_API_TOKEN")
 
@@ -53,12 +51,19 @@ def _get_zendesk_client() -> tuple[httpx.AsyncClient, str]:
     secrets=[zendesk_secret],
 )
 async def get_ticket(
+    subdomain: Annotated[
+        str,
+        Field(
+            ...,
+            description="Your Zendesk subdomain (e.g., 'company' for company.zendesk.com)",
+        ),
+    ],
     ticket_id: Annotated[
         int, Field(..., description="The ID of the ticket to retrieve")
     ],
 ) -> dict[str, Any]:
     """Get a specific ticket by ID."""
-    client, _ = _get_zendesk_client()
+    client, _ = _get_zendesk_client(subdomain)
 
     async with client:
         response = await client.get(f"/tickets/{ticket_id}.json")
@@ -75,6 +80,13 @@ async def get_ticket(
     secrets=[zendesk_secret],
 )
 async def search_tickets(
+    subdomain: Annotated[
+        str,
+        Field(
+            ...,
+            description="Your Zendesk subdomain (e.g., 'company' for company.zendesk.com)",
+        ),
+    ],
     query: Annotated[
         str,
         Field(
@@ -97,7 +109,7 @@ async def search_tickets(
     ] = 100,
 ) -> dict[str, Any]:
     """Search for tickets using query syntax."""
-    client, _ = _get_zendesk_client()
+    client, _ = _get_zendesk_client(subdomain)
 
     params = {"query": query, "per_page": min(per_page, 100)}
     if sort_by:
@@ -121,6 +133,13 @@ async def search_tickets(
     secrets=[zendesk_secret],
 )
 async def get_ticket_comments(
+    subdomain: Annotated[
+        str,
+        Field(
+            ...,
+            description="Your Zendesk subdomain (e.g., 'company' for company.zendesk.com)",
+        ),
+    ],
     ticket_id: Annotated[int, Field(..., description="The ID of the ticket")],
     page: Annotated[
         int | None, Field(None, description="Page number for pagination (1-based)")
@@ -130,7 +149,7 @@ async def get_ticket_comments(
     ] = 100,
 ) -> dict[str, Any]:
     """Get all comments for a ticket."""
-    client, _ = _get_zendesk_client()
+    client, _ = _get_zendesk_client(subdomain)
 
     params = {"per_page": min(per_page, 100)}
     if page:
@@ -152,10 +171,17 @@ async def get_ticket_comments(
     secrets=[zendesk_secret],
 )
 async def get_ticket_attachments(
+    subdomain: Annotated[
+        str,
+        Field(
+            ...,
+            description="Your Zendesk subdomain (e.g., 'company' for company.zendesk.com)",
+        ),
+    ],
     ticket_id: Annotated[int, Field(..., description="The ID of the ticket")],
 ) -> dict[str, Any]:
     """Get attachments from a ticket by retrieving ticket comments and extracting attachments."""
-    client, _ = _get_zendesk_client()
+    client, _ = _get_zendesk_client(subdomain)
 
     async with client:
         # Get ticket comments which contain attachment information
@@ -183,6 +209,13 @@ async def get_ticket_attachments(
     secrets=[zendesk_secret],
 )
 async def add_attachment_to_ticket(
+    subdomain: Annotated[
+        str,
+        Field(
+            ...,
+            description="Your Zendesk subdomain (e.g., 'company' for company.zendesk.com)",
+        ),
+    ],
     ticket_id: Annotated[int, Field(..., description="The ID of the ticket")],
     file_content: Annotated[str, Field(..., description="Base64 encoded file content")],
     filename: Annotated[str, Field(..., description="Name of the file")],
@@ -192,7 +225,7 @@ async def add_attachment_to_ticket(
     ] = None,
 ) -> dict[str, Any]:
     """Add an attachment to a ticket by first uploading it, then adding it to a comment."""
-    client, _ = _get_zendesk_client()
+    client, _ = _get_zendesk_client(subdomain)
 
     async with client:
         # Step 1: Upload the attachment
@@ -234,6 +267,13 @@ async def add_attachment_to_ticket(
     secrets=[zendesk_secret],
 )
 async def get_groups(
+    subdomain: Annotated[
+        str,
+        Field(
+            ...,
+            description="Your Zendesk subdomain (e.g., 'company' for company.zendesk.com)",
+        ),
+    ],
     page: Annotated[
         int | None, Field(None, description="Page number for pagination (1-based)")
     ] = None,
@@ -242,7 +282,7 @@ async def get_groups(
     ] = 100,
 ) -> dict[str, Any]:
     """Get all groups."""
-    client, _ = _get_zendesk_client()
+    client, _ = _get_zendesk_client(subdomain)
 
     params = {"per_page": min(per_page, 100)}
     if page:
@@ -262,6 +302,13 @@ async def get_groups(
     secrets=[zendesk_secret],
 )
 async def get_group_users(
+    subdomain: Annotated[
+        str,
+        Field(
+            ...,
+            description="Your Zendesk subdomain (e.g., 'company' for company.zendesk.com)",
+        ),
+    ],
     group_id: Annotated[int, Field(..., description="The ID of the group")],
     page: Annotated[
         int | None, Field(None, description="Page number for pagination (1-based)")
@@ -271,7 +318,7 @@ async def get_group_users(
     ] = 100,
 ) -> dict[str, Any]:
     """Get all users in a specific group."""
-    client, _ = _get_zendesk_client()
+    client, _ = _get_zendesk_client(subdomain)
 
     params = {"per_page": min(per_page, 100)}
     if page:
@@ -291,123 +338,53 @@ async def get_group_users(
     secrets=[zendesk_secret],
 )
 async def get_twilio_recordings(
-    ticket_id: Annotated[
-        int | None, Field(None, description="Optional ticket ID to filter recordings")
-    ] = None,
-    limit: Annotated[
-        int, Field(100, description="Maximum number of recordings to retrieve")
-    ] = 100,
+    subdomain: Annotated[
+        str,
+        Field(
+            ...,
+            description="Your Zendesk subdomain (e.g., 'company' for company.zendesk.com)",
+        ),
+    ],
+    recording_id: Annotated[str, Field(..., description="Recording ID")],
 ) -> dict[str, Any]:
     """Get Twilio recordings. Note: This requires Twilio integration to be configured in Zendesk."""
-    client, _ = _get_zendesk_client()
-
-    params = {"limit": limit}
-    if ticket_id:
-        params["ticket_id"] = ticket_id
+    client, _ = _get_zendesk_client(subdomain)
 
     async with client:
         # This endpoint may vary depending on how Twilio integration is set up
         # This is a generic approach - actual endpoint may need adjustment
         try:
             response = await client.get(
-                "/integrations/twilio/recordings.json", params=params
+                f"channels/voice/calls/{recording_id}/twilio/call/recording",
             )
             response.raise_for_status()
-            return response.json()
+
+            # Check if response is binary (audio file) or JSON
+            content_type = response.headers.get("content-type", "")
+            if "audio" in content_type or "application/octet-stream" in content_type:
+                # Return binary data as base64 encoded string
+                import base64
+
+                return {
+                    "recording_id": recording_id,
+                    "content_type": content_type,
+                    "data": base64.b64encode(response.content).decode("utf-8"),
+                    "size": len(response.content),
+                }
+            else:
+                # Assume JSON response
+                return response.json()
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 404:
                 return {
-                    "error": "Twilio integration not found or not configured",
+                    "error": "File Not found or Twilio integration not configured",
                     "recordings": [],
                     "message": "This endpoint requires Twilio integration to be set up in Zendesk",
                 }
             raise
-
-
-@registry.register(
-    default_title="Create ticket",
-    description="Create a new ticket in Zendesk.",
-    display_group="Zendesk",
-    namespace="integrations.zendesk",
-    secrets=[zendesk_secret],
-)
-async def create_ticket(
-    subject: Annotated[str, Field(..., description="Ticket subject")],
-    description: Annotated[str, Field(..., description="Ticket description/body")],
-    requester_email: Annotated[
-        str | None, Field(None, description="Email of the requester")
-    ] = None,
-    priority: Annotated[
-        Literal["urgent", "high", "normal", "low"] | None,
-        Field(None, description="Ticket priority"),
-    ] = None,
-    ticket_type: Annotated[
-        Literal["problem", "incident", "question", "task"] | None,
-        Field(None, description="Type of ticket"),
-    ] = None,
-    tags: Annotated[
-        list[str] | None, Field(None, description="Tags to add to the ticket")
-    ] = None,
-) -> dict[str, Any]:
-    """Create a new ticket."""
-    client, _ = _get_zendesk_client()
-
-    ticket_data = {"ticket": {"subject": subject, "comment": {"body": description}}}
-
-    if requester_email:
-        ticket_data["ticket"]["requester"] = {"email": requester_email}
-    if priority:
-        ticket_data["ticket"]["priority"] = priority
-    if ticket_type:
-        ticket_data["ticket"]["type"] = ticket_type
-    if tags:
-        ticket_data["ticket"]["tags"] = tags
-
-    async with client:
-        response = await client.post("/tickets.json", json=ticket_data)
-        response.raise_for_status()
-        return response.json()
-
-
-@registry.register(
-    default_title="Update ticket",
-    description="Update an existing ticket in Zendesk.",
-    display_group="Zendesk",
-    namespace="integrations.zendesk",
-    secrets=[zendesk_secret],
-)
-async def update_ticket(
-    ticket_id: Annotated[int, Field(..., description="The ID of the ticket to update")],
-    status: Annotated[
-        Literal["new", "open", "pending", "hold", "solved", "closed"] | None,
-        Field(None, description="New status for the ticket"),
-    ] = None,
-    priority: Annotated[
-        Literal["urgent", "high", "normal", "low"] | None,
-        Field(None, description="New priority for the ticket"),
-    ] = None,
-    comment: Annotated[
-        str | None, Field(None, description="Comment to add to the ticket")
-    ] = None,
-    tags: Annotated[
-        list[str] | None, Field(None, description="Tags to add to the ticket")
-    ] = None,
-) -> dict[str, Any]:
-    """Update an existing ticket."""
-    client, _ = _get_zendesk_client()
-
-    ticket_data = {"ticket": {}}
-
-    if status:
-        ticket_data["ticket"]["status"] = status
-    if priority:
-        ticket_data["ticket"]["priority"] = priority
-    if comment:
-        ticket_data["ticket"]["comment"] = {"body": comment}
-    if tags:
-        ticket_data["ticket"]["tags"] = tags
-
-    async with client:
-        response = await client.put(f"/tickets/{ticket_id}.json", json=ticket_data)
-        response.raise_for_status()
-        return response.json()
+        except Exception as e:
+            return {
+                "error": str(e),
+                "recordings": [],
+                "message": "This endpoint requires Twilio integration to be set up in Zendesk",
+            }
