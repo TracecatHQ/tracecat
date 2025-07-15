@@ -112,10 +112,12 @@ export function WorkspaceSelector(props: React.HTMLAttributes<HTMLElement>) {
                     onSelect={() => {
                       setCurrWorkspace(ws)
                       // replace /workspaces/<ws-id>/... with /workspaces/<new-ws-id>/...
-                      const newPath = pathname.replace(
-                        /\/workspaces\/[^/]+/,
-                        `/workspaces/${ws.id}`
-                      )
+                      const newPath = pathname
+                        ? pathname.replace(
+                            /\/workspaces\/[^/]+/,
+                            `/workspaces/${ws.id}`
+                          )
+                        : `/workspaces/${ws.id}`
                       router.push(newPath)
                       setOpen(false)
                     }}

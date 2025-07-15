@@ -67,7 +67,8 @@ type TableViewColumnMenuType = "delete" | "edit" | "set-natural-key" | null
 
 export function TableViewColumnMenu({ column }: { column: TableColumnRead }) {
   const { user } = useAuth()
-  const { tableId } = useParams<{ tableId?: string }>()
+  const params = useParams<{ tableId?: string }>()
+  const tableId = params?.tableId
   const [activeType, setActiveType] = useState<TableViewColumnMenuType>(null)
   const onOpenChange = () => setActiveType(null)
 

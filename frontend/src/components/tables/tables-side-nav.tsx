@@ -31,7 +31,8 @@ export function TablesSidebar({ workspaceId }: { workspaceId: string }) {
     workspaceId,
   })
   const [showTableDialog, setShowTableDialog] = useState(false)
-  const { tableId: selectedTableId } = useParams<{ tableId?: string }>()
+  const params = useParams<{ tableId?: string }>()
+  const selectedTableId = params?.tableId
 
   if (tablesIsLoading || tablesError) return null
 

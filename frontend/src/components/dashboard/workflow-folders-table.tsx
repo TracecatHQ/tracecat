@@ -4,24 +4,19 @@ import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import type { Row } from "@tanstack/react-table"
 import { format, formatDistanceToNow } from "date-fns"
 import { CircleDot, FolderIcon, WorkflowIcon } from "lucide-react"
-import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
-import React, { useState } from "react"
+import { useState } from "react"
 import type {
   ApiError,
   FolderDirectoryItem,
   TagRead,
   WorkflowReadMinimal,
 } from "@/client"
-import { CreateWorkflowButton } from "@/components/dashboard/create-workflow-button"
 import { DeleteWorkflowAlertDialog } from "@/components/dashboard/delete-workflow-dialog"
 import { FolderDeleteAlertDialog } from "@/components/dashboard/folder-delete-dialog"
 import { FolderMoveDialog } from "@/components/dashboard/folder-move-dialog"
 import { FolderRenameDialog } from "@/components/dashboard/folder-rename-dialog"
-import {
-  FolderViewToggle,
-  type ViewMode,
-} from "@/components/dashboard/folder-view-toggle"
+import type { ViewMode } from "@/components/dashboard/folder-view-toggle"
 import {
   FolderActions,
   WorkflowActions,
@@ -34,13 +29,6 @@ import {
   type DataTableToolbarProps,
 } from "@/components/data-table"
 import { Badge } from "@/components/ui/badge"
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -54,7 +42,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { type DirectoryItem, useGetDirectoryItems } from "@/lib/hooks"
-import { capitalizeFirst, cn } from "@/lib/utils"
+import { capitalizeFirst } from "@/lib/utils"
 import { useAuth } from "@/providers/auth"
 import { useWorkspace } from "@/providers/workspace"
 
@@ -63,11 +51,12 @@ export function WorkflowFoldersTable({
   setView,
 }: {
   view: ViewMode
-  setView: (view: ViewMode) => void
+  setView?: (view: ViewMode) => void
 }) {
   const { workspaceId } = useWorkspace()
-  const path = useSearchParams().get("path") || "/"
-  const segments = path.split("/").filter(Boolean)
+  const searchParams = useSearchParams()
+  const path = searchParams?.get("path") || "/"
+  const _segments = path.split("/").filter(Boolean)
 
   // We should read the structure directly from the backend
   // i.e. the backend should return us the
@@ -75,87 +64,12 @@ export function WorkflowFoldersTable({
     useGetDirectoryItems(path, workspaceId)
 
   return (
-    <div className="flex flex-col space-y-12">
-      <div className="flex w-full">
-        <div className="items-start space-y-3 text-left">
-          <Breadcrumb>
-            <BreadcrumbList>
-              <BreadcrumbItem>
-                <BreadcrumbLink
-                  asChild
-                  className={cn(
-                    "flex items-center",
-                    segments.length > 0
-                      ? "text-muted-foreground"
-                      : "text-foreground"
-                  )}
-                >
-                  <Link href={`/workspaces/${workspaceId}/workflows`}>
-                    <h2 className="text-2xl font-semibold tracking-tight">
-                      Workflows
-                    </h2>
-                  </Link>
-                </BreadcrumbLink>
-              </BreadcrumbItem>
-              {/* Show folder path in breadcrumb */}
-              {segments.length > 0 &&
-                segments.map((segment, index) => {
-                  // Build the path up to this segment
-                  const pathToSegment = `/${segments.slice(0, index + 1).join("/")}`
-                  const url = `/workspaces/${workspaceId}/workflows?path=${encodeURIComponent(pathToSegment)}`
-
-                  return (
-                    <React.Fragment key={index}>
-                      <BreadcrumbSeparator className="text-xl">
-                        {"/"}
-                      </BreadcrumbSeparator>
-                      <BreadcrumbItem>
-                        <BreadcrumbLink
-                          asChild
-                          className={cn(
-                            "flex items-center",
-                            index === segments.length - 1
-                              ? "text-foreground/80"
-                              : "text-muted-foreground"
-                          )}
-                        >
-                          {index === segments.length - 1 ? (
-                            <h2 className="text-2xl font-semibold tracking-tight">
-                              {segment}
-                            </h2>
-                          ) : (
-                            <Link href={url}>
-                              <h2 className="text-2xl font-semibold tracking-tight">
-                                {segment}
-                              </h2>
-                            </Link>
-                          )}
-                        </BreadcrumbLink>
-                      </BreadcrumbItem>
-                    </React.Fragment>
-                  )
-                })}
-            </BreadcrumbList>
-          </Breadcrumb>
-          <p className="text-md text-muted-foreground">
-            Welcome back! Here are your workflows.
-          </p>
-        </div>
-        <div className="ml-auto flex items-center space-x-4">
-          <FolderViewToggle
-            defaultView={view}
-            onViewChange={(view) => setView(view)}
-          />
-          <CreateWorkflowButton view="folders" currentFolderPath={path} />
-        </div>
-      </div>
-      <WorkflowsDashboardTable
-        view={view}
-        directoryItems={directoryItems}
-        directoryItemsIsLoading={directoryItemsIsLoading}
-        directoryItemsError={directoryItemsError}
-      />
-    </div>
+    <WorkflowsDashboardTable
+      view={view}
+      directoryItems={directoryItems}
+      directoryItemsIsLoading={directoryItemsIsLoading}
+      directoryItemsError={directoryItemsError}
+    />
   )
 }
 

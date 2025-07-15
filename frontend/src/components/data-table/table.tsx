@@ -122,7 +122,7 @@ export function DataTable<TData, TValue>({
     },
     initialState: {
       pagination: {
-        pageSize: serverSidePagination?.pageSize ?? data?.length ?? 10,
+        pageSize: serverSidePagination?.pageSize ?? 10,
         pageIndex: serverSidePagination?.currentPage ?? 0,
       },
     },

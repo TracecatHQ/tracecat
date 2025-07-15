@@ -1,12 +1,11 @@
 "use client"
 
+import Link from "next/link"
 import { useParams, usePathname } from "next/navigation"
-
+import { Icons } from "@/components/icons"
 import { BuilderNav } from "@/components/nav/builder-nav"
-import { Navbar } from "@/components/nav/navbar"
-import { OrganizationNav } from "@/components/nav/organization-nav"
-import { RegistryNav } from "@/components/nav/registry-nav"
-import { WorkspaceNav } from "@/components/nav/workspace-nav"
+import UserNav from "@/components/nav/user-nav"
+import { TooltipProvider } from "@/components/ui/tooltip"
 
 type DynamicNavbarParams = {
   workspaceId?: string
@@ -16,26 +15,32 @@ type DynamicNavbarParams = {
 export function DynamicNavbar() {
   const pathname = usePathname()
   const params = useParams<DynamicNavbarParams>()
-  if (!pathname) {
-    return null
-  }
-  return <Navbar>{getNavBar(pathname, params)}</Navbar>
-}
+  const workspaceId = params?.workspaceId
+  const workflowId = params?.workflowId
 
-function getNavBar(pathname: string, params: DynamicNavbarParams) {
-  const { workspaceId, workflowId } = params
-  if (pathname.includes("/workflows") && workspaceId && workflowId) {
-    return <BuilderNav />
-  } else if (pathname.includes("/workspaces") && workspaceId) {
-    return <WorkspaceNav />
-  } else if (pathname.includes("/registry")) {
-    return <RegistryNav />
-  } else if (pathname.includes("/organization")) {
-    return <OrganizationNav />
-  } else if (pathname.includes("/integrations")) {
-    return <WorkspaceNav />
-  } else {
-    console.log("Hit NULL", pathname)
+  // Only show navbar for workflow builder
+  if (
+    !pathname ||
+    !pathname.includes("/workflows") ||
+    !workspaceId ||
+    !workflowId
+  ) {
     return null
   }
+
+  return (
+    <TooltipProvider delayDuration={300}>
+      <div className="w-full space-x-8 border-b">
+        <div className="flex h-10 w-full items-center space-x-5 px-5">
+          <Link href="/workspaces">
+            <Icons.logo className="size-5" />
+          </Link>
+          <BuilderNav />
+          <div className="flex flex-1 items-center justify-end space-x-6">
+            <UserNav />
+          </div>
+        </div>
+      </div>
+    </TooltipProvider>
+  )
 }

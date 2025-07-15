@@ -187,7 +187,8 @@ export function EventGeneralInfo({ event }: { event: WorkflowExecutionEvent }) {
   const { max_attempts, timeout } = action_retry_policy || {}
 
   // Construct the link within the same workspace to the related workflow execution
-  const { workspaceId } = useParams()
+  const params = useParams()
+  const workspaceId = params?.workspaceId
   let relatedWorkflowExecutionLink: string | undefined
   if (related_wf_exec_id) {
     const [relatedWorkflowId, relatedExecutionId] =

@@ -240,12 +240,12 @@ export function CreateTableDialog({
                 aria-label="Add new column"
               >
                 <PlusCircle className="mr-2 size-4" />
-                Add Column
+                Add column
               </Button>
             </div>
             <DialogFooter>
               <Button type="submit" disabled={createTableIsPending}>
-                Create Table
+                Create table
               </Button>
             </DialogFooter>
           </form>
