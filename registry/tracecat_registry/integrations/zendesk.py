@@ -202,64 +202,6 @@ async def get_ticket_attachments(
 
 
 @registry.register(
-    default_title="Add attachment to ticket",
-    description="Upload and attach a file to a Zendesk ticket.",
-    display_group="Zendesk",
-    namespace="integrations.zendesk",
-    secrets=[zendesk_secret],
-)
-async def add_attachment_to_ticket(
-    subdomain: Annotated[
-        str,
-        Field(
-            ...,
-            description="Your Zendesk subdomain (e.g., 'company' for company.zendesk.com)",
-        ),
-    ],
-    ticket_id: Annotated[int, Field(..., description="The ID of the ticket")],
-    file_content: Annotated[str, Field(..., description="Base64 encoded file content")],
-    filename: Annotated[str, Field(..., description="Name of the file")],
-    content_type: Annotated[str, Field(..., description="MIME type of the file")],
-    comment_body: Annotated[
-        str | None, Field(None, description="Comment text to add with the attachment")
-    ] = None,
-) -> dict[str, Any]:
-    """Add an attachment to a ticket by first uploading it, then adding it to a comment."""
-    client, _ = _get_zendesk_client(subdomain)
-
-    async with client:
-        # Step 1: Upload the attachment
-        files = {"file": (filename, base64.b64decode(file_content), content_type)}
-
-        upload_response = await client.post(
-            f"/uploads.json?filename={filename}", files=files
-        )
-        upload_response.raise_for_status()
-        upload_data = upload_response.json()
-
-        # Step 2: Add comment with attachment to ticket
-        comment_data = {
-            "ticket": {
-                "comment": {
-                    "body": comment_body or f"Attachment: {filename}",
-                    "uploads": [upload_data["upload"]["token"]],
-                }
-            }
-        }
-
-        comment_response = await client.put(
-            f"/tickets/{ticket_id}.json", json=comment_data
-        )
-        comment_response.raise_for_status()
-
-        return {
-            "ticket_id": ticket_id,
-            "upload": upload_data,
-            "comment": comment_response.json(),
-        }
-
-
-@registry.register(
     default_title="Get groups",
     description="Retrieve all groups from Zendesk.",
     display_group="Zendesk",
