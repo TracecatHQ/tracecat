@@ -47,6 +47,7 @@ def _get_zendesk_client() -> tuple[httpx.AsyncClient, str]:
 @registry.register(
     default_title="Get ticket",
     description="Retrieve a specific ticket by ID from Zendesk.",
+    doc_url="https://developer.zendesk.com/api-reference/ticketing/tickets/tickets/#show-ticket",
     display_group="Zendesk",
     namespace="integrations.zendesk",
     secrets=[zendesk_secret],
@@ -66,8 +67,8 @@ async def get_ticket(
 
 
 @registry.register(
-    default_title="Search tickets",
-    description="Search for tickets using Zendesk search query syntax.",
+    default_title="Search Zendesk",
+    description="Search Zendesk using search query syntax.",
     doc_url="https://developer.zendesk.com/api-reference/ticketing/ticket-management/search/#list-search-results",
     display_group="Zendesk",
     namespace="integrations.zendesk",
@@ -78,9 +79,9 @@ async def search_tickets(
         str,
         Field(
             ...,
-            description="Search query using Zendesk search syntax. Default: -status:solved -status:closed",
+            description="Search query using Zendesk search syntax. Default: type:ticket -status:solved -status:closed",
         ),
-    ] = "-status:solved -status:closed",
+    ] = "type:ticket -status:solved -status:closed",
     sort_by: Annotated[
         Literal["created_at", "updated_at", "priority", "status", "ticket_type"] | None,
         Field(None, description="Field to sort results by"),
