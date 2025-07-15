@@ -295,7 +295,7 @@ async def get_twilio_recordings(
     recording_id: Annotated[str, Field(..., description="Recording ID")],
 ) -> dict[str, Any]:
     """Get Twilio recordings. Note: This requires Twilio integration to be configured in Zendesk."""
-    client, _ = _get_zendesk_client(subdomain)
+    client, base_url = _get_zendesk_client(subdomain)
 
     async with client:
         # This endpoint may vary depending on how Twilio integration is set up
@@ -317,6 +317,7 @@ async def get_twilio_recordings(
                     "content_type": content_type,
                     "data": base64.b64encode(response.content).decode("utf-8"),
                     "size": len(response.content),
+                    "download_url": f"{base_url}/channels/voice/calls/{recording_id}/twilio/call/recording",
                 }
             else:
                 # Assume JSON response
