@@ -128,6 +128,7 @@ async def search_tickets(
 @registry.register(
     default_title="Get ticket comments",
     description="Retrieve all comments for a specific ticket.",
+    doc_url="https://developer.zendesk.com/api-reference/ticketing/tickets/ticket_comments/",
     display_group="Zendesk",
     namespace="integrations.zendesk",
     secrets=[zendesk_secret],
@@ -166,6 +167,7 @@ async def get_ticket_comments(
 @registry.register(
     default_title="Get ticket attachments",
     description="Retrieve attachments from a specific ticket.",
+    doc_url="https://developer.zendesk.com/api-reference/ticketing/tickets/ticket_comments/",
     display_group="Zendesk",
     namespace="integrations.zendesk",
     secrets=[zendesk_secret],
@@ -204,6 +206,7 @@ async def get_ticket_attachments(
 @registry.register(
     default_title="Get groups",
     description="Retrieve all groups from Zendesk.",
+    doc_url="https://developer.zendesk.com/api-reference/ticketing/groups/groups/",
     display_group="Zendesk",
     namespace="integrations.zendesk",
     secrets=[zendesk_secret],
@@ -239,6 +242,7 @@ async def get_groups(
 @registry.register(
     default_title="Get group users",
     description="Retrieve all users in a specific group.",
+    doc_url="https://developer.zendesk.com/api-reference/ticketing/groups/groups/",
     display_group="Zendesk",
     namespace="integrations.zendesk",
     secrets=[zendesk_secret],
@@ -275,6 +279,7 @@ async def get_group_users(
 @registry.register(
     default_title="Get Twilio recordings",
     description="Retrieve Twilio call recordings associated with tickets (requires Twilio integration).",
+    doc_url="https://developer.zendesk.com/api-reference/voice/talk-api/recordings/",
     display_group="Zendesk",
     namespace="integrations.zendesk",
     secrets=[zendesk_secret],
