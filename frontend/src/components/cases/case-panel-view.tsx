@@ -295,7 +295,7 @@ export function CasePanelView({
 
         {/* Main section */}
 
-        <div className="h-full flex flex-col overflow-hidden items-center">
+        <div className="h-full flex flex-col flex-1 overflow-hidden items-center">
           <div className="flex-1 overflow-y-auto py-4 px-6 min-w-[800px]">
             <div className="max-w-4xl">
               {/* Header with Chat Toggle */}
