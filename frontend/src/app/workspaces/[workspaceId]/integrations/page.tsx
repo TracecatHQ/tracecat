@@ -7,6 +7,7 @@ import type { IntegrationStatus, OAuthGrantType } from "@/client"
 import { ProviderIcon } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { Badge } from "@/components/ui/badge"
+import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { useIntegrations } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
@@ -109,7 +110,7 @@ export default function IntegrationsPage() {
   }
 
   return (
-    <div className="flex flex-col min-h-0 p-8 max-w-5xl mx-auto overflow-y-scroll">
+    <div className="flex flex-col min-h-0 max-w-5xl mx-auto my-16 px-8">
       {/* Search */}
       <div className="mb-6">
         <div className="relative max-w-md">
@@ -124,8 +125,8 @@ export default function IntegrationsPage() {
       </div>
 
       {/* Integrations List */}
-      <div className="space-y-0">
-        {filteredProviders?.map((provider, index) => {
+      <div className="space-y-3">
+        {filteredProviders?.map((provider) => {
           const {
             id,
             enabled,
@@ -136,14 +137,13 @@ export default function IntegrationsPage() {
           const statusInfo = getStatusInfo(provider.integration_status)
 
           return (
-            <div
+            <Card
               key={`${id}-${grantType}`}
               className={cn(
-                "border-b border-gray-200 py-4 transition-colors",
+                "border-gray-200 shadow-none p-4 transition-colors",
                 enabled
                   ? "cursor-pointer hover:bg-gray-50"
-                  : "cursor-not-allowed opacity-60",
-                index === 0 && "border-t rounded-t-lg"
+                  : "cursor-not-allowed opacity-60"
               )}
               onClick={() =>
                 handleProviderClick({
@@ -199,17 +199,19 @@ export default function IntegrationsPage() {
                   )}
                 </div>
               </div>
-            </div>
+            </Card>
           )
         })}
-        {filteredProviders?.length === 0 && (
+      </div>
+      {filteredProviders?.length === 0 && (
+        <Card className="border-gray-200 shadow-none">
           <div className="py-12 text-center">
             <p className="text-sm text-gray-500">
               No integrations found matching your criteria.
             </p>
           </div>
-        )}
-      </div>
+        </Card>
+      )}
     </div>
   )
 }
