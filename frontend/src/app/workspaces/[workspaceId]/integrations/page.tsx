@@ -6,7 +6,6 @@ import { useMemo, useState } from "react"
 import type { IntegrationStatus, OAuthGrantType } from "@/client"
 import { ProviderIcon } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
-import { Badge } from "@/components/ui/badge"
 import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { useIntegrations } from "@/lib/hooks"
@@ -140,7 +139,7 @@ export default function IntegrationsPage() {
             <Card
               key={`${id}-${grantType}`}
               className={cn(
-                "border-gray-200 shadow-none p-4 transition-colors",
+                "border-gray-200 p-4 transition-colors",
                 enabled
                   ? "cursor-pointer hover:bg-gray-50"
                   : "cursor-not-allowed opacity-60"
@@ -171,31 +170,13 @@ export default function IntegrationsPage() {
                 </div>
                 <div>
                   {enabled ? (
-                    <Badge
-                      variant={
-                        provider.integration_status === "not_configured"
-                          ? "outline"
-                          : "secondary"
-                      }
-                      className={cn(
-                        "text-xs",
-                        provider.integration_status === "connected" &&
-                          "border-0 bg-green-500 text-white hover:bg-green-500",
-                        provider.integration_status === "configured" &&
-                          "border-0 bg-gray-200 text-gray-700 hover:bg-gray-200",
-                        provider.integration_status === "not_configured" &&
-                          "border-gray-300 bg-transparent text-gray-600 hover:bg-transparent"
-                      )}
-                    >
+                    <span className="text-xs text-muted-foreground">
                       {statusInfo.label}
-                    </Badge>
+                    </span>
                   ) : (
-                    <Badge
-                      variant="secondary"
-                      className="text-xs border-0 bg-gray-100 text-gray-500 hover:bg-gray-100"
-                    >
+                    <span className="text-xs text-muted-foreground">
                       Coming soon
-                    </Badge>
+                    </span>
                   )}
                 </div>
               </div>
@@ -204,7 +185,7 @@ export default function IntegrationsPage() {
         })}
       </div>
       {filteredProviders?.length === 0 && (
-        <Card className="border-gray-200 shadow-none">
+        <Card className="border-gray-200">
           <div className="py-12 text-center">
             <p className="text-sm text-gray-500">
               No integrations found matching your criteria.
