@@ -4,53 +4,16 @@ description: Built-in OAuth 2.0 integrations for secure third-party service conn
 icon: key
 ---
 
-<Tip>
-  OAuth integrations provide a secure way to connect to third-party services without exposing credentials in workflows or logs.
-  All tokens are encrypted at rest and automatically refreshed when needed.
-</Tip>
-
-
-**OAuth integrations** are built-in connections to third-party services that handle the complete authentication flow automatically.
-Unlike action templates that require manual token management, OAuth integrations provide seamless, secure access to external APIs.
-
-Key benefits:
-- **Secure credential storage** - Client secrets and tokens are encrypted at rest
-- **Automatic token refresh** - Expired tokens are refreshed in the background
-- **Dynamic scope management** - Configure only the permissions you need
-- **Workspace isolation** - Each workspace has separate integration configurations
-
 ## OAuth grant types
 
-Tracecat supports two OAuth 2.0 grant types for different authentication scenarios. The grant type must be selected when configuring each provider and affects both the authentication flow and available features.
-
-### Authorization Code Flow (Delegated User)
-The standard OAuth flow where users are redirected to the provider to grant permissions. Best for:
-- **Delegated user access** - Actions performed on behalf of a specific user
-- **Interactive authentication** - Requires user consent and login
-- **Broad API access** - Full access to user resources with appropriate scopes
-
-Examples: Accessing a user's Microsoft OneDrive files, sending Slack messages as a specific user
-
-### Client Credentials Flow (Service Account)
-Direct machine-to-machine authentication using client credentials only. Best for:
-- **Service account access** - Actions performed by the application itself
-- **Service authentication** - No user interaction required
-- **System integration** - Background processes and automated workflows
-
-Examples: Organization-wide Microsoft Teams channel management, system-level GitHub repository access
-
-<Note>
-  Each provider requires a specific grant type to be selected during configuration. This choice determines:
-  - The authentication flow (user redirect vs direct authentication)
-  - Available API permissions and scopes
-  - Token refresh behavior
-
-  Some providers support both flows while others may only support one. The provider's setup instructions will indicate which grant types are available.
-</Note>
+Tracecat supports two OAuth 2.0 grant types for different authentication scenarios:
+- **Authorization Code Flow (Delegated User)**: OAuth flow where a human user is redirected to the provider to grant permissions.
+- **Client Credentials Flow (Service Account)**: Machine to machine authentication using credentials only.
 
 ## Setting up OAuth integrations
 
-Before configuring OAuth integrations in Tracecat, you must first create an OAuth application with your chosen provider (Microsoft, Google, GitHub, etc.). This process is the same for both Authorization Code and Client Credentials flows:
+Before configuring OAuth integrations in Tracecat, you must first create an OAuth application with your chosen provider (Microsoft, Google, GitHub, etc.).
+This process is the same for both Authorization Code and Client Credentials flows:
 
 1. **Create OAuth application** - Register a new application in your provider's developer console
 2. **Configure redirect URI** - Set the callback URL that Tracecat will provide during setup
@@ -136,11 +99,13 @@ Use the scope input to add custom scopes beyond the base requirements.
 OAuth integrations have three possible states:
 
 <Steps>
-  <Step title="Not Configured">
-    No client credentials have been set up. Click "Configure Integration" to get started.
+  <Step title="Not configured">
+    No client credentials have been set up. Click "Configure integration" to get started.
   </Step>
   <Step title="Configured">
-    Client credentials are saved but authentication hasn't been completed. For Authorization Code flow, click "Connect with OAuth". For Client Credentials flow, click "Test Connection".
+    Client credentials are saved but authentication hasn't been completed:
+    - For Authorization Code flow, click "Connect with OAuth".
+    - For Client Credentials flow, click "Test connection".
   </Step>
   <Step title="Connected">
     Successfully authenticated and ready to use in workflows. For Authorization Code flow, tokens are automatically refreshed as needed.
@@ -162,30 +127,6 @@ Completely removes the integration including all configuration and tokens. Use t
 - You no longer need the integration
 - You want to set up with entirely different credentials
 - You're switching to a different OAuth application
-
-## Supported providers
-
-<CardGroup cols={2}>
-  <Card title="Microsoft Graph" icon="microsoft">
-    Access Office 365, Azure AD, and Microsoft services
-  </Card>
-  <Card title="Microsoft Teams" icon="users">
-    Channel management and team collaboration
-  </Card>
-  <Card title="Google Workspace" icon="google">
-    Connect to Gmail, Drive, Calendar, and Google services
-  </Card>
-  <Card title="GitHub" icon="github">
-    Repository management and organization access
-  </Card>
-  <Card title="Slack" icon="slack">
-    Channel messaging and workspace integration
-  </Card>
-</CardGroup>
-
-<Note>
-  Don't see your provider? OAuth integrations are extensible - check our [contributing guide](https://github.com/TracecatHQ/tracecat/blob/main/CONTRIBUTING.md) to learn how to add new providers.
-</Note>
 
 ## Using in workflows
 
@@ -225,18 +166,3 @@ The `tools.microsoft_graph.list_drive_files` action automatically uses your conn
     - OAuth application is enabled and published
   </Accordion>
 </AccordionGroup>
-
-## Security considerations
-
-<Warning>
-  OAuth integrations have access to external services with the permissions you grant.
-  Follow security best practices:
-
-  - Only grant minimum required scopes
-  - Regularly review connected integrations
-  - Rotate client secrets periodically
-  - Monitor integration usage in audit logs
-</Warning>
-
-All OAuth credentials and tokens are encrypted using workspace-specific encryption keys.
-Tokens are never logged or exposed in workflow outputs for security.
