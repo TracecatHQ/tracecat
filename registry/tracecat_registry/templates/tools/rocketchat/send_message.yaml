@@ -1,0 +1,28 @@
+type: action
+definition:
+  title: Send Message to Rocket.Chat
+  description: send a message to a Rocket.Chat channel
+  display_group: RocketChat
+  doc_url: https://docs.rocket.chat/docs/integrations
+  namespace: tools.rocketchat
+  author: EfusRyuga
+  name: send_message
+  expects:
+    webhook_url:
+      type: str
+      description: url of the Rocket.Chat webhook
+    message:
+      type: str
+      description: message to send to the Rocket.Chat channel
+      default: 'Hello from Tracecat!'
+  steps:
+    - ref: send_message
+      action: core.http_request
+      args:
+        method: POST
+        url: ${{ inputs.webhook_url }}
+        headers:
+          Content-Type: application/json
+        payload:
+          text: ${{ inputs.message }}
+  returns: ${{ steps.send_message.result }}
