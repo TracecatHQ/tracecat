@@ -1,40 +1,14 @@
 "use client"
 
-import { Filter, Key, type LucideIcon, Search, User2Icon } from "lucide-react"
+import { Search } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useMemo, useState } from "react"
-import {
-  $ProviderCategory,
-  type IntegrationStatus,
-  type OAuthGrantType,
-  type ProviderCategory,
-} from "@/client"
+import type { IntegrationStatus, OAuthGrantType } from "@/client"
 import { ProviderIcon } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { Badge } from "@/components/ui/badge"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
 import { useIntegrations } from "@/lib/hooks"
-import { categoryColors } from "@/lib/provider-styles"
 import { cn } from "@/lib/utils"
 import { useWorkspace } from "@/providers/workspace"
 
@@ -44,81 +18,72 @@ const getStatusInfo = (status: IntegrationStatus) => {
     case "connected":
       return {
         label: "Connected",
-        className: "bg-green-100 text-green-800 hover:bg-green-200",
+        className: "bg-green-50 text-green-700 border-green-200",
       }
     case "configured":
       return {
         label: "Configured",
-        className: "bg-yellow-100 text-yellow-800 hover:bg-yellow-200",
+        className: "bg-amber-50 text-amber-700 border-amber-200",
       }
     case "not_configured":
       return {
         label: "Available",
-        className: "bg-gray-100 text-gray-800 hover:bg-gray-200",
+        className: "bg-gray-50 text-gray-600 border-gray-200",
       }
     default:
       return {
         label: "Available",
-        className: "bg-gray-100 text-gray-800 hover:bg-gray-200",
+        className: "bg-gray-50 text-gray-600 border-gray-200",
       }
   }
-}
-const categories = Object.values($ProviderCategory.enum) as ProviderCategory[]
-const grantTypeStyles: Record<
-  OAuthGrantType,
-  {
-    icon: LucideIcon
-    label: string
-  }
-> = {
-  authorization_code: {
-    icon: User2Icon,
-    label: "Authorization Code",
-  },
-  client_credentials: {
-    icon: Key,
-    label: "Client Credentials",
-  },
 }
 
 export default function IntegrationsPage() {
   const { workspaceId } = useWorkspace()
   const router = useRouter()
   const [searchQuery, setSearchQuery] = useState("")
-  const [selectedCategory, setSelectedCategory] =
-    useState<ProviderCategory | null>(null)
-  const [selectedStatus, setSelectedStatus] =
-    useState<IntegrationStatus | null>(null)
 
   const { providers, providersIsLoading, providersError } =
     useIntegrations(workspaceId)
 
   const filteredProviders = useMemo(() => {
     const filtered = providers?.filter((provider) => {
-      const { description, name, categories: providerCategories } = provider
+      const { description, name } = provider
       const matchesSearch =
         name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         (description ?? "").toLowerCase().includes(searchQuery.toLowerCase())
-      const matchesCategory =
-        selectedCategory === null ||
-        (providerCategories && providerCategories.includes(selectedCategory))
-      const matchesStatus =
-        selectedStatus === null ||
-        provider.integration_status === selectedStatus
 
-      return matchesSearch && matchesCategory && matchesStatus
+      return matchesSearch
     })
 
     if (!filtered) return filtered
 
-    // Sort by availability first (enabled first), then alphabetical by name
+    // Sort: Connected first, then Configured, then Available/Not Configured
+    // Within each group, sort by enabled status, then alphabetically
     return [...filtered].sort((a, b) => {
+      // Status priority: connected > configured > not_configured
+      const statusOrder = {
+        connected: 0,
+        configured: 1,
+        not_configured: 2,
+      }
+
+      const aOrder = statusOrder[a.integration_status] ?? 2
+      const bOrder = statusOrder[b.integration_status] ?? 2
+
+      if (aOrder !== bOrder) {
+        return aOrder - bOrder
+      }
+
+      // Within same status, sort by enabled first
       if (a.enabled !== b.enabled) {
         return a.enabled ? -1 : 1
       }
+
+      // Finally, sort alphabetically
       return a.name.localeCompare(b.name)
     })
-  }, [providers, searchQuery, selectedCategory, selectedStatus])
+  }, [providers, searchQuery])
 
   const handleProviderClick = ({
     id,
@@ -144,207 +109,106 @@ export default function IntegrationsPage() {
   }
 
   return (
-    <div className="container">
-      <div className="flex w-full flex-col space-y-12">
-        <div className="flex w-full items-center justify-between">
-          <div className="items-start space-y-3 text-left">
-            <h2 className="text-2xl font-semibold tracking-tight">
-              Integrations
-            </h2>
-            <p className="text-md text-muted-foreground">
-              Connect your workspace with third-party services and tools.
-            </p>
-          </div>
+    <div className="flex flex-col min-h-0 p-8 max-w-5xl mx-auto overflow-y-scroll">
+      {/* Search */}
+      <div className="mb-6">
+        <div className="relative max-w-md">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+          <Input
+            placeholder="Search integrations..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="h-9 border-gray-300 bg-gray-50 pl-10 text-sm focus:border-gray-400 focus:bg-white"
+          />
         </div>
+      </div>
 
-        <>
-          {/* Filters */}
-          <div className="mb-6 flex flex-col gap-4 sm:flex-row">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                placeholder="Search integrations..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10"
-              />
-            </div>
-            <Select
-              value={selectedCategory ?? "all"}
-              onValueChange={(value) =>
-                setSelectedCategory(
-                  value === "all" ? null : (value as ProviderCategory)
-                )
+      {/* Integrations List */}
+      <div className="space-y-0">
+        {filteredProviders?.map((provider, index) => {
+          const {
+            id,
+            enabled,
+            name,
+            description,
+            grant_type: grantType,
+          } = provider
+          const statusInfo = getStatusInfo(provider.integration_status)
+
+          return (
+            <div
+              key={`${id}-${grantType}`}
+              className={cn(
+                "border-b border-gray-200 py-4 transition-colors",
+                enabled
+                  ? "cursor-pointer hover:bg-gray-50"
+                  : "cursor-not-allowed opacity-60",
+                index === 0 && "border-t rounded-t-lg"
+              )}
+              onClick={() =>
+                handleProviderClick({
+                  id,
+                  enabled,
+                  grantType,
+                })
               }
             >
-              <SelectTrigger className="w-full sm:w-48">
-                <Filter className="mr-2 size-4" />
-                <SelectValue placeholder="Category" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Categories</SelectItem>
-                {categories.map((category) => (
-                  <SelectItem key={category} value={category}>
-                    {category.charAt(0).toUpperCase() + category.slice(1)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select
-              value={selectedStatus ?? "all"}
-              onValueChange={(value) =>
-                setSelectedStatus(
-                  value === "all" ? null : (value as IntegrationStatus)
-                )
-              }
-            >
-              <SelectTrigger className="w-full sm:w-48">
-                <SelectValue placeholder="Status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Status</SelectItem>
-                <SelectItem value="not_configured">Available</SelectItem>
-                <SelectItem value="configured">Configured</SelectItem>
-                <SelectItem value="connected">Connected</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Stats */}
-          <div className="mb-8 grid grid-cols-1 gap-4 md:grid-cols-3">
-            <Card>
-              <CardContent className="p-4">
-                <div className="text-2xl font-bold">
-                  {providers?.length || 0}
-                </div>
-                <div className="text-sm text-muted-foreground">
-                  Total Integrations
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-4">
-                <div className="text-2xl font-bold text-green-600">
-                  {providers?.filter(
-                    (p) => p.integration_status === "connected"
-                  ).length || 0}
-                </div>
-                <div className="text-sm text-muted-foreground">Connected</div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-4">
-                <div className="text-2xl font-bold text-blue-600">
-                  {categories.length}
-                </div>
-                <div className="text-sm text-muted-foreground">Categories</div>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Integrations Grid */}
-          <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
-            {filteredProviders?.map((provider) => {
-              const {
-                id,
-                enabled,
-                name,
-                description,
-                categories: providerCategories,
-                grant_type: grantType,
-              } = provider
-              const statusInfo = getStatusInfo(provider.integration_status)
-
-              const { icon: Icon, label } = grantTypeStyles[grantType]
-              return (
-                <Card
-                  key={`${id}-${grantType}`}
-                  className={cn(
-                    !!enabled
-                      ? "cursor-pointer transition-colors duration-200 hover:bg-accent/50"
-                      : "cursor-not-allowed opacity-50"
-                  )}
-                  onClick={() =>
-                    handleProviderClick({
-                      id,
-                      enabled,
-                      grantType,
-                    })
-                  }
-                >
-                  <CardHeader className="flex flex-col gap-1">
-                    <div className="flex items-start justify-between">
-                      <div className="flex items-start gap-3">
-                        <ProviderIcon
-                          providerId={id}
-                          className="size-8 p-1.5"
-                        />
-                        <div>
-                          <div className="flex items-center gap-4">
-                            <CardTitle className="text-lg">{name}</CardTitle>
-                          </div>
-                          <div className="mt-1 flex items-center gap-2">
-                            {providerCategories?.map((category, index) => (
-                              <Badge
-                                key={index}
-                                className={cn(
-                                  "!shadow-none whitespace-nowrap capitalize",
-                                  categoryColors[category] ||
-                                    categoryColors.other
-                                )}
-                              >
-                                {category}
-                              </Badge>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <div className="shrink-0 rounded-md bg-muted p-1">
-                          <TooltipProvider>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Icon
-                                  className="size-4 text-muted-foreground/70"
-                                  strokeWidth={2.5}
-                                />
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                <p>{label}</p>
-                              </TooltipContent>
-                            </Tooltip>
-                          </TooltipProvider>
-                        </div>
-                        <Badge
-                          className={cn(
-                            enabled
-                              ? statusInfo.className
-                              : "bg-orange-100 text-orange-800 hover:bg-orange-200",
-                            "!shadow-none whitespace-nowrap"
-                          )}
-                        >
-                          {enabled ? statusInfo.label : "Coming Soon"}
-                        </Badge>
-                      </div>
-                    </div>
-                    <CardDescription className="text-xs mt-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <ProviderIcon
+                    providerId={id}
+                    className="h-8 w-8 rounded-md p-1.5"
+                  />
+                  <div className="flex-1">
+                    <h3 className="text-sm font-medium text-gray-900">
+                      {name}
+                    </h3>
+                    <p className="mt-1 text-xs text-gray-500">
                       {description ||
                         `Connect with ${name} to enhance your workflows`}
-                    </CardDescription>
-                  </CardHeader>
-                </Card>
-              )
-            })}
-          </div>
-
-          {filteredProviders?.length === 0 && (
-            <div className="py-12 text-center">
-              <div className="text-muted-foreground">
-                No integrations found matching your criteria.
+                    </p>
+                  </div>
+                </div>
+                <div>
+                  {enabled ? (
+                    <Badge
+                      variant={
+                        provider.integration_status === "not_configured"
+                          ? "outline"
+                          : "secondary"
+                      }
+                      className={cn(
+                        "text-xs",
+                        provider.integration_status === "connected" &&
+                          "border-0 bg-green-500 text-white hover:bg-green-500",
+                        provider.integration_status === "configured" &&
+                          "border-0 bg-gray-200 text-gray-700 hover:bg-gray-200",
+                        provider.integration_status === "not_configured" &&
+                          "border-gray-300 bg-transparent text-gray-600 hover:bg-transparent"
+                      )}
+                    >
+                      {statusInfo.label}
+                    </Badge>
+                  ) : (
+                    <Badge
+                      variant="secondary"
+                      className="text-xs border-0 bg-gray-100 text-gray-500 hover:bg-gray-100"
+                    >
+                      Coming soon
+                    </Badge>
+                  )}
+                </div>
               </div>
             </div>
-          )}
-        </>
+          )
+        })}
+        {filteredProviders?.length === 0 && (
+          <div className="py-12 text-center">
+            <p className="text-sm text-gray-500">
+              No integrations found matching your criteria.
+            </p>
+          </div>
+        )}
       </div>
     </div>
   )
