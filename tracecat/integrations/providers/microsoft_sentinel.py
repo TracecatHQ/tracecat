@@ -55,7 +55,7 @@ class MicrosoftSentinelOAuthProvider(MicrosoftACProvider):
             "Copy Client ID and Client Secret",
             "Configure credentials in Tracecat with your tenant ID",
         ],
-        enabled=True,
+        enabled=False,
         api_docs_url="https://learn.microsoft.com/en-us/rest/api/securityinsights/",
         setup_guide_url="https://learn.microsoft.com/en-us/azure/sentinel/connect-rest-api-template",
         troubleshooting_url="https://learn.microsoft.com/en-us/azure/sentinel/troubleshooting",
