@@ -4,7 +4,6 @@ import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import type { Row } from "@tanstack/react-table"
 import { format, formatDistanceToNow } from "date-fns"
 import { CircleDot } from "lucide-react"
-import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useState } from "react"
 import type { TagRead, WorkflowReadMinimal } from "@/client"
@@ -69,6 +68,9 @@ export function WorkflowsDashboardTable() {
           emptyMessage="No workflows found."
           errorMessage="Error loading workflows."
           onClickRow={handleOnClickRow}
+          getRowHref={(row) =>
+            `/workspaces/${workspaceId}/workflows/${row.original.id}`
+          }
           columns={[
             {
               accessorKey: "title",
@@ -79,24 +81,11 @@ export function WorkflowsDashboardTable() {
                   title="Title"
                 />
               ),
-              cell: ({ row }) => {
-                const title =
-                  row.getValue<WorkflowReadMinimal["title"]>("title")
-                console.log("Workflow data:", {
-                  title,
-                  original: row.original,
-                  id: row.original.id,
-                })
-                return (
-                  <Link
-                    href={`/workspaces/${workspaceId}/workflows/${row.original.id}`}
-                    className="text-xs text-foreground/80 hover:text-foreground hover:underline transition-colors block"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    {title || "Untitled"}
-                  </Link>
-                )
-              },
+              cell: ({ row }) => (
+                <div className="text-xs text-foreground/80">
+                  {row.getValue<WorkflowReadMinimal["title"]>("title")}
+                </div>
+              ),
               enableSorting: true,
               enableHiding: false,
             },

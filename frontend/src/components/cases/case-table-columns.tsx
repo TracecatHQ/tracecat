@@ -3,7 +3,6 @@
 import type { ColumnDef } from "@tanstack/react-table"
 import { format, formatDistanceToNow } from "date-fns"
 import fuzzysort from "fuzzysort"
-import Link from "next/link"
 import type { CaseReadMinimal } from "@/client"
 import { CaseBadge } from "@/components/cases/case-badge"
 import {
@@ -25,9 +24,7 @@ import {
 } from "@/components/ui/tooltip"
 import { User } from "@/lib/auth"
 
-export const createColumns = (
-  workspaceId: string
-): ColumnDef<CaseReadMinimal>[] => [
+export const columns: ColumnDef<CaseReadMinimal>[] = [
   {
     id: "select",
     header: ({ table }) => (
@@ -61,13 +58,9 @@ export const createColumns = (
       <DataTableColumnHeader className="text-xs" column={column} title="ID" />
     ),
     cell: ({ row }) => (
-      <Link
-        href={`/workspaces/${workspaceId}/cases/${row.original.id}`}
-        className="w-[80px] truncate text-xs hover:text-foreground hover:underline transition-colors"
-        onClick={(e) => e.stopPropagation()}
-      >
+      <div className="w-[80px] truncate text-xs">
         {row.getValue<CaseReadMinimal["short_id"]>("short_id")}
-      </Link>
+      </div>
     ),
     enableSorting: true,
     enableHiding: false,

@@ -10,7 +10,7 @@ import {
   STATUSES,
 } from "@/components/cases/case-categories"
 import { UNASSIGNED } from "@/components/cases/case-panel-selectors"
-import { createColumns } from "@/components/cases/case-table-columns"
+import { columns } from "@/components/cases/case-table-columns"
 import { DataTable, type DataTableToolbarProps } from "@/components/data-table"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { useToast } from "@/components/ui/use-toast"
@@ -46,10 +46,7 @@ export default function CaseTable() {
     workspaceId,
   })
 
-  const memoizedColumns = useMemo(
-    () => createColumns(workspaceId),
-    [workspaceId]
-  )
+  const memoizedColumns = useMemo(() => columns, [])
 
   function handleClickRow(row: Row<CaseReadMinimal>) {
     return () =>
@@ -143,6 +140,9 @@ export default function CaseTable() {
         error={(casesError as Error) || undefined}
         columns={memoizedColumns}
         onClickRow={handleClickRow}
+        getRowHref={(row) =>
+          `/workspaces/${workspaceId}/cases/${row.original.id}`
+        }
         onDeleteRows={handleDeleteRows}
         toolbarProps={defaultToolbarProps}
         tableId={`${user?.id}-${workspaceId}-cases`}
