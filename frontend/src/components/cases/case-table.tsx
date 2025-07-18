@@ -10,7 +10,7 @@ import {
   STATUSES,
 } from "@/components/cases/case-categories"
 import { UNASSIGNED } from "@/components/cases/case-panel-selectors"
-import { columns } from "@/components/cases/case-table-columns"
+import { createColumns } from "@/components/cases/case-table-columns"
 import { DataTable, type DataTableToolbarProps } from "@/components/data-table"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { useToast } from "@/components/ui/use-toast"
@@ -46,7 +46,10 @@ export default function CaseTable() {
     workspaceId,
   })
 
-  const memoizedColumns = useMemo(() => columns, [])
+  const memoizedColumns = useMemo(
+    () => createColumns(workspaceId),
+    [workspaceId]
+  )
 
   function handleClickRow(row: Row<CaseReadMinimal>) {
     return () =>

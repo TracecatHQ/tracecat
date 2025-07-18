@@ -4,6 +4,7 @@ import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import type { Row } from "@tanstack/react-table"
 import { format, formatDistanceToNow } from "date-fns"
 import { CircleDot, FolderIcon, WorkflowIcon } from "lucide-react"
+import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useState } from "react"
 import type {
@@ -171,11 +172,28 @@ export function WorkflowsDashboardTable({
                   title="Name"
                 />
               ),
-              cell: ({ getValue }) => (
-                <div className="flex items-center gap-1 text-xs text-foreground/80">
-                  {getValue<string>()}
-                </div>
-              ),
+              cell: ({ getValue, row }) => {
+                const name = getValue<string>()
+                const item = row.original
+
+                if (item.type === "workflow") {
+                  return (
+                    <Link
+                      href={`/workspaces/${workspaceId}/workflows/${item.id}`}
+                      className="text-xs text-foreground/80 hover:text-foreground hover:underline transition-colors"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {name}
+                    </Link>
+                  )
+                }
+
+                return (
+                  <div className="flex items-center gap-1 text-xs text-foreground/80">
+                    {name}
+                  </div>
+                )
+              },
               enableSorting: true,
               enableHiding: false,
             },
