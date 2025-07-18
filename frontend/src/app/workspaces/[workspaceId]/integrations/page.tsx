@@ -22,7 +22,7 @@ const getStatusInfo = (status: IntegrationStatus) => {
       }
     case "configured":
       return {
-        label: "Configured",
+        label: "Connection incomplete",
         className: "bg-amber-50 text-amber-700 border-amber-200",
       }
     case "not_configured":
@@ -168,15 +168,27 @@ export default function IntegrationsPage() {
                     </p>
                   </div>
                 </div>
-                <div>
-                  {enabled ? (
-                    <span className="text-xs text-muted-foreground">
-                      {statusInfo.label}
-                    </span>
-                  ) : (
-                    <span className="text-xs text-muted-foreground">
-                      Coming soon
-                    </span>
+                <div className="flex items-center gap-1.5">
+                  {enabled && (
+                    <>
+                      <span
+                        className={cn(
+                          "h-1.5 w-1.5 rounded-full",
+                          provider.integration_status === "connected" &&
+                            "bg-green-500",
+                          provider.integration_status === "configured" &&
+                            "bg-yellow-500",
+                          provider.integration_status === "not_configured" &&
+                            "bg-gray-400"
+                        )}
+                      />
+                      <span className="text-xs text-gray-500">
+                        {statusInfo.label}
+                      </span>
+                    </>
+                  )}
+                  {!enabled && (
+                    <span className="text-xs text-gray-500">Coming soon</span>
                   )}
                 </div>
               </div>

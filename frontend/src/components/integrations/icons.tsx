@@ -14,11 +14,11 @@ export const statusStyles: Record<
     style: "bg-green-100 text-green-800 border-transparent",
   },
   configured: {
-    label: "Configured",
+    label: "Connection incomplete",
     style: "bg-yellow-100 text-yellow-800 border-transparent",
   },
   not_configured: {
-    label: "Not Configured",
+    label: "Not configured",
     style: "bg-gray-100 text-gray-800 border-transparent",
   },
 }
