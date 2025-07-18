@@ -297,7 +297,7 @@ function TableContents<TData>({
               key={row.id}
               href={href}
               prefetch={false}
-              className="table-row cursor-pointer h-8 min-h-8 border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted"
+              className="table-row cursor-pointer h-8 min-h-8 transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted"
               data-state={row.getIsSelected() ? "selected" : undefined}
             >
               {rowContent}
