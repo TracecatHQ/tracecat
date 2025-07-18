@@ -3241,6 +3241,7 @@ export function useIntegrationProvider({
       await integrationsUpdateIntegration({
         providerId,
         workspaceId,
+        grantType,
         requestBody: params,
       }),
     onSuccess: () => {
