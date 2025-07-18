@@ -232,7 +232,7 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
                 >
                   {statusStyles[integrationStatus].label}
                 </Badge>
-                {isConnected ? (
+                {isConnected && provider.grant_type === "authorization_code" ? (
                   <AlertDialog>
                     <AlertDialogTrigger asChild>
                       <Button
@@ -315,16 +315,6 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
           </div>
         </div>
       </div>
-
-      {/* Disabled Provider Alert */}
-      {!isEnabled && (
-        <Alert className="mb-6 border-orange-200 bg-orange-50">
-          <AlertCircle className="size-4 text-orange-600" />
-          <AlertDescription className="text-orange-800">
-            This integration is coming soon and is not yet available for use.
-          </AlertDescription>
-        </Alert>
-      )}
 
       {/* Status Alert */}
       {showSuccessMessage && isConnected && (
