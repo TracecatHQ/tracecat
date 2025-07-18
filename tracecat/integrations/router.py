@@ -464,11 +464,11 @@ async def list_providers(
     session: AsyncDBSession,
 ) -> list[ProviderReadMinimal]:
     svc = IntegrationService(session, role=role)
-    existing = {i.provider_id: i for i in await svc.list_integrations()}
+    existing = {(i.provider_id, i.grant_type): i for i in await svc.list_integrations()}
 
     items: list[ProviderReadMinimal] = []
     for provider_impl in ProviderRegistry.get().providers:
-        integration = existing.get(provider_impl.id)
+        integration = existing.get((provider_impl.id, provider_impl.grant_type))
         metadata = provider_impl.metadata
         item = ProviderReadMinimal(
             id=provider_impl.id,
