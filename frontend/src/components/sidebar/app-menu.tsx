@@ -7,6 +7,7 @@ import {
   CircleCheck,
   Plus,
 } from "lucide-react"
+import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
@@ -48,10 +49,6 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
   const [isCreating, setIsCreating] = useState(false)
 
   const activeWorkspace = workspaces?.find((ws) => ws.id === workspaceId)
-
-  const handleWorkspaceChange = (newWorkspaceId: string) => {
-    router.push(`/workspaces/${newWorkspaceId}/workflows`)
-  }
 
   const handleCreateWorkspace = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -109,21 +106,23 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
               Workspaces
             </DropdownMenuLabel>
             {workspaces?.map((workspace, index) => (
-              <DropdownMenuItem
-                key={workspace.id}
-                onClick={() => handleWorkspaceChange(workspace.id)}
-                className={cn(
-                  "gap-2 py-1 px-2",
-                  workspace.id === workspaceId && "bg-zinc-100 dark:bg-zinc-800"
-                )}
-              >
-                <div className="flex size-6 items-center justify-center rounded-md bg-muted text-[10px]">
-                  {getWorkspaceInitials(workspace.name)}
-                </div>
-                <span className="flex-1">{workspace.name}</span>
-                {workspace.id === workspaceId && (
-                  <CircleCheck className="ml-auto size-4" />
-                )}
+              <DropdownMenuItem key={workspace.id} asChild>
+                <Link
+                  href={`/workspaces/${workspace.id}/workflows`}
+                  className={cn(
+                    "flex items-center gap-2 py-1 px-2",
+                    workspace.id === workspaceId &&
+                      "bg-zinc-100 dark:bg-zinc-800"
+                  )}
+                >
+                  <div className="flex size-6 items-center justify-center rounded-md bg-muted text-[10px]">
+                    {getWorkspaceInitials(workspace.name)}
+                  </div>
+                  <span className="flex-1">{workspace.name}</span>
+                  {workspace.id === workspaceId && (
+                    <CircleCheck className="ml-auto size-4" />
+                  )}
+                </Link>
               </DropdownMenuItem>
             ))}
             <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
@@ -187,24 +186,28 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
 
             <DropdownMenuSeparator />
             {user?.isPrivileged() && (
-              <DropdownMenuItem
-                className="gap-2 py-1 px-2"
-                onClick={() => router.push("/organization")}
-              >
-                <div className="flex size-6 items-center justify-center">
-                  <BuildingIcon className="size-4" />
-                </div>
-                <span>Organization</span>
+              <DropdownMenuItem asChild>
+                <Link
+                  href="/organization"
+                  className="flex items-center gap-2 py-1 px-2 cursor-default"
+                >
+                  <div className="flex size-6 items-center justify-center">
+                    <BuildingIcon className="size-4" />
+                  </div>
+                  <span>Organization</span>
+                </Link>
               </DropdownMenuItem>
             )}
-            <DropdownMenuItem
-              className="gap-2 py-1 px-2"
-              onClick={() => router.push("/registry/actions")}
-            >
-              <div className="flex size-6 items-center justify-center">
-                <BookOpenIcon className="size-4" />
-              </div>
-              <span>Registry</span>
+            <DropdownMenuItem asChild>
+              <Link
+                href="/registry/actions"
+                className="flex items-center gap-2 py-1 px-2 cursor-default"
+              >
+                <div className="flex size-6 items-center justify-center">
+                  <BookOpenIcon className="size-4" />
+                </div>
+                <span>Registry</span>
+              </Link>
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
