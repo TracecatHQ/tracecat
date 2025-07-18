@@ -151,7 +151,7 @@ export function ProviderConfigForm({
     )
 
     return {
-      client_id: integration?.client_id ?? "", // Integration doesn't expose client_id
+      client_id: integration?.client_id ?? "",
       client_secret: "", // Never pre-fill secrets
       // Show only additional scopes
       additional_scopes:
@@ -215,10 +215,17 @@ export function ProviderConfigForm({
               <span className="font-medium text-muted-foreground">
                 Client ID
               </span>
-              <div className="text-xs">
-                {integration.status === "connected"
-                  ? "Configured"
-                  : "Not configured"}
+              <div className="text-xs font-mono">
+                {integration.client_id ? (
+                  <span>
+                    {integration.client_id.slice(0, 8)}****
+                    {integration.client_id.length > 12
+                      ? "****" + integration.client_id.slice(-4)
+                      : ""}
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground">Not configured</span>
+                )}
               </div>
             </div>
 
@@ -227,7 +234,7 @@ export function ProviderConfigForm({
                 Client secret
               </span>
               <div className="text-xs">
-                {integration.status === "connected"
+                {integration.status !== "not_configured"
                   ? "Configured"
                   : "Not configured"}
               </div>
