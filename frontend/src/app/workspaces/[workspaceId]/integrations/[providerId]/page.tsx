@@ -157,9 +157,8 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
     if (integrationStatus === "configured") {
       setShowConnectPrompt(true)
     }
-    // Switch back to overview tab after successful configuration
-    handleTabChange("overview")
-  }, [integrationStatus, handleTabChange])
+    // Stay on configuration tab after saving
+  }, [integrationStatus])
 
   const handleOAuthConnect = useCallback(async () => {
     try {
@@ -226,14 +225,14 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
                   </>
                 )}
               </Badge>
-              {isConnected ? (
-                <div className="flex items-center gap-2">
-                  <Badge
-                    variant="outline"
-                    className={cn(statusStyles[integrationStatus].style)}
-                  >
-                    {statusStyles[integrationStatus].label}
-                  </Badge>
+              <div className="flex items-center gap-2">
+                <Badge
+                  variant="outline"
+                  className={cn(statusStyles[integrationStatus].style)}
+                >
+                  {statusStyles[integrationStatus].label}
+                </Badge>
+                {isConnected ? (
                   <AlertDialog>
                     <AlertDialogTrigger asChild>
                       <Button
@@ -272,15 +271,46 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
                       </AlertDialogFooter>
                     </AlertDialogContent>
                   </AlertDialog>
-                </div>
-              ) : (
-                <Badge
-                  variant="outline"
-                  className={cn(statusStyles[integrationStatus].style)}
-                >
-                  {statusStyles[integrationStatus].label}
-                </Badge>
-              )}
+                ) : isConfigured ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-[22px] px-2 py-0 text-xs font-medium"
+                    onClick={
+                      provider.grant_type === "authorization_code"
+                        ? handleOAuthConnect
+                        : handleTestConnection
+                    }
+                    disabled={
+                      !isEnabled ||
+                      connectProviderIsPending ||
+                      testConnectionIsPending
+                    }
+                  >
+                    {connectProviderIsPending || testConnectionIsPending ? (
+                      <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                    ) : provider.grant_type === "authorization_code" ? (
+                      <ExternalLink className="mr-1 h-3 w-3" />
+                    ) : (
+                      <Zap className="mr-1 h-3 w-3" />
+                    )}
+                    {provider.grant_type === "authorization_code"
+                      ? "Connect with OAuth"
+                      : "Fetch token"}
+                  </Button>
+                ) : (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-[22px] px-2 py-0 text-xs font-medium"
+                    onClick={() => handleTabChange("configuration")}
+                    disabled={!isEnabled}
+                  >
+                    <Settings className="mr-1 h-3 w-3" />
+                    Configure
+                  </Button>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -392,62 +422,7 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
                     )}
                   </CardContent>
                 </Card>
-              ) : (
-                <div className="flex flex-wrap gap-2">
-                  {!isConfigured && (
-                    <Button
-                      onClick={() => handleTabChange("configuration")}
-                      className="sm:w-auto"
-                      disabled={!isEnabled}
-                    >
-                      <Settings className="mr-2 size-4" />
-                      Configure integration
-                    </Button>
-                  )}
-
-                  {isConfigured &&
-                    provider.grant_type === "client_credentials" && (
-                      <Button
-                        onClick={handleTestConnection}
-                        disabled={!isEnabled || testConnectionIsPending}
-                        className="sm:w-auto"
-                      >
-                        {testConnectionIsPending ? (
-                          <>
-                            <Loader2 className="mr-2 size-4 animate-spin" />
-                            Testing...
-                          </>
-                        ) : (
-                          <>
-                            <Zap className="mr-2 size-4" />
-                            Fetch token
-                          </>
-                        )}
-                      </Button>
-                    )}
-
-                  {isConfigured &&
-                    provider.grant_type === "authorization_code" && (
-                      <Button
-                        onClick={handleOAuthConnect}
-                        disabled={!isEnabled || connectProviderIsPending}
-                        className="sm:w-auto"
-                      >
-                        {connectProviderIsPending ? (
-                          <>
-                            <Loader2 className="mr-2 size-4 animate-spin" />
-                            Connecting...
-                          </>
-                        ) : (
-                          <>
-                            <ExternalLink className="mr-2 size-4" />
-                            Connect with OAuth
-                          </>
-                        )}
-                      </Button>
-                    )}
-                </div>
-              )}
+              ) : null}
 
               {/* OAuth Redirect URI */}
               {provider.grant_type === "authorization_code" &&
@@ -575,46 +550,43 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
               provider={provider}
               onSuccess={handleConfigSuccess}
               additionalButtons={
-                <>
-                  {isConfigured &&
-                    provider.grant_type === "client_credentials" && (
-                      <Button
-                        onClick={handleTestConnection}
-                        disabled={!isEnabled || testConnectionIsPending}
-                      >
-                        {testConnectionIsPending ? (
-                          <>
-                            <Loader2 className="mr-2 size-4 animate-spin" />
-                            Testing...
-                          </>
-                        ) : (
-                          <>
-                            <Zap className="mr-2 size-4" />
-                            Test connection
-                          </>
-                        )}
-                      </Button>
-                    )}
-                  {isConfigured &&
-                    provider.grant_type === "authorization_code" && (
-                      <Button
-                        onClick={handleOAuthConnect}
-                        disabled={!isEnabled || connectProviderIsPending}
-                      >
-                        {connectProviderIsPending ? (
-                          <>
-                            <Loader2 className="mr-2 size-4 animate-spin" />
-                            Connecting...
-                          </>
-                        ) : (
-                          <>
-                            <ExternalLink className="mr-2 size-4" />
-                            Connect with OAuth
-                          </>
-                        )}
-                      </Button>
-                    )}
-                </>
+                isConfigured ? (
+                  provider.grant_type === "client_credentials" ? (
+                    <Button
+                      onClick={handleTestConnection}
+                      disabled={!isEnabled || testConnectionIsPending}
+                    >
+                      {testConnectionIsPending ? (
+                        <>
+                          <Loader2 className="mr-2 size-4 animate-spin" />
+                          Testing...
+                        </>
+                      ) : (
+                        <>
+                          <Zap className="mr-2 size-4" />
+                          Test connection
+                        </>
+                      )}
+                    </Button>
+                  ) : (
+                    <Button
+                      onClick={handleOAuthConnect}
+                      disabled={!isEnabled || connectProviderIsPending}
+                    >
+                      {connectProviderIsPending ? (
+                        <>
+                          <Loader2 className="mr-2 size-4 animate-spin" />
+                          Connecting...
+                        </>
+                      ) : (
+                        <>
+                          <ExternalLink className="mr-2 size-4" />
+                          Connect with OAuth
+                        </>
+                      )}
+                    </Button>
+                  )
+                ) : null
               }
             />
           </div>

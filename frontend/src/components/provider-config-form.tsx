@@ -624,15 +624,17 @@ export function ProviderConfigForm({
             <div className="flex flex-wrap gap-3">{additionalButtons}</div>
             <Button
               type="submit"
-              variant="secondary"
+              variant={
+                integration && integration.status !== "not_configured"
+                  ? "secondary"
+                  : "default"
+              }
               disabled={updateIntegrationIsPending}
             >
               <Save className="h-4 w-4 mr-2" />
-              {updateIntegrationIsPending
-                ? "Saving..."
-                : integration && integration.status !== "not_configured"
-                  ? "Update configuration"
-                  : "Save configuration"}
+              {integration && integration.status !== "not_configured"
+                ? "Update configuration"
+                : "Save configuration"}
             </Button>
           </div>
         </form>
@@ -686,7 +688,7 @@ export function ProviderConfigFormSkeleton() {
             <div className="flex gap-2">
               <div className="h-6 bg-muted animate-pulse rounded w-16"></div>
               <div className="h-6 bg-muted animate-pulse rounded w-20"></div>
-              <div className="h-6 bg-muted animate-pulse rounded w-18"></div>
+              <div className="h-6 bg-muted animate-pulse rounded w-20"></div>
             </div>
           </div>
           <div className="flex flex-col gap-2">
