@@ -8,7 +8,7 @@ import {
   LayoutListIcon,
   Loader2,
   Settings,
-  UnplugIcon,
+  Unplug,
   User,
   Zap,
 } from "lucide-react"
@@ -43,12 +43,6 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { CollapsibleCard } from "@/components/ui/collapsible-card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
 import { useIntegrationProvider } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import { useWorkspace } from "@/providers/workspace"
@@ -232,12 +226,61 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
                   </>
                 )}
               </Badge>
-              <Badge
-                variant="outline"
-                className={cn(statusStyles[integrationStatus].style)}
-              >
-                {statusStyles[integrationStatus].label}
-              </Badge>
+              {isConnected ? (
+                <div className="flex items-center gap-2">
+                  <Badge
+                    variant="outline"
+                    className={cn(statusStyles[integrationStatus].style)}
+                  >
+                    {statusStyles[integrationStatus].label}
+                  </Badge>
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-[22px] px-2 py-0 text-xs font-medium text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                        disabled={!isEnabled || disconnectProviderIsPending}
+                      >
+                        {disconnectProviderIsPending ? (
+                          <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                        ) : (
+                          <Unplug className="mr-1 h-3 w-3" />
+                        )}
+                        Disconnect
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>
+                          Disconnect integration
+                        </AlertDialogTitle>
+                        <AlertDialogDescription>
+                          Are you sure you want to disconnect from{" "}
+                          {metadata.name}? This will remove your authentication
+                          and you'll need to reconnect to use this integration.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                          variant="destructive"
+                          onClick={handleDisconnect}
+                        >
+                          Disconnect
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </div>
+              ) : (
+                <Badge
+                  variant="outline"
+                  className={cn(statusStyles[integrationStatus].style)}
+                >
+                  {statusStyles[integrationStatus].label}
+                </Badge>
+              )}
             </div>
           </div>
         </div>
@@ -303,126 +346,70 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
               {isConnected ? (
                 <Card>
                   <CardContent className="pt-6 space-y-4">
-                    <div className="space-y-4">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2 text-green-600">
-                          <SuccessIcon />
-                          <span className="font-medium">Connected</span>
+                    {integration && (
+                      <div className="flex flex-col gap-3 text-sm">
+                        <div>
+                          <span className="font-medium">Token type:</span>{" "}
+                          <span className="text-muted-foreground">
+                            {integration.token_type}
+                          </span>
                         </div>
-                        <TooltipProvider>
-                          <AlertDialog>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <AlertDialogTrigger asChild>
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    disabled={
-                                      !isEnabled || disconnectProviderIsPending
-                                    }
-                                  >
-                                    {disconnectProviderIsPending ? (
-                                      <Loader2 className="size-4 animate-spin" />
-                                    ) : (
-                                      <UnplugIcon className="size-4" />
-                                    )}
-                                  </Button>
-                                </AlertDialogTrigger>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                <p>Disconnect</p>
-                              </TooltipContent>
-                            </Tooltip>
-                            <AlertDialogContent>
-                              <AlertDialogHeader>
-                                <AlertDialogTitle>
-                                  Disconnect integration
-                                </AlertDialogTitle>
-                                <AlertDialogDescription>
-                                  Are you sure you want to disconnect from{" "}
-                                  {metadata.name}? This will remove your
-                                  authentication and you'll need to reconnect to
-                                  use this integration.
-                                </AlertDialogDescription>
-                              </AlertDialogHeader>
-                              <AlertDialogFooter>
-                                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                <AlertDialogAction
-                                  variant="destructive"
-                                  onClick={handleDisconnect}
-                                >
-                                  Disconnect
-                                </AlertDialogAction>
-                              </AlertDialogFooter>
-                            </AlertDialogContent>
-                          </AlertDialog>
-                        </TooltipProvider>
-                      </div>
-                      {integration && (
-                        <div className="space-y-3 text-sm text-muted-foreground">
-                          <div>Token Type: {integration.token_type}</div>
-                          {integration.expires_at && (
-                            <div>
-                              Expires:{" "}
+                        {integration.expires_at && (
+                          <div>
+                            <span className="font-medium">Expires:</span>{" "}
+                            <span className="text-muted-foreground">
                               {new Date(
                                 integration.expires_at
                               ).toLocaleString()}
-                              <span className="ml-2 text-xs text-muted-foreground">
-                                (auto-refreshed)
-                              </span>
-                            </div>
-                          )}
+                            </span>
+                            <span className="ml-2 text-xs text-muted-foreground">
+                              (auto-refreshed)
+                            </span>
+                          </div>
+                        )}
 
-                          {/* Scopes Section */}
-                          {integration.granted_scopes && (
-                            <div className="space-y-2">
-                              {integration.granted_scopes &&
-                                integration.granted_scopes.length > 0 && (
-                                  <div>
-                                    <div className="font-medium text-foreground mb-1">
-                                      Granted Scopes:
-                                    </div>
-                                    <div className="flex flex-wrap gap-1">
-                                      {integration.granted_scopes.map(
-                                        (scope) => (
-                                          <Badge
-                                            key={scope}
-                                            variant="outline"
-                                            className="text-xs bg-green-100 text-green-700 border-transparent"
-                                          >
-                                            {scope}
-                                          </Badge>
-                                        )
-                                      )}
-                                    </div>
-                                  </div>
-                                )}
+                        {/* Scopes Section */}
+                        {integration.granted_scopes &&
+                          integration.granted_scopes.length > 0 && (
+                            <div>
+                              <div className="font-medium mb-2">
+                                Granted scopes:
+                              </div>
+                              <div className="flex flex-wrap gap-1">
+                                {integration.granted_scopes.map((scope) => (
+                                  <Badge
+                                    key={scope}
+                                    variant="outline"
+                                    className="text-xs bg-green-50 text-green-700 border-green-200"
+                                  >
+                                    {scope}
+                                  </Badge>
+                                ))}
+                              </div>
                             </div>
                           )}
-                        </div>
-                      )}
-                    </div>
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               ) : (
                 <div className="flex flex-wrap gap-2">
-                  <Button
-                    onClick={() => handleTabChange("configuration")}
-                    className="sm:w-auto"
-                    disabled={!isEnabled}
-                  >
-                    <Settings className="mr-2 size-4" />
-                    {isConfigured
-                      ? "Update configuration"
-                      : "Configure integration"}
-                  </Button>
+                  {!isConfigured && (
+                    <Button
+                      onClick={() => handleTabChange("configuration")}
+                      className="sm:w-auto"
+                      disabled={!isEnabled}
+                    >
+                      <Settings className="mr-2 size-4" />
+                      Configure integration
+                    </Button>
+                  )}
 
                   {isConfigured &&
                     provider.grant_type === "client_credentials" && (
                       <Button
                         onClick={handleTestConnection}
                         disabled={!isEnabled || testConnectionIsPending}
-                        variant="outline"
                         className="sm:w-auto"
                       >
                         {testConnectionIsPending ? (
@@ -444,7 +431,6 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
                       <Button
                         onClick={handleOAuthConnect}
                         disabled={!isEnabled || connectProviderIsPending}
-                        variant="outline"
                         className="sm:w-auto"
                       >
                         {connectProviderIsPending ? (
@@ -495,19 +481,13 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
                 <div className="space-y-3">
                   {metadata.setup_steps?.map((step, index) => (
                     <div key={step} className="flex items-start gap-3">
-                      <div
-                        className={`flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-medium ${
-                          isConnected
-                            ? "bg-green-100 text-green-800"
-                            : "bg-gray-100 text-gray-600"
-                        }`}
-                      >
-                        {isConnected ? <SuccessIcon /> : index + 1}
+                      <div className="flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-medium bg-gray-100 text-gray-600">
+                        {index + 1}
                       </div>
                       <span
                         className={`text-sm ${
                           isConnected
-                            ? "text-green-800 line-through"
+                            ? "text-gray-500 line-through"
                             : "text-gray-700"
                         }`}
                       >
@@ -601,7 +581,6 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
                       <Button
                         onClick={handleTestConnection}
                         disabled={!isEnabled || testConnectionIsPending}
-                        variant="outline"
                       >
                         {testConnectionIsPending ? (
                           <>
@@ -621,7 +600,6 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
                       <Button
                         onClick={handleOAuthConnect}
                         disabled={!isEnabled || connectProviderIsPending}
-                        variant="outline"
                       >
                         {connectProviderIsPending ? (
                           <>
