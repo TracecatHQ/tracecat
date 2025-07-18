@@ -2,6 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod"
 import type { JSONSchema7 } from "json-schema"
+import { Save } from "lucide-react"
 import { type HTMLInputTypeAttribute, useCallback, useMemo } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
@@ -621,8 +622,17 @@ export function ProviderConfigForm({
           {/* Submit Button */}
           <div className="flex justify-end items-center pt-4 gap-2">
             <div className="flex flex-wrap gap-3">{additionalButtons}</div>
-            <Button type="submit" disabled={updateIntegrationIsPending}>
-              {updateIntegrationIsPending ? "Saving..." : "Save configuration"}
+            <Button
+              type="submit"
+              variant="secondary"
+              disabled={updateIntegrationIsPending}
+            >
+              <Save className="h-4 w-4 mr-2" />
+              {updateIntegrationIsPending
+                ? "Saving..."
+                : integration && integration.status !== "not_configured"
+                  ? "Update configuration"
+                  : "Save configuration"}
             </Button>
           </div>
         </form>
