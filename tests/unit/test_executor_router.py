@@ -1,21 +1,15 @@
 import uuid
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import orjson
 import pytest
 from fastapi import HTTPException
 
 from tracecat.config import TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES
-from tracecat.db.dependencies import AsyncDBSession
 from tracecat.dsl.models import ActionStatement, RunActionInput, RunContext
 from tracecat.executor.router import run_action
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.types.auth import Role
-
-
-@pytest.fixture
-def mock_session():
-    return AsyncMock(spec=AsyncDBSession)
 
 
 @pytest.fixture
@@ -46,7 +40,7 @@ def basic_action_input():
 
 
 @pytest.mark.anyio
-async def test_run_action_success(mock_session, mock_role, basic_action_input):
+async def test_run_action_success(mock_role, basic_action_input):
     """Test that run_action successfully processes a normal payload."""
 
     # Create a small result
@@ -59,22 +53,17 @@ async def test_run_action_success(mock_session, mock_role, basic_action_input):
         # Call the router endpoint
         result = await run_action(
             role=mock_role,
-            session=mock_session,
             action_name="test_action",
             action_input=basic_action_input,
         )
 
         # Verify the result is returned correctly
         assert result == small_result
-        mock_dispatch.assert_called_once_with(
-            input=basic_action_input, session=mock_session
-        )
+        mock_dispatch.assert_called_once_with(input=basic_action_input)
 
 
 @pytest.mark.anyio
-async def test_run_action_payload_too_large(
-    mock_session, mock_role, basic_action_input
-):
+async def test_run_action_payload_too_large(mock_role, basic_action_input):
     """Test that run_action raises appropriate exception when payload exceeds size limit."""
 
     # Create a payload that exceeds the size limit when serialized
@@ -93,7 +82,6 @@ async def test_run_action_payload_too_large(
         with pytest.raises(HTTPException) as exc_info:
             await run_action(
                 role=mock_role,
-                session=mock_session,
                 action_name="test_action",
                 action_input=basic_action_input,
             )
@@ -108,9 +96,7 @@ async def test_run_action_payload_too_large(
 
 
 @pytest.mark.anyio
-async def test_run_action_payload_exactly_at_limit(
-    mock_session, mock_role, basic_action_input
-):
+async def test_run_action_payload_exactly_at_limit(mock_role, basic_action_input):
     """Test behavior with payload size exactly at the limit."""
 
     # Create a result that's exactly at the limit when serialized
@@ -133,7 +119,6 @@ async def test_run_action_payload_exactly_at_limit(
         # This should not raise an exception
         result = await run_action(
             role=mock_role,
-            session=mock_session,
             action_name="test_action",
             action_input=basic_action_input,
         )
@@ -143,9 +128,7 @@ async def test_run_action_payload_exactly_at_limit(
 
 
 @pytest.mark.anyio
-async def test_run_action_payload_size_just_over_limit(
-    mock_session, mock_role, basic_action_input
-):
+async def test_run_action_payload_size_just_over_limit(mock_role, basic_action_input):
     """Test with payload just 1 byte over the limit to ensure boundary conditions are handled."""
 
     # Create a result template
@@ -171,7 +154,6 @@ async def test_run_action_payload_size_just_over_limit(
         with pytest.raises(HTTPException) as exc_info:
             await run_action(
                 role=mock_role,
-                session=mock_session,
                 action_name="test_action",
                 action_input=basic_action_input,
             )
