@@ -11,7 +11,6 @@ import ray
 import uvloop
 from ray.exceptions import RayTaskError
 from ray.runtime_env import RuntimeEnv
-from sqlmodel.ext.asyncio.session import AsyncSession
 from tracecat_registry import RegistrySecretType
 from tracecat_registry._internal.models import RegistryOAuthSecret
 
@@ -460,10 +459,7 @@ async def run_action_on_ray_cluster(
     return exec_result
 
 
-async def dispatch_action_on_cluster(
-    input: RunActionInput,
-    session: AsyncSession,
-) -> Any:
+async def dispatch_action_on_cluster(input: RunActionInput) -> Any:
     """Schedule actions on the ray cluster.
 
     This function handles dispatching actions to be executed on a Ray cluster. It supports
@@ -487,7 +483,7 @@ async def dispatch_action_on_cluster(
 
     ctx = DispatchActionContext(role=role)
     if git_url:
-        sh_cmd = await get_ssh_command(git_url=git_url, session=session, role=role)
+        sh_cmd = await get_ssh_command(git_url=git_url, role=role)
         ctx.ssh_command = sh_cmd
         ctx.git_url = git_url
     return await _dispatch_action(input=input, ctx=ctx)
