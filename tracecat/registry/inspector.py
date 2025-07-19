@@ -4,7 +4,7 @@ This module can be invoked as a script to inspect a package and output
 JSON metadata for all registry actions (UDFs and templates) found within.
 
 Usage:
-    python -m tracecat.registry.inspector --module <package_name>
+    python -m tracecat.registry.inspector --package <package_name>
 """
 
 import argparse
