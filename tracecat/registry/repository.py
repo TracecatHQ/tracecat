@@ -439,7 +439,7 @@ class Repository:
         env = os.environ.copy()
         existing_pythonpath = env.get("PYTHONPATH", "")
         env["PYTHONPATH"] = (
-            f"{site_packages}:{existing_pythonpath}"
+            f"{site_packages}{os.pathsep}{existing_pythonpath}"
             if existing_pythonpath
             else site_packages
         )
