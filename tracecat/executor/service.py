@@ -19,6 +19,7 @@ from tracecat.auth.sandbox import AuthSandbox
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.contexts import ctx_interaction, ctx_logger, ctx_role, ctx_run
 from tracecat.db.engine import get_async_engine
+from tracecat.db.schemas import RegistryAction
 from tracecat.dsl.common import context_locator, create_default_execution_context
 from tracecat.dsl.models import (
     ActionStatement,
@@ -42,6 +43,7 @@ from tracecat.logger import logger
 from tracecat.parse import get_pyproject_toml_required_deps, traverse_leaves
 from tracecat.registry.actions.models import BoundRegistryAction
 from tracecat.registry.actions.service import RegistryActionsService
+from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.secrets.common import apply_masks_object
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.secrets.secrets_manager import env_sandbox
@@ -327,7 +329,7 @@ async def run_action_from_input(input: RunActionInput, role: Role) -> Any:
     )
 
     context = input.exec_context.copy()
-    context.update(SECRETS=secrets)
+    context.update(SECRETS=secrets)  # type: ignore
 
     flattened_secrets = flatten_secrets(secrets)
     with env_sandbox(flattened_secrets):
@@ -381,14 +383,8 @@ def run_action_task(input: RunActionInput, role: Role) -> ExecutionResult:
     return sync_executor_entrypoint(input, role)
 
 
-async def run_action_on_ray_cluster(
-    input: RunActionInput, ctx: DispatchActionContext, iteration: int | None = None
-) -> ExecutionResult:
-    """Run an action on the ray cluster.
-
-    If any exceptions are thrown here, they're platform level errors.
-    All application/user level errors are caught by the executor and returned as values.
-    """
+async def get_ray_runtime_env(ctx: DispatchActionContext) -> RuntimeEnv:
+    """Get the runtime options for the action."""
     # Initialize runtime environment variables
     env_vars = {"GIT_SSH_COMMAND": ctx.ssh_command} if ctx.ssh_command else {}
     # Override UV_SYSTEM_PYTHON to allow uv to respect Ray's virtual environment
@@ -432,9 +428,29 @@ async def run_action_on_ray_cluster(
         additional_vars["uv"] = pip_deps
 
     runtime_env = RuntimeEnv(env_vars=env_vars, **additional_vars)
+    return runtime_env
 
-    logger.trace("Running action on ray cluster", runtime_env=runtime_env)
-    obj_ref = run_action_task.options(runtime_env=runtime_env).remote(input, ctx.role)
+
+async def run_action_on_ray_cluster(
+    input: RunActionInput,
+    ctx: DispatchActionContext,
+    *,
+    is_builtin: bool,
+    iteration: int | None = None,
+) -> ExecutionResult:
+    """Run an action on the ray cluster.
+
+    If any exceptions are thrown here, they're platform level errors.
+    All application/user level errors are caught by the executor and returned as values.
+    """
+    # Check if this is a built in action
+    options = {}
+    if not is_builtin:
+        # Run user actions on a separate runtime env
+        options["runtime_env"] = await get_ray_runtime_env(ctx)
+
+    logger.trace("Running action on ray cluster", options=options)
+    obj_ref = run_action_task.options(**options).remote(input, ctx.role)
     try:
         coro = asyncio.to_thread(ray.get, obj_ref)
         exec_result = await asyncio.wait_for(coro, timeout=EXECUTION_TIMEOUT)
@@ -489,15 +505,23 @@ async def dispatch_action_on_cluster(input: RunActionInput) -> Any:
     return await _dispatch_action(input=input, ctx=ctx)
 
 
-async def _dispatch_action(
-    input: RunActionInput,
-    ctx: DispatchActionContext,
-) -> Any:
+def is_builtin_action(action: RegistryAction) -> bool:
+    """Check if an action is a built in action."""
+    return action.origin == DEFAULT_REGISTRY_ORIGIN
+
+
+async def _dispatch_action(input: RunActionInput, ctx: DispatchActionContext) -> Any:
     task = input.task
     logger.info("Preparing runtime environment", ctx=ctx)
+
+    # Check if this is a built in action
+    async with RegistryActionsService.with_session() as service:
+        reg_action = await service.get_action(task.action)
+        is_builtin = is_builtin_action(reg_action)
+
     # If there's no for_each, execute normally
     if not task.for_each:
-        return await run_action_on_ray_cluster(input, ctx)
+        return await run_action_on_ray_cluster(input, ctx, is_builtin=is_builtin)
 
     logger.info("Running for_each on action in parallel", action=task.action)
 
@@ -508,7 +532,9 @@ async def _dispatch_action(
     iterators = get_iterables_from_expression(expr=task.for_each, operand=base_context)
 
     async def iteration(patched_input: RunActionInput, i: int):
-        return await run_action_on_ray_cluster(patched_input, ctx, iteration=i)
+        return await run_action_on_ray_cluster(
+            patched_input, ctx, is_builtin=is_builtin, iteration=i
+        )
 
     tasks: list[asyncio.Task[ExecutionResult]] = []
     try:

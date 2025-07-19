@@ -54,6 +54,7 @@ class BoundRegistryAction(BaseModel):
     description: str
     namespace: str
     type: RegistryActionType
+    module: str | None = None
     # Registry details
     origin: str
     # Secrets
