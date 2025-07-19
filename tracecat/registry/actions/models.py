@@ -28,7 +28,6 @@ from tracecat.expressions.expectations import ExpectedField, create_expectation_
 from tracecat.logger import logger
 from tracecat.registry.actions.enums import TemplateActionValidationErrorType
 from tracecat.types.exceptions import (
-    RegistryActionError,
     RegistryValidationError,
     TracecatValidationError,
 )
@@ -116,16 +115,13 @@ class BoundRegistryAction(BaseModel):
                 template_action=self.template_action,
             )
         elif self.type == "udf":
-            module = inspect.getmodule(self.fn)
-            if not module:
-                raise RegistryActionError("UDF module not found")
-            module_path = module.__name__
-            function_name = self.fn.__name__
+            if not self.module:
+                raise ValueError("UDF module is not set")
             return RegistryActionUDFImpl(
                 type="udf",
                 url=self.origin,
-                module=module_path,
-                name=function_name,
+                module=self.module,
+                name=self.fn.__name__,
             )
         else:
             raise ValueError(f"Invalid registry action type: {self.type}")

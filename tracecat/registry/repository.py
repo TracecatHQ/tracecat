@@ -7,6 +7,7 @@ import json
 import os
 import re
 import sys
+import types
 from collections.abc import Callable, Iterator
 from itertools import chain
 from pathlib import Path
@@ -162,6 +163,7 @@ class Repository:
         author: str | None,
         deprecated: str | None,
         include_in_schema: bool,
+        module: str | None = None,
         template_action: TemplateAction | None = None,
         origin: str = DEFAULT_REGISTRY_ORIGIN,
     ):
@@ -171,6 +173,7 @@ class Repository:
             namespace=namespace,
             description=description,
             type=type,
+            module=module,
             doc_url=doc_url,
             author=author,
             deprecated=deprecated,
@@ -380,10 +383,10 @@ class Repository:
             )
 
             logger.debug("Git URL", git_url=git_url)
-            commit_sha = await self._install_remote_repository(
+            commit_sha, venv_path = await self._install_remote_repository(
                 git_url=git_url, commit_sha=commit_sha
             )
-            module = await self._load_repository(cleaned_url, package_name)
+            module = await self._load_repository(cleaned_url, package_name, venv_path)
             logger.info(
                 "Imported and reloaded remote repository",
                 module_name=module.__name__,
@@ -467,8 +470,12 @@ class Repository:
 
     async def _install_remote_repository(
         self, git_url: GitUrl, commit_sha: str | None = None
-    ) -> str:
-        """Install the remote repository into the filesystem and return the commit sha."""
+    ) -> tuple[str, Path]:
+        """Install the remote repository into the filesystem and return the commit sha and venv python path.
+
+        Returns:
+            A tuple of (commit_sha, venv_path)
+        """
 
         url = git_url.to_url()
         async with (
@@ -479,14 +486,24 @@ class Repository:
                 raise RegistryError("No SSH key found")
             if commit_sha is None:
                 commit_sha = await get_git_repository_sha(url, env=env)
-            await install_remote_repository(url, commit_sha=commit_sha, env=env)
-        return commit_sha
+            # Ran in subproc
+            venv_path = await install_remote_repository(
+                url, commit_sha=commit_sha, env=env
+            )
+        return commit_sha, venv_path
 
-    async def _load_repository(self, repo_url: str, module_name: str) -> ModuleType:
+    async def _load_repository(
+        self,
+        repo_url: str,
+        package_name: str,
+        venv_path: Path | None = None,
+    ) -> ModuleType:
         """Load repository module into memory.
+
         Args:
             repo_url (str): The URL of the repository
             module_name (str): The name of the Python module to import
+            venv_python (Path | None): If provided, use subprocess inspection instead of direct import
 
         Returns:
             ModuleType: The imported Python module containing the actions
@@ -494,11 +511,49 @@ class Repository:
         Raises:
             ImportError: If there is an error importing the module
         """
+        # For external repositories with venv, use subprocess inspection
+        if venv_path is not None and repo_url != DEFAULT_REGISTRY_ORIGIN:
+            logger.debug(
+                "Using subprocess inspection for external repository",
+                module_name=package_name,
+                venv_python=str(venv_path),
+                sys_executable=sys.executable,
+            )
+            try:
+                metadata_list = await self._inspect_repo_via_subprocess(
+                    venv_path, package_name
+                )
+
+                for metadata in metadata_list:
+                    self._register_udf_from_metadata(metadata, origin=repo_url)
+
+                logger.info(
+                    "Registered actions from subprocess inspection",
+                    num_actions=len(metadata_list),
+                    module_name=package_name,
+                )
+
+                # Return a dummy module since we don't actually import it
+                # This maintains compatibility with existing code
+                dummy_module = types.ModuleType(package_name)
+                dummy_module.__path__ = ["/dev/null"]  # Dummy path
+                return dummy_module
+            except Exception as e:
+                logger.error(
+                    "Error in subprocess inspection",
+                    error=e,
+                    module_name=package_name,
+                    origin=repo_url,
+                )
+                raise
+
+        # For trusted repositories (DEFAULT_REGISTRY_ORIGIN), use direct import
+        # This needs to run in a subprocess, not in the main process
         try:
-            logger.info("Importing repository module", module_name=module_name)
+            logger.info("Importing repository package", package_name=package_name)
             # We only need to call this at the root level because
             # this deletes all the submodules as well
-            pkg_or_mod = import_and_reload(module_name)
+            pkg_or_mod = import_and_reload(package_name)
 
             # Reload the module to ensure fresh execution
             logger.info("Registering UDFs from package", module_name=pkg_or_mod)
@@ -507,7 +562,7 @@ class Repository:
             logger.error(
                 "Error importing repository udfs",
                 error=e,
-                module_name=module_name,
+                module_name=package_name,
                 origin=repo_url,
             )
             raise
@@ -518,11 +573,109 @@ class Repository:
             logger.error(
                 "Error importing repository template actions",
                 error=e,
-                module_name=module_name,
+                module_name=package_name,
                 origin=repo_url,
             )
             raise
         return pkg_or_mod
+
+    def _register_udf_from_metadata(
+        self,
+        metadata: RegistryActionMetadata,
+        *,
+        origin: str = DEFAULT_REGISTRY_ORIGIN,
+    ) -> None:
+        """Register a UDF or template action from metadata dictionary.
+
+        Args:
+            metadata: RegistryActionMetadata instance containing all necessary registration information
+            origin: The origin of the action (e.g., repository URL)
+        """
+        if metadata.type == "template":
+            # Reconstruct template action from metadata
+            self.register_udf(
+                fn=Repository._not_implemented,
+                type="template",
+                name=metadata.name,
+                namespace=metadata.namespace,
+                description=metadata.description,
+                doc_url=metadata.doc_url,
+                author=metadata.author,
+                deprecated=metadata.deprecated,
+                secrets=metadata.secrets,
+                args_cls=create_expectation_model(
+                    metadata.args_schema, metadata.key.replace(".", "__")
+                )
+                if metadata.args_schema
+                else BaseModel,
+                args_docs=metadata.args_docs,
+                rtype=Any,  # type: ignore
+                rtype_adapter=TypeAdapter(Any),
+                default_title=metadata.default_title,
+                display_group=metadata.display_group,
+                include_in_schema=metadata.include_in_schema,
+                template_action=metadata.template_action,
+                origin=origin,
+            )
+        elif metadata.type == "udf":
+            # For UDFs from metadata, we create a placeholder function
+            # In a real execution scenario, this would need to be replaced
+            # with actual remote execution or dynamic import
+            def placeholder_fn(**kwargs):
+                raise NotImplementedError(
+                    f"UDF {metadata.namespace}.{metadata.name} from {origin} "
+                    "requires remote execution or dynamic import"
+                )
+
+            # Set the required attributes on the placeholder function
+            placeholder_fn.__name__ = metadata.name
+            placeholder_fn.__module__ = metadata.module
+            setattr(placeholder_fn, "__tracecat_udf_key", metadata.key)
+            setattr(
+                placeholder_fn,
+                "__tracecat_udf_kwargs",
+                RegisterKwargs(
+                    namespace=metadata.namespace,
+                    description=metadata.description,
+                    default_title=metadata.default_title,
+                    display_group=metadata.display_group,
+                    doc_url=metadata.doc_url,
+                    author=metadata.author,
+                    deprecated=metadata.deprecated,
+                    secrets=metadata.secrets,
+                    include_in_schema=metadata.include_in_schema,
+                ).model_dump(),
+            )
+
+            # Create args_cls from schema
+            # This is a simplified version - in production, you'd reconstruct
+            # the actual Pydantic model from the schema
+            args_cls = create_model(
+                f"{metadata.namespace.replace('.', '')}_{metadata.name}",
+                __config__=ConfigDict(extra="forbid"),
+            )
+
+            # Register the placeholder
+            self.register_udf(
+                fn=placeholder_fn,
+                type="udf",
+                name=metadata.name,
+                namespace=metadata.namespace,
+                description=metadata.description,
+                doc_url=metadata.doc_url,
+                author=metadata.author,
+                deprecated=metadata.deprecated,
+                secrets=metadata.secrets,
+                default_title=metadata.default_title,
+                display_group=metadata.display_group,
+                include_in_schema=metadata.include_in_schema,
+                args_cls=args_cls,
+                args_docs=metadata.args_docs,
+                rtype=Any,  # type: ignore
+                rtype_adapter=TypeAdapter(Any),
+                origin=origin,
+                module=metadata.module,
+            )
 
     def _register_udf_from_function(
         self,
@@ -530,6 +683,7 @@ class Repository:
         *,
         name: str,
         origin: str = DEFAULT_REGISTRY_ORIGIN,
+        module_name: str | None = None,
     ) -> None:
         # Get function metadata
         key = getattr(fn, "__tracecat_udf_key")
@@ -548,6 +702,7 @@ class Repository:
             fn=fn,
             type="udf",
             name=name,
+            module=module_name,
             namespace=validated_kwargs.namespace,
             description=validated_kwargs.description,
             doc_url=validated_kwargs.doc_url,
@@ -569,19 +724,14 @@ class Repository:
         module: ModuleType,
         *,
         origin: str = DEFAULT_REGISTRY_ORIGIN,
+        module_name: str | None = None,
     ) -> int:
         num_udfs = 0
-        for name, obj in inspect.getmembers(module):
-            # Get all functions in the module
-            if not inspect.isfunction(obj):
-                continue
-            _enforce_restrictions(obj)
-            is_udf = hasattr(obj, "__tracecat_udf_key")
-            has_udf_kwargs = hasattr(obj, "__tracecat_udf_kwargs")
-            # Register the UDF if it is a function and has UDF metadata
-            if is_udf and has_udf_kwargs:
-                self._register_udf_from_function(obj, name=name, origin=origin)
-                num_udfs += 1
+        for name, obj in walk_module_udfs(module):
+            self._register_udf_from_function(
+                obj, name=name, origin=origin, module_name=module_name
+            )
+            num_udfs += 1
         return num_udfs
 
     def _register_udfs_from_package(
@@ -591,31 +741,17 @@ class Repository:
         origin: str = DEFAULT_REGISTRY_ORIGIN,
     ) -> None:
         start_time = default_timer()
-        # Use rglob to find all python files
-        base_path = module.__path__[0]
+        base_path = Path(module.__path__[0])
         base_package = module.__name__
         num_udfs = 0
-        # Ignore __init__.py and __main__.py
-        exclude_filenames = ("__init__", "__main__")
-        # Ignore CLI files
-        exclude_prefixes = (f"{base_path}/cli",)
 
-        for path in Path(base_path).rglob("*.py"):
-            if path.stem in exclude_filenames:
-                logger.debug("Skipping excluded filename", path=path)
-                continue
-            p_str = path.as_posix()
-            if any(p_str.startswith(prefix) for prefix in exclude_prefixes):
-                logger.debug("Skipping excluded prefix", path=path)
-                continue
+        for path in walk_module_py_files(module):
             logger.info(f"Loading UDFs from {path!s}")
-            # Convert path to relative path
-            relative_path = path.relative_to(base_path)
-            # Create fully qualified module name
-            udf_module_parts = list(relative_path.parent.parts) + [relative_path.stem]
-            udf_module_name = f"{base_package}.{'.'.join(udf_module_parts)}"
-            module = import_and_reload(udf_module_name)
-            num_registered = self._register_udfs_from_module(module, origin=origin)
+            module_name = construct_module_name(path, base_path, base_package)
+            module = import_and_reload(module_name)
+            num_registered = self._register_udfs_from_module(
+                module, origin=origin, module_name=module_name
+            )
             num_udfs += num_registered
         time_elapsed = default_timer() - start_time
         logger.info(
@@ -699,11 +835,7 @@ class Repository:
     ) -> int:
         """Load template actions from a package."""
         n_loaded = 0
-        all_paths = chain(path.rglob("*.yml"), path.rglob("*.yaml"))
-        for file_path in all_paths:
-            if ignore_path in file_path.parts:
-                continue
-
+        for file_path in walk_module_yaml_files(path, ignore=ignore_path):
             template_action = self.load_template_action_from_file(
                 file_path, origin, overwrite=overwrite
             )
@@ -716,15 +848,6 @@ class Repository:
     @staticmethod
     def _not_implemented():
         raise NotImplementedError("Template actions has no direct implementation")
-
-
-def import_and_reload(module_name: str) -> ModuleType:
-    """Import and reload a module."""
-    sys.modules.pop(module_name, None)
-    module = importlib.import_module(module_name)
-    reloaded_module = importlib.reload(module)
-    sys.modules[module_name] = reloaded_module
-    return reloaded_module
 
 
 def construct_module_name(path: Path, base_path: Path, base_package: str) -> str:
@@ -762,7 +885,7 @@ def walk_module_yaml_files(path: Path, *, ignore: str = "schemas") -> Iterator[P
 
 
 def walk_module_udfs(module: ModuleType) -> Iterator[tuple[str, F]]:
-    """Walk the module and yield all UDF functions."""
+    """Walk the module and yield all UDFs."""
     for name, obj in inspect.getmembers(module):
         # Get all functions in the module
         if not inspect.isfunction(obj):
@@ -773,6 +896,15 @@ def walk_module_udfs(module: ModuleType) -> Iterator[tuple[str, F]]:
         # Register the UDF if it is a function and has UDF metadata
         if is_udf and has_udf_kwargs:
             yield name, obj
+
+
+def import_and_reload(module_name: str) -> ModuleType:
+    """Import and reload a module."""
+    sys.modules.pop(module_name, None)
+    module = importlib.import_module(module_name)
+    reloaded_module = importlib.reload(module)
+    sys.modules[module_name] = reloaded_module
+    return reloaded_module
 
 
 def attach_validators(func: F, *validators: Any):
@@ -921,74 +1053,101 @@ async def ensure_base_repository(
         logger.info("Base registry repository already exists", origin=origin)
 
 
-async def install_remote_repository(
-    repo_url: str, commit_sha: str, env: SshEnv
-) -> None:
-    logger.info("Loading remote repository", url=repo_url, commit_sha=commit_sha)
-
-    cmd = ["uv", "pip", "install", "--system", "--refresh"]
-    extra_args = []
-    if config.TRACECAT__APP_ENV == "production":
-        # We set PYTHONUSERBASE in the prod Dockerfile
-        # Otherwise default to the user's home dir at ~/.local
-        python_user_base = (
-            os.getenv("PYTHONUSERBASE") or Path.home().joinpath(".local").as_posix()
-        )
-        logger.trace("Installing to PYTHONUSERBASE", python_user_base=python_user_base)
-        extra_args = ["--target", python_user_base]
-    try:
-        process = await asyncio.create_subprocess_exec(
-            *cmd,
-            *extra_args,
-            f"{repo_url}@{commit_sha}",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=os.environ.copy() | env.to_dict(),
-        )
-        _, stderr = await process.communicate()
-        if process.returncode != 0:
-            error_message = stderr.decode().strip()
-            logger.error(f"Failed to install repository: {error_message}")
-            raise RuntimeError(f"Failed to install repository: {error_message}")
-
-        logger.info("Remote repository installed successfully")
-    except Exception as e:
-        logger.error(f"Error while fetching repository: {str(e)}")
-        raise RuntimeError(f"Error while fetching repository: {str(e)}") from e
+VENV_LIB = Path("/var/lib/tracecat/pkg")
+VENV_LIB.mkdir(parents=True, exist_ok=True)
 
 
 def get_venv_path(commit_sha: str) -> Path:
-    """Get the venv path for a given commit SHA."""
-    return Path.home().joinpath(".tracecat", "venvs", commit_sha)
+    return VENV_LIB / commit_sha
 
 
 def get_venv_python_path(commit_sha: str) -> Path:
-    """Get the python executable path for a given commit SHA."""
-    return get_venv_path(commit_sha).joinpath("bin", "python")
+    return get_venv_path(commit_sha) / "bin" / "python"
+
+
+async def install_remote_repository(
+    repo_url: str, commit_sha: str, env: SshEnv
+) -> Path:
+    """
+    Clone+install the repo into an isolated venv and return the path to the venv's python executable.
+    Does *not* touch the system interpreter.
+
+    Returns:
+        Path to the venv's python executable
+    """
+
+    venv_path = get_venv_path(commit_sha)
+    venv_python = get_venv_python_path(commit_sha)
+    info = sys.version_info
+    py_version = f"{info.major}.{info.minor}.{info.micro}"
+
+    if not venv_path.exists():
+        # 1) create venv  (fast: uv embeds its own venv builder)
+        proc = await asyncio.create_subprocess_exec(
+            "uv",
+            "venv",
+            venv_path.as_posix(),
+            "--python",
+            py_version,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, err = await proc.communicate()
+        if proc.returncode:
+            raise RuntimeError(f"uv venv failed: {err.decode()}")
+
+    # 2) pip-install the repo *into* that venv
+    proc = await asyncio.create_subprocess_exec(
+        "uv",
+        "pip",
+        "install",
+        "--python",
+        venv_python.as_posix(),
+        "--refresh",
+        f"{repo_url}@{commit_sha}",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        env=os.environ.copy() | env.to_dict(),
+    )
+    _, err = await proc.communicate()
+    if proc.returncode:
+        raise RuntimeError(f"repo install failed: {err.decode()}")
+
+    return venv_path
 
 
 def metadata_from_function(
-    fn: F, origin: str, module_name: str
+    fn: F, *, origin: str, module_name: str
 ) -> RegistryActionMetadata:
-    """Extract metadata from a UDF function."""
+    """Extract metadata from a UDF function into a serializable format.
+
+    Args:
+        fn: The UDF function with __tracecat_udf_key and __tracecat_udf_kwargs attributes
+        origin: The origin of the UDF
+
+    Returns:
+        A JSON-serializable dictionary containing all metadata needed to register the UDF
+    """
+    # Get function metadata
     key = getattr(fn, "__tracecat_udf_key")
     kwargs = getattr(fn, "__tracecat_udf_kwargs")
+
+    # Validate kwargs
     validated_kwargs = RegisterKwargs.model_validate(kwargs)
 
-    # Generate the models for the function
-    args_cls, rtype, _ = generate_model_from_function(
-        func=fn, udf_kwargs=validated_kwargs
-    )
+    # Get function signature docs
+    args_docs = get_signature_docs(fn)
 
-    # Extract args schema
-    args_schema = args_cls.model_json_schema()
+    # Generate the model from the function signature
+    args_cls, *_ = generate_model_from_function(func=fn, udf_kwargs=validated_kwargs)
 
+    # Get the function module and name for reconstruction
     return RegistryActionMetadata(
         type="udf",
         key=key,
         name=fn.__name__,
-        namespace=validated_kwargs.namespace,
         module=module_name,
+        namespace=validated_kwargs.namespace,
         description=validated_kwargs.description,
         default_title=validated_kwargs.default_title,
         display_group=validated_kwargs.display_group,
@@ -997,31 +1156,44 @@ def metadata_from_function(
         deprecated=validated_kwargs.deprecated,
         secrets=validated_kwargs.secrets,
         include_in_schema=validated_kwargs.include_in_schema,
-        args_docs=validated_kwargs.args_docs or {},
-        args_schema=args_schema,
+        args_docs=args_docs,
+        args_schema=args_cls.model_json_schema(),
         origin=origin,
     )
 
 
 def metadata_from_template(
-    template_action: TemplateAction, origin: str
+    template_action: TemplateAction,
+    origin: str,
 ) -> RegistryActionMetadata:
-    """Extract metadata from a template action."""
+    """Extract metadata from a template action into a serializable format.
+
+    Args:
+        template_action: The template action to extract metadata from
+        origin: The origin of the template action
+
+    Returns:
+        A JSON-serializable dictionary containing all metadata needed to register the template
+    """
+    defn = template_action.definition
+
     return RegistryActionMetadata(
         type="template",
-        key=template_action.action,
-        name=template_action.title or template_action.action,
-        namespace="integrations",  # Templates are always in integrations namespace
-        description=template_action.description,
-        default_title=None,
-        display_group=template_action.display_group,
-        doc_url=template_action.definition.doc_url,
-        author=template_action.definition.author,
-        deprecated=template_action.definition.deprecated,
-        secrets=template_action.definition.secrets,
-        include_in_schema=template_action.definition.include_in_schema,
-        args_docs={},  # Templates don't have args docs
-        args_schema=template_action.definition.expects,
+        key=defn.action,
+        name=defn.name,
+        namespace=defn.namespace,
+        description=defn.description,
+        default_title=defn.title,
+        display_group=defn.display_group,
+        doc_url=defn.doc_url,
+        author=defn.author,
+        deprecated=defn.deprecated,
+        secrets=defn.secrets,
+        include_in_schema=True,
+        args_docs={
+            key: schema.description or "-" for key, schema in defn.expects.items()
+        },
+        args_schema=defn.expects,
         origin=origin,
         template_action=template_action,
     )
