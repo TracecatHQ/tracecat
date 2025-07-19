@@ -183,11 +183,11 @@ async def add_ssh_key_to_agent(key_data: str, env: SshEnv) -> None:
     return await asyncio.to_thread(add_ssh_key_to_agent_sync, key_data, env)
 
 
-async def get_ssh_command(git_url: GitUrl, role: Role, session: AsyncSession) -> str:
+async def get_ssh_command(git_url: GitUrl, role: Role) -> str:
     """Get an SSH command for the given Git URL and SSH key."""
     role = role or ctx_role.get()
-    service = SecretsService(session=session, role=role)
-    ssh_key = await service.get_ssh_key()
+    async with SecretsService.with_session(role=role) as service:
+        ssh_key = await service.get_ssh_key()
     ssh_cmd = await prepare_ssh_key_file(git_url=git_url, ssh_key=ssh_key)
     return ssh_cmd
 
