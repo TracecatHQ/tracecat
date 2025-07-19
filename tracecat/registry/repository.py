@@ -7,13 +7,14 @@ import json
 import os
 import re
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from itertools import chain
 from pathlib import Path
 from timeit import default_timer
 from types import ModuleType
 from typing import Annotated, Any, Literal, cast
 
+import orjson
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -35,7 +36,11 @@ from tracecat.expressions.validation import TemplateValidator
 from tracecat.git import GitUrl, get_git_repository_sha, parse_git_url
 from tracecat.logger import logger
 from tracecat.parse import safe_url
-from tracecat.registry.actions.models import BoundRegistryAction, TemplateAction
+from tracecat.registry.actions.models import (
+    BoundRegistryAction,
+    RegistryActionMetadata,
+    TemplateAction,
+)
 from tracecat.registry.constants import (
     CUSTOM_REPOSITORY_ORIGIN,
     DEFAULT_LOCAL_REGISTRY_ORIGIN,
@@ -389,6 +394,77 @@ class Repository:
         else:
             raise RegistryError(f"Unsupported origin: {self._origin}.")
 
+    async def _inspect_repo_via_subprocess(
+        self,
+        venv_path: Path,
+        package_name: str,
+        *,
+        timeout: int = 30,
+    ) -> list[RegistryActionMetadata]:
+        """Run the inspector in a subprocess to extract metadata from a repository.
+
+        Args:
+            venv_python: Path to the python executable in the venv
+            package_name: Name of the package to inspect
+            timeout: Maximum time to wait for the inspection to complete
+
+        Returns:
+            List of metadata dictionaries for all actions found
+
+        Raises:
+            RegistryError: If the inspection fails or times out
+        """
+        # First, get the venv's site-packages path
+        proc = await asyncio.create_subprocess_exec(
+            venv_path.joinpath("bin", "python").as_posix(),
+            "-c",
+            "import sysconfig; print(sysconfig.get_paths()['purelib'])",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await proc.communicate()
+        if proc.returncode != 0:
+            raise RegistryError(
+                f"Failed to get venv site-packages: {stderr.decode(errors='replace')}"
+            )
+        site_packages = stdout.decode().strip()
+
+        # Build environment with PYTHONPATH including the venv's site-packages
+        env = os.environ.copy()
+        existing_pythonpath = env.get("PYTHONPATH", "")
+        env["PYTHONPATH"] = (
+            f"{site_packages}:{existing_pythonpath}"
+            if existing_pythonpath
+            else site_packages
+        )
+
+        # Run the inspector with the API interpreter
+        proc = await asyncio.create_subprocess_exec(
+            sys.executable,
+            "-m",
+            "tracecat.registry.inspector",
+            "--package",
+            package_name,
+            "--origin",
+            self._origin,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=env,
+        )
+        try:
+            out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        except TimeoutError:
+            proc.kill()
+            raise RegistryError("Repository inspection timed out") from None
+
+        if proc.returncode != 0:
+            raise RegistryError(
+                f"Inspector failed ({proc.returncode}):\n{err.decode(errors='replace')}"
+            )
+
+        res = orjson.loads(out)
+        return [RegistryActionMetadata.model_validate(metadata) for metadata in res]
+
     async def _install_remote_repository(
         self, git_url: GitUrl, commit_sha: str | None = None
     ) -> str:
@@ -651,6 +727,54 @@ def import_and_reload(module_name: str) -> ModuleType:
     return reloaded_module
 
 
+def construct_module_name(path: Path, base_path: Path, base_package: str) -> str:
+    """Construct the module name from the path."""
+    relative_path = path.relative_to(base_path)
+    udf_module_parts = list(relative_path.parent.parts) + [relative_path.stem]
+    return f"{base_package}.{'.'.join(udf_module_parts)}"
+
+
+def walk_module_py_files(module: ModuleType) -> Iterator[Path]:
+    """Walk the module and yield all Python files."""
+    # Use rglob to find all python files
+    base_path = module.__path__[0]
+    # Ignore __init__.py and __main__.py
+    exclude_filenames = ("__init__", "__main__")
+    # Ignore CLI files
+    exclude_prefixes = (f"{base_path}/cli",)
+
+    for path in Path(base_path).rglob("*.py"):
+        if path.stem in exclude_filenames:
+            continue
+        p_str = path.as_posix()
+        if any(p_str.startswith(prefix) for prefix in exclude_prefixes):
+            continue
+        yield path
+
+
+def walk_module_yaml_files(path: Path, *, ignore: str = "schemas") -> Iterator[Path]:
+    """Walk the module and yield all YAML files."""
+    all_paths = chain(path.rglob("*.yml"), path.rglob("*.yaml"))
+    for file_path in all_paths:
+        if ignore in file_path.parts:
+            continue
+        yield file_path
+
+
+def walk_module_udfs(module: ModuleType) -> Iterator[tuple[str, F]]:
+    """Walk the module and yield all UDF functions."""
+    for name, obj in inspect.getmembers(module):
+        # Get all functions in the module
+        if not inspect.isfunction(obj):
+            continue
+        _enforce_restrictions(obj)
+        is_udf = hasattr(obj, "__tracecat_udf_key")
+        has_udf_kwargs = hasattr(obj, "__tracecat_udf_kwargs")
+        # Register the UDF if it is a function and has UDF metadata
+        if is_udf and has_udf_kwargs:
+            yield name, obj
+
+
 def attach_validators(func: F, *validators: Any):
     sig = inspect.signature(func)
 
@@ -831,3 +955,73 @@ async def install_remote_repository(
     except Exception as e:
         logger.error(f"Error while fetching repository: {str(e)}")
         raise RuntimeError(f"Error while fetching repository: {str(e)}") from e
+
+
+def get_venv_path(commit_sha: str) -> Path:
+    """Get the venv path for a given commit SHA."""
+    return Path.home().joinpath(".tracecat", "venvs", commit_sha)
+
+
+def get_venv_python_path(commit_sha: str) -> Path:
+    """Get the python executable path for a given commit SHA."""
+    return get_venv_path(commit_sha).joinpath("bin", "python")
+
+
+def metadata_from_function(
+    fn: F, origin: str, module_name: str
+) -> RegistryActionMetadata:
+    """Extract metadata from a UDF function."""
+    key = getattr(fn, "__tracecat_udf_key")
+    kwargs = getattr(fn, "__tracecat_udf_kwargs")
+    validated_kwargs = RegisterKwargs.model_validate(kwargs)
+
+    # Generate the models for the function
+    args_cls, rtype, _ = generate_model_from_function(
+        func=fn, udf_kwargs=validated_kwargs
+    )
+
+    # Extract args schema
+    args_schema = args_cls.model_json_schema()
+
+    return RegistryActionMetadata(
+        type="udf",
+        key=key,
+        name=fn.__name__,
+        namespace=validated_kwargs.namespace,
+        module=module_name,
+        description=validated_kwargs.description,
+        default_title=validated_kwargs.default_title,
+        display_group=validated_kwargs.display_group,
+        doc_url=validated_kwargs.doc_url,
+        author=validated_kwargs.author,
+        deprecated=validated_kwargs.deprecated,
+        secrets=validated_kwargs.secrets,
+        include_in_schema=validated_kwargs.include_in_schema,
+        args_docs=validated_kwargs.args_docs or {},
+        args_schema=args_schema,
+        origin=origin,
+    )
+
+
+def metadata_from_template(
+    template_action: TemplateAction, origin: str
+) -> RegistryActionMetadata:
+    """Extract metadata from a template action."""
+    return RegistryActionMetadata(
+        type="template",
+        key=template_action.action,
+        name=template_action.title or template_action.action,
+        namespace="integrations",  # Templates are always in integrations namespace
+        description=template_action.description,
+        default_title=None,
+        display_group=template_action.display_group,
+        doc_url=template_action.definition.doc_url,
+        author=template_action.definition.author,
+        deprecated=template_action.definition.deprecated,
+        secrets=template_action.definition.secrets,
+        include_in_schema=template_action.definition.include_in_schema,
+        args_docs={},  # Templates don't have args docs
+        args_schema=template_action.definition.expects,
+        origin=origin,
+        template_action=template_action,
+    )
