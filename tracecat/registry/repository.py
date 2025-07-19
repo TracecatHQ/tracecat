@@ -62,6 +62,9 @@ from tracecat.types.exceptions import RegistryError
 ArgsClsT = type[BaseModel]
 type F = Callable[..., Any]
 
+VENV_LIB = Path.home().expanduser().joinpath(".tracecat", "venvs")
+VENV_LIB.mkdir(parents=True, exist_ok=True)
+
 
 class RegisterKwargs(BaseModel):
     namespace: str
@@ -1051,10 +1054,6 @@ async def ensure_base_repository(
         logger.info("Created base registry repository", origin=origin)
     else:
         logger.info("Base registry repository already exists", origin=origin)
-
-
-VENV_LIB = Path("/var/lib/tracecat/pkg")
-VENV_LIB.mkdir(parents=True, exist_ok=True)
 
 
 def get_venv_path(commit_sha: str) -> Path:
