@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException, status
+from pydantic.config import ConfigDict
 from pydantic_core import PydanticUndefined
 from sqlalchemy.exc import NoResultFound
 from sqlmodel import select
@@ -10,8 +11,10 @@ from tracecat.ee.interactions.models import ActionInteractionValidator
 from tracecat.identifiers.action import ActionID
 from tracecat.identifiers.workflow import AnyWorkflowIDPath, WorkflowUUID
 from tracecat.logger import logger
+from tracecat.registry.actions.models import RegistryActionInterface
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.types.exceptions import RegistryError
+from tracecat.validation.common import json_schema_to_pydantic
 from tracecat.workflow.actions.models import (
     ActionControlFlow,
     ActionCreate,
@@ -128,16 +131,20 @@ async def get_action(
         # Lookup action type in the registry
         ra_service = RegistryActionsService(session, role=role)
         try:
-            reg_action = await ra_service.load_action_impl(action.type)
+            reg_action = await ra_service.get_action(action_name=action.type)
         except RegistryError as e:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Action not found in registry",
             ) from e
+        interface = RegistryActionInterface(**reg_action.interface)
+        args_cls = json_schema_to_pydantic(
+            interface["expects"], root_config=ConfigDict(extra="forbid")
+        )
         # We want to construct a YAML string that contains the defaults
         prefilled_inputs = "\n".join(
             f"{field}: "
-            for field, field_info in reg_action.args_cls.model_fields.items()
+            for field, field_info in args_cls.model_fields.items()
             if field_info.default is PydanticUndefined
         )
         action.inputs = prefilled_inputs
