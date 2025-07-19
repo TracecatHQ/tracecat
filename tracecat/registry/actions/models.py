@@ -28,7 +28,6 @@ from tracecat.expressions.expectations import ExpectedField, create_expectation_
 from tracecat.logger import logger
 from tracecat.registry.actions.enums import TemplateActionValidationErrorType
 from tracecat.types.exceptions import (
-    RegistryActionError,
     RegistryValidationError,
     TracecatValidationError,
 )
@@ -54,6 +53,7 @@ class BoundRegistryAction(BaseModel):
     description: str
     namespace: str
     type: RegistryActionType
+    module: str | None = None
     # Registry details
     origin: str
     # Secrets
@@ -115,16 +115,13 @@ class BoundRegistryAction(BaseModel):
                 template_action=self.template_action,
             )
         elif self.type == "udf":
-            module = inspect.getmodule(self.fn)
-            if not module:
-                raise RegistryActionError("UDF module not found")
-            module_path = module.__name__
-            function_name = self.fn.__name__
+            if not self.module:
+                raise ValueError("UDF module is not set")
             return RegistryActionUDFImpl(
                 type="udf",
                 url=self.origin,
-                module=module_path,
-                name=function_name,
+                module=self.module,
+                name=self.fn.__name__,
             )
         else:
             raise ValueError(f"Invalid registry action type: {self.type}")
@@ -630,3 +627,23 @@ class RegistryActionValidationErrorInfo(BaseModel):
             is_template=is_template,
             loc_primary=".".join(map(str, v.loc)),
         )
+
+
+class RegistryActionMetadata(BaseModel):
+    type: RegistryActionType
+    key: str
+    name: str
+    namespace: str
+    module: str | None = None
+    description: str
+    default_title: str | None
+    display_group: str | None
+    doc_url: str | None
+    author: str | None
+    deprecated: str | None
+    secrets: list[RegistrySecretType] | None
+    include_in_schema: bool
+    args_docs: dict[str, str]
+    args_schema: dict[str, Any]
+    origin: str
+    template_action: TemplateAction | None = None
