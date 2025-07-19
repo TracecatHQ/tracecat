@@ -631,3 +631,23 @@ class RegistryActionValidationErrorInfo(BaseModel):
             is_template=is_template,
             loc_primary=".".join(map(str, v.loc)),
         )
+
+
+class RegistryActionMetadata(BaseModel):
+    type: RegistryActionType
+    key: str
+    name: str
+    namespace: str
+    module: str | None = None
+    description: str
+    default_title: str | None
+    display_group: str | None
+    doc_url: str | None
+    author: str | None
+    deprecated: str | None
+    secrets: list[RegistrySecretType] | None
+    include_in_schema: bool
+    args_docs: dict[str, str]
+    args_schema: dict[str, Any]
+    origin: str
+    template_action: TemplateAction | None = None
