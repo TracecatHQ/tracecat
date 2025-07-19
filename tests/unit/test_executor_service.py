@@ -1,5 +1,5 @@
 import uuid
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from tracecat_registry import RegistrySecret
@@ -16,6 +16,11 @@ from tracecat.git import GitUrl
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.types.auth import Role
+
+
+@pytest.fixture
+def mock_session():
+    return AsyncMock()
 
 
 @pytest.fixture
@@ -86,18 +91,44 @@ def dispatch_context():
 
 
 @pytest.mark.anyio
-async def test_dispatch_action_basic(basic_task_input, dispatch_context):
+async def test_dispatch_action_basic(
+    mocker, mock_session, basic_task_input, dispatch_context
+):
+    # Mock RegistryActionsService
+    mock_reg_service = mocker.AsyncMock()
+    mock_reg_service.get_action.return_value = mocker.MagicMock()  # Mock RegistryAction
+    mocker.patch(
+        "tracecat.executor.service.RegistryActionsService.with_session",
+        return_value=mocker.AsyncMock(
+            __aenter__=mocker.AsyncMock(return_value=mock_reg_service)
+        ),
+    )
+
     with patch("tracecat.executor.service.run_action_on_ray_cluster") as mock_ray:
         mock_ray.return_value = {"result": "success"}
 
         result = await _dispatch_action(input=basic_task_input, ctx=dispatch_context)
 
         assert result == {"result": "success"}
-        mock_ray.assert_called_once_with(basic_task_input, dispatch_context)
+        mock_ray.assert_called_once_with(
+            basic_task_input, dispatch_context, is_builtin=False
+        )
 
 
 @pytest.mark.anyio
-async def test_dispatch_action_with_foreach(basic_looped_task_input, dispatch_context):
+async def test_dispatch_action_with_foreach(
+    mocker, mock_session, basic_looped_task_input, dispatch_context
+):
+    # Mock RegistryActionsService
+    mock_reg_service = mocker.AsyncMock()
+    mock_reg_service.get_action.return_value = mocker.MagicMock()  # Mock RegistryAction
+    mocker.patch(
+        "tracecat.executor.service.RegistryActionsService.with_session",
+        return_value=mocker.AsyncMock(
+            __aenter__=mocker.AsyncMock(return_value=mock_reg_service)
+        ),
+    )
+
     with patch("tracecat.executor.service.run_action_on_ray_cluster") as mock_ray:
         mock_ray.return_value = {"result": "success"}
 
