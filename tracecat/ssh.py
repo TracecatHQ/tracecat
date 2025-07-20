@@ -93,7 +93,7 @@ async def temporary_ssh_agent() -> AsyncIterator[SshEnv]:
         logger.debug("Killed ssh-agent")
 
 
-def add_host_to_known_hosts_sync(url: str, env: SshEnv) -> None:
+def add_host_to_known_hosts_sync(url: str, port: int, env: SshEnv) -> None:
     """Synchronously add the host to the known hosts file if not already present.
 
     Args:
@@ -119,7 +119,7 @@ def add_host_to_known_hosts_sync(url: str, env: SshEnv) -> None:
                     return
         # Use ssh-keyscan to get the host key
         result = subprocess.run(
-            ["ssh-keyscan", url],
+            ["ssh-keyscan", "-p", str(port), url],
             capture_output=True,
             text=True,
             env=env.to_dict(),
@@ -139,9 +139,9 @@ def add_host_to_known_hosts_sync(url: str, env: SshEnv) -> None:
         raise
 
 
-async def add_host_to_known_hosts(url: str, *, env: SshEnv) -> None:
+async def add_host_to_known_hosts(url: str, port: int, *, env: SshEnv) -> None:
     """Asynchronously add the host to the known hosts file."""
-    return await asyncio.to_thread(add_host_to_known_hosts_sync, url, env)
+    return await asyncio.to_thread(add_host_to_known_hosts_sync, url, port, env)
 
 
 def add_ssh_key_to_agent_sync(key_data: str, env: SshEnv) -> None:
@@ -232,5 +232,5 @@ async def ssh_context(
         secret = await sec_svc.get_ssh_key()
         async with temporary_ssh_agent() as env:
             await add_ssh_key_to_agent(secret.get_secret_value(), env=env)
-            await add_host_to_known_hosts(git_url.host, env=env)
+            await add_host_to_known_hosts(git_url.host, git_url.port, env=env)
             yield env
