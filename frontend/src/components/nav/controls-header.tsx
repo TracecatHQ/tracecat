@@ -1,7 +1,7 @@
 "use client"
 
 import { format, formatDistanceToNow } from "date-fns"
-import { Calendar, PanelLeftClose, PanelLeftOpen, Plus } from "lucide-react"
+import { Calendar, Plus } from "lucide-react"
 import Link from "next/link"
 import { usePathname, useSearchParams } from "next/navigation"
 import { type ReactNode, useState } from "react"
@@ -23,7 +23,7 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
 import { Button } from "@/components/ui/button"
-import { SidebarTrigger, useSidebar } from "@/components/ui/sidebar"
+import { SidebarTrigger } from "@/components/ui/sidebar"
 import { AddCustomField } from "@/components/workspaces/add-custom-field"
 import { AddWorkspaceMember } from "@/components/workspaces/add-workspace-member"
 import {
@@ -357,7 +357,6 @@ function getPageConfig(
 }
 
 export function ControlsHeader() {
-  const { state } = useSidebar()
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const { workspaceId } = useWorkspace()
@@ -379,13 +378,7 @@ export function ControlsHeader() {
   return (
     <header className="flex h-14 items-center justify-between border-b px-6">
       <div className="flex items-center gap-3">
-        <SidebarTrigger className="h-7 w-7">
-          {state === "collapsed" ? (
-            <PanelLeftOpen className="h-4 w-4" />
-          ) : (
-            <PanelLeftClose className="h-4 w-4" />
-          )}
-        </SidebarTrigger>
+        <SidebarTrigger className="h-7 w-7" />
         {typeof pageConfig.title === "string" ? (
           <h1 className="text-sm font-semibold">{pageConfig.title}</h1>
         ) : (
