@@ -16,7 +16,7 @@ okta_secret = RegistrySecret(
 """Okta API credentials.
 - name: `okta`
 - keys:
-    - `OKTA_API_TOKEN`: Okta API token for authentication
+    - `OAR_API_TOKEN`: Okta API token for authentication
 """
 
 
@@ -33,7 +33,7 @@ def _get_okta_headers() -> dict[str, str]:
     default_title="Get requests",
     description="Get Okta Access Request tickets with optional filtering and pagination.",
     display_group="Okta OAR",
-    doc_url="https://developer.okta.com/docs/reference/api/governance/",
+    doc_url="https://developer.okta.com/docs/api/iga/openapi/governance.requests.admin.v1/tag/Requests/",
     namespace="tools.okta_oar",
     secrets=[okta_secret],
 )
@@ -88,7 +88,7 @@ async def get_requests(
     default_title="Get specific request",
     description="Get a specific Okta Access Request ticket by ID.",
     display_group="Okta OAR",
-    doc_url="https://developer.okta.com/docs/reference/api/governance/",
+    doc_url="https://developer.okta.com/docs/api/iga/openapi/governance.requests.admin.v1/tag/Requests/#tag/Requests/operation/getRequest",
     namespace="tools.okta_oar",
     secrets=[okta_secret],
 )
@@ -152,7 +152,7 @@ async def get_user(
     default_title="Create message",
     description="Create a message in an Okta Access Request ticket.",
     display_group="Okta OAR",
-    doc_url="https://developer.okta.com/docs/reference/api/governance/",
+    doc_url="https://developer.okta.com/docs/api/iga/openapi/governance.requests.admin.v1/tag/Requests/#tag/Requests/operation/createRequestMessage",
     namespace="tools.okta_oar",
     secrets=[okta_secret],
 )
