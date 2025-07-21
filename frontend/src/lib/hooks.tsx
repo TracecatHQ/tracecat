@@ -2415,6 +2415,14 @@ export function useBatchInsertRows() {
       queryClient.invalidateQueries({
         queryKey: ["rows", variables.tableId],
       })
+      queryClient.invalidateQueries({
+        queryKey: [
+          "rows",
+          "paginated",
+          variables.tableId,
+          variables.workspaceId,
+        ],
+      })
       toast({
         title: "Imported rows successfully",
         description: "The data has been imported into the table.",
@@ -2450,6 +2458,14 @@ export function useInsertRow() {
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({
         queryKey: ["rows", variables.tableId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: [
+          "rows",
+          "paginated",
+          variables.tableId,
+          variables.workspaceId,
+        ],
       })
     },
     onError: (error: TracecatApiError) => {
@@ -2491,6 +2507,14 @@ export function useDeleteRow() {
         queryKey: ["rows", variables.tableId],
       })
       queryClient.invalidateQueries({
+        queryKey: [
+          "rows",
+          "paginated",
+          variables.tableId,
+          variables.workspaceId,
+        ],
+      })
+      queryClient.invalidateQueries({
         queryKey: ["table", variables.tableId],
       })
     },
@@ -2515,6 +2539,14 @@ export function useImportCsv() {
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({
         queryKey: ["rows", variables.tableId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: [
+          "rows",
+          "paginated",
+          variables.tableId,
+          variables.workspaceId,
+        ],
       })
       toast({
         title: "Imported rows successfully",
@@ -2578,6 +2610,10 @@ export function useCreateCase(workspaceId: string) {
       await casesCreateCase({ workspaceId, requestBody: params }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["cases"] })
+      queryClient.invalidateQueries({ queryKey: ["cases", workspaceId] })
+      queryClient.invalidateQueries({
+        queryKey: ["cases", "paginated", workspaceId],
+      })
       toast({
         title: "Case created",
         description: "New case created successfully",
@@ -2617,6 +2653,9 @@ export function useUpdateCase({
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: ["cases", workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["cases", "paginated", workspaceId],
       })
       queryClient.invalidateQueries({
         queryKey: ["case", caseId],
@@ -2663,6 +2702,9 @@ export function useDeleteCase({ workspaceId }: { workspaceId: string }) {
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: ["cases", workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["cases", "paginated", workspaceId],
       })
     },
     onError: (error: TracecatApiError) => {
