@@ -10,7 +10,6 @@ from tracecat_registry import RegistrySecret, registry, secrets
 okta_secret = RegistrySecret(
     name="okta",
     keys=[
-        "OKTA_DOMAIN",
         "OKTA_API_TOKEN",
     ],
 )
@@ -18,7 +17,6 @@ okta_secret = RegistrySecret(
 
 - name: `okta`
 - keys:
-    - `OKTA_DOMAIN`: Your Okta domain (e.g., 'dev-12345.okta.com')
     - `OKTA_API_TOKEN`: Okta API token for authentication
 """
 
@@ -32,14 +30,6 @@ def _get_okta_headers() -> dict[str, str]:
     }
 
 
-def _get_okta_base_url() -> str:
-    """Get the base URL for Okta API requests."""
-    domain = secrets.get("OKTA_DOMAIN")
-    if not domain.startswith("https://"):
-        domain = f"https://{domain}"
-    return f"{domain}/api/v1"
-
-
 @registry.register(
     default_title="Get user",
     description="Retrieve a specific user by ID, login, or email from your Okta organization.",
@@ -49,18 +39,23 @@ def _get_okta_base_url() -> str:
     secrets=[okta_secret],
 )
 async def get_user(
+    base_url: Annotated[
+        str,
+        Field(
+            ..., description="Okta domain base URL (e.g., 'https://dev-12345.okta.com')"
+        ),
+    ],
     user_id: Annotated[
         str,
         Field(..., description="User ID, login, or email of the user to retrieve"),
     ],
 ) -> dict[str, Any]:
     """Get a specific user from Okta."""
-    base_url = _get_okta_base_url()
     headers = _get_okta_headers()
 
     async with httpx.AsyncClient() as client:
         response = await client.get(
-            f"{base_url}/users/{user_id}",
+            f"{base_url}/api/v1/users/{user_id}",
             headers=headers,
         )
         response.raise_for_status()
@@ -76,32 +71,37 @@ async def get_user(
     secrets=[okta_secret],
 )
 async def list_users(
+    base_url: Annotated[
+        str,
+        Field(
+            ..., description="Okta domain base URL (e.g., 'https://dev-12345.okta.com')"
+        ),
+    ],
     limit: Annotated[
         int,
         Field(200, description="Number of users to return (default: 200)"),
     ] = 200,
-    search: Annotated[
-        str | None,
-        Field(None, description="Search expression for filtering users"),
-    ] = None,
     filter: Annotated[
         str | None,
         Field(None, description="Filter expression for users"),
     ] = None,
+    after: Annotated[
+        int | None,
+        Field(None, description="Result to start from"),
+    ] = None,
 ) -> list[dict[str, Any]]:
     """List users in Okta organization."""
-    base_url = _get_okta_base_url()
     headers = _get_okta_headers()
 
     params: dict[str, Any] = {"limit": limit}
-    if search:
-        params["search"] = search
     if filter:
         params["filter"] = filter
+    if after:
+        params["after"] = after
 
     async with httpx.AsyncClient() as client:
         response = await client.get(
-            f"{base_url}/users",
+            f"{base_url}/api/v1/users",
             headers=headers,
             params=params,
         )
@@ -118,6 +118,12 @@ async def list_users(
     secrets=[okta_secret],
 )
 async def search_users(
+    base_url: Annotated[
+        str,
+        Field(
+            ..., description="Okta domain base URL (e.g., 'https://dev-12345.okta.com')"
+        ),
+    ],
     query: Annotated[
         str,
         Field(..., description="Query string to search for users"),
@@ -126,16 +132,21 @@ async def search_users(
         int,
         Field(10, description="Number of users to return (default: 10)"),
     ] = 10,
+    after: Annotated[
+        int | None,
+        Field(None, description="Result to start from"),
+    ] = None,
 ) -> list[dict[str, Any]]:
     """Search for users in Okta."""
-    base_url = _get_okta_base_url()
     headers = _get_okta_headers()
 
-    params = {"q": query, "limit": limit}
+    params = {"search": query, "limit": limit}
+    if after:
+        params["after"] = after
 
     async with httpx.AsyncClient() as client:
         response = await client.get(
-            f"{base_url}/users",
+            f"{base_url}/api/v1/users",
             headers=headers,
             params=params,
         )
@@ -152,6 +163,12 @@ async def search_users(
     secrets=[okta_secret],
 )
 async def create_user(
+    base_url: Annotated[
+        str,
+        Field(
+            ..., description="Okta domain base URL (e.g., 'https://dev-12345.okta.com')"
+        ),
+    ],
     email: Annotated[
         str,
         Field(..., description="Email address of the new user"),
@@ -180,7 +197,6 @@ async def create_user(
     ] = None,
 ) -> dict[str, Any]:
     """Create a new user in Okta."""
-    base_url = _get_okta_base_url()
     headers = _get_okta_headers()
 
     profile = {
@@ -198,7 +214,7 @@ async def create_user(
 
     async with httpx.AsyncClient() as client:
         response = await client.post(
-            f"{base_url}/users",
+            f"{base_url}/api/v1/users",
             headers=headers,
             params=params,
             json=user_data,
@@ -216,6 +232,12 @@ async def create_user(
     secrets=[okta_secret],
 )
 async def activate_user(
+    base_url: Annotated[
+        str,
+        Field(
+            ..., description="Okta domain base URL (e.g., 'https://dev-12345.okta.com')"
+        ),
+    ],
     user_id: Annotated[
         str,
         Field(..., description="User ID, login, or email of the user to activate"),
@@ -226,14 +248,13 @@ async def activate_user(
     ] = True,
 ) -> dict[str, Any]:
     """Activate a user in Okta."""
-    base_url = _get_okta_base_url()
     headers = _get_okta_headers()
 
     params = {"sendEmail": str(send_email).lower()}
 
     async with httpx.AsyncClient() as client:
         response = await client.post(
-            f"{base_url}/users/{user_id}/lifecycle/activate",
+            f"{base_url}/api/v1/users/{user_id}/lifecycle/activate",
             headers=headers,
             params=params,
         )
@@ -250,6 +271,12 @@ async def activate_user(
     secrets=[okta_secret],
 )
 async def clear_user_sessions(
+    base_url: Annotated[
+        str,
+        Field(
+            ..., description="Okta domain base URL (e.g., 'https://dev-12345.okta.com')"
+        ),
+    ],
     user_id: Annotated[
         str,
         Field(
@@ -259,12 +286,11 @@ async def clear_user_sessions(
     ],
 ) -> dict[str, Any]:
     """Clear all active sessions for a user."""
-    base_url = _get_okta_base_url()
     headers = _get_okta_headers()
 
     async with httpx.AsyncClient() as client:
         response = await client.delete(
-            f"{base_url}/users/{user_id}/sessions",
+            f"{base_url}/api/v1/users/{user_id}/sessions",
             headers=headers,
         )
         response.raise_for_status()
@@ -280,6 +306,12 @@ async def clear_user_sessions(
     secrets=[okta_secret],
 )
 async def list_groups_in_org(
+    base_url: Annotated[
+        str,
+        Field(
+            ..., description="Okta domain base URL (e.g., 'https://dev-12345.okta.com')"
+        ),
+    ],
     limit: Annotated[
         int,
         Field(200, description="Number of groups to return (default: 200)"),
@@ -292,9 +324,12 @@ async def list_groups_in_org(
         str | None,
         Field(None, description="Filter expression for groups"),
     ] = None,
+    after: Annotated[
+        int | None,
+        Field(None, description="Result to start from"),
+    ] = None,
 ) -> list[dict[str, Any]]:
     """List groups in Okta organization."""
-    base_url = _get_okta_base_url()
     headers = _get_okta_headers()
 
     params: dict[str, Any] = {"limit": limit}
@@ -302,10 +337,12 @@ async def list_groups_in_org(
         params["search"] = search
     if filter:
         params["filter"] = filter
+    if after:
+        params["after"] = after
 
     async with httpx.AsyncClient() as client:
         response = await client.get(
-            f"{base_url}/groups",
+            f"{base_url}/api/v1/groups",
             headers=headers,
             params=params,
         )
@@ -322,6 +359,12 @@ async def list_groups_in_org(
     secrets=[okta_secret],
 )
 async def get_group_members(
+    base_url: Annotated[
+        str,
+        Field(
+            ..., description="Okta domain base URL (e.g., 'https://dev-12345.okta.com')"
+        ),
+    ],
     group_id: Annotated[
         str,
         Field(..., description="ID of the group to get members for"),
@@ -330,16 +373,21 @@ async def get_group_members(
         int,
         Field(200, description="Number of members to return (default: 200)"),
     ] = 200,
+    after: Annotated[
+        int | None,
+        Field(None, description="Result to start from"),
+    ] = None,
 ) -> list[dict[str, Any]]:
     """Get all members of a specific group."""
-    base_url = _get_okta_base_url()
     headers = _get_okta_headers()
 
     params = {"limit": limit}
+    if after:
+        params["after"] = after
 
     async with httpx.AsyncClient() as client:
         response = await client.get(
-            f"{base_url}/groups/{group_id}/users",
+            f"{base_url}/api/v1/groups/{group_id}/users",
             headers=headers,
             params=params,
         )
@@ -356,41 +404,27 @@ async def get_group_members(
     secrets=[okta_secret],
 )
 async def get_groups_assigned_to_user(
+    base_url: Annotated[
+        str,
+        Field(
+            ..., description="Okta domain base URL (e.g., 'https://dev-12345.okta.com')"
+        ),
+    ],
     user_id: Annotated[
         str,
         Field(..., description="User ID, login, or email to get group memberships for"),
     ],
 ) -> list[dict[str, Any]]:
     """Get all groups that a user is assigned to."""
-    base_url = _get_okta_base_url()
     headers = _get_okta_headers()
 
     async with httpx.AsyncClient() as client:
         response = await client.get(
-            f"{base_url}/users/{user_id}/groups",
+            f"{base_url}/api/v1/users/{user_id}/groups",
             headers=headers,
         )
         response.raise_for_status()
         return response.json()
-
-
-@registry.register(
-    default_title="Get group assignments for user",
-    description="List all groups that a user is a member of (alias for get_groups_assigned_to_user).",
-    display_group="Okta",
-    doc_url="https://developer.okta.com/docs/reference/api/users/#get-user-groups",
-    namespace="tools.okta",
-    secrets=[okta_secret],
-)
-async def get_group_assignments_for_user(
-    user_id: Annotated[
-        str,
-        Field(..., description="User ID, login, or email to get group assignments for"),
-    ],
-) -> list[dict[str, Any]]:
-    """Get all group assignments for a user."""
-    # This is an alias for get_groups_assigned_to_user to match the requested command name
-    return await get_groups_assigned_to_user(user_id)
 
 
 @registry.register(
@@ -402,6 +436,12 @@ async def get_group_assignments_for_user(
     secrets=[okta_secret],
 )
 async def add_to_group(
+    base_url: Annotated[
+        str,
+        Field(
+            ..., description="Okta domain base URL (e.g., 'https://dev-12345.okta.com')"
+        ),
+    ],
     user_id: Annotated[
         str,
         Field(..., description="User ID, login, or email to add to the group"),
@@ -412,12 +452,11 @@ async def add_to_group(
     ],
 ) -> dict[str, Any]:
     """Add a user to a group."""
-    base_url = _get_okta_base_url()
     headers = _get_okta_headers()
 
     async with httpx.AsyncClient() as client:
         response = await client.put(
-            f"{base_url}/groups/{group_id}/users/{user_id}",
+            f"{base_url}/api/v1/groups/{group_id}/users/{user_id}",
             headers=headers,
         )
         response.raise_for_status()
@@ -433,6 +472,12 @@ async def add_to_group(
     secrets=[okta_secret],
 )
 async def remove_from_group(
+    base_url: Annotated[
+        str,
+        Field(
+            ..., description="Okta domain base URL (e.g., 'https://dev-12345.okta.com')"
+        ),
+    ],
     user_id: Annotated[
         str,
         Field(..., description="User ID, login, or email to remove from the group"),
@@ -443,12 +488,11 @@ async def remove_from_group(
     ],
 ) -> dict[str, Any]:
     """Remove a user from a group."""
-    base_url = _get_okta_base_url()
     headers = _get_okta_headers()
 
     async with httpx.AsyncClient() as client:
         response = await client.delete(
-            f"{base_url}/groups/{group_id}/users/{user_id}",
+            f"{base_url}/api/v1/groups/{group_id}/users/{user_id}",
             headers=headers,
         )
         response.raise_for_status()
@@ -464,6 +508,12 @@ async def remove_from_group(
     secrets=[okta_secret],
 )
 async def assign_group_to_app(
+    base_url: Annotated[
+        str,
+        Field(
+            ..., description="Okta domain base URL (e.g., 'https://dev-12345.okta.com')"
+        ),
+    ],
     app_id: Annotated[
         str,
         Field(..., description="Application ID to assign the group to"),
@@ -478,7 +528,6 @@ async def assign_group_to_app(
     ] = None,
 ) -> dict[str, Any]:
     """Assign a group to an application."""
-    base_url = _get_okta_base_url()
     headers = _get_okta_headers()
 
     assignment_data: dict[str, Any] = {"id": group_id}
@@ -487,7 +536,7 @@ async def assign_group_to_app(
 
     async with httpx.AsyncClient() as client:
         response = await client.put(
-            f"{base_url}/apps/{app_id}/groups/{group_id}",
+            f"{base_url}/api/v1/apps/{app_id}/groups/{group_id}",
             headers=headers,
             json=assignment_data,
         )
