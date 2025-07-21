@@ -7,9 +7,9 @@ from tracecat.integrations.models import (
     ProviderMetadata,
     ProviderScopes,
 )
-from tracecat.integrations.providers.microsoft import (
-    MicrosoftACProvider,
-    MicrosoftCCProvider,
+from tracecat.integrations.providers.microsoft.graph import (
+    MicrosoftGraphACProvider,
+    MicrosoftGraphCCProvider,
 )
 
 # Microsoft Teams specific scopes for authorization code flow
@@ -60,7 +60,7 @@ AC_METADATA = ProviderMetadata(
 )
 
 
-class MicrosoftTeamsACProvider(MicrosoftACProvider):
+class MicrosoftTeamsACProvider(MicrosoftGraphACProvider):
     """Microsoft Teams OAuth provider for collaboration and communication."""
 
     id: ClassVar[str] = "microsoft_teams"
@@ -100,7 +100,7 @@ CC_METADATA = ProviderMetadata(
 )
 
 
-class MicrosoftTeamsCCProvider(MicrosoftCCProvider):
+class MicrosoftTeamsCCProvider(MicrosoftGraphCCProvider):
     """Microsoft Teams OAuth provider using client credentials flow for server-to-server automation."""
 
     id: ClassVar[str] = "microsoft_teams"

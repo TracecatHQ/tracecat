@@ -1,29 +1,29 @@
-"""Microsoft OAuth integration using generic OAuth provider."""
+"""Microsoft Graph OAuth integration using generic OAuth provider."""
 
 from typing import Any, ClassVar, Unpack
 
 from pydantic import BaseModel, Field
 
-from tracecat.integrations.base import (
-    AuthorizationCodeOAuthProvider,
-    ClientCredentialsOAuthProvider,
-)
 from tracecat.integrations.models import (
     OAuthProviderKwargs,
     ProviderCategory,
     ProviderMetadata,
     ProviderScopes,
 )
+from tracecat.integrations.providers.base import (
+    AuthorizationCodeOAuthProvider,
+    ClientCredentialsOAuthProvider,
+)
 
-# Shared Microsoft OAuth constants
+# Shared Microsoft Graph OAuth constants
 AUTHORIZATION_ENDPOINT = (
     "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize"
 )
 TOKEN_ENDPOINT = "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token"
 
 
-class MicrosoftOAuthConfig(BaseModel):
-    """Configuration model for Microsoft OAuth provider."""
+class MicrosoftGraphOAuthConfig(BaseModel):
+    """Configuration model for Microsoft Graph OAuth provider."""
 
     tenant_id: str = Field(
         ...,
@@ -50,9 +50,9 @@ AC_SCOPES = ProviderScopes(
 
 # Shared metadata for authorization code flow
 AC_METADATA = ProviderMetadata(
-    id="microsoft",
-    name="Microsoft",
-    description="Generic Microsoft OAuth provider (Delegated user)",
+    id="microsoft_graph",
+    name="Microsoft Graph",
+    description="Microsoft Graph OAuth provider for delegated user permissions",
     categories=[ProviderCategory.AUTH],
     setup_steps=[
         "Register your application in Azure Portal",
@@ -68,16 +68,16 @@ AC_METADATA = ProviderMetadata(
 )
 
 
-class MicrosoftACProvider(AuthorizationCodeOAuthProvider):
-    """Microsoft OAuth provider using authorization code flow."""
+class MicrosoftGraphACProvider(AuthorizationCodeOAuthProvider):
+    """Microsoft Graph OAuth provider using authorization code flow for delegated user permissions."""
 
-    id: ClassVar[str] = "microsoft"
+    id: ClassVar[str] = "microsoft_graph"
 
     # Use shared constants
     _authorization_endpoint: ClassVar[str] = AUTHORIZATION_ENDPOINT
     _token_endpoint: ClassVar[str] = TOKEN_ENDPOINT
     scopes: ClassVar[ProviderScopes] = AC_SCOPES
-    config_model: ClassVar[type[BaseModel]] = MicrosoftOAuthConfig
+    config_model: ClassVar[type[BaseModel]] = MicrosoftGraphOAuthConfig
     metadata: ClassVar[ProviderMetadata] = AC_METADATA
 
     def __init__(
@@ -85,8 +85,8 @@ class MicrosoftACProvider(AuthorizationCodeOAuthProvider):
         tenant_id: str,
         **kwargs: Unpack[OAuthProviderKwargs],
     ):
-        """Initialize the Microsoft OAuth provider."""
-        # Get tenant ID for Microsoft
+        """Initialize the Microsoft Graph OAuth provider."""
+        # Get tenant ID for Microsoft Graph
         self.tenant_id = tenant_id
 
         # Initialize parent class with credentials
@@ -101,7 +101,7 @@ class MicrosoftACProvider(AuthorizationCodeOAuthProvider):
         return self._token_endpoint.format(tenant=self.tenant_id)
 
     def _get_additional_authorize_params(self) -> dict[str, Any]:
-        """Add Microsoft-specific authorization parameters."""
+        """Add Microsoft Graph-specific authorization parameters."""
         return {
             "response_mode": "query",
             "prompt": "select_account",
@@ -126,9 +126,9 @@ CC_SCOPES = ProviderScopes(
 
 # Shared metadata for client credentials flow
 CC_METADATA = ProviderMetadata(
-    id="microsoft",
-    name="Microsoft",
-    description="Generic Microsoft OAuth provider (Service account)",
+    id="microsoft_graph",
+    name="Microsoft Graph",
+    description="Microsoft Graph OAuth provider for application permissions (service account)",
     categories=[ProviderCategory.AUTH],
     setup_steps=[
         "Register your application in Azure Portal",
@@ -145,16 +145,16 @@ CC_METADATA = ProviderMetadata(
 )
 
 
-class MicrosoftCCProvider(ClientCredentialsOAuthProvider):
-    """Microsoft OAuth provider using client credentials flow for server-to-server authentication."""
+class MicrosoftGraphCCProvider(ClientCredentialsOAuthProvider):
+    """Microsoft Graph OAuth provider using client credentials flow for application permissions (service account)."""
 
-    id: ClassVar[str] = "microsoft"
+    id: ClassVar[str] = "microsoft_graph"
 
     # Use shared constants
     _authorization_endpoint: ClassVar[str] = AUTHORIZATION_ENDPOINT
     _token_endpoint: ClassVar[str] = TOKEN_ENDPOINT
     scopes: ClassVar[ProviderScopes] = CC_SCOPES
-    config_model: ClassVar[type[BaseModel]] = MicrosoftOAuthConfig
+    config_model: ClassVar[type[BaseModel]] = MicrosoftGraphOAuthConfig
     metadata: ClassVar[ProviderMetadata] = CC_METADATA
 
     def __init__(
@@ -162,8 +162,8 @@ class MicrosoftCCProvider(ClientCredentialsOAuthProvider):
         tenant_id: str,
         **kwargs: Unpack[OAuthProviderKwargs],
     ):
-        """Initialize the Microsoft client credentials OAuth provider."""
-        # Store tenant ID for Microsoft
+        """Initialize the Microsoft Graph client credentials OAuth provider."""
+        # Store tenant ID for Microsoft Graph
         self.tenant_id = tenant_id
 
         # Initialize parent class with credentials

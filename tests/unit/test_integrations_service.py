@@ -9,10 +9,6 @@ from authlib.integrations.httpx_client import AsyncOAuth2Client
 from pydantic import BaseModel, SecretStr
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from tracecat.integrations.base import (
-    AuthorizationCodeOAuthProvider,
-    ClientCredentialsOAuthProvider,
-)
 from tracecat.integrations.enums import OAuthGrantType
 from tracecat.integrations.models import (
     ProviderCategory,
@@ -21,6 +17,10 @@ from tracecat.integrations.models import (
     ProviderMetadata,
     ProviderScopes,
     TokenResponse,
+)
+from tracecat.integrations.providers.base import (
+    AuthorizationCodeOAuthProvider,
+    ClientCredentialsOAuthProvider,
 )
 from tracecat.integrations.service import IntegrationService
 from tracecat.types.auth import Role

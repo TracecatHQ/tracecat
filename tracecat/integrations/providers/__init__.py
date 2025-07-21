@@ -2,8 +2,8 @@ import importlib
 from pathlib import Path
 from typing import Self
 
-from tracecat.integrations.base import BaseOAuthProvider
 from tracecat.integrations.models import ProviderKey
+from tracecat.integrations.providers.base import BaseOAuthProvider
 
 
 def load_providers():

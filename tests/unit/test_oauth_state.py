@@ -14,7 +14,6 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import config
 from tracecat.db.schemas import OAuthStateDB, User, Workspace
-from tracecat.integrations.base import AuthorizationCodeOAuthProvider
 from tracecat.integrations.enums import OAuthGrantType
 from tracecat.integrations.models import (
     ProviderCategory,
@@ -22,6 +21,7 @@ from tracecat.integrations.models import (
     ProviderMetadata,
     ProviderScopes,
 )
+from tracecat.integrations.providers.base import AuthorizationCodeOAuthProvider
 from tracecat.integrations.service import IntegrationService
 from tracecat.types.auth import AccessLevel, Role
 

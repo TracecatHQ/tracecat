@@ -5,14 +5,14 @@ from typing import Annotated
 from fastapi import Depends, HTTPException, Path, Query, status
 from pydantic import BaseModel
 
-from tracecat.integrations.base import (
+from tracecat.integrations.enums import OAuthGrantType
+from tracecat.integrations.models import ProviderKey
+from tracecat.integrations.providers import ProviderRegistry
+from tracecat.integrations.providers.base import (
     AuthorizationCodeOAuthProvider,
     BaseOAuthProvider,
     ClientCredentialsOAuthProvider,
 )
-from tracecat.integrations.enums import OAuthGrantType
-from tracecat.integrations.models import ProviderKey
-from tracecat.integrations.providers import ProviderRegistry
 
 
 async def get_provider_impl(

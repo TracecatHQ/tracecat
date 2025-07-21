@@ -3,8 +3,6 @@
 Terminology:
 - Integration: A user's integration with an external service.
 - Provider: An external service that can be integrated with. Defined by BaseOAuthProvider.
-
-
 """
 
 import uuid

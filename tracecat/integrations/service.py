@@ -10,14 +10,14 @@ from sqlmodel import and_, or_, select
 
 from tracecat.db.schemas import OAuthIntegration
 from tracecat.identifiers import UserID
-from tracecat.integrations.base import (
+from tracecat.integrations.enums import OAuthGrantType
+from tracecat.integrations.models import ProviderConfig, ProviderKey
+from tracecat.integrations.providers import ProviderRegistry
+from tracecat.integrations.providers.base import (
     AuthorizationCodeOAuthProvider,
     BaseOAuthProvider,
     ClientCredentialsOAuthProvider,
 )
-from tracecat.integrations.enums import OAuthGrantType
-from tracecat.integrations.models import ProviderConfig, ProviderKey
-from tracecat.integrations.providers import ProviderRegistry
 from tracecat.secrets.encryption import decrypt_value, encrypt_value
 from tracecat.service import BaseWorkspaceService
 
