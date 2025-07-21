@@ -51,12 +51,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       icon: ShieldAlertIcon,
       isActive: pathname?.startsWith(`${basePath}/cases`),
     },
-    {
-      title: "Integrations",
-      url: `${basePath}/integrations`,
-      icon: ZapIcon,
-      isActive: pathname?.startsWith(`${basePath}/integrations`),
-    },
   ]
 
   const navWorkspace = [
@@ -71,6 +65,12 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       url: `${basePath}/credentials`,
       icon: KeyRoundIcon,
       isActive: pathname?.startsWith(`${basePath}/credentials`),
+    },
+    {
+      title: "Integrations",
+      url: `${basePath}/integrations`,
+      icon: ZapIcon,
+      isActive: pathname?.startsWith(`${basePath}/integrations`),
     },
     {
       title: "Members",
