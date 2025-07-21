@@ -210,13 +210,7 @@ def parse_csv(x: str) -> list[dict[str, Any]]:
 
 
 def list_to_csv(x: list[dict[str, Any]]) -> str:
-    """Convert list of objects to CSV string. Takes first row of objects to determine fieldnames.
-
-    Args:
-        x: List of objects to convert to CSV.
-
-    Returns: CSV string.
-    """
+    """Convert list of objects to CSV string. Takes first row of objects to determine fieldnames."""
     if not x:
         return ""
 
