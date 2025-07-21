@@ -32,7 +32,7 @@ def _get_okta_headers() -> dict[str, str]:
 @registry.register(
     default_title="Get requests",
     description="Get Okta Access Request tickets with optional filtering and pagination.",
-    display_group="Okta OAR",
+    display_group="Okta",
     doc_url="https://developer.okta.com/docs/api/iga/openapi/governance.requests.admin.v1/tag/Requests/",
     namespace="tools.okta_oar",
     secrets=[okta_secret],
@@ -87,7 +87,7 @@ async def get_requests(
 @registry.register(
     default_title="Get specific request",
     description="Get a specific Okta Access Request ticket by ID.",
-    display_group="Okta OAR",
+    display_group="Okta",
     doc_url="https://developer.okta.com/docs/api/iga/openapi/governance.requests.admin.v1/tag/Requests/#tag/Requests/operation/getRequest",
     namespace="tools.okta_oar",
     secrets=[okta_secret],
@@ -119,7 +119,7 @@ async def get_specific_request(
 @registry.register(
     default_title="Get user",
     description="Get an Okta user by ID.",
-    display_group="Okta OAR",
+    display_group="Okta",
     doc_url="https://developer.okta.com/docs/reference/api/users/#get-user",
     namespace="tools.okta_oar",
     secrets=[okta_secret],
@@ -151,7 +151,7 @@ async def get_user(
 @registry.register(
     default_title="Create message",
     description="Create a message in an Okta Access Request ticket.",
-    display_group="Okta OAR",
+    display_group="Okta",
     doc_url="https://developer.okta.com/docs/api/iga/openapi/governance.requests.admin.v1/tag/Requests/#tag/Requests/operation/createRequestMessage",
     namespace="tools.okta_oar",
     secrets=[okta_secret],
