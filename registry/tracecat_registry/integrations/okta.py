@@ -320,10 +320,6 @@ async def list_groups_in_org(
         str | None,
         Field(None, description="Search expression for filtering groups"),
     ] = None,
-    filter: Annotated[
-        str | None,
-        Field(None, description="Filter expression for groups"),
-    ] = None,
     after: Annotated[
         int | None,
         Field(None, description="Result to start from"),
@@ -335,8 +331,6 @@ async def list_groups_in_org(
     params: dict[str, Any] = {"limit": limit}
     if search:
         params["search"] = search
-    if filter:
-        params["filter"] = filter
     if after:
         params["after"] = after
 
