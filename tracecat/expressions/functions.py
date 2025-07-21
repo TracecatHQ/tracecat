@@ -12,6 +12,7 @@ import zoneinfo
 from collections.abc import Callable, Iterable, Sequence
 from datetime import UTC, date, datetime, time, timedelta
 from functools import wraps
+from io import StringIO
 from ipaddress import IPv4Address, IPv4Network, IPv6Address, IPv6Network
 from typing import Any, Literal, ParamSpec, TypeVar
 from uuid import uuid4
@@ -206,6 +207,30 @@ def deserialize_ndjson(x: str) -> list[dict[str, Any]]:
 def parse_csv(x: str) -> list[dict[str, Any]]:
     """Parse CSV string into list of objects."""
     return [dict(row) for row in csv.DictReader(x.splitlines())]
+
+
+def list_to_csv(x: list[dict[str, Any]]) -> str:
+    """Convert list of objects to CSV string. Takes first row of objects to determine fieldnames.
+
+    Args:
+        x: List of objects to convert to CSV.
+
+    Returns: CSV string.
+    """
+    if not x:
+        return ""
+
+    output = StringIO()
+    # Get fieldnames from the first object
+    fieldnames = list(x[0].keys())
+    # Explicitly set lineterminator to ensure proper line breaks
+    writer = csv.DictWriter(output, fieldnames=fieldnames, lineterminator="\n")
+    writer.writeheader()
+    writer.writerows(x)
+
+    csv_string = output.getvalue()
+    output.close()
+    return csv_string
 
 
 # IP address functions
@@ -895,6 +920,7 @@ def deserialize_yaml(x: str) -> Any:
 _FUNCTION_MAPPING = {
     # IO
     "parse_csv": parse_csv,
+    "list_to_csv": list_to_csv,
     # String transforms
     "capitalize": capitalize,
     "concat": concat_strings,
