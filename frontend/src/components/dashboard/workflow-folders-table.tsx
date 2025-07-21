@@ -429,14 +429,7 @@ export function WorkflowsDashboardTable({
               enableHiding: true,
             },
             {
-              id: "Actions",
-              header: ({ column }) => (
-                <DataTableColumnHeader
-                  className="text-xs"
-                  column={column}
-                  title="Actions"
-                />
-              ),
+              id: "actions",
               cell: ({ row }) => {
                 return (
                   <DropdownMenu>

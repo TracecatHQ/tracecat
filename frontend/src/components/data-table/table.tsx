@@ -38,6 +38,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { useLocalStorage } from "@/lib/hooks"
+import { cn } from "@/lib/utils"
 
 import type { DataTableToolbarProps } from "./toolbar"
 
@@ -171,13 +172,22 @@ export function DataTable<TData, TValue>({
                         options={tableHeaderAuxOptions}
                         data={{ table, column: header.column }}
                       >
-                        <TableHead colSpan={header.colSpan}>
+                        <TableHead
+                          colSpan={header.colSpan}
+                          className={cn(
+                            header.column.id?.toString().toLowerCase() ===
+                              "actions" && "text-right"
+                          )}
+                        >
                           {header.isPlaceholder
                             ? null
-                            : flexRender(
-                                header.column.columnDef.header,
-                                header.getContext()
-                              )}
+                            : header.column.id?.toString().toLowerCase() ===
+                                "actions"
+                              ? null
+                              : flexRender(
+                                  header.column.columnDef.header,
+                                  header.getContext()
+                                )}
                         </TableHead>
                       </AuxClickMenu>
                     )
@@ -283,13 +293,25 @@ function TableContents<TData>({
     <>
       {table.getRowModel().rows.map((row) => {
         const href = getRowHref?.(row)
-        const rowContent = row
-          .getVisibleCells()
-          .map((cell) => (
-            <TableCell key={cell.id}>
-              {flexRender(cell.column.columnDef.cell, cell.getContext())}
+        const rowContent = row.getVisibleCells().map((cell) => {
+          const isActionsCol =
+            cell.column.id?.toString().toLowerCase() === "actions"
+
+          const content = flexRender(
+            cell.column.columnDef.cell,
+            cell.getContext()
+          )
+
+          return (
+            <TableCell key={cell.id} className={cn(isActionsCol && "p-2")}>
+              {isActionsCol ? (
+                <div className="flex justify-end">{content}</div>
+              ) : (
+                content
+              )}
             </TableCell>
-          ))
+          )
+        })
 
         if (href) {
           return (
