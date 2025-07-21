@@ -5,6 +5,7 @@ import { Calendar, PanelLeftClose, PanelLeftOpen, Plus } from "lucide-react"
 import Link from "next/link"
 import { usePathname, useSearchParams } from "next/navigation"
 import { type ReactNode, useState } from "react"
+import type { OAuthGrantType } from "@/client"
 import { CreateCaseDialog } from "@/components/cases/case-create-dialog"
 import { CreateWorkflowButton } from "@/components/dashboard/create-workflow-button"
 import {
@@ -29,7 +30,12 @@ import {
   NewCredentialsDialog,
   NewCredentialsDialogTrigger,
 } from "@/components/workspaces/add-workspace-secret"
-import { useGetCase, useGetTable, useLocalStorage } from "@/lib/hooks"
+import {
+  useGetCase,
+  useGetTable,
+  useIntegrationProvider,
+  useLocalStorage,
+} from "@/lib/hooks"
 import { useWorkspace } from "@/providers/workspace"
 
 interface PageConfig {
@@ -212,9 +218,48 @@ function TableDetailsActions() {
   return <TableInsertButton />
 }
 
+function IntegrationBreadcrumb({
+  providerId,
+  workspaceId,
+  grantType,
+}: {
+  providerId: string
+  workspaceId: string
+  grantType: OAuthGrantType
+}) {
+  const { provider } = useIntegrationProvider({
+    providerId,
+    workspaceId,
+    grantType,
+  })
+
+  return (
+    <Breadcrumb>
+      <BreadcrumbList className="flex items-center gap-2 text-sm">
+        <BreadcrumbItem>
+          <BreadcrumbLink asChild className="font-semibold hover:no-underline">
+            <Link href={`/workspaces/${workspaceId}/integrations`}>
+              Integrations
+            </Link>
+          </BreadcrumbLink>
+        </BreadcrumbItem>
+        <BreadcrumbSeparator>
+          <span className="text-muted-foreground">/</span>
+        </BreadcrumbSeparator>
+        <BreadcrumbItem>
+          <BreadcrumbPage className="font-semibold">
+            {provider?.metadata.name || providerId}
+          </BreadcrumbPage>
+        </BreadcrumbItem>
+      </BreadcrumbList>
+    </Breadcrumb>
+  )
+}
+
 function getPageConfig(
   pathname: string,
-  workspaceId: string
+  workspaceId: string,
+  searchParams?: ReturnType<typeof useSearchParams>
 ): PageConfig | null {
   const basePath = `/workspaces/${workspaceId}`
 
@@ -264,6 +309,24 @@ function getPageConfig(
   }
 
   if (pagePath.startsWith("/integrations")) {
+    // Check if this is an integration detail page
+    const integrationMatch = pagePath.match(/^\/integrations\/([^/]+)$/)
+    if (integrationMatch && searchParams) {
+      const providerId = integrationMatch[1]
+      const grantType = searchParams.get("grant_type") as OAuthGrantType
+      if (grantType) {
+        return {
+          title: (
+            <IntegrationBreadcrumb
+              providerId={providerId}
+              workspaceId={workspaceId}
+              grantType={grantType}
+            />
+          ),
+        }
+      }
+    }
+
     return {
       title: "Integrations",
     }
@@ -296,9 +359,12 @@ function getPageConfig(
 export function ControlsHeader() {
   const { state } = useSidebar()
   const pathname = usePathname()
+  const searchParams = useSearchParams()
   const { workspaceId } = useWorkspace()
 
-  const pageConfig = pathname ? getPageConfig(pathname, workspaceId) : null
+  const pageConfig = pathname
+    ? getPageConfig(pathname, workspaceId, searchParams)
+    : null
 
   if (!pageConfig) {
     return null

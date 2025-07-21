@@ -46,7 +46,7 @@ MICROSOFT_ENTRA_METADATA = ProviderMetadata(
         "Copy Client ID and Client Secret",
         "Configure credentials in Tracecat with your tenant ID",
     ],
-    enabled=True,
+    enabled=False,
     api_docs_url="https://learn.microsoft.com/en-us/graph/api/resources/azure-ad-overview?view=graph-rest-1.0",
     setup_guide_url="https://learn.microsoft.com/en-us/entra/identity-platform/quickstart-register-app",
     troubleshooting_url="https://learn.microsoft.com/en-us/entra/identity-platform/reference-error-codes",

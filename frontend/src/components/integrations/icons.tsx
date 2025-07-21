@@ -11,15 +11,15 @@ export const statusStyles: Record<
 > = {
   connected: {
     label: "Connected",
-    style: "bg-green-100 text-green-800 hover:bg-green-200 !shadow-none",
+    style: "bg-green-100 text-green-800 border-transparent",
   },
   configured: {
-    label: "Configured",
-    style: "bg-yellow-100 text-yellow-800 hover:bg-yellow-200 !shadow-none",
+    label: "Connection incomplete",
+    style: "bg-yellow-100 text-yellow-800 border-transparent",
   },
   not_configured: {
-    label: "Not Configured",
-    style: "bg-gray-100 text-gray-800 hover:bg-gray-200 !shadow-none",
+    label: "Not configured",
+    style: "bg-gray-100 text-gray-800 border-transparent",
   },
 }
 

@@ -140,6 +140,9 @@ export default function CaseTable() {
         error={(casesError as Error) || undefined}
         columns={memoizedColumns}
         onClickRow={handleClickRow}
+        getRowHref={(row) =>
+          `/workspaces/${workspaceId}/cases/${row.original.id}`
+        }
         onDeleteRows={handleDeleteRows}
         toolbarProps={defaultToolbarProps}
         tableId={`${user?.id}-${workspaceId}-cases`}

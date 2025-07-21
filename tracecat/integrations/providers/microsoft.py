@@ -27,7 +27,7 @@ class MicrosoftOAuthConfig(BaseModel):
 
     tenant_id: str = Field(
         ...,
-        description="Azure AD tenant ID. Use 'common' for multi-tenant apps, 'organizations' for work/school accounts, 'consumers' for personal accounts, or a specific tenant GUID",
+        description="Azure AD tenant ID. 'common' for multi-tenant apps, 'organizations' for work/school accounts, 'consumers' for personal accounts, or a specific tenant GUID.",
         min_length=1,
         max_length=100,
     )

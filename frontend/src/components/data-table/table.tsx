@@ -18,6 +18,7 @@ import {
   type VisibilityState,
 } from "@tanstack/react-table"
 import { AlertTriangleIcon } from "lucide-react"
+import Link from "next/link"
 import * as React from "react"
 import AuxClickMenu, {
   type AuxClickMenuOptionProps,
@@ -48,6 +49,7 @@ interface DataTableProps<TData, TValue> {
   columns: ColumnDef<TData, TValue>[]
   data?: TData[]
   onClickRow?: (row: Row<TData>) => () => void
+  getRowHref?: (row: Row<TData>) => string | undefined
   toolbarProps?: DataTableToolbarProps<TData>
   tableHeaderAuxOptions?: AuxClickMenuOptionProps<TableCol<TData>>[]
   isLoading?: boolean
@@ -66,6 +68,7 @@ export function DataTable<TData, TValue>({
   columns,
   data,
   onClickRow,
+  getRowHref,
   toolbarProps,
   tableHeaderAuxOptions,
   isLoading,
@@ -189,6 +192,7 @@ export function DataTable<TData, TValue>({
                 table={table}
                 colSpan={columns.length}
                 onClickRow={onClickRow}
+                getRowHref={getRowHref}
                 emptyMessage={emptyMessage}
                 errorMessage={errorMessage}
                 pageSize={
@@ -215,6 +219,7 @@ function TableContents<TData>({
   table,
   colSpan,
   onClickRow,
+  getRowHref,
   emptyMessage = "No results.",
   errorMessage = "Failed to fetch data",
   pageSize,
@@ -224,6 +229,7 @@ function TableContents<TData>({
   table: ReturnType<typeof useReactTable<TData>>
   colSpan: number
   onClickRow?: (row: Row<TData>) => () => void
+  getRowHref?: (row: Row<TData>) => string | undefined
   emptyMessage?: string
   errorMessage?: string
   pageSize?: number
@@ -275,20 +281,41 @@ function TableContents<TData>({
   }
   return (
     <>
-      {table.getRowModel().rows.map((row) => (
-        <TableRow
-          key={row.id}
-          data-state={row.getIsSelected() && "selected"}
-          onClick={onClickRow?.(row)}
-          className="cursor-pointer"
-        >
-          {row.getVisibleCells().map((cell) => (
+      {table.getRowModel().rows.map((row) => {
+        const href = getRowHref?.(row)
+        const rowContent = row
+          .getVisibleCells()
+          .map((cell) => (
             <TableCell key={cell.id}>
               {flexRender(cell.column.columnDef.cell, cell.getContext())}
             </TableCell>
-          ))}
-        </TableRow>
-      ))}
+          ))
+
+        if (href) {
+          return (
+            <Link
+              key={row.id}
+              href={href}
+              prefetch={false}
+              className="table-row cursor-pointer h-8 min-h-8 border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted [tbody_&:last-child]:border-0"
+              data-state={row.getIsSelected() ? "selected" : undefined}
+            >
+              {rowContent}
+            </Link>
+          )
+        }
+
+        return (
+          <TableRow
+            key={row.id}
+            data-state={row.getIsSelected() && "selected"}
+            onClick={onClickRow?.(row)}
+            className="cursor-pointer"
+          >
+            {rowContent}
+          </TableRow>
+        )
+      })}
     </>
   )
 }

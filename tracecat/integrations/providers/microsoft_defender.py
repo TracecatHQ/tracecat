@@ -55,7 +55,7 @@ class MicrosoftDefenderOAuthProvider(MicrosoftACProvider):
             "Copy Client ID and Client Secret",
             "Configure credentials in Tracecat with your tenant ID",
         ],
-        enabled=True,
+        enabled=False,
         api_docs_url="https://learn.microsoft.com/en-us/graph/api/resources/security-api-overview?view=graph-rest-1.0",
         setup_guide_url="https://learn.microsoft.com/en-us/microsoft-365/security/defender/api-create-app-web?view=o365-worldwide",
         troubleshooting_url="https://learn.microsoft.com/en-us/microsoft-365/security/defender/troubleshoot-api?view=o365-worldwide",
