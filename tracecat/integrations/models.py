@@ -181,18 +181,7 @@ class ProviderScopes(BaseModel):
 
     default: list[str] = Field(
         ...,
-        description="Default scopes for this provider. Ultra thin layer",
-    )
-
-    allowed_patterns: list[str] | None = Field(
-        default=None,
-        description="Regex patterns to validate additional scopes for this provider.",
-    )
-
-    accepts_additional_scopes: bool = Field(
-        default=True,
-        description="Whether this provider accepts additional scopes beyond the default ones. "
-        "Set to False for providers like Microsoft Graph that require exactly the default scopes.",
+        description="Default scopes for this provider.",
     )
 
 
