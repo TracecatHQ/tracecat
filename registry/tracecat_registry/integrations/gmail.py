@@ -119,11 +119,21 @@ async def delete_mail(
             description="The user's email address or 'me' for authenticated user",
         ),
     ] = "me",
+    permanent_delete: Annotated[
+        bool,
+        Field(
+            ...,
+            description="Whether to permanently delete the message",
+        ),
+    ] = False,
 ) -> dict[str, Any]:
     """Delete a Gmail message."""
     try:
         service = _get_gmail_service(delegated_user=user_id)
-        service.users().messages().delete(userId=user_id, id=message_id).execute()
+        if permanent_delete:
+            service.users().messages().delete(userId=user_id, id=message_id).execute()
+        else:
+            service.users().messages().trash(userId=user_id, id=message_id).execute()
         return {
             "message": f"Message {message_id} deleted successfully",
             "message_id": message_id,
