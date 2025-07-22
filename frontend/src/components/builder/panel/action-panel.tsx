@@ -159,6 +159,10 @@ const actionFormSchema = z.object({
     .string()
     .max(1000, "Wait until must be less than 1000 characters")
     .optional(),
+  environment: z
+    .string()
+    .max(1000, "Environment must be less than 1000 characters")
+    .optional(),
   is_interactive: z.boolean().default(false),
   interaction: z
     .discriminatedUnion("type", [
@@ -286,6 +290,7 @@ function ActionPanelContent({
       start_delay: actionControlFlow?.start_delay,
       join_strategy: actionControlFlow?.join_strategy,
       wait_until: actionControlFlow?.wait_until || undefined,
+      environment: actionControlFlow?.environment || undefined,
       is_interactive: action?.is_interactive ?? false,
       interaction: action?.interaction ?? undefined,
     },
@@ -453,6 +458,7 @@ function ActionPanelContent({
             start_delay: values.start_delay,
             join_strategy: values.join_strategy,
             wait_until: values.wait_until,
+            environment: values.environment,
           },
           is_interactive: values.is_interactive,
           interaction: values.interaction,
@@ -629,7 +635,7 @@ function ActionPanelContent({
   ].filter((e) => e.ref === slugify(action.title))
 
   return (
-    <div onBlur={onPanelBlur}>
+    <div onBlur={onPanelBlur} className="pb-10">
       <Tabs
         defaultValue="inputs"
         value={activeTab}
@@ -1448,6 +1454,29 @@ function ActionPanelContent({
                                 <ExpressionInput
                                   value={field.value || ""}
                                   onChange={field.onChange}
+                                />
+                              </FormControl>
+                            </FormItem>
+                          )}
+                        />
+                      </ControlFlowField>
+
+                      {/* Environment */}
+                      <ControlFlowField
+                        label="Environment"
+                        description="Override the environment for this action, otherwise the workflow's environment is used."
+                      >
+                        <FormField
+                          name="environment"
+                          control={methods.control}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormMessage className="whitespace-pre-line" />
+                              <FormControl>
+                                <ExpressionInput
+                                  value={field.value || ""}
+                                  onChange={field.onChange}
+                                  placeholder="Type @ to begin an expression..."
                                 />
                               </FormControl>
                             </FormItem>
