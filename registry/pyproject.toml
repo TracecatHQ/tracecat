@@ -40,6 +40,7 @@ dependencies = [
     "ollama==0.4.8",
     "pydantic-ai-slim[openai,anthropic,bedrock,vertexai,mcp]==0.2.3",
     "pymongo==4.8.0",
+    "PyJWT==2.10.1",
     "slack-sdk==3.28.0",
     "tavily-python==0.7.6",
     "tenacity==8.3.0",
