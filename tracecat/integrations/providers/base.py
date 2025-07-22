@@ -21,23 +21,16 @@ class BaseOAuthProvider(ABC):
     """Base OAuth provider containing logic common to all OAuth 2.0 providers."""
 
     id: ClassVar[str]
-
-    # OAuth2 endpoints - to be overridden by subclasses
+    _include_in_registry: ClassVar[bool] = True
+    # OAuth2 endpoints
     _authorization_endpoint: ClassVar[str]
     _token_endpoint: ClassVar[str]
-
-    # Scopes - to be overridden by subclasses
     scopes: ClassVar[ProviderScopes]
-
-    # Grant type - to be set by grant-specific subclasses
     grant_type: ClassVar[OAuthGrantType]
-
-    # Provider specific configuration schema
+    # Provider specific configs
     config_model: ClassVar[type[BaseModel] | None] = None
-
     # Provider metadata
     metadata: ClassVar[ProviderMetadata]
-    _include_in_registry: ClassVar[bool] = True
 
     def __init__(
         self,

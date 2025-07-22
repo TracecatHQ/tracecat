@@ -51,7 +51,7 @@ AC_SCOPES = ProviderScopes(
 # Shared metadata for authorization code flow
 AC_METADATA = ProviderMetadata(
     id="microsoft_graph",
-    name="Microsoft Graph",
+    name="Microsoft Graph (Authorization code)",
     description="Microsoft Graph OAuth provider for delegated user permissions",
     categories=[ProviderCategory.AUTH],
     setup_steps=[
@@ -127,7 +127,7 @@ CC_SCOPES = ProviderScopes(
 # Shared metadata for client credentials flow
 CC_METADATA = ProviderMetadata(
     id="microsoft_graph",
-    name="Microsoft Graph",
+    name="Microsoft Graph (Client credentials)",
     description="Microsoft Graph OAuth provider for application permissions (service account)",
     categories=[ProviderCategory.AUTH],
     setup_steps=[
