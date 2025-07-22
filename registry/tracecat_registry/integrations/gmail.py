@@ -382,7 +382,7 @@ async def list_users(
         str,
         Field(
             ...,
-            description="Search query to filter users",
+            description="Search query to filter users using Google Directory API syntax. Examples: 'givenName:John', 'email:admin*', 'givenName=\"John Smith\"', 'isAdmin=true'. See: https://developers.google.com/workspace/admin/directory/v1/guides/search-users",
         ),
     ] = "",
 ) -> dict[str, Any]:
