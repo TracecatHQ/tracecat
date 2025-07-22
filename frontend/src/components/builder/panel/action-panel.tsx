@@ -271,6 +271,9 @@ function ActionPanelContent({
     useGetRegistryAction(action?.type)
   const actionControlFlow = action?.control_flow ?? {}
 
+  // Special-case: disable form mode for reshape actions
+  const isReshapeAction = action?.type === "core.transform.reshape"
+
   const actionInputsObj = useMemo(
     () => parseYaml(action?.inputs) ?? {},
     [action?.inputs]
@@ -303,7 +306,9 @@ function ActionPanelContent({
   const [activeTab, setActiveTab] = useState<ActionPanelTabs>("inputs")
   const [open, setOpen] = useState(false)
   // Check if form mode is enabled via organization settings
-  const formModeEnabled = appSettings?.app_action_form_mode_enabled ?? true
+  // Keep org-wide toggle AND force YAML mode for reshape
+  const formModeEnabled =
+    !isReshapeAction && (appSettings?.app_action_form_mode_enabled ?? true)
   const [inputMode, setInputMode] = useState<InputMode>(
     formModeEnabled ? "form" : "yaml"
   )
