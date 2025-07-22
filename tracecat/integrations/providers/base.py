@@ -44,13 +44,12 @@ class BaseOAuthProvider(ABC):
         Args:
             client_id: Optional client ID to use instead of environment variable
             client_secret: Optional client secret to use instead of environment variable
-            scopes: Optional additional scopes to request
+            scopes: Optional scopes to use (overrides defaults if provided)
         """
         self.client_id = client_id
         self.client_secret = client_secret
-        # Merge provider defaults with user-supplied scopes and remove duplicates
-        combined_scopes = sorted(set(self.scopes.default + (scopes or [])))
-        self.requested_scopes = combined_scopes
+        # Use provided scopes or fall back to defaults
+        self.requested_scopes = scopes or self.scopes.default
 
         # Validate required endpoints
         if not self.authorization_endpoint or not self.token_endpoint:
