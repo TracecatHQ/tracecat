@@ -18,6 +18,10 @@ export type ActionControlFlow = {
    * Wait until a specific date and time before starting. Overrides `start_delay` if both are provided.
    */
   wait_until?: string | null
+  /**
+   * Override environment for this action's execution
+   */
+  environment?: string | null
 }
 
 export type ActionCreate = {
@@ -117,6 +121,10 @@ export type ActionStatement = {
    * The strategy to use when joining on this task. By default, all branches must complete successfully before the join task can complete.
    */
   join_strategy?: JoinStrategy
+  /**
+   * Override environment for this action's execution. Can be a template expression.
+   */
+  environment?: string | null
 }
 
 export type ActionStep = {
@@ -210,7 +218,7 @@ export type AppSettingsUpdate = {
    */
   app_create_workspace_on_register?: boolean
   /**
-   * Whether to show pills in template expressions. When disabled, expressions show as plain text with syntax highlighting.
+   * Whether to show template expression pills with decorations. When disabled, expressions show as plain text with simple highlighting.
    */
   app_editor_pill_decorations_enabled?: boolean
   /**
@@ -4511,7 +4519,7 @@ export type PublicCheckHealthResponse = {
 
 export type $OpenApiTs = {
   "/webhooks/{workflow_id}/{secret}": {
-    post: {
+    get: {
       req: PublicIncomingWebhookData
       res: {
         /**
@@ -4524,7 +4532,7 @@ export type $OpenApiTs = {
         422: HTTPValidationError
       }
     }
-    get: {
+    post: {
       req: PublicIncomingWebhook1Data
       res: {
         /**

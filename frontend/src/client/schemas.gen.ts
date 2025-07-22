@@ -70,6 +70,18 @@ export const $ActionControlFlow = {
       description:
         "Wait until a specific date and time before starting. Overrides `start_delay` if both are provided.",
     },
+    environment: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Environment",
+      description: "Override environment for this action's execution",
+    },
   },
   type: "object",
   title: "ActionControlFlow",
@@ -444,6 +456,19 @@ export const $ActionStatement = {
         "The strategy to use when joining on this task. By default, all branches must complete successfully before the join task can complete.",
       default: "all",
     },
+    environment: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Environment",
+      description:
+        "Override environment for this action's execution. Can be a template expression.",
+    },
   },
   type: "object",
   required: ["ref", "action"],
@@ -794,7 +819,7 @@ export const $AppSettingsUpdate = {
       type: "boolean",
       title: "App Editor Pill Decorations Enabled",
       description:
-        "Whether to show pills in template expressions. When disabled, expressions show as plain text with syntax highlighting.",
+        "Whether to show template expression pills with decorations. When disabled, expressions show as plain text with simple highlighting.",
       default: false,
     },
     app_action_form_mode_enabled: {
