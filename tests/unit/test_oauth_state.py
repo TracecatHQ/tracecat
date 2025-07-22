@@ -111,8 +111,8 @@ async def test_role_with_user(svc_workspace, test_user: User) -> Role:
 @pytest.fixture(autouse=True)
 def register_mock_provider():
     """Mock the provider registry to return our mock provider."""
-    with patch("tracecat.integrations.service.ProviderRegistry") as mock_registry:
-        mock_registry.get.return_value.get_class.return_value = MockOAuthProvider
+    with patch("tracecat.integrations.service.get_provider_class") as mock_get_provider:
+        mock_get_provider.return_value = MockOAuthProvider
         yield
 
 

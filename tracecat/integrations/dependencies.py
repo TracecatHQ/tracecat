@@ -7,7 +7,7 @@ from pydantic import BaseModel
 
 from tracecat.integrations.enums import OAuthGrantType
 from tracecat.integrations.models import ProviderKey
-from tracecat.integrations.providers import ProviderRegistry
+from tracecat.integrations.providers import get_provider_class
 from tracecat.integrations.providers.base import (
     AuthorizationCodeOAuthProvider,
     BaseOAuthProvider,
@@ -33,9 +33,7 @@ async def get_provider_impl(
     Raises:
         HTTPException: If the provider is not supported
     """
-    cls = ProviderRegistry.get().get_class(
-        ProviderKey(id=provider_id, grant_type=grant_type)
-    )
+    cls = get_provider_class(ProviderKey(id=provider_id, grant_type=grant_type))
     if cls is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -64,7 +62,7 @@ async def get_ac_provider_impl(
         HTTPException: If the provider is not supported
     """
     key = ProviderKey(id=provider_id, grant_type=OAuthGrantType.AUTHORIZATION_CODE)
-    cls = ProviderRegistry.get().get_class(key)
+    cls = get_provider_class(key)
     if cls is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -94,7 +92,7 @@ async def get_cc_provider_impl(
         HTTPException: If the provider is not supported or doesn't support client credentials flow
     """
     key = ProviderKey(id=provider_id, grant_type=OAuthGrantType.CLIENT_CREDENTIALS)
-    cls = ProviderRegistry.get().get_class(key)
+    cls = get_provider_class(key)
     if cls is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

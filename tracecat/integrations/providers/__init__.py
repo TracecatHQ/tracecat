@@ -1,68 +1,36 @@
-import importlib
-from pathlib import Path
-from typing import Self
+from typing import Final
 
 from tracecat.integrations.models import ProviderKey
 from tracecat.integrations.providers.base import BaseOAuthProvider
+from tracecat.integrations.providers.microsoft.graph import (
+    MicrosoftGraphACProvider,
+    MicrosoftGraphCCProvider,
+)
+from tracecat.integrations.providers.microsoft.teams import (
+    MicrosoftTeamsACProvider,
+    MicrosoftTeamsCCProvider,
+)
+
+_PROVIDER_CLASSES: list[type[BaseOAuthProvider]] = [
+    MicrosoftGraphACProvider,
+    MicrosoftGraphCCProvider,
+    MicrosoftTeamsACProvider,
+    MicrosoftTeamsCCProvider,
+]
 
 
-def load_providers():
-    plugins_dir = Path(__file__).parent
-    package_name = "tracecat.integrations.providers"
-    for file in plugins_dir.glob("*.py"):
-        if file.name != "__init__.py":
-            module_name = f"{package_name}.{file.stem}"
-            importlib.import_module(module_name)
+PROVIDER_REGISTRY: Final[dict[ProviderKey, type[BaseOAuthProvider]]] = {
+    ProviderKey(id=cls.id, grant_type=cls.grant_type): cls
+    for cls in _PROVIDER_CLASSES
+    if getattr(cls, "_include_in_registry", True)
+}
 
 
-load_providers()
+def get_provider_class(key: ProviderKey) -> type[BaseOAuthProvider] | None:
+    """Return the provider class matching *key*, or ``None``."""
+    return PROVIDER_REGISTRY.get(key)
 
 
-def _collect_subclasses(
-    cls: type[BaseOAuthProvider],
-) -> list[type[BaseOAuthProvider]]:
-    """Recursively collect all subclasses of the given class."""
-    subclasses = []
-    for subclass in cls.__subclasses__():
-        if hasattr(subclass, "id"):
-            subclasses.append(subclass)
-        subclasses.extend(_collect_subclasses(subclass))
-    return subclasses
-
-
-class ProviderRegistry:
-    _instance: Self | None = None
-
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-        return cls._instance
-
-    def __init__(self):
-        self._providers: dict[ProviderKey, type[BaseOAuthProvider]] = {}
-
-        all_providers = _collect_subclasses(BaseOAuthProvider)
-        for provider in all_providers:
-            if not provider._include_in_registry:
-                continue
-            key = ProviderKey(id=provider.id, grant_type=provider.grant_type)
-            if key in self._providers:
-                raise ValueError(
-                    f"Duplicate provider ID: {provider.id} with grant type: {provider.grant_type}"
-                )
-            self._providers[key] = provider
-
-    @classmethod
-    def get(cls) -> Self:
-        if cls._instance is None:
-            cls._instance = cls()
-        return cls._instance
-
-    def get_class(self, provider_key: ProviderKey) -> type[BaseOAuthProvider] | None:
-        """Get an initialized provider by its ID."""
-        return self._providers.get(provider_key)
-
-    @property
-    def providers(self) -> list[type[BaseOAuthProvider]]:
-        """List all available providers."""
-        return list(self._providers.values())
+def all_providers() -> list[type[BaseOAuthProvider]]:
+    """Return all registered provider classes."""
+    return list(PROVIDER_REGISTRY.values())

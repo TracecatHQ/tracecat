@@ -731,9 +731,11 @@ class TestIntegrationService:
         assert not integration.needs_refresh
 
         # Mock the provider registry (should not be called)
-        with patch("tracecat.integrations.service.ProviderRegistry") as mock_registry:
+        with patch(
+            "tracecat.integrations.service.get_provider_class"
+        ) as mock_get_provider:
             # This should not be called since refresh is not needed
-            mock_registry.get.return_value.get_class.return_value = MockOAuthProvider
+            mock_get_provider.return_value = MockOAuthProvider
 
             # Attempt refresh - should return immediately without refreshing
             refreshed = await integration_service.refresh_token_if_needed(integration)
@@ -743,7 +745,7 @@ class TestIntegrationService:
             assert refreshed.expires_at == integration.expires_at
 
             # Registry should not have been accessed
-            mock_registry.get.assert_not_called()
+            mock_get_provider.assert_not_called()
 
     async def test_refresh_token_if_needed(
         self,
@@ -758,8 +760,10 @@ class TestIntegrationService:
         )
 
         # Mock the provider registry
-        with patch("tracecat.integrations.service.ProviderRegistry") as mock_registry:
-            mock_registry.get.return_value.get_class.return_value = MockOAuthProvider
+        with patch(
+            "tracecat.integrations.service.get_provider_class"
+        ) as mock_get_provider:
+            mock_get_provider.return_value = MockOAuthProvider
 
             # Mock the refresh_access_token method
             with patch.object(
@@ -878,9 +882,11 @@ class TestIntegrationService:
         await integration_service.session.refresh(integration)
 
         # Mock the provider registry to return None (provider not found)
-        with patch("tracecat.integrations.service.ProviderRegistry") as mock_registry:
-            # Make get_class return None to simulate provider not found
-            mock_registry.get.return_value.get_class.return_value = None
+        with patch(
+            "tracecat.integrations.service.get_provider_class"
+        ) as mock_get_provider:
+            # Make get_provider_class return None to simulate provider not found
+            mock_get_provider.return_value = None
 
             # Attempt refresh - should return unchanged integration gracefully
             refreshed = await integration_service.refresh_token_if_needed(integration)
@@ -908,8 +914,10 @@ class TestIntegrationService:
         original_refresh_token = mock_token_response.refresh_token
 
         # Mock the provider registry
-        with patch("tracecat.integrations.service.ProviderRegistry") as mock_registry:
-            mock_registry.get.return_value.get_class.return_value = MockOAuthProvider
+        with patch(
+            "tracecat.integrations.service.get_provider_class"
+        ) as mock_get_provider:
+            mock_get_provider.return_value = MockOAuthProvider
 
             # Mock the refresh_access_token method to return None for refresh_token
             with patch.object(
@@ -1105,8 +1113,10 @@ class TestIntegrationService:
         )
 
         # Mock the provider registry
-        with patch("tracecat.integrations.service.ProviderRegistry") as mock_registry:
-            mock_registry.get.return_value.get_class.return_value = MockCCOAuthProvider
+        with patch(
+            "tracecat.integrations.service.get_provider_class"
+        ) as mock_get_provider:
+            mock_get_provider.return_value = MockCCOAuthProvider
 
             # Mock the get_client_credentials_token method
             with patch.object(
