@@ -611,16 +611,23 @@ async def search(
         int,
         Field(
             ...,
-            description="Maximum number of messages to return",
+            description="Maximum number of messages to return. Defaults is 100.",
         ),
     ] = 100,
     include_spam_trash: Annotated[
         bool,
         Field(
             ...,
-            description="Include messages from SPAM and TRASH",
+            description="Include messages from SPAM and TRASH. Default is False.",
         ),
     ] = False,
+    next_page_token: Annotated[
+        str,
+        Field(
+            ...,
+            description="Next page token",
+        ),
+    ] = "",
 ) -> dict[str, Any]:
     """Search for emails in Gmail."""
     try:
@@ -631,6 +638,7 @@ async def search(
             "q": query,
             "maxResults": max_results,
             "includeSpamTrash": include_spam_trash,
+            "pageToken": next_page_token,
         }
 
         result = service.users().messages().list(**params).execute()
@@ -646,7 +654,7 @@ async def search(
                     .get(
                         userId=user_id,
                         id=msg["id"],
-                        format="metadata",
+                        format="full",
                         metadataHeaders=["From", "To", "Subject", "Date"],
                     )
                     .execute()
@@ -656,12 +664,29 @@ async def search(
                 for header in detailed_msg.get("payload", {}).get("headers", []):
                     headers[header["name"]] = header["value"]
 
+                body = base64.urlsafe_b64decode(
+                    detailed_msg.get("payload", {}).get("body", {}).get("data", "")
+                ).decode("utf-8")
+
+                parts = detailed_msg.get("payload", {}).get("parts", [])
+                for part in parts:
+                    if part.get("mimeType") == "text/html":
+                        body = base64.urlsafe_b64decode(
+                            part.get("body", {}).get("data", "")
+                        ).decode("utf-8")
+                    elif part.get("mimeType") == "text/plain":
+                        body = base64.urlsafe_b64decode(
+                            part.get("body", {}).get("data", "")
+                        ).decode("utf-8")
+
                 detailed_messages.append(
                     {
                         "id": detailed_msg["id"],
                         "thread_id": detailed_msg.get("threadId"),
                         "labels": detailed_msg.get("labelIds", []),
                         "snippet": detailed_msg.get("snippet", ""),
+                        "body": body,
+                        "raw": detailed_msg,
                         "from": headers.get("From", ""),
                         "to": headers.get("To", ""),
                         "subject": headers.get("Subject", ""),
