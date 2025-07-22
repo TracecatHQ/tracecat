@@ -4876,7 +4876,7 @@ async def test_workflow_environment_override(
         # Create secret in default environment
         await secrets_service.create_secret(
             SecretCreate(
-                name="test_secret",
+                name=f"{test_name}_secret",
                 environment="default",
                 keys=[
                     SecretKeyValue(
