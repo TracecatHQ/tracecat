@@ -5,6 +5,22 @@ import { isIntegrationOAuthCallback } from "@/lib/utils"
 
 export const GET = async (request: NextRequest) => {
   console.log("RECEIVED GET /integrations/callback", request)
+
+  // Check for OAuth error response
+  const error = request.nextUrl.searchParams.get("error")
+  const errorDescription = request.nextUrl.searchParams.get("error_description")
+
+  if (error) {
+    console.error("OAuth error received:", error, errorDescription)
+    // Redirect to OAuth error page with error details
+    const errorUrl = new URL("/integrations/error", request.url)
+    errorUrl.searchParams.set("error", error)
+    if (errorDescription) {
+      errorUrl.searchParams.set("error_description", errorDescription)
+    }
+    return NextResponse.redirect(errorUrl)
+  }
+
   const state = request.nextUrl.searchParams.get("state")
   if (!request.nextUrl.searchParams.get("code") || !state) {
     console.error("Missing code or state in request")
@@ -34,6 +50,6 @@ export const GET = async (request: NextRequest) => {
   }
   const { redirect_url } = cb
 
-  console.log("Redirecing to", redirect_url)
+  console.log("Redirecting to", redirect_url)
   return NextResponse.redirect(redirect_url)
 }

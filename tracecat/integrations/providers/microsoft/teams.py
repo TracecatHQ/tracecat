@@ -22,7 +22,7 @@ def get_teams_ac_setup_steps() -> list[str]:
 def get_teams_cc_setup_steps() -> list[str]:
     """Get Teams-specific setup steps for client credentials flow."""
     return get_cc_setup_steps(
-        "Microsoft Teams (Chat.Read.All, Team.ReadBasic.All, etc.)"
+        "Microsoft Teams (ChatMessage.Read.All, ChatMessage.Send)"
     )
 
 
@@ -30,8 +30,8 @@ AC_SCOPES = ProviderScopes(
     default=[
         "offline_access",
         "https://graph.microsoft.com/User.Read",
-        "https://graph.microsoft.com/Chat.Read",
-        "https://graph.microsoft.com/Chat.Write",
+        "https://graph.microsoft.com/ChatMessage.Read",
+        "https://graph.microsoft.com/ChatMessage.Send",
     ],
 )
 AC_METADATA = ProviderMetadata(
