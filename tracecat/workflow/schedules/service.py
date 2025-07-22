@@ -6,12 +6,13 @@ from sqlalchemy.exc import NoResultFound
 from sqlmodel import select
 from temporalio import activity
 
-from tracecat.auth.credentials import TemporaryRole
+from tracecat.contexts import ctx_role
 from tracecat.db.schemas import Schedule
 from tracecat.identifiers import ScheduleID, WorkflowID
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
 from tracecat.service import BaseService
+from tracecat.types.auth import AccessLevel
 from tracecat.types.exceptions import (
     TracecatAuthorizationError,
     TracecatNotFoundError,
@@ -91,42 +92,46 @@ class WorkflowSchedulesService(BaseService):
         )
         self.session.add(schedule)
 
-        # Set the role for the schedule as the tracecat-runner
-        with TemporaryRole(
-            type="service",
-            user_id=str(owner_id),
-            service_id="tracecat-schedule-runner",
-        ) as sch_role:
-            try:
-                handle = await bridge.create_schedule(
-                    workflow_id=WorkflowUUID.new(params.workflow_id),
-                    schedule_id=schedule.id,
-                    every=params.every,
-                    offset=params.offset,
-                    start_at=params.start_at,
-                    end_at=params.end_at,
-                    timeout=params.timeout,
-                )
-            except Exception as e:
-                # If we fail to create the schedule in temporal
-                # we should rollback the transaction
-                await self.session.rollback()
-                msg = "The schedules service couldn't create a Temporal schedule"
-                self.logger.error(
-                    msg,
-                    error=e,
-                    workflow_id=params.workflow_id,
-                    schedule_id=schedule.id,
-                    sch_role=sch_role,
-                )
-                raise TracecatServiceError(msg) from e
-            logger.info(
-                "Created schedule",
-                handle_id=handle.id,
+        role = ctx_role.get().model_copy(
+            update={
+                "type": "service",
+                "service_id": "tracecat-schedule-runner",
+                "access_level": AccessLevel.ADMIN,
+                "user_id": None,
+            }
+        )
+
+        try:
+            handle = await bridge.create_schedule(
+                workflow_id=WorkflowUUID.new(params.workflow_id),
+                schedule_id=schedule.id,
+                every=params.every,
+                offset=params.offset,
+                start_at=params.start_at,
+                end_at=params.end_at,
+                timeout=params.timeout,
+                role=role,
+            )
+        except Exception as e:
+            # If we fail to create the schedule in temporal
+            # we should rollback the transaction
+            await self.session.rollback()
+            msg = "The schedules service couldn't create a Temporal schedule"
+            self.logger.error(
+                msg,
+                error=e,
                 workflow_id=params.workflow_id,
                 schedule_id=schedule.id,
-                sch_role=sch_role,
+                schedule_role=role,
             )
+            raise TracecatServiceError(msg) from e
+        logger.info(
+            "Created schedule",
+            handle_id=handle.id,
+            workflow_id=params.workflow_id,
+            schedule_id=schedule.id,
+            schedule_role=role,
+        )
 
         await self.session.commit()
         await self.session.refresh(schedule)
