@@ -686,7 +686,6 @@ async def search(
                         "labels": detailed_msg.get("labelIds", []),
                         "snippet": detailed_msg.get("snippet", ""),
                         "body": body,
-                        "raw": detailed_msg,
                         "from": headers.get("From", ""),
                         "to": headers.get("To", ""),
                         "subject": headers.get("Subject", ""),
