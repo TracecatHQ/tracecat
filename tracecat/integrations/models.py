@@ -8,7 +8,6 @@ Terminology:
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
-from enum import StrEnum
 from typing import Any, NotRequired, Required, Self, TypedDict
 
 from pydantic import UUID4, BaseModel, SecretStr
@@ -147,17 +146,6 @@ class IntegrationTestConnectionResponse(BaseModel):
     )
 
 
-class ProviderCategory(StrEnum):
-    """Category of a provider."""
-
-    AUTH = "auth"
-    COMMUNICATION = "communication"
-    CLOUD = "cloud"
-    MONITORING = "monitoring"
-    ALERTING = "alerting"
-    OTHER = "other"
-
-
 class ProviderMetadata(BaseModel):
     """Metadata for a provider."""
 
@@ -170,10 +158,6 @@ class ProviderMetadata(BaseModel):
     )
     requires_config: bool = Field(
         False, description="Whether this provider requires additional configuration"
-    )
-    categories: list[ProviderCategory] = Field(
-        default_factory=list,
-        description="Categories of the provider (e.g., auth, communication)",
     )
     setup_steps: list[str] = Field(
         default_factory=list,
@@ -282,7 +266,6 @@ class ProviderReadMinimal(BaseModel):
     name: str
     description: str
     requires_config: bool
-    categories: list[ProviderCategory]
     integration_status: IntegrationStatus
     enabled: bool
     grant_type: OAuthGrantType
