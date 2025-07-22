@@ -11,7 +11,6 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat.integrations.enums import OAuthGrantType
 from tracecat.integrations.models import (
-    ProviderCategory,
     ProviderConfig,
     ProviderKey,
     ProviderMetadata,
@@ -45,14 +44,12 @@ class MockOAuthProvider(AuthorizationCodeOAuthProvider):
     config_model: ClassVar[type[BaseModel]] = MockProviderConfig
     scopes: ClassVar[ProviderScopes] = ProviderScopes(
         default=["read", "write"],
-        allowed_patterns=["user.read"],
     )
     metadata: ClassVar[ProviderMetadata] = ProviderMetadata(
         id="mock_provider",
         name="Mock Provider",
         description="A mock OAuth provider for testing",
         api_docs_url="https://mock.provider/docs",
-        categories=[ProviderCategory.OTHER],
     )
 
 
@@ -64,7 +61,6 @@ class MockOAuthProviderWithPKCE(MockOAuthProvider):
         id="mock_provider_pkce",
         name="Mock Provider with PKCE",
         description="A mock OAuth provider with PKCE for testing",
-        categories=[ProviderCategory.OTHER],
     )
 
     def _use_pkce(self) -> bool:
@@ -91,13 +87,11 @@ class MockCCOAuthProvider(ClientCredentialsOAuthProvider):
     config_model: ClassVar[type[BaseModel]] = MockProviderConfig
     scopes: ClassVar[ProviderScopes] = ProviderScopes(
         default=["read", "write"],
-        allowed_patterns=["user.read"],
     )
     metadata: ClassVar[ProviderMetadata] = ProviderMetadata(
         id="mock_cc_provider",
         name="Mock CC Provider",
         description="A mock OAuth provider for client credentials testing",
-        categories=[ProviderCategory.OTHER],
     )
 
 

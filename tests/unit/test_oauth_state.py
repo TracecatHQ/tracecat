@@ -16,7 +16,6 @@ from tracecat import config
 from tracecat.db.schemas import OAuthStateDB, User, Workspace
 from tracecat.integrations.enums import OAuthGrantType
 from tracecat.integrations.models import (
-    ProviderCategory,
     ProviderKey,
     ProviderMetadata,
     ProviderScopes,
@@ -44,14 +43,12 @@ class MockOAuthProvider(AuthorizationCodeOAuthProvider):
     config_model: ClassVar[type[BaseModel]] = MockProviderConfig
     scopes: ClassVar[ProviderScopes] = ProviderScopes(
         default=["read", "write"],
-        allowed_patterns=["user.read"],
     )
     metadata: ClassVar[ProviderMetadata] = ProviderMetadata(
         id="mock_oauth_state_provider",
         name="Mock OAuth State Provider",
         description="A mock OAuth provider for testing state",
         api_docs_url="https://mock.provider/docs",
-        categories=[ProviderCategory.OTHER],
         enabled=True,
     )
 
