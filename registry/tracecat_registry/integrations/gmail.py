@@ -165,6 +165,13 @@ async def get_attachments(
             description="The user's email address or 'me' for authenticated user",
         ),
     ] = "me",
+    include_data: Annotated[
+        bool,
+        Field(
+            ...,
+            description="Whether to include the full attachment data (base64 encoded). Warning: can cause size limit errors for large attachments.",
+        ),
+    ] = False,
 ) -> dict[str, Any]:
     """Get attachments from a Gmail message."""
     try:
@@ -187,25 +194,27 @@ async def get_attachments(
             for part in parts:
                 if part.get("filename") and part.get("body", {}).get("attachmentId"):
                     attachment_id = part["body"]["attachmentId"]
-                    attachment = (
-                        service.users()
-                        .messages()
-                        .attachments()
-                        .get(userId=user_id, messageId=message_id, id=attachment_id)
-                        .execute()
-                    )
 
-                    attachment_list.append(
-                        {
-                            "filename": part["filename"],
-                            "attachment_id": attachment_id,
-                            "size": attachment.get("size", 0),
-                            "data": attachment.get("data", ""),  # Base64 encoded data
-                            "mime_type": part.get(
-                                "mimeType", "application/octet-stream"
-                            ),
-                        }
-                    )
+                    attachment_info = {
+                        "filename": part["filename"],
+                        "attachment_id": attachment_id,
+                        "size": part.get("body", {}).get("size", 0),
+                        "mime_type": part.get("mimeType", "application/octet-stream"),
+                    }
+
+                    if include_data:
+                        attachment = (
+                            service.users()
+                            .messages()
+                            .attachments()
+                            .get(userId=user_id, messageId=message_id, id=attachment_id)
+                            .execute()
+                        )
+                        attachment_info["data"] = attachment.get(
+                            "data", ""
+                        )  # Base64 encoded data
+
+                    attachment_list.append(attachment_info)
                 elif "parts" in part:
                     attachment_list.extend(extract_attachments(part["parts"]))
             return attachment_list
@@ -215,23 +224,25 @@ async def get_attachments(
         elif payload.get("filename") and payload.get("body", {}).get("attachmentId"):
             # Single attachment case
             attachment_id = payload["body"]["attachmentId"]
-            attachment = (
-                service.users()
-                .messages()
-                .attachments()
-                .get(userId=user_id, messageId=message_id, id=attachment_id)
-                .execute()
-            )
 
-            attachments.append(
-                {
-                    "filename": payload["filename"],
-                    "attachment_id": attachment_id,
-                    "size": attachment.get("size", 0),
-                    "data": attachment.get("data", ""),
-                    "mime_type": payload.get("mimeType", "application/octet-stream"),
-                }
-            )
+            attachment_info = {
+                "filename": payload["filename"],
+                "attachment_id": attachment_id,
+                "size": payload.get("body", {}).get("size", 0),
+                "mime_type": payload.get("mimeType", "application/octet-stream"),
+            }
+
+            if include_data:
+                attachment = (
+                    service.users()
+                    .messages()
+                    .attachments()
+                    .get(userId=user_id, messageId=message_id, id=attachment_id)
+                    .execute()
+                )
+                attachment_info["data"] = attachment.get("data", "")
+
+            attachments.append(attachment_info)
 
         return {
             "message_id": message_id,
@@ -240,6 +251,112 @@ async def get_attachments(
         }
     except HttpError as error:
         raise ValueError(f"Failed to get attachments: {error}")
+
+
+@registry.register(
+    default_title="Get specific email attachment",
+    description="Retrieve a specific attachment by attachment ID from a Gmail message.",
+    display_group="Gmail",
+    doc_url="https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages.attachments/get",
+    namespace="tools.gmail",
+    secrets=[gmail_secret],
+)
+async def get_attachment(
+    attachment_id: Annotated[
+        str,
+        Field(
+            ...,
+            description="The ID of the specific attachment to retrieve",
+        ),
+    ],
+    message_id: Annotated[
+        str,
+        Field(
+            ...,
+            description="The ID of the message containing the attachment",
+        ),
+    ],
+    user_id: Annotated[
+        str,
+        Field(
+            ...,
+            description="The user's email address or 'me' for authenticated user",
+        ),
+    ] = "me",
+) -> dict[str, Any]:
+    """Get a specific attachment from a Gmail message by attachment ID."""
+    try:
+        service = _get_gmail_service(delegated_user=user_id)
+
+        # Get the attachment data
+        attachment = (
+            service.users()
+            .messages()
+            .attachments()
+            .get(userId=user_id, messageId=message_id, id=attachment_id)
+            .execute()
+        )
+
+        # Get message details to extract attachment metadata
+        message = (
+            service.users().messages().get(userId=user_id, id=message_id).execute()
+        )
+
+        # Find the attachment metadata in the message parts
+        def find_attachment_metadata(parts, target_attachment_id):
+            """Recursively find attachment metadata by attachment ID."""
+            if not parts:
+                return None
+
+            for part in parts:
+                if part.get("body", {}).get(
+                    "attachmentId"
+                ) == target_attachment_id and part.get("filename"):
+                    return {
+                        "filename": part["filename"],
+                        "mime_type": part.get("mimeType", "application/octet-stream"),
+                        "size": part.get("body", {}).get("size", 0),
+                    }
+                elif "parts" in part:
+                    result = find_attachment_metadata(
+                        part["parts"], target_attachment_id
+                    )
+                    if result:
+                        return result
+            return None
+
+        # Look for attachment metadata
+        metadata = None
+        payload = message.get("payload", {})
+
+        if "parts" in payload:
+            metadata = find_attachment_metadata(payload["parts"], attachment_id)
+        elif payload.get("body", {}).get("attachmentId") == attachment_id:
+            # Single attachment case
+            metadata = {
+                "filename": payload.get("filename", "unknown"),
+                "mime_type": payload.get("mimeType", "application/octet-stream"),
+                "size": payload.get("body", {}).get("size", 0),
+            }
+
+        if not metadata:
+            # Fallback if we can't find metadata
+            metadata = {
+                "filename": "unknown",
+                "mime_type": "application/octet-stream",
+                "size": attachment.get("size", 0),
+            }
+
+        return {
+            "attachment_id": attachment_id,
+            "message_id": message_id,
+            "filename": metadata["filename"],
+            "mime_type": metadata["mime_type"],
+            "size": attachment.get("size", metadata["size"]),
+            "data": attachment.get("data", ""),  # Base64 encoded data
+        }
+    except HttpError as error:
+        raise ValueError(f"Failed to get attachment: {error}")
 
 
 @registry.register(
