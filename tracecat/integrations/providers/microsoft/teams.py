@@ -1,58 +1,44 @@
-"""Microsoft Teams OAuth integration for collaboration and communication."""
+"""Microsoft Teams OAuth integration using Microsoft Graph provider."""
 
 from typing import ClassVar
 
-from tracecat.integrations.models import (
-    ProviderCategory,
-    ProviderMetadata,
-    ProviderScopes,
-)
+from tracecat.integrations.models import ProviderMetadata, ProviderScopes
 from tracecat.integrations.providers.microsoft.graph import (
+    AC_DESCRIPTION,
+    CC_DEFAULT_SCOPES,
+    CC_DESCRIPTION,
     MicrosoftGraphACProvider,
     MicrosoftGraphCCProvider,
+    get_ac_setup_steps,
+    get_cc_setup_steps,
 )
 
-# Microsoft Teams specific scopes for authorization code flow
+
+def get_teams_ac_setup_steps() -> list[str]:
+    """Get Teams-specific setup steps for authorization code flow."""
+    return get_ac_setup_steps("Microsoft Teams (Chat, Team, Channel)")
+
+
+def get_teams_cc_setup_steps() -> list[str]:
+    """Get Teams-specific setup steps for client credentials flow."""
+    return get_cc_setup_steps(
+        "Microsoft Teams (Chat.Read.All, Team.ReadBasic.All, etc.)"
+    )
+
+
 AC_SCOPES = ProviderScopes(
     default=[
         "offline_access",
         "https://graph.microsoft.com/User.Read",
         "https://graph.microsoft.com/Chat.Read",
-        "https://graph.microsoft.com/Team.ReadBasic.All",
-        "https://graph.microsoft.com/Channel.ReadBasic.All",
-    ],
-    allowed_patterns=[
-        r"^https://graph\.microsoft\.com/User\.[^/]+$",
-        r"^https://graph\.microsoft\.com/Chat\.[^/]+$",
-        r"^https://graph\.microsoft\.com/Team\.[^/]+$",
-        r"^https://graph\.microsoft\.com/Channel\.[^/]+$",
-        r"^https://graph\.microsoft\.com/TeamMember\.[^/]+$",
-        r"^https://graph\.microsoft\.com/TeamsTab\.[^/]+$",
-        r"^https://graph\.microsoft\.com/OnlineMeeting\.[^/]+$",
-        r"^https://graph\.microsoft\.com/Presence\.[^/]+$",
-        r"^https://graph\.microsoft\.com/Files\.[^/]+$",
-        r"^https://graph\.microsoft\.com/Sites\.[^/]+$",
-        # Security restrictions - prevent dangerous all-access scopes
-        r"^(?!.*\.ReadWrite\.All$).*",
-        r"^(?!.*\.Write\.All$).*",
-        r"^(?!.*\.FullControl\.All$).*",
+        "https://graph.microsoft.com/Chat.Write",
     ],
 )
-
-# Microsoft Teams specific metadata for authorization code flow
 AC_METADATA = ProviderMetadata(
     id="microsoft_teams",
-    name="Microsoft Teams",
-    description="Microsoft Teams OAuth provider (Delegated user)",
-    categories=[ProviderCategory.COMMUNICATION],
-    setup_steps=[
-        "Register your application in Azure Portal",
-        "Add the redirect URI shown above to 'Redirect URIs'",
-        "Configure required API permissions for Microsoft Graph (Chat, Team, Channel)",
-        "Enable Teams-specific permissions in app manifest if building a Teams app",
-        "Copy Client ID and Client Secret",
-        "Configure credentials in Tracecat with your tenant ID",
-    ],
+    name="Microsoft Teams (Delegated)",
+    description=f"Microsoft Teams {AC_DESCRIPTION}",
+    setup_steps=get_teams_ac_setup_steps(),
     enabled=True,
     api_docs_url="https://learn.microsoft.com/en-us/graph/api/resources/teams-api-overview?view=graph-rest-1.0",
     setup_guide_url="https://learn.microsoft.com/en-us/microsoftteams/platform/graph-api/rsc/resource-specific-consent",
@@ -61,38 +47,21 @@ AC_METADATA = ProviderMetadata(
 
 
 class MicrosoftTeamsACProvider(MicrosoftGraphACProvider):
-    """Microsoft Teams OAuth provider for collaboration and communication."""
+    """Microsoft Teams OAuth provider using authorization code flow for delegated user permissions."""
 
     id: ClassVar[str] = "microsoft_teams"
-
-    # Use Teams-specific constants
     scopes: ClassVar[ProviderScopes] = AC_SCOPES
     metadata: ClassVar[ProviderMetadata] = AC_METADATA
 
 
-# Microsoft Teams specific scopes for client credentials flow
 CC_SCOPES = ProviderScopes(
-    default=[
-        "https://graph.microsoft.com/.default",
-    ],
-    accepts_additional_scopes=False,
+    default=CC_DEFAULT_SCOPES,
 )
-
-# Microsoft Teams specific metadata for client credentials flow
 CC_METADATA = ProviderMetadata(
     id="microsoft_teams",
-    name="Microsoft Teams",
-    description="Microsoft Teams OAuth provider (Service account)",
-    categories=[ProviderCategory.COMMUNICATION],
-    setup_steps=[
-        "Register your application in Azure Portal",
-        "Configure API permissions for Microsoft Graph with Application permissions (not Delegated)",
-        "Enable Teams-specific application permissions (Chat.Read.All, Team.ReadBasic.All, etc.)",
-        "Grant admin consent for the application permissions",
-        "Copy Client ID and Client Secret",
-        "Configure credentials in Tracecat with your tenant ID",
-        "Use scopes like 'https://graph.microsoft.com/.default' for client credentials flow",
-    ],
+    name="Microsoft Teams (Service account)",
+    description=f"Microsoft Teams {CC_DESCRIPTION}",
+    setup_steps=get_teams_cc_setup_steps(),
     enabled=True,
     api_docs_url="https://learn.microsoft.com/en-us/graph/api/resources/teams-api-overview?view=graph-rest-1.0",
     setup_guide_url="https://learn.microsoft.com/en-us/graph/auth-v2-service",
@@ -101,10 +70,8 @@ CC_METADATA = ProviderMetadata(
 
 
 class MicrosoftTeamsCCProvider(MicrosoftGraphCCProvider):
-    """Microsoft Teams OAuth provider using client credentials flow for server-to-server automation."""
+    """Microsoft Teams OAuth provider using client credentials flow for application permissions (service account)."""
 
     id: ClassVar[str] = "microsoft_teams"
-
-    # Use Teams-specific client credentials constants
     scopes: ClassVar[ProviderScopes] = CC_SCOPES
     metadata: ClassVar[ProviderMetadata] = CC_METADATA
