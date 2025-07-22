@@ -501,7 +501,7 @@ async def move_mail_to_mailbox(
         str,
         Field(
             ...,
-            description="The mailbox/folder to move to (INBOX, SENT, TRASH, SPAM, DRAFT, etc.)",
+            description="The mailbox/folder to move to (INBOX, SENT, TRASH, SPAM, DRAFT, IMPORTANT, STARRED, UNREAD)",
         ),
     ],
     user_id: Annotated[
@@ -628,6 +628,13 @@ async def search(
             description="Next page token",
         ),
     ] = "",
+    format: Annotated[
+        str,
+        Field(
+            ...,
+            description="The format to return the message in (minimal, full, raw, metadata)",
+        ),
+    ] = "full",
 ) -> dict[str, Any]:
     """Search for emails in Gmail."""
     try:
@@ -654,7 +661,7 @@ async def search(
                     .get(
                         userId=user_id,
                         id=msg["id"],
-                        format="full",
+                        format=format,
                         metadataHeaders=["From", "To", "Subject", "Date"],
                     )
                     .execute()
