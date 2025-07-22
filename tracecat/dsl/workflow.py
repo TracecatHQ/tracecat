@@ -932,9 +932,19 @@ class DSLWorkflow:
 
         new_context = {**self.context, ExprContext.ACTIONS: new_action_context}
 
+        # Check if action has environment override
+        run_context = self.run_context
+        if task.environment is not None:
+            # Evaluate the environment expression
+            evaluated_env = eval_templated_object(task.environment, operand=new_context)
+            # Create a new run context with the overridden environment
+            run_context = self.run_context.model_copy(
+                update={"environment": evaluated_env}
+            )
+
         arg = RunActionInput(
             task=task,
-            run_context=self.run_context,
+            run_context=run_context,
             exec_context=new_context,
             interaction_context=ctx_interaction.get(),
             stream_id=stream_id,

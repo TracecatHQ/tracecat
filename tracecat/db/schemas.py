@@ -572,6 +572,10 @@ class Action(Resource, table=True):
         description="The interaction configuration for the action",
         sa_column=Column(JSONB),
     )
+    environment: str | None = Field(
+        default=None,
+        description="Override environment for this action's execution",
+    )
     workflow_id: uuid.UUID = Field(
         sa_column=Column(UUID, ForeignKey("workflow.id", ondelete="CASCADE"))
     )

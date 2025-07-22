@@ -30,6 +30,10 @@ class ActionControlFlow(BaseModel):
             "Wait until a specific date and time before starting. Overrides `start_delay` if both are provided."
         ),
     )
+    environment: str | None = Field(
+        default=None,
+        description="Override environment for this action's execution",
+    )
 
     @field_validator("wait_until", mode="before")
     def validate_wait_until(cls, v: str | None) -> str | None:
