@@ -230,6 +230,7 @@ function ExpressionInputCore({
     }
 
     return baseExtensions.concat([
+      createCoreKeymap(),
       // Input-specific styling to match shadcn Input
       EditorView.theme({
         "&": {
