@@ -294,7 +294,7 @@ export function ChatInterface({
                   className="text-xs"
                 >
                   <Save className="mr-2 h-3 w-3" />
-                  Save as prompt
+                  Generate runbook
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
