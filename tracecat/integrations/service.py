@@ -10,14 +10,14 @@ from sqlmodel import and_, or_, select
 
 from tracecat.db.schemas import OAuthIntegration
 from tracecat.identifiers import UserID
-from tracecat.integrations.base import (
+from tracecat.integrations.enums import OAuthGrantType
+from tracecat.integrations.models import ProviderConfig, ProviderKey
+from tracecat.integrations.providers import get_provider_class
+from tracecat.integrations.providers.base import (
     AuthorizationCodeOAuthProvider,
     BaseOAuthProvider,
     ClientCredentialsOAuthProvider,
 )
-from tracecat.integrations.enums import OAuthGrantType
-from tracecat.integrations.models import ProviderConfig, ProviderKey
-from tracecat.integrations.providers import ProviderRegistry
 from tracecat.secrets.encryption import decrypt_value, encrypt_value
 from tracecat.service import BaseWorkspaceService
 
@@ -200,9 +200,8 @@ class IntegrationService(BaseWorkspaceService):
         self, integration: OAuthIntegration
     ) -> BaseOAuthProvider | None:
         # Get provider class from registry
-        registry = ProviderRegistry.get()
         key = ProviderKey(id=integration.provider_id, grant_type=integration.grant_type)
-        provider_impl = registry.get_class(key)
+        provider_impl = get_provider_class(key)
         if not provider_impl:
             self.logger.error(
                 "Provider not found in registry",

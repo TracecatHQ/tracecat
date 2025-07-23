@@ -11,9 +11,6 @@ from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.schemas import OAuthStateDB
-from tracecat.integrations.base import (
-    AuthorizationCodeOAuthProvider,
-)
 from tracecat.integrations.dependencies import (
     ACProviderInfoDep,
     CCProviderInfoDep,
@@ -32,7 +29,10 @@ from tracecat.integrations.models import (
     ProviderReadMinimal,
     ProviderSchema,
 )
-from tracecat.integrations.providers import ProviderRegistry
+from tracecat.integrations.providers import all_providers, get_provider_class
+from tracecat.integrations.providers.base import (
+    AuthorizationCodeOAuthProvider,
+)
 from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
 from tracecat.types.auth import Role
@@ -99,7 +99,7 @@ async def oauth_callback(
     key = ProviderKey(
         id=oauth_state_db.provider_id, grant_type=OAuthGrantType.AUTHORIZATION_CODE
     )
-    provider_impl = ProviderRegistry.get().get_class(key)
+    provider_impl = get_provider_class(key)
     if provider_impl is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -467,7 +467,7 @@ async def list_providers(
     existing = {(i.provider_id, i.grant_type): i for i in await svc.list_integrations()}
 
     items: list[ProviderReadMinimal] = []
-    for provider_impl in ProviderRegistry.get().providers:
+    for provider_impl in all_providers():
         integration = existing.get((provider_impl.id, provider_impl.grant_type))
         metadata = provider_impl.metadata
         item = ProviderReadMinimal(
@@ -475,7 +475,6 @@ async def list_providers(
             name=metadata.name,
             description=metadata.description,
             requires_config=metadata.requires_config,
-            categories=metadata.categories,
             integration_status=integration.status
             if integration
             else IntegrationStatus.NOT_CONFIGURED,

@@ -21,23 +21,16 @@ class BaseOAuthProvider(ABC):
     """Base OAuth provider containing logic common to all OAuth 2.0 providers."""
 
     id: ClassVar[str]
-
-    # OAuth2 endpoints - to be overridden by subclasses
+    _include_in_registry: ClassVar[bool] = True
+    # OAuth2 endpoints
     _authorization_endpoint: ClassVar[str]
     _token_endpoint: ClassVar[str]
-
-    # Scopes - to be overridden by subclasses
     scopes: ClassVar[ProviderScopes]
-
-    # Grant type - to be set by grant-specific subclasses
     grant_type: ClassVar[OAuthGrantType]
-
-    # Provider specific configuration schema
+    # Provider specific configs
     config_model: ClassVar[type[BaseModel] | None] = None
-
     # Provider metadata
     metadata: ClassVar[ProviderMetadata]
-    _include_in_registry: ClassVar[bool] = True
 
     def __init__(
         self,
@@ -51,13 +44,12 @@ class BaseOAuthProvider(ABC):
         Args:
             client_id: Optional client ID to use instead of environment variable
             client_secret: Optional client secret to use instead of environment variable
-            scopes: Optional additional scopes to request
+            scopes: Optional scopes to use (overrides defaults if provided)
         """
         self.client_id = client_id
         self.client_secret = client_secret
-        # Merge provider defaults with user-supplied scopes and remove duplicates
-        combined_scopes = sorted(set(self.scopes.default + (scopes or [])))
-        self.requested_scopes = combined_scopes
+        # Use provided scopes or fall back to defaults
+        self.requested_scopes = self.scopes.default if scopes is None else scopes
 
         # Validate required endpoints
         if not self.authorization_endpoint or not self.token_endpoint:

@@ -316,16 +316,6 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
         </div>
       </div>
 
-      {/* Status Alert */}
-      {showSuccessMessage && isConnected && (
-        <Alert className="mb-6 border-green-200 bg-green-50">
-          <SuccessIcon />
-          <AlertDescription className="text-green-800">
-            Successfully connected to {metadata.name}!
-          </AlertDescription>
-        </Alert>
-      )}
-
       {errorMessage && (
         <Alert className="mb-6 border-red-200 bg-red-50">
           <AlertCircle className="size-4 text-red-600" />

@@ -2,7 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod"
 import type { JSONSchema7 } from "json-schema"
-import { Save } from "lucide-react"
+import { Info, Save } from "lucide-react"
 import { type HTMLInputTypeAttribute, useCallback, useMemo } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
@@ -13,7 +13,6 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
 import { CollapsibleCard } from "@/components/ui/collapsible-card"
-
 import {
   Form,
   FormControl,
@@ -24,6 +23,7 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import {
   Select,
   SelectContent,
@@ -32,6 +32,12 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { useIntegrationProvider } from "@/lib/hooks"
 import { jsonSchemaToZod } from "@/lib/jsonschema"
 import { useWorkspace } from "@/providers/workspace"
@@ -88,7 +94,7 @@ export function ProviderConfigForm({
   const schema = provider.schema?.json_schema || {}
   const {
     metadata: { id },
-    scopes: { default: defaultScopes, allowed_patterns: allowedPatterns },
+    scopes: { default: defaultScopes },
     grant_type: grantType,
   } = provider
   const { workspaceId } = useWorkspace()
@@ -108,37 +114,7 @@ export function ProviderConfigForm({
   const oauthSchema = z.object({
     client_id: z.string().min(1).max(512).nullish(),
     client_secret: z.string().max(512).optional(),
-    additional_scopes: z
-      .array(z.string())
-      .optional()
-      .superRefine((scopes, ctx) => {
-        if (!scopes || scopes.length === 0) return
-        if (!allowedPatterns || allowedPatterns.length === 0) return
-
-        scopes.forEach((scope, scopeIndex) => {
-          const failedPatterns: string[] = []
-
-          allowedPatterns.forEach((pattern) => {
-            try {
-              const regex = new RegExp(pattern)
-              if (!regex.test(scope)) {
-                failedPatterns.push(pattern)
-              }
-            } catch {
-              // If regex is invalid, skip this pattern
-            }
-          })
-
-          // If scope failed any patterns, add an issue
-          if (failedPatterns.length > 0) {
-            ctx.addIssue({
-              code: z.ZodIssueCode.custom,
-              message: `Scope "${scope}" doesn't match required patterns: ${failedPatterns.join(", ")}`,
-              path: [scopeIndex],
-            })
-          }
-        })
-      }),
+    scopes: z.array(z.string()).optional(),
     config: zodSchema,
   })
   type OAuthSchema = z.infer<typeof oauthSchema>
@@ -154,11 +130,7 @@ export function ProviderConfigForm({
     return {
       client_id: integration?.client_id ?? "",
       client_secret: "", // Never pre-fill secrets
-      // Show only additional scopes
-      additional_scopes:
-        integration?.requested_scopes?.filter(
-          (scope) => !defaultScopes?.includes(scope)
-        ) ?? [],
+      scopes: integration?.requested_scopes ?? defaultScopes ?? [],
       config: {
         ...configDefaults,
         ...(integration?.provider_config ?? {}),
@@ -173,9 +145,8 @@ export function ProviderConfigForm({
 
   const onSubmit = useCallback(
     async (data: OAuthSchema) => {
-      const { client_id, client_secret, additional_scopes, config } = data
+      const { client_id, client_secret, scopes, config } = data
 
-      const scopes = [...(defaultScopes ?? []), ...(additional_scopes ?? [])]
       try {
         const params: IntegrationUpdate = {
           client_id: client_id ? String(client_id) : undefined,
@@ -184,7 +155,6 @@ export function ProviderConfigForm({
               ? String(client_secret)
               : undefined,
           provider_config: config || undefined,
-          // All scopes
           scopes: scopes || undefined,
           grant_type: grantType,
         }
@@ -194,7 +164,7 @@ export function ProviderConfigForm({
         console.error(error)
       }
     },
-    [updateIntegration, onSuccess, defaultScopes, grantType]
+    [updateIntegration, onSuccess, grantType]
   )
 
   if (integrationIsLoading) {
@@ -530,92 +500,76 @@ export function ProviderConfigForm({
             <CardHeader>
               <CardTitle>OAuth scopes</CardTitle>
             </CardHeader>
-            <CardContent className="flex flex-col gap-4">
+            <CardContent className="space-y-4">
               {/* Show default scopes */}
               {defaultScopes && defaultScopes.length > 0 && (
-                <div className="flex flex-col gap-2">
-                  <label className="text-sm font-medium leading-none">
-                    Base scopes
-                  </label>
-                  <div className="flex flex-col gap-2">
-                    <div className="flex flex-wrap gap-1">
-                      {defaultScopes.map((scope) => (
-                        <Badge
-                          key={scope}
-                          variant="secondary"
-                          className="text-xs"
-                        >
-                          {scope}
-                        </Badge>
-                      ))}
-                    </div>
-                    <span className="text-xs text-muted-foreground">
-                      Required scopes.
-                      {!!provider.scopes.accepts_additional_scopes && (
-                        <> You can customize additional scopes below.</>
-                      )}
-                    </span>
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium flex items-center gap-2">
+                    Default scopes
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Info className="h-3 w-3 text-muted-foreground" />
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p className="text-xs">
+                            These are the default scopes for this provider. You
+                            can override them below.
+                          </p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  </Label>
+                  <div className="flex flex-wrap gap-2">
+                    {defaultScopes.map((scope) => (
+                      <Badge key={scope} variant="secondary">
+                        {scope}
+                      </Badge>
+                    ))}
                   </div>
                 </div>
               )}
 
-              {/* Only show additional scopes input if provider accepts them */}
-              {!!provider.scopes.accepts_additional_scopes && (
-                <FormField
-                  control={form.control}
-                  name="additional_scopes"
-                  render={({ field, fieldState }) => (
-                    <FormItem>
-                      <FormLabel>Additional OAuth scopes (optional)</FormLabel>
-                      <FormControl>
-                        <MultiTagCommandInput
-                          value={field.value ?? []}
-                          onChange={field.onChange}
-                          placeholder="Add scopes..."
-                          className="min-h-[42px]"
-                          searchKeys={["value", "label", "description"]}
-                          allowCustomTags
-                          disableSuggestions
-                        />
-                      </FormControl>
-                      <FormDescription className="text-xs">
-                        <div className="flex flex-col gap-4">
-                          <span>
-                            Add additional scopes beyond the base scopes.
-                          </span>
-                          {allowedPatterns && allowedPatterns.length > 0 && (
-                            <div className="text-xs">
-                              <strong>Allowed scope patterns:</strong>
-                              <div className="flex flex-col gap-1 mt-2">
-                                {allowedPatterns.map((pattern, index) => (
-                                  <div
-                                    key={index}
-                                    className="font-mono text-xs"
-                                  >
-                                    {pattern}
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      </FormDescription>
-                      <ScopeErrors
-                        errors={
-                          fieldState.error as
-                            | Record<string, { message?: string }>
-                            | undefined
-                        }
-                        scopes={field.value ?? []}
+              {/* Scopes input */}
+              <FormField
+                control={form.control}
+                name="scopes"
+                render={({ field, fieldState }) => (
+                  <FormItem>
+                    <div className="flex items-center justify-between">
+                      <FormLabel>OAuth scopes</FormLabel>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => field.onChange(defaultScopes ?? [])}
+                        className="h-7 text-xs"
+                      >
+                        Reset scopes
+                      </Button>
+                    </div>
+                    <FormControl>
+                      <MultiTagCommandInput
+                        value={field.value ?? []}
+                        onChange={field.onChange}
+                        placeholder="Add scopes..."
+                        className="min-h-[42px]"
+                        searchKeys={["value", "label", "description"]}
+                        allowCustomTags
+                        disableSuggestions
                       />
-                      {fieldState.error &&
-                        !Object.keys(fieldState.error).some(
-                          (key) => !isNaN(Number(key))
-                        ) && <FormMessage />}
-                    </FormItem>
-                  )}
-                />
-              )}
+                    </FormControl>
+                    <FormDescription className="text-xs">
+                      <div className="flex flex-col gap-4">
+                        <span>
+                          Configure the OAuth scopes for this integration.
+                        </span>
+                      </div>
+                    </FormDescription>
+                    {fieldState.error && <FormMessage />}
+                  </FormItem>
+                )}
+              />
             </CardContent>
           </Card>
 
@@ -697,37 +651,6 @@ export function ProviderConfigFormSkeleton() {
           </div>
         </CardContent>
       </Card>
-    </div>
-  )
-}
-
-function ScopeErrors({
-  errors,
-  scopes,
-}: {
-  errors: Record<string, { message?: string }> | undefined
-  scopes: string[]
-}) {
-  if (!errors || !scopes) return null
-
-  // Get all scope-specific errors (errors with numeric keys)
-  const scopeErrors = Object.entries(errors)
-    .filter(([key]) => !isNaN(Number(key)))
-    .map(([index, error]) => ({
-      index: Number(index),
-      scope: scopes[Number(index)],
-      message: error?.message || "Invalid scope",
-    }))
-
-  if (scopeErrors.length === 0) return null
-
-  return (
-    <div className="space-y-1">
-      {scopeErrors.map(({ index, message }) => (
-        <div key={index} className="text-sm text-red-600">
-          {message}
-        </div>
-      ))}
     </div>
   )
 }

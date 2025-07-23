@@ -469,7 +469,7 @@ export const providerIcons: Record<
   string,
   (props: CustomIconProps) => JSX.Element
 > = {
-  microsoft: ({ className, ...rest }) => (
+  microsoft_graph: ({ className, ...rest }) => (
     <div className={className}>
       <MicrosoftIcon {...rest} />
     </div>

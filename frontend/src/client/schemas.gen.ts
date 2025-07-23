@@ -4441,13 +4441,6 @@ export const $PriorityChangedEventRead = {
   description: "Event for when a case priority is changed.",
 } as const
 
-export const $ProviderCategory = {
-  type: "string",
-  enum: ["auth", "communication", "cloud", "monitoring", "alerting", "other"],
-  title: "ProviderCategory",
-  description: "Category of a provider.",
-} as const
-
 export const $ProviderMetadata = {
   properties: {
     id: {
@@ -4494,14 +4487,6 @@ export const $ProviderMetadata = {
       title: "Requires Config",
       description: "Whether this provider requires additional configuration",
       default: false,
-    },
-    categories: {
-      items: {
-        $ref: "#/components/schemas/ProviderCategory",
-      },
-      type: "array",
-      title: "Categories",
-      description: "Categories of the provider (e.g., auth, communication)",
     },
     setup_steps: {
       items: {
@@ -4612,13 +4597,6 @@ export const $ProviderReadMinimal = {
       type: "boolean",
       title: "Requires Config",
     },
-    categories: {
-      items: {
-        $ref: "#/components/schemas/ProviderCategory",
-      },
-      type: "array",
-      title: "Categories",
-    },
     integration_status: {
       $ref: "#/components/schemas/IntegrationStatus",
     },
@@ -4636,7 +4614,6 @@ export const $ProviderReadMinimal = {
     "name",
     "description",
     "requires_config",
-    "categories",
     "integration_status",
     "enabled",
     "grant_type",
@@ -4665,30 +4642,7 @@ export const $ProviderScopes = {
       },
       type: "array",
       title: "Default",
-      description: "Default scopes for this provider. Ultra thin layer",
-    },
-    allowed_patterns: {
-      anyOf: [
-        {
-          items: {
-            type: "string",
-          },
-          type: "array",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Allowed Patterns",
-      description:
-        "Regex patterns to validate additional scopes for this provider.",
-    },
-    accepts_additional_scopes: {
-      type: "boolean",
-      title: "Accepts Additional Scopes",
-      description:
-        "Whether this provider accepts additional scopes beyond the default ones. Set to False for providers like Microsoft Graph that require exactly the default scopes.",
-      default: true,
+      description: "Default scopes for this provider.",
     },
   },
   type: "object",

@@ -1397,17 +1397,6 @@ export type PriorityChangedEventRead = {
 }
 
 /**
- * Category of a provider.
- */
-export type ProviderCategory =
-  | "auth"
-  | "communication"
-  | "cloud"
-  | "monitoring"
-  | "alerting"
-  | "other"
-
-/**
  * Metadata for a provider.
  */
 export type ProviderMetadata = {
@@ -1435,10 +1424,6 @@ export type ProviderMetadata = {
    * Whether this provider requires additional configuration
    */
   requires_config?: boolean
-  /**
-   * Categories of the provider (e.g., auth, communication)
-   */
-  categories?: Array<ProviderCategory>
   /**
    * Step-by-step instructions for setting up the provider
    */
@@ -1475,7 +1460,6 @@ export type ProviderReadMinimal = {
   name: string
   description: string
   requires_config: boolean
-  categories: Array<ProviderCategory>
   integration_status: IntegrationStatus
   enabled: boolean
   grant_type: OAuthGrantType
@@ -1495,17 +1479,9 @@ export type ProviderSchema = {
  */
 export type ProviderScopes = {
   /**
-   * Default scopes for this provider. Ultra thin layer
+   * Default scopes for this provider.
    */
   default: Array<string>
-  /**
-   * Regex patterns to validate additional scopes for this provider.
-   */
-  allowed_patterns?: Array<string> | null
-  /**
-   * Whether this provider accepts additional scopes beyond the default ones. Set to False for providers like Microsoft Graph that require exactly the default scopes.
-   */
-  accepts_additional_scopes?: boolean
 }
 
 export type ReceiveInteractionResponse = {
