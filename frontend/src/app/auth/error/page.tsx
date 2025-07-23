@@ -27,9 +27,9 @@ export default function Page() {
             </AlertDescription>
           </Alert>
 
-          <Link href="/sign-in" className="block">
-            <Button className="w-full">Back to sign in</Button>
-          </Link>
+          <Button asChild className="w-full">
+            <Link href="/sign-in">Back to sign in</Link>
+          </Button>
         </CardContent>
       </Card>
     </div>

@@ -19,11 +19,25 @@ _PROVIDER_CLASSES: list[type[BaseOAuthProvider]] = [
 ]
 
 
-PROVIDER_REGISTRY: Final[dict[ProviderKey, type[BaseOAuthProvider]]] = {
-    ProviderKey(id=cls.id, grant_type=cls.grant_type): cls
-    for cls in _PROVIDER_CLASSES
-    if getattr(cls, "_include_in_registry", True)
-}
+def _build_provider_registry() -> dict[ProviderKey, type[BaseOAuthProvider]]:
+    """Build provider registry with duplicate detection."""
+    registry: dict[ProviderKey, type[BaseOAuthProvider]] = {}
+    for cls in _PROVIDER_CLASSES:
+        if not getattr(cls, "_include_in_registry", True):
+            continue
+        key = ProviderKey(id=cls.id, grant_type=cls.grant_type)
+        if key in registry:
+            raise ValueError(
+                f"Duplicate provider key {key} for {cls.__name__} "
+                f"(already registered by {registry[key].__name__})"
+            )
+        registry[key] = cls
+    return registry
+
+
+PROVIDER_REGISTRY: Final[dict[ProviderKey, type[BaseOAuthProvider]]] = (
+    _build_provider_registry()
+)
 
 
 def get_provider_class(key: ProviderKey) -> type[BaseOAuthProvider] | None:

@@ -49,7 +49,7 @@ class BaseOAuthProvider(ABC):
         self.client_id = client_id
         self.client_secret = client_secret
         # Use provided scopes or fall back to defaults
-        self.requested_scopes = scopes or self.scopes.default
+        self.requested_scopes = self.scopes.default if scopes is None else scopes
 
         # Validate required endpoints
         if not self.authorization_endpoint or not self.token_endpoint:

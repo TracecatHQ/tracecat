@@ -1405,12 +1405,12 @@ class TestBaseOAuthProvider:
     async def test_scope_empty_array_uses_defaults(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Test that empty scope array falls back to defaults."""
+        """Test that empty scope array is respected (not using defaults)."""
         monkeypatch.setenv("TRACECAT__PUBLIC_APP_URL", "http://localhost:8000")
         provider = MockOAuthProvider(
             client_id="test_id", client_secret="test_secret", scopes=[]
         )
-        assert provider.requested_scopes == ["read", "write"]
+        assert provider.requested_scopes == []  # Empty array is respected
 
     async def test_scope_override_replaces_defaults(
         self, monkeypatch: pytest.MonkeyPatch
