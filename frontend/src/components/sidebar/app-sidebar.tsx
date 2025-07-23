@@ -53,10 +53,10 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       isActive: pathname?.startsWith(`${basePath}/cases`),
     },
     {
-      title: "Agendas",
-      url: `${basePath}/agendas`,
+      title: "Runbooks",
+      url: `${basePath}/runbooks`,
       icon: ListTodoIcon,
-      isActive: pathname?.startsWith(`${basePath}/agendas`),
+      isActive: pathname?.startsWith(`${basePath}/runbooks`),
     },
   ]
 

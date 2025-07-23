@@ -1,11 +1,11 @@
 import { Suspense } from "react"
-import { AgendasDashboard } from "@/components/dashboard/agendas-dashboard"
+import { RunbooksDashboard } from "@/components/dashboard/runbooks-dashboard"
 import { CenteredSpinner } from "@/components/loading/spinner"
 
-export default async function AgendasDashboardPage() {
+export default async function RunbooksDashboardPage() {
   return (
     <Suspense fallback={<CenteredSpinner />}>
-      <AgendasDashboard />
+      <RunbooksDashboard />
     </Suspense>
   )
 }

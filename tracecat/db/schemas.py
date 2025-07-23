@@ -1332,7 +1332,7 @@ class Prompt(Resource, table=True):
     )
     content: str = Field(
         ...,
-        description="The instruction prompt/agenda string passed to the agent",
+        description="The instruction prompt/runbook string passed to the agent",
         nullable=False,
     )
     tools: list[str] = Field(

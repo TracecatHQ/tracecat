@@ -4899,7 +4899,7 @@ export const $PromptRead = {
     content: {
       type: "string",
       title: "Content",
-      description: "The instruction prompt/agenda string",
+      description: "The instruction prompt/runbook string",
     },
     tools: {
       items: {

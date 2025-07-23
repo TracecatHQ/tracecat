@@ -29,9 +29,9 @@ export function useCreatePrompt(workspaceId: string) {
         })
         // Concurrently toast to show accepted
         toast({
-          title: "Creating agenda",
+          title: "Creating runbook",
           description:
-            "Processing your chat into a reusable agenda. This may take up to 30 seconds.",
+            "Processing your chat into a reusable runbook. This may take up to 30 seconds.",
         })
         return result
       },
@@ -39,9 +39,9 @@ export function useCreatePrompt(workspaceId: string) {
         // Invalidate and refetch prompt lists
         queryClient.invalidateQueries({ queryKey: ["prompts", workspaceId] })
         toast({
-          title: "Agenda created successfully",
+          title: "Runbook created successfully",
           description:
-            "The agenda has been created and is available for replay.",
+            "The runbook has been created and is available for replay.",
         })
       },
     })

@@ -22,7 +22,7 @@ class PromptRead(BaseModel):
     id: UUID4 = Field(..., description="Unique prompt identifier")
     chat_id: UUID4 = Field(..., description="ID of the source chat")
     title: str = Field(..., description="Human-readable title for the prompt")
-    content: str = Field(..., description="The instruction prompt/agenda string")
+    content: str = Field(..., description="The instruction prompt/runbook string")
     tools: list[str] = Field(
         ...,
         description="The tools available to the agent for this prompt",

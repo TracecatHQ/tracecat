@@ -353,9 +353,9 @@ function getPageConfig(
     }
   }
 
-  if (pagePath.startsWith("/agendas")) {
+  if (pagePath.startsWith("/runbooks")) {
     return {
-      title: "Agendas",
+      title: "Runbooks",
     }
   }
 

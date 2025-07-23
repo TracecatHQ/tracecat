@@ -18,7 +18,7 @@ import { toast } from "@/components/ui/use-toast"
 import { useDeletePrompt, useListPrompts } from "@/hooks/use-prompt"
 import { useWorkspace } from "@/providers/workspace"
 
-export function AgendasDashboard() {
+export function RunbooksDashboard() {
   const [isDeleting, setIsDeleting] = useState(false)
   const { workspaceId } = useWorkspace()
   const router = useRouter()
@@ -36,7 +36,7 @@ export function AgendasDashboard() {
 
   const handleOnClickRow = (row: Row<PromptRead>) => () => {
     const promptId = row.original.id
-    router.push(`/workspaces/${workspaceId}/agendas/${promptId}`)
+    router.push(`/workspaces/${workspaceId}/runbooks/${promptId}`)
   }
 
   const handleDeleteRows = useCallback(
@@ -53,8 +53,8 @@ export function AgendasDashboard() {
 
         // Show success toast
         toast({
-          title: `${promptIds.length} agenda(s) deleted`,
-          description: "The selected agendas have been deleted successfully.",
+          title: `${promptIds.length} runbook(s) deleted`,
+          description: "The selected runbooks have been deleted successfully.",
         })
 
         // Refresh the cases list
@@ -70,7 +70,7 @@ export function AgendasDashboard() {
   const toolbarProps = useMemo(() => {
     return {
       filterProps: {
-        placeholder: "Filter agendas by title...",
+        placeholder: "Filter runbooks by title...",
         column: "title",
       },
     } as DataTableToolbarProps<PromptRead>
@@ -185,7 +185,7 @@ export function AgendasDashboard() {
     return (
       <div className="container mx-auto p-6">
         <div className="text-center text-red-600">
-          Error loading agendas: {error.message}
+          Error loading runbooks: {error.message}
         </div>
       </div>
     )

@@ -21,7 +21,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useGetPrompt } from "@/hooks/use-prompt"
 import { useWorkspace } from "@/providers/workspace"
 
-export default function AgendaDetailPage() {
+export default function RunbookDetailPage() {
   const params = useParams()
   const { workspaceId } = useWorkspace()
 
@@ -29,7 +29,7 @@ export default function AgendaDetailPage() {
     return <div>Error: Invalid parameters</div>
   }
 
-  const agendaId = params.agendaId as string
+  const runbookId = params.runbookId as string
 
   const {
     data: prompt,
@@ -37,7 +37,7 @@ export default function AgendaDetailPage() {
     error,
   } = useGetPrompt({
     workspaceId,
-    promptId: agendaId,
+    promptId: runbookId,
   })
 
   if (isLoading) {
@@ -53,14 +53,14 @@ export default function AgendaDetailPage() {
       <div className="container mx-auto max-w-4xl p-6">
         <div className="flex flex-col items-center justify-center space-y-4 py-12">
           <FileTextIcon className="size-12 text-muted-foreground" />
-          <h2 className="text-xl font-semibold">Agenda not found</h2>
+          <h2 className="text-xl font-semibold">Runbook not found</h2>
           <div className="text-muted-foreground">
-            The requested agenda could not be found.
+            The requested runbook could not be found.
           </div>
-          <Link href={`/workspaces/${workspaceId}/agendas`}>
+          <Link href={`/workspaces/${workspaceId}/runbooks`}>
             <Button variant="outline" className="mt-2">
               <ChevronLeft className="mr-2 size-4" />
-              Back to Agendas
+              Back to Runbooks
             </Button>
           </Link>
         </div>
@@ -68,12 +68,12 @@ export default function AgendaDetailPage() {
     )
   }
 
-  return <AgendaDetailContent prompt={prompt} />
+  return <RunbookDetailContent prompt={prompt} />
 }
 
-type AgendaDetailTab = "summary" | "instructions"
+type RunbookDetailTab = "summary" | "instructions"
 
-function AgendaDetailContent({ prompt }: { prompt: PromptRead }) {
+function RunbookDetailContent({ prompt }: { prompt: PromptRead }) {
   const { workspaceId } = useWorkspace()
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -84,12 +84,12 @@ function AgendaDetailContent({ prompt }: { prompt: PromptRead }) {
     ["summary", "instructions"].includes(searchParams.get("tab") || "")
       ? (searchParams.get("tab") ?? "summary")
       : "summary"
-  ) as AgendaDetailTab
+  ) as RunbookDetailTab
 
   // Function to handle tab changes and update URL
   const handleTabChange = useCallback(
     (tab: string) => {
-      router.push(`/workspaces/${workspaceId}/agendas/${prompt.id}?tab=${tab}`)
+      router.push(`/workspaces/${workspaceId}/runbooks/${prompt.id}?tab=${tab}`)
     },
     [router, workspaceId, prompt.id]
   )
@@ -101,7 +101,7 @@ function AgendaDetailContent({ prompt }: { prompt: PromptRead }) {
         <BreadcrumbList>
           <BreadcrumbItem>
             <BreadcrumbLink asChild>
-              <Link href={`/workspaces/${workspaceId}/agendas`}>Agendas</Link>
+              <Link href={`/workspaces/${workspaceId}/runbooks`}>Runbooks</Link>
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />

@@ -102,7 +102,7 @@ Sticking to the above will help you successfully run the <Steps> over the new us
         """)
         prompt = Prompt(
             chat_id=chat.id,
-            title=f"{chat.title} - Agenda",
+            title=f"{chat.title} - Runbook",
             content=content,
             owner_id=self.workspace_id,
             meta={
