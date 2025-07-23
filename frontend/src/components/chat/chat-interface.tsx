@@ -2,12 +2,12 @@
 
 import { formatDistanceToNow } from "date-fns"
 import {
+  BookOpen,
   ChevronDown,
   History,
   MessageSquare,
   MoreHorizontal,
   Plus,
-  Save,
 } from "lucide-react"
 import { useEffect, useState } from "react"
 import type { ChatRead } from "@/client"
@@ -293,7 +293,7 @@ export function ChatInterface({
                   disabled={createPromptPending || !messages?.length}
                   className="text-xs"
                 >
-                  <Save className="mr-2 h-3 w-3" />
+                  <BookOpen className="mr-2 size-3" />
                   Generate runbook
                 </DropdownMenuItem>
               </DropdownMenuContent>
