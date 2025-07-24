@@ -32,10 +32,6 @@ export TRACECAT__S3_CONCURRENCY_LIMIT=100     # Allow up to 100 concurrent S3 op
 - **S3 limit (50)**: Network I/O operations can handle high concurrency without overwhelming local resources
 - **File operations**: No limiting needed - local temp file operations are fast and don't require throttling
 
-Caching
--------
-The module also implements intelligent caching using diskcache to reduce redundant
-S3 operations and improve performance for repeated requests.
 """
 
 import re
@@ -47,18 +43,11 @@ from pathlib import Path
 from typing import Annotated, Any
 from typing_extensions import Doc
 import subprocess
-from diskcache import FanoutCache
 import jsonpath_ng.exceptions
 
 from tracecat.config import TRACECAT__MAX_FILE_SIZE_BYTES, TRACECAT__SYSTEM_PATH
 from tracecat_registry import registry
 from tracecat_registry.integrations.amazon_s3 import s3_secret, get_objects
-
-S3_CACHE = FanoutCache(
-    directory=Path.home() / ".cache" / "s3",
-    timeout=3600,  # 1 hour TTL
-    size_limit=1024**3,  # 1GB limit
-)
 
 # Similar to Cursor read_file tool
 MAX_MATCHES = 250
@@ -372,37 +361,6 @@ def jsonpath_find_and_replace(
         raise RuntimeError(f"JSONPath find and replace operation failed: {e}")
 
 
-async def _get_cached_objects(
-    bucket: str, keys: list[str], endpoint_url: str | None = None
-) -> list[str]:
-    """Get S3 objects with caching by bucket/key."""
-    # Separate keys into cached and uncached
-    cached_objects = {}
-    uncached_keys = []
-
-    for key in keys:
-        cache_key = f"{bucket}/{key}"
-        cached_content = S3_CACHE.get(cache_key)
-        if cached_content is not None:
-            cached_objects[key] = cached_content
-        else:
-            uncached_keys.append(key)
-
-    # Fetch uncached objects in parallel with built-in concurrency limiting
-    if uncached_keys:
-        # The get_objects function already has concurrency limiting via semaphore
-        new_objects = await get_objects(bucket, uncached_keys, endpoint_url)
-
-        # Cache the new objects
-        for key, content in zip(uncached_keys, new_objects):
-            cache_key = f"{bucket}/{key}"
-            S3_CACHE.set(cache_key, content)
-            cached_objects[key] = content
-
-    # Return objects in the original key order
-    return [cached_objects[key] for key in keys]
-
-
 @registry.register(
     default_title="Grep S3 objects",
     description="Download multiple S3 objects and grep them.",
@@ -428,8 +386,8 @@ async def s3(
     if len(keys) > 1000:
         raise ValueError("Cannot process more than 1000 keys at once")
 
-    # Get objects (with caching and built-in S3 concurrency limiting)
-    objects = await _get_cached_objects(bucket, keys, endpoint_url)
+    # Get objects (with built-in S3 concurrency limiting)
+    objects = await get_objects(bucket, keys, endpoint_url)
 
     # Create temporary directory and write files synchronously
     # File I/O is typically fast for temp directories, so no concurrency limiting needed

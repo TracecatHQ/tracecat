@@ -270,45 +270,6 @@ class TestGrepS3Integration:
             )
 
     @pytest.mark.anyio
-    async def test_grep_caching_behavior(
-        self, minio_bucket, mock_s3_secrets, sample_files, aioboto3_minio_client
-    ):
-        """Test that caching works correctly for repeated requests."""
-        # First request
-        result1 = await grep_s3(
-            bucket=minio_bucket,
-            keys=["log1.txt"],
-            pattern="INFO",
-            max_columns=1000,
-        )
-
-        # Second request (should use cache)
-        result2 = await grep_s3(
-            bucket=minio_bucket,
-            keys=["log1.txt"],
-            pattern="INFO",
-            max_columns=1000,
-        )
-
-        # Results should have the same number of matches (paths will differ due to temp dirs)
-        matches1 = [
-            item
-            for item in result1
-            if isinstance(item, dict) and item.get("type") == "match"
-        ]
-        matches2 = [
-            item
-            for item in result2
-            if isinstance(item, dict) and item.get("type") == "match"
-        ]
-        assert len(matches1) == len(matches2)
-
-        # Check that the match content is the same
-        for match1, match2 in zip(matches1, matches2, strict=False):
-            assert match1["data"]["lines"]["text"] == match2["data"]["lines"]["text"]
-            assert match1["data"]["line_number"] == match2["data"]["line_number"]
-
-    @pytest.mark.anyio
     async def test_grep_multiple_patterns(
         self, minio_bucket, mock_s3_secrets, sample_files, aioboto3_minio_client
     ):
