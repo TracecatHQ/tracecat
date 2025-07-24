@@ -1,7 +1,6 @@
 """Chat API router for real-time AI agent interactions."""
 
 import asyncio
-import os
 import uuid
 from typing import Annotated
 
@@ -10,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 from tracecat_registry.integrations.agents.builder import ModelMessageTA, agent
 
+from tracecat.agent.service import AgentManagementService
 from tracecat.auth.credentials import RoleACL
 from tracecat.chat.models import (
     ChatCreate,
@@ -24,7 +24,6 @@ from tracecat.chat.service import ChatService
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.logger import logger
 from tracecat.redis.client import get_redis_client
-from tracecat.secrets import secrets_manager
 from tracecat.types.auth import Role
 
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -160,14 +159,14 @@ async def start_chat_turn(
 
     try:
         # Fire-and-forget execution using the agent function directly
-        # TODO: How to configure this properly??
-        with secrets_manager.use_agent_credentials():
+        svc = AgentManagementService(session, role)
+        async with svc.with_model_config() as model_config:
             coro = agent(
                 instructions=request.instructions,
                 user_prompt=request.message,
                 fixed_arguments=request.context,
-                model_name=os.environ["CHAT_MODEL_NAME"],
-                model_provider=os.environ["CHAT_MODEL_PROVIDER"],
+                model_name=model_config.name,
+                model_provider=model_config.provider,
                 actions=chat.tools,
                 workflow_run_id=str(chat_id),
             )

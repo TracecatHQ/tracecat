@@ -4533,6 +4533,83 @@ export const $JoinStrategy = {
   title: "JoinStrategy",
 } as const
 
+export const $ModelConfig = {
+  properties: {
+    name: {
+      type: "string",
+      maxLength: 100,
+      minLength: 1,
+      title: "Name",
+      description:
+        "The name of the model. This is used to identify the model in the system.",
+    },
+    provider: {
+      type: "string",
+      maxLength: 100,
+      minLength: 1,
+      title: "Provider",
+      description:
+        "The provider of the model. This is used to determine which organization secret to use for this model.",
+    },
+    org_secret_name: {
+      type: "string",
+      maxLength: 200,
+      minLength: 1,
+      title: "Org Secret Name",
+      description:
+        "The name of the organization secret to use for this model. This secret must be configured in the organization settings.",
+    },
+    secrets: {
+      $ref: "#/components/schemas/ModelSecretConfig",
+      description:
+        "The secrets to use for this model. This is used to determine which organization secret to use for this model.",
+    },
+  },
+  type: "object",
+  required: ["name", "provider", "org_secret_name", "secrets"],
+  title: "ModelConfig",
+} as const
+
+export const $ModelCredentialCreate = {
+  properties: {
+    provider: {
+      type: "string",
+      maxLength: 100,
+      minLength: 1,
+      title: "Provider",
+    },
+    credentials: {
+      additionalProperties: {
+        type: "string",
+      },
+      type: "object",
+      title: "Credentials",
+      description: "Provider-specific credentials (e.g., api_key)",
+    },
+  },
+  type: "object",
+  required: ["provider", "credentials"],
+  title: "ModelCredentialCreate",
+  description: "Model for creating model credentials.",
+} as const
+
+export const $ModelCredentialUpdate = {
+  properties: {
+    credentials: {
+      additionalProperties: {
+        type: "string",
+      },
+      type: "object",
+      title: "Credentials",
+      description: "Provider-specific credentials to update",
+    },
+  },
+  type: "object",
+  required: ["credentials"],
+  title: "ModelCredentialUpdate",
+  description: "Model for updating model credentials.",
+} as const
+
 export const $ModelRequest = {
   properties: {
     parts: {
@@ -4639,6 +4716,27 @@ export const $ModelResponse = {
   type: "object",
   required: ["parts"],
   title: "ModelResponse",
+} as const
+
+export const $ModelSecretConfig = {
+  properties: {
+    required: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Required",
+    },
+    optional: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Optional",
+    },
+  },
+  type: "object",
+  title: "ModelSecretConfig",
 } as const
 
 export const $OAuth2AuthorizeResponse = {
@@ -5055,6 +5153,74 @@ export const $PromptUpdate = {
   type: "object",
   title: "PromptUpdate",
   description: "Request model for updating prompt properties.",
+} as const
+
+export const $ProviderCredentialConfig = {
+  properties: {
+    provider: {
+      type: "string",
+      maxLength: 100,
+      minLength: 1,
+      title: "Provider",
+      description: "The provider name",
+    },
+    label: {
+      type: "string",
+      maxLength: 200,
+      minLength: 1,
+      title: "Label",
+      description: "Human-readable label for the provider",
+    },
+    fields: {
+      items: {
+        $ref: "#/components/schemas/ProviderCredentialField",
+      },
+      type: "array",
+      title: "Fields",
+      description: "Required credential fields",
+    },
+  },
+  type: "object",
+  required: ["provider", "label", "fields"],
+  title: "ProviderCredentialConfig",
+  description: "Model for provider credential configuration.",
+} as const
+
+export const $ProviderCredentialField = {
+  properties: {
+    key: {
+      type: "string",
+      maxLength: 100,
+      minLength: 1,
+      title: "Key",
+      description: "The environment variable key for this credential",
+    },
+    label: {
+      type: "string",
+      maxLength: 200,
+      minLength: 1,
+      title: "Label",
+      description: "Human-readable label for the field",
+    },
+    type: {
+      type: "string",
+      maxLength: 20,
+      minLength: 1,
+      title: "Type",
+      description: "Input type: 'text' or 'password'",
+    },
+    description: {
+      type: "string",
+      maxLength: 500,
+      minLength: 1,
+      title: "Description",
+      description: "Help text describing this credential",
+    },
+  },
+  type: "object",
+  required: ["key", "label", "type", "description"],
+  title: "ProviderCredentialField",
+  description: "Model for defining credential fields required by a provider.",
 } as const
 
 export const $ProviderMetadata = {

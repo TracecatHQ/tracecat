@@ -1508,6 +1508,50 @@ export type InteractionType = "approval" | "response"
 
 export type JoinStrategy = "any" | "all"
 
+export type ModelConfig = {
+  /**
+   * The name of the model. This is used to identify the model in the system.
+   */
+  name: string
+  /**
+   * The provider of the model. This is used to determine which organization secret to use for this model.
+   */
+  provider: string
+  /**
+   * The name of the organization secret to use for this model. This secret must be configured in the organization settings.
+   */
+  org_secret_name: string
+  /**
+   * The secrets to use for this model. This is used to determine which organization secret to use for this model.
+   */
+  secrets: ModelSecretConfig
+}
+
+/**
+ * Model for creating model credentials.
+ */
+export type ModelCredentialCreate = {
+  provider: string
+  /**
+   * Provider-specific credentials (e.g., api_key)
+   */
+  credentials: {
+    [key: string]: string
+  }
+}
+
+/**
+ * Model for updating model credentials.
+ */
+export type ModelCredentialUpdate = {
+  /**
+   * Provider-specific credentials to update
+   */
+  credentials: {
+    [key: string]: string
+  }
+}
+
 export type ModelRequest = {
   parts: Array<
     SystemPromptPart | UserPromptPart | ToolReturnPart | RetryPromptPart
@@ -1522,6 +1566,11 @@ export type ModelResponse = {
   model_name?: string | null
   timestamp?: string
   kind?: "response"
+}
+
+export type ModelSecretConfig = {
+  required?: Array<string>
+  optional?: Array<string>
 }
 
 export type OAuth2AuthorizeResponse = {
@@ -1708,6 +1757,46 @@ export type PromptUpdate = {
    * New summary for the prompt
    */
   summary?: string | null
+}
+
+/**
+ * Model for provider credential configuration.
+ */
+export type ProviderCredentialConfig = {
+  /**
+   * The provider name
+   */
+  provider: string
+  /**
+   * Human-readable label for the provider
+   */
+  label: string
+  /**
+   * Required credential fields
+   */
+  fields: Array<ProviderCredentialField>
+}
+
+/**
+ * Model for defining credential fields required by a provider.
+ */
+export type ProviderCredentialField = {
+  /**
+   * The environment variable key for this credential
+   */
+  key: string
+  /**
+   * Human-readable label for the field
+   */
+  label: string
+  /**
+   * Input type: 'text' or 'password'
+   */
+  type: string
+  /**
+   * Help text describing this credential
+   */
+  description: string
 }
 
 /**
@@ -4102,6 +4191,60 @@ export type OrganizationDeleteSessionData = {
 
 export type OrganizationDeleteSessionResponse = void
 
+export type AgentListModelsResponse = {
+  [key: string]: ModelConfig
+}
+
+export type AgentListProvidersResponse = Array<string>
+
+export type AgentGetProvidersStatusResponse = {
+  [key: string]: boolean
+}
+
+export type AgentListProviderCredentialConfigsResponse =
+  Array<ProviderCredentialConfig>
+
+export type AgentGetProviderCredentialConfigData = {
+  provider: string
+}
+
+export type AgentGetProviderCredentialConfigResponse = ProviderCredentialConfig
+
+export type AgentCreateProviderCredentialsData = {
+  requestBody: ModelCredentialCreate
+}
+
+export type AgentCreateProviderCredentialsResponse = {
+  [key: string]: string
+}
+
+export type AgentUpdateProviderCredentialsData = {
+  provider: string
+  requestBody: ModelCredentialUpdate
+}
+
+export type AgentUpdateProviderCredentialsResponse = {
+  [key: string]: string
+}
+
+export type AgentDeleteProviderCredentialsData = {
+  provider: string
+}
+
+export type AgentDeleteProviderCredentialsResponse = {
+  [key: string]: string
+}
+
+export type AgentGetDefaultModelResponse = string | null
+
+export type AgentSetDefaultModelData = {
+  modelName: string
+}
+
+export type AgentSetDefaultModelResponse = {
+  [key: string]: string
+}
+
 export type EditorListFunctionsData = {
   workspaceId: string
 }
@@ -4919,7 +5062,7 @@ export type PublicCheckHealthResponse = {
 
 export type $OpenApiTs = {
   "/webhooks/{workflow_id}/{secret}": {
-    post: {
+    get: {
       req: PublicIncomingWebhookData
       res: {
         /**
@@ -4932,7 +5075,7 @@ export type $OpenApiTs = {
         422: HTTPValidationError
       }
     }
-    get: {
+    post: {
       req: PublicIncomingWebhook1Data
       res: {
         /**
@@ -5817,6 +5960,139 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/models": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: {
+          [key: string]: ModelConfig
+        }
+      }
+    }
+  }
+  "/agent/providers": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<string>
+      }
+    }
+  }
+  "/agent/providers/status": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: {
+          [key: string]: boolean
+        }
+      }
+    }
+  }
+  "/agent/providers/configs": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<ProviderCredentialConfig>
+      }
+    }
+  }
+  "/agent/providers/{provider}/config": {
+    get: {
+      req: AgentGetProviderCredentialConfigData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ProviderCredentialConfig
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/credentials": {
+    post: {
+      req: AgentCreateProviderCredentialsData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: {
+          [key: string]: string
+        }
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/credentials/{provider}": {
+    put: {
+      req: AgentUpdateProviderCredentialsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: {
+          [key: string]: string
+        }
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: AgentDeleteProviderCredentialsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: {
+          [key: string]: string
+        }
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/default-model": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: string | null
+      }
+    }
+    put: {
+      req: AgentSetDefaultModelData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: {
+          [key: string]: string
+        }
         /**
          * Validation Error
          */

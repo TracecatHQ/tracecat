@@ -19,6 +19,7 @@ from tracecat.secrets.encryption import decrypt_value, encrypt_value
 from tracecat.service import BaseService
 from tracecat.settings.constants import PUBLIC_SETTINGS_KEYS, SENSITIVE_SETTINGS_KEYS
 from tracecat.settings.models import (
+    AgentSettingsUpdate,
     AppSettingsUpdate,
     AuthSettingsUpdate,
     BaseSettingsGroup,
@@ -36,6 +37,7 @@ class SettingsService(BaseService):
 
     service_name = "settings"
     groups: list[type[BaseSettingsGroup]] = [
+        AgentSettingsUpdate,
         GitSettingsUpdate,
         SAMLSettingsUpdate,
         AuthSettingsUpdate,
@@ -264,6 +266,11 @@ class SettingsService(BaseService):
     async def update_app_settings(self, params: AppSettingsUpdate) -> None:
         app_settings = await self.list_org_settings(keys=AppSettingsUpdate.keys())
         await self._update_grouped_settings(app_settings, params)
+
+    @require_access_level(AccessLevel.ADMIN)
+    async def update_agent_settings(self, params: AgentSettingsUpdate) -> None:
+        agent_settings = await self.list_org_settings(keys=AgentSettingsUpdate.keys())
+        await self._update_grouped_settings(agent_settings, params)
 
 
 async def get_setting(

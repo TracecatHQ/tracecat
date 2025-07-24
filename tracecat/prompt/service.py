@@ -2,7 +2,6 @@
 
 import hashlib
 import json
-import os
 import textwrap
 import uuid
 from collections.abc import Sequence
@@ -18,6 +17,7 @@ from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 from tracecat_registry.integrations.pydantic_ai import build_agent
 
+from tracecat.agent.service import AgentManagementService
 from tracecat.chat.enums import ChatEntity
 from tracecat.chat.models import ChatMessage, ChatResponse
 from tracecat.chat.service import ChatService
@@ -25,7 +25,6 @@ from tracecat.db.schemas import Chat, Prompt
 from tracecat.logger import logger
 from tracecat.prompt.flows import run_prompts_for_case
 from tracecat.prompt.models import PromptRunEntity
-from tracecat.secrets.secrets_manager import use_agent_credentials
 from tracecat.service import BaseWorkspaceService
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatNotFoundError
@@ -299,10 +298,11 @@ Sticking to the above will help you successfully run the <Steps> over the new us
         - Include a section `Tools` on the tools that are required for the runbook. This will be provided by the user as <Tools>.
         </Requirements>
         """)
-        with use_agent_credentials():
+        svc = AgentManagementService(self.session, self.role)
+        async with svc.with_model_config() as model_config:
             agent = build_agent(
-                model_name=os.environ["CHAT_MODEL_NAME"],
-                model_provider=os.environ["CHAT_MODEL_PROVIDER"],
+                model_name=model_config.name,
+                model_provider=model_config.provider,
                 instructions=instructions,
             )
             user_prompt = f"""

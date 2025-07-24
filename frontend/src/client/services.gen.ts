@@ -14,6 +14,21 @@ import type {
   ActionsListActionsResponse,
   ActionsUpdateActionData,
   ActionsUpdateActionResponse,
+  AgentCreateProviderCredentialsData,
+  AgentCreateProviderCredentialsResponse,
+  AgentDeleteProviderCredentialsData,
+  AgentDeleteProviderCredentialsResponse,
+  AgentGetDefaultModelResponse,
+  AgentGetProviderCredentialConfigData,
+  AgentGetProviderCredentialConfigResponse,
+  AgentGetProvidersStatusResponse,
+  AgentListModelsResponse,
+  AgentListProviderCredentialConfigsResponse,
+  AgentListProvidersResponse,
+  AgentSetDefaultModelData,
+  AgentSetDefaultModelResponse,
+  AgentUpdateProviderCredentialsData,
+  AgentUpdateProviderCredentialsResponse,
   AuthAuthDatabaseLoginData,
   AuthAuthDatabaseLoginResponse,
   AuthAuthDatabaseLogoutResponse,
@@ -364,7 +379,7 @@ export const publicIncomingWebhook = (
   data: PublicIncomingWebhookData
 ): CancelablePromise<PublicIncomingWebhookResponse> => {
   return __request(OpenAPI, {
-    method: "POST",
+    method: "GET",
     url: "/webhooks/{workflow_id}/{secret}",
     path: {
       secret: data.secret,
@@ -404,7 +419,7 @@ export const publicIncomingWebhook1 = (
   data: PublicIncomingWebhook1Data
 ): CancelablePromise<PublicIncomingWebhook1Response> => {
   return __request(OpenAPI, {
-    method: "GET",
+    method: "POST",
     url: "/webhooks/{workflow_id}/{secret}",
     path: {
       secret: data.secret,
@@ -2108,6 +2123,193 @@ export const organizationDeleteSession = (
     url: "/organization/sessions/{session_id}",
     path: {
       session_id: data.sessionId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Models
+ * List all available AI models.
+ * @returns ModelConfig Successful Response
+ * @throws ApiError
+ */
+export const agentListModels =
+  (): CancelablePromise<AgentListModelsResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/agent/models",
+    })
+  }
+
+/**
+ * List Providers
+ * List all available AI model providers.
+ * @returns string Successful Response
+ * @throws ApiError
+ */
+export const agentListProviders =
+  (): CancelablePromise<AgentListProvidersResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/agent/providers",
+    })
+  }
+
+/**
+ * Get Providers Status
+ * Get credential status for all providers.
+ * @returns boolean Successful Response
+ * @throws ApiError
+ */
+export const agentGetProvidersStatus =
+  (): CancelablePromise<AgentGetProvidersStatusResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/agent/providers/status",
+    })
+  }
+
+/**
+ * List Provider Credential Configs
+ * List credential field configurations for all providers.
+ * @returns ProviderCredentialConfig Successful Response
+ * @throws ApiError
+ */
+export const agentListProviderCredentialConfigs =
+  (): CancelablePromise<AgentListProviderCredentialConfigsResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/agent/providers/configs",
+    })
+  }
+
+/**
+ * Get Provider Credential Config
+ * Get credential field configuration for a specific provider.
+ * @param data The data for the request.
+ * @param data.provider
+ * @returns ProviderCredentialConfig Successful Response
+ * @throws ApiError
+ */
+export const agentGetProviderCredentialConfig = (
+  data: AgentGetProviderCredentialConfigData
+): CancelablePromise<AgentGetProviderCredentialConfigResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/agent/providers/{provider}/config",
+    path: {
+      provider: data.provider,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Provider Credentials
+ * Create or update credentials for an AI provider.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns string Successful Response
+ * @throws ApiError
+ */
+export const agentCreateProviderCredentials = (
+  data: AgentCreateProviderCredentialsData
+): CancelablePromise<AgentCreateProviderCredentialsResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/agent/credentials",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Provider Credentials
+ * Update existing credentials for an AI provider.
+ * @param data The data for the request.
+ * @param data.provider
+ * @param data.requestBody
+ * @returns string Successful Response
+ * @throws ApiError
+ */
+export const agentUpdateProviderCredentials = (
+  data: AgentUpdateProviderCredentialsData
+): CancelablePromise<AgentUpdateProviderCredentialsResponse> => {
+  return __request(OpenAPI, {
+    method: "PUT",
+    url: "/agent/credentials/{provider}",
+    path: {
+      provider: data.provider,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Provider Credentials
+ * Delete credentials for an AI provider.
+ * @param data The data for the request.
+ * @param data.provider
+ * @returns string Successful Response
+ * @throws ApiError
+ */
+export const agentDeleteProviderCredentials = (
+  data: AgentDeleteProviderCredentialsData
+): CancelablePromise<AgentDeleteProviderCredentialsResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/agent/credentials/{provider}",
+    path: {
+      provider: data.provider,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Default Model
+ * Get the organization's default AI model.
+ * @returns unknown Successful Response
+ * @throws ApiError
+ */
+export const agentGetDefaultModel =
+  (): CancelablePromise<AgentGetDefaultModelResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/agent/default-model",
+    })
+  }
+
+/**
+ * Set Default Model
+ * Set the organization's default AI model.
+ * @param data The data for the request.
+ * @param data.modelName
+ * @returns string Successful Response
+ * @throws ApiError
+ */
+export const agentSetDefaultModel = (
+  data: AgentSetDefaultModelData
+): CancelablePromise<AgentSetDefaultModelResponse> => {
+  return __request(OpenAPI, {
+    method: "PUT",
+    url: "/agent/default-model",
+    query: {
+      model_name: data.modelName,
     },
     errors: {
       422: "Validation Error",

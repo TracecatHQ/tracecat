@@ -7,12 +7,26 @@ import {
   type ActionRead,
   type ActionsDeleteActionData,
   type ActionUpdate,
+  type AgentGetProviderCredentialConfigResponse,
+  type AgentGetProvidersStatusResponse,
+  type AgentListModelsResponse,
+  type AgentListProvidersResponse,
   type ApiError,
   type AppSettingsRead,
   type AuthSettingsRead,
   actionsDeleteAction,
   actionsGetAction,
   actionsUpdateAction,
+  agentCreateProviderCredentials,
+  agentDeleteProviderCredentials,
+  agentGetDefaultModel,
+  agentGetProviderCredentialConfig,
+  agentGetProvidersStatus,
+  agentListModels,
+  agentListProviderCredentialConfigs,
+  agentListProviders,
+  agentSetDefaultModel,
+  agentUpdateProviderCredentials,
   type CaseCommentCreate,
   type CaseCommentRead,
   type CaseCommentUpdate,
@@ -53,6 +67,8 @@ import {
   integrationsListIntegrations,
   integrationsTestConnection,
   integrationsUpdateIntegration,
+  type ModelCredentialCreate,
+  type ModelCredentialUpdate,
   type OAuthGrantType,
   type OAuthSettingsRead,
   type OrganizationDeleteOrgMemberData,
@@ -68,6 +84,7 @@ import {
   organizationSecretsListOrgSecrets,
   organizationSecretsUpdateOrgSecretById,
   organizationUpdateOrgMember,
+  type ProviderCredentialConfig,
   type ProviderRead,
   type ProviderReadMinimal,
   providersGetProvider,
@@ -3420,5 +3437,205 @@ export function useIntegrationProvider({
     provider,
     providerIsLoading,
     providerError,
+  }
+}
+
+// Agent hooks
+export function useAgentModels() {
+  const {
+    data: models,
+    isLoading: modelsLoading,
+    error: modelsError,
+  } = useQuery<AgentListModelsResponse>({
+    queryKey: ["agent-models"],
+    queryFn: async () => await agentListModels(),
+  })
+
+  return {
+    models,
+    modelsLoading,
+    modelsError,
+  }
+}
+
+export function useModelProviders() {
+  const {
+    data: providers,
+    isLoading,
+    error,
+  } = useQuery<AgentListProvidersResponse>({
+    queryKey: ["agent-providers"],
+    queryFn: async () => await agentListProviders(),
+  })
+
+  return {
+    providers,
+    isLoading,
+    error,
+  }
+}
+
+export function useModelProvidersStatus() {
+  const {
+    data: providersStatus,
+    isLoading,
+    error,
+    refetch,
+  } = useQuery<AgentGetProvidersStatusResponse>({
+    queryKey: ["agent-providers-status"],
+    queryFn: async () => await agentGetProvidersStatus(),
+  })
+
+  return {
+    providersStatus,
+    isLoading,
+    error,
+    refetch,
+  }
+}
+
+export function useAgentDefaultModel() {
+  const queryClient = useQueryClient()
+
+  // Get default model
+  const {
+    data: defaultModel,
+    isLoading: defaultModelLoading,
+    error: defaultModelError,
+  } = useQuery<string | null>({
+    queryKey: ["agent-default-model"],
+    queryFn: async () => await agentGetDefaultModel(),
+  })
+
+  // Update default model
+  const {
+    mutateAsync: updateDefaultModel,
+    isPending: isUpdating,
+    error: updateError,
+  } = useMutation({
+    mutationFn: async (modelName: string) =>
+      await agentSetDefaultModel({
+        modelName,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["agent-default-model"] })
+    },
+  })
+
+  return {
+    defaultModel,
+    defaultModelLoading,
+    defaultModelError,
+    updateDefaultModel,
+    isUpdating,
+    updateError,
+  }
+}
+
+export function useAgentCredentials() {
+  const queryClient = useQueryClient()
+
+  // Create credentials
+  const {
+    mutateAsync: createCredentials,
+    isPending: isCreating,
+    error: createError,
+  } = useMutation({
+    mutationFn: async (data: ModelCredentialCreate) =>
+      await agentCreateProviderCredentials({
+        requestBody: data,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["agent-providers-status"] })
+    },
+  })
+
+  // Update credentials
+  const {
+    mutateAsync: updateCredentials,
+    isPending: isUpdating,
+    error: updateError,
+  } = useMutation({
+    mutationFn: async ({
+      provider,
+      credentials,
+    }: {
+      provider: string
+      credentials: ModelCredentialUpdate
+    }) =>
+      await agentUpdateProviderCredentials({
+        provider,
+        requestBody: credentials,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["agent-providers-status"] })
+    },
+  })
+
+  // Delete credentials
+  const {
+    mutateAsync: deleteCredentials,
+    isPending: isDeleting,
+    error: deleteError,
+  } = useMutation({
+    mutationFn: async (provider: string) =>
+      await agentDeleteProviderCredentials({
+        provider,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["agent-providers-status"] })
+    },
+  })
+
+  return {
+    createCredentials,
+    updateCredentials,
+    deleteCredentials,
+    isCreating,
+    isUpdating,
+    isDeleting,
+    createError,
+    updateError,
+    deleteError,
+  }
+}
+
+export function useProviderCredentialConfigs() {
+  const {
+    data: providerConfigs,
+    isLoading: providerConfigsLoading,
+    error: providerConfigsError,
+  } = useQuery<ProviderCredentialConfig[]>({
+    queryKey: ["agent-provider-credential-configs"],
+    queryFn: async () => await agentListProviderCredentialConfigs(),
+  })
+
+  return {
+    providerConfigs,
+    providerConfigsLoading,
+    providerConfigsError,
+  }
+}
+
+export function useProviderCredentialConfig(provider: string | null) {
+  const {
+    data: providerConfig,
+    isLoading: providerConfigLoading,
+    error: providerConfigError,
+  } = useQuery<AgentGetProviderCredentialConfigResponse>({
+    queryKey: ["agent-provider-credential-config", provider],
+    queryFn: async () => {
+      if (!provider) {
+        throw new Error("Provider is required")
+      }
+      return await agentGetProviderCredentialConfig({ provider })
+    },
+    enabled: !!provider,
+  })
+
+  return {
+    providerConfig,
+    providerConfigLoading,
+    providerConfigError,
   }
 }

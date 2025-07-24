@@ -2,6 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query"
 import {
+  BotIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   GitBranchIcon,
@@ -73,6 +74,12 @@ export function OrganizationSidebar({
       url: "/organization/settings/app",
       icon: Settings2,
       isActive: pathname?.includes("/organization/settings/app"),
+    },
+    {
+      title: "Agent",
+      url: "/organization/settings/agent",
+      icon: BotIcon,
+      isActive: pathname?.includes("/organization/settings/agent"),
     },
   ]
 

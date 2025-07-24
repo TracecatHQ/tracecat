@@ -1,7 +1,6 @@
 """Tracecat secrets management."""
 
 import contextlib
-import os
 from collections.abc import Iterator
 from typing import overload
 
@@ -67,16 +66,3 @@ def env_sandbox(
         yield
     finally:
         ctx_env.reset(token)  # Reset to the original environment
-
-
-@contextlib.contextmanager
-def use_agent_credentials() -> Iterator[None]:
-    """Create a sandboxed environment for executing code with isolated environment variables."""
-    with env_sandbox(
-        {
-            "AWS_ACCESS_KEY_ID": os.environ["AWS_ACCESS_KEY_ID"],
-            "AWS_SECRET_ACCESS_KEY": os.environ["AWS_SECRET_ACCESS_KEY"],
-            "AWS_REGION": os.environ["AWS_REGION"],
-        }
-    ):
-        yield

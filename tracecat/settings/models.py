@@ -145,6 +145,17 @@ class AppSettingsUpdate(BaseSettingsGroup):
     )
 
 
+class AgentSettingsRead(BaseSettingsGroup):
+    agent_default_model: str | None
+
+
+class AgentSettingsUpdate(BaseSettingsGroup):
+    agent_default_model: str | None = Field(
+        default=None,
+        description="The default AI model to use for agent operations.",
+    )
+
+
 class ValueType(StrEnum):
     # This is the default type
     JSON = "json"

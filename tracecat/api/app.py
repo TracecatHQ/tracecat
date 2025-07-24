@@ -12,6 +12,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import __version__ as APP_VERSION
 from tracecat import config
+from tracecat.agent.router import router as agent_router
 from tracecat.api.common import (
     add_temporal_search_attributes,
     bootstrap_role,
@@ -187,6 +188,7 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(tags_router)
     app.include_router(users_router)
     app.include_router(org_router)
+    app.include_router(agent_router)
     app.include_router(editor_router)
     app.include_router(registry_repos_router)
     app.include_router(registry_actions_router)
