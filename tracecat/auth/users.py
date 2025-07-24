@@ -215,7 +215,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
                 self.logger.info("First user promoted to superadmin", email=user.email)
 
             elif len(users) > 1 and await get_setting(
-                "app_create_workspace_on_register", default=True
+                "app_create_workspace_on_register", default=False
             ):
                 # Check if we should auto-create a workspace for the user
                 self.logger.info("Creating workspace for new user", user=user.email)
