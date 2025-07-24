@@ -13,7 +13,6 @@ from tracecat.agent.models import (
     ModelCredentialUpdate,
     ProviderCredentialConfig,
 )
-from tracecat.contexts import ctx_env
 from tracecat.db.schemas import OrganizationSecret
 from tracecat.logger import logger
 from tracecat.secrets import secrets_manager
@@ -210,5 +209,4 @@ class AgentManagementService(BaseService):
 
         # Use the credentials directly in the environment sandbox
         with secrets_manager.env_sandbox(credentials):
-            logger.info("Secrets in sandbox", secrets=ctx_env.get())
             yield model_config
