@@ -3639,3 +3639,25 @@ export function useProviderCredentialConfig(provider: string | null) {
     providerConfigError,
   }
 }
+
+export function useDeleteProviderCredentials() {
+  const queryClient = useQueryClient()
+
+  const mutation = useMutation<void, ApiError, string>({
+    mutationFn: async (provider: string) => {
+      await agentDeleteProviderCredentials({ provider })
+    },
+    onSuccess: () => {
+      // Invalidate and refetch provider status
+      queryClient.invalidateQueries({
+        queryKey: ["agent-providers-status"],
+      })
+    },
+  })
+
+  return {
+    deleteProviderCredentials: mutation.mutate,
+    isDeletingCredentials: mutation.isPending,
+    deleteCredentialsError: mutation.error,
+  }
+}

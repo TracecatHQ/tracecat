@@ -1,13 +1,28 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
-import { BotIcon, CheckCircleIcon, SettingsIcon } from "lucide-react"
+import {
+  BotIcon,
+  CheckCircleIcon,
+  SettingsIcon,
+  Trash2Icon,
+} from "lucide-react"
 import { useState } from "react"
 import { useForm, useFormContext } from "react-hook-form"
 import { z } from "zod"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { AgentCredentialsDialog } from "@/components/organization/org-agent-credentials-dialog"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import {
   Form,
@@ -28,6 +43,7 @@ import {
 import {
   useAgentDefaultModel,
   useAgentModels,
+  useDeleteProviderCredentials,
   useModelProvidersStatus,
   useProviderCredentialConfigs,
 } from "@/lib/hooks"
@@ -119,6 +135,9 @@ function DefaultModelSelector({ isUpdating }: { isUpdating: boolean }) {
 function ProviderCredentialsSection() {
   const [selectedCredentialsProvider, setSelectedCredentialsProvider] =
     useState<string | null>(null)
+  const [deleteConfirmProvider, setDeleteConfirmProvider] = useState<
+    string | null
+  >(null)
 
   const { models, modelsLoading, modelsError } = useAgentModels()
   const {
@@ -129,6 +148,8 @@ function ProviderCredentialsSection() {
   } = useModelProvidersStatus()
   const { providerConfigs, providerConfigsLoading, providerConfigsError } =
     useProviderCredentialConfigs()
+  const { deleteProviderCredentials, isDeletingCredentials } =
+    useDeleteProviderCredentials()
 
   const getProviderStatus = (provider: string) => {
     return providersStatus?.[provider] || false
@@ -136,6 +157,16 @@ function ProviderCredentialsSection() {
 
   const refreshProvidersStatus = () => {
     refetchStatus()
+  }
+
+  const handleDeleteCredentials = async (provider: string) => {
+    try {
+      await deleteProviderCredentials(provider)
+      setDeleteConfirmProvider(null)
+      refreshProvidersStatus()
+    } catch (error) {
+      console.error(`Failed to delete credentials for ${provider}:`, error)
+    }
   }
 
   if (modelsLoading || statusLoading || providerConfigsLoading) {
@@ -185,13 +216,25 @@ function ProviderCredentialsSection() {
                   <h4 className="font-medium">{label}</h4>
                 </div>
               </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setSelectedCredentialsProvider(provider)}
-              >
-                {hasCredentials ? "Update" : "Configure"}
-              </Button>
+              <div className="flex items-center space-x-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setSelectedCredentialsProvider(provider)}
+                >
+                  {hasCredentials ? "Update" : "Configure"}
+                </Button>
+                {hasCredentials && (
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => setDeleteConfirmProvider(provider)}
+                    disabled={isDeletingCredentials}
+                  >
+                    <Trash2Icon className="size-3.5" />
+                  </Button>
+                )}
+              </div>
             </div>
           )
         })}
@@ -203,6 +246,43 @@ function ProviderCredentialsSection() {
         onClose={() => setSelectedCredentialsProvider(null)}
         onSuccess={refreshProvidersStatus}
       />
+
+      <AlertDialog
+        open={deleteConfirmProvider !== null}
+        onOpenChange={(open) => !open && setDeleteConfirmProvider(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete credentials</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete the credentials for{" "}
+              <span className="font-medium">
+                {deleteConfirmProvider &&
+                  providerConfigs?.find(
+                    (p) => p.provider === deleteConfirmProvider
+                  )?.label}
+              </span>
+              ? This action cannot be undone and will disable access to models
+              from this provider.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeletingCredentials}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() =>
+                deleteConfirmProvider &&
+                handleDeleteCredentials(deleteConfirmProvider)
+              }
+              disabled={isDeletingCredentials}
+              className="bg-destructive hover:bg-destructive/90"
+            >
+              {isDeletingCredentials ? "Deleting..." : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
