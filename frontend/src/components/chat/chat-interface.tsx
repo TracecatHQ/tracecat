@@ -9,10 +9,12 @@ import {
   MoreHorizontal,
   Plus,
 } from "lucide-react"
+import Link from "next/link"
 import { useEffect, useState } from "react"
 import type { ChatRead } from "@/client"
 import { ChatInput } from "@/components/chat/chat-input"
 import { Messages } from "@/components/chat/messages"
+import { CenteredSpinner } from "@/components/loading/spinner"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -26,6 +28,7 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { useChat, useCreateChat, useListChats } from "@/hooks/use-chat"
 import { useCreatePrompt } from "@/hooks/use-prompt"
+import { useChatReadiness } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import { useWorkspace } from "@/providers/workspace"
 
@@ -64,6 +67,14 @@ export function ChatInterface({
     chatId: selectedChatId,
     workspaceId,
   })
+
+  /* chat readiness -------------------- */
+  const {
+    ready: chatReady,
+    loading: chatReadyLoading,
+    reason: chatReason,
+    provider,
+  } = useChatReadiness()
 
   // Set the first chat as selected when chats are loaded and no chat is selected
   useEffect(() => {
@@ -313,12 +324,42 @@ export function ChatInterface({
 
       {/* Chat Input */}
       {selectedChatId && (
-        <ChatInput
-          onSendMessage={handleSendMessage}
-          disabled={isResponding || !selectedChatId}
-          placeholder={`Ask about this ${entityType}...`}
-          chatId={selectedChatId}
-        />
+        <>
+          {chatReady ? (
+            <ChatInput
+              onSendMessage={handleSendMessage}
+              disabled={isResponding}
+              placeholder={`Ask about this ${entityType}...`}
+              chatId={selectedChatId}
+            />
+          ) : chatReadyLoading ? (
+            <CenteredSpinner />
+          ) : (
+            /* Disabled notice with quick-fix button */
+            <Link
+              href="/organization/settings/agent"
+              className="pb-2 block border-t border-border bg-gradient-to-r from-muted/30 to-muted/50 backdrop-blur-sm hover:from-muted/40 hover:to-muted/60 transition-all duration-200"
+            >
+              <div className="p-4">
+                <div className="flex items-center gap-3">
+                  <div className="flex-1">
+                    <h4 className="text-sm font-medium text-foreground mb-1">
+                      Configuration Required
+                    </h4>
+                    <p className="text-xs text-muted-foreground">
+                      {chatReason === "no_model" &&
+                        "Your organization hasn't selected a default AI model for chat operations."}
+                      {chatReason === "no_credentials" &&
+                        `Credentials for the ${provider} provider need to be configured to enable chat.`}
+                      Click to go to the agent settings page.
+                    </p>
+                  </div>
+                  <ChevronDown className="size-4 text-muted-foreground rotate-[-90deg]" />
+                </div>
+              </div>
+            </Link>
+          )}
+        </>
       )}
     </div>
   )

@@ -3661,3 +3661,48 @@ export function useDeleteProviderCredentials() {
     deleteCredentialsError: mutation.error,
   }
 }
+
+/**
+ * Are we ready to chat?
+ * Returns { ready, reason, provider }
+ *  ready   – boolean
+ *  reason  – "no_model" | "no_credentials" | null
+ *  provider – provider id that needs credentials (if any)
+ */
+export function useChatReadiness() {
+  const { defaultModel, defaultModelLoading } = useAgentDefaultModel()
+  const { models, modelsLoading } = useAgentModels()
+  const { providersStatus, isLoading: statusLoading } =
+    useModelProvidersStatus()
+
+  const loading = defaultModelLoading || modelsLoading || statusLoading
+
+  if (loading) {
+    return { ready: false, loading: true, reason: null, provider: null }
+  }
+
+  /* no default model set */
+  if (!defaultModel) {
+    return { ready: false, loading: false, reason: "no_model", provider: null }
+  }
+
+  /* unknown model name → treat as no model */
+  const modelCfg = models?.[defaultModel]
+  if (!modelCfg) {
+    return { ready: false, loading: false, reason: "no_model", provider: null }
+  }
+
+  /* check provider creds */
+  const providerId = modelCfg.provider
+  const hasCreds = providersStatus?.[providerId] ?? false
+  if (!hasCreds) {
+    return {
+      ready: false,
+      loading: false,
+      reason: "no_credentials",
+      provider: providerId,
+    }
+  }
+
+  return { ready: true, loading: false, reason: null, provider: providerId }
+}
