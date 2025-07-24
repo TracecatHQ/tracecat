@@ -1,4 +1,4 @@
-from typing import NotRequired, TypedDict
+from typing import Literal, NotRequired, TypedDict
 
 from pydantic import BaseModel, Field
 
@@ -23,8 +23,8 @@ class ProviderCredentialField(BaseModel):
         min_length=1,
         max_length=200,
     )
-    type: str = Field(
-        ..., description="Input type: 'text' or 'password'", min_length=1, max_length=20
+    type: Literal["text", "password"] = Field(
+        ..., description="Input type: 'text' or 'password'"
     )
     description: str = Field(
         ...,

@@ -5204,8 +5204,7 @@ export const $ProviderCredentialField = {
     },
     type: {
       type: "string",
-      maxLength: 20,
-      minLength: 1,
+      enum: ["text", "password"],
       title: "Type",
       description: "Input type: 'text' or 'password'",
     },

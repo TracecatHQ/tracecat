@@ -1792,12 +1792,17 @@ export type ProviderCredentialField = {
   /**
    * Input type: 'text' or 'password'
    */
-  type: string
+  type: "text" | "password"
   /**
    * Help text describing this credential
    */
   description: string
 }
+
+/**
+ * Input type: 'text' or 'password'
+ */
+export type type = "text" | "password"
 
 /**
  * Metadata for a provider.
@@ -1954,7 +1959,7 @@ export type RegistryActionCreate = {
 /**
  * The type of the action
  */
-export type type = "udf" | "template"
+export type type2 = "udf" | "template"
 
 export type RegistryActionInterface = {
   expects: {
@@ -2340,7 +2345,7 @@ export type Role = {
     | "tracecat-ui"
 }
 
-export type type2 = "user" | "service"
+export type type3 = "user" | "service"
 
 export type service_id =
   | "tracecat-api"
@@ -3038,7 +3043,7 @@ export type Trigger = {
   }
 }
 
-export type type3 = "schedule" | "webhook"
+export type type4 = "schedule" | "webhook"
 
 /**
  * Trigger type for a workflow execution.
