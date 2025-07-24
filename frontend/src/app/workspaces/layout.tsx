@@ -119,7 +119,7 @@ function NoWorkspaces() {
   return (
     <main className="container flex size-full max-w-[400px] flex-col items-center justify-center space-y-4">
       <Image src={TracecatIcon} alt="Tracecat" className="mb-4 size-16" />
-      <h1 className="text-2xl font-semibold tracking-tight">No Workspaces</h1>
+      <h1 className="text-2xl font-semibold tracking-tight">No workspaces</h1>
       <span className="text-center text-muted-foreground">
         You are not a member of any workspace. Please contact your
         administrator.
