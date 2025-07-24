@@ -180,7 +180,7 @@ async def stream_prompt_execution(
     """
     # Verify case exists and user has access to it
     case_uuid = uuid.UUID(case_id)
-    async with CasesService.with_session(role.workspace_id) as cases_service:
+    async with CasesService.with_session(role) as cases_service:
         case = await cases_service.get_case(case_uuid)
         if case is None:
             raise HTTPException(
