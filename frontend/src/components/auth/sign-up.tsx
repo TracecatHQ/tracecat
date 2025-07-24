@@ -232,7 +232,7 @@ export function BasicRegistrationForm() {
             {isLoading && (
               <Icons.spinner className="mr-2 size-4 animate-spin" />
             )}
-            Create Account
+            Create account
           </Button>
         </div>
       </form>
