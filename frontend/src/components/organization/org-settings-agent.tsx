@@ -38,15 +38,6 @@ const agentFormSchema = z.object({
 
 type AgentFormValues = z.infer<typeof agentFormSchema>
 
-interface ModelConfig {
-  name: string
-  provider: string
-  secrets: {
-    required?: string[]
-    optional?: string[]
-  }
-}
-
 /**
  * Subcomponent that handles the default model selection field
  * Uses useFormContext to access the form and depends on models and defaultModel data
