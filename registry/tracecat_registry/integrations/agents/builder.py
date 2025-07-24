@@ -61,45 +61,6 @@ from tracecat_registry.integrations.agents.tools import (
 )
 
 
-ALLOWED_TOOLS = {
-    # Cases
-    "core.cases.get_case",
-    "core.cases.list_cases",
-    "core.cases.list_comments",
-    "core.cases.search_cases",
-    # Read only 3rd party tools
-    "tools.abuseipdb.lookup_ip_address",
-    "tools.emailrep.lookup_email",
-    "tools.ipinfo.lookup_ip_address",
-    "tools.sublime.analyze_eml",
-    "tools.sublime.analyze_url",
-    "tools.sublime.binexplode",
-    "tools.sublime.score_eml",
-    "tools.sublime.scan_file",
-    "tools.slack.list_messages",
-    "tools.slack.list_replies",
-    "tools.slack.lookup_user_by_email",
-    "tools.tavily.web_search",
-    "tools.urlhaus.list_url_threats",
-    "tools.urlscan.lookup_url",
-    "tools.virustotal.list_threats",
-    "tools.virustotal.lookup_domain",
-    "tools.virustotal.lookup_file_hash",
-    "tools.virustotal.lookup_ip_address",
-    "tools.virustotal.lookup_url",
-    # Query engines
-    "tools.splunk.search_events",
-    # Write-tools with user-specified permissions
-    "tools.slack.post_message",
-    "tools.jira.create_issue",
-    "tools.jira.add_comment",
-    "core.cases.create_case",
-    "core.cases.update_case",
-    "core.cases.create_comment",
-    "core.cases.update_comment",
-}
-
-
 def raise_error(error_message: str) -> None:
     """Raise an error with a custom message to be displayed to the user."""
     raise ModelRetry(error_message)
