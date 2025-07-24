@@ -180,13 +180,13 @@ async def stream_prompt_execution(
     """
     # Verify case exists and user has access to it
     case_uuid = uuid.UUID(case_id)
-    async with CasesService.with_session(role) as cases_service:
-        case = await cases_service.get_case(case_uuid)
-        if case is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Case not found or access denied",
-            )
+    svc = CasesService(session, role)
+    case = await svc.get_case(case_uuid)
+    if not case:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Case not found or access denied",
+        )
 
     stream_key = f"agent-stream:{case_id}"
     last_id = request.headers.get("Last-Event-ID", "0-0")
