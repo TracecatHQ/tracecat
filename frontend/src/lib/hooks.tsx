@@ -3446,7 +3446,7 @@ export function useAgentModels() {
     data: models,
     isLoading: modelsLoading,
     error: modelsError,
-  } = useQuery<AgentListModelsResponse>({
+  } = useQuery<AgentListModelsResponse, ApiError>({
     queryKey: ["agent-models"],
     queryFn: async () => await agentListModels(),
   })

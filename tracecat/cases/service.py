@@ -450,7 +450,9 @@ class CasesService(BaseWorkspaceService):
                     )
                 )
             elif key == "payload":
-                events.append(PayloadChangedEvent(wf_exec_id=wf_exec_id))
+                # Only record event if payload actually changed
+                if old != value:
+                    events.append(PayloadChangedEvent(wf_exec_id=wf_exec_id))
 
         # If there are any remaining changed fields, record a general update activity
         for event in events:

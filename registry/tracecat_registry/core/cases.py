@@ -163,7 +163,8 @@ async def update_case(
             # You must explicitly set fields to None to remove their values
             # If we don't pass fields, the service will not try to update the fields
             params["fields"] = fields
-        if payload is not None:
+        # Include payload in params if it was explicitly provided (even if None)
+        if "payload" in locals():
             params["payload"] = payload
         updated_case = await service.update_case(case, CaseUpdate(**params))
     return updated_case.model_dump()
