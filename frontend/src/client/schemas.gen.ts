@@ -1643,6 +1643,17 @@ export const $CaseCreate = {
       ],
       title: "Assignee Id",
     },
+    payload: {
+      anyOf: [
+        {
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Payload",
+    },
   },
   type: "object",
   required: ["summary", "description", "status", "priority", "severity"],
@@ -1733,6 +1744,9 @@ export const $CaseEventRead = {
     {
       $ref: "#/components/schemas/AttachmentDeletedEventRead",
     },
+    {
+      $ref: "#/components/schemas/PayloadChangedEventRead",
+    },
   ],
   title: "CaseEventRead",
   description: "Base read model for all event types.",
@@ -1747,6 +1761,7 @@ export const $CaseEventRead = {
       case_reopened: "#/components/schemas/ReopenedEventRead",
       case_updated: "#/components/schemas/UpdatedEventRead",
       fields_changed: "#/components/schemas/FieldChangedEventRead",
+      payload_changed: "#/components/schemas/PayloadChangedEventRead",
       priority_changed: "#/components/schemas/PriorityChangedEventRead",
       severity_changed: "#/components/schemas/SeverityChangedEventRead",
       status_changed: "#/components/schemas/StatusChangedEventRead",
@@ -1992,6 +2007,17 @@ export const $CaseRead = {
         },
       ],
     },
+    payload: {
+      anyOf: [
+        {
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Payload",
+    },
   },
   type: "object",
   required: [
@@ -2005,6 +2031,7 @@ export const $CaseRead = {
     "severity",
     "description",
     "fields",
+    "payload",
   ],
   title: "CaseRead",
 } as const
@@ -2186,9 +2213,357 @@ export const $CaseUpdate = {
       ],
       title: "Assignee Id",
     },
+    payload: {
+      anyOf: [
+        {
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Payload",
+    },
   },
   type: "object",
   title: "CaseUpdate",
+} as const
+
+export const $ChatCreate = {
+  properties: {
+    title: {
+      type: "string",
+      maxLength: 200,
+      minLength: 1,
+      title: "Title",
+      description: "Human-readable title for the chat",
+    },
+    entity_type: {
+      $ref: "#/components/schemas/ChatEntity",
+      description: "Type of entity this chat is associated with",
+    },
+    entity_id: {
+      type: "string",
+      format: "uuid4",
+      title: "Entity Id",
+      description: "ID of the associated entity",
+    },
+    tools: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+          maxItems: 50,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tools",
+      description: "Tools available to the agent for this chat",
+    },
+  },
+  type: "object",
+  required: ["title", "entity_type", "entity_id"],
+  title: "ChatCreate",
+  description: "Request model for creating a new chat.",
+} as const
+
+export const $ChatEntity = {
+  type: "string",
+  enum: ["case"],
+  title: "ChatEntity",
+  description: "The type of entity associated with a chat.",
+} as const
+
+export const $ChatMessage = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+      description: "Unique chat identifier",
+    },
+    message: {
+      oneOf: [
+        {
+          $ref: "#/components/schemas/ModelRequest",
+        },
+        {
+          $ref: "#/components/schemas/ModelResponse",
+        },
+      ],
+      title: "Message",
+      description: "The message from the chat",
+      discriminator: {
+        propertyName: "kind",
+        mapping: {
+          request: "#/components/schemas/ModelRequest",
+          response: "#/components/schemas/ModelResponse",
+        },
+      },
+    },
+  },
+  type: "object",
+  required: ["id", "message"],
+  title: "ChatMessage",
+  description: "Model for chat metadata with a single message.",
+} as const
+
+export const $ChatRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid4",
+      title: "Id",
+      description: "Unique chat identifier",
+    },
+    title: {
+      type: "string",
+      title: "Title",
+      description: "Human-readable title for the chat",
+    },
+    user_id: {
+      type: "string",
+      format: "uuid4",
+      title: "User Id",
+      description: "ID of the user who owns the chat",
+    },
+    entity_type: {
+      type: "string",
+      title: "Entity Type",
+      description: "Type of entity this chat is associated with",
+    },
+    entity_id: {
+      type: "string",
+      format: "uuid4",
+      title: "Entity Id",
+      description: "ID of the associated entity",
+    },
+    tools: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Tools",
+      description: "Tools available to the agent",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "When the chat was created",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+      description: "When the chat was last updated",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "title",
+    "user_id",
+    "entity_type",
+    "entity_id",
+    "tools",
+    "created_at",
+    "updated_at",
+  ],
+  title: "ChatRead",
+  description: "Model for chat metadata without messages.",
+} as const
+
+export const $ChatRequest = {
+  properties: {
+    message: {
+      type: "string",
+      maxLength: 10000,
+      minLength: 1,
+      title: "Message",
+      description: "User message to send to the agent",
+    },
+    model_name: {
+      type: "string",
+      maxLength: 100,
+      minLength: 1,
+      title: "Model Name",
+      description: "AI model to use",
+      default: "gpt-4o-mini",
+    },
+    model_provider: {
+      type: "string",
+      maxLength: 50,
+      minLength: 1,
+      title: "Model Provider",
+      description: "AI model provider",
+      default: "openai",
+    },
+    instructions: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 5000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Instructions",
+      description: "Optional instructions for the agent",
+    },
+    context: {
+      anyOf: [
+        {
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Context",
+      description: "Optional context data for the agent",
+    },
+  },
+  type: "object",
+  required: ["message"],
+  title: "ChatRequest",
+  description: "Request model for starting a chat with an AI agent.",
+} as const
+
+export const $ChatResponse = {
+  properties: {
+    stream_url: {
+      type: "string",
+      title: "Stream Url",
+      description: "URL to connect for SSE streaming",
+    },
+    chat_id: {
+      type: "string",
+      format: "uuid",
+      title: "Chat Id",
+      description: "Unique chat identifier",
+    },
+  },
+  type: "object",
+  required: ["stream_url", "chat_id"],
+  title: "ChatResponse",
+  description: "Response model for chat initiation.",
+} as const
+
+export const $ChatUpdate = {
+  properties: {
+    tools: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+          maxItems: 50,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tools",
+      description: "Tools available to the agent",
+    },
+    title: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 200,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Title",
+      description: "Chat title",
+    },
+  },
+  type: "object",
+  title: "ChatUpdate",
+  description: "Request model for updating chat properties.",
+} as const
+
+export const $ChatWithMessages = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid4",
+      title: "Id",
+      description: "Unique chat identifier",
+    },
+    title: {
+      type: "string",
+      title: "Title",
+      description: "Human-readable title for the chat",
+    },
+    user_id: {
+      type: "string",
+      format: "uuid4",
+      title: "User Id",
+      description: "ID of the user who owns the chat",
+    },
+    entity_type: {
+      type: "string",
+      title: "Entity Type",
+      description: "Type of entity this chat is associated with",
+    },
+    entity_id: {
+      type: "string",
+      format: "uuid4",
+      title: "Entity Id",
+      description: "ID of the associated entity",
+    },
+    tools: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Tools",
+      description: "Tools available to the agent",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "When the chat was created",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+      description: "When the chat was last updated",
+    },
+    messages: {
+      items: {
+        $ref: "#/components/schemas/ChatMessage",
+      },
+      type: "array",
+      title: "Messages",
+      description: "Chat messages from Redis stream",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "title",
+    "user_id",
+    "entity_type",
+    "entity_id",
+    "tools",
+    "created_at",
+    "updated_at",
+  ],
+  title: "ChatWithMessages",
+  description: "Model for chat metadata with message history.",
 } as const
 
 export const $ClosedEventRead = {
@@ -4158,6 +4533,83 @@ export const $JoinStrategy = {
   title: "JoinStrategy",
 } as const
 
+export const $ModelConfig = {
+  properties: {
+    name: {
+      type: "string",
+      maxLength: 100,
+      minLength: 1,
+      title: "Name",
+      description:
+        "The name of the model. This is used to identify the model in the system.",
+    },
+    provider: {
+      type: "string",
+      maxLength: 100,
+      minLength: 1,
+      title: "Provider",
+      description:
+        "The provider of the model. This is used to determine which organization secret to use for this model.",
+    },
+    org_secret_name: {
+      type: "string",
+      maxLength: 200,
+      minLength: 1,
+      title: "Org Secret Name",
+      description:
+        "The name of the organization secret to use for this model. This secret must be configured in the organization settings.",
+    },
+    secrets: {
+      $ref: "#/components/schemas/ModelSecretConfig",
+      description:
+        "The secrets to use for this model. This is used to determine which organization secret to use for this model.",
+    },
+  },
+  type: "object",
+  required: ["name", "provider", "org_secret_name", "secrets"],
+  title: "ModelConfig",
+} as const
+
+export const $ModelCredentialCreate = {
+  properties: {
+    provider: {
+      type: "string",
+      maxLength: 100,
+      minLength: 1,
+      title: "Provider",
+    },
+    credentials: {
+      additionalProperties: {
+        type: "string",
+      },
+      type: "object",
+      title: "Credentials",
+      description: "Provider-specific credentials (e.g., api_key)",
+    },
+  },
+  type: "object",
+  required: ["provider", "credentials"],
+  title: "ModelCredentialCreate",
+  description: "Model for creating model credentials.",
+} as const
+
+export const $ModelCredentialUpdate = {
+  properties: {
+    credentials: {
+      additionalProperties: {
+        type: "string",
+      },
+      type: "object",
+      title: "Credentials",
+      description: "Provider-specific credentials to update",
+    },
+  },
+  type: "object",
+  required: ["credentials"],
+  title: "ModelCredentialUpdate",
+  description: "Model for updating model credentials.",
+} as const
+
 export const $ModelRequest = {
   properties: {
     parts: {
@@ -4264,6 +4716,27 @@ export const $ModelResponse = {
   type: "object",
   required: ["parts"],
   title: "ModelResponse",
+} as const
+
+export const $ModelSecretConfig = {
+  properties: {
+    required: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Required",
+    },
+    optional: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Optional",
+    },
+  },
+  type: "object",
+  title: "ModelSecretConfig",
 } as const
 
 export const $OAuth2AuthorizeResponse = {
@@ -4389,6 +4862,52 @@ export const $OrgMemberRead = {
   title: "OrgMemberRead",
 } as const
 
+export const $PayloadChangedEventRead = {
+  properties: {
+    wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
+    },
+    type: {
+      type: "string",
+      const: "payload_changed",
+      title: "Type",
+      default: "payload_changed",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+      description: "The user who performed the action.",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "The timestamp of the event.",
+    },
+  },
+  type: "object",
+  required: ["created_at"],
+  title: "PayloadChangedEventRead",
+  description: "Event for when a case payload is changed.",
+} as const
+
 export const $PriorityChangedEventRead = {
   properties: {
     wf_exec_id: {
@@ -4439,6 +4958,268 @@ export const $PriorityChangedEventRead = {
   required: ["old", "new", "created_at"],
   title: "PriorityChangedEventRead",
   description: "Event for when a case priority is changed.",
+} as const
+
+export const $PromptCreate = {
+  properties: {
+    chat_id: {
+      type: "string",
+      format: "uuid4",
+      title: "Chat Id",
+      description: "ID of the chat to freeze into a prompt",
+    },
+  },
+  type: "object",
+  required: ["chat_id"],
+  title: "PromptCreate",
+  description: "Request model for creating a prompt from a chat.",
+} as const
+
+export const $PromptRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid4",
+      title: "Id",
+      description: "Unique prompt identifier",
+    },
+    chat_id: {
+      type: "string",
+      format: "uuid4",
+      title: "Chat Id",
+      description: "ID of the source chat",
+    },
+    title: {
+      type: "string",
+      title: "Title",
+      description: "Human-readable title for the prompt",
+    },
+    content: {
+      type: "string",
+      title: "Content",
+      description: "The instruction prompt/runbook string",
+    },
+    tools: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Tools",
+      description: "The tools available to the agent for this prompt",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "When the prompt was created",
+    },
+    meta: {
+      type: "object",
+      title: "Meta",
+      description: "Metadata including schema version, tool SHA, token count",
+    },
+    summary: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Summary",
+      description: "A summary of the prompt.",
+    },
+  },
+  type: "object",
+  required: ["id", "chat_id", "title", "content", "tools", "created_at"],
+  title: "PromptRead",
+  description: "Model for prompt details.",
+} as const
+
+export const $PromptRunEntity = {
+  properties: {
+    entity_id: {
+      type: "string",
+      format: "uuid4",
+      title: "Entity Id",
+      description: "ID of the entity to run the prompt on",
+    },
+    entity_type: {
+      $ref: "#/components/schemas/ChatEntity",
+      description: "Type of the entity to run the prompt on",
+    },
+  },
+  type: "object",
+  required: ["entity_id", "entity_type"],
+  title: "PromptRunEntity",
+  description: "Request model for running a prompt on an entity.",
+} as const
+
+export const $PromptRunRequest = {
+  properties: {
+    entities: {
+      items: {
+        $ref: "#/components/schemas/PromptRunEntity",
+      },
+      type: "array",
+      title: "Entities",
+      description: "Entities to run the prompt on",
+    },
+  },
+  type: "object",
+  required: ["entities"],
+  title: "PromptRunRequest",
+  description: "Request model for running a prompt on cases.",
+} as const
+
+export const $PromptRunResponse = {
+  properties: {
+    stream_urls: {
+      additionalProperties: {
+        type: "string",
+      },
+      type: "object",
+      title: "Stream Urls",
+      description: "Mapping of case_id to SSE stream URL",
+    },
+  },
+  type: "object",
+  required: ["stream_urls"],
+  title: "PromptRunResponse",
+  description: "Response model for prompt execution.",
+} as const
+
+export const $PromptUpdate = {
+  properties: {
+    title: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 200,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Title",
+      description: "New title for the prompt",
+    },
+    content: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 10000,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Content",
+      description: "New content for the prompt",
+    },
+    tools: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tools",
+      description: "New tools for the prompt",
+    },
+    summary: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 10000,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Summary",
+      description: "New summary for the prompt",
+    },
+  },
+  type: "object",
+  title: "PromptUpdate",
+  description: "Request model for updating prompt properties.",
+} as const
+
+export const $ProviderCredentialConfig = {
+  properties: {
+    provider: {
+      type: "string",
+      maxLength: 100,
+      minLength: 1,
+      title: "Provider",
+      description: "The provider name",
+    },
+    label: {
+      type: "string",
+      maxLength: 200,
+      minLength: 1,
+      title: "Label",
+      description: "Human-readable label for the provider",
+    },
+    fields: {
+      items: {
+        $ref: "#/components/schemas/ProviderCredentialField",
+      },
+      type: "array",
+      title: "Fields",
+      description: "Required credential fields",
+    },
+  },
+  type: "object",
+  required: ["provider", "label", "fields"],
+  title: "ProviderCredentialConfig",
+  description: "Model for provider credential configuration.",
+} as const
+
+export const $ProviderCredentialField = {
+  properties: {
+    key: {
+      type: "string",
+      maxLength: 100,
+      minLength: 1,
+      title: "Key",
+      description: "The environment variable key for this credential",
+    },
+    label: {
+      type: "string",
+      maxLength: 200,
+      minLength: 1,
+      title: "Label",
+      description: "Human-readable label for the field",
+    },
+    type: {
+      type: "string",
+      enum: ["text", "password"],
+      title: "Type",
+      description: "Input type: 'text' or 'password'",
+    },
+    description: {
+      type: "string",
+      maxLength: 500,
+      minLength: 1,
+      title: "Description",
+      description: "Help text describing this credential",
+    },
+  },
+  type: "object",
+  required: ["key", "label", "type", "description"],
+  title: "ProviderCredentialField",
+  description: "Model for defining credential fields required by a provider.",
 } as const
 
 export const $ProviderMetadata = {

@@ -21,6 +21,12 @@ from pathlib import Path
 from typing import Any
 import jsonpath_ng.exceptions
 from pydantic_ai import ModelRetry
+from pydantic_ai.messages import (
+    ModelRequest,
+    ModelResponse,
+    ToolCallPart,
+    ToolReturnPart,
+)
 from pydantic_ai.tools import Tool
 
 from tracecat.config import TRACECAT__MAX_FILE_SIZE_BYTES
@@ -619,3 +625,37 @@ You have access to file manipulation tools:
 
 When working with files, use these tools to interact with the file system directly.
 </file_interaction_guidelines>"""
+
+
+def create_tool_call(
+    tool_name: str,
+    tool_args: str | dict[str, Any],
+    tool_call_id: str,
+) -> ModelResponse:
+    """Build an assistant tool-call message (ModelResponse)."""
+    return ModelResponse(
+        parts=[
+            ToolCallPart(
+                tool_name=tool_name,
+                args=tool_args,
+                tool_call_id=tool_call_id,
+            )
+        ]
+    )
+
+
+def create_tool_return(
+    tool_name: str,
+    content: Any,
+    tool_call_id: str,
+) -> ModelRequest:
+    """Build the matching tool-result message (ModelRequest)."""
+    return ModelRequest(
+        parts=[
+            ToolReturnPart(
+                tool_name=tool_name,
+                tool_call_id=tool_call_id,
+                content=content,
+            )
+        ]
+    )

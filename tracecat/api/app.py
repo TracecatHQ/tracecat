@@ -12,6 +12,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import __version__ as APP_VERSION
 from tracecat import config
+from tracecat.agent.router import router as agent_router
 from tracecat.api.common import (
     add_temporal_search_attributes,
     bootstrap_role,
@@ -32,6 +33,7 @@ from tracecat.auth.users import (
 )
 from tracecat.cases.router import case_fields_router as case_fields_router
 from tracecat.cases.router import cases_router as cases_router
+from tracecat.chat.router import router as chat_router
 from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.engine import get_async_session_context_manager
@@ -44,6 +46,7 @@ from tracecat.middleware import (
 )
 from tracecat.middleware.security import SecurityHeadersMiddleware
 from tracecat.organization.router import router as org_router
+from tracecat.prompt.router import router as prompt_router
 from tracecat.registry.actions.router import router as registry_actions_router
 from tracecat.registry.common import reload_registry
 from tracecat.registry.repositories.router import router as registry_repos_router
@@ -185,6 +188,7 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(tags_router)
     app.include_router(users_router)
     app.include_router(org_router)
+    app.include_router(agent_router)
     app.include_router(editor_router)
     app.include_router(registry_repos_router)
     app.include_router(registry_actions_router)
@@ -193,6 +197,8 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(tables_router)
     app.include_router(cases_router)
     app.include_router(case_fields_router)
+    app.include_router(chat_router)
+    app.include_router(prompt_router)
     app.include_router(workflow_folders_router)
     app.include_router(integrations_router)
     app.include_router(providers_router)

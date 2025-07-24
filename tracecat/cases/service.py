@@ -34,6 +34,7 @@ from tracecat.cases.models import (
     CreatedEvent,
     FieldDiff,
     FieldsChangedEvent,
+    PayloadChangedEvent,
     PriorityChangedEvent,
     ReopenedEvent,
     SeverityChangedEvent,
@@ -318,6 +319,7 @@ class CasesService(BaseWorkspaceService):
             severity=params.severity,
             status=params.status,
             assignee_id=params.assignee_id,
+            payload=params.payload,
         )
 
         self.session.add(case)
@@ -447,6 +449,10 @@ class CasesService(BaseWorkspaceService):
                         field="summary", old=old, new=value, wf_exec_id=wf_exec_id
                     )
                 )
+            elif key == "payload":
+                # Only record event if payload actually changed
+                if old != value:
+                    events.append(PayloadChangedEvent(wf_exec_id=wf_exec_id))
 
         # If there are any remaining changed fields, record a general update activity
         for event in events:
@@ -810,7 +816,7 @@ class CaseAttachmentService(BaseWorkspaceService):
 
         # Check if the associated file is not deleted
         file_statement = select(File).where(
-            File.id == attachment.file_id, File.deleted_at.is_(None)
+            File.id == attachment.file_id, col(File.deleted_at).is_(None)
         )
         file_result = await self.session.exec(file_statement)
         file_record = file_result.first()
@@ -1174,7 +1180,7 @@ class CaseAttachmentService(BaseWorkspaceService):
             )
             .where(
                 CaseAttachment.case_id == case.id,
-                File.deleted_at.is_(None),
+                col(File.deleted_at).is_(None),
             )
         )
         result = await self.session.exec(statement)

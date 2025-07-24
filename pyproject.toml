@@ -22,7 +22,7 @@ classifiers = [
 ]
 dependencies = [
     "alembic_utils==0.8.4",
-    "alembic-postgresql-enum==1.3.0",
+    "alembic-postgresql-enum==1.7.0",
     "alembic==1.13.2",
     "async-lru==2.0.4",
     "asyncpg==0.29.0",
@@ -56,6 +56,7 @@ dependencies = [
     "pysaml2==7.5.0",
     "python-slugify==8.0.4",
     "ray[default]==2.40.0",
+    "redis[hiredis]>=5.0.0",
     "sentry-sdk==2.24.1",
     "sqlmodel==0.0.18",
     "temporalio==1.9.0",

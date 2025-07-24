@@ -353,6 +353,12 @@ function getPageConfig(
     }
   }
 
+  if (pagePath.startsWith("/runbooks")) {
+    return {
+      title: "Runbooks",
+    }
+  }
+
   return null
 }
 
@@ -376,7 +382,7 @@ export function ControlsHeader() {
   const isCaseDetail = pagePath.match(/^\/cases\/([^/]+)$/)
 
   return (
-    <header className="flex h-14 items-center justify-between border-b px-6">
+    <header className="flex h-10 items-center justify-between border-b px-6">
       <div className="flex items-center gap-3">
         <SidebarTrigger className="h-7 w-7" />
         {typeof pageConfig.title === "string" ? (

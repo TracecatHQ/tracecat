@@ -60,6 +60,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { SYSTEM_USER } from "@/lib/auth"
+import type { ModelMessage } from "@/lib/chat"
 import {
   groupEventsByActionRef,
   isAgentOutput,
@@ -246,11 +247,26 @@ export function AgentOutputEvent({
       <div className="space-y-4">
         {agentOutput.message_history.map((m, index) => (
           <div key={index}>
-            {m.kind === "response" && <AgentResponsePart parts={m.parts} />}
-            {m.kind === "request" && <AgentRequestPart parts={m.parts} />}
+            <ModelMessagePart part={m} />
           </div>
         ))}
       </div>
+    </div>
+  )
+}
+
+export function ModelMessagePart({ part }: { part: ModelMessage }) {
+  if (part.kind === "response") {
+    return <AgentResponsePart parts={part.parts} />
+  }
+  if (part.kind === "request") {
+    return <AgentRequestPart parts={part.parts} />
+  }
+  return (
+    <div className="flex items-center justify-center gap-2 p-4 text-xs text-muted-foreground">
+      <CircleDot className="size-3 text-muted-foreground" />
+      <span>Unknown model message kind: {part.kind}</span>
+      <JsonViewWithControls src={part} defaultExpanded={true} />
     </div>
   )
 }
@@ -485,7 +501,7 @@ export function ToolReturnPartComponent({ part }: { part: ToolReturnPart }) {
               <TooltipTrigger>
                 <div>
                   {getIcon(actionType, {
-                    className: "size-4 p-[3px] border-[0.5px]",
+                    className: "size-4 p-[3px]",
                   })}
                 </div>
               </TooltipTrigger>
@@ -587,9 +603,9 @@ export function TextPartComponent({
         contentToLoad = text.content
       } else {
         // For collapsed view: normalize whitespace and truncate
-        const normalizedContent = text.content.replace(/\s+/g, " ").trim()
+        const normalizedContent = text.content.trim()
         contentToLoad = shouldTruncate
-          ? normalizedContent.substring(0, TRUNCATE_LIMIT) + "..."
+          ? `${normalizedContent.substring(0, TRUNCATE_LIMIT)}...`
           : normalizedContent
       }
 
@@ -604,14 +620,17 @@ export function TextPartComponent({
     >
       <div className="flex items-center justify-between gap-1">
         <div className="flex items-center gap-1">
-          <MessageCircle className="size-4" />
+          <MessageCircle className="size-3" />
           <span className="text-xs font-semibold text-foreground/80">
             Agent
           </span>
         </div>
         {shouldTruncate && (
           <ChevronRightIcon
-            className={`size-4 transition-transform ${isExpanded ? "rotate-90" : ""}`}
+            className={cn(
+              "size-4 transition-transform",
+              isExpanded && "rotate-90"
+            )}
           />
         )}
       </div>
@@ -728,7 +747,7 @@ export function ToolCallPartComponent({
             <TooltipTrigger>
               <div>
                 {getIcon(actionType, {
-                  className: "size-4 p-[3px] border-[0.5px]",
+                  className: "size-4 p-[3px]",
                 })}
               </div>
             </TooltipTrigger>

@@ -3,19 +3,31 @@
 import inspect
 import textwrap
 import tempfile
+import uuid
 from pathlib import Path
 import base64
 from typing import Any, Union, Annotated, Self
-from pydantic import BaseModel
-from pydantic_core import to_jsonable_python
+from pydantic import BaseModel, TypeAdapter
+from pydantic_core import to_json, to_jsonable_python
 from tracecat_registry import RegistrySecretType
 from tracecat_registry.integrations.agents.parsers import try_parse_json
 from pydantic_ai.agent import AgentRunResult
 from typing_extensions import Doc
 from timeit import timeit
+import orjson
 
 from pydantic_ai import Agent, ModelRetry
-from pydantic_ai.messages import ModelMessage
+from pydantic_ai.messages import (
+    FunctionToolCallEvent,
+    FunctionToolResultEvent,
+    ModelMessage,
+    ModelRequest,
+    ModelResponse,
+    UserPromptPart,
+    TextPart,
+    ToolCallPart,
+    ToolReturnPart,
+)
 from pydantic_ai.usage import Usage
 from pydantic_ai.tools import Tool
 from pydantic_core import PydanticUndefined
@@ -29,6 +41,7 @@ from tracecat.executor.service import (
 )
 from tracecat.expressions.expectations import create_expectation_model
 from tracecat.logger import logger
+from tracecat.redis.client import get_redis_client
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.registry.fields import ActionType, TextArea
 from tracecat.secrets.secrets_manager import env_sandbox
@@ -42,47 +55,10 @@ from tracecat.types.exceptions import RegistryError
 from tracecat_registry.integrations.agents.exceptions import AgentRunError
 from tracecat_registry.integrations.agents.tools import (
     create_secure_file_tools,
+    create_tool_call,
+    create_tool_return,
     generate_default_tools_prompt,
 )
-
-
-ALLOWED_TOOLS = {
-    # Cases
-    "core.cases.get_case",
-    "core.cases.list_cases",
-    "core.cases.list_comments",
-    "core.cases.search_cases",
-    # Read only 3rd party tools
-    "tools.abuseipdb.lookup_ip_address",
-    "tools.emailrep.lookup_email",
-    "tools.ipinfo.lookup_ip_address",
-    "tools.sublime.analyze_eml",
-    "tools.sublime.analyze_url",
-    "tools.sublime.binexplode",
-    "tools.sublime.score_eml",
-    "tools.sublime.scan_file",
-    "tools.slack.list_messages",
-    "tools.slack.list_replies",
-    "tools.slack.lookup_user_by_email",
-    "tools.tavily.web_search",
-    "tools.urlhaus.list_url_threats",
-    "tools.urlscan.lookup_url",
-    "tools.virustotal.list_threats",
-    "tools.virustotal.lookup_domain",
-    "tools.virustotal.lookup_file_hash",
-    "tools.virustotal.lookup_ip_address",
-    "tools.virustotal.lookup_url",
-    # Query engines
-    "tools.splunk.search_events",
-    # Write-tools with user-specified permissions
-    "tools.slack.post_message",
-    "tools.jira.create_issue",
-    "tools.jira.add_comment",
-    "core.cases.create_case",
-    "core.cases.update_case",
-    "core.cases.create_comment",
-    "core.cases.update_comment",
-}
 
 
 def raise_error(error_message: str) -> None:
@@ -145,7 +121,7 @@ async def call_tracecat_action(action_name: str, args: dict[str, Any]) -> Any:
 
     # Call action with secrets in environment
     context = create_default_execution_context()
-    context.update(SECRETS=secrets)
+    context.update(SECRETS=secrets)  # type: ignore
 
     flattened_secrets = flatten_secrets(secrets)
     try:
@@ -335,6 +311,156 @@ async def create_tool_from_registry(
     )
 
 
+async def load_conversation_history(
+    redis_client, conversation_id: str
+) -> list[ModelMessage]:
+    """Load conversation history from Redis stream.
+
+    Args:
+        redis_client: Redis client instance
+        conversation_id: The conversation ID
+
+    Returns:
+        List of reconstructed ModelMessage objects
+    """
+    stream_key = f"agent-stream:{conversation_id}"
+
+    try:
+        # Read all messages from the stream
+        messages = await redis_client.xrange(stream_key, min_id="-", max_id="+")
+
+        history: list[ModelMessage] = []
+
+        for message_id, fields in messages:
+            try:
+                data = orjson.loads(fields["d"])
+
+                # Skip non-message entries
+                if data.get("__end__") == 1:
+                    continue
+
+                # Reconstruct message based on type
+                msg_type = data.get("type")
+
+                if msg_type == "human":
+                    # Create user message
+                    content = data.get("content", "")
+                    history.append(ModelRequest(parts=[UserPromptPart(content)]))
+                elif msg_type == "ai":
+                    # Create AI response
+                    content = data.get("content", "")
+                    if content:  # Only add if there's content
+                        history.append(ModelResponse(parts=[TextPart(content)]))
+                elif msg_type == "tool-call":
+                    # Create tool call message
+                    tool_name = data.get("tool_name", "")
+                    tool_args = data.get("args_json", {})
+                    if isinstance(tool_args, str):
+                        tool_args = orjson.loads(tool_args)
+
+                    history.append(
+                        ModelResponse(
+                            parts=[
+                                ToolCallPart(
+                                    tool_name=tool_name,
+                                    args=tool_args,
+                                    tool_call_id=data.get(
+                                        "tool_call_id", str(uuid.uuid4())
+                                    ),
+                                )
+                            ]
+                        )
+                    )
+                elif msg_type == "tool-return":
+                    # Create tool return message
+                    tool_name = data.get("tool_name", "")
+                    tool_call_id = data.get("tool_call_id", "")
+                    content = data.get("content", "")
+
+                    history.append(
+                        ModelRequest(
+                            parts=[
+                                ToolReturnPart(
+                                    tool_name=tool_name,
+                                    tool_call_id=tool_call_id,
+                                    content=content,
+                                )
+                            ]
+                        )
+                    )
+
+            except Exception as e:
+                logger.warning(
+                    "Failed to reconstruct message from history",
+                    message_id=message_id,
+                    error=str(e),
+                )
+                continue
+
+        logger.info(
+            "Loaded conversation history",
+            conversation_id=conversation_id,
+            message_count=len(history),
+        )
+
+        return history
+
+    except Exception as e:
+        logger.error(
+            "Failed to load conversation history",
+            conversation_id=conversation_id,
+            error=str(e),
+        )
+        return []
+
+
+def serialize_message_for_storage(message: ModelMessage) -> dict[str, Any]:
+    """Serialize a ModelMessage for storage in Redis.
+
+    Args:
+        message: The ModelMessage to serialize
+
+    Returns:
+        Dictionary with message data for storage
+    """
+    if isinstance(message, ModelRequest):
+        # Handle user messages
+        for part in message.parts:
+            if isinstance(part, UserPromptPart):
+                return {
+                    "type": "human",
+                    "content": part.content,
+                }
+            elif isinstance(part, ToolReturnPart):
+                return {
+                    "type": "tool-return",
+                    "tool_name": part.tool_name,
+                    "tool_call_id": part.tool_call_id,
+                    "content": part.content,
+                }
+    elif isinstance(message, ModelResponse):
+        # Handle AI responses
+        for part in message.parts:
+            if isinstance(part, TextPart):
+                return {
+                    "type": "ai",
+                    "content": part.content,
+                }
+            elif isinstance(part, ToolCallPart):
+                return {
+                    "type": "tool-call",
+                    "tool_name": part.tool_name,
+                    "args_json": orjson.dumps(part.args).decode(),
+                    "tool_call_id": part.tool_call_id,
+                }
+
+    # Fallback for unknown message types
+    return {
+        "type": "unknown",
+        "data": str(message),
+    }
+
+
 class TracecatAgentBuilder:
     """Builder for creating Pydantic AI agents with Tracecat tool calling."""
 
@@ -445,13 +571,13 @@ class TracecatAgentBuilder:
             )
 
         # Add raise_error tool
-        self.tools.append(
-            Tool(
-                name="raise_error",
-                description="Raise an error with a custom message to be displayed to the user.",
-                function=raise_error,
-            )
-        )
+        # self.tools.append(
+        #     Tool(
+        #         name="raise_error",
+        #         description="Raise an error with a custom message to be displayed to the user.",
+        #         function=raise_error,
+        #     )
+        # )
 
         # Create the agent using build_agent
         agent = build_agent(
@@ -504,6 +630,9 @@ async def collect_secrets_for_filters(
             collected_secrets.update(action_secrets)
 
     return collected_secrets
+
+
+ModelMessageTA: TypeAdapter[ModelMessage] = TypeAdapter(ModelMessage)
 
 
 class AgentOutput(BaseModel):
@@ -562,12 +691,40 @@ async def agent(
         bool, Doc("Whether to include usage information in the output.")
     ] = False,
     base_url: Annotated[str | None, Doc("Base URL of the model to use.")] = None,
+    workflow_run_id: Annotated[
+        str | None,
+        Doc(
+            "Workflow run ID for Redis streaming. If provided with action_ref, enables real-time streaming."
+        ),
+    ] = None,
 ) -> dict[str, str | dict[str, Any] | list[dict[str, Any]]]:
+    # Only enhance instructions when provided (not None)
+    enhanced_instrs: str | None = None
+    if instructions is not None:
+        # Generate the enhanced user prompt with tool guidance
+        tools_prompt = generate_default_tools_prompt(files) if files else ""
+        # Provide current date context using Tracecat expression
+        current_date_prompt = "<current_date>${{ FN.utcnow() }}</current_date>"
+        error_handling_prompt = """
+        <error_handling>
+        - Use `raise_error` when a <task> or any task-like instruction requires clarification or missing information
+        - Be specific about what's needed: "Missing API key" not "Cannot proceed"
+        - Stop execution immediately - don't attempt workarounds or assumptions
+        </error_handling>
+        """
+
+        # Build the final enhanced user prompt including date context
+        if tools_prompt:
+            enhanced_instrs = f"{instructions}\n{current_date_prompt}\n{tools_prompt}\n{error_handling_prompt}"
+        else:
+            enhanced_instrs = (
+                f"{instructions}\n{current_date_prompt}\n{error_handling_prompt}"
+            )
     builder = TracecatAgentBuilder(
         model_name=model_name,
         model_provider=model_provider,
         base_url=base_url,
-        instructions=instructions,
+        instructions=enhanced_instrs,
         output_type=output_type,
         model_settings=model_settings,
         retries=retries,
@@ -579,30 +736,6 @@ async def agent(
 
     if isinstance(actions, str):
         actions = [actions]
-
-    blocked_actions = set(actions) - ALLOWED_TOOLS
-    if len(blocked_actions) > 0:
-        raise ValueError(f"Forbidden actions: {blocked_actions}")
-
-    # Generate the enhanced user prompt with tool guidance
-    tools_prompt = generate_default_tools_prompt(files) if files else ""
-    # Provide current date context using Tracecat expression
-    current_date_prompt = "<current_date>${{ FN.utcnow() }}</current_date>"
-    error_handling_prompt = """
-    <error_handling>
-    - Use `raise_error` when a <task> or any task-like instruction requires clarification or missing information
-    - Be specific about what's needed: "Missing API key" not "Cannot proceed"
-    - Stop execution immediately - don't attempt workarounds or assumptions
-    </error_handling>
-    """
-
-    # Build the final enhanced user prompt including date context
-    if tools_prompt:
-        enhanced_user_prompt = f"{user_prompt}\n{current_date_prompt}\n{tools_prompt}\n{error_handling_prompt}"
-    else:
-        enhanced_user_prompt = (
-            f"{user_prompt}\n{current_date_prompt}\n{error_handling_prompt}"
-        )
 
     with tempfile.TemporaryDirectory() as temp_dir:
         if files:
@@ -616,21 +749,151 @@ async def agent(
         agent = await builder.with_action_filters(*actions).build()
 
         start_time = timeit()
+        # Set up Redis streaming if both parameters are provided
+        redis_client = None
+        stream_key = None
+        conversation_history: list[ModelMessage] = []
+
+        if workflow_run_id:
+            stream_key = f"agent-stream:{workflow_run_id}"
+            try:
+                redis_client = await get_redis_client()
+                logger.info("Redis streaming enabled", stream_key=stream_key)
+
+                messages = await redis_client.xrange(stream_key, min_id="-", max_id="+")
+
+                for message_id, fields in messages:
+                    try:
+                        data = orjson.loads(fields["d"])
+                        if data.get("__end__") == 1:
+                            # This is an end-of-stream marker, skip
+                            continue
+
+                        validated_msg = ModelMessageTA.validate_python(data)
+                        conversation_history.append(validated_msg)
+                    except Exception as e:
+                        logger.warning("Failed to load message", error=str(e))
+
+            except Exception as e:
+                logger.warning(
+                    "Failed to initialize Redis client, continuing without streaming",
+                    error=str(e),
+                )
+
         # Use async version since this function is already async
+        async def write_to_redis(msg: ModelMessage):
+            # Stream to Redis if enabled
+            if redis_client and stream_key:
+                logger.debug("Streaming message to Redis", stream_key=stream_key)
+                try:
+                    await redis_client.xadd(
+                        stream_key,
+                        {"d": orjson.dumps(msg, default=to_jsonable_python).decode()},
+                        maxlen=10000,
+                        approximate=True,
+                    )
+                except Exception as e:
+                    logger.warning("Failed to stream message to Redis", error=str(e))
+
         try:
-            message_nodes = []
-            async with agent.iter(user_prompt=enhanced_user_prompt) as run:
+            message_nodes: list[ModelMessage] = []
+            # Pass conversation history to the agent
+            async with agent.iter(
+                user_prompt=user_prompt,
+                message_history=[
+                    ModelResponse(
+                        parts=[
+                            TextPart(
+                                content=f"Chat history thus far: <chat_history>{to_json(conversation_history, indent=2).decode()}</chat_history>"
+                            )
+                        ]
+                    ),
+                ],
+            ) as run:
                 async for node in run:
-                    message_nodes.append(to_jsonable_python(node))
+                    curr: ModelMessage
+                    if Agent.is_user_prompt_node(node):
+                        continue
+
+                    # 1️⃣  Model request (may be a normal user/tool-return message)
+                    elif Agent.is_model_request_node(node):
+                        curr = node.request
+
+                        # If this request is ONLY a tool-return we have
+                        # already streamed it via FunctionToolResultEvent.
+                        if any(isinstance(p, ToolReturnPart) for p in curr.parts):
+                            message_nodes.append(curr)  # keep history
+                            continue  # ← skip duplicate stream
+                    # assistant tool-call + tool-return events
+                    elif Agent.is_call_tools_node(node):
+                        curr = node.model_response
+                        async with node.stream(run.ctx) as stream:
+                            async for event in stream:
+                                if isinstance(event, FunctionToolCallEvent):
+                                    message = create_tool_call(
+                                        tool_name=event.part.tool_name,
+                                        tool_args=event.part.args,
+                                        tool_call_id=event.part.tool_call_id,
+                                    )
+                                elif isinstance(
+                                    event, FunctionToolResultEvent
+                                ) and isinstance(event.result, ToolReturnPart):
+                                    message = create_tool_return(
+                                        tool_name=event.result.tool_name,
+                                        content=event.result.content,
+                                        tool_call_id=event.tool_call_id,
+                                    )
+                                else:
+                                    continue
+
+                                message_nodes.append(message)
+                                await write_to_redis(message)
+                        continue
+                    elif Agent.is_end_node(node):
+                        final = node.data
+                        if final.tool_name:
+                            curr = create_tool_return(
+                                tool_name=final.tool_name,
+                                content=final.output,
+                                tool_call_id=final.tool_call_id or "",
+                            )
+                        else:
+                            # Plain text output
+                            curr = ModelResponse(
+                                parts=[
+                                    TextPart(content=final.output),
+                                ]
+                            )
+                    else:
+                        raise ValueError(f"Unknown node type: {node}")
+
+                    message_nodes.append(curr)
+                    await write_to_redis(curr)
+
                 result = run.result
                 if not isinstance(result, AgentRunResult):
                     raise ValueError("No output returned from agent run.")
+
+            # Add end-of-stream marker if streaming is enabled
+            if redis_client and stream_key:
+                try:
+                    await redis_client.xadd(
+                        stream_key,
+                        {"d": orjson.dumps({"__end__": 1}).decode()},
+                        maxlen=10000,
+                        approximate=True,
+                    )
+                    logger.info("Added end-of-stream marker", stream_key=stream_key)
+                except Exception as e:
+                    logger.warning("Failed to add end-of-stream marker", error=str(e))
+
         except Exception as e:
             raise AgentRunError(
                 exc_cls=type(e),
                 exc_msg=str(e),
-                message_history=message_nodes,
+                message_history=[to_jsonable_python(m) for m in message_nodes],
             )
+
         end_time = timeit()
 
         # Read potentially modified files from temp directory

@@ -14,6 +14,21 @@ import type {
   ActionsListActionsResponse,
   ActionsUpdateActionData,
   ActionsUpdateActionResponse,
+  AgentCreateProviderCredentialsData,
+  AgentCreateProviderCredentialsResponse,
+  AgentDeleteProviderCredentialsData,
+  AgentDeleteProviderCredentialsResponse,
+  AgentGetDefaultModelResponse,
+  AgentGetProviderCredentialConfigData,
+  AgentGetProviderCredentialConfigResponse,
+  AgentGetProvidersStatusResponse,
+  AgentListModelsResponse,
+  AgentListProviderCredentialConfigsResponse,
+  AgentListProvidersResponse,
+  AgentSetDefaultModelData,
+  AgentSetDefaultModelResponse,
+  AgentUpdateProviderCredentialsData,
+  AgentUpdateProviderCredentialsResponse,
   AuthAuthDatabaseLoginData,
   AuthAuthDatabaseLoginResponse,
   AuthAuthDatabaseLogoutResponse,
@@ -74,6 +89,18 @@ import type {
   CasesUpdateCommentResponse,
   CasesUpdateFieldData,
   CasesUpdateFieldResponse,
+  ChatCreateChatData,
+  ChatCreateChatResponse,
+  ChatGetChatData,
+  ChatGetChatResponse,
+  ChatListChatsData,
+  ChatListChatsResponse,
+  ChatStartChatTurnData,
+  ChatStartChatTurnResponse,
+  ChatStreamChatEventsData,
+  ChatStreamChatEventsResponse,
+  ChatUpdateChatData,
+  ChatUpdateChatResponse,
   EditorFieldSchemaResponse,
   EditorListActionsData,
   EditorListActionsResponse,
@@ -129,6 +156,20 @@ import type {
   OrganizationSecretsUpdateOrgSecretByIdResponse,
   OrganizationUpdateOrgMemberData,
   OrganizationUpdateOrgMemberResponse,
+  PromptCreatePromptData,
+  PromptCreatePromptResponse,
+  PromptDeletePromptData,
+  PromptDeletePromptResponse,
+  PromptGetPromptData,
+  PromptGetPromptResponse,
+  PromptListPromptsData,
+  PromptListPromptsResponse,
+  PromptRunPromptData,
+  PromptRunPromptResponse,
+  PromptStreamPromptExecutionData,
+  PromptStreamPromptExecutionResponse,
+  PromptUpdatePromptData,
+  PromptUpdatePromptResponse,
   ProvidersGetProviderData,
   ProvidersGetProviderResponse,
   ProvidersListProvidersData,
@@ -2090,6 +2131,193 @@ export const organizationDeleteSession = (
 }
 
 /**
+ * List Models
+ * List all available AI models.
+ * @returns ModelConfig Successful Response
+ * @throws ApiError
+ */
+export const agentListModels =
+  (): CancelablePromise<AgentListModelsResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/agent/models",
+    })
+  }
+
+/**
+ * List Providers
+ * List all available AI model providers.
+ * @returns string Successful Response
+ * @throws ApiError
+ */
+export const agentListProviders =
+  (): CancelablePromise<AgentListProvidersResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/agent/providers",
+    })
+  }
+
+/**
+ * Get Providers Status
+ * Get credential status for all providers.
+ * @returns boolean Successful Response
+ * @throws ApiError
+ */
+export const agentGetProvidersStatus =
+  (): CancelablePromise<AgentGetProvidersStatusResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/agent/providers/status",
+    })
+  }
+
+/**
+ * List Provider Credential Configs
+ * List credential field configurations for all providers.
+ * @returns ProviderCredentialConfig Successful Response
+ * @throws ApiError
+ */
+export const agentListProviderCredentialConfigs =
+  (): CancelablePromise<AgentListProviderCredentialConfigsResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/agent/providers/configs",
+    })
+  }
+
+/**
+ * Get Provider Credential Config
+ * Get credential field configuration for a specific provider.
+ * @param data The data for the request.
+ * @param data.provider
+ * @returns ProviderCredentialConfig Successful Response
+ * @throws ApiError
+ */
+export const agentGetProviderCredentialConfig = (
+  data: AgentGetProviderCredentialConfigData
+): CancelablePromise<AgentGetProviderCredentialConfigResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/agent/providers/{provider}/config",
+    path: {
+      provider: data.provider,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Provider Credentials
+ * Create or update credentials for an AI provider.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns string Successful Response
+ * @throws ApiError
+ */
+export const agentCreateProviderCredentials = (
+  data: AgentCreateProviderCredentialsData
+): CancelablePromise<AgentCreateProviderCredentialsResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/agent/credentials",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Provider Credentials
+ * Update existing credentials for an AI provider.
+ * @param data The data for the request.
+ * @param data.provider
+ * @param data.requestBody
+ * @returns string Successful Response
+ * @throws ApiError
+ */
+export const agentUpdateProviderCredentials = (
+  data: AgentUpdateProviderCredentialsData
+): CancelablePromise<AgentUpdateProviderCredentialsResponse> => {
+  return __request(OpenAPI, {
+    method: "PUT",
+    url: "/agent/credentials/{provider}",
+    path: {
+      provider: data.provider,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Provider Credentials
+ * Delete credentials for an AI provider.
+ * @param data The data for the request.
+ * @param data.provider
+ * @returns string Successful Response
+ * @throws ApiError
+ */
+export const agentDeleteProviderCredentials = (
+  data: AgentDeleteProviderCredentialsData
+): CancelablePromise<AgentDeleteProviderCredentialsResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/agent/credentials/{provider}",
+    path: {
+      provider: data.provider,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Default Model
+ * Get the organization's default AI model.
+ * @returns unknown Successful Response
+ * @throws ApiError
+ */
+export const agentGetDefaultModel =
+  (): CancelablePromise<AgentGetDefaultModelResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/agent/default-model",
+    })
+  }
+
+/**
+ * Set Default Model
+ * Set the organization's default AI model.
+ * @param data The data for the request.
+ * @param data.modelName
+ * @returns string Successful Response
+ * @throws ApiError
+ */
+export const agentSetDefaultModel = (
+  data: AgentSetDefaultModelData
+): CancelablePromise<AgentSetDefaultModelResponse> => {
+  return __request(OpenAPI, {
+    method: "PUT",
+    url: "/agent/default-model",
+    query: {
+      model_name: data.modelName,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * List Functions
  * @param data The data for the request.
  * @param data.workspaceId
@@ -3697,6 +3925,380 @@ export const casesDeleteField = (
     url: "/case-fields/{field_id}",
     path: {
       field_id: data.fieldId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Chat
+ * Create a new chat associated with an entity.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns ChatRead Successful Response
+ * @throws ApiError
+ */
+export const chatCreateChat = (
+  data: ChatCreateChatData
+): CancelablePromise<ChatCreateChatResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/chat/",
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Chats
+ * List chats for the current workspace with optional filtering.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.entityType Filter by entity type
+ * @param data.entityId Filter by entity ID
+ * @param data.limit Maximum number of chats to return
+ * @returns ChatRead Successful Response
+ * @throws ApiError
+ */
+export const chatListChats = (
+  data: ChatListChatsData
+): CancelablePromise<ChatListChatsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/chat/",
+    query: {
+      entity_type: data.entityType,
+      entity_id: data.entityId,
+      limit: data.limit,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Chat
+ * Get a chat with its message history.
+ * @param data The data for the request.
+ * @param data.chatId
+ * @param data.workspaceId
+ * @returns ChatWithMessages Successful Response
+ * @throws ApiError
+ */
+export const chatGetChat = (
+  data: ChatGetChatData
+): CancelablePromise<ChatGetChatResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/chat/{chat_id}",
+    path: {
+      chat_id: data.chatId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Chat
+ * Update chat properties.
+ * @param data The data for the request.
+ * @param data.chatId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns ChatRead Successful Response
+ * @throws ApiError
+ */
+export const chatUpdateChat = (
+  data: ChatUpdateChatData
+): CancelablePromise<ChatUpdateChatResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/chat/{chat_id}",
+    path: {
+      chat_id: data.chatId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Start Chat Turn
+ * Start a new chat turn with an AI agent.
+ *
+ * This endpoint initiates an AI agent execution and returns a stream URL
+ * for real-time streaming of the agent's processing steps.
+ * @param data The data for the request.
+ * @param data.chatId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns ChatResponse Successful Response
+ * @throws ApiError
+ */
+export const chatStartChatTurn = (
+  data: ChatStartChatTurnData
+): CancelablePromise<ChatStartChatTurnResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/chat/{chat_id}",
+    path: {
+      chat_id: data.chatId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Stream Chat Events
+ * Stream chat events via Server-Sent Events (SSE).
+ *
+ * This endpoint provides real-time streaming of AI agent execution steps
+ * using Server-Sent Events. It supports automatic reconnection via the
+ * Last-Event-ID header.
+ * @param data The data for the request.
+ * @param data.chatId
+ * @param data.workspaceId
+ * @returns unknown Successful Response
+ * @throws ApiError
+ */
+export const chatStreamChatEvents = (
+  data: ChatStreamChatEventsData
+): CancelablePromise<ChatStreamChatEventsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/chat/{chat_id}/stream",
+    path: {
+      chat_id: data.chatId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Prompt
+ * Freeze a chat into a reusable prompt.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns PromptRead Successful Response
+ * @throws ApiError
+ */
+export const promptCreatePrompt = (
+  data: PromptCreatePromptData
+): CancelablePromise<PromptCreatePromptResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/prompt/",
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Prompts
+ * List prompts for the current workspace.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.limit Maximum number of prompts to return
+ * @returns PromptRead Successful Response
+ * @throws ApiError
+ */
+export const promptListPrompts = (
+  data: PromptListPromptsData
+): CancelablePromise<PromptListPromptsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/prompt/",
+    query: {
+      limit: data.limit,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Prompt
+ * Get a prompt by ID.
+ * @param data The data for the request.
+ * @param data.promptId
+ * @param data.workspaceId
+ * @returns PromptRead Successful Response
+ * @throws ApiError
+ */
+export const promptGetPrompt = (
+  data: PromptGetPromptData
+): CancelablePromise<PromptGetPromptResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/prompt/{prompt_id}",
+    path: {
+      prompt_id: data.promptId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Prompt
+ * Update prompt properties.
+ * @param data The data for the request.
+ * @param data.promptId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns PromptRead Successful Response
+ * @throws ApiError
+ */
+export const promptUpdatePrompt = (
+  data: PromptUpdatePromptData
+): CancelablePromise<PromptUpdatePromptResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/prompt/{prompt_id}",
+    path: {
+      prompt_id: data.promptId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Prompt
+ * Delete a prompt.
+ * @param data The data for the request.
+ * @param data.promptId
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const promptDeletePrompt = (
+  data: PromptDeletePromptData
+): CancelablePromise<PromptDeletePromptResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/prompt/{prompt_id}",
+    path: {
+      prompt_id: data.promptId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Run Prompt
+ * Execute a prompt on multiple cases.
+ * @param data The data for the request.
+ * @param data.promptId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns PromptRunResponse Successful Response
+ * @throws ApiError
+ */
+export const promptRunPrompt = (
+  data: PromptRunPromptData
+): CancelablePromise<PromptRunPromptResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/prompt/{prompt_id}/run",
+    path: {
+      prompt_id: data.promptId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Stream Prompt Execution
+ * Stream prompt execution events via Server-Sent Events (SSE).
+ *
+ * This endpoint provides real-time streaming of AI agent execution steps
+ * when a prompt is run on a case. It reuses the same Redis stream pattern
+ * as the chat service.
+ * @param data The data for the request.
+ * @param data.promptId
+ * @param data.caseId
+ * @param data.workspaceId
+ * @returns unknown Successful Response
+ * @throws ApiError
+ */
+export const promptStreamPromptExecution = (
+  data: PromptStreamPromptExecutionData
+): CancelablePromise<PromptStreamPromptExecutionResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/prompt/{prompt_id}/case/{case_id}/stream",
+    path: {
+      prompt_id: data.promptId,
+      case_id: data.caseId,
     },
     query: {
       workspace_id: data.workspaceId,

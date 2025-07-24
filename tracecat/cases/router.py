@@ -194,6 +194,7 @@ async def get_case(
         if case.assignee
         else None,
         fields=final_fields,
+        payload=case.payload,
     )
 
 

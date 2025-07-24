@@ -42,6 +42,7 @@ def mock_case():
     case.created_at = datetime.now()
     case.updated_at = datetime.now()
     case.case_number = 1234
+    case.payload = {"alert_type": "security", "severity": "high"}
 
     # Set up model_dump to return a dict representation
     case.model_dump.return_value = {
@@ -54,6 +55,7 @@ def mock_case():
         "created_at": case.created_at,
         "updated_at": case.updated_at,
         "fields": {"field1": "value1", "field2": "value2"},
+        "payload": case.payload,
     }
 
     return case
