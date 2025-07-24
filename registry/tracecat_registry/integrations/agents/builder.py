@@ -954,8 +954,6 @@ async def agent(
             message_history=result.all_messages(),
             duration=end_time - start_time,
         )
-        logger.error(to_json(message_nodes, indent=2).decode())
-        logger.warning(to_json(output, indent=2).decode())
         if include_usage:
             output.usage = result.usage()
 
