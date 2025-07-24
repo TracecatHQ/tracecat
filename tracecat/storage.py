@@ -887,14 +887,10 @@ async def generate_presigned_download_url(
                 Params=params,
                 ExpiresIn=expiry,
             )
-
-            internal_minio_urls = (
-                "http://minio:9000",
-                "https://minio:9000",
-                "http://tracecat-minio:9000",
-                "https://tracecat-minio:9000",
-            )
-            if url.startswith(internal_minio_urls):
+            if (
+                config.TRACECAT__BLOB_STORAGE_PROTOCOL == "minio"
+                and config.TRACECAT__IS_INTERNAL_MINIO_ENDPOINT
+            ):
                 # If minio, assume presigned URL returned only works for the internal network Minio
                 # Replace the internal endpoint with the public presigned URL endpoint (as defined in Caddyfile)
                 url = f"{config.TRACECAT__PUBLIC_APP_URL}/s3"

@@ -241,6 +241,11 @@ TRACECAT__DISABLE_PRESIGNED_URL_IP_CHECKING = (
 )
 """Disable client IP checking for presigned URLs. Set to false for production with public S3, true for local MinIO (default: true)."""
 
+TRACECAT__IS_INTERNAL_MINIO_ENDPOINT = os.environ.get(
+    "TRACECAT__IS_INTERNAL_MINIO_ENDPOINT", "true"
+).lower() in ("true", "1")
+"""Whether the MinIO endpoint is internal or external. If true, the presigned URL will be replaced with the public endpoint."""
+
 # === Local registry === #
 TRACECAT__LOCAL_REPOSITORY_ENABLED = os.getenv(
     "TRACECAT__LOCAL_REPOSITORY_ENABLED", "0"
