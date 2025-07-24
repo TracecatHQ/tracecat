@@ -852,13 +852,11 @@ async def agent(
             ) as run:
                 async for node in run:
                     curr: ModelMessage
-                    logger.info("Node", node=to_json(node).decode())
                     if Agent.is_user_prompt_node(node):
                         continue
 
                     # 1️⃣  Model request (may be a normal user/tool-return message)
                     elif Agent.is_model_request_node(node):
-                        logger.info("Model request node", node=to_json(node).decode())
                         curr = node.request
 
                         # If this request is ONLY a tool-return we have
@@ -868,7 +866,6 @@ async def agent(
                             continue  # ← skip duplicate stream
                     # assistant tool-call + tool-return events
                     elif Agent.is_call_tools_node(node):
-                        logger.info("Call tools node", node=to_json(node).decode())
                         curr = node.model_response
                         async with node.stream(run.ctx) as stream:
                             async for event in stream:
@@ -893,7 +890,6 @@ async def agent(
                                 await write_to_redis(message)
                         continue
                     elif Agent.is_end_node(node):
-                        logger.info("End node", node=to_json(node).decode())
                         final = node.data
                         if final.tool_name:
                             curr = create_tool_return(
@@ -915,7 +911,6 @@ async def agent(
                     await write_to_redis(curr)
 
                 result = run.result
-                logger.info("Agent run result", result=result)
                 if not isinstance(result, AgentRunResult):
                     raise ValueError("No output returned from agent run.")
 
