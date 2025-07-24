@@ -2,7 +2,7 @@
 
 import { MessageCircle, Plus } from "lucide-react"
 import { useState } from "react"
-import { $ChatEntity } from "@/client"
+import { $ChatEntity, type ChatEntity } from "@/client"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -14,7 +14,7 @@ const CHAT_ENTITIES = $ChatEntity.enum
 
 interface ChatListProps {
   workspaceId: string
-  entityType?: string
+  entityType?: ChatEntity
   entityId?: string
   selectedChatId?: string
   onChatSelect?: (chatId: string) => void
