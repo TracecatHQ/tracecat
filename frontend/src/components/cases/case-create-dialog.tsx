@@ -278,7 +278,7 @@ export function CreateCaseDialog({
 
             <DialogFooter>
               <Button type="submit" disabled={createCaseIsPending}>
-                Create Case
+                Create case
               </Button>
             </DialogFooter>
           </form>
