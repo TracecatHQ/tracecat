@@ -91,20 +91,44 @@ def dispatch_context():
 
 
 @pytest.mark.anyio
-async def test_dispatch_action_basic(mock_session, basic_task_input, dispatch_context):
+async def test_dispatch_action_basic(
+    mocker, mock_session, basic_task_input, dispatch_context
+):
+    # Mock RegistryActionsService
+    mock_reg_service = mocker.AsyncMock()
+    mock_reg_service.get_action.return_value = mocker.MagicMock()  # Mock RegistryAction
+    mocker.patch(
+        "tracecat.executor.service.RegistryActionsService.with_session",
+        return_value=mocker.AsyncMock(
+            __aenter__=mocker.AsyncMock(return_value=mock_reg_service)
+        ),
+    )
+
     with patch("tracecat.executor.service.run_action_on_ray_cluster") as mock_ray:
         mock_ray.return_value = {"result": "success"}
 
         result = await _dispatch_action(input=basic_task_input, ctx=dispatch_context)
 
         assert result == {"result": "success"}
-        mock_ray.assert_called_once_with(basic_task_input, dispatch_context)
+        mock_ray.assert_called_once_with(
+            basic_task_input, dispatch_context, is_builtin=False
+        )
 
 
 @pytest.mark.anyio
 async def test_dispatch_action_with_foreach(
-    mock_session, basic_looped_task_input, dispatch_context
+    mocker, mock_session, basic_looped_task_input, dispatch_context
 ):
+    # Mock RegistryActionsService
+    mock_reg_service = mocker.AsyncMock()
+    mock_reg_service.get_action.return_value = mocker.MagicMock()  # Mock RegistryAction
+    mocker.patch(
+        "tracecat.executor.service.RegistryActionsService.with_session",
+        return_value=mocker.AsyncMock(
+            __aenter__=mocker.AsyncMock(return_value=mock_reg_service)
+        ),
+    )
+
     with patch("tracecat.executor.service.run_action_on_ray_cluster") as mock_ray:
         mock_ray.return_value = {"result": "success"}
 
@@ -131,7 +155,7 @@ async def test_dispatch_action_with_foreach(
 
 
 @pytest.mark.anyio
-async def test_dispatch_action_with_git_url(mock_session, basic_task_input):
+async def test_dispatch_action_with_git_url(basic_task_input):
     with (
         patch("tracecat.executor.service.prepare_git_url") as mock_git_url,
         patch("tracecat.executor.service._dispatch_action") as mock_dispatch,
@@ -143,9 +167,7 @@ async def test_dispatch_action_with_git_url(mock_session, basic_task_input):
         mock_ssh_cmd.return_value = "ssh -i /tmp/key"
         mock_dispatch.return_value = {"result": "success"}
 
-        result = await dispatch_action_on_cluster(
-            input=basic_task_input, session=mock_session
-        )
+        result = await dispatch_action_on_cluster(input=basic_task_input)
 
         assert result == {"result": "success"}
         mock_git_url.assert_called_once()
