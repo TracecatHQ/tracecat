@@ -14,8 +14,8 @@ import {
   chatStartChatTurn,
   chatUpdateChat,
 } from "@/client"
+import { getBaseUrl } from "@/lib/api"
 import { isModelMessage, type ModelMessage } from "@/lib/chat"
-import { buildUrl } from "@/lib/ss-utils"
 
 // Hook for creating a new chat
 export function useCreateChat(workspaceId: string) {
@@ -117,7 +117,7 @@ export function useChat({
     }
 
     // Build the stream URL with workspace_id query parameter
-    const url = new URL(buildUrl(`/api/chat/${chatId}/stream`))
+    const url = new URL(`/api/chat/${chatId}/stream`, getBaseUrl())
     url.searchParams.set("workspace_id", workspaceId)
 
     const newEventSource = new EventSource(url, {
