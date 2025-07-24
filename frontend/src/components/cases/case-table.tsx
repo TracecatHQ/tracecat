@@ -32,7 +32,6 @@ export default function CaseTable() {
     CaseReadMinimal[]
   >([])
   const [selectedRows, setSelectedRows] = useState<Row<CaseReadMinimal>[]>([])
-  const [tableKey, setTableKey] = useState(0)
   const router = useRouter()
 
   const {
@@ -105,8 +104,6 @@ export default function CaseTable() {
   const handlePromptSuccess = useCallback(() => {
     setSelectedCasesForPrompt([])
     setSelectedRows([])
-    // Force DataTable to reset its internal selection state
-    setTableKey((prev) => prev + 1)
 
     toast({
       title: "Prompt execution started",
@@ -169,7 +166,6 @@ export default function CaseTable() {
     <TooltipProvider>
       <div className="space-y-4">
         <DataTable
-          key={tableKey}
           data={cases || []}
           isLoading={casesIsLoading || isDeleting}
           error={(casesError as Error) || undefined}
