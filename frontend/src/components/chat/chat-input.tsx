@@ -132,7 +132,6 @@ export function ChatInput({
                       onChange={field.onChange}
                       onKeyDown={handleKeyDown}
                       disabled={disabled}
-                      style={{ height: "60px" }} // Initial height
                     />
                   </FormControl>
                   <FormMessage />
