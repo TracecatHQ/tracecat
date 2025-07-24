@@ -1,14 +1,13 @@
 "use client"
 
 import { AlertCircle, ChevronLeft } from "lucide-react"
-import { useRouter, useSearchParams } from "next/navigation"
+import { useSearchParams } from "next/navigation"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { env } from "@/env.mjs"
 
 export default function OAuthErrorPage() {
-  const router = useRouter()
   const searchParams = useSearchParams()
 
   const error = searchParams?.get("error") || "unknown_error"

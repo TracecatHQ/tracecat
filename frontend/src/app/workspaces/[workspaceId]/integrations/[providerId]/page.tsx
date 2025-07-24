@@ -109,7 +109,6 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
   const searchParams = useSearchParams()
   const [errorMessage, setErrorMessage] = useState("")
   const [_showConnectPrompt, setShowConnectPrompt] = useState(false)
-  const [showSuccessMessage, setShowSuccessMessage] = useState(false)
   const providerId = provider.metadata.id
 
   // Get active tab from URL query params, default to "overview"
@@ -164,9 +163,6 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
     try {
       setErrorMessage("")
       await connectProvider(providerId)
-      setShowSuccessMessage(true)
-      // Hide success message after 5 seconds
-      setTimeout(() => setShowSuccessMessage(false), 5000)
     } catch (_error) {
       setErrorMessage("Failed to connect. Please try again.")
     }
@@ -175,7 +171,6 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
   const handleDisconnect = useCallback(async () => {
     try {
       await disconnectProvider(providerId)
-      setShowSuccessMessage(false)
       setErrorMessage("")
     } catch (_error) {
       setErrorMessage("Failed to disconnect. Please try again.")
@@ -186,10 +181,6 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
     try {
       setErrorMessage("")
       await testConnection(providerId)
-      setShowSuccessMessage(true)
-      // Hide success message after 5 seconds
-      await new Promise((resolve) => setTimeout(resolve, 5000))
-      setShowSuccessMessage(false)
     } catch (_error) {
       setErrorMessage(
         "Failed to test connection. Please check your credentials."
