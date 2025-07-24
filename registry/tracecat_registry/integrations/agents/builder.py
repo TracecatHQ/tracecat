@@ -737,25 +737,28 @@ async def agent(
         ),
     ] = None,
 ) -> dict[str, str | dict[str, Any] | list[dict[str, Any]]]:
-    # Generate the enhanced user prompt with tool guidance
-    tools_prompt = generate_default_tools_prompt(files) if files else ""
-    # Provide current date context using Tracecat expression
-    current_date_prompt = "<current_date>${{ FN.utcnow() }}</current_date>"
-    error_handling_prompt = """
-    <error_handling>
-    - Use `raise_error` when a <task> or any task-like instruction requires clarification or missing information
-    - Be specific about what's needed: "Missing API key" not "Cannot proceed"
-    - Stop execution immediately - don't attempt workarounds or assumptions
-    </error_handling>
-    """
+    # Only enhance instructions when provided (not None)
+    enhanced_instrs: str | None = None
+    if instructions is not None:
+        # Generate the enhanced user prompt with tool guidance
+        tools_prompt = generate_default_tools_prompt(files) if files else ""
+        # Provide current date context using Tracecat expression
+        current_date_prompt = "<current_date>${{ FN.utcnow() }}</current_date>"
+        error_handling_prompt = """
+        <error_handling>
+        - Use `raise_error` when a <task> or any task-like instruction requires clarification or missing information
+        - Be specific about what's needed: "Missing API key" not "Cannot proceed"
+        - Stop execution immediately - don't attempt workarounds or assumptions
+        </error_handling>
+        """
 
-    # Build the final enhanced user prompt including date context
-    if tools_prompt:
-        enhanced_instrs = f"{instructions}\n{current_date_prompt}\n{tools_prompt}\n{error_handling_prompt}"
-    else:
-        enhanced_instrs = (
-            f"{instructions}\n{current_date_prompt}\n{error_handling_prompt}"
-        )
+        # Build the final enhanced user prompt including date context
+        if tools_prompt:
+            enhanced_instrs = f"{instructions}\n{current_date_prompt}\n{tools_prompt}\n{error_handling_prompt}"
+        else:
+            enhanced_instrs = (
+                f"{instructions}\n{current_date_prompt}\n{error_handling_prompt}"
+            )
     builder = TracecatAgentBuilder(
         model_name=model_name,
         model_provider=model_provider,
@@ -772,10 +775,6 @@ async def agent(
 
     if isinstance(actions, str):
         actions = [actions]
-
-    # blocked_actions = set(actions) - ALLOWED_TOOLS
-    # if len(blocked_actions) > 0:
-    #     raise ValueError(f"Forbidden actions: {blocked_actions}")
 
     with tempfile.TemporaryDirectory() as temp_dir:
         if files:
