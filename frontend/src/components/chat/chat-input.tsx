@@ -101,7 +101,7 @@ export function ChatInput({
       }
       // Regular Enter will create newlines by default (no special handling needed)
     },
-    [isMessageEmpty]
+    [isMessageEmpty, form, handleMessageSubmit]
   )
 
   // Watch for message changes to auto-resize
