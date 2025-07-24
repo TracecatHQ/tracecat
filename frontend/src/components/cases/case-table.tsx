@@ -1,7 +1,7 @@
 "use client"
 
 import type { Row } from "@tanstack/react-table"
-import { BrainIcon } from "lucide-react"
+import { CirclePlayIcon } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useCallback, useMemo, useState } from "react"
 import type { CaseReadMinimal } from "@/client"
@@ -12,7 +12,7 @@ import {
 } from "@/components/cases/case-categories"
 import { UNASSIGNED } from "@/components/cases/case-panel-selectors"
 import { columns } from "@/components/cases/case-table-columns"
-import { PromptSelectionDialog } from "@/components/cases/prompt-selection-dialog"
+import { PromptSelectionDialog } from "@/components/cases/runbook-selection-dialog"
 import { DataTable, type DataTableToolbarProps } from "@/components/data-table"
 import { Button } from "@/components/ui/button"
 import { TooltipProvider } from "@/components/ui/tooltip"
@@ -202,8 +202,8 @@ export default function CaseTable() {
               onClick={handleRunPrompt}
               className="h-8"
             >
-              <BrainIcon className="h-4 w-4 mr-2" />
-              Run Prompt on Selected Cases ({selectedRows.length})
+              <CirclePlayIcon className="size-3.5 mr-2 text-accent-foreground" />
+              Execute runbook on {selectedRows.length} case(s)
             </Button>
           </div>
         )}

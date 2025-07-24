@@ -1,6 +1,5 @@
 import asyncio
 import json
-import os
 import textwrap
 import uuid
 from datetime import datetime
@@ -8,17 +7,17 @@ from datetime import datetime
 from sqlmodel.ext.asyncio.session import AsyncSession
 from tracecat_registry.integrations.agents.builder import agent
 
+from tracecat.agent.service import AgentManagementService
 from tracecat.cases.service import CasesService
 from tracecat.chat.enums import ChatEntity
 from tracecat.chat.models import ChatResponse
 from tracecat.chat.service import ChatService
 from tracecat.db.schemas import Prompt
-from tracecat.secrets import secrets_manager
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatNotFoundError
 
 
-async def run_prompts_for_case(
+async def execute_runbook_for_case(
     *,
     prompt: Prompt,
     case_id: uuid.UUID,
@@ -43,11 +42,12 @@ async def run_prompts_for_case(
 
     # Create task with proper environment
     # NOTE: In production, this should use workspace-specific credentials
-    with secrets_manager.use_agent_credentials():
+    agent_svc = AgentManagementService(session, role)
+    async with agent_svc.with_model_config() as model_config:
         coro = agent(
             instructions=prompt.content,
-            model_name=os.environ["CHAT_MODEL_NAME"],
-            model_provider=os.environ["CHAT_MODEL_PROVIDER"],
+            model_name=model_config.name,
+            model_provider=model_config.provider,
             actions=prompt.tools,
             workflow_run_id=str(chat.id),
             user_prompt=textwrap.dedent(f"""

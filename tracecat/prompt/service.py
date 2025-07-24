@@ -23,7 +23,7 @@ from tracecat.chat.models import ChatMessage, ChatResponse
 from tracecat.chat.service import ChatService
 from tracecat.db.schemas import Chat, Prompt
 from tracecat.logger import logger
-from tracecat.prompt.flows import run_prompts_for_case
+from tracecat.prompt.flows import execute_runbook_for_case
 from tracecat.prompt.models import PromptRunEntity
 from tracecat.service import BaseWorkspaceService
 from tracecat.types.auth import Role
@@ -194,7 +194,7 @@ Sticking to the above will help you successfully run the <Steps> over the new us
         for entity in entities:
             if entity.entity_type == ChatEntity.CASE:
                 try:
-                    response = await run_prompts_for_case(
+                    response = await execute_runbook_for_case(
                         case_id=entity.entity_id,
                         prompt=prompt,
                         session=self.session,

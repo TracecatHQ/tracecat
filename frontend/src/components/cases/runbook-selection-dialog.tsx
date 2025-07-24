@@ -132,9 +132,9 @@ export function PromptSelectionDialog({
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-[800px]">
         <DialogHeader>
-          <DialogTitle>Run Prompt on Selected Cases</DialogTitle>
+          <DialogTitle>Execute runbook</DialogTitle>
           <DialogDescription>
-            Select a prompt to run on {selectedCases.length} selected case
+            Select a runbook to execute on {selectedCases.length} selected case
             {selectedCases.length !== 1 ? "s" : ""}.
           </DialogDescription>
         </DialogHeader>
@@ -157,7 +157,7 @@ export function PromptSelectionDialog({
                 name="promptId"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Available Prompts</FormLabel>
+                    <FormLabel>Available runbooks</FormLabel>
                     <FormControl>
                       {promptsLoading ? (
                         <div className="space-y-2">
@@ -171,8 +171,8 @@ export function PromptSelectionDialog({
                       ) : filteredPrompts.length === 0 ? (
                         <div className="text-sm text-muted-foreground">
                           {searchTerm
-                            ? "No prompts match your search"
-                            : "No prompts available"}
+                            ? "No runbooks match your search"
+                            : "No runbooks available"}
                         </div>
                       ) : (
                         <Select
@@ -180,12 +180,16 @@ export function PromptSelectionDialog({
                           onValueChange={field.onChange}
                         >
                           <SelectTrigger>
-                            <SelectValue placeholder="Select a prompt" />
+                            <SelectValue placeholder="Select a runbook" />
                           </SelectTrigger>
                           <SelectContent>
-                            <ScrollArea className="h-[200px]">
+                            <ScrollArea className="max-h-[200px]">
                               {filteredPrompts.map((prompt) => (
-                                <SelectItem key={prompt.id} value={prompt.id}>
+                                <SelectItem
+                                  key={prompt.id}
+                                  value={prompt.id}
+                                  className="p-1"
+                                >
                                   <div className="flex flex-col items-start">
                                     <div className="font-medium">
                                       {prompt.title}
@@ -209,11 +213,34 @@ export function PromptSelectionDialog({
 
               {selectedPrompt && (
                 <div className="rounded-md border p-4 space-y-2">
-                  <h4 className="font-medium">Selected Prompt</h4>
+                  <h4 className="font-semibold">Selected runbook</h4>
                   <div className="text-sm">
                     <div className="font-medium">{selectedPrompt.title}</div>
-                    <div className="text-muted-foreground mt-1">
-                      {selectedPrompt.tools?.length || 0} tool(s) available
+                    <div className="mt-1">
+                      {selectedPrompt.tools &&
+                      selectedPrompt.tools.length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
+                          {selectedPrompt.tools
+                            .slice(0, 20)
+                            .map((tool, index) => (
+                              <span
+                                key={index}
+                                className="inline-flex items-center rounded-md bg-muted px-2 py-1 text-xs font-medium text-muted-foreground"
+                              >
+                                {tool}
+                              </span>
+                            ))}
+                          {selectedPrompt.tools.length > 20 && (
+                            <span className="inline-flex items-center rounded-md bg-muted text-xs font-medium text-muted-foreground">
+                              +{selectedPrompt.tools.length - 20} more
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="text-muted-foreground text-xs">
+                          No tools available
+                        </div>
+                      )}
                     </div>
                   </div>
                   <div className="text-xs text-muted-foreground">
@@ -252,7 +279,7 @@ export function PromptSelectionDialog({
                 type="submit"
                 disabled={runPromptPending || !selectedPrompt}
               >
-                {runPromptPending ? "Running..." : "Run Prompt"}
+                {runPromptPending ? "Running..." : "Execute runbook"}
               </Button>
             </DialogFooter>
           </form>
