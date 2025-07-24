@@ -3,6 +3,7 @@ import { useEffect, useState } from "react"
 import {
   type ApiError,
   type ChatCreate,
+  type ChatEntity,
   type ChatRead,
   type ChatRequest,
   type ChatUpdate,
@@ -45,7 +46,7 @@ export function useListChats({
   limit = 50,
 }: {
   workspaceId: string
-  entityType?: string
+  entityType?: ChatEntity
   entityId?: string
   limit?: number
 }) {

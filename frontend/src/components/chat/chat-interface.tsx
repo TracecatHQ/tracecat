@@ -11,7 +11,7 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { useEffect, useState } from "react"
-import type { ChatRead } from "@/client"
+import type { ChatEntity, ChatRead } from "@/client"
 import { ChatInput } from "@/components/chat/chat-input"
 import { Messages } from "@/components/chat/messages"
 import { CenteredSpinner } from "@/components/loading/spinner"
@@ -34,7 +34,7 @@ import { useWorkspace } from "@/providers/workspace"
 
 interface ChatInterfaceProps {
   chatId?: string
-  entityType: "case" | string
+  entityType: ChatEntity
   entityId: string
   onChatSelect?: (chatId: string) => void
 }
@@ -50,10 +50,9 @@ export function ChatInterface({
     chatId
   )
 
-  // Grab the chats for this entity
   const { chats, chatsLoading, chatsError } = useListChats({
     workspaceId: workspaceId,
-    entityType: entityType as "case",
+    entityType,
     entityId,
   })
 
@@ -96,7 +95,7 @@ export function ChatInterface({
     try {
       const newChat = await createChat({
         title: `Chat ${(chats?.length || 0) + 1}`,
-        entity_type: entityType as "case",
+        entity_type: entityType,
         entity_id: entityId,
       })
       setSelectedChatId(newChat.id)
