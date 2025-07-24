@@ -149,8 +149,8 @@ async def start_chat_turn(
     """
 
     # Load chat to get stored tools
-    svc = ChatService(session, role)
-    chat = await svc.get_chat(chat_id)
+    chat_svc = ChatService(session, role)
+    chat = await chat_svc.get_chat(chat_id)
     if not chat:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -159,8 +159,8 @@ async def start_chat_turn(
 
     try:
         # Fire-and-forget execution using the agent function directly
-        svc = AgentManagementService(session, role)
-        async with svc.with_model_config() as model_config:
+        agent_svc = AgentManagementService(session, role)
+        async with agent_svc.with_model_config() as model_config:
             coro = agent(
                 instructions=request.instructions,
                 user_prompt=request.message,
