@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 
 from tracecat.auth.credentials import RoleACL
+from tracecat.cases.service import CasesService
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.logger import logger
 from tracecat.prompt.models import (
@@ -168,7 +169,8 @@ async def stream_prompt_execution(
     request: Request,
     prompt_id: str,
     case_id: str,
-    _role: WorkspaceUser,
+    role: WorkspaceUser,
+    session: AsyncDBSession,
 ):
     """Stream prompt execution events via Server-Sent Events (SSE).
 
@@ -176,6 +178,16 @@ async def stream_prompt_execution(
     when a prompt is run on a case. It reuses the same Redis stream pattern
     as the chat service.
     """
+    # Verify case exists and user has access to it
+    case_uuid = uuid.UUID(case_id)
+    async with CasesService.with_session(role.workspace_id) as cases_service:
+        case = await cases_service.get_case(case_uuid)
+        if case is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Case not found or access denied",
+            )
+
     stream_key = f"agent-stream:{case_id}"
     last_id = request.headers.get("Last-Event-ID", "0-0")
 
