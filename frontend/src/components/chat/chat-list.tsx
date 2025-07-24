@@ -2,12 +2,15 @@
 
 import { MessageCircle, Plus } from "lucide-react"
 import { useState } from "react"
-import type { ChatEntity } from "@/client"
+import { $ChatEntity } from "@/client"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useCreateChat, useListChats } from "@/hooks/use-chat"
+import { isChatEntity } from "@/lib/chat"
 import { cn } from "@/lib/utils"
+
+const CHAT_ENTITIES = $ChatEntity.enum
 
 interface ChatListProps {
   workspaceId: string
@@ -43,11 +46,21 @@ export function ChatList({
   const handleNewChat = async () => {
     if (!entityType || !entityId) return
 
+    // Validate that entityType is a valid ChatEntity value
+    if (!isChatEntity(entityType)) {
+      console.error(
+        `Invalid entity type: ${entityType}. Expected one of: ${CHAT_ENTITIES.join(
+          ", "
+        )}`
+      )
+      return
+    }
+
     setIsCreating(true)
     try {
       const result = await createChat({
         title: `New Chat - ${new Date().toLocaleString()}`,
-        entity_type: entityType as ChatEntity,
+        entity_type: entityType,
         entity_id: entityId,
       })
 
