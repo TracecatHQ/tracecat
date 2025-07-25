@@ -15,8 +15,8 @@ dev:
 	docker compose -f docker-compose.dev.yml up
 dev-ui:
 	npx @agentdeskai/browser-tools-server@1.2.0
-build-dev:
-	docker compose -f docker-compose.dev.yml build --no-cache
+build-dev *services:
+	docker compose -f docker-compose.dev.yml build --no-cache {{services}}
 up:
 	docker compose up
 
