@@ -261,19 +261,26 @@ async def get_action_secrets(
                 )
                 for integration in oauth_integrations:
                     await service.refresh_token_if_needed(integration)
-                    access_token = await service.get_access_token(integration)
-                    secret = oauth_secrets[
-                        ProviderKey(
-                            id=integration.provider_id,
-                            grant_type=integration.grant_type,
+                    try:
+                        if access_token := await service.get_access_token(integration):
+                            secret = oauth_secrets[
+                                ProviderKey(
+                                    id=integration.provider_id,
+                                    grant_type=integration.grant_type,
+                                )
+                            ]
+                            # SECRETS.<provider_id>.[<prefix>_[SERVICE|USER]_TOKEN]
+                            # NOTE: We are overriding the provider_id key here assuming its unique
+                            # <prefix> is the provider_id in uppercase.
+                            secrets[integration.provider_id] = {
+                                secret.token_name: access_token.get_secret_value()
+                            }
+                    except Exception as e:
+                        logger.warning(
+                            "Could not get oauth secret, skipping",
+                            error=e,
+                            integration=integration,
                         )
-                    ]
-                    # SECRETS.<provider_id>.[<prefix>_[SERVICE|USER]_TOKEN]
-                    # NOTE: We are overriding the provider_id key here assuming its unique
-                    # <prefix> is the provider_id in uppercase.
-                    secrets[integration.provider_id] = {
-                        secret.token_name: access_token.get_secret_value()
-                    }
     except Exception as e:
         logger.warning("Could not get oauth secrets", error=e)
     return secrets

@@ -18,7 +18,7 @@ from tracecat.integrations.providers.base import (
     BaseOAuthProvider,
     ClientCredentialsOAuthProvider,
 )
-from tracecat.secrets.encryption import decrypt_value, encrypt_value
+from tracecat.secrets.encryption import decrypt_value, encrypt_value, is_set
 from tracecat.service import BaseWorkspaceService
 
 
@@ -374,14 +374,15 @@ class IntegrationService(BaseWorkspaceService):
 
         return integration
 
-    async def get_access_token(self, integration: OAuthIntegration) -> SecretStr:
+    async def get_access_token(self, integration: OAuthIntegration) -> SecretStr | None:
         """Get the decrypted access token for an integration."""
-        access_token = self._decrypt_token(integration.encrypted_access_token)
-        return SecretStr(access_token)
+        if access_token := self._decrypt_token(integration.encrypted_access_token):
+            return SecretStr(access_token)
+        return None
 
     def get_decrypted_tokens(
         self, integration: OAuthIntegration
-    ) -> tuple[str, str | None]:
+    ) -> tuple[str | None, str | None]:
         """Get decrypted access and refresh tokens for an integration."""
         access_token = self._decrypt_token(integration.encrypted_access_token)
         refresh_token = (
@@ -395,8 +396,10 @@ class IntegrationService(BaseWorkspaceService):
         """Encrypt a token using the service's encryption key."""
         return encrypt_value(token.encode("utf-8"), key=self._encryption_key)
 
-    def _decrypt_token(self, encrypted_token: bytes) -> str:
+    def _decrypt_token(self, encrypted_token: bytes) -> str | None:
         """Decrypt a token using the service's encryption key."""
+        if not is_set(encrypted_token):
+            return None
         return decrypt_value(encrypted_token, key=self._encryption_key).decode("utf-8")
 
     def encrypt_client_credential(self, credential: str) -> bytes:
@@ -541,10 +544,7 @@ class IntegrationService(BaseWorkspaceService):
             return False
 
         # If integration has tokens, just clear client credentials
-        if (
-            integration.encrypted_access_token
-            and integration.encrypted_access_token != b""
-        ):
+        if is_set(integration.encrypted_access_token):
             integration.encrypted_client_id = None
             integration.encrypted_client_secret = None
             integration.use_workspace_credentials = False
