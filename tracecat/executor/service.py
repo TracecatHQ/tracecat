@@ -328,7 +328,7 @@ async def run_action_from_input(input: RunActionInput, role: Role) -> Any:
     )
 
     context = input.exec_context.copy()
-    context.update(SECRETS=secrets)
+    context[ExprContext.SECRETS] = secrets
 
     flattened_secrets = flatten_secrets(secrets)
     with env_sandbox(flattened_secrets):
