@@ -835,7 +835,7 @@ async def run_agent(
             stream_key = f"agent-stream:{stream_id}"
             try:
                 redis_client = await get_redis_client()
-                logger.info("Redis streaming enabled", stream_key=stream_key)
+                logger.debug("Redis streaming enabled", stream_key=stream_key)
 
                 messages = await redis_client.xrange(stream_key, min_id="-", max_id="+")
 
@@ -960,7 +960,7 @@ async def run_agent(
                         maxlen=10000,
                         approximate=True,
                     )
-                    logger.info("Added end-of-stream marker", stream_key=stream_key)
+                    logger.debug("Added end-of-stream marker", stream_key=stream_key)
                 except Exception as e:
                     logger.warning("Failed to add end-of-stream marker", error=str(e))
 
