@@ -63,6 +63,6 @@ async def execute(
             "In `detach` mode, this action will return immediately after the subflows are created. "
             "A failing subflow will not affect the parent. "
         ),
-    ] = "wait",
+    ] = "detach",
 ) -> Any:
     raise ActionIsInterfaceError()
