@@ -691,13 +691,93 @@ async def agent(
         bool, Doc("Whether to include usage information in the output.")
     ] = False,
     base_url: Annotated[str | None, Doc("Base URL of the model to use.")] = None,
-    workflow_run_id: Annotated[
-        str | None,
-        Doc(
-            "Workflow run ID for Redis streaming. If provided with action_ref, enables real-time streaming."
-        ),
-    ] = None,
 ) -> dict[str, str | dict[str, Any] | list[dict[str, Any]]]:
+    return await run_agent(
+        user_prompt=user_prompt,
+        model_name=model_name,
+        model_provider=model_provider,
+        actions=actions if isinstance(actions, list) else [actions],
+        files=files,
+        fixed_arguments=fixed_arguments,
+        instructions=instructions,
+        output_type=output_type,
+        model_settings=model_settings,
+        retries=retries,
+        include_usage=include_usage,
+        base_url=base_url,
+    )
+
+
+async def run_agent(
+    user_prompt: str,
+    model_name: str,
+    model_provider: str,
+    actions: list[str],
+    files: dict[str, str] | None = None,
+    fixed_arguments: dict[str, dict[str, Any]] | None = None,
+    instructions: str | None = None,
+    output_type: str | dict[str, Any] | None = None,
+    model_settings: dict[str, Any] | None = None,
+    retries: int = 3,
+    include_usage: bool = False,
+    base_url: str | None = None,
+    stream_id: str | None = None,
+) -> dict[str, str | dict[str, Any] | list[dict[str, Any]]]:
+    """Run an AI agent with specified configuration and actions.
+
+    This function creates and executes a Tracecat AI agent with the provided
+    model configuration, actions, and optional file attachments. It handles
+    instruction enhancement, temporary file management, and optional Redis
+    streaming for real-time execution updates.
+
+    Args:
+        user_prompt: The main prompt/message for the agent to process.
+        model_name: Name of the LLM model to use (e.g., "gpt-4", "claude-3").
+        model_provider: Provider of the model (e.g., "openai", "anthropic").
+        actions: List of action names to make available to the agent
+                (e.g., ["tools.slack.post_message", "tools.github.create_issue"]).
+        files: Optional mapping of file paths to base64-encoded content.
+               Files are created in a temporary directory accessible to the agent.
+        fixed_arguments: Optional pre-configured arguments for specific actions.
+                        Keys are action names, values are keyword argument dictionaries.
+        instructions: Optional system instructions/context for the agent.
+                     If provided, will be enhanced with tool guidance and error handling.
+        output_type: Optional specification for the agent's output format.
+                    Can be a string type name or a structured dictionary schema.
+        model_settings: Optional model-specific configuration parameters
+                       (temperature, max_tokens, etc.).
+        retries: Maximum number of retry attempts for agent execution (default: 3).
+        include_usage: Whether to include token usage information in the response.
+        base_url: Optional custom base URL for the model provider's API.
+        stream_id: Optional identifier for Redis streaming of execution events.
+                  If provided, execution steps will be streamed to Redis.
+
+    Returns:
+        A dictionary containing the agent's execution results, which may include:
+        - "result": The primary output from the agent
+        - "usage": Token usage information (if include_usage=True)
+        - Additional metadata depending on the agent's configuration
+
+    Raises:
+        ValueError: If no actions are provided in the actions list.
+        Various exceptions: May raise model-specific, network, or action-related
+                          exceptions during agent execution.
+
+    Example:
+        ```python
+        result = await run_agent(
+            user_prompt="Analyze this security alert",
+            model_name="gpt-4",
+            model_provider="openai",
+            actions=["tools.slack.post_message"],
+            instructions="You are a security analyst. Be thorough.",
+            fixed_arguments={
+                "tools.slack.post_message": {"channel_id": "C123456789"}
+            }
+        )
+        ```
+    """
+
     # Only enhance instructions when provided (not None)
     enhanced_instrs: str | None = None
     if instructions is not None:
@@ -734,9 +814,6 @@ async def agent(
     if not actions:
         raise ValueError("No actions provided. Please provide at least one action.")
 
-    if isinstance(actions, str):
-        actions = [actions]
-
     with tempfile.TemporaryDirectory() as temp_dir:
         if files:
             for path, content in files.items():
@@ -754,15 +831,15 @@ async def agent(
         stream_key = None
         conversation_history: list[ModelMessage] = []
 
-        if workflow_run_id:
-            stream_key = f"agent-stream:{workflow_run_id}"
+        if stream_id:
+            stream_key = f"agent-stream:{stream_id}"
             try:
                 redis_client = await get_redis_client()
                 logger.info("Redis streaming enabled", stream_key=stream_key)
 
                 messages = await redis_client.xrange(stream_key, min_id="-", max_id="+")
 
-                for message_id, fields in messages:
+                for _, fields in messages:
                     try:
                         data = orjson.loads(fields["d"])
                         if data.get("__end__") == 1:

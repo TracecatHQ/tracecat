@@ -117,6 +117,15 @@ class ChatService(BaseWorkspaceService):
             # Read all messages from the Redis stream
             messages = await redis_client.xrange(stream_key, min_id="-", max_id="+")
 
+            # Handle case where stream doesn't exist or has expired
+            if not messages:
+                logger.info(
+                    "No messages found in Redis stream (may have expired)",
+                    stream_key=stream_key,
+                    chat_id=chat.id,
+                )
+                return []
+
             parsed_messages: list[ChatMessage] = []
             for id, fields in messages:
                 try:
