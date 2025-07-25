@@ -106,8 +106,8 @@ export default function CaseTable() {
     setSelectedRows([])
 
     toast({
-      title: "Prompt execution started",
-      description: `Running prompt on ${selectedCasesForPrompt.length} case(s). Check individual cases for progress.`,
+      title: "Runbook execution started",
+      description: `Executing runbook on ${selectedCasesForPrompt.length} case(s). Check individual cases for progress.`,
     })
   }, [selectedCasesForPrompt.length, toast])
 
