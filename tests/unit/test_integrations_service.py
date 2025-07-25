@@ -657,6 +657,7 @@ class TestIntegrationService:
 
         # Get access token only
         access_token_only = await integration_service.get_access_token(integration)
+        assert access_token_only is not None
         assert (
             access_token_only.get_secret_value()
             == mock_token_response.access_token.get_secret_value()
