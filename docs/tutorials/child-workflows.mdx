@@ -50,6 +50,43 @@ trigger_inputs:
   longitude: -122.431297
 ```
 
+### Wait Strategy
+
+The `wait_strategy` parameter controls how the `core.workflow.execute` action behaves after creating a child workflow:
+
+- **`detach`** (default): The action returns immediately after creating the child workflow, without waiting for it to complete. The parent workflow continues execution.
+- **`wait`**: The action waits for the child workflow to complete before marking itself as complete. Use this when you need the child workflow's result.
+
+For example, to explicitly wait for a child workflow to complete:
+
+```yaml
+workflow_alias: get_weather
+trigger_inputs:
+  latitude: 37.773972
+  longitude: -122.431297
+wait_strategy: wait
+```
+
+<Tip>
+  Use `detach` (default) when:
+  - Running fire-and-forget tasks
+  - Processing items in parallel without dependencies
+  - You don't need the child workflow's result
+
+  Use `wait` when:
+  - You need the child workflow's output for subsequent actions
+  - The child workflow must complete successfully before proceeding
+  - You're implementing sequential processing logic
+
+</Tip>
+
+<Warning>
+  In `detach` mode:
+  - You cannot access the child workflow's output in subsequent actions
+  - A failing child workflow will not affect the parent workflow
+  - The parent workflow may complete before the child workflow finishes
+</Warning>
+
 ### Output Schema
 
 <Tip>
@@ -115,12 +152,18 @@ Let's build another workflow that calls the `Get weather` workflow for three dif
     Add three `core.workflow.execute` actions to the workflow, one for each location.
     Configure each `core.workflow.execute` action to call the `Get weather` workflow (with alias `get_weather`) with the appropriate coordinates.
 
+    <Note>
+      We're using `wait_strategy: wait` here because we want to see the temperature results in the parent workflow.
+      If you don't need the results and just want to trigger the child workflows, you can omit this parameter to use the default `detach` mode.
+    </Note>
+
     <CodeGroup>
       ```yaml New York
       workflow_alias: get_weather
       trigger_inputs:
         latitude: 40.7128
         longitude: 74.0060
+      wait_strategy: wait  # Wait for result
       ```
 
       ```yaml London
@@ -128,6 +171,7 @@ Let's build another workflow that calls the `Get weather` workflow for three dif
       trigger_inputs:
         latitude: 51.5072
         longitude: 0.1276
+      wait_strategy: wait  # Wait for result
       ```
 
       ```yaml Tokyo
@@ -135,6 +179,7 @@ Let's build another workflow that calls the `Get weather` workflow for three dif
       trigger_inputs:
         latitude: 35.6764
         longitude: 139.6500
+      wait_strategy: wait  # Wait for result
       ```
     </CodeGroup>
 
