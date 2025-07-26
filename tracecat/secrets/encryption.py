@@ -71,3 +71,8 @@ def decrypt_value(encrypted_value: bytes, *, key: str) -> bytes:
         raise InvalidToken("Decryption failed: corrupted or invalid token") from e
     except Exception as e:
         raise ValueError(f"Decryption failed: {str(e)}") from e
+
+
+def is_set(value: bytes) -> bool:
+    """True when ciphertext is not empty."""
+    return bool(value)
