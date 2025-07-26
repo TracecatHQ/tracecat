@@ -7,7 +7,7 @@ from typing import Annotated
 import orjson
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
-from tracecat_registry.integrations.agents.builder import ModelMessageTA, agent
+from tracecat_registry.integrations.agents.builder import ModelMessageTA, run_agent
 
 from tracecat.agent.service import AgentManagementService
 from tracecat.auth.credentials import RoleACL
@@ -161,14 +161,14 @@ async def start_chat_turn(
         # Fire-and-forget execution using the agent function directly
         agent_svc = AgentManagementService(session, role)
         async with agent_svc.with_model_config() as model_config:
-            coro = agent(
+            coro = run_agent(
                 instructions=request.instructions,
                 user_prompt=request.message,
                 fixed_arguments=request.context,
                 model_name=model_config.name,
                 model_provider=model_config.provider,
                 actions=chat.tools,
-                workflow_run_id=str(chat_id),
+                stream_id=str(chat_id),
             )
             _ = asyncio.create_task(coro)
 

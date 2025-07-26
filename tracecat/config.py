@@ -349,6 +349,12 @@ TRACECAT__WORKFLOW_RETURN_STRATEGY = os.environ.get(
 ).lower()
 """Strategy to use when returning a value from a workflow. Supported: context, minimal. Defaults to minimal."""
 
+# === Redis config === #
+REDIS_CHAT_TTL_SECONDS = int(
+    os.environ.get("REDIS_CHAT_TTL_SECONDS", 30 * 24 * 60 * 60)  # 30 days
+)
+"""TTL for Redis chat history streams in seconds. Defaults to 30 days."""
+
 # === File limits === #
 TRACECAT__MAX_ATTACHMENT_SIZE_BYTES = int(
     os.environ.get("TRACECAT__MAX_ATTACHMENT_SIZE_BYTES", 20 * 1024 * 1024)

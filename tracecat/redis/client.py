@@ -14,6 +14,7 @@ from tenacity import (
     wait_exponential,
 )
 
+from tracecat.config import REDIS_CHAT_TTL_SECONDS
 from tracecat.logger import logger
 
 
@@ -66,6 +67,7 @@ class RedisClient:
         fields: dict[str, Any],
         maxlen: int | None = None,
         approximate: bool = True,
+        expire_seconds: int | None = None,
     ) -> str:
         """Add an entry to a Redis stream with retry logic.
 
@@ -74,10 +76,12 @@ class RedisClient:
             fields: Dictionary of field-value pairs to add
             maxlen: Maximum stream length (approximate if approximate=True)
             approximate: Whether to use approximate trimming for better performance
+            expire_seconds: TTL in seconds for the stream key (None for no expiration)
 
         Returns:
             The ID of the added entry
         """
+        expire_seconds = expire_seconds or REDIS_CHAT_TTL_SECONDS
         try:
             kwargs: dict[str, Any] = {"fields": fields}
             if maxlen is not None:
@@ -85,6 +89,16 @@ class RedisClient:
                 kwargs["approximate"] = approximate
 
             message_id = await self.client.xadd(name=stream_key, **kwargs)
+
+            # Set TTL if specified
+            if expire_seconds is not None:
+                await self.client.expire(name=stream_key, time=expire_seconds)
+                logger.debug(
+                    "Set TTL for Redis stream",
+                    stream_key=stream_key,
+                    expire_seconds=expire_seconds,
+                )
+
             logger.debug(
                 "Added entry to Redis stream",
                 stream_key=stream_key,
