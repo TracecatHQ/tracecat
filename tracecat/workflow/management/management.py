@@ -53,6 +53,8 @@ from tracecat.workflow.management.models import (
     WorkflowDSLCreateResponse,
     WorkflowUpdate,
 )
+from tracecat.workflow.schedules import bridge
+from tracecat.workflow.schedules.service import WorkflowSchedulesService
 
 
 class WorkflowsManagementService(BaseService):
@@ -318,12 +320,41 @@ class WorkflowsManagementService(BaseService):
         return workflow
 
     async def delete_workflow(self, workflow_id: WorkflowID) -> None:
+        """Delete a workflow and clean up associated resources.
+
+        This method ensures that Temporal schedules are properly deleted
+        before the database cascade deletion occurs.
+        """
         statement = select(Workflow).where(
             Workflow.owner_id == self.role.workspace_id,
             Workflow.id == workflow_id,
         )
         result = await self.session.exec(statement)
         workflow = result.one()
+
+        # Clean up Temporal schedules before cascade deletion
+        # This prevents orphaned schedules in Temporal
+        schedule_service = WorkflowSchedulesService(self.session, role=self.role)
+        schedules = await schedule_service.list_schedules(workflow_id)
+
+        for schedule in schedules:
+            try:
+                await bridge.delete_schedule(schedule.id)
+                self.logger.info(
+                    "Deleted Temporal schedule during workflow cleanup",
+                    schedule_id=schedule.id,
+                    workflow_id=workflow_id,
+                )
+            except Exception as e:
+                # Log but don't fail the entire workflow deletion
+                self.logger.warning(
+                    "Failed to delete Temporal schedule during workflow cleanup",
+                    schedule_id=schedule.id,
+                    workflow_id=workflow_id,
+                    error=str(e),
+                )
+
+        # Now delete the workflow (cascade will handle database schedule cleanup)
         await self.session.delete(workflow)
         await self.session.commit()
 
