@@ -75,4 +75,4 @@ def decrypt_value(encrypted_value: bytes, *, key: str) -> bytes:
 
 def is_set(value: bytes) -> bool:
     """True when ciphertext is not empty."""
-    return value != b""
+    return bool(value)
