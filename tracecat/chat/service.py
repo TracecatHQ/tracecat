@@ -119,7 +119,7 @@ class ChatService(BaseWorkspaceService):
 
             # Handle case where stream doesn't exist or has expired
             if not messages:
-                logger.info(
+                logger.debug(
                     "No messages found in Redis stream (may have expired)",
                     stream_key=stream_key,
                     chat_id=chat.id,
