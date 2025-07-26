@@ -887,17 +887,15 @@ async def generate_presigned_download_url(
                 Params=params,
                 ExpiresIn=expiry,
             )
-            internal_endpoint = config.TRACECAT__BLOB_STORAGE_ENDPOINT.rstrip("/")
-            if (
-                config.TRACECAT__BLOB_STORAGE_PROTOCOL == "minio"
-                and config.TRACECAT__IS_INTERNAL_MINIO_ENDPOINT
-                and url.startswith(internal_endpoint)
-            ):
-                public_prefix = f"{config.TRACECAT__PUBLIC_APP_URL}/s3"
-                url = url.replace(internal_endpoint, public_prefix, 1)
+            if config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT is not None:
+                url = url.replace(
+                    config.TRACECAT__BLOB_STORAGE_ENDPOINT,
+                    config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT,
+                )
 
-            logger.debug(
+            logger.info(
                 "Generated presigned download URL",
+                url=url,
                 key=key,
                 bucket=bucket,
                 expiry=expiry,

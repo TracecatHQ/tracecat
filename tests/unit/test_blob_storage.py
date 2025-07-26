@@ -773,7 +773,9 @@ class TestSecurityHardening:
         # Setup configuration
         mock_config.TRACECAT__PUBLIC_APP_URL = "http://localhost"
         mock_config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY = 10
-        mock_config.TRACECAT__IS_INTERNAL_MINIO_ENDPOINT = True
+        mock_config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT = (
+            "http://localhost/s3"
+        )
         mock_config.TRACECAT__BLOB_STORAGE_PROTOCOL = "minio"
         mock_config.TRACECAT__BLOB_STORAGE_ENDPOINT = "http://minio:9000"
 

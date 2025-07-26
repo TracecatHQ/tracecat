@@ -450,6 +450,7 @@ export function CaseAttachmentsSection({
       const link = document.createElement("a")
       link.href = downloadUrl
       link.download = attachment.file_name
+      link.rel = "noopener"
       link.style.display = "none"
 
       document.body.appendChild(link)

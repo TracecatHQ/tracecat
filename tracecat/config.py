@@ -230,6 +230,11 @@ TRACECAT__BLOB_STORAGE_ENDPOINT = os.environ.get(
 )
 """Endpoint URL for blob storage. Ignored when protocol is 's3'."""
 
+TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT = os.environ.get(
+    "TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT", None
+)
+"""Public endpoint URL to use for presigned URLs. Ignored when protocol is 's3'."""
+
 TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY = int(
     os.environ.get("TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY", 10)
 )
@@ -240,11 +245,6 @@ TRACECAT__DISABLE_PRESIGNED_URL_IP_CHECKING = (
     == "true"
 )
 """Disable client IP checking for presigned URLs. Set to false for production with public S3, true for local MinIO (default: true)."""
-
-TRACECAT__IS_INTERNAL_MINIO_ENDPOINT = os.environ.get(
-    "TRACECAT__IS_INTERNAL_MINIO_ENDPOINT", "true"
-).lower() in ("true", "1")
-"""Whether the MinIO endpoint is internal or external. If true, the presigned URL will be replaced with the public endpoint."""
 
 # === Local registry === #
 TRACECAT__LOCAL_REPOSITORY_ENABLED = os.getenv(
