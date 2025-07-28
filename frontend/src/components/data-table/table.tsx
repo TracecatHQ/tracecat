@@ -125,6 +125,12 @@ export function DataTable<TData, TValue>({
       columnVisibility,
       rowSelection,
       columnFilters,
+      ...(serverSidePagination && {
+        pagination: {
+          pageIndex: serverSidePagination.currentPage,
+          pageSize: serverSidePagination.pageSize,
+        },
+      }),
     },
     initialState: {
       pagination: {
@@ -143,14 +149,9 @@ export function DataTable<TData, TValue>({
     getSortedRowModel: getSortedRowModel(),
     getFacetedRowModel: getFacetedRowModel(),
     getFacetedUniqueValues: getFacetedUniqueValues(),
+    manualPagination: !!serverSidePagination,
+    pageCount: serverSidePagination ? -1 : undefined,
   })
-
-  React.useEffect(() => {
-    if (serverSidePagination) {
-      table.setPageSize(serverSidePagination.pageSize)
-      table.setPageIndex(serverSidePagination.currentPage)
-    }
-  }, [serverSidePagination])
 
   // Notify parent of selection changes
   React.useEffect(() => {
