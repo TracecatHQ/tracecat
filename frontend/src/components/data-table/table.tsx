@@ -316,48 +316,48 @@ function TableContents<TData>({
     <>
       {table.getRowModel().rows.map((row) => {
         const href = getRowHref?.(row)
-        const rowContent = row.getVisibleCells().map((cell) => {
-          const isActionsCol =
-            cell.column.id?.toString().toLowerCase() === "actions"
-
-          const content = flexRender(
-            cell.column.columnDef.cell,
-            cell.getContext()
-          )
-
-          return (
-            <TableCell key={cell.id} className={cn(isActionsCol && "p-2")}>
-              {isActionsCol ? (
-                <div className="flex justify-end">{content}</div>
-              ) : (
-                content
-              )}
-            </TableCell>
-          )
-        })
-
-        if (href) {
-          return (
-            <Link
-              key={row.id}
-              href={href}
-              prefetch={false}
-              className="table-row cursor-pointer h-8 min-h-8 border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted [tbody_&:last-child]:border-0"
-              data-state={row.getIsSelected() ? "selected" : undefined}
-            >
-              {rowContent}
-            </Link>
-          )
-        }
 
         return (
           <TableRow
             key={row.id}
             data-state={row.getIsSelected() && "selected"}
-            onClick={onClickRow?.(row)}
+            onClick={!href ? onClickRow?.(row) : undefined}
             className="cursor-pointer"
           >
-            {rowContent}
+            {row.getVisibleCells().map((cell) => {
+              const isActionsCol =
+                cell.column.id?.toString().toLowerCase() === "actions"
+
+              const content = flexRender(
+                cell.column.columnDef.cell,
+                cell.getContext()
+              )
+
+              // For action columns, don't wrap in Link
+              if (isActionsCol || !href) {
+                return (
+                  <TableCell
+                    key={cell.id}
+                    className={cn(isActionsCol && "p-2")}
+                  >
+                    {isActionsCol ? (
+                      <div className="flex justify-end">{content}</div>
+                    ) : (
+                      content
+                    )}
+                  </TableCell>
+                )
+              }
+
+              // For regular cells with href, wrap content in Link
+              return (
+                <TableCell key={cell.id}>
+                  <Link href={href} prefetch={false} className="block -m-2 p-2">
+                    {content}
+                  </Link>
+                </TableCell>
+              )
+            })}
           </TableRow>
         )
       })}
