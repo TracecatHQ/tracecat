@@ -38,4 +38,4 @@ definition:
             commandType: DEVICE_LOCK
             message: ${{ inputs.message }}
             pin: ${{ inputs.pin }}
-  returns: ${{ steps.post_mdm_command.result }}
+  returns: ${{ steps.post_mdm_command.result.data }}

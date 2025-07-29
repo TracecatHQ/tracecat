@@ -29,4 +29,4 @@ definition:
           authorization: Bearer ${{ steps.get_access_token.result }}
         params:
           page-size: ${{ inputs.limit }}
-  returns: ${{ steps.list_inventory.result }}
+  returns: ${{ steps.list_inventory.result.data }}
