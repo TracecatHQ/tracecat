@@ -87,4 +87,4 @@ definition:
           password: ${{ SECRETS.jira.JIRA_API_TOKEN }}
         payload:
           fields: ${{ steps.fields.result }}
-  returns: ${{ steps.create_issue.result }}
+  returns: ${{ steps.create_issue.result.data }}

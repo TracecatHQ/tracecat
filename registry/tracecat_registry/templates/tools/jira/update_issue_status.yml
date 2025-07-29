@@ -31,4 +31,4 @@ definition:
         payload:
           transition:
             id: ${{ inputs.transition_id }}
-  returns: ${{ steps.update_issue.result }}
+  returns: ${{ steps.update_issue.result.data }}
