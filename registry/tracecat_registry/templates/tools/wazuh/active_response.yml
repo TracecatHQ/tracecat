@@ -45,4 +45,4 @@ definition:
         payload:
           command: ${{ inputs.command }}
         verify_ssl: ${{ inputs.verify_ssl  }}
-  returns: ${{ steps.run_active_response.result }}
+  returns: ${{ steps.run_active_response.result.data }}
