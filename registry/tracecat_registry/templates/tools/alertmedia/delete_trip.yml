@@ -27,6 +27,4 @@ definition:
         method: DELETE
         headers:
           Authorization: Bearer ${{ SECRETS.alertmedia.ALERTMEDIA_API_KEY }}
-  returns:
-    error: ${{ steps.delete_trip.result.data }}
-    status: ${{ steps.delete_trip.result.status_code }}
+  returns: ${{ steps.delete_trip.result.data }}

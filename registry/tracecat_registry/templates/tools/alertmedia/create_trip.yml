@@ -65,5 +65,4 @@ definition:
             country: ${{ inputs.country_code }}
             latitude: ${{ inputs.latitude }}
             longitude: ${{ inputs.longitude }}
-
   returns: ${{ steps.create_trip.result.data }}
