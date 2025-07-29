@@ -1,0 +1,42 @@
+type: action
+definition:
+  title: List users
+  description: List all users in your Okta organization with optional filtering and search.
+  display_group: Okta
+  doc_url: https://developer.okta.com/docs/reference/api/users/#list-users
+  namespace: tools.okta
+  name: list_users
+  secrets:
+    - name: okta
+      keys: ["OKTA_API_TOKEN"]
+  expects:
+    base_url:
+      type: str
+      description: Okta domain base URL (e.g., 'https://dev-12345.okta.com')
+    limit:
+      type: int
+      description: Number of users to return (default 200)
+      default: 200
+    filter:
+      type: str | null
+      description: Filter expression for users
+      default: null
+    after:
+      type: int | null
+      description: Result to start from
+      default: null
+  steps:
+    - ref: list_users
+      action: core.http_request
+      args:
+        method: GET
+        url: ${{ inputs.base_url }}/api/v1/users
+        headers:
+          Authorization: "SSWS ${{ SECRETS.okta.OKTA_API_TOKEN }}"
+          Accept: "application/json"
+          Content-Type: "application/json"
+        params:
+          limit: ${{ inputs.limit }}
+          filter: ${{ inputs.filter }}
+          after: ${{ inputs.after }}
+  returns: ${{ steps.list_users.result.data }}
