@@ -141,6 +141,16 @@ For example:
 - `description`: Query for Crowdstrike alerts via the Falcon SIEM API.
 - `namespace`: `tools.crowdstrike`
 
+### Integrations conventions
+
+- REST API integrations should use the `http_request` or `http_poll` action in a template as the preferred method for calling the API.
+- REST API integrations should return the `.data` field from `http_request` action result.
+- `.headers` field should be ignored unless they are required by downstream actions.
+- `expects` arguments should be normalized into lower snake_case.
+- New integrations should follow the naming conventions of existing integrations.
+- Out-of-the-box integrations should be designed for practitioners and AI to use and understand, not developers.
+- Paginated APIs should use the `http_paginate` action to paginate through and return all the results up to a limit.
+
 ### Testing
 
 Though we run tests in GitHub Actions, we highly recommend testing locally to speed up development.
