@@ -1,0 +1,29 @@
+type: action
+definition:
+  title: Check email for pastes
+  description: Check if an email address has been found in any pastes.
+  display_group: Have I Been Pwned
+  doc_url: https://haveibeenpwned.com/API/v3#PastesForAccount
+  namespace: tools.hibp
+  name: check_email_pastes
+  secrets:
+    - name: hibp
+      keys: ["HIBP_API_KEY"]
+  expects:
+    email:
+      type: str
+      description: Email address to check for pastes.
+  steps:
+    - ref: encode_email
+      action: core.transform.reshape
+      args:
+        value: ${{ FN.url_encode(inputs.email) }}
+    - ref: call_api
+      action: core.http_request
+      args:
+        url: https://haveibeenpwned.com/api/v3/pasteaccount/${{ steps.encode_email.result }}
+        method: GET
+        headers:
+          hibp-api-key: ${{ SECRETS.hibp.HIBP_API_KEY }}
+          User-Agent: Tracecat-HIBP-Integration
+  returns: ${{ steps.call_api.result.data }}

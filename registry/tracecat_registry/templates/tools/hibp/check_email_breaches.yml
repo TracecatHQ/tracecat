@@ -1,0 +1,41 @@
+type: action
+definition:
+  title: Check email for breaches
+  description: Check if an email address has been compromised in known data breaches.
+  display_group: Have I Been Pwned
+  doc_url: https://haveibeenpwned.com/API/v3#BreachesForAccount
+  namespace: tools.hibp
+  name: check_email_breaches
+  secrets:
+    - name: hibp
+      keys: ["HIBP_API_KEY"]
+  expects:
+    email:
+      type: str
+      description: Email address to check for breaches.
+    truncate_response:
+      type: bool
+      description: Return only breach names (True) or full breach details (False).
+      default: true
+    include_unverified:
+      type: bool
+      description: Include unverified breaches in results.
+      default: true
+    domain_filter:
+      type: str | None
+      description: Filter results to only breaches from this domain.
+      default: null
+  steps:
+    - ref: call_api
+      action: core.http_request
+      args:
+        url: https://haveibeenpwned.com/api/v3/breachedaccount/${{ FN.url_encode(inputs.email) }}
+        method: GET
+        headers:
+          hibp-api-key: ${{ SECRETS.hibp.HIBP_API_KEY }}
+          User-Agent: Tracecat-HIBP-Integration
+        params:
+          truncateResponse: ${{ FN.lowercase(str(inputs.truncate_response)) }}
+          includeUnverified: ${{ FN.lowercase(str(inputs.include_unverified)) }}
+          domain: ${{ inputs.domain_filter }}
+  returns: ${{ steps.call_api.result.data }}

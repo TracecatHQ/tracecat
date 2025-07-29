@@ -1,0 +1,17 @@
+type: action
+definition:
+  title: Get data classes
+  description: Get all data classes in the system.
+  display_group: Have I Been Pwned
+  doc_url: https://haveibeenpwned.com/API/v3#DataClasses
+  namespace: tools.hibp
+  name: get_data_classes
+  steps:
+    - ref: call_api
+      action: core.http_request
+      args:
+        url: https://haveibeenpwned.com/api/v3/dataclasses
+        method: GET
+        headers:
+          User-Agent: Tracecat-HIBP-Integration
+  returns: ${{ steps.call_api.result.data }}
