@@ -28,4 +28,4 @@ definition:
         params:
           v: ${{ inputs.verbose }}
           format: json
-  returns: ${{ steps.list_indices_request.result }}
+  returns: ${{ steps.list_indices_request.result.data }}

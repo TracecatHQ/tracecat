@@ -1,10 +1,10 @@
 type: action
 definition:
-  title: Search across indices
-  description: Search across all indices using the _search API.
+  title: Search events
+  description: Search data streams and indices in Elasticsearch using the _search API.
   display_group: Elasticsearch
   namespace: tools.elasticsearch
-  name: search_all_indices
+  name: search_events
   secrets:
     - name: elasticsearch
       keys:
@@ -13,9 +13,13 @@ definition:
     base_url:
       type: str
       description: Elasticsearch base URL (e.g. https://your-cluster.es.io:443).
+    index:
+      type: str
+      description: Name of the index to search in. Default is all indices.
+      default: "_all"
     query:
       type: dict[str, any]
-      description: Elasticsearch query object (just the query part, not the complete request body).
+      description: Elasticsearch query object
     from:
       type: int
       description: Starting document offset (default is 0).
@@ -44,14 +48,6 @@ definition:
       type: bool
       description: Continue search if some indices are missing or closed.
       default: false
-    allow_no_indices:
-      type: bool
-      description: Allow requests that don't match any indices.
-      default: true
-    expand_wildcards:
-      type: str
-      description: Types of indices wildcard patterns can match (open,closed,hidden).
-      default: "open"
     source_fields:
       type: list[str]
       description: Source fields to return (improves performance, reduces data exposure).
@@ -60,7 +56,7 @@ definition:
     - ref: search_request
       action: core.http_request
       args:
-        url: ${{ inputs.base_url }}/_search
+        url: ${{ inputs.base_url }}/${{ inputs.index }}/_search
         method: GET
         headers:
           Authorization: ApiKey ${{ SECRETS.elasticsearch.ELASTICSEARCH_API_KEY }}
@@ -73,8 +69,6 @@ definition:
           track_total_hits: ${{ inputs.track_total_hits }}
           terminate_after: ${{ inputs.terminate_after }}
           ignore_unavailable: ${{ inputs.ignore_unavailable }}
-          allow_no_indices: ${{ inputs.allow_no_indices }}
-          expand_wildcards: ${{ inputs.expand_wildcards }}
           _source: ${{ inputs.source_fields }}
         payload: ${{ inputs.query }}
-  returns: ${{ steps.search_request.result }}
+  returns: ${{ steps.search_request.result.data }}
