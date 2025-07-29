@@ -149,15 +149,14 @@ just gen-functions
 - **Templates**: `registry/tracecat_registry/templates/` - YAML-based integration templates
 - **Schemas**: `registry/tracecat_registry/schemas/` - Response schemas for consistent APIs
 - **Integrations**: `registry/tracecat_registry/integrations/` - Python client integrations
+- **Reference file**: `tracecat/expressions/expectations.py` – Source of primitive type mappings (e.g., `str`, `int`, `Any`) used when defining `expects:` sections in templates.
 - **Naming**: `tools.{integration_name}` namespace, titles < 5 words
 
 ### Template Best Practices
 - **URL Encoding**: Use `${{ FN.url_encode(inputs.param) }}` when interpolating user inputs into URL paths (especially for IDs that might be emails)
 - **Type Syntax**: Use `str | None` instead of `str | null` for optional types
-- **Type Names**: Use lowercase `any` instead of `Any` in type annotations
 - **GET Requests**: Don't include `Content-Type` header on GET requests
 - **Optional Parameters**: Use `core.script.run_python` to conditionally build params dict, excluding null values
-- **Pagination**: Okta uses cursor-based pagination - `after` parameter should be `str | None`, not `int`
 - **Response Format**: Return `${{ steps.step_name.result.data }}` directly, avoid custom response formatting
 - **Error Handling**: Let the platform handle HTTP errors, don't add custom error checking unless necessary
 
