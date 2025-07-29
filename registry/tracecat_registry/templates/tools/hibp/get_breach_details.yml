@@ -14,7 +14,7 @@ definition:
     - ref: call_api
       action: core.http_request
       args:
-        url: https://haveibeenpwned.com/api/v3/breach/${{ inputs.breach_name }}
+        url: https://haveibeenpwned.com/api/v3/breach/${{ FN.url_encode(inputs.breach_name) }}
         method: GET
         headers:
           User-Agent: Tracecat-HIBP-Integration
