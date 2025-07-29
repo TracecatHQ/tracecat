@@ -30,6 +30,4 @@ definition:
           password: ${{ SECRETS.jira.JIRA_API_TOKEN }}
         payload:
           accountId: ${{ inputs.user_id }}
-  returns:
-    error: ${{ steps.assign_issue.result.data }}
-    status: ${{ steps.assign_issue.result.status_code }}
+  returns: ${{ steps.assign_issue.result.data }}
