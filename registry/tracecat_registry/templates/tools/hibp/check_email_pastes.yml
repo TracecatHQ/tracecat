@@ -14,14 +14,10 @@ definition:
       type: str
       description: Email address to check for pastes.
   steps:
-    - ref: encode_email
-      action: core.transform.reshape
-      args:
-        value: ${{ FN.url_encode(inputs.email) }}
     - ref: call_api
       action: core.http_request
       args:
-        url: https://haveibeenpwned.com/api/v3/pasteaccount/${{ steps.encode_email.result }}
+        url: https://haveibeenpwned.com/api/v3/pasteaccount/${{ FN.url_encode(inputs.email) }}
         method: GET
         headers:
           hibp-api-key: ${{ SECRETS.hibp.HIBP_API_KEY }}

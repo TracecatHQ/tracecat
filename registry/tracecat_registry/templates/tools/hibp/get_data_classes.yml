@@ -6,6 +6,7 @@ definition:
   doc_url: https://haveibeenpwned.com/API/v3#DataClasses
   namespace: tools.hibp
   name: get_data_classes
+  expects: {}
   steps:
     - ref: call_api
       action: core.http_request

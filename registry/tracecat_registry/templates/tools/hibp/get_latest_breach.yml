@@ -6,6 +6,7 @@ definition:
   doc_url: https://haveibeenpwned.com/API/v3#LatestBreach
   namespace: tools.hibp
   name: get_latest_breach
+  expects: {}
   steps:
     - ref: call_api
       action: core.http_request
