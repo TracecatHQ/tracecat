@@ -21,4 +21,4 @@ definition:
         method: GET
         headers:
           x-apikey: ${{ SECRETS.virustotal.VIRUSTOTAL_API_KEY }}
-  returns: ${{ steps.get_domain_report.result }}
+  returns: ${{ steps.get_domain_report.result.data }}

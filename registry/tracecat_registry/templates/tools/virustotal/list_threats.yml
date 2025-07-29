@@ -28,4 +28,4 @@ definition:
         params:
           filter: ${{ inputs.filter }}
           limit: ${{ inputs.limit }}
-  returns: ${{ steps.list_threats.result }}
+  returns: ${{ steps.list_threats.result.data }}
