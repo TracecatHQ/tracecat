@@ -55,4 +55,4 @@ definition:
           end: ${{ inputs.end_time }}
           query: ${{ inputs.query || steps.search_query.result }}
           size: ${{ inputs.limit }}
-  returns: ${{ steps.query_detection_alerts.result }}
+  returns: ${{ steps.query_detection_alerts.result.data }}
