@@ -1,0 +1,83 @@
+type: action
+definition:
+  title: List KV entries
+  description: List entries in a KV Store collection from Splunk.
+  display_group: Splunk
+  doc_url: https://help.splunk.com/en/splunk-enterprise/rest-api-reference/9.4/kv-store-endpoints/kv-store-endpoint-descriptions#get-6
+  namespace: tools.splunk
+  name: list_kv_entries
+  secrets:
+    - name: splunk
+      keys: ["SPLUNK_API_KEY"]
+  expects:
+    collection:
+      type: str
+      description: Name of the KV Store collection to list entries from.
+    base_url:
+      type: str
+      description: Splunk base URL (e.g. https://localhost:8089 or https://tracecat.splunkcloud.com:8089).
+    owner:
+      type: str
+      description: Splunk namespace owner for access control (use "nobody" for shared access).
+      default: nobody
+    app:
+      type: str
+      description: Splunk app context where the collection resides (e.g. "search" for default).
+      default: search
+    limit:
+      type: int
+      description: Maximum number of entries to return.
+      default: 100
+    offset:
+      type: int
+      description: Number of entries to skip for pagination.
+      default: 0
+    sort:
+      type: str
+      description: Field to sort entries by.
+      default: _key
+    skip:
+      type: int
+      description: Number of items to skip from the start (alternative to offset).
+      default: 0
+    query:
+      type: dict[str, any]
+      description: |
+        MongoDB-style query to filter entries.
+        Supported operators:
+        - Conditional: $gt, $gte, $lt, $lte, $ne
+        - Regex: $regex
+        - Logical: $and, $or, $not
+        Examples:
+        - {"title": "Item"} - Find entries where title equals "Item"
+        - {"price": {"$gt": 5}} - Find entries where price > 5
+        - {"ip": {"$regex": "192.168.1.*"}} - Find entries matching IP pattern
+      default: {}
+    shared:
+      type: bool
+      description: Include entries from both specified owner and "nobody" user.
+      default: false
+    verify_ssl:
+      type: bool
+      description: Whether to verify SSL certificates.
+      default: true
+  steps:
+    - ref: list_entries
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/servicesNS/${{ inputs.owner }}/${{ inputs.app }}/storage/collections/data/${{ inputs.collection }}
+        method: GET
+        verify_ssl: ${{ inputs.verify_ssl }}
+        headers:
+          Authorization: Bearer ${{ SECRETS.splunk.SPLUNK_API_KEY }}
+          Content-Type: application/json
+          Accept: application/json
+        params:
+          limit: ${{ inputs.limit }}
+          sort: ${{ inputs.sort }}
+          skip: ${{ inputs.skip }}
+          query: ${{ inputs.query }}
+          shared: ${{ inputs.shared }}
+          offset: ${{ inputs.offset }}
+          output_mode: json
+  returns: ${{ steps.list_entries.result.data }}

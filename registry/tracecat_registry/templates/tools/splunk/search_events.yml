@@ -1,7 +1,7 @@
 type: action
 definition:
   title: Search events
-  description: Search events from Splunk. Uses bearer token authentication.
+  description: Search events from Splunk.
   display_group: Splunk
   doc_url: https://docs.splunk.com/Documentation/Splunk/9.4.1/RESTREF/RESTsearch#search.2Fjobs
   name: search_events

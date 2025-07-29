@@ -1,0 +1,61 @@
+type: action
+definition:
+  title: Add fields to collection
+  description: Add field definitions to a KV Store collection in Splunk.
+  display_group: Splunk
+  doc_url: https://help.splunk.com/en/splunk-enterprise/rest-api-reference/9.4/kv-store-endpoints/kv-store-endpoint-descriptions#post-9
+  namespace: tools.splunk
+  name: add_kv_fields
+  secrets:
+    - name: splunk
+      keys: ["SPLUNK_API_KEY"]
+  expects:
+    collection:
+      type: str
+      description: |
+        Name of the KV Store collection to add fields to. Must be unique and
+        contain only alphanumeric characters, underscores, and hyphens.
+    fields:
+      type: list[dict[str, str]]
+      description: |
+        List of field definitions to add. Each field requires name and type.
+        Supported types: array, number, bool, string, cidr, time
+        Example: [{"name": "username", "type": "string"}, {"name": "age", "type": "number"}]
+    base_url:
+      type: str
+      description: Splunk base URL (e.g. https://localhost:8089 or https://tracecat.splunkcloud.com:8089).
+    owner:
+      type: str
+      description: Splunk namespace owner for access control (use "nobody" for shared access).
+      default: nobody
+    app:
+      type: str
+      description: Splunk app context where the collection resides (e.g. "search" for default).
+      default: search
+    verify_ssl:
+      type: bool
+      description: Whether to verify SSL certificates.
+      default: true
+  steps:
+    - ref: prepare_fields
+      action: core.script.run_python
+      args:
+        inputs:
+          fields: ${{ inputs.fields }}
+        script: |
+          def main(fields):
+            payload = {"output_mode": "json"}
+            for field in fields:
+              payload[f"field.{field['name']}"] = field['type']
+            return payload
+    - ref: add_fields
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/servicesNS/${{ inputs.owner }}/${{ inputs.app }}/storage/collections/config/${{ inputs.collection }}
+        method: POST
+        verify_ssl: ${{ inputs.verify_ssl }}
+        headers:
+          Authorization: Bearer ${{ SECRETS.splunk.SPLUNK_API_KEY }}
+          Content-Type: application/x-www-form-urlencoded
+        form_data: ${{ steps.prepare_fields.result }}
+  returns: ${{ steps.add_fields.result.data }}
