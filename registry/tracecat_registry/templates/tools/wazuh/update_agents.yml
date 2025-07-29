@@ -54,4 +54,4 @@ definition:
         headers:
           Authorization: Bearer ${{ steps.get_access_token.result }}
         verify_ssl: ${{ inputs.verify_ssl  }}
-  returns: ${{ steps.upgrade_result.result }}
+  returns: ${{ steps.upgrade_result.result.data }}
