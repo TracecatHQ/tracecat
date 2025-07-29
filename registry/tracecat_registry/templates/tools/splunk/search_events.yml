@@ -15,10 +15,10 @@ definition:
       type: str
       description: Splunk (Splunk Query Language) search query.
     start_time:
-      type: datetime
+      type: datetime | str
       description: Start time for the search.
     end_time:
-      type: datetime
+      type: datetime | str
       description: End time for the search.
     limit:
       type: int
