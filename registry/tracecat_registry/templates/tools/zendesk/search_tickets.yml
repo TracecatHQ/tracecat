@@ -1,0 +1,72 @@
+type: action
+definition:
+  title: Search Zendesk
+  description: Search Zendesk using search query syntax.
+  display_group: Zendesk
+  doc_url: https://developer.zendesk.com/api-reference/ticketing/ticket-management/search/#list-search-results
+  namespace: tools.zendesk
+  name: search_tickets
+  secrets:
+    - name: zendesk
+      keys: ["ZENDESK_EMAIL", "ZENDESK_API_TOKEN"]
+  expects:
+    subdomain:
+      type: str
+      description: Your Zendesk subdomain (e.g., 'company' for company.zendesk.com)
+    query:
+      type: str
+      description: Search query using Zendesk search syntax. Default type:ticket -status:solved -status:closed
+      default: "type:ticket -status:solved -status:closed"
+    sort_by:
+      type: str | None
+      description: Field to sort results by (created_at, updated_at, priority, status, ticket_type)
+      default: null
+    sort_order:
+      type: str | None
+      description: Sort order (asc, desc)
+      default: null
+    page:
+      type: int | None
+      description: Page number for pagination (1-based)
+      default: null
+    per_page:
+      type: int
+      description: Number of results per page (max 100)
+      default: 100
+  steps:
+    - ref: encode_auth
+      action: core.transform.reshape
+      args:
+        value: ${{ FN.to_base64(SECRETS.zendesk.ZENDESK_EMAIL + "/token:" + SECRETS.zendesk.ZENDESK_API_TOKEN) }}
+    - ref: build_params
+      action: core.script.run_python
+      args:
+        inputs:
+          query: ${{ inputs.query }}
+          per_page: ${{ FN.max(1, FN.min(inputs.per_page, 100)) }}
+          sort_by: ${{ inputs.sort_by }}
+          sort_order: ${{ inputs.sort_order }}
+          page: ${{ inputs.page }}
+        script: |
+          def main(query, per_page, sort_by, sort_order, page):
+              params = {
+                  "query": query,
+                  "per_page": per_page
+              }
+              if sort_by is not None:
+                  params["sort_by"] = sort_by
+              if sort_order is not None:
+                  params["sort_order"] = sort_order
+              if page is not None:
+                  params["page"] = page
+              return params
+    - ref: call_api
+      action: core.http_request
+      args:
+        url: https://${{ inputs.subdomain }}.zendesk.com/api/v2/search.json
+        method: GET
+        headers:
+          Authorization: Basic ${{ steps.encode_auth.result }}
+          Accept: application/json
+        params: ${{ steps.build_params.result }}
+  returns: ${{ steps.call_api.result.data }}
