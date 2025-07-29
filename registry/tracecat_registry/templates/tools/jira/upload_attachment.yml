@@ -41,4 +41,4 @@ definition:
             filename: ${{ inputs.filename }}
             content_base64: ${{ inputs.base64_content }}
             content_type: ${{ inputs.content_type }}
-  returns: ${{ steps.upload_attachment.result }}
+  returns: ${{ steps.upload_attachment.result.data }}

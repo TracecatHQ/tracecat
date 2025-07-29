@@ -38,4 +38,4 @@ definition:
                   content:
                     - type: text
                       text: ${{ inputs.description }}
-  returns: ${{ steps.update_issue.result }}
+  returns: ${{ steps.update_issue.result.data }}

@@ -42,4 +42,4 @@ definition:
           password: ${{ SECRETS.jira.JIRA_API_TOKEN }}
         payload:
           fields: ${{ FN.merge(inputs.fields) }}
-  returns: ${{ steps.update_issue.result }}
+  returns: ${{ steps.update_issue.result.data }}

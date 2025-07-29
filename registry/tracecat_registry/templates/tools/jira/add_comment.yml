@@ -37,4 +37,4 @@ definition:
                 content:
                   - type: text
                     text: ${{ inputs.comment }}
-  returns: ${{ steps.add_comment.result }}
+  returns: ${{ steps.add_comment.result.data }}
