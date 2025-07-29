@@ -525,6 +525,8 @@ class TestS3Operations:
         # Mock config
         mock_config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY = 10
         mock_config.TRACECAT__PUBLIC_APP_URL = "http://localhost"
+        mock_config.TRACECAT__BLOB_STORAGE_ENDPOINT = "http://minio:9000"
+        mock_config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT = None
 
         mock_client = AsyncMock()
         mock_get_client.return_value.__aenter__.return_value = mock_client
@@ -557,6 +559,8 @@ class TestS3Operations:
         # Mock config
         mock_config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY = 10
         mock_config.TRACECAT__PUBLIC_APP_URL = "http://localhost"
+        mock_config.TRACECAT__BLOB_STORAGE_ENDPOINT = "http://minio:9000"
+        mock_config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT = None
 
         mock_client = AsyncMock()
         mock_get_client.return_value.__aenter__.return_value = mock_client
@@ -590,6 +594,8 @@ class TestS3Operations:
         # Mock config
         mock_config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY = 10
         mock_config.TRACECAT__PUBLIC_APP_URL = "http://localhost"
+        mock_config.TRACECAT__BLOB_STORAGE_ENDPOINT = "http://minio:9000"
+        mock_config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT = None
 
         mock_client = AsyncMock()
         mock_get_client.return_value.__aenter__.return_value = mock_client
@@ -808,6 +814,8 @@ class TestSecurityHardening:
         # Mock config
         mock_config.TRACECAT__PUBLIC_APP_URL = "http://localhost"
         mock_config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY = 10
+        mock_config.TRACECAT__BLOB_STORAGE_ENDPOINT = "http://minio:9000"
+        mock_config.TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT = None
 
         # Setup mock client
         mock_client = AsyncMock()
