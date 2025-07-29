@@ -25,10 +25,4 @@ definition:
         headers:
           Authorization: "SSWS ${{ SECRETS.okta.OKTA_API_TOKEN }}"
           Accept: "application/json"
-          Content-Type: "application/json"
-    - ref: format_response
-      action: core.transform.reshape
-      args:
-        value:
-          message: "User sessions cleared successfully"
-  returns: ${{ steps.format_response.result }}
+  returns: ${{ steps.clear_sessions.result.data }}

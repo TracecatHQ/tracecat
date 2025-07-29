@@ -18,14 +18,29 @@ definition:
       description: Number of users to return (default 200)
       default: 200
     filter:
-      type: str | null
+      type: str | None
       description: Filter expression for users
       default: null
     after:
-      type: int | null
-      description: Result to start from
+      type: str | None
+      description: Pagination cursor to start from
       default: null
   steps:
+    - ref: build_params
+      action: core.script.run_python
+      args:
+        inputs:
+          limit: ${{ inputs.limit }}
+          filter: ${{ inputs.filter }}
+          after: ${{ inputs.after }}
+        script: |
+          def main(limit, filter, after):
+              params = {"limit": limit}
+              if filter is not None:
+                  params["filter"] = filter
+              if after is not None:
+                  params["after"] = after
+              return params
     - ref: list_users
       action: core.http_request
       args:
@@ -34,9 +49,5 @@ definition:
         headers:
           Authorization: "SSWS ${{ SECRETS.okta.OKTA_API_TOKEN }}"
           Accept: "application/json"
-          Content-Type: "application/json"
-        params:
-          limit: ${{ inputs.limit }}
-          filter: ${{ inputs.filter }}
-          after: ${{ inputs.after }}
+        params: ${{ steps.build_params.result }}
   returns: ${{ steps.list_users.result.data }}

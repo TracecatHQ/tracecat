@@ -20,7 +20,7 @@ definition:
       type: str
       description: Group ID to assign to the application
     priority:
-      type: int | null
+      type: int | None
       description: Priority of the group assignment (0-100)
       default: null
   steps:

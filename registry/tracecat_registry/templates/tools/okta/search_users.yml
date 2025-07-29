@@ -21,10 +21,23 @@ definition:
       description: Number of users to return (default 10)
       default: 10
     after:
-      type: int | null
-      description: Result to start from
+      type: str | None
+      description: Pagination cursor to start from
       default: null
   steps:
+    - ref: build_params
+      action: core.script.run_python
+      args:
+        inputs:
+          query: ${{ inputs.query }}
+          limit: ${{ inputs.limit }}
+          after: ${{ inputs.after }}
+        script: |
+          def main(query, limit, after):
+              params = {"search": query, "limit": limit}
+              if after is not None:
+                  params["after"] = after
+              return params
     - ref: search_users
       action: core.http_request
       args:
@@ -33,9 +46,5 @@ definition:
         headers:
           Authorization: "SSWS ${{ SECRETS.okta.OKTA_API_TOKEN }}"
           Accept: "application/json"
-          Content-Type: "application/json"
-        params:
-          search: ${{ inputs.query }}
-          limit: ${{ inputs.limit }}
-          after: ${{ inputs.after }}
+        params: ${{ steps.build_params.result }}
   returns: ${{ steps.search_users.result.data }}

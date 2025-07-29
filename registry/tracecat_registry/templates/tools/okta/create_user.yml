@@ -23,7 +23,7 @@ definition:
       type: str
       description: Last name of the new user
     login:
-      type: str | null
+      type: str | None
       description: Login for the user (defaults to email if not provided)
       default: null
     activate:
@@ -31,7 +31,7 @@ definition:
       description: Whether to activate the user immediately
       default: true
     additional_attributes:
-      type: dict[str, Any] | null
+      type: dict[str, any] | None
       description: Additional user profile attributes
       default: null
   steps:

@@ -10,12 +10,12 @@ definition:
     - name: okta
       keys: ["OKTA_API_TOKEN"]
   expects:
-    user_id:
-      type: str
-      description: User ID, login, or email of the user to retrieve
     base_url:
       type: str
       description: Okta domain base URL (e.g., 'https://dev-12345.okta.com')
+    user_id:
+      type: str
+      description: User ID, login, or email of the user to retrieve
   steps:
     - ref: get_user
       action: core.http_request
@@ -25,5 +25,4 @@ definition:
         headers:
           Authorization: "SSWS ${{ SECRETS.okta.OKTA_API_TOKEN }}"
           Accept: "application/json"
-          Content-Type: "application/json"
   returns: ${{ steps.get_user.result.data }}

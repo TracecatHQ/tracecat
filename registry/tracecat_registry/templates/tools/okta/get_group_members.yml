@@ -21,10 +21,22 @@ definition:
       description: Number of members to return (default 200)
       default: 200
     after:
-      type: int | null
-      description: Result to start from
+      type: str | None
+      description: Pagination cursor to start from
       default: null
   steps:
+    - ref: build_params
+      action: core.script.run_python
+      args:
+        inputs:
+          limit: ${{ inputs.limit }}
+          after: ${{ inputs.after }}
+        script: |
+          def main(limit, after):
+              params = {"limit": limit}
+              if after is not None:
+                  params["after"] = after
+              return params
     - ref: get_members
       action: core.http_request
       args:
@@ -33,8 +45,5 @@ definition:
         headers:
           Authorization: "SSWS ${{ SECRETS.okta.OKTA_API_TOKEN }}"
           Accept: "application/json"
-          Content-Type: "application/json"
-        params:
-          limit: ${{ inputs.limit }}
-          after: ${{ inputs.after }}
+        params: ${{ steps.build_params.result }}
   returns: ${{ steps.get_members.result.data }}
