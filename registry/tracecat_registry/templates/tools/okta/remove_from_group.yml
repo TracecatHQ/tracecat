@@ -24,14 +24,9 @@ definition:
       action: core.http_request
       args:
         method: DELETE
-        url: ${{ inputs.base_url }}/api/v1/groups/${{ inputs.group_id }}/users/${{ inputs.user_id }}
+        url: ${{ inputs.base_url }}/api/v1/groups/${{ inputs.group_id }}/users/${{ url_encode(inputs.user_id) }}
         headers:
           Authorization: "SSWS ${{ SECRETS.okta.OKTA_API_TOKEN }}"
           Accept: "application/json"
           Content-Type: "application/json"
-    - ref: format_response
-      action: core.transform.reshape
-      args:
-        value:
-          message: "User ${{ inputs.user_id }} successfully removed from group ${{ inputs.group_id }}"
-  returns: ${{ steps.format_response.result }}
+  returns: ${{ steps.remove_user.result.data }}
