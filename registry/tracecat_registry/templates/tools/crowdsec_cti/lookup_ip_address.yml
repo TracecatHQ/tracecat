@@ -23,4 +23,4 @@ definition:
         method: GET
         headers:
           x-api-key: ${{ SECRETS.crowdsec_cti.CTI_API_KEY }}
-  returns: ${{ steps.lookup_ip_address.result }}
+  returns: ${{ steps.lookup_ip_address.result.data }}
