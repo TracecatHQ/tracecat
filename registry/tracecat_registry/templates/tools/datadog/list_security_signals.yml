@@ -45,4 +45,4 @@ definition:
           page:
             limit: ${{ inputs.limit }}
           sort: timestamp
-  returns: ${{ steps.query_security_signals.result }}
+  returns: ${{ steps.query_security_signals.result.data }}
