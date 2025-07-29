@@ -24,7 +24,7 @@ definition:
       action: core.http_request
       args:
         method: PUT
-        url: ${{ inputs.base_url }}/api/v1/groups/${{ inputs.group_id }}/users/${{ url_encode(inputs.user_id) }}
+        url: ${{ inputs.base_url }}/api/v1/groups/${{ inputs.group_id }}/users/${{ FN.url_encode(inputs.user_id) }}
         headers:
           Authorization: "SSWS ${{ SECRETS.okta.OKTA_API_TOKEN }}"
           Accept: "application/json"
