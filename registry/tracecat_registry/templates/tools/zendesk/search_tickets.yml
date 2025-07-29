@@ -39,14 +39,27 @@ definition:
       args:
         value: ${{ FN.to_base64(SECRETS.zendesk.ZENDESK_EMAIL + "/token:" + SECRETS.zendesk.ZENDESK_API_TOKEN) }}
     - ref: build_params
-      action: core.transform.reshape
+      action: core.script.run_python
       args:
-        value:
+        inputs:
           query: ${{ inputs.query }}
-          per_page: ${{ FN.min(inputs.per_page, 100) }}
+          per_page: ${{ FN.max(1, FN.min(inputs.per_page, 100)) }}
           sort_by: ${{ inputs.sort_by }}
           sort_order: ${{ inputs.sort_order }}
           page: ${{ inputs.page }}
+        script: |
+          def main(query, per_page, sort_by, sort_order, page):
+              params = {
+                  "query": query,
+                  "per_page": per_page
+              }
+              if sort_by is not None:
+                  params["sort_by"] = sort_by
+              if sort_order is not None:
+                  params["sort_order"] = sort_order
+              if page is not None:
+                  params["page"] = page
+              return params
     - ref: call_api
       action: core.http_request
       args:
@@ -54,7 +67,6 @@ definition:
         method: GET
         headers:
           Authorization: Basic ${{ steps.encode_auth.result }}
-          Content-Type: application/json
           Accept: application/json
         params: ${{ steps.build_params.result }}
   returns: ${{ steps.call_api.result.data }}

@@ -13,9 +13,9 @@ definition:
     subdomain:
       type: str
       description: Your Zendesk subdomain (e.g., 'company' for company.zendesk.com)
-    recording_id:
+    call_id:
       type: str
-      description: Recording ID
+      description: Call ID
   steps:
     - ref: encode_auth
       action: core.transform.reshape
@@ -24,10 +24,9 @@ definition:
     - ref: call_api
       action: core.http_request
       args:
-        url: https://${{ inputs.subdomain }}.zendesk.com/api/v2/channels/voice/calls/${{ inputs.recording_id }}/twilio/call/recording
+        url: https://${{ inputs.subdomain }}.zendesk.com/api/v2/channels/voice/calls/${{ inputs.call_id }}/twilio/call/recording
         method: GET
         headers:
           Authorization: Basic ${{ steps.encode_auth.result }}
-          Content-Type: application/json
           Accept: application/json
   returns: ${{ steps.call_api.result.data }}

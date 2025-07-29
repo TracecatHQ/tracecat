@@ -27,11 +27,17 @@ definition:
       args:
         value: ${{ FN.to_base64(SECRETS.zendesk.ZENDESK_EMAIL + "/token:" + SECRETS.zendesk.ZENDESK_API_TOKEN) }}
     - ref: build_params
-      action: core.transform.reshape
+      action: core.script.run_python
       args:
-        value:
+        inputs:
           per_page: ${{ FN.min(inputs.per_page, 100) }}
           page: ${{ inputs.page }}
+        script: |
+          def main(per_page, page):
+              params = {"per_page": per_page}
+              if page is not None:
+                  params["page"] = page
+              return params
     - ref: call_api
       action: core.http_request
       args:
@@ -39,7 +45,6 @@ definition:
         method: GET
         headers:
           Authorization: Basic ${{ steps.encode_auth.result }}
-          Content-Type: application/json
           Accept: application/json
         params: ${{ steps.build_params.result }}
   returns: ${{ steps.call_api.result.data }}
