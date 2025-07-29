@@ -151,6 +151,16 @@ just gen-functions
 - **Integrations**: `registry/tracecat_registry/integrations/` - Python client integrations
 - **Naming**: `tools.{integration_name}` namespace, titles < 5 words
 
+### Template Best Practices
+- **URL Encoding**: Use `${{ FN.url_encode(inputs.param) }}` when interpolating user inputs into URL paths (especially for IDs that might be emails)
+- **Type Syntax**: Use `str | None` instead of `str | null` for optional types
+- **Type Names**: Use lowercase `any` instead of `Any` in type annotations
+- **GET Requests**: Don't include `Content-Type` header on GET requests
+- **Optional Parameters**: Use `core.script.run_python` to conditionally build params dict, excluding null values
+- **Pagination**: Okta uses cursor-based pagination - `after` parameter should be `str | None`, not `int`
+- **Response Format**: Return `${{ steps.step_name.result.data }}` directly, avoid custom response formatting
+- **Error Handling**: Let the platform handle HTTP errors, don't add custom error checking unless necessary
+
 ### Workflow and Execution
 - **DSL**: `tracecat/dsl/` - Domain Specific Language for workflows
 - **Executor**: `tracecat/executor/` - Action execution engine with Ray distributed computing
@@ -176,3 +186,87 @@ just gen-functions
 
 ## Services and Logging Guidelines
 - When working with live services, avoid using `just` commands. You should use `docker` commands to inspect/manage services and read logs.
+
+## Tracecat Template Best Practices
+
+### Template Structure
+- Templates are YAML files located in `registry/tracecat_registry/templates/`
+- Use namespace pattern `tools.{integration_name}` (e.g., `tools.zendesk`, `tools.okta`)
+- Action titles should be < 5 words and use "Title case example" format
+
+### Expression Syntax
+- Use `${{ }}` for template expressions
+- Boolean operators: Use `||` for OR, `&&` for AND (not Python's `or`/`and`)
+- String casting: `str()` is valid in Tracecat templates
+- All FN. functions must exist in `tracecat/expressions/functions.py`
+
+### Available Functions (FN.)
+IMPORTANT: Always check `@tracecat/expressions/functions.py` for the complete and up-to-date list of available functions. Look at the `_FUNCTION_MAPPING` dictionary (around line 905) to see all available functions and their aliases.
+
+When writing templates, ensure that any FN. function you use exists in the `_FUNCTION_MAPPING` dictionary. The function names in templates must match the dictionary keys exactly.
+
+### HTTP Requests
+- Use `core.http_request` action
+- Parameter name for JSON body is `payload` (not `json` or `json_body`)
+- Example:
+  ```yaml
+  - ref: call_api
+    action: core.http_request
+    args:
+      url: https://api.example.com/endpoint
+      method: POST
+      headers:
+        Authorization: Bearer ${{ SECRETS.api.TOKEN }}
+      payload:  # Correct parameter name
+        key: value
+  ```
+
+### Complex Logic
+- For simple conditions: Use template expressions with `||` and `&&`
+  ```yaml
+  value: ${{ inputs.login || inputs.email }}
+  ```
+- For complex logic: Use `core.script.run_python`
+  ```yaml
+  - ref: complex_logic
+    action: core.script.run_python
+    args:
+      inputs:
+        data: ${{ inputs.data }}
+      script: |
+        def main(data):
+            # Complex processing here
+            return processed_data
+  ```
+
+### Best Practices
+1. **Avoid Python syntax in expressions**: Use `||` not `or`, `&&` not `and`
+2. **Use Python scripts for complexity**: Dictionary merging, complex conditionals, data transformations
+3. **Validate function names**: Ensure all FN. functions exist in expressions/functions.py
+4. **Consistent namespaces**: Always use `tools.` prefix for integrations
+5. **Proper parameter names**: Use `payload` for JSON data in HTTP requests
+6. **Handle empty responses**: Some APIs return empty responses on success
+7. **Error handling**: Consider using Python scripts to handle edge cases
+
+### Common Patterns
+- **Authentication headers**:
+  ```yaml
+  Authorization: Basic ${{ FN.to_base64(SECRETS.creds.USERNAME + ":" + SECRETS.creds.PASSWORD) }}
+  Authorization: Bearer ${{ SECRETS.api.TOKEN }}
+  ```
+- **Conditional values**:
+  ```yaml
+  value: ${{ inputs.override || defaults.standard_value }}
+  ```
+- **Complex data merging**:
+  ```yaml
+  - ref: merge_data
+    action: core.script.run_python
+    args:
+      inputs:
+        base: ${{ inputs.base_data }}
+        updates: ${{ inputs.updates }}
+      script: |
+        def main(base, updates):
+            return {**base, **updates}
+  ```
