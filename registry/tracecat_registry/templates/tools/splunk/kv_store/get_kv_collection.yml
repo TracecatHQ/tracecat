@@ -1,0 +1,44 @@
+type: action
+definition:
+  title: Get KV collection
+  description: Get configuration details for a specific KV Store collection from Splunk.
+  display_group: Splunk
+  doc_url: https://help.splunk.com/en/splunk-enterprise/rest-api-reference/9.4/kv-store-endpoints/kv-store-endpoint-descriptions#get-5
+  namespace: tools.splunk
+  name: get_kv_collection
+  secrets:
+    - name: splunk
+      keys: ["SPLUNK_API_KEY"]
+  expects:
+    collection:
+      type: str
+      description: Name of the KV Store collection to retrieve.
+    base_url:
+      type: str
+      description: Splunk base URL (e.g. https://localhost:8089 or https://tracecat.splunkcloud.com:8089).
+    owner:
+      type: str
+      description: Splunk namespace owner for access control (use "nobody" for shared access).
+      default: nobody
+    app:
+      type: str
+      description: Splunk app context where the collection resides (e.g. "search" for default).
+      default: search
+    verify_ssl:
+      type: bool
+      description: Whether to verify SSL certificates.
+      default: true
+  steps:
+    - ref: get_collection
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/servicesNS/${{ inputs.owner }}/${{ inputs.app }}/storage/collections/config/${{ inputs.collection }}
+        method: GET
+        verify_ssl: ${{ inputs.verify_ssl }}
+        headers:
+          Authorization: Bearer ${{ SECRETS.splunk.SPLUNK_API_KEY }}
+          Content-Type: application/json
+          Accept: application/json
+        params:
+          output_mode: json
+  returns: ${{ steps.get_collection.result.data }}
