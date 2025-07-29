@@ -37,4 +37,4 @@ definition:
           body:
             filter: ${{ inputs.query || "created_timestamp:>='FN.to_isoformat(inputs.start_time)' + created_timestamp:<'FN.to_isoformat(inputs.end_time)'"  }}
             limit: ${{ inputs.limit }}
-  returns: ${{ steps.query_alerts.result }}
+  returns: ${{ steps.query_alerts.result.data }}
