@@ -34,4 +34,4 @@ definition:
             ids: ["${{ inputs.agent_id }}"]
           data:
             shouldReboot: ${{ inputs.should_reboot }}
-  returns: ${{ steps.enable_agent.result }}
+  returns: ${{ steps.enable_agent.result.data }}

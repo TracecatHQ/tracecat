@@ -34,4 +34,4 @@ definition:
           networkInterfaceInet__contains: ${{ inputs.ip_address }}
           gatewayIp: ${{ inputs.ip_address }}
           limit: ${{ inputs.limit }}
-  returns: ${{ steps.query_agents.result }}
+  returns: ${{ steps.query_agents.result.data }}

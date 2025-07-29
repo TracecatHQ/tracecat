@@ -1,11 +1,11 @@
 type: action
 definition:
-  title: Lookup agents by machine type
-  description: Find all SentinelOne agents filtered by machine type (laptop, desktop, server, etc.).
+  title: Lookup agents by MAC address
+  description: Find all SentinelOne agents by MAC address (network interface physical address or gateway MAC).
   display_group: SentinelOne
   doc_url: https://<base_url>/api-doc/api-details?category=agents&api=get-agents
   namespace: tools.sentinel_one
-  name: lookup_agent_machinetype
+  name: lookup_agent_mac_address
   secrets:
     - name: sentinel_one
       keys: ["SENTINEL_ONE_API_TOKEN"]
@@ -13,13 +13,13 @@ definition:
     base_url:
       type: str
       description: SentinelOne console base URL (e.g., https://your-tenant.sentinelone.net)
-    machine_types:
-      type: list[str]
-      description: Machine types to include (e.g., laptop, desktop, server)
-    exclude_machine_types:
-      type: list[str]
-      description: Machine types to exclude (optional)
-      default: []
+    mac_address:
+      type: str
+      description: MAC address to search for (supports partial matches, e.g., "aa:0f" or "41:")
+    search_gateway_mac:
+      type: bool
+      description: Whether to also search gateway MAC addresses
+      default: false
     limit:
       type: int
       description: Maximum number of agents to return (1-1000)
@@ -35,7 +35,7 @@ definition:
           Authorization: ApiToken ${{ SECRETS.sentinel_one.SENTINEL_ONE_API_TOKEN }}
           Content-Type: application/json
         params:
-          machineTypes: ${{ inputs.machine_types }}
-          machineTypesNin: ${{ inputs.exclude_machine_types if inputs.exclude_machine_types else [] }}
+          networkInterfacePhysical__contains: ${{ inputs.mac_address }}
+          networkInterfaceGatewayMacAddress__contains: ${{ inputs.mac_address if inputs.search_gateway_mac else None }}
           limit: ${{ inputs.limit }}
-  returns: ${{ steps.lookup_agents.result }}
+  returns: ${{ steps.lookup_agents.result.data }}

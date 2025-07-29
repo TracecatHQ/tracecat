@@ -32,4 +32,4 @@ definition:
         params:
           groupIds: ${{ inputs.group_id }}
           limit: ${{ inputs.limit }}
-  returns: ${{ steps.query_agents.result }}
+  returns: ${{ steps.query_agents.result.data }}

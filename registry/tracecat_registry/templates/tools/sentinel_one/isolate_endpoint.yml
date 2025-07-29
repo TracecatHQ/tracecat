@@ -29,4 +29,4 @@ definition:
         payload:
           filter:
             ids: ["${{ inputs.endpoint_id }}"]
-  returns: ${{ steps.disconnect_agent.result }}
+  returns: ${{ steps.disconnect_agent.result.data }}

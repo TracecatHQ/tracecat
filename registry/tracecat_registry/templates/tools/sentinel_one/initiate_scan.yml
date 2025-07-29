@@ -29,4 +29,4 @@ definition:
         payload:
           filter:
             ids: ["${{ inputs.device_id }}"]
-  returns: ${{ steps.initiate_scan.result }}
+  returns: ${{ steps.initiate_scan.result.data }}

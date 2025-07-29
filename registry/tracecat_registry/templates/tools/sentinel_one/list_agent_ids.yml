@@ -34,4 +34,4 @@ definition:
         value: ${{ steps.query_agents.result.data.data }}
         python_lambda: >
           lambda agents: [agent['id'] for agent in agents]
-  returns: ${{ steps.extract_ids.result }}
+  returns: ${{ steps.extract_ids.result.data }}

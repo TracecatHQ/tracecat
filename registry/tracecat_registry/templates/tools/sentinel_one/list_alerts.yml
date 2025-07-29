@@ -40,4 +40,4 @@ definition:
           created_at__lt: ${{ inputs.end_time }}
           query: ${{ inputs.query }}
           limit: ${{ inputs.limit }}
-  returns: ${{ steps.query_alerts.result }}
+  returns: ${{ steps.query_alerts.result.data }}
