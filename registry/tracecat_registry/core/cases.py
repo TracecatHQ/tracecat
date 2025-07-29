@@ -1,23 +1,33 @@
+import base64
 from datetime import datetime
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
+from sqlmodel import col, select
 from typing_extensions import Doc
 
+from tracecat.auth.models import UserRead
 from tracecat.config import TRACECAT__MAX_ROWS_CLIENT_POSTGRES
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.models import (
+    CaseAttachmentCreate,
+    CaseAttachmentDownloadData,
+    CaseAttachmentRead,
+    CaseCommentCreate,
+    CaseCommentRead,
+    CaseCommentUpdate,
     CaseCreate,
     CaseCustomFieldRead,
+    CaseEventRead,
+    CaseEventsWithUsers,
     CaseFieldRead,
     CaseRead,
     CaseReadMinimal,
     CaseUpdate,
-    CaseCommentCreate,
-    CaseCommentUpdate,
 )
 from tracecat.cases.service import CasesService, CaseCommentsService
 from tracecat.db.engine import get_async_session_context_manager
+from tracecat.db.schemas import User
 from tracecat_registry import registry
 
 PriorityType = Literal[
@@ -424,6 +434,74 @@ async def search_cases(
 
 
 @registry.register(
+    default_title="Delete case",
+    display_group="Cases",
+    description="Delete a case.",
+    namespace="core.cases",
+)
+async def delete_case(
+    case_id: Annotated[
+        str,
+        Doc("The ID of the case to delete."),
+    ],
+) -> None:
+    async with CasesService.with_session() as service:
+        case = await service.get_case(UUID(case_id))
+        if not case:
+            raise ValueError(f"Case with ID {case_id} not found")
+        await service.delete_case(case)
+
+
+@registry.register(
+    default_title="List case events",
+    display_group="Cases",
+    description="List all events for a case in chronological order.",
+    namespace="core.cases",
+)
+async def list_case_events(
+    case_id: Annotated[
+        str,
+        Doc("The ID of the case to get events for."),
+    ],
+) -> dict[str, Any]:
+    # Validate case_id format
+    try:
+        case_uuid = UUID(case_id)
+    except ValueError:
+        raise ValueError(f"Invalid case ID format: {case_id}")
+
+    async with CasesService.with_session() as service:
+        case = await service.get_case(case_uuid)
+        if not case:
+            raise ValueError(f"Case with ID {case_id} not found")
+
+        events = await service.events.list_events(case)
+
+    # Convert events to read models
+    # Collect unique user IDs
+    user_ids = {event.user_id for event in events if event.user_id}
+
+    # Fetch users if needed
+    users = []
+    if user_ids:
+        async with get_async_session_context_manager() as session:
+            stmt = select(User).where(col(User.id).in_(user_ids))
+            result = await session.exec(stmt)
+            users = [
+                UserRead.model_validate(user, from_attributes=True)
+                for user in result.all()
+            ]
+
+    return CaseEventsWithUsers(
+        events=[
+            CaseEventRead.model_validate(event, from_attributes=True)
+            for event in events
+        ],
+        users=users,
+    ).model_dump(mode="json")
+
+
+@registry.register(
     default_title="List case comments",
     display_group="Cases",
     description="List all comments for a case.",
@@ -444,13 +522,18 @@ async def list_comments(
         comments_service = CaseCommentsService(session)
         comment_user_pairs = await comments_service.list_comments(case)
 
-    result = []
-    for comment, user in comment_user_pairs:
-        comment_data = comment.model_dump()
-        comment_data["user"] = user.model_dump() if user else None
-        result.append(comment_data)
-
-    return result
+    return [
+        CaseCommentRead(
+            id=comment.id,
+            created_at=comment.created_at,
+            updated_at=comment.updated_at,
+            content=comment.content,
+            parent_id=comment.parent_id,
+            user=UserRead.model_validate(user, from_attributes=True) if user else None,
+            last_edited_at=comment.last_edited_at,
+        ).model_dump(mode="json")
+        for comment, user in comment_user_pairs
+    ]
 
 
 @registry.register(
@@ -478,3 +561,312 @@ async def assign_user(
             case, CaseUpdate(assignee_id=UUID(assignee_id))
         )
     return updated_case.model_dump()
+
+
+@registry.register(
+    default_title="Upload attachment",
+    display_group="Cases",
+    description="Upload a file attachment to a case. File size and type restrictions apply for security.",
+    namespace="core.cases",
+)
+async def upload_attachment(
+    case_id: Annotated[
+        str,
+        Doc("The ID of the case to attach the file to."),
+    ],
+    file_name: Annotated[
+        str,
+        Doc("The original filename."),
+    ],
+    content_base64: Annotated[
+        str,
+        Doc("The file content encoded in base64."),
+    ],
+    content_type: Annotated[
+        str | None,
+        Doc(
+            "The MIME type of the file (e.g., 'application/pdf'). If not provided, defaults to 'application/octet-stream'."
+        ),
+    ] = None,
+) -> dict[str, Any]:
+    """Upload a file attachment to a case."""
+    # Validate case_id format
+    try:
+        case_uuid = UUID(case_id)
+    except ValueError:
+        raise ValueError(f"Invalid case ID format: {case_id}")
+
+    # Decode base64 content
+    try:
+        content = base64.b64decode(content_base64, validate=True)
+    except Exception as e:
+        raise ValueError(f"Invalid base64 encoding: {str(e)}")
+
+    # Default content type if not provided
+    if not content_type:
+        content_type = "application/octet-stream"
+
+    async with CasesService.with_session() as service:
+        case = await service.get_case(case_uuid)
+        if not case:
+            raise ValueError(f"Case with ID {case_id} not found")
+
+        attachment = await service.attachments.create_attachment(
+            case=case,
+            params=CaseAttachmentCreate(
+                file_name=file_name,
+                content_type=content_type,
+                size=len(content),
+                content=content,
+            ),
+        )
+    return CaseAttachmentRead(
+        id=attachment.id,
+        case_id=attachment.case_id,
+        file_id=attachment.file_id,
+        file_name=attachment.file.name,
+        content_type=attachment.file.content_type,
+        size=attachment.file.size,
+        sha256=attachment.file.sha256,
+        created_at=attachment.created_at,
+        updated_at=attachment.updated_at,
+    ).model_dump(mode="json")
+
+
+@registry.register(
+    default_title="List attachments",
+    display_group="Cases",
+    description="List all attachments for a case.",
+    namespace="core.cases",
+)
+async def list_attachments(
+    case_id: Annotated[
+        str,
+        Doc("The ID of the case to list attachments for."),
+    ],
+) -> list[dict[str, Any]]:
+    """List all attachments for a case."""
+    # Validate case_id format
+    try:
+        case_uuid = UUID(case_id)
+    except ValueError:
+        raise ValueError(f"Invalid case ID format: {case_id}")
+
+    async with CasesService.with_session() as service:
+        case = await service.get_case(case_uuid)
+        if not case:
+            raise ValueError(f"Case with ID {case_id} not found")
+        attachments = await service.attachments.list_attachments(case)
+
+    return [
+        CaseAttachmentRead(
+            id=attachment.id,
+            case_id=attachment.case_id,
+            file_id=attachment.file_id,
+            file_name=attachment.file.name,
+            content_type=attachment.file.content_type,
+            size=attachment.file.size,
+            sha256=attachment.file.sha256,
+            created_at=attachment.created_at,
+            updated_at=attachment.updated_at,
+        ).model_dump(mode="json")
+        for attachment in attachments
+    ]
+
+
+@registry.register(
+    default_title="Download attachment",
+    display_group="Cases",
+    description="Download an attachment's content. File integrity is verified via SHA256.",
+    namespace="core.cases",
+)
+async def download_attachment(
+    case_id: Annotated[
+        str,
+        Doc("The ID of the case containing the attachment."),
+    ],
+    attachment_id: Annotated[
+        str,
+        Doc("The ID of the attachment to download."),
+    ],
+) -> dict[str, Any]:
+    """Download an attachment's content.
+
+    Returns the file content as base64 encoded string along with metadata.
+    File integrity is automatically verified via SHA256 hash.
+    """
+    # Validate UUID formats
+    try:
+        case_uuid = UUID(case_id)
+        attachment_uuid = UUID(attachment_id)
+    except ValueError as e:
+        raise ValueError(f"Invalid ID format: {str(e)}")
+
+    async with CasesService.with_session() as service:
+        case = await service.get_case(case_uuid)
+        if not case:
+            raise ValueError(f"Case with ID {case_id} not found")
+        (
+            content,
+            file_name,
+            content_type,
+        ) = await service.attachments.download_attachment(
+            case=case,
+            attachment_id=attachment_uuid,
+        )
+    content_base64 = base64.b64encode(content).decode("utf-8")
+    return CaseAttachmentDownloadData(
+        content_base64=content_base64,
+        file_name=file_name,
+        content_type=content_type,
+    ).model_dump(mode="json")
+
+
+@registry.register(
+    default_title="Get attachment",
+    display_group="Cases",
+    description="Get attachment metadata without downloading the content.",
+    namespace="core.cases",
+)
+async def get_attachment(
+    case_id: Annotated[
+        str,
+        Doc("The ID of the case containing the attachment."),
+    ],
+    attachment_id: Annotated[
+        str,
+        Doc("The ID of the attachment to get."),
+    ],
+) -> dict[str, Any]:
+    """Get attachment metadata without downloading the content."""
+    # Validate UUID formats
+    try:
+        case_uuid = UUID(case_id)
+        attachment_uuid = UUID(attachment_id)
+    except ValueError as e:
+        raise ValueError(f"Invalid ID format: {str(e)}")
+
+    async with CasesService.with_session() as service:
+        case = await service.get_case(case_uuid)
+        if not case:
+            raise ValueError(f"Case with ID {case_id} not found")
+
+        attachment = await service.attachments.get_attachment(case, attachment_uuid)
+        if not attachment:
+            raise ValueError(f"Attachment {attachment_id} not found")
+
+    return CaseAttachmentRead(
+        id=attachment.id,
+        case_id=attachment.case_id,
+        file_id=attachment.file_id,
+        file_name=attachment.file.name,
+        content_type=attachment.file.content_type,
+        size=attachment.file.size,
+        sha256=attachment.file.sha256,
+        created_at=attachment.created_at,
+        updated_at=attachment.updated_at,
+    ).model_dump(mode="json")
+
+
+@registry.register(
+    default_title="Delete attachment",
+    display_group="Cases",
+    description="Delete an attachment from a case. Only the creator or admins can delete attachments.",
+    namespace="core.cases",
+)
+async def delete_attachment(
+    case_id: Annotated[
+        str,
+        Doc("The ID of the case containing the attachment."),
+    ],
+    attachment_id: Annotated[
+        str,
+        Doc("The ID of the attachment to delete."),
+    ],
+) -> None:
+    """Delete an attachment from a case.
+
+    This performs a soft delete, preserving the audit trail while removing
+    the file from storage. Only the attachment creator or admins can delete.
+    """
+    try:
+        case_uuid = UUID(case_id)
+        attachment_uuid = UUID(attachment_id)
+    except ValueError as e:
+        raise ValueError(f"Invalid ID format: {str(e)}")
+
+    async with CasesService.with_session() as service:
+        case = await service.get_case(case_uuid)
+        if not case:
+            raise ValueError(f"Case with ID {case_id} not found")
+        await service.attachments.delete_attachment(case, attachment_uuid)
+
+
+@registry.register(
+    default_title="Get attachment download URL",
+    display_group="Cases",
+    description="Get a presigned S3 URL for downloading an attachment.",
+    namespace="core.cases",
+)
+async def get_attachment_download_url(
+    case_id: Annotated[
+        str,
+        Doc("The ID of the case containing the attachment."),
+    ],
+    attachment_id: Annotated[
+        str,
+        Doc("The ID of the attachment."),
+    ],
+    expiry: Annotated[
+        int | None,
+        Doc(
+            "URL expiry time in seconds. If not provided, uses the default from configuration."
+        ),
+    ] = None,
+) -> str:
+    """Get a presigned S3 URL for downloading an attachment."""
+    # Validate UUID formats
+    try:
+        case_uuid = UUID(case_id)
+        attachment_uuid = UUID(attachment_id)
+    except ValueError as e:
+        raise ValueError(f"Invalid ID format: {str(e)}")
+
+    # Validate expiry if provided
+    if expiry is not None:
+        if expiry <= 0:
+            raise ValueError("Expiry must be a positive number of seconds")
+        if expiry > 86400:  # 24 hours
+            raise ValueError("Expiry cannot exceed 24 hours (86400 seconds)")
+
+    async with CasesService.with_session() as service:
+        case = await service.get_case(case_uuid)
+        if not case:
+            raise ValueError(f"Case with ID {case_id} not found")
+
+        download_url, _, _ = await service.attachments.get_attachment_download_url(
+            case=case,
+            attachment_id=attachment_uuid,
+            expiry=expiry,
+        )
+    return download_url
+
+
+@registry.register(
+    default_title="List case fields",
+    display_group="Cases",
+    description="List all available case fields and their definitions.",
+    namespace="core.cases",
+)
+async def list_case_fields() -> list[dict[str, Any]]:
+    """List all case field definitions.
+
+    Returns field metadata including name, type, description, and whether it's a reserved field.
+    """
+    async with CasesService.with_session() as service:
+        field_definitions = await service.fields.list_fields()
+
+    return [
+        CaseFieldRead.from_sa(field_def).model_dump(mode="json")
+        for field_def in field_definitions
+    ]

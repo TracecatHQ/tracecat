@@ -292,6 +292,16 @@ def round_down(x: float) -> int:
     return math.floor(x)
 
 
+def min_(a: Any, b: Any) -> Any:
+    """Return the minimum of two values."""
+    return min(a, b)
+
+
+def max_(a: Any, b: Any) -> Any:
+    """Return the maximum of two values."""
+    return max(a, b)
+
+
 # Array functions
 
 
@@ -951,6 +961,8 @@ _FUNCTION_MAPPING = {
     "mod": mod,
     "pow": pow,
     "sum": sum_,
+    "min": min_,
+    "max": max_,
     # Iteration
     "zip": zip_iterables,
     "iter_product": iter_product,

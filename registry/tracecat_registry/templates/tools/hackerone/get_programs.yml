@@ -1,0 +1,37 @@
+type: action
+definition:
+  title: Get programs
+  description: Get a paginated list of programs from HackerOne.
+  display_group: HackerOne
+  doc_url: https://api.hackerone.com/customer-resources/?python#programs-get-programs
+  namespace: tools.hackerone
+  name: get_programs
+  secrets:
+    - name: hackerone
+      keys: ["HACKERONE_API_USERNAME", "HACKERONE_API_TOKEN"]
+  expects:
+    page_number:
+      type: int
+      description: The page number to retrieve (starts at 1).
+      default: 1
+    page_size:
+      type: int
+      description: Number of programs per page (1-100).
+      default: 25
+  steps:
+    - ref: encode_auth
+      action: core.transform.reshape
+      args:
+        value: ${{ FN.to_base64(SECRETS.hackerone.HACKERONE_API_USERNAME + ":" + SECRETS.hackerone.HACKERONE_API_TOKEN) }}
+    - ref: call_api
+      action: core.http_request
+      args:
+        url: https://api.hackerone.com/v1/me/programs/
+        method: GET
+        headers:
+          Authorization: Basic ${{ steps.encode_auth.result }}
+          Accept: application/json
+        params:
+          page[number]: ${{ inputs.page_number }}
+          page[size]: ${{ inputs.page_size }}
+  returns: ${{ steps.call_api.result.data }}
