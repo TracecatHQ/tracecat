@@ -1230,7 +1230,11 @@ class TestCoreListComments:
         mock_user1 = MagicMock()
         mock_user1.model_dump.return_value = {
             "id": str(uuid.uuid4()),
-            "username": "user1",
+            "email": "user1@example.com",
+            "role": "basic",
+            "first_name": "User",
+            "last_name": "One",
+            "settings": {},
         }
 
         mock_user2 = None  # Anonymous comment
@@ -1282,7 +1286,7 @@ class TestCoreListComments:
                 # First comment should have user info
                 assert result[0]["content"] == "Comment 1"
                 assert "user" in result[0]
-                assert result[0]["user"]["username"] == "user1"
+                assert result[0]["user"]["email"] == "user1@example.com"
 
                 # Second comment should have user as None
                 assert result[1]["content"] == "Comment 2"
