@@ -36,4 +36,4 @@ definition:
           exec_mode: oneshot
           output_mode: json
           max_count: 100
-  returns: ${{ steps.search_job.result }}
+  returns: ${{ steps.search_job.result.data }}

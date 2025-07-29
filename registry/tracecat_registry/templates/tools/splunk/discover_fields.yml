@@ -56,4 +56,4 @@ definition:
           adhoc_search_level: ${{ inputs.adhoc_search_level }}
           exec_mode: oneshot
           output_mode: json
-  returns: ${{ steps.search_job.result }}
+  returns: ${{ steps.search_job.result.data }}
