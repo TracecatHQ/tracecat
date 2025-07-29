@@ -1050,6 +1050,7 @@ class CaseAttachmentService(BaseWorkspaceService):
         self,
         case: Case,
         attachment_id: uuid.UUID,
+        preview: bool = False,
         expiry: int | None = None,
     ) -> tuple[str, str, str]:
         """Generate a presigned URL for downloading an attachment.
@@ -1057,6 +1058,7 @@ class CaseAttachmentService(BaseWorkspaceService):
         Args:
             case: The case the attachment belongs to
             attachment_id: The attachment ID
+            preview: If true, allows inline preview for safe image types (deprecated, kept for compatibility)
             expiry: URL expiry time in seconds (defaults to config value)
 
         Returns:
