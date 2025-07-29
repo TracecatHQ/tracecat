@@ -1,0 +1,24 @@
+type: action
+definition:
+  title: Get all breaches
+  description: Get a list of all data breaches in the system.
+  display_group: Have I Been Pwned
+  doc_url: https://haveibeenpwned.com/API/v3#AllBreaches
+  namespace: tools.hibp
+  name: get_all_breaches
+  expects:
+    domain_filter:
+      type: str | None
+      description: Filter breaches to only those affecting this domain.
+      default: null
+  steps:
+    - ref: call_api
+      action: core.http_request
+      args:
+        url: https://haveibeenpwned.com/api/v3/breaches
+        method: GET
+        headers:
+          User-Agent: Tracecat-HIBP-Integration
+        params:
+          domain: ${{ inputs.domain_filter }}
+  returns: ${{ steps.call_api.result.data }}

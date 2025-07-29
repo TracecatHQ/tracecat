@@ -1,0 +1,21 @@
+type: action
+definition:
+  title: Get breach details
+  description: Get detailed information about a specific data breach.
+  display_group: Have I Been Pwned
+  doc_url: https://haveibeenpwned.com/API/v3#SingleBreach
+  namespace: tools.hibp
+  name: get_breach_details
+  expects:
+    breach_name:
+      type: str
+      description: Name of the breach to get details for.
+  steps:
+    - ref: call_api
+      action: core.http_request
+      args:
+        url: https://haveibeenpwned.com/api/v3/breach/${{ FN.url_encode(inputs.breach_name) }}
+        method: GET
+        headers:
+          User-Agent: Tracecat-HIBP-Integration
+  returns: ${{ steps.call_api.result.data }}
