@@ -17,6 +17,8 @@ from tracecat_registry.core.cases import (
     update_comment,
 )
 
+# Import UserRead and UserRole for realistic user objects
+from tracecat.auth.models import UserRead, UserRole
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.models import (
     CaseCommentCreate,
@@ -1212,30 +1214,40 @@ class TestCoreListComments:
         # Set up the comments service with the session
         mock_comments_service = AsyncMock()
 
-        # Create mock comments with users
-        mock_comment1 = MagicMock()
-        mock_comment1.model_dump.return_value = {
-            "id": str(uuid.uuid4()),
-            "content": "Comment 1",
-            "parent_id": None,
-        }
+        # Create realistic comment objects with the attributes expected by CaseCommentRead
+        now = datetime.now()
 
-        mock_comment2 = MagicMock()
-        mock_comment2.model_dump.return_value = {
-            "id": str(uuid.uuid4()),
-            "content": "Comment 2",
-            "parent_id": None,
-        }
+        def _make_comment(content: str):
+            c = MagicMock()
+            c.id = uuid.uuid4()
+            c.created_at = now
+            c.updated_at = now
+            c.last_edited_at = None
+            c.content = content
+            c.parent_id = None
+            # Pydantic's from_attributes path is not used for comments, but ensure model_dump works if called
+            c.model_dump.return_value = {
+                "id": str(c.id),
+                "created_at": c.created_at,
+                "updated_at": c.updated_at,
+                "content": c.content,
+                "parent_id": c.parent_id,
+                "last_edited_at": c.last_edited_at,
+            }
+            return c
 
-        mock_user1 = MagicMock()
-        mock_user1.model_dump.return_value = {
-            "id": str(uuid.uuid4()),
-            "email": "user1@example.com",
-            "role": "basic",
-            "first_name": "User",
-            "last_name": "One",
-            "settings": {},
-        }
+        mock_comment1 = _make_comment("Comment 1")
+        mock_comment2 = _make_comment("Comment 2")
+
+        # Use a real UserRead instance so Pydantic validation in list_comments succeeds
+        mock_user1 = UserRead(
+            id=uuid.uuid4(),
+            email="user1@example.com",
+            role=UserRole.BASIC,
+            first_name="User",
+            last_name="One",
+            settings={},
+        )
 
         mock_user2 = None  # Anonymous comment
 
