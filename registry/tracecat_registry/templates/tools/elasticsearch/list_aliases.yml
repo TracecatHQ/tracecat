@@ -21,4 +21,4 @@ definition:
         method: GET
         headers:
           Authorization: ApiKey ${{ SECRETS.elasticsearch.ELASTICSEARCH_API_KEY }}
-  returns: ${{ steps.list_aliases_request.result }}
+  returns: ${{ steps.list_aliases_request.result.data }}
