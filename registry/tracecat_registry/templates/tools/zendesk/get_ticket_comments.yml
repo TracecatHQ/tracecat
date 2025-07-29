@@ -1,0 +1,48 @@
+type: action
+definition:
+  title: Get ticket comments
+  description: Retrieve all comments for a specific ticket.
+  display_group: Zendesk
+  doc_url: https://developer.zendesk.com/api-reference/ticketing/tickets/ticket_comments/
+  namespace: tools.zendesk
+  name: get_ticket_comments
+  secrets:
+    - name: zendesk
+      keys: ["ZENDESK_EMAIL", "ZENDESK_API_TOKEN"]
+  expects:
+    subdomain:
+      type: str
+      description: Your Zendesk subdomain (e.g., 'company' for company.zendesk.com)
+    ticket_id:
+      type: int
+      description: The ID of the ticket
+    page:
+      type: int | None
+      description: Page number for pagination (1-based)
+      default: null
+    per_page:
+      type: int
+      description: Number of comments per page (max 100)
+      default: 100
+  steps:
+    - ref: encode_auth
+      action: core.transform.reshape
+      args:
+        value: ${{ FN.to_base64(SECRETS.zendesk.ZENDESK_EMAIL + "/token:" + SECRETS.zendesk.ZENDESK_API_TOKEN) }}
+    - ref: build_params
+      action: core.transform.reshape
+      args:
+        value:
+          per_page: ${{ FN.min(inputs.per_page, 100) }}
+          page: ${{ inputs.page }}
+    - ref: call_api
+      action: core.http_request
+      args:
+        url: https://${{ inputs.subdomain }}.zendesk.com/api/v2/tickets/${{ inputs.ticket_id }}/comments.json
+        method: GET
+        headers:
+          Authorization: Basic ${{ steps.encode_auth.result }}
+          Content-Type: application/json
+          Accept: application/json
+        params: ${{ steps.build_params.result }}
+  returns: ${{ steps.call_api.result.data }}
