@@ -3,7 +3,7 @@ definition:
   title: Lookup URL
   description: Lookup a URL using URLScan.
   display_group: URLScan
-  doc_url: https://urlscan.io/docs/api/
+  doc_url: https://urlscan.io/docs/result/
   name: lookup_url
   namespace: tools.urlscan
   secrets:
@@ -38,4 +38,4 @@ definition:
           API-key: ${{ SECRETS.urlscan.URLSCAN_API_KEY }}
         poll_retry_codes:
           - 404
-  returns: ${{ steps.get_scan_result.result }}
+  returns: ${{ steps.get_scan_result.result.data }}

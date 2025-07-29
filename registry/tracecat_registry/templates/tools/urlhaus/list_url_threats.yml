@@ -22,4 +22,4 @@ definition:
         method: GET
         headers:
           Auth-Key: ${{ SECRETS.abusech.ABUSECH_API_KEY }}
-  returns: ${{ steps.list_url_threats.result }}
+  returns: ${{ steps.list_url_threats.result.data }}
