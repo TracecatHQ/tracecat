@@ -365,6 +365,12 @@ class CaseAttachmentDownloadResponse(BaseModel):
     content_type: str = Field(..., description="MIME type of the file")
 
 
+class CaseAttachmentDownloadData(BaseModel):
+    file_name: str
+    content_type: str
+    content_base64: str
+
+
 class FileRead(BaseModel):
     """Model for reading file metadata."""
 
