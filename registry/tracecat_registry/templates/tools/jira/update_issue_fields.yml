@@ -14,7 +14,7 @@ definition:
       type: str
       description: ID or key of the issue to update.
     fields:
-      type: list[dict[str, any]]
+      type: list[dict[str, Any]]
       description: >-
         List of fields to update in the issue.
         Each field is an object with the following keys:

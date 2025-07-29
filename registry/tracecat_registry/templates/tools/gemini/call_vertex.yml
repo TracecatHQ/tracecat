@@ -25,11 +25,11 @@ definition:
       description: Instructions to use for the LLM.
       default: null
     output_type:
-      type: str | dict[str, any] | None
+      type: str | dict[str, Any] | None
       description: Output type to use.
       default: null
     model_settings:
-      type: dict[str, any] | None
+      type: dict[str, Any] | None
       description: Model-specific settings.
       default: null
   steps:

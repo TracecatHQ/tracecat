@@ -24,7 +24,7 @@ definition:
       description: Tags to categorize the incident. Added as Jira labels.
       default: []
     fields:
-      type: list[dict[str, any]]
+      type: list[dict[str, Any]]
       description: >-
         List of fields to add to the issue.
         Each field is an object with the following keys:

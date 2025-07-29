@@ -18,7 +18,7 @@ definition:
       type: str
       description: Timestamp of the message to update.
     blocks:
-      type: list[dict[str, any]] | None
+      type: list[dict[str, Any]] | None
       description: List of JSON-based blocks.
       default: null
     markdown_text:

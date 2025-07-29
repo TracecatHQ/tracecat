@@ -25,13 +25,13 @@ definition:
       description: System prompt to use for the LLM.
       default: null
     output_type:
-      type: str | dict[str, any] | None
+      type: str | dict[str, Any] | None
       description: >
         Output format to use. Either JSONSchema
         or a supported type (see `llm.pydantic_ai.call`).
       default: null
     model_settings:
-      type: dict[str, any] | None
+      type: dict[str, Any] | None
       description: Model-specific settings.
       default: null
   steps:

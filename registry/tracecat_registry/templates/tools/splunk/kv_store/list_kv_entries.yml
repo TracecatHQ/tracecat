@@ -41,7 +41,7 @@ definition:
       description: Number of items to skip from the start (alternative to offset).
       default: 0
     query:
-      type: dict[str, any]
+      type: dict[str, Any]
       description: |
         MongoDB-style query to filter entries.
         Supported operators:

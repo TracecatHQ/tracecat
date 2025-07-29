@@ -31,7 +31,7 @@ definition:
       description: Whether to activate the user immediately
       default: true
     additional_attributes:
-      type: dict[str, any] | None
+      type: dict[str, Any] | None
       description: Additional user profile attributes
       default: null
   steps:

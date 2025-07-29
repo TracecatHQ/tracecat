@@ -11,7 +11,7 @@ definition:
       keys: ["SPLUNK_HEC_TOKEN"]
   expects:
     event:
-      type: dict[str, any]
+      type: dict[str, Any]
       description: |
         Event data to send to Splunk. Can contain any key-value pairs.
         Example: {"action": "login", "username": "john", "ip": "192.168.1.100"}

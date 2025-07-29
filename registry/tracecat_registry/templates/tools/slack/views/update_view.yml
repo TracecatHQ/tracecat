@@ -11,7 +11,7 @@ definition:
       type: str
       description: ID of the view to update.
     view:
-      type: list[dict[str, any]]
+      type: list[dict[str, Any]]
       description: >
         List of blocks to update the view with.
         See: https://docs.slack.dev/reference/views/modal-views

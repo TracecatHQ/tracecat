@@ -11,7 +11,7 @@ definition:
       keys: ["HACKERONE_API_USERNAME", "HACKERONE_API_TOKEN"]
   expects:
     filters:
-      type: dict[str, any]
+      type: dict[str, Any]
       description: >
         Filters to apply to the reports.
         For example, {'filter[program][]': 'tracecat', 'filter[state][]': ['new', 'triaged'], 'filter[assignee][]': 'Tracecat Team'}
