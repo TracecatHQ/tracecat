@@ -221,8 +221,15 @@ class BaseExprValidator(Visitor):
         arg_list_node = node.children[1] if len(node.children) > 1 else None
         provided_arg_count = 0
         if isinstance(arg_list_node, Tree) and arg_list_node.data == "arg_list":
-            # Each child of arg_list represents one argument expression
-            provided_arg_count = len(arg_list_node.children)
+            # Children of arg_list include both the argument expressions and literal comma
+            # tokens that separate them (","), e.g. [expr1, ',', expr2]. We need to
+            # consider only the actual expressions.
+            provided_arg_count = sum(
+                1
+                for child in arg_list_node.children
+                # Exclude separator tokens injected by the grammar
+                if not (isinstance(child, Token) and child.value == ",")
+            )
 
         # Retrieve the original wrapped function (mappable decorator keeps original in
         # __wrapped__). Fallback to the function itself if __wrapped__ is absent.
