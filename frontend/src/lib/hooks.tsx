@@ -417,7 +417,7 @@ export function useWorkflowManager(filter?: WorkflowFilter) {
   const queryClient = useQueryClient()
   const { workspaceId } = useWorkspace()
 
-  // List workflows
+  // List all workflows
   const {
     data: workflows,
     isLoading: workflowsLoading,
@@ -428,6 +428,7 @@ export function useWorkflowManager(filter?: WorkflowFilter) {
       const response = await workflowsListWorkflows({
         workspaceId,
         tag: filter?.tag,
+        limit: 0,
       })
       return response.items
     },
