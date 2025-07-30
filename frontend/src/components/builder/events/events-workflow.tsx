@@ -44,6 +44,8 @@ import {
 import {
   executionId,
   groupEventsByActionRef,
+  refToLabel,
+  WF_FAILURE_EVENT_REF,
   type WorkflowExecutionEventCompact,
   type WorkflowExecutionReadCompact,
 } from "@/lib/event-history"
@@ -260,6 +262,12 @@ export function WorkflowEvents({
 
   const isActionRefValid = useCallback(
     (actionRef: string) => {
+      // Check if this is the workflow sentinel
+      if (actionRef === WF_FAILURE_EVENT_REF) {
+        return true
+      }
+
+      // Otherwise, check if the action exists in the workflow
       const action = Object.values(workflow?.actions || {}).find(
         (act) => slugify(act.title) === actionRef
       )
@@ -341,7 +349,7 @@ export function WorkflowEvents({
                         <div className="flex flex-1 items-center justify-between">
                           <div className="flex items-center gap-2">
                             <div className="truncate text-foreground/70">
-                              {actionRef}
+                              {refToLabel(actionRef)}
                             </div>
                             {instanceCount > 1 && (
                               <Badge
