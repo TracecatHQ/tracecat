@@ -1,3 +1,4 @@
+from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from datetime import datetime
 from typing import Any
@@ -1151,32 +1152,20 @@ class BaseTablesService(BaseService):
 
         schema_name = self._get_schema_name()
 
-        # Collect all columns present in the batch
-        all_columns: set[str] = set()
-        for row in rows:
-            all_columns.update(row.keys())
-
-        # Sanitize column identifiers and build SQLAlchemy column objects
-        cols = [sa.column(self._sanitize_identifier(k)) for k in all_columns]
         sanitized_table_name = self._sanitize_identifier(table.name)
 
-        table_obj = sa.table(sanitized_table_name, *cols, schema=schema_name)
+        # Group rows by their column sets to avoid inserting NULL into missing columns.
+        rows_by_columns: dict[frozenset[str], list[dict[str, Any]]] = defaultdict(list)
+        for row in rows:
+            rows_by_columns[frozenset(row.keys())].append(row)
 
         conn = await self.session.connection()
 
-        if not upsert:
-            stmt = sa.insert(table_obj).values(rows)
-        else:
-            # Normalize all rows to have the same columns to handle missing values properly
-            normalized_rows = []
-            for row in rows:
-                normalized_row = {col: row.get(col) for col in all_columns}
-                normalized_rows.append(normalized_row)
+        total_affected = 0
 
-            # Prepare PostgreSQL specific insert for upsert behaviour
-            pg_stmt = insert(table_obj).values(normalized_rows)
-
-            # Obtain unique index columns
+        # If we need upsert behaviour, fetch the unique index once.
+        index: list[str] | None = None
+        if upsert:
             index = await self.get_index(table)
 
             if not index:
@@ -1186,41 +1175,47 @@ class BaseTablesService(BaseService):
                     "Table cannot have multiple unique indexes. This is an unexpected error. Please contact support."
                 )
 
-            # Ensure each row contains the unique index column
-            for row in rows:
-                if not all(k in row for k in index):
-                    raise ValueError(
-                        "Each row to upsert must contain the unique index column"
-                    )
+        # Iterate over groups and execute separate INSERT/UPSERT statements.
+        for col_set, group_rows in rows_by_columns.items():
+            # Sanitize column identifiers for this group
+            cols = [sa.column(self._sanitize_identifier(col)) for col in col_set]
+            table_obj = sa.table(sanitized_table_name, *cols, schema=schema_name)
 
-            # Define columns to update on conflict
-            # Use COALESCE to preserve existing values when new value is NULL
-            update_dict = {}
-            for col in all_columns:
-                if col not in index:
-                    # If the excluded value is NULL, keep the existing value
-                    # Use proper SQLAlchemy column reference instead of text()
-                    update_dict[col] = sa.func.coalesce(
-                        pg_stmt.excluded[col],
-                        getattr(table_obj.c, self._sanitize_identifier(col)),
-                    )
-
-            if update_dict:
-                # If we have columns to update, use ON CONFLICT DO UPDATE
-                stmt = pg_stmt.on_conflict_do_update(
-                    index_elements=index, set_=update_dict
-                )
+            if not upsert:
+                stmt = sa.insert(table_obj).values(group_rows)
             else:
-                # If all columns are index columns, use ON CONFLICT DO NOTHING
-                stmt = pg_stmt.on_conflict_do_nothing(index_elements=index)
+                # Ensure each row contains the unique index column(s)
+                assert index is not None  # mypy / type checker hint
+                for row in group_rows:
+                    if not all(k in row for k in index):
+                        raise ValueError(
+                            "Each row to upsert must contain the unique index column"
+                        )
 
-        try:
-            result = await conn.execute(stmt)
-            await self.session.flush()
-            # rowcount gives number of affected rows (inserted + updated)
-            return result.rowcount
-        except Exception as e:
-            raise DBAPIError("Failed to insert batch", str(e), e) from e
+                pg_stmt = insert(table_obj).values(group_rows)
+
+                # Columns to update on conflict: all columns in this group except index columns
+                update_dict = {
+                    col: pg_stmt.excluded[col] for col in col_set if col not in index
+                }
+
+                if update_dict:
+                    stmt = pg_stmt.on_conflict_do_update(
+                        index_elements=index, set_=update_dict
+                    )
+                else:
+                    stmt = pg_stmt.on_conflict_do_nothing(index_elements=index)
+
+            try:
+                result = await conn.execute(stmt)
+                total_affected += result.rowcount
+            except Exception as e:
+                # Re-raise as DBAPIError for consistency
+                raise DBAPIError("Failed to insert batch", str(e), e) from e
+
+        # Flush once at the end to ensure changes are persisted within the transaction.
+        await self.session.flush()
+        return total_affected
 
 
 class TablesService(BaseTablesService):
