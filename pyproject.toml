@@ -80,7 +80,7 @@ tracecat-registry = { workspace = true }
 [tool.uv.workspace]
 members = ["packages/*"]
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = [
     "mypy==1.15.0",
     "pre-commit==4.1.0",
