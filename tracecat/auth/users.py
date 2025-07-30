@@ -460,3 +460,20 @@ def validate_email(
     if allowed_domains and domain not in allowed_domains:
         raise InvalidEmailException()
     logger.info("Validated email with domain", domain=domain)
+
+
+async def lookup_user_by_email(
+    *, session: SQLModelAsyncSession, email: str
+) -> User | None:
+    """Look up a user by their email address.
+
+    Args:
+        session: The database session.
+        email: The email address to search for.
+
+    Returns:
+        User | None: The user object if found, None otherwise.
+    """
+    statement = select(User).where(User.email == email)
+    result = await session.exec(statement)
+    return result.first()

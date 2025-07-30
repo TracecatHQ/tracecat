@@ -27,7 +27,7 @@ from tracecat.cases.models import (
 )
 from tracecat.cases.service import CasesService, CaseCommentsService
 from tracecat.db.engine import get_async_session_context_manager
-from tracecat.db.schemas import User
+from tracecat.auth.users import lookup_user_by_email
 from tracecat_registry import registry
 
 PriorityType = Literal[
@@ -485,6 +485,8 @@ async def list_case_events(
     users = []
     if user_ids:
         async with get_async_session_context_manager() as session:
+            from tracecat.db.schemas import User
+
             stmt = select(User).where(col(User.id).in_(user_ids))
             result = await session.exec(stmt)
             users = [
@@ -560,6 +562,37 @@ async def assign_user(
         updated_case = await service.update_case(
             case, CaseUpdate(assignee_id=UUID(assignee_id))
         )
+    return updated_case.model_dump()
+
+
+@registry.register(
+    default_title="Assign user by email to case",
+    display_group="Cases",
+    description="Assign a user to an existing case by email.",
+    namespace="core.cases",
+)
+async def assign_user_by_email(
+    case_id: Annotated[
+        str,
+        Doc("The ID of the case to assign a user to."),
+    ],
+    assignee_email: Annotated[
+        str,
+        Doc("The email of the user to assign to the case."),
+    ],
+) -> dict[str, Any]:
+    async with CasesService.with_session() as service:
+        case = await service.get_case(UUID(case_id))
+        if not case:
+            raise ValueError(f"Case with ID {case_id} not found")
+
+        # Look up user by email
+        user = await lookup_user_by_email(session=service.session, email=assignee_email)
+        if not user:
+            raise ValueError(f"User with email {assignee_email} not found")
+
+        # Update the case with the user's ID
+        updated_case = await service.update_case(case, CaseUpdate(assignee_id=user.id))
     return updated_case.model_dump()
 
 
