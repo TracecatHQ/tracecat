@@ -76,7 +76,9 @@ async def list_workflows(
     # Handle limit=0 to return all workflows
     if limit == 0:
         # Fetch all workflows without pagination
-        workflows_with_defns = await service.list_workflows(tags=filter_tags)
+        workflows_with_defns = await service.list_workflows(
+            tags=filter_tags, reverse=reverse
+        )
 
         # Return unpaginated response
         return CursorPaginatedResponse(
