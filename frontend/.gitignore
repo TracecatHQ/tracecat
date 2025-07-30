@@ -34,3 +34,6 @@ yarn-error.log*
 
 .contentlayer
 .env
+
+# tsc
+tsconfig.tsbuildinfo
