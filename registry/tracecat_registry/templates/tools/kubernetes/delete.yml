@@ -4,7 +4,7 @@ definition:
   description: Delete a resource in a Kubernetes cluster.
   display_group: Kubernetes
   doc_url: https://kubernetes.io/docs/reference/generated/kubectl/kubectl-commands#delete
-  namespace: ee.kubernetes
+  namespace: tools.kubernetes
   name: delete
   expects:
     name:
@@ -22,7 +22,7 @@ definition:
       default: false
   steps:
     - ref: delete_resource
-      action: ee.kubernetes.run_command
+      action: tools.kubernetes.run_command
       args:
         command:
           - delete

@@ -499,11 +499,11 @@ class Repository:
             # Get all functions in the module
             if not inspect.isfunction(obj):
                 continue
-            _enforce_restrictions(obj)
             is_udf = hasattr(obj, "__tracecat_udf_key")
             has_udf_kwargs = hasattr(obj, "__tracecat_udf_kwargs")
             # Register the UDF if it is a function and has UDF metadata
             if is_udf and has_udf_kwargs:
+                _enforce_restrictions(obj)
                 self._register_udf_from_function(obj, name=name, origin=origin)
                 num_udfs += 1
         return num_udfs
@@ -521,8 +521,8 @@ class Repository:
         num_udfs = 0
         # Ignore __init__.py and __main__.py
         exclude_filenames = ("__init__", "__main__")
-        # Ignore CLI files
-        exclude_prefixes = (f"{base_path}/cli",)
+        # Ignore CLI files and internal modules
+        exclude_prefixes = (f"{base_path}/cli", f"{base_path}/_internal")
 
         for path in Path(base_path).rglob("*.py"):
             if path.stem in exclude_filenames:

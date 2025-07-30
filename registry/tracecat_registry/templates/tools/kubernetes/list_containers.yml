@@ -1,0 +1,25 @@
+type: action
+definition:
+  title: List containers
+  description: List all containers in a Kubernetes pod.
+  display_group: Kubernetes
+  doc_url: https://kubernetes.io/docs/reference/generated/kubectl/kubectl-commands#get
+  namespace: tools.kubernetes
+  name: list_containers
+  expects:
+    pod:
+      type: str
+      description: Pod to list containers from.
+    namespace:
+      type: str
+      description: Namespace of the pod.
+  steps:
+    - ref: list_containers
+      action: tools.kubernetes.run_command
+      args:
+        command:
+          - "get"
+          - "pod"
+          - ${{ inputs.pod }}
+        namespace: ${{ inputs.namespace }}
+  returns: ${{ steps.list_containers.result }}

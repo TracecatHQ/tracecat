@@ -4,7 +4,7 @@ definition:
   description: Execute commands in a pod.
   display_group: Kubernetes
   doc_url: https://kubernetes.io/docs/reference/generated/kubectl/kubectl-commands#exec
-  namespace: ee.kubernetes
+  namespace: tools.kubernetes
   name: exec
   expects:
     pod:
@@ -24,7 +24,7 @@ definition:
       default: null
   steps:
     - ref: exec_command
-      action: ee.kubernetes.run_command
+      action: tools.kubernetes.run_command
       args:
         command:
           - "exec"

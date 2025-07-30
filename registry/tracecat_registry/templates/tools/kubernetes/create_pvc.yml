@@ -4,7 +4,7 @@ definition:
   description: Create a PersistentVolumeClaim (PVC) in a Kubernetes cluster.
   display_group: Kubernetes
   doc_url: https://kubernetes.io/docs/reference/generated/kubectl/kubectl-commands#create
-  namespace: ee.kubernetes
+  namespace: tools.kubernetes
   name: create_pvc
   expects:
     name:
@@ -45,7 +45,7 @@ definition:
               requests:
                 storage: ${{ inputs.size }}
     - ref: create_pvc
-      action: ee.kubernetes.run_command
+      action: tools.kubernetes.run_command
       args:
         command:
           - "create"
