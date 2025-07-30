@@ -375,7 +375,7 @@ class DSLWorkflow:
             )
             # NOTE: This error is shown in the final activity in the workflow history
             raise ApplicationError(
-                f"Workflow failed with {n_exc} task exception(s)\n\n{formatted_exc}",
+                f"Workflow failed with {n_exc} error(s)\n\n{formatted_exc}",
                 # We should add the details of the exceptions to the error message because this will get captured
                 # in the error handler workflow
                 {ref: info.details for ref, info in task_exceptions.items()},

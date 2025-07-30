@@ -2548,7 +2548,7 @@ def assert_error_handler_initiated_correctly(
         ],
         "handler_wf_id": str(WorkflowUUID.new(handler_wf.id)),
         "message": (
-            "Workflow failed with 1 task exception(s)\n\n"
+            "Workflow failed with 1 error(s)\n\n"
             "==================== (1/1) ACTIONS.failing_action ====================\n\n"
             "ExecutorClientError: [ACTIONS.failing_action -> run_action] (Attempt 1)\n\n"
             "There was an error in the executor when calling action 'core.transform.reshape'.\n\n"
