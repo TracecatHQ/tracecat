@@ -170,6 +170,34 @@ async def insert_row(
 
 
 @registry.register(
+    default_title="Insert multiple records",
+    description="Insert multiple records into a table.",
+    display_group="Tables",
+    namespace="core.table",
+)
+async def insert_rows(
+    table: Annotated[
+        str,
+        Doc("The table to insert the rows into."),
+    ],
+    rows_data: Annotated[
+        list[dict[str, Any]],
+        Doc("The list of data to insert into the table."),
+    ],
+    upsert: Annotated[
+        bool,
+        Doc("If true, update the rows if they already exist (based on primary key)."),
+    ] = False,
+) -> int:
+    async with TablesService.with_session() as service:
+        db_table = await service.get_table_by_name(table)
+        count = await service.batch_insert_rows(
+            table=db_table, rows=rows_data, upsert=upsert
+        )
+    return count
+
+
+@registry.register(
     default_title="Update record",
     description="Update a record in a table.",
     display_group="Tables",
