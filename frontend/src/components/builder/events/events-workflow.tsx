@@ -262,12 +262,6 @@ export function WorkflowEvents({
 
   const isActionRefValid = useCallback(
     (actionRef: string) => {
-      // Check if this is the workflow sentinel
-      if (actionRef === WF_FAILURE_EVENT_REF) {
-        return true
-      }
-
-      // Otherwise, check if the action exists in the workflow
       const action = Object.values(workflow?.actions || {}).find(
         (act) => slugify(act.title) === actionRef
       )
@@ -404,7 +398,10 @@ export function WorkflowEvents({
                                   <span>View last input</span>
                                 </DropdownMenuItem>
                                 <DropdownMenuItem
-                                  disabled={!isActionRefValid(actionRef)}
+                                  disabled={
+                                    !isActionRefValid(actionRef) &&
+                                    actionRef !== WF_FAILURE_EVENT_REF
+                                  }
                                   onClick={(e) => {
                                     e.stopPropagation()
                                     sidebarRef.current?.setOpen(true)
