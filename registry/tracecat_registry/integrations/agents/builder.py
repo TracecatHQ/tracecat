@@ -414,53 +414,6 @@ async def load_conversation_history(
         return []
 
 
-def serialize_message_for_storage(message: ModelMessage) -> dict[str, Any]:
-    """Serialize a ModelMessage for storage in Redis.
-
-    Args:
-        message: The ModelMessage to serialize
-
-    Returns:
-        Dictionary with message data for storage
-    """
-    if isinstance(message, ModelRequest):
-        # Handle user messages
-        for part in message.parts:
-            if isinstance(part, UserPromptPart):
-                return {
-                    "type": "human",
-                    "content": part.content,
-                }
-            elif isinstance(part, ToolReturnPart):
-                return {
-                    "type": "tool-return",
-                    "tool_name": part.tool_name,
-                    "tool_call_id": part.tool_call_id,
-                    "content": part.content,
-                }
-    elif isinstance(message, ModelResponse):
-        # Handle AI responses
-        for part in message.parts:
-            if isinstance(part, TextPart):
-                return {
-                    "type": "ai",
-                    "content": part.content,
-                }
-            elif isinstance(part, ToolCallPart):
-                return {
-                    "type": "tool-call",
-                    "tool_name": part.tool_name,
-                    "args_json": orjson.dumps(part.args).decode(),
-                    "tool_call_id": part.tool_call_id,
-                }
-
-    # Fallback for unknown message types
-    return {
-        "type": "unknown",
-        "data": str(message),
-    }
-
-
 class TracecatAgentBuilder:
     """Builder for creating Pydantic AI agents with Tracecat tool calling."""
 
