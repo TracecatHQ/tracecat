@@ -2713,7 +2713,7 @@ async def test_workflow_error_handler_success(
     [
         pytest.param(
             "wf-00000000000000000000000000000000",
-            "TracecatException: Workflow definition not found for WorkflowUUID('00000000-0000-0000-0000-000000000000'), version=None",
+            "TracecatException: Workflow definition not found for wf_0000000000000000000000, version=None",
             id="id-no-match",
         ),
         pytest.param(
