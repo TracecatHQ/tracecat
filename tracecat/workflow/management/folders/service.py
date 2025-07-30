@@ -452,7 +452,7 @@ class WorkflowFolderService(BaseService):
         return result.all()
 
     async def get_directory_items(
-        self, path: str = "/", *, order_by: Literal["asc", "desc"]
+        self, path: str = "/", *, order_by: Literal["asc", "desc"] = "desc"
     ) -> Sequence[DirectoryItem]:
         """Get all directory items (workflows and folders) in the given path.
 
