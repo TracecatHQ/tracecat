@@ -1122,6 +1122,7 @@ class BaseTablesService(BaseService):
         table: Table,
         rows: list[dict[str, Any]],
         *,
+        upsert: bool = False,
         chunk_size: int = 1000,
     ) -> int:
         """Insert multiple rows into the table atomically.
@@ -1129,13 +1130,17 @@ class BaseTablesService(BaseService):
         Args:
             table: The table to insert into
             rows: List of row data to insert
+            upsert: If True, update existing rows on conflict based on unique index.
+                   Uses COALESCE to preserve existing column values when the new
+                   value is NULL (i.e., when a row doesn't include that column)
             chunk_size: Maximum number of rows to insert in a single transaction
 
         Returns:
-            Number of rows inserted
+            Number of rows affected (inserted + updated)
 
         Raises:
-            ValueError: If the batch size exceeds the chunk_size
+            ValueError: If the batch size exceeds the chunk_size, table lacks
+                       unique index for upsert, or rows lack index columns
             DBAPIError: If there's a database error during insertion
         """
         if not rows:
@@ -1146,27 +1151,73 @@ class BaseTablesService(BaseService):
 
         schema_name = self._get_schema_name()
 
-        # Get all unique column names from the rows
-        all_columns = set()
+        # Collect all columns present in the batch
+        all_columns: set[str] = set()
         for row in rows:
             all_columns.update(row.keys())
 
-        # Create sanitized column list
+        # Sanitize column identifiers and build SQLAlchemy column objects
         cols = [sa.column(self._sanitize_identifier(k)) for k in all_columns]
         sanitized_table_name = self._sanitize_identifier(table.name)
 
-        # Start transaction
+        table_obj = sa.table(sanitized_table_name, *cols, schema=schema_name)
+
         conn = await self.session.connection()
 
-        # Build multi-row insert statement without returning clause
-        stmt = sa.insert(
-            sa.table(sanitized_table_name, *cols, schema=schema_name)
-        ).values(rows)
+        if not upsert:
+            stmt = sa.insert(table_obj).values(rows)
+        else:
+            # Normalize all rows to have the same columns to handle missing values properly
+            normalized_rows = []
+            for row in rows:
+                normalized_row = {col: row.get(col) for col in all_columns}
+                normalized_rows.append(normalized_row)
+
+            # Prepare PostgreSQL specific insert for upsert behaviour
+            pg_stmt = insert(table_obj).values(normalized_rows)
+
+            # Obtain unique index columns
+            index = await self.get_index(table)
+
+            if not index:
+                raise ValueError("Table must have at least one unique index for upsert")
+            if len(index) > 1:
+                raise ValueError(
+                    "Table cannot have multiple unique indexes. This is an unexpected error. Please contact support."
+                )
+
+            # Ensure each row contains the unique index column
+            for row in rows:
+                if not all(k in row for k in index):
+                    raise ValueError(
+                        "Each row to upsert must contain the unique index column"
+                    )
+
+            # Define columns to update on conflict
+            # Use COALESCE to preserve existing values when new value is NULL
+            update_dict = {}
+            for col in all_columns:
+                if col not in index:
+                    # If the excluded value is NULL, keep the existing value
+                    # Use proper SQLAlchemy column reference instead of text()
+                    update_dict[col] = sa.func.coalesce(
+                        pg_stmt.excluded[col],
+                        getattr(table_obj.c, self._sanitize_identifier(col)),
+                    )
+
+            if update_dict:
+                # If we have columns to update, use ON CONFLICT DO UPDATE
+                stmt = pg_stmt.on_conflict_do_update(
+                    index_elements=index, set_=update_dict
+                )
+            else:
+                # If all columns are index columns, use ON CONFLICT DO NOTHING
+                stmt = pg_stmt.on_conflict_do_nothing(index_elements=index)
 
         try:
-            # Execute insert and get rowcount directly
             result = await conn.execute(stmt)
             await self.session.flush()
+            # rowcount gives number of affected rows (inserted + updated)
             return result.rowcount
         except Exception as e:
             raise DBAPIError("Failed to insert batch", str(e), e) from e
@@ -1229,9 +1280,16 @@ class TablesService(BaseTablesService):
         await self.session.commit()
 
     async def batch_insert_rows(
-        self, table: Table, rows: list[dict[str, Any]], *, chunk_size: int = 1000
+        self,
+        table: Table,
+        rows: list[dict[str, Any]],
+        *,
+        upsert: bool = False,
+        chunk_size: int = 1000,
     ) -> int:
-        result = await super().batch_insert_rows(table, rows, chunk_size=chunk_size)
+        result = await super().batch_insert_rows(
+            table, rows, upsert=upsert, chunk_size=chunk_size
+        )
         await self.session.commit()
         return result
 
