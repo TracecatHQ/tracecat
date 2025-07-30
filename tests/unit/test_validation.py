@@ -248,3 +248,19 @@ async def test_invalid_template_validation():
         assert len(errors) > 0
         error_messages = [detail for err in errors for detail in err.details]
         assert any("not found" in msg for msg in error_messages)
+
+    # Test invalid arguments template (unexpected args)
+    invalid_args_path = invalid_templates_dir / "invalid_args.yml"
+    if invalid_args_path.exists():
+        action = TemplateAction.from_yaml(invalid_args_path)
+        repo.register_template_action(action)
+        bound_action = repo.get("tools.test.test_invalid_args")
+        errors = await validate_action_template(bound_action, repo)
+
+        # Should have error for unexpected field 'json'
+        assert len(errors) > 0
+        error_messages = [detail for err in errors for detail in err.details]
+        assert any(
+            "unexpected field" in msg.lower() and "json" in msg
+            for msg in error_messages
+        )
