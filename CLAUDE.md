@@ -10,10 +10,8 @@ Tracecat is a modern, open source automation platform built for security and IT 
 ### Environment Setup
 ```bash
 # Create Python 3.12 virtual environment and install from lock file
+# (includes tracecat_registry package)
 uv sync --frozen
-
-# Install registry in development mode (if needed)
-uv pip install -e "tracecat_registry[cli] @ ./registry"
 
 # Install frontend dependencies
 pnpm install --dir frontend

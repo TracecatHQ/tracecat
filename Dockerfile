@@ -61,10 +61,8 @@ COPY --chown=apiuser:apiuser ./alembic /app/alembic
 COPY --chown=apiuser:apiuser scripts/entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
-# Install packages from lock file as root for better caching
+# Install packages from lock file as root for better caching (includes registry)
 RUN uv sync --frozen --no-dev
-# Install registry separately as it's not in the lock file
-RUN uv pip install ./registry
 
 # Ensure uv binary is available where Ray expects it
 RUN mkdir -p /home/apiuser/.local/bin && \
