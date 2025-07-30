@@ -4,6 +4,9 @@ from typing import Annotated, Any, Literal
 
 from tracecat.expressions.common import build_safe_lambda, eval_jsonpath
 from typing_extensions import Doc
+from tracecat.redis.client import get_redis_client
+import hashlib
+import json
 
 from tracecat_registry import ActionIsInterfaceError, registry
 
@@ -107,23 +110,100 @@ def not_in(
     return result
 
 
+async def _deduplicate_redis(
+    seen: dict[tuple[Any, ...], dict[str, Any]], expire_seconds: int
+) -> list[dict[str, Any]]:
+    # Get Redis client
+    try:
+        redis_client = await get_redis_client()
+        redis_available = True
+    except Exception:
+        raise ConnectionError("Unable to connect to key-value store for deduplication")
+
+    result: list[dict[str, Any]] = []
+
+    # AWS ElastiCache usually adds ~0.3-1 ms RTT per command. Reduce round-trips
+    # with a pipeline when we have more than a few items.
+    if redis_available and len(seen) > 10:
+        # Use async pipeline (transaction=False keeps commands independent)
+        pipe = redis_client.client.pipeline(transaction=False)
+        redis_keys: list[str] = []
+
+        for key in seen.keys():
+            key_str = json.dumps(key, sort_keys=True, default=str)
+            redis_key = f"dedup:{hashlib.sha256(key_str.encode()).hexdigest()}"
+            redis_keys.append(redis_key)
+            pipe.set(redis_key, "1", ex=expire_seconds, nx=True)
+
+        try:
+            exec_results = await pipe.execute()
+        except Exception as e:
+            raise ConnectionError(f"Key-value store pipeline failed: {e}")
+
+        # Determine which items are new globally based on pipeline results.
+        for (key, item), was_set in zip(seen.items(), exec_results):
+            if was_set:
+                result.append(item)
+    else:
+        # Sequential path (small batches pay negligible RTT penalty)
+        for key, item in seen.items():
+            is_new_globally = True
+
+            if redis_available:
+                key_str = json.dumps(key, sort_keys=True, default=str)
+                redis_key = f"dedup:{hashlib.sha256(key_str.encode()).hexdigest()}"
+
+                try:
+                    was_set = await redis_client.client.set(
+                        redis_key,
+                        "1",
+                        ex=expire_seconds,
+                        nx=True,
+                    )
+                    is_new_globally = bool(was_set)
+                except Exception as e:
+                    raise ConnectionError(
+                        f"Unable to connect to key-value store for deduplication: {e}"
+                    )
+
+            if is_new_globally:
+                result.append(item)
+    return result
+
+
 @registry.register(
     default_title="Deduplicate",
-    description="Deduplicate list of JSON objects given a list of keys.",
+    description="Deduplicate a JSON object or a list of JSON objects given a list of keys.",
     display_group="Data Transform",
     namespace="core.transform",
 )
-def deduplicate(
-    items: Annotated[list[dict[str, Any]], Doc("List of JSON objects to deduplicate.")],
+async def deduplicate(
+    items: Annotated[
+        dict[str, Any] | list[dict[str, Any]],
+        Doc("JSON object or list of JSON objects to deduplicate."),
+    ],
     keys: Annotated[
         list[str],
         Doc(
             "List of keys to deduplicate by. Supports dot notation for nested keys (e.g. `['user.id']`)."
         ),
     ],
-) -> list[dict[str, Any]]:
+    expire_seconds: Annotated[
+        int,
+        Doc("Time to live for the deduplicated items in seconds. Defaults to 1 hour."),
+    ] = 3600,
+    persist: Annotated[
+        bool,
+        Doc(
+            "Whether to persist deduplicated items across calls. If True, deduplicates across calls. If False, deduplicates within the current call only."
+        ),
+    ] = True,
+) -> dict[str, Any] | list[dict[str, Any]]:
     if not items:
         return []
+
+    # Normalize input to list
+    items_list = [items] if isinstance(items, dict) else items
 
     def get_nested_values(item: dict[str, Any], keys: list[str]) -> tuple[Any, ...]:
         values = []
@@ -131,18 +211,36 @@ def deduplicate(
             # Convert dot notation to jsonpath format
             jsonpath_expr = "$." + key
             value = eval_jsonpath(jsonpath_expr, item, strict=True)
+            # Convert unhashable types to JSON strings for use as dict keys
+            if isinstance(value, (list, dict)):
+                value = json.dumps(value, sort_keys=True, default=str)
             values.append(value)
         return tuple(values)
 
     seen = {}
-    for item in items:
+    result = []
+
+    for item in items_list:
         key = get_nested_values(item, keys)
+
+        # Always update or add to seen dict for within-call deduplication
         if key in seen:
+            # Update existing item with same key
             seen[key].update(item)
         else:
+            # First time seeing this key in this call
             seen[key] = item.copy()
 
-    return list(seen.values())
+    if persist:
+        result = await _deduplicate_redis(seen, expire_seconds)
+    else:
+        result = list(seen.values())
+
+    # Return single dict if input was single dict and we have exactly one result
+    if isinstance(items, dict) and len(result) == 1:
+        return result[0]
+
+    return result
 
 
 @registry.register(
