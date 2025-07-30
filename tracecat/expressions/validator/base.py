@@ -1,3 +1,4 @@
+import inspect
 from collections.abc import Awaitable, Callable, Iterator
 from typing import Any, Literal, override
 
@@ -198,14 +199,89 @@ class BaseExprValidator(Visitor):
             node=node,
         )
 
-        if fn_name not in functions.FUNCTION_MAPPING:
+        # 1. Verify that the function exists in FUNCTION_MAPPING
+        func = functions.FUNCTION_MAPPING.get(fn_name)
+        if func is None:
             self.add(
                 status="error",
                 msg=f"Unknown function name {str(fn_name)!r}",
                 type=ExprType.FUNCTION,
             )
-        else:
-            self.add(status="success", type=ExprType.FUNCTION)
+            return
+
+        # 2. Validate argument count (positional only – keyword args are not supported
+        #    in template expressions).
+        #    We deliberately keep the logic simple:
+        #    * Ensure the number of provided arguments is **at least** the number of
+        #      required positional parameters.
+        #    * If the function does **not** declare *args, ensure we don't pass more
+        #      arguments than positional parameters (including those with defaults).
+
+        # Extract argument list from the parse tree (may be missing for zero-arg calls)
+        arg_list_node = node.children[1] if len(node.children) > 1 else None
+        provided_arg_count = 0
+        if isinstance(arg_list_node, Tree) and arg_list_node.data == "arg_list":
+            # Each child of arg_list represents one argument expression
+            provided_arg_count = len(arg_list_node.children)
+
+        # Retrieve the original wrapped function (mappable decorator keeps original in
+        # __wrapped__). Fallback to the function itself if __wrapped__ is absent.
+
+        original_func = getattr(func, "__wrapped__", func)
+        sig = inspect.signature(original_func)
+
+        required_positional = [
+            p
+            for p in sig.parameters.values()
+            if p.kind
+            in (
+                inspect.Parameter.POSITIONAL_ONLY,
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            )
+            and p.default is inspect.Parameter.empty
+        ]
+
+        max_positional = [
+            p
+            for p in sig.parameters.values()
+            if p.kind
+            in (
+                inspect.Parameter.POSITIONAL_ONLY,
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            )
+        ]
+
+        # Determine if the function accepts *args
+        has_varargs = any(
+            p.kind == inspect.Parameter.VAR_POSITIONAL for p in sig.parameters.values()
+        )
+
+        # Validate minimum argument count
+        if provided_arg_count < len(required_positional):
+            self.add(
+                status="error",
+                msg=(
+                    f"Function {fn_name!r} expects at least {len(required_positional)} "
+                    f"argument(s) but {provided_arg_count} were provided"
+                ),
+                type=ExprType.FUNCTION,
+            )
+            return
+
+        # Validate maximum argument count only if *args not present
+        if not has_varargs and provided_arg_count > len(max_positional):
+            self.add(
+                status="error",
+                msg=(
+                    f"Function {fn_name!r} accepts at most {len(max_positional)} "
+                    f"argument(s) but {provided_arg_count} were provided"
+                ),
+                type=ExprType.FUNCTION,
+            )
+            return
+
+        # If we reach here, the function reference and argument count are valid
+        self.add(status="success", type=ExprType.FUNCTION)
 
     def ternary(self, node: Tree):
         cond_expr, true_expr, false_expr = node.children
