@@ -4,9 +4,10 @@ from tracecat.agent.models import (
     ProviderCredentialField,
 )
 
+# https://ai.pydantic.dev/api/models/base/
 MODEL_CONFIGS = {
-    "gpt-o4-mini": ModelConfig(
-        name="gpt-o4-mini",
+    "o4-mini": ModelConfig(
+        name="o4-mini",
         provider="openai",
         org_secret_name="agent-openai-credentials",
         secrets={
