@@ -37,7 +37,9 @@ export function CustomTagInput(props: CustomTagInputProps) {
       setActiveTagIndex={setActiveTagIndex}
       styleClasses={{
         input: "shadow-none text-xs",
-        inlineTagsContainer: "shadow-sm h-9 items-center border text-xs",
+        // Allow chips to wrap onto new lines and avoid fixed height to prevent spillover
+        inlineTagsContainer:
+          "shadow-sm min-h-9 flex flex-wrap items-center gap-1 border text-xs",
         tag: {
           body: "h-5 text-xs",
         },
