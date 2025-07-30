@@ -1,0 +1,6 @@
+# uv.workspace
+[workspace]
+members = [
+  ".",         # core backend package (tracecat)
+  "registry",  # tracecat_registry CLI & libs
+]

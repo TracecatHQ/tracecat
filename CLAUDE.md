@@ -10,8 +10,9 @@ Tracecat is a modern, open source automation platform built for security and IT 
 ### Environment Setup
 ```bash
 # Create Python 3.12 virtual environment and install from lock file
-# (includes tracecat_registry package)
-uv sync --frozen
+# This is a workspace project - run from anywhere inside the repo
+# (includes both tracecat and tracecat_registry packages)
+uv sync
 
 # Install frontend dependencies
 pnpm install --dir frontend
@@ -23,10 +24,11 @@ uv run pre-commit install
 ### Updating Dependencies
 ```bash
 # Update dependencies and regenerate lock file
-uv lock --upgrade-package <package-name>
+# Lock file updates are automatic if you delete uv.lock and run uv sync
+rm uv.lock && uv sync
 
-# Or update all dependencies
-uv lock --upgrade
+# Or manually compile a new lock file
+uv pip compile pyproject.toml -o uv.lock
 
 # Install updated dependencies
 uv sync

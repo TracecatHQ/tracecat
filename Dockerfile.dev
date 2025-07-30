@@ -27,6 +27,7 @@ WORKDIR /app
 COPY ./tracecat /app/tracecat
 COPY ./registry /app/registry
 COPY ./pyproject.toml /app/pyproject.toml
+COPY ./uv.workspace /app/uv.workspace
 COPY ./uv.lock /app/uv.lock
 COPY ./.python-version /app/.python-version
 COPY ./README.md /app/README.md

@@ -65,7 +65,7 @@ jobs:
           cd custom-integrations-starter-kit
 
       - name: Install dependencies
-        run: uv venv --python 3.12 && uv pip install ".[dev]"
+        run: uv sync --frozen
 
   test-workflow-codec:
     runs-on: blacksmith-4vcpu-ubuntu-2204
@@ -115,9 +115,7 @@ jobs:
         run: docker compose -f docker-compose.dev.yml up -d temporal api worker executor postgres_db caddy
 
       - name: Install dependencies
-        run: |
-          uv sync --frozen
-          uv pip install ./registry
+        run: uv sync --frozen
 
       - name: Run workflow tests with compression
         env:
@@ -233,9 +231,7 @@ jobs:
         run: docker compose -f docker-compose.dev.yml up -d temporal api worker executor postgres_db caddy minio
 
       - name: Install dependencies
-        run: |
-          uv sync --frozen
-          uv pip install ./registry
+        run: uv sync --frozen
 
       - name: Run tests
         env:

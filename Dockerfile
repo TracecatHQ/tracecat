@@ -50,6 +50,7 @@ WORKDIR /app
 COPY --chown=apiuser:apiuser ./tracecat /app/tracecat
 COPY --chown=apiuser:apiuser ./registry /app/registry
 COPY --chown=apiuser:apiuser ./pyproject.toml /app/pyproject.toml
+COPY --chown=apiuser:apiuser ./uv.workspace /app/uv.workspace
 COPY --chown=apiuser:apiuser ./uv.lock /app/uv.lock
 COPY --chown=apiuser:apiuser ./.python-version /app/.python-version
 COPY --chown=apiuser:apiuser ./README.md /app/README.md
