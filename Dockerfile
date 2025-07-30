@@ -48,7 +48,7 @@ WORKDIR /app
 
 # Copy the application files into the container and set ownership
 COPY --chown=apiuser:apiuser ./tracecat /app/tracecat
-COPY --chown=apiuser:apiuser ./registry /app/registry
+COPY --chown=apiuser:apiuser ./tracecat-registry /app/tracecat-registry
 COPY --chown=apiuser:apiuser ./pyproject.toml /app/pyproject.toml
 COPY --chown=apiuser:apiuser ./uv.lock /app/uv.lock
 COPY --chown=apiuser:apiuser ./.python-version /app/.python-version

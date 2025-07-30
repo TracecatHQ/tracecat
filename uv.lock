@@ -7,6 +7,12 @@ resolution-markers = [
     "python_full_version < '3.13'",
 ]
 
+[manifest]
+members = [
+    "tracecat",
+    "tracecat-registry",
+]
+
 [[package]]
 name = "abnf"
 version = "2.2.0"
@@ -3710,7 +3716,7 @@ dependencies = [
     { name = "temporalio" },
     { name = "tenacity" },
     { name = "tomli" },
-    { name = "tracecat-registry", extra = ["cli"] },
+    { name = "tracecat-registry" },
     { name = "uv" },
     { name = "uvicorn" },
     { name = "virtualenv" },
@@ -3781,7 +3787,7 @@ requires-dist = [
     { name = "temporalio", specifier = "==1.9.0" },
     { name = "tenacity", specifier = "==8.3.0" },
     { name = "tomli", specifier = "==2.2.1" },
-    { name = "tracecat-registry", extras = ["cli"], directory = "registry" },
+    { name = "tracecat-registry", editable = "packages/tracecat-registry" },
     { name = "uv", specifier = "==0.4.10" },
     { name = "uvicorn", specifier = ">=0.33.0,<0.34" },
     { name = "virtualenv", specifier = "==20.27.0" },
@@ -3790,7 +3796,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "tracecat-registry"
-source = { directory = "registry" }
+source = { editable = "packages/tracecat-registry" }
 dependencies = [
     { name = "aioboto3" },
     { name = "ansible" },
