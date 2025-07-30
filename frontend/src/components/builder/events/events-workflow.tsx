@@ -44,6 +44,8 @@ import {
 import {
   executionId,
   groupEventsByActionRef,
+  refToLabel,
+  WF_FAILURE_EVENT_REF,
   type WorkflowExecutionEventCompact,
   type WorkflowExecutionReadCompact,
 } from "@/lib/event-history"
@@ -341,7 +343,7 @@ export function WorkflowEvents({
                         <div className="flex flex-1 items-center justify-between">
                           <div className="flex items-center gap-2">
                             <div className="truncate text-foreground/70">
-                              {actionRef}
+                              {refToLabel(actionRef)}
                             </div>
                             {instanceCount > 1 && (
                               <Badge
@@ -396,7 +398,10 @@ export function WorkflowEvents({
                                   <span>View last input</span>
                                 </DropdownMenuItem>
                                 <DropdownMenuItem
-                                  disabled={!isActionRefValid(actionRef)}
+                                  disabled={
+                                    !isActionRefValid(actionRef) &&
+                                    actionRef !== WF_FAILURE_EVENT_REF
+                                  }
                                   onClick={(e) => {
                                     e.stopPropagation()
                                     sidebarRef.current?.setOpen(true)

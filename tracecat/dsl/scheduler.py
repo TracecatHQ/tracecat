@@ -8,6 +8,7 @@ from datetime import timedelta
 from typing import Any, cast
 
 from temporalio import workflow
+from temporalio.exceptions import ActivityError
 
 with workflow.unsafe.imports_passed_through():
     from pydantic_core import to_json
@@ -593,7 +594,14 @@ class DSLScheduler:
         if run_if is not None:
             context = self.get_context(task.stream_id)
             self.logger.debug("`run_if` condition", run_if=run_if)
-            expr_result = await self.resolve_expression(run_if, context)
+            try:
+                expr_result = await self.resolve_expression(run_if, context)
+            except Exception as e:
+                raise ApplicationError(
+                    f"Error evaluating `run_if` condition: {e}",
+                    non_retryable=True,
+                ) from e
+
             if not bool(expr_result):
                 self.logger.info("Task `run_if` condition was not met, skipped")
                 return True
@@ -915,7 +923,13 @@ class DSLScheduler:
         # This means we must compute a return value for the gather.
         # We should only compute the items to store if we aren't skipping
         current_context = self.get_context(stream_id)
-        items = await self.resolve_expression(args.items, current_context)
+        try:
+            items = await self.resolve_expression(args.items, current_context)
+        except Exception as e:
+            raise ApplicationError(
+                f"Error evaluating `items` expression in `core.transform.gather`: {e}",
+                non_retryable=True,
+            ) from e
 
         # XXX(concurrency): It's important we only decrement open_streams after
         # await block. If not, streams at the current level will observe 0
@@ -1115,12 +1129,20 @@ class DSLScheduler:
         self.logger.trace(
             "Resolving expression", expression=expression, context=context
         )
-        return await workflow.execute_activity(
-            DSLActivities.evaluate_single_expression_activity,
-            args=(expression, context),
-            start_to_close_timeout=timedelta(seconds=10),
-            retry_policy=RETRY_POLICIES["activity:fail_fast"],
-        )
+        try:
+            return await workflow.execute_activity(
+                DSLActivities.evaluate_single_expression_activity,
+                args=(expression, context),
+                start_to_close_timeout=timedelta(seconds=10),
+                retry_policy=RETRY_POLICIES["activity:fail_fast"],
+            )
+        except ActivityError as e:
+            # Capture the ApplicationError from the activity so we can fail the wf
+            match cause := e.cause:
+                case ApplicationError():
+                    raise cause from None
+                case _:
+                    raise
 
 
 def _is_error_info(detail: Any) -> bool:

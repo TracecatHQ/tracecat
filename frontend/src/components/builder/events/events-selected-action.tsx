@@ -65,6 +65,7 @@ import {
   groupEventsByActionRef,
   isAgentOutput,
   parseStreamId,
+  refToLabel,
   type WorkflowExecutionEventCompact,
   type WorkflowExecutionReadCompact,
 } from "@/lib/event-history"
@@ -130,7 +131,7 @@ export function ActionEvent({
                 value={actionRef}
                 className="max-h-8 py-1 text-xs"
               >
-                {actionRef}
+                {refToLabel(actionRef)}
                 {relatedEvents.length !== 1 && ` (${relatedEvents.length})`}
               </SelectItem>
             ))}
