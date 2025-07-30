@@ -1,0 +1,22 @@
+type: action
+definition:
+  name: test_bad_jsonpath
+  namespace: tools.test
+  display_name: Test Bad JSONPath
+  description: Template with invalid JSONPath syntax
+  title: Test Bad JSONPath
+  display_group: Testing
+  expects:
+    data:
+      type: dict[str, Any]
+      description: Input data
+  steps:
+    - ref: extract
+      action: core.transform.reshape
+      args:
+        value:
+          # Use a function that doesn't exist to test validation
+          bad_func: ${{ FN.does_not_exist_func(inputs.data) }}
+          # Use wrong argument count for existing function
+          wrong_args: ${{ FN.len() }}
+  returns: ${{ steps.extract.result }}

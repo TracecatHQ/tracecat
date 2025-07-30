@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import Annotated, Any
 
 import pytest
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from tracecat_registry import registry
 from typing_extensions import Doc
 
@@ -249,18 +249,55 @@ async def test_invalid_template_validation():
         error_messages = [detail for err in errors for detail in err.details]
         assert any("not found" in msg for msg in error_messages)
 
-    # Test invalid arguments template (unexpected args)
-    invalid_args_path = invalid_templates_dir / "invalid_args.yml"
-    if invalid_args_path.exists():
-        action = TemplateAction.from_yaml(invalid_args_path)
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "file_name,expected_error_pattern",
+    [
+        ("missing_title.yml", r"title\s+Field required"),
+        ("missing_display_group.yml", r"display_group\s+Field required"),
+        ("bad_expression_syntax.yml", r"Unexpected token.*'or'"),
+        (
+            "bad_jsonpath.yml",
+            r"Unknown function name 'does_not_exist_func'|expects at least",
+        ),
+        ("unmatched_parens.yml", r"Unexpected token.*\$END"),
+    ],
+)
+async def test_template_validation_errors(file_name, expected_error_pattern):
+    """Test various template validation error scenarios."""
+    import re
+
+    invalid_templates_dir = Path("tests/data/templates/invalid")
+    template_path = invalid_templates_dir / file_name
+
+    # Some errors occur during parsing (Pydantic validation)
+    if file_name in ("missing_title.yml", "missing_display_group.yml"):
+        with pytest.raises(ValidationError) as exc_info:
+            TemplateAction.from_yaml(template_path)
+
+        error_str = str(exc_info.value)
+        assert re.search(expected_error_pattern, error_str, re.IGNORECASE), (
+            f"Expected pattern '{expected_error_pattern}' not found in error: {error_str}"
+        )
+    else:
+        # Other errors occur during template validation
+        repo = Repository()
+        repo.init(include_base=True, include_templates=False)
+
+        action = TemplateAction.from_yaml(template_path)
         repo.register_template_action(action)
-        bound_action = repo.get("tools.test.test_invalid_args")
+        bound_action = repo.get(action.definition.action)
         errors = await validate_action_template(bound_action, repo)
 
-        # Should have error for unexpected field 'json'
-        assert len(errors) > 0
-        error_messages = [detail for err in errors for detail in err.details]
-        assert any(
-            "unexpected field" in msg.lower() and "json" in msg
-            for msg in error_messages
+        assert len(errors) > 0, f"Expected validation errors for {file_name}"
+
+        # Check if any error message matches the expected pattern
+        all_error_messages = []
+        for err in errors:
+            all_error_messages.extend(err.details)
+
+        error_text = " ".join(all_error_messages)
+        assert re.search(expected_error_pattern, error_text, re.IGNORECASE), (
+            f"Expected pattern '{expected_error_pattern}' not found in errors: {all_error_messages}"
         )
