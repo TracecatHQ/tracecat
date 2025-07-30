@@ -63,7 +63,7 @@ class WorkflowsManagementService(BaseService):
     service_name = "workflows"
 
     async def list_workflows(
-        self, *, tags: list[str] | None = None
+        self, *, tags: list[str] | None = None, reverse: bool = False
     ) -> list[tuple[Workflow, WorkflowDefinitionMinimal | None]]:
         """List workflows with their latest definitions.
 
@@ -105,6 +105,17 @@ class WorkflowsManagementService(BaseService):
                 ),
             )
         )
+
+        if reverse:
+            stmt = stmt.order_by(
+                col(Workflow.created_at).asc(),
+                col(Workflow.id).asc(),
+            )
+        else:
+            stmt = stmt.order_by(
+                col(Workflow.created_at).desc(),
+                col(Workflow.id).desc(),
+            )
 
         if tags:
             tag_set = set(tags)
