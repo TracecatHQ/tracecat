@@ -369,7 +369,7 @@ class DSLWorkflow:
         if task_exceptions:
             n_exc = len(task_exceptions)
             formatted_exc = "\n".join(
-                f"{'=' * 20} ({i + 1}/{n_exc}) {details.expr_context}.{ref} {'=' * 20}\n\n{info.exception!s}"
+                f"{'=' * 10} ({i + 1}/{n_exc}) {details.expr_context}.{ref} {'=' * 10}\n\n{info.exception!s}"
                 for i, (ref, info) in enumerate(task_exceptions.items())
                 if (details := info.details)
             )
