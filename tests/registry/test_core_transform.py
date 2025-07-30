@@ -332,11 +332,6 @@ async def test_deduplicate(
         pytest.skip("Redis not available")
 
 
-# ---------------------------------------------------------------------------
-# New test: ensure Redis-backed deduplication works across multiple calls
-# ---------------------------------------------------------------------------
-
-
 @pytest.mark.parametrize(
     "first_call,second_call,expected_first,expected_second",
     [
