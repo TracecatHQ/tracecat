@@ -85,7 +85,7 @@ async def get_workflow_definition_activity(
             input.workflow_id, version=input.version
         )
         if not defn:
-            msg = f"Workflow definition not found for {input.workflow_id!r}, version={input.version}"
+            msg = f"Workflow definition not found for {input.workflow_id.short()}, version={input.version}"
             logger.error(msg)
             raise TracecatException(msg)
         dsl = DSLInput(**defn.content)
