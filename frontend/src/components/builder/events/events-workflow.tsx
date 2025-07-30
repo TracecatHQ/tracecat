@@ -210,8 +210,10 @@ export function WorkflowEventsHeader({
 }
 export function WorkflowEvents({
   events,
+  status,
 }: {
   events: WorkflowExecutionEventCompact[]
+  status: WorkflowExecutionReadCompact["status"]
 }) {
   const {
     selectedActionEventRef,
@@ -435,8 +437,17 @@ export function WorkflowEvents({
             ) : (
               <div className="flex h-16 items-center justify-center bg-muted-foreground/5 p-3 text-center text-xs text-muted-foreground">
                 <div className="flex items-center justify-center gap-2">
-                  <LoaderIcon className="size-3 animate-spin text-muted-foreground" />
-                  <span>Waiting for events...</span>
+                  {status === "RUNNING" ? (
+                    <>
+                      <LoaderIcon className="size-3 animate-spin text-muted-foreground" />
+                      <span>Waiting for events...</span>
+                    </>
+                  ) : (
+                    <>
+                      <CircleDot className="size-3 text-muted-foreground" />
+                      <span>No events</span>
+                    </>
+                  )}
                 </div>
               </div>
             )}
