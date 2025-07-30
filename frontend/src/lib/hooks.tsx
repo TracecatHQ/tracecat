@@ -2913,32 +2913,6 @@ export function useDeleteCaseComment({
   }
 }
 
-/**
- * Hook to fetch all workflows for a given workspace.
- * @param workspaceId The ID of the workspace.
- * @returns Query result for the list of workflows.
- */
-export function useGetWorkflows(workspaceId: string) {
-  const {
-    data: workflows,
-    isLoading: workflowsLoading,
-    error: workflowsError,
-  } = useQuery<WorkflowReadMinimal[], ApiError>({
-    queryKey: ["workflows", workspaceId],
-    queryFn: async () => {
-      const response = await workflowsListWorkflows({ workspaceId })
-      return response.items
-    },
-    retry: retryHandler,
-  })
-
-  return {
-    workflows,
-    workflowsLoading,
-    workflowsError,
-  }
-}
-
 export function useFolders(workspaceId: string) {
   const queryClient = useQueryClient()
 
