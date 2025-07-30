@@ -28,7 +28,7 @@ async def get_directory(
     """Get directory items (workflows and folders) in the given path."""
     service = WorkflowFolderService(session, role=role)
     try:
-        result = await service.get_directory_items(path)
+        result = await service.get_directory_items(path, order_by="desc")
     except TracecatNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
     return list(result)
