@@ -95,6 +95,8 @@ class Expression:
             return visitor.add(
                 status="error",
                 msg=str(e),
+                ref=ref,
+                loc=("parsing", self._expr),
             )
 
         # 2) Validate the AST
