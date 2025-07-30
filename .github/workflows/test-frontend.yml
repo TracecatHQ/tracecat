@@ -62,7 +62,7 @@ jobs:
 
       - name: Run frontend tests
         working-directory: frontend
-        run: pnpm test --passWithNoTests --watchAll=false --coverage=false --verbose
+        run: pnpm test
 
       - name: Summary
         if: success()
