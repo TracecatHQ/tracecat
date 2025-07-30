@@ -50,6 +50,8 @@ WORKDIR /app
 COPY --chown=apiuser:apiuser ./tracecat /app/tracecat
 COPY --chown=apiuser:apiuser ./registry /app/registry
 COPY --chown=apiuser:apiuser ./pyproject.toml /app/pyproject.toml
+COPY --chown=apiuser:apiuser ./uv.lock /app/uv.lock
+COPY --chown=apiuser:apiuser ./.python-version /app/.python-version
 COPY --chown=apiuser:apiuser ./README.md /app/README.md
 COPY --chown=apiuser:apiuser ./LICENSE /app/LICENSE
 COPY --chown=apiuser:apiuser ./alembic.ini /app/alembic.ini
@@ -59,8 +61,9 @@ COPY --chown=apiuser:apiuser ./alembic /app/alembic
 COPY --chown=apiuser:apiuser scripts/entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
-# Install package and registry as root for better caching
-RUN uv pip install .
+# Install packages from lock file as root for better caching
+RUN uv sync --frozen --no-dev
+# Install registry separately as it's not in the lock file
 RUN uv pip install ./registry
 
 # Ensure uv binary is available where Ray expects it

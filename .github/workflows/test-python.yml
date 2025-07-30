@@ -8,6 +8,7 @@ on:
       - registry/**
       - tests/**
       - pyproject.toml
+      - uv.lock
       - Dockerfile
       - docker-compose.yml
       - docker-compose.dev.yml
@@ -19,6 +20,7 @@ on:
       - registry/**
       - tests/**
       - pyproject.toml
+      - uv.lock
       - Dockerfile
       - docker-compose.yml
       - docker-compose.dev.yml
@@ -114,7 +116,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          uv pip install ".[dev]"
+          uv sync --frozen
           uv pip install ./registry
 
       - name: Run workflow tests with compression
@@ -232,7 +234,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          uv pip install ".[dev]"
+          uv sync --frozen
           uv pip install ./registry
 
       - name: Run tests
