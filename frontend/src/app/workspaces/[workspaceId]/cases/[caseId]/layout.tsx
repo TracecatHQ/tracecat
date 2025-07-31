@@ -2,15 +2,10 @@
 
 import { useParams } from "next/navigation"
 import type React from "react"
-import { useState } from "react"
 import { CaseChat } from "@/components/cases/case-chat"
-import {
-  DEFAULT_MAX,
-  DEFAULT_MIN,
-  DragDivider,
-} from "@/components/drag-divider"
 import { ControlsHeader } from "@/components/nav/controls-header"
 import { AppSidebar } from "@/components/sidebar/app-sidebar"
+import { ResizableSidebar } from "@/components/ui/resizable-sidebar"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 
 export default function CaseDetailLayout({
@@ -20,9 +15,6 @@ export default function CaseDetailLayout({
 }) {
   const params = useParams<{ caseId: string }>()
   const caseId = params?.caseId
-
-  // Default starting width roughly Tailwind's w-96 (384px)
-  const [chatWidth, setChatWidth] = useState<number>(DEFAULT_MIN)
 
   if (!caseId) {
     return <>{children}</>
@@ -39,24 +31,10 @@ export default function CaseDetailLayout({
         </div>
       </SidebarInset>
 
-      {/* Drag divider */}
-      <DragDivider
-        className="w-1.5 shrink-0"
-        value={chatWidth}
-        onChange={setChatWidth}
-      />
-
-      {/* Chat inset */}
-      <SidebarInset
-        className="flex-none ml-px"
-        style={{
-          width: chatWidth,
-          minWidth: DEFAULT_MIN,
-          maxWidth: DEFAULT_MAX,
-        }}
-      >
+      {/* Chat sidebar */}
+      <ResizableSidebar>
         <CaseChat caseId={caseId} isChatOpen={true} />
-      </SidebarInset>
+      </ResizableSidebar>
     </SidebarProvider>
   )
 }
