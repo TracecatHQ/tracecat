@@ -1,0 +1,22 @@
+type: action
+definition:
+  name: test_invalid_function
+  namespace: tools.test
+  display_name: Test Invalid Function
+  description: Template with invalid function name
+  title: Test Invalid Function
+  display_group: Testing
+  expects:
+    message:
+      type: str
+      description: A test message
+  steps:
+    - ref: transform_message
+      action: core.transform.reshape
+      args:
+        value:
+          # This function doesn't exist
+          transformed: ${{ FN.does_not_exist(inputs.message) }}
+          # This function exists but has wrong argument count
+          added: ${{ FN.add(inputs.message) }}
+  returns: ${{ steps.transform_message.result }}

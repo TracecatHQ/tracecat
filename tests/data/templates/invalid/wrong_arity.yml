@@ -1,0 +1,27 @@
+type: action
+definition:
+  name: test_wrong_arity
+  namespace: tools.test
+  display_name: Test Wrong Arity
+  description: Template with wrong function argument counts
+  title: Test Wrong Arity
+  display_group: Testing
+  expects:
+    text:
+      type: str
+      description: Input text
+    number:
+      type: int
+      description: Input number
+  steps:
+    - ref: process
+      action: core.transform.reshape
+      args:
+        value:
+          # FN.uppercase takes 1 arg, not 2
+          upper: ${{ FN.uppercase(inputs.text, inputs.number) }}
+          # FN.join takes 2 args, not 0
+          joined: ${{ FN.join() }}
+          # FN.now takes 0 args, not 1
+          time: ${{ FN.now(inputs.text) }}
+  returns: ${{ steps.process.result }}

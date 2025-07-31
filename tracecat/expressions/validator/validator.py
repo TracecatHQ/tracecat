@@ -262,13 +262,16 @@ class TemplateActionExprValidator(BaseExprValidator):
         status: Literal["success", "error"],
         msg: str = "",
         type: ExprType = ExprType.GENERIC,
+        ref: str | None = None,
+        loc: tuple[str | int, ...] | None = None,
     ) -> None:
         self._results.append(
             TemplateActionExprValidationResult(
                 status=status,
                 msg=msg,
                 expression_type=type,
-                loc=self._loc,
+                loc=loc or self._loc,
+                ref=ref,
             )
         )
 
