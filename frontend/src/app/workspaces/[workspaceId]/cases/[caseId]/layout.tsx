@@ -45,7 +45,7 @@ export default function CaseDetailLayout({
     <SidebarProvider>
       <AppSidebar />
       {/* Case content inset */}
-      <SidebarInset className="flex-1 min-w-0">
+      <SidebarInset className="flex-1 min-w-0 mr-px">
         <div className="flex h-full flex-col">
           <ControlsHeader />
           <div className="flex-1 overflow-y-auto">{children}</div>
@@ -54,7 +54,7 @@ export default function CaseDetailLayout({
 
       {/* Drag divider */}
       <DragDivider
-        className="w-3 shrink-0"
+        className="w-1.5 shrink-0"
         value={chatWidth}
         min={MIN_CHAT_WIDTH}
         max={maxChatWidth}
@@ -63,7 +63,7 @@ export default function CaseDetailLayout({
 
       {/* Chat inset */}
       <SidebarInset
-        className="flex-none min-w-[300px]"
+        className="flex-none min-w-[300px] ml-px"
         style={{ width: chatWidth, maxWidth: maxChatWidth }}
       >
         <CaseChat caseId={caseId} isChatOpen={isChatOpen} />
