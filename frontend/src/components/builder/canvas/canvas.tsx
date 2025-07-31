@@ -194,13 +194,8 @@ export const WorkflowCanvas = React.forwardRef<
         }
         // Defensive
         const prunedGraph = pruneGraphObject(graph)
-        const { nodes: layoutNodes, edges: layoutEdges } = getLayoutedElements(
-          prunedGraph.nodes,
-          prunedGraph.edges,
-          "TB"
-        )
-        setNodes((currNodes) => [...currNodes, ...layoutNodes])
-        setEdges((currEdges) => [...currEdges, ...layoutEdges])
+        setNodes((currNodes) => [...currNodes, ...prunedGraph.nodes])
+        setEdges((currEdges) => [...currEdges, ...prunedGraph.edges])
         setViewport({
           x: graph.viewport?.x ?? 0,
           y: graph.viewport?.y ?? 0,
