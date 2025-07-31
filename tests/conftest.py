@@ -372,10 +372,6 @@ async def test_workspace():
     workspace_name = f"__test_workspace_{ws_id.hex[:8]}"
 
     async with WorkspaceService.with_session(role=system_role()) as svc:
-        if await svc.get_workspace(ws_id):
-            logger.info("Found existing test workspace, deleting it first")
-            await svc.delete_workspace(ws_id)
-
         # Create new test workspace
         workspace = await svc.create_workspace(name=workspace_name, override_id=ws_id)
 
