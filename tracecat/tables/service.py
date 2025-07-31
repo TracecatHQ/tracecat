@@ -1,3 +1,4 @@
+from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from datetime import datetime
 from typing import Any
@@ -1122,6 +1123,7 @@ class BaseTablesService(BaseService):
         table: Table,
         rows: list[dict[str, Any]],
         *,
+        upsert: bool = False,
         chunk_size: int = 1000,
     ) -> int:
         """Insert multiple rows into the table atomically.
@@ -1129,13 +1131,17 @@ class BaseTablesService(BaseService):
         Args:
             table: The table to insert into
             rows: List of row data to insert
+            upsert: If True, update existing rows on conflict based on unique index.
+                   Uses COALESCE to preserve existing column values when the new
+                   value is NULL (i.e., when a row doesn't include that column)
             chunk_size: Maximum number of rows to insert in a single transaction
 
         Returns:
-            Number of rows inserted
+            Number of rows affected (inserted + updated)
 
         Raises:
-            ValueError: If the batch size exceeds the chunk_size
+            ValueError: If the batch size exceeds the chunk_size, table lacks
+                       unique index for upsert, or rows lack index columns
             DBAPIError: If there's a database error during insertion
         """
         if not rows:
@@ -1146,30 +1152,90 @@ class BaseTablesService(BaseService):
 
         schema_name = self._get_schema_name()
 
-        # Get all unique column names from the rows
-        all_columns = set()
-        for row in rows:
-            all_columns.update(row.keys())
-
-        # Create sanitized column list
-        cols = [sa.column(self._sanitize_identifier(k)) for k in all_columns]
         sanitized_table_name = self._sanitize_identifier(table.name)
 
-        # Start transaction
+        # Group rows by their column sets to avoid inserting NULL into missing columns.
+        rows_by_columns: dict[frozenset[str], list[dict[str, Any]]] = defaultdict(list)
+        for row in rows:
+            rows_by_columns[frozenset(row.keys())].append(row)
+
         conn = await self.session.connection()
 
-        # Build multi-row insert statement without returning clause
-        stmt = sa.insert(
-            sa.table(sanitized_table_name, *cols, schema=schema_name)
-        ).values(rows)
+        total_affected = 0
 
-        try:
-            # Execute insert and get rowcount directly
-            result = await conn.execute(stmt)
-            await self.session.flush()
-            return result.rowcount
-        except Exception as e:
-            raise DBAPIError("Failed to insert batch", str(e), e) from e
+        # If we need upsert behaviour, fetch the unique index once.
+        index: list[str] | None = None
+        if upsert:
+            index = await self.get_index(table)
+
+            if not index:
+                raise ValueError("Table must have at least one unique index for upsert")
+            if len(index) > 1:
+                raise ValueError(
+                    "Table cannot have multiple unique indexes. This is an unexpected error. Please contact support."
+                )
+
+        # Iterate over groups and execute separate INSERT/UPSERT statements.
+        for col_set, group_rows in rows_by_columns.items():
+            # Sanitize column identifiers for this group
+            cols = [sa.column(self._sanitize_identifier(col)) for col in col_set]
+            table_obj = sa.table(sanitized_table_name, *cols, schema=schema_name)
+
+            if not upsert:
+                stmt = sa.insert(table_obj).values(group_rows)
+            else:
+                # Ensure each row contains the unique index column(s)
+                assert index is not None  # mypy / type checker hint
+                for row in group_rows:
+                    if not all(k in row for k in index):
+                        raise ValueError(
+                            "Each row to upsert must contain the unique index column"
+                        )
+
+                pg_stmt = insert(table_obj).values(group_rows)
+
+                # Build a mapping of *sanitized* Column objects so we can use them safely
+                col_objs = {  # key is the sanitized column name
+                    col_obj.key: col_obj for col_obj in cols
+                }
+
+                # Columns to update on conflict: all non-index columns present in this group.
+                #
+                # We wrap the new value in COALESCE(new, existing) so that if the incoming
+                # value is NULL we keep the existing value. This matches the behaviour
+                # promised in the function docstring.
+                update_dict = {}
+                for raw_col_name in col_set:
+                    sanitized_name = self._sanitize_identifier(raw_col_name)
+                    if sanitized_name in index:
+                        # Never update columns that are part of the unique index
+                        continue
+
+                    column_obj = col_objs[sanitized_name]
+                    update_dict[column_obj] = sa.func.coalesce(
+                        pg_stmt.excluded[sanitized_name],
+                        column_obj,
+                    )
+
+                if update_dict:
+                    stmt = pg_stmt.on_conflict_do_update(
+                        index_elements=index,
+                        set_=update_dict,
+                    )
+                else:
+                    # Nothing to update (e.g., the only columns present are the unique index)
+                    stmt = pg_stmt.on_conflict_do_nothing(index_elements=index)
+
+            try:
+                result = await conn.execute(stmt)
+                total_affected += result.rowcount
+            except Exception as e:
+                # Re-raise as DBAPIError for consistency
+                raise DBAPIError("Failed to insert batch", str(e), e) from e
+
+        # Flush once at the end to ensure changes are persisted within the transaction.
+        await self.session.flush()
+        return total_affected
 
 
 class TablesService(BaseTablesService):
@@ -1229,9 +1295,16 @@ class TablesService(BaseTablesService):
         await self.session.commit()
 
     async def batch_insert_rows(
-        self, table: Table, rows: list[dict[str, Any]], *, chunk_size: int = 1000
+        self,
+        table: Table,
+        rows: list[dict[str, Any]],
+        *,
+        upsert: bool = False,
+        chunk_size: int = 1000,
     ) -> int:
-        result = await super().batch_insert_rows(table, rows, chunk_size=chunk_size)
+        result = await super().batch_insert_rows(
+            table, rows, upsert=upsert, chunk_size=chunk_size
+        )
         await self.session.commit()
         return result
 

@@ -483,6 +483,173 @@ class TestTableRows:
         all_rows = await tables_service.list_rows(table)
         assert len(all_rows) == 0
 
+    async def test_batch_insert_rows_with_upsert(
+        self, tables_service: TablesService, table: Table
+    ) -> None:
+        """Test batch inserting with upsert functionality."""
+        # Create unique index on name column first
+        await tables_service.create_unique_index(table, "name")
+
+        # Initial batch insert
+        initial_rows = [
+            {"name": "Alice", "age": 25},
+            {"name": "Bob", "age": 30},
+            {"name": "Carol", "age": 35},
+        ]
+        inserted_count = await tables_service.batch_insert_rows(table, initial_rows)
+        assert inserted_count == 3
+
+        # Verify initial insert
+        all_rows = await tables_service.list_rows(table)
+        assert len(all_rows) == 3
+
+        # Batch upsert with some existing and some new rows
+        upsert_rows = [
+            {"name": "Alice", "age": 26},  # Update existing
+            {"name": "Bob", "age": 31},  # Update existing
+            {"name": "David", "age": 40},  # Insert new
+            {"name": "Eve", "age": 45},  # Insert new
+        ]
+        upserted_count = await tables_service.batch_insert_rows(
+            table, upsert_rows, upsert=True
+        )
+        assert upserted_count == 4  # 2 updates + 2 inserts
+
+        # Verify final state
+        final_rows = await tables_service.list_rows(table)
+        assert len(final_rows) == 5  # 3 original + 2 new
+
+        # Check updated values
+        name_to_age = {row["name"]: row["age"] for row in final_rows}
+        assert name_to_age["Alice"] == 26  # Updated
+        assert name_to_age["Bob"] == 31  # Updated
+        assert name_to_age["Carol"] == 35  # Unchanged
+        assert name_to_age["David"] == 40  # New
+        assert name_to_age["Eve"] == 45  # New
+
+    async def test_batch_upsert_no_null_overwrite(
+        self, tables_service: TablesService, table: Table
+    ) -> None:
+        """Test that batch upsert doesn't overwrite columns with NULL when rows have different columns."""
+        # Create unique index on name column
+        await tables_service.create_unique_index(table, "name")
+
+        # Insert initial row with both name and age
+        initial_row = {"name": "Alice", "age": 25}
+        await tables_service.insert_row(table, TableRowInsert(data=initial_row))
+
+        # Verify initial state
+        rows = await tables_service.list_rows(table)
+        assert len(rows) == 1
+        assert rows[0]["name"] == "Alice"
+        assert rows[0]["age"] == 25
+
+        # Batch upsert with rows having different columns
+        # First row has only name (missing age)
+        # Second row has both name and age
+        upsert_rows = [
+            {"name": "Alice"},  # Missing age column - should NOT nullify existing age
+            {"name": "Bob", "age": 30},  # New row with both columns
+        ]
+
+        await tables_service.batch_insert_rows(table, upsert_rows, upsert=True)
+
+        # Verify that Alice's age was NOT overwritten with NULL
+        final_rows = await tables_service.list_rows(table)
+        assert len(final_rows) == 2
+
+        alice_row = next(row for row in final_rows if row["name"] == "Alice")
+        bob_row = next(row for row in final_rows if row["name"] == "Bob")
+
+        # Alice's age should remain unchanged (not NULL)
+        assert alice_row["age"] == 25
+        # Bob should have the specified age
+        assert bob_row["age"] == 30
+
+    async def test_batch_upsert_without_index_fails(
+        self, tables_service: TablesService, table: Table
+    ) -> None:
+        """Test that batch upsert fails when table has no unique index."""
+        # Insert some initial data
+        initial_rows = [
+            {"name": "Alice", "age": 25},
+            {"name": "Bob", "age": 30},
+        ]
+        await tables_service.batch_insert_rows(table, initial_rows)
+
+        # Attempt batch upsert without unique index
+        upsert_rows = [
+            {"name": "Alice", "age": 26},
+            {"name": "Carol", "age": 35},
+        ]
+
+        with pytest.raises(ValueError) as exc_info:
+            await tables_service.batch_insert_rows(table, upsert_rows, upsert=True)
+
+        assert "Table must have at least one unique index for upsert" in str(
+            exc_info.value
+        )
+
+    async def test_batch_upsert_missing_index_column_fails(
+        self, tables_service: TablesService, table: Table
+    ) -> None:
+        """Test that batch upsert fails when rows don't contain the unique index column."""
+        # Create unique index on name column
+        await tables_service.create_unique_index(table, "name")
+
+        # Attempt batch upsert with rows missing the index column
+        upsert_rows = [
+            {"age": 25},  # Missing 'name' column
+            {"age": 30},  # Missing 'name' column
+        ]
+
+        with pytest.raises(ValueError) as exc_info:
+            await tables_service.batch_insert_rows(table, upsert_rows, upsert=True)
+
+        assert "Each row to upsert must contain the unique index column" in str(
+            exc_info.value
+        )
+
+    async def test_batch_upsert_with_mixed_operations(
+        self, tables_service: TablesService, table: Table
+    ) -> None:
+        """Test batch upsert with a mix of inserts and updates in a single batch."""
+        # Create unique index on name column
+        await tables_service.create_unique_index(table, "name")
+
+        # Insert initial data
+        initial_rows = [
+            {"name": "Alice", "age": 25},
+            {"name": "Bob", "age": 30},
+        ]
+        await tables_service.batch_insert_rows(table, initial_rows)
+
+        # Batch upsert with mixed operations
+        mixed_rows = [
+            {"name": "Alice", "age": 26},  # Update
+            {"name": "Carol", "age": 35},  # Insert
+            {"name": "Bob", "age": 31},  # Update
+            {"name": "David", "age": 40},  # Insert
+            {"name": "Eve", "age": 45},  # Insert
+        ]
+
+        count = await tables_service.batch_insert_rows(table, mixed_rows, upsert=True)
+        assert count == 5  # 2 updates + 3 inserts
+
+        # Verify final state
+        final_rows = await tables_service.list_rows(table)
+        assert len(final_rows) == 5
+
+        # Check all values
+        name_to_age = {row["name"]: row["age"] for row in final_rows}
+        assert name_to_age == {
+            "Alice": 26,
+            "Bob": 31,
+            "Carol": 35,
+            "David": 40,
+            "Eve": 45,
+        }
+
     async def test_lookup_row_multiple(
         self, tables_service: TablesService, table: Table
     ) -> None:
