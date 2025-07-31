@@ -4,15 +4,14 @@ import { GripVertical } from "lucide-react"
 import type React from "react"
 import { cn } from "@/lib/utils"
 
+export const DEFAULT_MIN = 400
+export const DEFAULT_MAX = 600
+
 export interface DragDividerProps {
   /** Current size (width for vertical divider, height for horizontal) in pixels */
   value: number
   /** Callback fired with the new size while dragging */
   onChange: (newSize: number) => void
-  /** Minimum size allowed */
-  min?: number
-  /** Maximum size allowed */
-  max?: number
   /** Orientation of the divider. Defaults to "vertical" (i.e. a vertical bar that resizes width) */
   orientation?: "vertical" | "horizontal"
   /** Additional Tailwind classes */
@@ -27,8 +26,6 @@ export interface DragDividerProps {
 export function DragDivider({
   value,
   onChange,
-  min = 100,
-  max = 1000,
   orientation = "vertical",
   className,
 }: DragDividerProps) {
@@ -43,7 +40,7 @@ export function DragDivider({
         orientation === "vertical" ? moveEvent.clientX : moveEvent.clientY
       const delta = startCoord - currentCoord
       let newSize = startSize + delta
-      newSize = Math.min(Math.max(newSize, min), max)
+      newSize = Math.min(Math.max(newSize, DEFAULT_MIN), DEFAULT_MAX)
       onChange(newSize)
     }
 
