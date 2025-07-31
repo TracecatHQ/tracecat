@@ -629,4 +629,5 @@ class RegistryActionValidationErrorInfo(BaseModel):
             details=[v.msg],
             is_template=is_template,
             loc_primary=".".join(map(str, v.loc)),
+            loc_secondary=v.ref,
         )

@@ -271,6 +271,7 @@ class TemplateActionExprValidator(BaseExprValidator):
                 msg=msg,
                 expression_type=type,
                 loc=loc or self._loc,
+                ref=ref,
             )
         )
 
