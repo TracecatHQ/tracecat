@@ -203,51 +203,51 @@ async def test_invalid_template_validation():
 
     # Test invalid function template
     invalid_func_path = invalid_templates_dir / "invalid_function.yml"
-    if invalid_func_path.exists():
-        action = TemplateAction.from_yaml(invalid_func_path)
-        repo.register_template_action(action)
-        bound_action = repo.get("tools.test.test_invalid_function")
-        errors = await validate_action_template(bound_action, repo)
+    assert invalid_func_path.exists(), f"Test fixture missing: {invalid_func_path}"
+    action = TemplateAction.from_yaml(invalid_func_path)
+    repo.register_template_action(action)
+    bound_action = repo.get("tools.test.test_invalid_function")
+    errors = await validate_action_template(bound_action, repo)
 
-        # Should have errors for unknown function and wrong argument count
-        assert len(errors) > 0
-        error_messages = [detail for err in errors for detail in err.details]
-        assert any(
-            "Unknown function name 'does_not_exist'" in msg for msg in error_messages
-        )
-        assert any("expects at least" in msg for msg in error_messages)
+    # Should have errors for unknown function and wrong argument count
+    assert len(errors) > 0
+    error_messages = [detail for err in errors for detail in err.details]
+    assert any(
+        "Unknown function name 'does_not_exist'" in msg for msg in error_messages
+    )
+    assert any("expects at least" in msg for msg in error_messages)
 
     # Test wrong arity template
     wrong_arity_path = invalid_templates_dir / "wrong_arity.yml"
-    if wrong_arity_path.exists():
-        action = TemplateAction.from_yaml(wrong_arity_path)
-        repo.register_template_action(action)
-        bound_action = repo.get("tools.test.test_wrong_arity")
-        errors = await validate_action_template(bound_action, repo)
+    assert wrong_arity_path.exists(), f"Test fixture missing: {wrong_arity_path}"
+    action = TemplateAction.from_yaml(wrong_arity_path)
+    repo.register_template_action(action)
+    bound_action = repo.get("tools.test.test_wrong_arity")
+    errors = await validate_action_template(bound_action, repo)
 
-        # Should have errors for wrong argument counts
-        assert len(errors) > 0
-        error_messages = [detail for err in errors for detail in err.details]
-        assert any(
-            "accepts at most" in msg for msg in error_messages
-        )  # uppercase with 2 args
-        assert any(
-            "expects at least" in msg for msg in error_messages
-        )  # join with 0 args
-        assert any("accepts at most" in msg for msg in error_messages)  # now with 1 arg
+    # Should have errors for wrong argument counts
+    assert len(errors) > 0
+    error_messages = [detail for err in errors for detail in err.details]
+    assert any(
+        "accepts at most" in msg for msg in error_messages
+    )  # uppercase with 2 args
+    assert any("expects at least" in msg for msg in error_messages)  # join with 0 args
+    assert any("accepts at most" in msg for msg in error_messages)  # now with 1 arg
 
     # Test nonexistent action template
     nonexistent_action_path = invalid_templates_dir / "nonexistent_action.yml"
-    if nonexistent_action_path.exists():
-        action = TemplateAction.from_yaml(nonexistent_action_path)
-        repo.register_template_action(action)
-        bound_action = repo.get("tools.test.test_nonexistent_action")
-        errors = await validate_action_template(bound_action, repo)
+    assert nonexistent_action_path.exists(), (
+        f"Test fixture missing: {nonexistent_action_path}"
+    )
+    action = TemplateAction.from_yaml(nonexistent_action_path)
+    repo.register_template_action(action)
+    bound_action = repo.get("tools.test.test_nonexistent_action")
+    errors = await validate_action_template(bound_action, repo)
 
-        # Should have error for action not found
-        assert len(errors) > 0
-        error_messages = [detail for err in errors for detail in err.details]
-        assert any("not found" in msg for msg in error_messages)
+    # Should have error for action not found
+    assert len(errors) > 0
+    error_messages = [detail for err in errors for detail in err.details]
+    assert any("not found" in msg for msg in error_messages)
 
 
 @pytest.mark.anyio
