@@ -1,5 +1,6 @@
 import base64
 import subprocess
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -9,6 +10,9 @@ import pytest
 from tracecat_registry._internal.kubernetes import decode_kubeconfig
 from tracecat_registry.integrations import kubernetes as k8s
 from yaml import safe_dump, safe_load
+
+from tests.shared import get_package_path
+from tracecat.registry.actions.models import TemplateAction
 
 VALID_CONFIG_DICT: dict[str, Any] = {
     "apiVersion": "v1",
@@ -32,6 +36,13 @@ VALID_CONFIG_DICT: dict[str, Any] = {
 VALID_CONFIG_B64: str = (
     base64.b64encode(safe_dump(VALID_CONFIG_DICT).encode()).decode().rstrip("=")
 )
+
+
+@pytest.fixture
+def k8s_templates_dir() -> Path:
+    import tracecat_registry
+
+    return get_package_path(tracecat_registry) / "templates" / "tools" / "kubernetes"
 
 
 @pytest.fixture(autouse=True)
@@ -131,14 +142,10 @@ def test_run_command_dry_run(monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: 
 # Template validation tests
 
 
-def test_kubernetes_template_parsing() -> None:
+def test_kubernetes_template_parsing(k8s_templates_dir: Path) -> None:
     """Test that all Kubernetes templates can be parsed correctly."""
-    from pathlib import Path
 
-    from tracecat.registry.actions.models import TemplateAction
-
-    template_dir = Path("registry/tracecat_registry/templates/tools/kubernetes")
-    for template_path in template_dir.glob("*.yml"):
+    for template_path in k8s_templates_dir.glob("*.yml"):
         # This will raise if parsing fails
         action = TemplateAction.from_yaml(template_path)
         assert action.type == "action"
@@ -147,15 +154,10 @@ def test_kubernetes_template_parsing() -> None:
         assert action.definition.name == template_path.stem
 
 
-def test_list_pods_template_structure() -> None:
+def test_list_pods_template_structure(k8s_templates_dir: Path) -> None:
     """Test the structure of the list_pods template."""
-    from pathlib import Path
 
-    from tracecat.registry.actions.models import TemplateAction
-
-    template_path = Path(
-        "registry/tracecat_registry/templates/tools/kubernetes/list_pods.yml"
-    )
+    template_path = k8s_templates_dir / "list_pods.yml"
     action = TemplateAction.from_yaml(template_path)
 
     # Verify template structure
@@ -166,15 +168,10 @@ def test_list_pods_template_structure() -> None:
     assert action.definition.steps[0].action == "tools.kubernetes.run_command"
 
 
-def test_create_template_structure() -> None:
+def test_create_template_structure(k8s_templates_dir: Path) -> None:
     """Test the structure of the create template."""
-    from pathlib import Path
 
-    from tracecat.registry.actions.models import TemplateAction
-
-    template_path = Path(
-        "registry/tracecat_registry/templates/tools/kubernetes/create.yml"
-    )
+    template_path = k8s_templates_dir / "create.yml"
     action = TemplateAction.from_yaml(template_path)
 
     # Verify template structure

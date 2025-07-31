@@ -100,12 +100,12 @@ We currently support contributions for new integrations and inline functions.
 ### YAML Action Templates
 
 > [!TIP]
-> You can find existing Action Templates in the [`registry/tracecat_registry/templates/`](https://github.com/TracecatHQ/tracecat/tree/main/registry/tracecat_registry/templates) directory.
+> You can find existing Action Templates in the [`packages/tracecat-registry/tracecat_registry/templates/`](https://github.com/TracecatHQ/tracecat/tree/main/packages/tracecat-registry/tracecat_registry/templates) directory.
 
 Every **Action Template** must be a YAML file that:
 
 - Follows Tracecat's template [schema](https://docs.tracecat.com/integrations/action-templates).
-- Has `expects` with arguments that match a supported [**Response Schema**](https://github.com/TracecatHQ/tracecat/tree/main/registry/tracecat_registry/schemas) (e.g. `list_alerts`, `list_cases`, `list_users`).
+- Has `expects` with arguments that match a supported [**Response Schema**](https://github.com/TracecatHQ/tracecat/tree/main/packages/tracecat-registry/tracecat_registry/schemas) (e.g. `list_alerts`, `list_cases`, `list_users`).
 - All required arguments in the API call in `steps` are mapped to an argument in a Response Schema.
 - No optional arguments in the API call in `steps` are specified, unless required by a Response Schema or satisfies one of the conditions below.
 
@@ -209,7 +209,7 @@ returns: ${{ steps.post_mdm_command.result }}
 ### Response Schemas
 
 > [!TIP]
-> You can find existing YAML schemas in the [`registry/tracecat_registry/schemas/`](https://github.com/TracecatHQ/tracecat/tree/main/registry/tracecat_registry/schemas) directory.
+> You can find existing YAML schemas in the [`packages/tracecat-registry/tracecat_registry/schemas/`](https://github.com/TracecatHQ/tracecat/tree/main/packages/tracecat-registry/tracecat_registry/schemas) directory.
 
 If you can't find a schema that matches your integration or want to suggest a change to an existing schema, please [open an issue](https://github.com/TracecatHQ/tracecat/issues). Provide the following information:
 
@@ -240,7 +240,7 @@ uv run pytest tests/unit/test_functions.py -x --last-failed
 ### Python Integrations
 
 > [!TIP]
-> You can find existing Python integrations in the [`registry/tracecat_registry/integrations/`](https://github.com/TracecatHQ/tracecat/tree/main/registry/tracecat_registry/integrations) directory.
+> You can find existing Python integrations in the [`packages/tracecat-registry/tracecat_registry/integrations/`](https://github.com/TracecatHQ/tracecat/tree/main/packages/tracecat-registry/tracecat_registry/integrations) directory.
 
 ## Sharing Ideas / Feature Requests
 

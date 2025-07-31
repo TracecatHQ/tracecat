@@ -9,19 +9,29 @@ Tracecat is a modern, open source automation platform built for security and IT 
 
 ### Environment Setup
 ```bash
-# Create Python 3.12 virtual environment
-uv venv --python 3.12
-
-# Install main package and registry in development mode
-uv pip install -e ".[dev]"
-uv pip install -e "tracecat_registry[cli] @ ./registry"
+# Create Python 3.12 virtual environment and install from lock file
+# This is a workspace project - run from anywhere inside the repo
+# (includes both tracecat and tracecat_registry packages)
+uv sync
 
 # Install frontend dependencies
 pnpm install --dir frontend
 
 # Install pre-commit hooks
-uv pip install pre-commit
 uv run pre-commit install
+```
+
+### Updating Dependencies
+```bash
+# Update dependencies and regenerate lock file
+# Lock file updates are automatic if you delete uv.lock and run uv sync
+rm uv.lock && uv sync
+
+# Or manually compile a new lock file
+uv pip compile pyproject.toml -o uv.lock
+
+# Install updated dependencies
+uv sync
 ```
 
 ### Development Stack
@@ -146,9 +156,9 @@ just gen-functions
 - Database isolation: Each test gets its own transaction
 
 ### Action Templates and Registry
-- **Templates**: `registry/tracecat_registry/templates/` - YAML-based integration templates
-- **Schemas**: `registry/tracecat_registry/schemas/` - Response schemas for consistent APIs
-- **Integrations**: `registry/tracecat_registry/integrations/` - Python client integrations
+- **Templates**: `packages/tracecat-registry/tracecat_registry/templates/` - YAML-based integration templates
+- **Schemas**: `packages/tracecat-registry/tracecat_registry/schemas/` - Response schemas for consistent APIs
+- **Integrations**: `packages/tracecat-registry/tracecat_registry/integrations/` - Python client integrations
 - **Reference file**: `tracecat/expressions/expectations.py` – Source of primitive type mappings (e.g., `str`, `int`, `Any`) used when defining `expects:` sections in templates.
 - **Naming**: `tools.{integration_name}` namespace, titles < 5 words
 
@@ -189,7 +199,7 @@ just gen-functions
 ## Tracecat Template Best Practices
 
 ### Template Structure
-- Templates are YAML files located in `registry/tracecat_registry/templates/`
+- Templates are YAML files located in `packages/tracecat-registry/tracecat_registry/templates/`
 - Use namespace pattern `tools.{integration_name}` (e.g., `tools.zendesk`, `tools.okta`)
 - Action titles should be < 5 words and use "Title case example" format
 

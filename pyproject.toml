@@ -62,6 +62,7 @@ dependencies = [
     "temporalio==1.9.0",
     "tenacity==8.3.0",
     "tomli==2.2.1",
+    "tracecat-registry",
     "uv==0.4.10",
     "uvicorn>=0.33.0,<0.34",
     "virtualenv==20.27.0",
@@ -73,7 +74,13 @@ Homepage = "https://tracecat.com"
 Documentation = "https://docs.tracecat.com/"
 Repository = "https://github.com/TracecatHQ/tracecat"
 
-[project.optional-dependencies]
+[tool.uv.sources]
+tracecat-registry = { workspace = true }
+
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[dependency-groups]
 dev = [
     "mypy==1.15.0",
     "pre-commit==4.1.0",
@@ -81,13 +88,16 @@ dev = [
     "pytest-mock==3.14.0",
     "pytest-repeat==0.9.3",
     "pytest==8.3.2",
-    "python-dotenv==1.0.1",
+    "python-dotenv==1.1.1",
     "respx==0.22.0",
     "ruff==0.9.1",
 ]
 
 [tool.hatch.version]
 path = "tracecat/__init__.py"
+
+[tool.hatch.metadata]
+allow-direct-references = true
 
 [tool.mypy]
 strict = true
