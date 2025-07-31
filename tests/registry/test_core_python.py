@@ -22,7 +22,7 @@ pytestmark = pytest.mark.skipif(
 
 @pytest.fixture
 def mock_logger():
-    with patch("registry.tracecat_registry.core.python.logger") as mock_log:
+    with patch("tracecat_registry.core.python.logger") as mock_log:
         yield mock_log
 
 
