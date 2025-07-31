@@ -1,10 +1,10 @@
 "use client"
 
-import { GripVertical } from "lucide-react"
 import { useParams } from "next/navigation"
 import type React from "react"
 import { useEffect, useState } from "react"
 import { CaseChat } from "@/components/cases/case-chat"
+import { DragDivider } from "@/components/drag-divider"
 import { ControlsHeader } from "@/components/nav/controls-header"
 import { AppSidebar } from "@/components/sidebar/app-sidebar"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
@@ -37,32 +37,6 @@ export default function CaseDetailLayout({
     return () => window.removeEventListener("resize", computeMax)
   }, [])
 
-  // Handler to initiate drag resizing
-  const handleDividerMouseDown = (
-    e: React.MouseEvent<HTMLDivElement, MouseEvent>
-  ) => {
-    e.preventDefault()
-
-    const startX = e.clientX
-    const startWidth = chatWidth
-
-    const onMouseMove = (moveEvent: MouseEvent) => {
-      const deltaX = startX - moveEvent.clientX
-      let newWidth = startWidth + deltaX
-      // Clamp within min/max bounds
-      newWidth = Math.min(Math.max(newWidth, MIN_CHAT_WIDTH), maxChatWidth)
-      setChatWidth(newWidth)
-    }
-
-    const onMouseUp = () => {
-      window.removeEventListener("mousemove", onMouseMove)
-      window.removeEventListener("mouseup", onMouseUp)
-    }
-
-    window.addEventListener("mousemove", onMouseMove)
-    window.addEventListener("mouseup", onMouseUp)
-  }
-
   if (!caseId) {
     return <>{children}</>
   }
@@ -79,15 +53,13 @@ export default function CaseDetailLayout({
       </SidebarInset>
 
       {/* Drag divider */}
-      <div
-        className="group relative w-3 shrink-0 cursor-col-resize flex items-center justify-center"
-        onMouseDown={handleDividerMouseDown}
-      >
-        {/* slim line that appears on hover */}
-        <div className="absolute inset-y-3 w-px bg-transparent transition-colors duration-150 group-hover:bg-border" />
-        {/* grip icon shows on hover */}
-        <GripVertical className="h-4 w-4 text-border opacity-0 transition-opacity duration-150 group-hover:opacity-100" />
-      </div>
+      <DragDivider
+        className="w-3 shrink-0"
+        value={chatWidth}
+        min={MIN_CHAT_WIDTH}
+        max={maxChatWidth}
+        onChange={setChatWidth}
+      />
 
       {/* Chat inset */}
       <SidebarInset
