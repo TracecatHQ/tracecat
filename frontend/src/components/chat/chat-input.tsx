@@ -111,7 +111,7 @@ export function ChatInput({
   }, [messageValue, adjustTextareaHeight])
 
   return (
-    <div className="bg-background p-3 pt-0 rounded-b-lg">
+    <div className="bg-card p-3 pt-0 rounded-b-lg">
       <div className="relative flex flex-col w-full gap-2 rounded-md transition-colors border hover:border-muted-foreground/40">
         <Form {...form}>
           <form

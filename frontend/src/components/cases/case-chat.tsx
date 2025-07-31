@@ -8,7 +8,7 @@ export function CaseChat({
   isChatOpen: boolean
 }) {
   return (
-    <div className="h-full border-l bg-background flex flex-col">
+    <div className="h-full flex flex-col">
       {isChatOpen && <ChatInterface entityType="case" entityId={caseId} />}
     </div>
   )

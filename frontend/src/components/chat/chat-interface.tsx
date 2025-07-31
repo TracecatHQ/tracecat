@@ -161,7 +161,7 @@ export function ChatInterface({
     return (
       <div className="flex h-full flex-col">
         {/* Chat Header */}
-        <div className="bg-background px-4 py-3">
+        <div className="px-4 py-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <MessageSquare className="h-4 w-4 text-muted-foreground" />
@@ -203,7 +203,7 @@ export function ChatInterface({
   return (
     <div className="flex h-full flex-col">
       {/* Chat Header */}
-      <div className="bg-background px-4 py-2">
+      <div className="px-4 py-2">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <MessageSquare className="h-4 w-4 text-muted-foreground" />
@@ -343,14 +343,14 @@ export function ChatInterface({
                 <div className="flex items-center gap-3">
                   <div className="flex-1">
                     <h4 className="text-sm font-medium text-foreground mb-1">
-                      Configuration Required
+                      {chatReason === "no_model" && "No default model"}
+                      {chatReason === "no_credentials" && "Missing credentials"}
                     </h4>
                     <p className="text-xs text-muted-foreground">
                       {chatReason === "no_model" &&
-                        "Your organization hasn't selected a default AI model for chat operations."}
+                        "Select a default model in agent settings to enable chat."}
                       {chatReason === "no_credentials" &&
-                        `Credentials for the ${provider} provider need to be configured to enable chat.`}
-                      Click to go to the agent settings page.
+                        `Configure ${provider} credentials in agent settings to enable chat.`}
                     </p>
                   </div>
                   <ChevronDown className="size-4 text-muted-foreground rotate-[-90deg]" />

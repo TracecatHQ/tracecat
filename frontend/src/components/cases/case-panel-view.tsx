@@ -9,7 +9,7 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useState } from "react"
 import type {
   CasePriority,
   CaseSeverity,
@@ -19,7 +19,6 @@ import type {
 } from "@/client"
 import { CaseActivityFeed } from "@/components/cases/case-activity-feed"
 import { CaseAttachmentsSection } from "@/components/cases/case-attachments-section"
-import { CaseChat } from "@/components/cases/case-chat"
 import { CommentSection } from "@/components/cases/case-comments-section"
 import { CustomField } from "@/components/cases/case-panel-custom-fields"
 import { CasePanelDescription } from "@/components/cases/case-panel-description"
@@ -42,11 +41,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import {
-  ResizableHandle,
-  ResizablePanel,
-  ResizablePanelGroup,
-} from "@/components/ui/resizable"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useGetCase, useUpdateCase } from "@/lib/hooks"
@@ -56,15 +50,9 @@ type CasePanelTab = "comments" | "activity" | "attachments" | "payload"
 
 interface CasePanelContentProps {
   caseId: string
-  onChatToggle?: (isOpen: boolean) => void
-  isChatOpen?: boolean
 }
 
-export function CasePanelView({
-  caseId,
-  onChatToggle,
-  isChatOpen: externalChatOpen,
-}: CasePanelContentProps) {
+export function CasePanelView({ caseId }: CasePanelContentProps) {
   const { workspaceId, workspace } = useWorkspace()
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -97,25 +85,6 @@ export function CasePanelView({
     },
     [router, workspaceId, caseId]
   )
-
-  // Chat state management
-  const [localChatOpen, setLocalChatOpen] = useState(true)
-  const isChatOpen =
-    externalChatOpen !== undefined ? externalChatOpen : localChatOpen
-
-  // Load chat panel state from localStorage
-  useEffect(() => {
-    const savedState = localStorage.getItem(`case-chat-panel-${caseId}`)
-    if (savedState === "true") {
-      setLocalChatOpen(true)
-      onChatToggle?.(true)
-    }
-  }, [caseId, onChatToggle])
-
-  // Save chat panel state to localStorage
-  useEffect(() => {
-    localStorage.setItem(`case-chat-panel-${caseId}`, isChatOpen.toString())
-  }, [caseId, isChatOpen])
 
   if (caseDataIsLoading) {
     return (
@@ -179,14 +148,11 @@ export function CasePanelView({
   const customFields = caseData.fields.filter((field) => !field.reserved)
 
   return (
-    <div className="h-full bg-background flex w-full">
-      <ResizablePanelGroup
-        direction="horizontal"
-        className="h-full w-full min-w-0"
-      >
+    <div className="h-full flex w-full">
+      <div className="h-full w-full min-w-0 flex">
         {/* Case properties section */}
-        <ResizablePanel defaultSize={16} minSize={10} maxSize={30}>
-          <div className="h-full overflow-y-auto p-4 border-r min-w-0">
+        <div className="w-64 min-w-[200px] max-w-[300px] border-r">
+          <div className="h-full overflow-y-auto p-4 min-w-0">
             <div className="space-y-10">
               {/* Properties Section */}
               <CasePanelSection
@@ -298,12 +264,11 @@ export function CasePanelView({
               </CasePanelSection>
             </div>
           </div>
-        </ResizablePanel>
-        <ResizableHandle className="bg-transparent" />
+        </div>
         {/* Main section */}
-        <ResizablePanel defaultSize={60} minSize={30}>
+        <div className="flex-1 min-w-0">
           <div className="h-full overflow-auto min-w-0">
-            <div className="py-4 px-6 max-w-4xl mx-auto">
+            <div className="py-8 pb-24 px-6 max-w-4xl mx-auto">
               {/* Header with Chat Toggle */}
               <div className="flex items-center justify-between mb-4">
                 <div className="flex-1">
@@ -381,15 +346,8 @@ export function CasePanelView({
               </Tabs>
             </div>
           </div>
-        </ResizablePanel>
-        {/* Chat section */}
-        <ResizableHandle className="bg-transparent" />
-        <ResizablePanel defaultSize={24} minSize={20} maxSize={40}>
-          <div className="h-full min-w-0 max-w-md">
-            <CaseChat caseId={caseId} isChatOpen={isChatOpen} />
-          </div>
-        </ResizablePanel>
-      </ResizablePanelGroup>
+        </div>
+      </div>
     </div>
   )
 }
