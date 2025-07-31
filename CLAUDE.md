@@ -156,9 +156,9 @@ just gen-functions
 - Database isolation: Each test gets its own transaction
 
 ### Action Templates and Registry
-- **Templates**: `registry/tracecat_registry/templates/` - YAML-based integration templates
-- **Schemas**: `registry/tracecat_registry/schemas/` - Response schemas for consistent APIs
-- **Integrations**: `registry/tracecat_registry/integrations/` - Python client integrations
+- **Templates**: `packages/tracecat-registry/tracecat_registry/templates/` - YAML-based integration templates
+- **Schemas**: `packages/tracecat-registry/tracecat_registry/schemas/` - Response schemas for consistent APIs
+- **Integrations**: `packages/tracecat-registry/tracecat_registry/integrations/` - Python client integrations
 - **Reference file**: `tracecat/expressions/expectations.py` – Source of primitive type mappings (e.g., `str`, `int`, `Any`) used when defining `expects:` sections in templates.
 - **Naming**: `tools.{integration_name}` namespace, titles < 5 words
 
@@ -199,7 +199,7 @@ just gen-functions
 ## Tracecat Template Best Practices
 
 ### Template Structure
-- Templates are YAML files located in `registry/tracecat_registry/templates/`
+- Templates are YAML files located in `packages/tracecat-registry/tracecat_registry/templates/`
 - Use namespace pattern `tools.{integration_name}` (e.g., `tools.zendesk`, `tools.okta`)
 - Action titles should be < 5 words and use "Title case example" format
 

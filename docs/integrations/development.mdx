@@ -68,8 +68,7 @@ The easiest way to set up both ruff and pre-commit is to `cd` into the `custom-i
 Then run the following commands:
 
 ```bash
-pip install pre-commit  # Or `uv pip install pre-commit`
-pre-commit install  # Or `uv run pre-commit install`
+uv run pre-commit install
 ```
 
 The pre-commit hooks will run automatically when you commit code to your local repository.
@@ -87,11 +86,11 @@ The recommended way to start developing custom integrations is to use the [integ
 
     ```bash
     cd custom-integrations-starter-kit
-    pip install -e ".[dev]"  # Or `uv pip install -e ".[dev]"`
+    uv sync
     ```
 
-    This `-e` flag installs the package in editable mode, which allows you to make changes to the package and have them reflected immediately.
-    The `.[dev]` flag installs core and dev dependencies, which includes the `tracecat` and `tracecat_registry[cli]` Python packages.
+    This installs the package and all dependencies from the lock file, ensuring reproducible builds.
+    The dev dependencies include the `tracecat` and `tracecat_registry[cli]` Python packages.
 
     Find out more about the `tracecat_registry` package below.
   </Step>
@@ -121,7 +120,7 @@ It also includes the `tracecat_registry` package, which contains necessary impor
 To check if your templates are valid, run the following command:
 
 ```bash
-tc validate template <path-to-templates>  # Or `uv run tc validate template <path-to-templates>`
+uv run tc validate template <path-to-templates>
 ```
 
 ![Registry CLI](/img/integrations/registry-cli.png)
