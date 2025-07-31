@@ -1194,16 +1194,36 @@ class BaseTablesService(BaseService):
 
                 pg_stmt = insert(table_obj).values(group_rows)
 
-                # Columns to update on conflict: all columns in this group except index columns
-                update_dict = {
-                    col: pg_stmt.excluded[col] for col in col_set if col not in index
+                # Build a mapping of *sanitized* Column objects so we can use them safely
+                col_objs = {  # key is the sanitized column name
+                    col_obj.key: col_obj for col_obj in cols
                 }
+
+                # Columns to update on conflict: all non-index columns present in this group.
+                #
+                # We wrap the new value in COALESCE(new, existing) so that if the incoming
+                # value is NULL we keep the existing value. This matches the behaviour
+                # promised in the function docstring.
+                update_dict = {}
+                for raw_col_name in col_set:
+                    sanitized_name = self._sanitize_identifier(raw_col_name)
+                    if sanitized_name in index:
+                        # Never update columns that are part of the unique index
+                        continue
+
+                    column_obj = col_objs[sanitized_name]
+                    update_dict[column_obj] = sa.func.coalesce(
+                        pg_stmt.excluded[sanitized_name],
+                        column_obj,
+                    )
 
                 if update_dict:
                     stmt = pg_stmt.on_conflict_do_update(
-                        index_elements=index, set_=update_dict
+                        index_elements=index,
+                        set_=update_dict,
                     )
                 else:
+                    # Nothing to update (e.g., the only columns present are the unique index)
                     stmt = pg_stmt.on_conflict_do_nothing(index_elements=index)
 
             try:
