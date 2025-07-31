@@ -438,13 +438,13 @@ export const WorkflowCanvas = React.forwardRef<
 
   const onLayout = useCallback(
     (direction: "TB" | "LR") => {
-      const prundGraph = pruneGraphObject({
+      const prunedGraph = pruneGraphObject({
         nodes,
         edges,
       })
       const { nodes: newNodes, edges: newEdges } = getLayoutedElements(
-        prundGraph.nodes,
-        prundGraph.edges,
+        prunedGraph.nodes,
+        prunedGraph.edges,
         direction
       )
       setNodes(newNodes)
