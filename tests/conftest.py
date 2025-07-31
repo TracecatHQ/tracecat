@@ -368,18 +368,12 @@ async def test_admin_role(test_workspace, mock_org_id):
 @pytest.fixture(scope="function")
 async def test_workspace():
     """Create a test workspace for the test session."""
-    workspace_name = "__test_workspace"
+    ws_id = uuid.uuid4()
+    workspace_name = f"__test_workspace_{ws_id.hex[:8]}"
 
     async with WorkspaceService.with_session(role=system_role()) as svc:
-        # Check if test workspace already exists
-        existing_workspaces = await svc.admin_list_workspaces()
-        for ws in existing_workspaces:
-            if ws.name == workspace_name:
-                logger.info("Found existing test workspace, deleting it first")
-                await svc.delete_workspace(ws.id)
-
         # Create new test workspace
-        workspace = await svc.create_workspace(name=workspace_name)
+        workspace = await svc.create_workspace(name=workspace_name, override_id=ws_id)
 
         logger.info("Created test workspace", workspace=workspace)
 
@@ -389,9 +383,9 @@ async def test_workspace():
             # Clean up the workspace
             logger.info("Teardown test workspace")
             try:
-                await svc.delete_workspace(workspace.id)
+                await svc.delete_workspace(ws_id)
             except Exception as e:
-                logger.error(f"Error during workspace cleanup: {e}")
+                logger.warning(f"Error during workspace cleanup: {e}")
 
 
 @pytest.fixture(scope="function")
