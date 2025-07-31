@@ -25,7 +25,7 @@ WORKDIR /app
 
 # Copy the application files into the container
 COPY ./tracecat /app/tracecat
-COPY ./kpackages/tracecat-registry /app/tracecat-registry
+COPY ./packages/tracecat-registry /app/tracecat-registry
 COPY ./pyproject.toml /app/pyproject.toml
 COPY ./uv.lock /app/uv.lock
 COPY ./.python-version /app/.python-version
