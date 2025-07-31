@@ -335,7 +335,7 @@ const SidebarInset = React.forwardRef<
       className={cn(
         "relative flex w-full flex-1 flex-col h-[calc(100vh-2*0.5rem)]",
         // Standard inset styling with selective margins: only top/bottom plus outer edges.
-        "md:peer-data-[variant=inset]:mt-2 md:peer-data-[variant=inset]:mb-2 md:peer-data-[variant=inset]:first:ml-2 md:peer-data-[variant=inset]:last:mr-2 md:peer-data-[variant=inset]:rounded-lg md:peer-data-[variant=inset]:border md:peer-data-[variant=inset]:border-zinc-200 md:peer-data-[variant=inset]:dark:border-zinc-800 md:peer-data-[variant=inset]:bg-background",
+        "md:peer-data-[variant=inset]:mt-2 md:peer-data-[variant=inset]:mb-2 md:peer-data-[variant=inset]:first:ml-2 md:peer-data-[state=collapsed]:peer-data-[variant=inset]:ml-2 md:peer-data-[variant=inset]:last:mr-2 md:peer-data-[variant=inset]:rounded-lg md:peer-data-[variant=inset]:border md:peer-data-[variant=inset]:border-zinc-200 md:peer-data-[variant=inset]:dark:border-zinc-800 md:peer-data-[variant=inset]:bg-background",
         className
       )}
       {...props}
