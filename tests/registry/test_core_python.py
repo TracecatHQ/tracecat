@@ -3,8 +3,7 @@ import shutil
 from unittest.mock import patch
 
 import pytest
-
-from registry.tracecat_registry.core.python import (
+from tracecat_registry.core.python import (
     PythonScriptExecutionError,
     PythonScriptTimeoutError,
     PythonScriptValidationError,
