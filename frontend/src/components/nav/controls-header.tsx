@@ -135,13 +135,13 @@ function CaseBreadcrumb({
 
   return (
     <Breadcrumb>
-      <BreadcrumbList className="flex items-center gap-2 text-sm">
+      <BreadcrumbList className="relative z-10 flex items-center gap-2 text-sm flex-nowrap overflow-hidden whitespace-nowrap min-w-0 bg-white pr-1">
         <BreadcrumbItem>
           <BreadcrumbLink asChild className="font-semibold hover:no-underline">
             <Link href={`/workspaces/${workspaceId}/cases`}>Cases</Link>
           </BreadcrumbLink>
         </BreadcrumbItem>
-        <BreadcrumbSeparator>
+        <BreadcrumbSeparator className="shrink-0">
           <span className="text-muted-foreground">/</span>
         </BreadcrumbSeparator>
         <BreadcrumbItem>
@@ -168,17 +168,22 @@ function CaseTimestamp({
   }
 
   return (
-    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-      <span className="flex items-center gap-1">
-        <Calendar className="h-3 w-3" />
-        Created {format(new Date(caseData.created_at), "MMM d, yyyy, h:mm a")}
+    <div className="flex items-center gap-2 text-xs text-muted-foreground min-w-0">
+      <span className="hidden sm:flex items-center gap-1 min-w-0">
+        <Calendar className="h-3 w-3 flex-shrink-0" />
+        <span className="hidden lg:inline flex-shrink-0">Created</span>
+        <span className="truncate min-w-0">
+          {format(new Date(caseData.created_at), "MMM d, yyyy, h:mm a")}
+        </span>
       </span>
-      <span>•</span>
-      <span>
-        Updated{" "}
-        {formatDistanceToNow(new Date(caseData.updated_at), {
-          addSuffix: true,
-        })}
+      <span className="hidden sm:inline flex-shrink-0">•</span>
+      <span className="flex items-center gap-1 min-w-0">
+        <span className="hidden sm:inline flex-shrink-0">Updated</span>
+        <span className="truncate min-w-0">
+          {formatDistanceToNow(new Date(caseData.updated_at), {
+            addSuffix: true,
+          })}
+        </span>
       </span>
     </div>
   )
@@ -195,13 +200,13 @@ function TableBreadcrumb({
 
   return (
     <Breadcrumb>
-      <BreadcrumbList className="flex items-center gap-2 text-sm">
+      <BreadcrumbList className="relative z-10 flex items-center gap-2 text-sm flex-nowrap overflow-hidden whitespace-nowrap min-w-0 bg-white pr-1">
         <BreadcrumbItem>
           <BreadcrumbLink asChild className="font-semibold hover:no-underline">
             <Link href={`/workspaces/${workspaceId}/tables`}>Tables</Link>
           </BreadcrumbLink>
         </BreadcrumbItem>
-        <BreadcrumbSeparator>
+        <BreadcrumbSeparator className="shrink-0">
           <span className="text-muted-foreground">/</span>
         </BreadcrumbSeparator>
         <BreadcrumbItem>
@@ -235,7 +240,7 @@ function IntegrationBreadcrumb({
 
   return (
     <Breadcrumb>
-      <BreadcrumbList className="flex items-center gap-2 text-sm">
+      <BreadcrumbList className="relative z-10 flex items-center gap-2 text-sm flex-nowrap overflow-hidden whitespace-nowrap min-w-0 bg-white pr-1">
         <BreadcrumbItem>
           <BreadcrumbLink asChild className="font-semibold hover:no-underline">
             <Link href={`/workspaces/${workspaceId}/integrations`}>
@@ -243,7 +248,7 @@ function IntegrationBreadcrumb({
             </Link>
           </BreadcrumbLink>
         </BreadcrumbItem>
-        <BreadcrumbSeparator>
+        <BreadcrumbSeparator className="shrink-0">
           <span className="text-muted-foreground">/</span>
         </BreadcrumbSeparator>
         <BreadcrumbItem>
@@ -382,9 +387,9 @@ export function ControlsHeader() {
   const isCaseDetail = pagePath.match(/^\/cases\/([^/]+)$/)
 
   return (
-    <header className="flex h-10 items-center justify-between border-b px-6">
-      <div className="flex items-center gap-3">
-        <SidebarTrigger className="h-7 w-7" />
+    <header className="flex h-10 items-center border-b px-3 overflow-hidden">
+      <div className="flex items-center gap-3 min-w-0">
+        <SidebarTrigger className="h-7 w-7 flex-shrink-0" />
         {typeof pageConfig.title === "string" ? (
           <h1 className="text-sm font-semibold">{pageConfig.title}</h1>
         ) : (
@@ -392,10 +397,17 @@ export function ControlsHeader() {
         )}
       </div>
 
+      {/* Spacer to ensure timestamp doesn't overlap */}
+      <div className="flex-1 min-w-[1rem]" />
+
       {pageConfig.actions ? (
-        <div className="flex items-center gap-2">{pageConfig.actions}</div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {pageConfig.actions}
+        </div>
       ) : isCaseDetail ? (
-        <CaseTimestamp caseId={isCaseDetail[1]} workspaceId={workspaceId} />
+        <div className="flex-shrink min-w-0">
+          <CaseTimestamp caseId={isCaseDetail[1]} workspaceId={workspaceId} />
+        </div>
       ) : null}
     </header>
   )
