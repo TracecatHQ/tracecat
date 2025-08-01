@@ -802,21 +802,11 @@ async def install_remote_repository(
 ) -> None:
     logger.info("Loading remote repository", url=repo_url, commit_sha=commit_sha)
 
-    cmd = ["uv", "pip", "install", "--refresh"]
-    extra_args = []
-    if config.TRACECAT__APP_ENV == "production":
-        # We set PYTHONUSERBASE in the prod Dockerfile
-        # Otherwise default to the user's home dir at ~/.local
-        python_user_base = (
-            os.getenv("PYTHONUSERBASE") or Path.home().joinpath(".local").as_posix()
-        )
-        logger.trace("Installing to PYTHONUSERBASE", python_user_base=python_user_base)
-        extra_args = ["--target", python_user_base]
-    full_cmd = cmd + extra_args + [f"{repo_url}@{commit_sha}"]
-    logger.debug("Installation command", full_cmd=full_cmd)
+    cmd = ["uv", "add", "--refresh", f"{repo_url}@{commit_sha}"]
+    logger.debug("Installation command", cmd=cmd)
     try:
         process = await asyncio.create_subprocess_exec(
-            *full_cmd,
+            *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=os.environ.copy() | env.to_dict(),
