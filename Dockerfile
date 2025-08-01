@@ -56,7 +56,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
     --mount=type=bind,source=packages,target=packages \
-    uv sync --locked --no-install-project --no-dev
+    uv sync --locked --no-install-project --no-dev --no-editable
 
 # Then, add the rest of the project source code and install it
 # Installing separately from its dependencies allows optimal layer caching
@@ -77,7 +77,7 @@ RUN chmod +x /app/entrypoint.sh
 
 # Install the project
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked --no-dev 
+    uv sync --locked --no-dev --no-editable
 
 # Place executables in the environment at the front of the path
 ENV PATH="/app/.venv/bin:$PATH"
