@@ -1,7 +1,7 @@
 "use client"
 
 import { formatDistanceToNow } from "date-fns"
-import { BookOpen, ChevronDown, MessageSquare, Plus } from "lucide-react"
+import { ChevronDown, ListTodo, MessageSquare, Plus } from "lucide-react"
 import Link from "next/link"
 import { useEffect, useState } from "react"
 import type { ChatEntity, ChatRead } from "@/client"
@@ -299,7 +299,7 @@ export function ChatInterface({
                     onClick={handleCreateChat}
                     disabled={createChatPending}
                   >
-                    <Plus className="h-3 w-3" />
+                    <Plus className="h-4 w-4" />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">New chat</TooltipContent>
@@ -317,7 +317,7 @@ export function ChatInterface({
                     onClick={handleSaveAsPrompt}
                     disabled={createPromptPending || !messages?.length}
                   >
-                    <BookOpen className="h-3 w-3" />
+                    <ListTodo className="h-4 w-4" />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">Generate runbook</TooltipContent>
