@@ -6,14 +6,7 @@ import { Controller, useForm } from "react-hook-form"
 import { z } from "zod"
 import { ActionMultiselect } from "@/components/chat/action-multiselect"
 import { Button } from "@/components/ui/button"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogFooter } from "@/components/ui/dialog"
 import { Form, FormItem, FormMessage } from "@/components/ui/form"
 import { useGetChat, useUpdateChat } from "@/hooks/use-chat"
 import { useWorkspace } from "@/providers/workspace"
@@ -65,14 +58,6 @@ export function ChatToolsDialog({
         className="sm:max-w-[800px]"
         aria-label="Configure chat tools"
       >
-        <DialogHeader>
-          <DialogTitle>Configure Tools</DialogTitle>
-          <DialogDescription>
-            Select the tools available to the AI agent for this chat. The agent
-            will only be able to use the tools you enable here.
-          </DialogDescription>
-        </DialogHeader>
-
         <Form {...form}>
           <form onSubmit={form.handleSubmit(handleSave)} className="space-y-4">
             <div className="py-4">

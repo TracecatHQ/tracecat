@@ -1,7 +1,7 @@
 "use client"
 
 import { format, formatDistanceToNow } from "date-fns"
-import { Calendar, Plus } from "lucide-react"
+import { Calendar, PanelRight, Plus } from "lucide-react"
 import Link from "next/link"
 import { usePathname, useSearchParams } from "next/navigation"
 import { type ReactNode, useState } from "react"
@@ -41,6 +41,13 @@ import { useWorkspace } from "@/providers/workspace"
 interface PageConfig {
   title: string | ReactNode
   actions?: ReactNode
+}
+
+interface ControlsHeaderProps {
+  /** Whether the right-hand chat sidebar is currently open */
+  isChatOpen?: boolean
+  /** Callback to toggle the chat sidebar */
+  onToggleChat?: () => void
 }
 
 function WorkflowsActions() {
@@ -135,13 +142,13 @@ function CaseBreadcrumb({
 
   return (
     <Breadcrumb>
-      <BreadcrumbList className="flex items-center gap-2 text-sm">
+      <BreadcrumbList className="relative z-10 flex items-center gap-2 text-sm flex-nowrap overflow-hidden whitespace-nowrap min-w-0 bg-white pr-1">
         <BreadcrumbItem>
           <BreadcrumbLink asChild className="font-semibold hover:no-underline">
             <Link href={`/workspaces/${workspaceId}/cases`}>Cases</Link>
           </BreadcrumbLink>
         </BreadcrumbItem>
-        <BreadcrumbSeparator>
+        <BreadcrumbSeparator className="shrink-0">
           <span className="text-muted-foreground">/</span>
         </BreadcrumbSeparator>
         <BreadcrumbItem>
@@ -168,17 +175,22 @@ function CaseTimestamp({
   }
 
   return (
-    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-      <span className="flex items-center gap-1">
-        <Calendar className="h-3 w-3" />
-        Created {format(new Date(caseData.created_at), "MMM d, yyyy, h:mm a")}
+    <div className="flex items-center gap-2 text-xs text-muted-foreground min-w-0">
+      <span className="hidden sm:flex items-center gap-1 min-w-0">
+        <Calendar className="h-3 w-3 flex-shrink-0" />
+        <span className="hidden lg:inline flex-shrink-0">Created</span>
+        <span className="truncate min-w-0">
+          {format(new Date(caseData.created_at), "MMM d, yyyy, h:mm a")}
+        </span>
       </span>
-      <span>•</span>
-      <span>
-        Updated{" "}
-        {formatDistanceToNow(new Date(caseData.updated_at), {
-          addSuffix: true,
-        })}
+      <span className="hidden sm:inline flex-shrink-0">•</span>
+      <span className="flex items-center gap-1 min-w-0">
+        <span className="hidden sm:inline flex-shrink-0">Updated</span>
+        <span className="truncate min-w-0">
+          {formatDistanceToNow(new Date(caseData.updated_at), {
+            addSuffix: true,
+          })}
+        </span>
       </span>
     </div>
   )
@@ -195,13 +207,13 @@ function TableBreadcrumb({
 
   return (
     <Breadcrumb>
-      <BreadcrumbList className="flex items-center gap-2 text-sm">
+      <BreadcrumbList className="relative z-10 flex items-center gap-2 text-sm flex-nowrap overflow-hidden whitespace-nowrap min-w-0 bg-white pr-1">
         <BreadcrumbItem>
           <BreadcrumbLink asChild className="font-semibold hover:no-underline">
             <Link href={`/workspaces/${workspaceId}/tables`}>Tables</Link>
           </BreadcrumbLink>
         </BreadcrumbItem>
-        <BreadcrumbSeparator>
+        <BreadcrumbSeparator className="shrink-0">
           <span className="text-muted-foreground">/</span>
         </BreadcrumbSeparator>
         <BreadcrumbItem>
@@ -235,7 +247,7 @@ function IntegrationBreadcrumb({
 
   return (
     <Breadcrumb>
-      <BreadcrumbList className="flex items-center gap-2 text-sm">
+      <BreadcrumbList className="relative z-10 flex items-center gap-2 text-sm flex-nowrap overflow-hidden whitespace-nowrap min-w-0 bg-white pr-1">
         <BreadcrumbItem>
           <BreadcrumbLink asChild className="font-semibold hover:no-underline">
             <Link href={`/workspaces/${workspaceId}/integrations`}>
@@ -243,7 +255,7 @@ function IntegrationBreadcrumb({
             </Link>
           </BreadcrumbLink>
         </BreadcrumbItem>
-        <BreadcrumbSeparator>
+        <BreadcrumbSeparator className="shrink-0">
           <span className="text-muted-foreground">/</span>
         </BreadcrumbSeparator>
         <BreadcrumbItem>
@@ -362,7 +374,10 @@ function getPageConfig(
   return null
 }
 
-export function ControlsHeader() {
+export function ControlsHeader({
+  isChatOpen,
+  onToggleChat,
+}: ControlsHeaderProps = {}) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const { workspaceId } = useWorkspace()
@@ -382,9 +397,10 @@ export function ControlsHeader() {
   const isCaseDetail = pagePath.match(/^\/cases\/([^/]+)$/)
 
   return (
-    <header className="flex h-10 items-center justify-between border-b px-6">
-      <div className="flex items-center gap-3">
-        <SidebarTrigger className="h-7 w-7" />
+    <header className="flex h-10 items-center border-b px-3 overflow-hidden">
+      {/* Left section: sidebar toggle + title */}
+      <div className="flex items-center gap-3 min-w-0">
+        <SidebarTrigger className="h-7 w-7 flex-shrink-0" />
         {typeof pageConfig.title === "string" ? (
           <h1 className="text-sm font-semibold">{pageConfig.title}</h1>
         ) : (
@@ -392,11 +408,32 @@ export function ControlsHeader() {
         )}
       </div>
 
-      {pageConfig.actions ? (
-        <div className="flex items-center gap-2">{pageConfig.actions}</div>
-      ) : isCaseDetail ? (
-        <CaseTimestamp caseId={isCaseDetail[1]} workspaceId={workspaceId} />
-      ) : null}
+      {/* Middle spacer keeps actions/right buttons from overlapping title */}
+      <div className="flex-1 min-w-[1rem]" />
+
+      {/* Right section: actions / timestamp / chat toggle */}
+      <div className="flex items-center gap-2 flex-shrink-0">
+        {pageConfig.actions
+          ? pageConfig.actions
+          : isCaseDetail && (
+              <CaseTimestamp
+                caseId={isCaseDetail[1]}
+                workspaceId={workspaceId}
+              />
+            )}
+
+        {onToggleChat && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7"
+            onClick={onToggleChat}
+          >
+            <PanelRight className="h-4 w-4 text-muted-foreground" />
+            <span className="sr-only">Toggle Chat</span>
+          </Button>
+        )}
+      </div>
     </header>
   )
 }

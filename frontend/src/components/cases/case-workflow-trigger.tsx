@@ -171,7 +171,7 @@ export function CaseWorkflowTrigger({ caseData }: CaseWorkflowTriggerProps) {
         <AlertDialogContent className="max-w-md">
           <AlertDialogHeader>
             <AlertDialogTitle className="text-sm">
-              Confirm Workflow Trigger
+              Confirm workflow trigger
             </AlertDialogTitle>
             <AlertDialogDescription className="text-xs">
               Are you sure you want to trigger &quot;{selectedWorkflow?.title}

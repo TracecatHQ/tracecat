@@ -110,7 +110,7 @@ export function ActionMultiselect<T extends FieldValues>({
       <div className="lg:col-span-2 space-y-4">
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <h3 className="text-lg font-semibold">Available Tools</h3>
+            <h3 className="text-lg font-semibold">Available tools</h3>
             <Badge variant="secondary">{selectedActions.length} selected</Badge>
           </div>
           <div className="relative">

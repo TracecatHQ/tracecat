@@ -106,8 +106,8 @@ export function CaseEventTimestamp({
     <TooltipProvider>
       <Tooltip>
         <TooltipTrigger className="cursor-default">
-          <span className="flex items-center gap-1 text-xs text-muted-foreground  hover:text-foreground">
-            {showIcon && <Clock className="size-3" />}
+          <span className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+            {showIcon && <Clock className="h-3 w-3 flex-shrink-0" />}
             {shortTimeAgo(createdAtDate)}
             {lastEditedAt && <span className="ml-1">(edited)</span>}
           </span>

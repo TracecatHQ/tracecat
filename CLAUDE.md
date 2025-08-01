@@ -136,6 +136,9 @@ just gen-functions
 - Use named exports over default exports
 - Use "Title case example" over "Title Case Example" for UI text
 
+### UI Component Best Practices
+- **Avoid background colors on child elements within bordered containers**: When using shadcn components like SidebarInset that have rounded borders, don't add background colors (e.g., `bg-card`, `bg-background`) to immediate child elements. These backgrounds can paint over the parent's rounded border corners, making them appear cut off or missing. Instead, let the parent container handle the background styling.
+
 ### Code Quality
 - **Ruff**: Line length 88, comprehensive linting rules
 - **MyPy**: Strict type checking mode

@@ -57,9 +57,10 @@ export default function WorkspaceLayout({
 }
 
 function WorkspaceChildren({ children }: { children: React.ReactNode }) {
-  const params = useParams<{ workflowId?: string }>()
+  const params = useParams<{ workflowId?: string; caseId?: string }>()
   const pathname = usePathname()
   const isWorkflowBuilder = !!params?.workflowId
+  const isCaseDetail = !!params?.caseId
   const isSettingsPage = pathname?.includes("/settings")
   const isOrganizationPage = pathname?.includes("/organization")
   const isRegistryPage = pathname?.includes("/registry")
@@ -76,6 +77,11 @@ function WorkspaceChildren({ children }: { children: React.ReactNode }) {
 
   // Settings, organization and registry pages have their own sidebars
   if (isSettingsPage || isOrganizationPage || isRegistryPage) {
+    return <>{children}</>
+  }
+
+  // Case detail pages have their own layout with dual SidebarInset
+  if (isCaseDetail) {
     return <>{children}</>
   }
 
