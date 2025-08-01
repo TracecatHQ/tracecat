@@ -1,7 +1,7 @@
 "use client"
 
 import { format, formatDistanceToNow } from "date-fns"
-import { Calendar, Plus } from "lucide-react"
+import { Calendar, PanelRight, Plus } from "lucide-react"
 import Link from "next/link"
 import { usePathname, useSearchParams } from "next/navigation"
 import { type ReactNode, useState } from "react"
@@ -36,11 +36,19 @@ import {
   useIntegrationProvider,
   useLocalStorage,
 } from "@/lib/hooks"
+import { cn } from "@/lib/utils"
 import { useWorkspace } from "@/providers/workspace"
 
 interface PageConfig {
   title: string | ReactNode
   actions?: ReactNode
+}
+
+interface ControlsHeaderProps {
+  /** Whether the right-hand chat sidebar is currently open */
+  isChatOpen?: boolean
+  /** Callback to toggle the chat sidebar */
+  onToggleChat?: () => void
 }
 
 function WorkflowsActions() {
@@ -367,7 +375,10 @@ function getPageConfig(
   return null
 }
 
-export function ControlsHeader() {
+export function ControlsHeader({
+  isChatOpen,
+  onToggleChat,
+}: ControlsHeaderProps = {}) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const { workspaceId } = useWorkspace()
@@ -388,6 +399,7 @@ export function ControlsHeader() {
 
   return (
     <header className="flex h-10 items-center border-b px-3 overflow-hidden">
+      {/* Left section: sidebar toggle + title */}
       <div className="flex items-center gap-3 min-w-0">
         <SidebarTrigger className="h-7 w-7 flex-shrink-0" />
         {typeof pageConfig.title === "string" ? (
@@ -397,18 +409,37 @@ export function ControlsHeader() {
         )}
       </div>
 
-      {/* Spacer to ensure timestamp doesn't overlap */}
+      {/* Middle spacer keeps actions/right buttons from overlapping title */}
       <div className="flex-1 min-w-[1rem]" />
 
-      {pageConfig.actions ? (
-        <div className="flex items-center gap-2 flex-shrink-0">
-          {pageConfig.actions}
-        </div>
-      ) : isCaseDetail ? (
-        <div className="flex-shrink min-w-0">
-          <CaseTimestamp caseId={isCaseDetail[1]} workspaceId={workspaceId} />
-        </div>
-      ) : null}
+      {/* Right section: actions / timestamp / chat toggle */}
+      <div className="flex items-center gap-2 flex-shrink-0">
+        {pageConfig.actions
+          ? pageConfig.actions
+          : isCaseDetail && (
+              <CaseTimestamp
+                caseId={isCaseDetail[1]}
+                workspaceId={workspaceId}
+              />
+            )}
+
+        {onToggleChat && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7"
+            onClick={onToggleChat}
+          >
+            <PanelRight
+              className={cn(
+                "h-4 w-4 text-muted-foreground transition-transform",
+                isChatOpen && "rotate-180"
+              )}
+            />
+            <span className="sr-only">Toggle Chat</span>
+          </Button>
+        )}
+      </div>
     </header>
   )
 }
