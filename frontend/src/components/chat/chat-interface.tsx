@@ -1,31 +1,27 @@
 "use client"
 
 import { formatDistanceToNow } from "date-fns"
-import {
-  BookOpen,
-  ChevronDown,
-  History,
-  MessageSquare,
-  MoreHorizontal,
-  Plus,
-} from "lucide-react"
+import { BookOpen, ChevronDown, MessageSquare, Plus } from "lucide-react"
 import Link from "next/link"
 import { useEffect, useState } from "react"
 import type { ChatEntity, ChatRead } from "@/client"
 import { ChatInput } from "@/components/chat/chat-input"
 import { Messages } from "@/components/chat/messages"
 import { CenteredSpinner } from "@/components/loading/spinner"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { useChat, useCreateChat, useListChats } from "@/hooks/use-chat"
 import { useCreatePrompt } from "@/hooks/use-prompt"
 import { useChatReadiness } from "@/lib/hooks"
@@ -62,7 +58,7 @@ export function ChatInterface({
   // Create prompt mutation
   const { createPrompt, createPromptPending } = useCreatePrompt(workspaceId)
 
-  const { sendMessage, isResponding, messages, isConnected } = useChat({
+  const { sendMessage, isResponding, messages } = useChat({
     chatId: selectedChatId,
     workspaceId,
   })
@@ -160,23 +156,56 @@ export function ChatInterface({
   if (chats && chats.length === 0) {
     return (
       <div className="flex h-full flex-col">
-        {/* Chat Header */}
+        {/* Header - streamlined */}
         <div className="px-4 py-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <MessageSquare className="h-4 w-4 text-muted-foreground" />
-              <h3 className="text-sm font-semibold">Chat</h3>
-            </div>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={handleCreateChat}
-              disabled={createChatPending}
-            >
-              <Plus className="size-3 mr-1" />
-              New chat
-            </Button>
-          </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button size="sm" variant="ghost" className="px-0">
+                Conversations
+                <ChevronDown className="size-3 ml-1" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-64">
+              {chatsLoading ? (
+                <div className="p-2">
+                  <div className="space-y-2">
+                    <div className="h-8 bg-muted animate-pulse rounded" />
+                    <div className="h-8 bg-muted animate-pulse rounded" />
+                  </div>
+                </div>
+              ) : chatsError ? (
+                <DropdownMenuItem disabled>
+                  <span className="text-red-600">Failed to load chats</span>
+                </DropdownMenuItem>
+              ) : (
+                <ScrollArea className="max-h-64">
+                  {chats?.map((chat: ChatRead) => (
+                    <DropdownMenuItem
+                      key={chat.id}
+                      onClick={() => handleSelectChat(chat.id)}
+                      className={cn(
+                        "flex items-center justify-between cursor-pointer",
+                        selectedChatId === chat.id && "bg-accent"
+                      )}
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium truncate">
+                          {chat.title}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {formatDistanceToNow(new Date(chat.created_at), {
+                            addSuffix: true,
+                          })}
+                        </div>
+                      </div>
+                    </DropdownMenuItem>
+                  ))}
+                </ScrollArea>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          {/* New chat icon is now on right-side controls */}
         </div>
 
         {/* Empty State */}
@@ -205,41 +234,16 @@ export function ChatInterface({
       {/* Chat Header */}
       <div className="px-4 py-2">
         <div className="flex items-center justify-between">
+          {/* Unified New-chat / History dropdown */}
           <div className="flex items-center gap-2">
-            <MessageSquare className="h-4 w-4 text-muted-foreground" />
-            <h3 className="text-sm font-semibold">Chat</h3>
-            {isConnected && (
-              <div
-                className="h-2 w-2 rounded-full bg-green-500"
-                title="Connected"
-              />
-            )}
-          </div>
-
-          <div className="flex items-center gap-1">
-            {/* New Chat Button */}
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={handleCreateChat}
-              disabled={createChatPending}
-            >
-              <Plus className="size-3 mr-1" />
-              New chat
-            </Button>
-
-            {/* Past Chats Dropdown */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button size="sm" variant="ghost">
-                  <History className="size-3 mr-1" />
-                  Past chats
+                <Button size="sm" variant="ghost" className="px-0">
+                  Conversations
                   <ChevronDown className="size-3 ml-1" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-64">
-                <DropdownMenuLabel>Chat History</DropdownMenuLabel>
-                <DropdownMenuSeparator />
+              <DropdownMenuContent align="start" className="w-64">
                 {chatsLoading ? (
                   <div className="p-2">
                     <div className="space-y-2">
@@ -272,11 +276,6 @@ export function ChatInterface({
                             })}
                           </div>
                         </div>
-                        {selectedChatId === chat.id && (
-                          <Badge variant="secondary" className="text-xs ml-2">
-                            Active
-                          </Badge>
-                        )}
                       </DropdownMenuItem>
                     ))}
                   </ScrollArea>
@@ -284,30 +283,46 @@ export function ChatInterface({
               </DropdownMenuContent>
             </DropdownMenu>
 
-            {/* Chat Actions Dropdown */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="size-6 p-0"
-                  disabled={!selectedChatId}
-                >
-                  <MoreHorizontal className="h-3 w-3" />
-                  <span className="sr-only">More options</span>
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48">
-                <DropdownMenuItem
-                  onClick={handleSaveAsPrompt}
-                  disabled={createPromptPending || !messages?.length}
-                  className="text-xs"
-                >
-                  <BookOpen className="mr-2 size-3" />
-                  Generate runbook
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            {/* (left-side plus removed) */}
+          </div>
+
+          {/* Right-side controls: new chat + actions */}
+          <div className="flex items-center gap-1">
+            {/* New chat icon button with tooltip */}
+            <TooltipProvider delayDuration={0}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="size-6 p-0"
+                    onClick={handleCreateChat}
+                    disabled={createChatPending}
+                  >
+                    <Plus className="h-3 w-3" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">New chat</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+
+            {/* Generate runbook icon button with tooltip */}
+            <TooltipProvider delayDuration={0}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="size-6 p-0"
+                    onClick={handleSaveAsPrompt}
+                    disabled={createPromptPending || !messages?.length}
+                  >
+                    <BookOpen className="h-3 w-3" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">Generate runbook</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           </div>
         </div>
       </div>
