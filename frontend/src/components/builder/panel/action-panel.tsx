@@ -140,6 +140,14 @@ const actionFormSchema = z.object({
         z.string().max(1000, "For each must be less than 1000 characters")
       ),
     ])
+    .transform((val) => {
+      if (Array.isArray(val)) {
+        return val.filter((item) => item.trim() !== "")
+      } else if (typeof val === "string") {
+        return val.trim() !== "" ? val : undefined
+      }
+      return val
+    })
     .optional(),
   run_if: z
     .string()
