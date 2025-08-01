@@ -36,7 +36,6 @@ import {
   useIntegrationProvider,
   useLocalStorage,
 } from "@/lib/hooks"
-import { cn } from "@/lib/utils"
 import { useWorkspace } from "@/providers/workspace"
 
 interface PageConfig {
@@ -430,12 +429,7 @@ export function ControlsHeader({
             className="h-7 w-7"
             onClick={onToggleChat}
           >
-            <PanelRight
-              className={cn(
-                "h-4 w-4 text-muted-foreground transition-transform",
-                isChatOpen && "rotate-180"
-              )}
-            />
+            <PanelRight className="h-4 w-4 text-muted-foreground" />
             <span className="sr-only">Toggle Chat</span>
           </Button>
         )}
