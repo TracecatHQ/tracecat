@@ -134,7 +134,7 @@ class DSLScheduler:
     async def _handle_error_path(self, task: Task, exc: Exception) -> None:
         ref = task.ref
 
-        self.logger.error(
+        self.logger.info(
             "Handling error path",
             task=task,
             type=exc.__class__.__name__,
@@ -153,7 +153,7 @@ class DSLScheduler:
             # XXX: This can sometimes return null because the exception isn't an ApplicationError
             # But rather a ChildWorkflowError or CancelledError
             if isinstance(exc, ApplicationError) and exc.details:
-                self.logger.warning(
+                self.logger.info(
                     "Task failed with application error",
                     ref=ref,
                     exc=exc,
@@ -161,7 +161,7 @@ class DSLScheduler:
                 )
                 details = exc.details[0]
                 if not isinstance(details, dict):
-                    self.logger.warning(
+                    self.logger.info(
                         "Application error details are not a dictionary",
                         ref=ref,
                         details=details,
@@ -170,7 +170,7 @@ class DSLScheduler:
                     try:
                         message += f"\nGot: {to_json(details, fallback=str).decode()}"
                     except Exception as e:
-                        self.logger.warning(
+                        self.logger.debug(
                             "Couldn't jsonify application error details",
                             ref=ref,
                             error=e,
@@ -188,7 +188,7 @@ class DSLScheduler:
                         # This is normal action error
                         details = ActionErrorInfo(**details)
                     except Exception as e:
-                        self.logger.warning(
+                        self.logger.info(
                             "Failed to parse regular application error details",
                             ref=ref,
                             error=e,
@@ -199,7 +199,7 @@ class DSLScheduler:
                         try:
                             message += f"\n{to_json(details, fallback=str).decode()}"
                         except Exception as e:
-                            self.logger.warning(
+                            self.logger.debug(
                                 "Couldn't jsonify application error details",
                                 ref=ref,
                                 error=e,
@@ -218,7 +218,7 @@ class DSLScheduler:
                         val = list(details.values())[0]
                         details = ActionErrorInfo(**val)
                     except Exception as e:
-                        self.logger.warning(
+                        self.logger.info(
                             "Failed to parse child wf application error details",
                             ref=ref,
                             error=e,
@@ -229,7 +229,7 @@ class DSLScheduler:
                                 f"\nGot: {to_json(details, fallback=str).decode()}"
                             )
                         except Exception as e:
-                            self.logger.warning(
+                            self.logger.debug(
                                 "Couldn't jsonify child wf application error details",
                                 ref=ref,
                                 error=e,
@@ -241,7 +241,7 @@ class DSLScheduler:
                             type=exc.__class__.__name__,
                         )
             else:
-                self.logger.warning(
+                self.logger.info(
                     "Task failed with non-application error",
                     ref=ref,
                     exc=exc,
@@ -249,7 +249,7 @@ class DSLScheduler:
                 try:
                     message = str(exc)
                 except Exception as e:
-                    self.logger.warning(
+                    self.logger.info(
                         "Failed to stringify non-application error",
                         ref=ref,
                         error=e,
