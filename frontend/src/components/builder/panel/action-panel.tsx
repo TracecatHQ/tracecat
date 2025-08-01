@@ -152,7 +152,7 @@ const actionFormSchema = z.object({
   run_if: z
     .string()
     .max(1000, "Run if must be less than 1000 characters")
-    .transform((val) => (!!val ? val : undefined))
+    .transform((val) => (val?.trim() ? val.trim() : undefined))
     .optional(),
   // Retry policy fields
   max_attempts: z.number().int().min(0).optional(),
