@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import Cookies from "js-cookie"
 import { AlertTriangleIcon, CircleCheck } from "lucide-react"
 import { useRouter } from "next/navigation"
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import {
   type ActionRead,
   type ActionsDeleteActionData,
@@ -3680,4 +3680,99 @@ export function useChatReadiness() {
   }
 
   return { ready: true, loading: false, reason: null, provider: providerId }
+}
+
+interface UseDragDividerOptions {
+  /** Current size (width for vertical divider, height for horizontal) in pixels */
+  value: number
+  /** Callback fired with the new size while dragging */
+  onChange: (newSize: number) => void
+  /** Orientation of the divider. Defaults to "vertical" (i.e. a vertical bar that resizes width) */
+  orientation?: "vertical" | "horizontal"
+  /** Minimum size constraint in pixels */
+  min?: number
+  /** Maximum size constraint in pixels */
+  max?: number
+}
+
+/**
+ * Hook for handling drag divider logic.
+ * Returns mouse event handlers to be attached to the drag handle element.
+ *
+ * This implementation avoids useEffect and global event listeners by using
+ * React's onMouseDown/onMouseMove/onMouseUp events with pointer capture.
+ */
+export function useDragDivider({
+  value,
+  onChange,
+  orientation = "vertical",
+  min = 400,
+  max = 600,
+}: UseDragDividerOptions) {
+  const [isDragging, setIsDragging] = useState(false)
+  const dragStartRef = useRef({ coord: 0, size: 0 })
+
+  const handlePointerDown = useCallback(
+    (e: React.PointerEvent<HTMLElement>) => {
+      e.preventDefault()
+
+      // Capture the pointer to receive all mouse events
+      e.currentTarget.setPointerCapture(e.pointerId)
+
+      const startCoord = orientation === "vertical" ? e.clientX : e.clientY
+      dragStartRef.current = { coord: startCoord, size: value }
+      setIsDragging(true)
+    },
+    [orientation, value]
+  )
+
+  const handlePointerMove = useCallback(
+    (e: React.PointerEvent<HTMLElement>) => {
+      if (!isDragging) return
+
+      const currentCoord = orientation === "vertical" ? e.clientX : e.clientY
+      const delta = dragStartRef.current.coord - currentCoord
+      const newSize = Math.min(
+        Math.max(dragStartRef.current.size + delta, min),
+        max
+      )
+      onChange(newSize)
+    },
+    [isDragging, orientation, min, max, onChange]
+  )
+
+  const handlePointerUp = useCallback(
+    (e: React.PointerEvent<HTMLElement>) => {
+      if (!isDragging) return
+
+      // Release the pointer capture
+      e.currentTarget.releasePointerCapture(e.pointerId)
+      setIsDragging(false)
+    },
+    [isDragging]
+  )
+
+  // Handle cases where the pointer is lost (e.g., window loses focus)
+  const handlePointerCancel = useCallback(
+    (e: React.PointerEvent<HTMLElement>) => {
+      if (!isDragging) return
+
+      e.currentTarget.releasePointerCapture(e.pointerId)
+      setIsDragging(false)
+    },
+    [isDragging]
+  )
+
+  return {
+    isDragging,
+    dragHandleProps: {
+      onPointerDown: handlePointerDown,
+      onPointerMove: handlePointerMove,
+      onPointerUp: handlePointerUp,
+      onPointerCancel: handlePointerCancel,
+      style: {
+        cursor: orientation === "vertical" ? "col-resize" : "row-resize",
+      },
+    },
+  }
 }

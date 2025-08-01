@@ -1,7 +1,7 @@
 "use client"
 
 import { GripVertical } from "lucide-react"
-import type React from "react"
+import { useDragDivider } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 
 export const DEFAULT_MIN = 400
@@ -14,6 +14,10 @@ export interface DragDividerProps {
   onChange: (newSize: number) => void
   /** Orientation of the divider. Defaults to "vertical" (i.e. a vertical bar that resizes width) */
   orientation?: "vertical" | "horizontal"
+  /** Minimum size constraint in pixels */
+  min?: number
+  /** Maximum size constraint in pixels */
+  max?: number
   /** Additional Tailwind classes */
   className?: string
 }
@@ -27,41 +31,27 @@ export function DragDivider({
   value,
   onChange,
   orientation = "vertical",
+  min = DEFAULT_MIN,
+  max = DEFAULT_MAX,
   className,
 }: DragDividerProps) {
-  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement, MouseEvent>) => {
-    e.preventDefault()
-
-    const startCoord = orientation === "vertical" ? e.clientX : e.clientY
-    const startSize = value
-
-    const onMouseMove = (moveEvent: MouseEvent) => {
-      const currentCoord =
-        orientation === "vertical" ? moveEvent.clientX : moveEvent.clientY
-      const delta = startCoord - currentCoord
-      let newSize = startSize + delta
-      newSize = Math.min(Math.max(newSize, DEFAULT_MIN), DEFAULT_MAX)
-      onChange(newSize)
-    }
-
-    const onMouseUp = () => {
-      window.removeEventListener("mousemove", onMouseMove)
-      window.removeEventListener("mouseup", onMouseUp)
-    }
-
-    window.addEventListener("mousemove", onMouseMove)
-    window.addEventListener("mouseup", onMouseUp)
-  }
+  const { isDragging, dragHandleProps } = useDragDivider({
+    value,
+    onChange,
+    orientation,
+    min,
+    max,
+  })
 
   return (
     <div
       data-orientation={orientation}
-      onMouseDown={handleMouseDown}
+      {...dragHandleProps}
       className={cn(
         // Base styles
         "group relative flex shrink-0 items-center justify-center",
-        // Cursor styles
-        orientation === "vertical" ? "cursor-col-resize" : "cursor-row-resize",
+        // Add visual feedback when dragging
+        isDragging && "opacity-80",
         className
       )}
     >

@@ -53,6 +53,8 @@ export function ResizableSidebar({
       className={cn("w-1.5 shrink-0", dividerClassName)}
       value={width}
       onChange={setWidth}
+      min={min}
+      max={max}
     />
   )
 
