@@ -314,7 +314,7 @@ class Repository:
                 )
                 extra_args = ["--target", python_user_base]
 
-            cmd = ["uv", "pip", "install", "--system", "--refresh", "--editable"]
+            cmd = ["uv", "pip", "install", "--refresh", "--editable"]
             process = await asyncio.create_subprocess_exec(
                 *cmd,
                 repo_path.as_posix(),
@@ -802,7 +802,7 @@ async def install_remote_repository(
 ) -> None:
     logger.info("Loading remote repository", url=repo_url, commit_sha=commit_sha)
 
-    cmd = ["uv", "pip", "install", "--system", "--refresh"]
+    cmd = ["uv", "pip", "install", "--refresh"]
     extra_args = []
     if config.TRACECAT__APP_ENV == "production":
         # We set PYTHONUSERBASE in the prod Dockerfile
@@ -812,11 +812,11 @@ async def install_remote_repository(
         )
         logger.trace("Installing to PYTHONUSERBASE", python_user_base=python_user_base)
         extra_args = ["--target", python_user_base]
+    full_cmd = cmd + extra_args + [f"{repo_url}@{commit_sha}"]
+    logger.debug("Installation command", full_cmd=full_cmd)
     try:
         process = await asyncio.create_subprocess_exec(
-            *cmd,
-            *extra_args,
-            f"{repo_url}@{commit_sha}",
+            *full_cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=os.environ.copy() | env.to_dict(),
