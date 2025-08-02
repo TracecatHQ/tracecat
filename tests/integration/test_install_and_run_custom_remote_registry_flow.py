@@ -26,6 +26,7 @@ from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
 from tracecat.secrets.enums import SecretType
 from tracecat.secrets.models import SecretCreate
+from tracecat.settings.models import GitSettingsUpdate
 from tracecat.types.auth import system_role
 
 GIT_SSH_URL = "git+ssh://git@github.com/TracecatHQ/internal-registry.git"
@@ -73,8 +74,24 @@ async def test_remote_custom_registry_repo() -> None:
     # 2.  Get or create a RegistryRepository pointing to the remote Git repo
     # ---------------------------------------------------------------------
     logger.info(
-        "Step 2: Setting up RegistryRepository for remote Git repo", git_url=GIT_SSH_URL
+        "Step 2: Setting up organization settings and RegistryRepository for remote Git repo",
+        git_url=GIT_SSH_URL,
     )
+
+    # Set organization settings for git repo URL and package name
+    logger.info("Setting organization git repo URL setting")
+    git_repo_setting_response = session.patch(
+        f"{base_url}/settings/git",
+        json=GitSettingsUpdate(
+            git_repo_url=GIT_SSH_URL,
+            git_repo_package_name="custom_actions",
+        ).model_dump(mode="json"),
+    )
+    assert git_repo_setting_response.status_code == 204, (
+        f"Git repo URL setting failed: {git_repo_setting_response.text}"
+    )
+    logger.info("Git repo URL setting configured successfully")
+
     # Get repository
     get_response = session.get(f"{base_url}/registry/repos")
     assert get_response.status_code == 200, f"Get failed: {get_response.text}"
