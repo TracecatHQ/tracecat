@@ -555,36 +555,6 @@ class TracecatAgentBuilder:
         return agent
 
 
-# TODO: unused
-async def collect_secrets_for_filters(
-    namespace_filters: list[str] | None = None,
-    action_filters: list[str] | None = None,
-) -> set[RegistrySecretType]:
-    """Collect all secrets required by actions matching the given filters."""
-    collected_secrets: set[RegistrySecretType] = set()
-
-    async with RegistryActionsService.with_session() as service:
-        if action_filters:
-            actions = await service.get_actions(action_filters)
-        else:
-            actions = await service.list_actions(include_marked=True)
-
-    for reg_action in actions:
-        action_name = f"{reg_action.namespace}.{reg_action.name}"
-
-        # Apply namespace filtering if specified
-        if namespace_filters:
-            if not any(action_name.startswith(ns) for ns in namespace_filters):
-                continue
-
-        # Fetch all secrets for this action
-        async with RegistryActionsService.with_session() as service:
-            action_secrets = await service.fetch_all_action_secrets(reg_action)
-            collected_secrets.update(action_secrets)
-
-    return collected_secrets
-
-
 ModelMessageTA: TypeAdapter[ModelMessage] = TypeAdapter(ModelMessage)
 
 
