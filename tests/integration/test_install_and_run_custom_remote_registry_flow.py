@@ -18,14 +18,14 @@ import uuid
 
 import pytest
 import requests
-from pydantic import SecretStr
+from pydantic import SecretStr, ValidationError
 
 from tests.shared import generate_test_exec_id
 from tracecat.dsl.models import ActionStatement, RunActionInput, RunContext, StreamID
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
 from tracecat.secrets.enums import SecretType
-from tracecat.secrets.models import SecretCreate, SecretKeyValue
+from tracecat.secrets.models import SecretCreate
 from tracecat.types.auth import system_role
 
 GIT_SSH_URL = "git+ssh://git@github.com/TracecatHQ/internal-registry.git"
@@ -113,19 +113,28 @@ async def test_remote_custom_registry_repo() -> None:
     secret_github_ssh_key = SecretStr(github_deploy_key)
 
     # Create or update the github-ssh-key secret
+    # Create the secret model and serialize with custom handling for SecretStr
+    secret_dict = {
+        "type": SecretType.SSH_KEY.value,
+        "name": "github-ssh-key",
+        "keys": [
+            {
+                "key": "PRIVATE_KEY",
+                "value": secret_github_ssh_key.get_secret_value(),
+            }
+        ],
+        "description": "GitHub SSH deploy key for accessing private repositories",
+    }
+
+    # Validate the secret dict
+    try:
+        SecretCreate.model_validate(secret_dict)
+    except ValidationError:
+        pytest.fail("SecretCreate validation failed")
+
     secret_response = session.post(
         f"{base_url}/organization/secrets",
-        json=SecretCreate(
-            type=SecretType.SSH_KEY,
-            name="github-ssh-key",
-            keys=[
-                SecretKeyValue(
-                    key="PRIVATE_KEY",
-                    value=secret_github_ssh_key.get_secret_value(),  # type: ignore
-                )
-            ],
-            description="GitHub SSH deploy key for accessing private repositories",
-        ).model_dump(mode="json"),
+        json=secret_dict,
     )
     # Accept 200 (updated), 201 (created), and 409 (already exists) status codes
     assert secret_response.status_code in [200, 201, 409], (

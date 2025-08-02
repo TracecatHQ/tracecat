@@ -111,7 +111,6 @@ jobs:
         env:
           COMPOSE_BAKE: "true"
           TRACECAT__UNSAFE_DISABLE_SM_MASKING: "true"
-          LOG_LEVEL: "DEBUG"
         run: |
           docker compose -f docker-compose.local.yml up -d temporal api worker executor postgres_db caddy
 
