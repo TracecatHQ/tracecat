@@ -24,6 +24,7 @@ from tests.shared import generate_test_exec_id
 from tracecat.dsl.models import ActionStatement, RunActionInput, RunContext, StreamID
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
+from tracecat.secrets.enums import SecretType
 from tracecat.secrets.models import SecretCreate, SecretKeyValue
 from tracecat.types.auth import system_role
 
@@ -112,6 +113,7 @@ async def test_remote_custom_registry_repo() -> None:
     secret_response = session.post(
         f"{base_url}/organization/secrets",
         json=SecretCreate(
+            type=SecretType.SSH_KEY,
             name="github-ssh-key",
             keys=[
                 SecretKeyValue(
