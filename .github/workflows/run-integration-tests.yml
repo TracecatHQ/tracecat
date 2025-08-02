@@ -111,6 +111,7 @@ jobs:
         env:
           COMPOSE_BAKE: "true"
           TRACECAT__UNSAFE_DISABLE_SM_MASKING: "true"
+          LOG_LEVEL: "DEBUG"
         run: |
           docker compose -f docker-compose.local.yml up -d temporal api worker executor postgres_db caddy
 
@@ -145,17 +146,13 @@ jobs:
           docker compose -f docker-compose.local.yml ps
 
           echo "=== API Logs ==="
-          docker compose -f docker-compose.local.yml logs api --tail=100
+          docker compose -f docker-compose.local.yml logs api --tail=200
 
           echo "=== Worker Logs ==="
-          docker compose -f docker-compose.local.yml logs worker --tail=100
+          docker compose -f docker-compose.local.yml logs worker --tail=200
 
           echo "=== Executor Logs ==="
-          docker compose -f docker-compose.local.yml logs executor --tail=100
-
-          echo "=== Temporal Logs ==="
-          docker compose -f docker-compose.local.yml logs temporal --tail=50
-
+          docker compose -f docker-compose.local.yml logs executor --tail=200
       - name: Clean up
         if: always()
         run: |
