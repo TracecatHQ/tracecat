@@ -40,11 +40,25 @@ async def test_remote_custom_registry_repo() -> None:
     logger.info("Starting remote custom registry repo test")
 
     # ---------------------------------------------------------------------
-    # 1.  Create a session and login with test credentials
+    # 1.  Create a session and register/login with test credentials
     # ---------------------------------------------------------------------
-    logger.info("Step 1: Creating session and logging in with test credentials")
+    logger.info("Step 1: Creating session and setting up test user")
     base_url = os.environ.get("TRACECAT__PUBLIC_API_URL", "http://localhost/api")
     session = requests.Session()
+
+    # First, try to register the test user (in case it doesn't exist)
+    register_response = session.post(
+        f"{base_url}/auth/register",
+        json={"username": "test@tracecat.com", "password": "password1234"},
+    )
+    if register_response.status_code == 201:
+        logger.info("Successfully registered test user")
+    elif register_response.status_code == 409:
+        logger.info("Test user already exists, proceeding to login")
+    else:
+        logger.warning(
+            f"Registration returned unexpected status: {register_response.status_code} - {register_response.text}"
+        )
 
     # Login with test credentials
     login_response = session.post(
@@ -91,9 +105,8 @@ async def test_remote_custom_registry_repo() -> None:
     # ---------------------------------------------------------------------
     logger.info("Step 3: Creating GitHub SSH deploy key secret")
     github_deploy_key = os.environ.get("CUSTOM_REPO_SSH_PRIVATE_KEY")
-    assert github_deploy_key, (
-        "CUSTOM_REPO_SSH_PRIVATE_KEY environment variable is not set"
-    )
+    if not github_deploy_key:
+        pytest.fail("CUSTOM_REPO_SSH_PRIVATE_KEY environment variable is not set")
 
     # Create or update the github-ssh-key secret
     secret_response = session.post(
@@ -155,7 +168,8 @@ async def test_remote_custom_registry_repo() -> None:
     # Hit the executor directly to run the action
     # Grab the service key from the environment
     service_key = os.environ.get("TRACECAT__SERVICE_KEY")
-    assert service_key, "TRACECAT__SERVICE_KEY is not set"
+    if not service_key:
+        pytest.fail("TRACECAT__SERVICE_KEY is not set")
     role = system_role()
     run_action_response = session.post(
         "http://localhost:8001/api/executor/run/tracecat.math.add_300",
