@@ -1,0 +1,79 @@
+type: action
+definition:
+  title: Range query
+  description: Execute a Loki range query to retrieve log entries over a range of time.
+  display_group: Loki
+  doc_url: https://grafana.com/docs/loki/latest/reference/loki-http-api/#query-logs-within-a-range-of-time
+  namespace: tools.loki
+  name: range_query
+  expects:
+    query:
+      type: str
+      description: LogQL query string (e.g., "{job=\"app_logs\"}", "{service=\"api\"} |= \"error\"").
+    start_time:
+      type: datetime
+      description: Start timestamp for the query range (inclusive).
+    end_time:
+      type: datetime
+      description: End timestamp for the query range (inclusive).
+    limit:
+      type: int | None
+      description: Maximum number of log entries to return.
+      default: null
+    direction:
+      type: str | None
+      description: Direction to scan logs. Either "FORWARD" or "BACKWARD".
+      default: null
+    step:
+      type: str | None
+      description: Query resolution step width for metric queries (e.g., '15s', '1m'). Only used for metric queries.
+      default: null
+    base_url:
+      type: str
+      description: Loki server URL (e.g., http://localhost:3100).
+      default: "http://localhost:3100"
+  steps:
+    - ref: loki_range_query
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/loki/api/v1/query_range
+        method: GET
+        params:
+          query: ${{ inputs.query }}
+          start: ${{ inputs.start_time }}
+          end: ${{ inputs.end_time }}
+          limit: ${{ inputs.limit }}
+          direction: ${{ inputs.direction }}
+          step: ${{ inputs.step }}
+    - ref: human_readable
+      action: core.transform.reshape
+      args:
+        value:
+          status: "success"
+          query: ${{ inputs.query }}
+          time_range:
+            start: ${{ inputs.start_time }}
+            end: ${{ inputs.end_time }}
+          result_type: ${{ steps.loki_range_query.result.data.data.resultType }}
+
+          # Main Results - Log Streams
+          streams: ${{ steps.loki_range_query.result.data.data.result }}
+
+          # Performance Summary
+          performance:
+            execution_time_seconds: ${{ steps.loki_range_query.result.data.data.stats.summary.execTime }}
+            queue_time_seconds: ${{ steps.loki_range_query.result.data.data.stats.summary.queueTime }}
+            bytes_processed: ${{ steps.loki_range_query.result.data.data.stats.summary.totalBytesProcessed }}
+            lines_processed: ${{ steps.loki_range_query.result.data.data.stats.summary.totalLinesProcessed }}
+            entries_returned: ${{ steps.loki_range_query.result.data.data.stats.summary.totalEntriesReturned }}
+            bytes_per_second: ${{ steps.loki_range_query.result.data.data.stats.summary.bytesProcessedPerSecond }}
+            lines_per_second: ${{ steps.loki_range_query.result.data.data.stats.summary.linesProcessedPerSecond }}
+
+          # Detailed Stats
+          detailed_stats:
+            summary: ${{ steps.loki_range_query.result.data.data.stats.summary }}
+            cache: ${{ steps.loki_range_query.result.data.data.stats.cache }}
+            ingester: ${{ steps.loki_range_query.result.data.data.stats.ingester }}
+            querier: ${{ steps.loki_range_query.result.data.data.stats.querier }}
+            index: ${{ steps.loki_range_query.result.data.data.stats.index }}
+  returns: ${{ steps.human_readable.result }}

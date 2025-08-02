@@ -1,0 +1,76 @@
+type: action
+definition:
+  title: Search events
+  description: Search Datadog events using the events API to retrieve event data over a specified time range.
+  display_group: Datadog
+  doc_url: https://docs.datadoghq.com/api/latest/events/#search-events
+  namespace: tools.datadog
+  name: search_events
+  secrets:
+    - name: datadog
+      keys: ["DD_API_KEY", "DD_APPLICATION_KEY"]
+  expects:
+    query:
+      type: str
+      description: Search query for events (e.g., "datadog-agent", "service:web", "source:kubernetes").
+      default: ""
+    from_time:
+      type: str
+      description: Start time for the query range (ISO datetime like "2020-09-17T11:48:36+01:00").
+    to_time:
+      type: str
+      description: End time for the query range (ISO datetime like "2020-09-17T12:48:36+01:00").
+    limit:
+      type: int
+      description: Maximum number of events to return.
+      default: 10
+    sort:
+      type: str
+      description: Sort order for events. Either "timestamp" (ascending) or "-timestamp" (descending).
+      default: "timestamp"
+    timezone:
+      type: str
+      description: Timezone for the query (e.g., "GMT", "UTC", "America/New_York").
+      default: "UTC"
+    base_url:
+      type: str
+      description: Datadog API base URL (e.g., https://api.datadoghq.com, https://api.us3.datadoghq.com).
+      default: "https://api.datadoghq.com"
+  steps:
+    - ref: datadog_search_events
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/api/v2/events/search
+        method: POST
+        headers:
+          Accept: application/json
+          Content-Type: application/json
+          DD-API-KEY: ${{ SECRETS.datadog.DD_API_KEY }}
+          DD-APPLICATION-KEY: ${{ SECRETS.datadog.DD_APPLICATION_KEY }}
+        payload:
+          filter:
+            query: ${{ inputs.query }}
+            from: ${{ inputs.from_time }}
+            to: ${{ inputs.to_time }}
+          sort: ${{ inputs.sort }}
+          page:
+            limit: ${{ inputs.limit }}
+          options:
+            timezone: ${{ inputs.timezone }}
+    - ref: human_readable
+      action: core.transform.reshape
+      args:
+        value:
+          status: "success"
+          query: ${{ inputs.query }}
+          time_range:
+            from: ${{ inputs.from_time }}
+            to: ${{ inputs.to_time }}
+            timezone: ${{ inputs.timezone }}
+          query_time_ms: ${{ steps.datadog_search_events.result.data.meta.elapsed }}
+          events: ${{ steps.datadog_search_events.result.data.data }}
+          pagination:
+            has_next_page: ${{ steps.datadog_search_events.result.data.links.next != null }}
+            next_page_cursor: ${{ steps.datadog_search_events.result.data.meta.page.after }}
+            next_page_url: ${{ steps.datadog_search_events.result.data.links.next }}
+  returns: ${{ steps.human_readable.result }}

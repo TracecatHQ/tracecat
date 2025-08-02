@@ -1,0 +1,37 @@
+type: action
+definition:
+  title: Get label values
+  description: Retrieve a list of label values for a given label name from Loki logs, optionally filtered by time range and LogQL stream selectors.
+  display_group: Loki
+  doc_url: https://grafana.com/docs/loki/latest/reference/loki-http-api/#query-label-values
+  namespace: tools.loki
+  name: get_label_values
+  expects:
+    label_name:
+      type: str
+      description: The name of the label to get values for (e.g., "job", "service", "level").
+    query:
+      type: str
+      description: LogQL stream selector to filter the returned label values (e.g., "{job=\"my-app\"}", "{service=~\"api.*\"}").
+      default: ""
+    base_url:
+      type: str
+      description: Loki server URL (e.g., http://localhost:3100).
+      default: "http://localhost:3100"
+  steps:
+    - ref: loki_label_values
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/loki/api/v1/label/${{ inputs.label_name }}/values
+        method: GET
+        params:
+          query: ${{ inputs.query }}
+    - ref: human_readable
+      action: core.transform.reshape
+      args:
+        value:
+          status: "success"
+          message: "Retrieved label values for '${{ inputs.label_name }}'"
+          label_name: ${{ inputs.label_name }}
+          values: ${{ steps.loki_label_values.result.data.data }}
+  returns: ${{ steps.human_readable.result }}

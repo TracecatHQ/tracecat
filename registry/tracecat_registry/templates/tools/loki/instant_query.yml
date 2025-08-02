@@ -1,0 +1,63 @@
+type: action
+definition:
+  title: Instant query
+  description: Execute a Loki instant query to evaluate a LogQL metric expression at a single point in time.
+  display_group: Loki
+  doc_url: https://grafana.com/docs/loki/latest/reference/loki-http-api/#query-logs-at-a-single-point-in-time
+  namespace: tools.loki
+  name: instant_query
+  expects:
+    query:
+      type: str
+      description: LogQL metric expression query string (e.g., "count_over_time({job=\"app_logs\"}[5m])", "rate({service=\"api\"}[1h])").
+    time:
+      type: datetime | None
+      description: Evaluation timestamp. If omitted, uses current server time.
+      default: null
+    limit:
+      type: int | None
+      description: Maximum number of returned series. 0 means disabled.
+      default: null
+    base_url:
+      type: str
+      description: Loki server URL (e.g., http://localhost:3100).
+      default: "http://localhost:3100"
+  steps:
+    - ref: loki_instant_query
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/loki/api/v1/query
+        method: GET
+        params:
+          query: ${{ inputs.query }}
+          time: ${{ inputs.time }}
+          limit: ${{ inputs.limit }}
+    - ref: human_readable
+      action: core.transform.reshape
+      args:
+        value:
+          status: "success"
+          query: ${{ inputs.query }}
+          result_type: ${{ steps.loki_instant_query.result.data.data.resultType }}
+
+          # Main Results
+          results: ${{ steps.loki_instant_query.result.data.data.result }}
+
+          # Performance Summary
+          performance:
+            execution_time_seconds: ${{ steps.loki_instant_query.result.data.data.stats.summary.execTime }}
+            queue_time_seconds: ${{ steps.loki_instant_query.result.data.data.stats.summary.queueTime }}
+            bytes_processed: ${{ steps.loki_instant_query.result.data.data.stats.summary.totalBytesProcessed }}
+            lines_processed: ${{ steps.loki_instant_query.result.data.data.stats.summary.totalLinesProcessed }}
+            entries_returned: ${{ steps.loki_instant_query.result.data.data.stats.summary.totalEntriesReturned }}
+            bytes_per_second: ${{ steps.loki_instant_query.result.data.data.stats.summary.bytesProcessedPerSecond }}
+            lines_per_second: ${{ steps.loki_instant_query.result.data.data.stats.summary.linesProcessedPerSecond }}
+
+          # Detailed Stats
+          detailed_stats:
+            summary: ${{ steps.loki_instant_query.result.data.data.stats.summary }}
+            cache: ${{ steps.loki_instant_query.result.data.data.stats.cache }}
+            ingester: ${{ steps.loki_instant_query.result.data.data.stats.ingester }}
+            querier: ${{ steps.loki_instant_query.result.data.data.stats.querier }}
+            index: ${{ steps.loki_instant_query.result.data.data.stats.index }}
+  returns: ${{ steps.human_readable.result }}

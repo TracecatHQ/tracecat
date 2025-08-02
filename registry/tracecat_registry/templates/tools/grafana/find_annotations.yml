@@ -1,0 +1,72 @@
+type: action
+definition:
+  title: Find annotations
+  description: Find annotations in Grafana, optionally filtered by time range, dashboard, panel, user, or tags.
+  display_group: Grafana
+  doc_url: https://grafana.com/docs/grafana/latest/developers/http_api/annotations/#find-annotations
+  namespace: tools.grafana
+  name: find_annotations
+  expects:
+    from_time:
+      type: datetime | None
+      description: Start time for annotation search (epoch milliseconds or ISO datetime).
+      default: null
+    to_time:
+      type: datetime | None
+      description: End time for annotation search (epoch milliseconds or ISO datetime).
+      default: null
+    limit:
+      type: int | None
+      description: Maximum number of results to return.
+      default: null
+    alert_id:
+      type: int | None
+      description: Find annotations for a specific alert by alert ID.
+      default: null
+    dashboard_id:
+      type: int | None
+      description: Find annotations for a specific dashboard by dashboard ID.
+      default: null
+    panel_id:
+      type: int | None
+      description: Find annotations for a specific panel by panel ID.
+      default: null
+    user_id:
+      type: int | None
+      description: Find annotations created by a specific user by user ID.
+      default: null
+    annotation_type:
+      type: str | None
+      description: Filter annotations by type (e.g., "alert", "annotation").
+      default: null
+    tags:
+      type: list[str]
+      description: Filter annotations by tags.
+      default: []
+    base_url:
+      type: str
+      description: Grafana server URL (e.g., http://localhost:3000).
+      default: "http://localhost:3000"
+  steps:
+    - ref: grafana_find_annotations
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/api/annotations
+        method: GET
+        params:
+          from: ${{ inputs.from_time }}
+          to: ${{ inputs.to_time }}
+          limit: ${{ inputs.limit }}
+          alertId: ${{ inputs.alert_id }}
+          dashboardId: ${{ inputs.dashboard_id }}
+          panelId: ${{ inputs.panel_id }}
+          userId: ${{ inputs.user_id }}
+          type: ${{ inputs.annotation_type }}
+          tags: ${{ inputs.tags }}
+    - ref: human_readable
+      action: core.transform.reshape
+      args:
+        value:
+          status: "success"
+          annotations: ${{ steps.grafana_find_annotations.result.data }}
+  returns: ${{ steps.human_readable.result }}

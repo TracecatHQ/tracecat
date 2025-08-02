@@ -1,0 +1,44 @@
+type: action
+definition:
+  title: Instant query
+  description: Execute a Prometheus instant query to evaluate an expression at a single point in time.
+  display_group: Prometheus
+  doc_url: https://prometheus.io/docs/prometheus/latest/querying/api/#instant-queries
+  namespace: tools.prometheus
+  name: instant_query
+  secrets:
+    - name: prometheus
+      keys: ["PROMETHEUS_API_TOKEN"]
+      optional: true
+  expects:
+    query:
+      type: str
+      description: Prometheus expression query string (PromQL).
+    time:
+      type: datetime | None
+      description: Evaluation timestamp. If omitted, uses current server time.
+      default: null
+    timeout:
+      type: str | None
+      description: Evaluation timeout in duration format (e.g., '30s', '1m').
+      default: null
+    limit:
+      type: int | None
+      description: Maximum number of returned series. 0 means disabled.
+      default: null
+    base_url:
+      type: str
+      description: Prometheus server URL (e.g., http://localhost:9090).
+      default: "http://localhost:9090"
+  steps:
+    - ref: prometheus_instant_query
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/api/v1/query
+        method: GET
+        params:
+          query: ${{ inputs.query }}
+          time: ${{ inputs.time }}
+          timeout: ${{ inputs.timeout }}
+          limit: ${{ inputs.limit }}
+  returns: ${{ steps.prometheus_instant_query.result }}
