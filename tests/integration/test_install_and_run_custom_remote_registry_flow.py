@@ -108,6 +108,7 @@ async def test_remote_custom_registry_repo() -> None:
     github_deploy_key = os.environ.get("CUSTOM_REPO_SSH_PRIVATE_KEY")
     if not github_deploy_key:
         pytest.fail("CUSTOM_REPO_SSH_PRIVATE_KEY environment variable is not set")
+    secret_github_ssh_key = SecretStr(github_deploy_key)
 
     # Create or update the github-ssh-key secret
     secret_response = session.post(
@@ -118,7 +119,7 @@ async def test_remote_custom_registry_repo() -> None:
             keys=[
                 SecretKeyValue(
                     key="PRIVATE_KEY",
-                    value=SecretStr(github_deploy_key),
+                    value=secret_github_ssh_key,
                 )
             ],
             description="GitHub SSH deploy key for accessing private repositories",
@@ -128,7 +129,10 @@ async def test_remote_custom_registry_repo() -> None:
     assert secret_response.status_code in [200, 201, 409], (
         f"Secret creation failed: {secret_response.text}"
     )
-    logger.info("GitHub SSH deploy key secret created successfully")
+    logger.info(
+        "GitHub SSH deploy key secret created successfully",
+        length=len(secret_github_ssh_key),
+    )
 
     # ---------------------------------------------------------------------
     # 4.  Sync the repository (clones & installs with uv add)
