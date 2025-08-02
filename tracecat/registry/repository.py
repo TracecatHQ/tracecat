@@ -314,7 +314,7 @@ class Repository:
                 )
                 extra_args = ["--target", python_user_base]
 
-            cmd = ["uv", "pip", "install", "--refresh", "--editable"]
+            cmd = ["uv", "add", "--refresh", "--editable"]
             process = await asyncio.create_subprocess_exec(
                 *cmd,
                 repo_path.as_posix(),
