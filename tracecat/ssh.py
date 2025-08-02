@@ -150,7 +150,12 @@ def add_ssh_key_to_agent_sync(key_data: str, env: SshEnv) -> None:
         temp_key_file.write(key_data)
         temp_key_file.write("\n")
         temp_key_file.flush()
-        logger.debug("Added SSH key to temp file", key_file=temp_key_file.name)
+        logger.debug(
+            "Added SSH key to temp file",
+            key_file=temp_key_file.name,
+            key_length=len(key_data),
+            has_newline=("\n" in key_data),
+        )
         os.chmod(temp_key_file.name, 0o600)
 
         try:
