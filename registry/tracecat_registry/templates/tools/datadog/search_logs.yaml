@@ -1,46 +1,50 @@
 type: action
 definition:
-  title: Search events
-  description: Search Datadog events using the events API to retrieve event data over a specified time range.
+  title: Search logs
+  description: Search Datadog logs using the logs API to retrieve log data over a specified time range.
   display_group: Datadog
-  doc_url: https://docs.datadoghq.com/api/latest/events/#search-events
+  doc_url: https://docs.datadoghq.com/api/latest/logs/#search-logs
   namespace: tools.datadog
-  name: search_events
+  name: search_logs
   secrets:
     - name: datadog
       keys: ["DD_API_KEY", "DD_APPLICATION_KEY"]
   expects:
     query:
       type: str
-      description: Search query for events (e.g., "datadog-agent", "service:web", "source:kubernetes").
+      description: Search query for logs (e.g., "service:web", "ERROR", "host:production").
       default: ""
     from_time:
       type: str
       description: Start time for the query range.
     to_time:
       type: str
-      description: End time for the query range.
+      description: End time for the query range
     limit:
       type: int
-      description: Maximum number of events to return.
-      default: 10
+      description: Maximum number of logs to return.
+      default: 50
     sort:
       type: str
-      description: Sort order for events. Either "timestamp" (ascending) or "-timestamp" (descending).
-      default: "timestamp"
+      description: Sort order for logs. Either "timestamp" (ascending) or "-timestamp" (descending).
+      default: "-timestamp"
     timezone:
       type: str
       description: Timezone for the query (e.g., "GMT", "UTC", "America/New_York").
       default: "UTC"
+    indexes:
+      type: list[str]
+      description: List of log indexes to search (e.g., ["main", "audit"]).
+      default: []
     base_url:
       type: str
       description: Datadog API base URL (e.g., https://api.datadoghq.com, https://api.us3.datadoghq.com).
       default: "https://api.datadoghq.com"
   steps:
-    - ref: datadog_search_events
+    - ref: datadog_search_logs
       action: core.http_request
       args:
-        url: ${{ inputs.base_url }}/api/v2/events/search
+        url: ${{ inputs.base_url }}/api/v2/logs/events/search
         method: POST
         headers:
           Accept: application/json
@@ -52,6 +56,7 @@ definition:
             query: ${{ inputs.query }}
             from: ${{ inputs.from_time }}
             to: ${{ inputs.to_time }}
+            indexes: ${{ inputs.indexes }}
           sort: ${{ inputs.sort }}
           page:
             limit: ${{ inputs.limit }}
@@ -67,9 +72,6 @@ definition:
             from: ${{ inputs.from_time }}
             to: ${{ inputs.to_time }}
             timezone: ${{ inputs.timezone }}
-          query_time_ms: ${{ steps.datadog_search_events.result.data.meta.elapsed }}
-          events: ${{ steps.datadog_search_events.result.data.data }}
-          pagination:
-            next_page_cursor: ${{ steps.datadog_search_events.result.data.meta.page.after }}
-            next_page_url: ${{ steps.datadog_search_events.result.data.links.next }}
+          query_time_ms: ${{ steps.datadog_search_logs.result.data.meta.elapsed }}
+          logs: ${{ steps.datadog_search_logs.result.data.data }}
   returns: ${{ steps.human_readable.result }}
