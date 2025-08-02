@@ -115,7 +115,7 @@ async def test_remote_custom_registry_repo() -> None:
             name="github-ssh-key",
             keys=[
                 SecretKeyValue(
-                    key="github-ssh-key",
+                    key="PRIVATE_KEY",
                     value=SecretStr(github_deploy_key),
                 )
             ],
