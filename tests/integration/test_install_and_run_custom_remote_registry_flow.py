@@ -49,14 +49,14 @@ async def test_remote_custom_registry_repo() -> None:
     # First, try to register the test user (in case it doesn't exist)
     register_response = session.post(
         f"{base_url}/auth/register",
-        json={"username": "test@tracecat.com", "password": "password1234"},
+        json={"email": "test@tracecat.com", "password": "password1234"},
     )
     if register_response.status_code == 201:
         logger.info("Successfully registered test user")
     elif register_response.status_code == 409:
         logger.info("Test user already exists, proceeding to login")
     else:
-        logger.warning(
+        pytest.fail(
             f"Registration returned unexpected status: {register_response.status_code} - {register_response.text}"
         )
 
