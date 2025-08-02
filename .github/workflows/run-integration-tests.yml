@@ -91,20 +91,11 @@ jobs:
           # Show final service status
           docker compose -f docker-compose.local.yml ps
 
-      - name: Prepare Git deploy key
-        id: deploy_key
-        shell: bash
-        run: |
-          cat <<'EOF' > /tmp/gh_deploy_key
-          ${{ secrets.CUSTOM_REPO_SSH_PRIVATE_KEY }}
-          EOF
-          chmod 600 /tmp/gh_deploy_key
-          echo "key_path=/tmp/gh_deploy_key" >> "$GITHUB_OUTPUT"
-
       - name: Run integration tests
+        env:
+          # Expect a base64 encoded key
+          CUSTOM_REPO_SSH_PRIVATE_KEY: ${{ secrets.CUSTOM_REPO_SSH_PRIVATE_KEY }}
         run: |
-          # Re-inject the key into the current shell with real line-feeds intact
-          export CUSTOM_REPO_SSH_PRIVATE_KEY="$(cat '${{ steps.deploy_key.outputs.key_path }}')"
           uv run pytest tests/integration -ra
 
       - name: Show Docker logs on failure

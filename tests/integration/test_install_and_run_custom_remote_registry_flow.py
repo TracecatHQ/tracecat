@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 import uuid
+from base64 import b64decode
 
 import pytest
 import requests
@@ -105,10 +106,14 @@ async def test_remote_custom_registry_repo() -> None:
     # 3.  Create GitHub SSH deploy key secret for repository access
     # ---------------------------------------------------------------------
     logger.info("Step 3: Creating GitHub SSH deploy key secret")
+    # Expect this to be a base64 encoded key
     github_deploy_key = os.environ.get("CUSTOM_REPO_SSH_PRIVATE_KEY")
     if not github_deploy_key:
         pytest.fail("CUSTOM_REPO_SSH_PRIVATE_KEY environment variable is not set")
-    secret_github_ssh_key = SecretStr(github_deploy_key)
+    decoded_key = b64decode(github_deploy_key).decode("utf-8")
+    # Validate that newlines are preserved in the decoded SSH private key
+    assert "\n" in decoded_key, "Key should contain newlines"
+    secret_github_ssh_key = SecretStr(decoded_key)
 
     # Create or update the github-ssh-key secret
     secret_response = session.post(
