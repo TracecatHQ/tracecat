@@ -90,6 +90,9 @@ RUN mkdir -p /home/apiuser/.local/bin && \
 # This ensures apiuser can access all necessary files and directories
 RUN chown -R apiuser:apiuser /home/apiuser /app/.scripts
 
+# Ensure apiuser owns everything in /app
+RUN chown -R apiuser:apiuser /app/.venv
+
 # Verify permissions are correctly set before switching users
 RUN ls -la /home/apiuser/ && \
     ls -la /home/apiuser/.cache/ && \
