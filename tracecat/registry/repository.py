@@ -41,6 +41,11 @@ from tracecat.registry.constants import (
     DEFAULT_LOCAL_REGISTRY_ORIGIN,
     DEFAULT_REGISTRY_ORIGIN,
 )
+from tracecat.registry.dependencies import (
+    RegistryDependencyConflictError,
+    get_conflict_summary,
+    parse_dependency_conflicts,
+)
 from tracecat.registry.fields import (
     Component,
     get_components_for_union_type,
@@ -325,6 +330,16 @@ class Repository:
             _, stderr = await process.communicate()
             if process.returncode != 0:
                 error_message = stderr.decode().strip()
+                # Check for dependency conflicts
+                conflicts = parse_dependency_conflicts(error_message)
+                if conflicts:
+                    toast_msg = get_conflict_summary(error_message)
+                    raise RegistryDependencyConflictError(
+                        f"Failed to install local repository due to dependency conflicts:"
+                        f"\n{toast_msg or 'See details'}"
+                        "\nPlease remove or update the conflicting dependencies in your pyproject.toml file.",
+                        conflicts=conflicts,
+                    )
                 raise RegistryError(
                     f"Failed to install local repository: {error_message}"
                 )
@@ -815,9 +830,22 @@ async def install_remote_repository(
         if process.returncode != 0:
             error_message = stderr.decode().strip()
             logger.error(f"Failed to install repository: {error_message}")
+            # Check for dependency conflicts
+            conflicts = parse_dependency_conflicts(error_message)
+            if conflicts:
+                toast_msg = get_conflict_summary(error_message)
+                raise RegistryDependencyConflictError(
+                    f"Failed to install repository due to dependency conflicts:"
+                    f"\n{toast_msg or 'See details'}"
+                    "\nPlease remove or update the conflicting dependencies in your pyproject.toml file.",
+                    conflicts=conflicts,
+                )
             raise RuntimeError(f"Failed to install repository: {error_message}")
 
         logger.info("Remote repository installed successfully")
+    except RegistryDependencyConflictError as e:
+        logger.warning("Dependency conflicts", conflicts=e.conflicts)
+        raise e
     except Exception as e:
         logger.error(f"Error while fetching repository: {str(e)}")
         raise RuntimeError(f"Error while fetching repository: {str(e)}") from e
