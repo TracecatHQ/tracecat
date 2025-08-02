@@ -1,0 +1,107 @@
+name: Integration Tests
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - tracecat/**
+      - registry/**
+      - tests/integration/**
+      - pyproject.toml
+      - uv.lock
+      - Dockerfile
+      - docker-compose.local.yml
+      - .github/workflows/test-integration-custom-registry.yml
+  pull_request:
+    branches: ["main", "staging"]
+    paths:
+      - tracecat/**
+      - registry/**
+      - tests/integration/**
+      - pyproject.toml
+      - uv.lock
+      - Dockerfile
+      - docker-compose.local.yml
+      - .github/workflows/test-integration-custom-registry.yml
+  workflow_dispatch:
+    inputs:
+      git-ref:
+        description: "Git Ref (Optional)"
+        required: false
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  UV_SYSTEM_PYTHON: 1
+
+jobs:
+  test-integration:
+    runs-on: blacksmith-4vcpu-ubuntu-2204
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.git-ref }}
+
+      - name: Install uv
+        uses: useblacksmith/setup-uv@v4
+        with:
+          version: "0.8.4"
+          enable-cache: true
+          cache-dependency-glob: "pyproject.toml"
+
+      - name: Set up Python 3.12
+        uses: useblacksmith/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Run environment setup script
+        run: |
+          echo "y
+          localhost
+          n
+          test@tracecat.com" | bash env.sh
+
+      - name: Start core Docker services
+        env:
+          COMPOSE_BAKE: "true"
+          TRACECAT__UNSAFE_DISABLE_SM_MASKING: "true"
+        run: docker compose -f docker-compose.local.yml up -d temporal api worker executor postgres_db caddy
+
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Run integration tests
+        env:
+          CUSTOM_REPO_SSH_PRIVATE_KEY: ${{ secrets.CUSTOM_REPO_SSH_PRIVATE_KEY }}
+        run: |
+          uv run pytest tests/integration -ra
+
+      - name: Show Docker logs on failure
+        if: failure()
+        run: |
+          echo "=== Docker Service Status ==="
+          docker compose -f docker-compose.local.yml ps
+
+          echo "=== API Logs ==="
+          docker compose -f docker-compose.local.yml logs api --tail=100
+
+          echo "=== Worker Logs ==="
+          docker compose -f docker-compose.local.yml logs worker --tail=100
+
+          echo "=== Executor Logs ==="
+          docker compose -f docker-compose.local.yml logs executor --tail=100
+
+          echo "=== Temporal Logs ==="
+          docker compose -f docker-compose.local.yml logs temporal --tail=50
+
+      - name: Clean up
+        if: always()
+        run: |
+          docker compose -f docker-compose.local.yml down -v
