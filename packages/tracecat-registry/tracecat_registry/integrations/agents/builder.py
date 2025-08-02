@@ -1,6 +1,7 @@
 """Pydantic AI agents with tool calling."""
 
 from dataclasses import dataclass
+from dataclasses import dataclass
 import inspect
 import keyword
 import textwrap
@@ -709,8 +710,15 @@ class TracecatAgentBuilder:
             namespace_filters=self.namespace_filters,
             action_filters=self.action_filters,
         )
+        result = await build_agent_tools(
+            fixed_arguments=self.fixed_arguments,
+            namespace_filters=self.namespace_filters,
+            action_filters=self.action_filters,
+        )
 
         # If there were failures, raise simple error
+        if result.failed_actions:
+            failed_list = "\n".join(f"- {action}" for action in result.failed_actions)
         if result.failed_actions:
             failed_list = "\n".join(f"- {action}" for action in result.failed_actions)
             raise ValueError(
