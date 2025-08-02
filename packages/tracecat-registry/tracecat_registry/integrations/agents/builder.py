@@ -1,5 +1,6 @@
 """Pydantic AI agents with tool calling."""
 
+from dataclasses import dataclass
 import inspect
 import textwrap
 import tempfile
@@ -414,6 +415,74 @@ async def load_conversation_history(
         return []
 
 
+@dataclass
+class BulidToolsResult:
+    tools: list[Tool]
+    failed_actions: list[str]
+    collected_secrets: set[RegistrySecretType]
+
+
+async def build_agent_tools(
+    fixed_arguments: dict[str, dict[str, Any]],
+    namespace_filters: list[str],
+    action_filters: list[str],
+) -> BulidToolsResult:
+    """Build tools from a list of actions."""
+    tools: list[Tool] = []
+    collected_secrets: set[RegistrySecretType] = set()
+
+    # Get actions from registry
+    async with RegistryActionsService.with_session() as service:
+        if action_filters:
+            actions = await service.get_actions(action_filters)
+        else:
+            actions = await service.list_actions(include_marked=True)
+
+        # Collect failed action names
+        failed_actions: list[str] = []
+
+        # Create tools from registry actions
+        for reg_action in actions:
+            action_name = f"{reg_action.namespace}.{reg_action.name}"
+
+            # Apply namespace filtering if specified
+            if namespace_filters:
+                if not any(action_name.startswith(ns) for ns in namespace_filters):
+                    continue
+
+            try:
+                # Fetch all secrets for this action
+                action_secrets = await service.fetch_all_action_secrets(reg_action)
+                collected_secrets.update(action_secrets)
+
+                # Determine if we should pass fixed arguments to the helper
+                has_any_fixed_args = bool(fixed_arguments)
+                action_fixed_args = fixed_arguments.get(action_name)
+
+                if has_any_fixed_args:
+                    # If some fixed arguments were supplied when constructing the builder,
+                    # we always include the second parameter – pass an empty dict when the
+                    # current action does not have any overrides so that callers may rely on
+                    # the two-argument form when the feature is in use.
+                    action_fixed_args = action_fixed_args or {}
+                    tool = await create_tool_from_registry(
+                        action_name, action_fixed_args
+                    )
+                else:
+                    # No fixed arguments functionality requested – keep the original
+                    # single-parameter call signature expected by existing tests.
+                    tool = await create_tool_from_registry(action_name)
+
+                tools.append(tool)
+            except RegistryError:
+                failed_actions.append(action_name)
+
+    return BulidToolsResult(
+        tools=tools,
+        failed_actions=failed_actions,
+        collected_secrets=collected_secrets,
+    )
+
 class TracecatAgentBuilder:
     """Builder for creating Pydantic AI agents with Tracecat tool calling."""
 
@@ -469,56 +538,15 @@ class TracecatAgentBuilder:
     async def build(self) -> Agent:
         """Build the Pydantic AI agent with tools from the registry."""
 
-        # Get actions from registry
-        async with RegistryActionsService.with_session() as service:
-            if self.action_filters:
-                actions = await service.get_actions(self.action_filters)
-            else:
-                actions = await service.list_actions(include_marked=True)
-
-        # Collect failed action names
-        failed_actions: list[str] = []
-
-        # Create tools from registry actions
-        for reg_action in actions:
-            action_name = f"{reg_action.namespace}.{reg_action.name}"
-
-            # Apply namespace filtering if specified
-            if self.namespace_filters:
-                if not any(action_name.startswith(ns) for ns in self.namespace_filters):
-                    continue
-
-            try:
-                # Fetch all secrets for this action
-                async with RegistryActionsService.with_session() as service:
-                    action_secrets = await service.fetch_all_action_secrets(reg_action)
-                    self.collected_secrets.update(action_secrets)
-
-                # Determine if we should pass fixed arguments to the helper
-                has_any_fixed_args = bool(self.fixed_arguments)
-                action_fixed_args = self.fixed_arguments.get(action_name)
-
-                if has_any_fixed_args:
-                    # If some fixed arguments were supplied when constructing the builder,
-                    # we always include the second parameter – pass an empty dict when the
-                    # current action does not have any overrides so that callers may rely on
-                    # the two-argument form when the feature is in use.
-                    action_fixed_args = action_fixed_args or {}
-                    tool = await create_tool_from_registry(
-                        action_name, action_fixed_args
-                    )
-                else:
-                    # No fixed arguments functionality requested – keep the original
-                    # single-parameter call signature expected by existing tests.
-                    tool = await create_tool_from_registry(action_name)
-
-                self.tools.append(tool)
-            except RegistryError:
-                failed_actions.append(action_name)
+        result = await build_agent_tools(
+            fixed_arguments=self.fixed_arguments,
+            namespace_filters=self.namespace_filters,
+            action_filters=self.action_filters,
+        )
 
         # If there were failures, raise simple error
-        if failed_actions:
-            failed_list = "\n".join(f"- {action}" for action in failed_actions)
+        if result.failed_actions:
+            failed_list = "\n".join(f"- {action}" for action in result.failed_actions)
             raise ValueError(
                 f"Unknown namespaces or action names. Please double check the following:\n{failed_list}"
             )
@@ -533,6 +561,7 @@ class TracecatAgentBuilder:
         # )
 
         # Create the agent using build_agent
+        self.tools = result.tools
         agent = build_agent(
             model_name=self.model_name,
             model_provider=self.model_provider,
