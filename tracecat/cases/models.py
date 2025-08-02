@@ -41,6 +41,7 @@ class CaseRead(BaseModel):
     description: str
     fields: list[CaseCustomFieldRead]
     assignee: UserRead | None = None
+    payload: dict[str, Any] | None
 
 
 class CaseCreate(BaseModel):
@@ -51,6 +52,7 @@ class CaseCreate(BaseModel):
     severity: CaseSeverity
     fields: dict[str, Any] | None = None
     assignee_id: uuid.UUID | None = None
+    payload: dict[str, Any] | None = None
 
 
 class CaseUpdate(BaseModel):
@@ -61,6 +63,7 @@ class CaseUpdate(BaseModel):
     severity: CaseSeverity | None = None
     fields: dict[str, Any] | None = None
     assignee_id: uuid.UUID | None = None
+    payload: dict[str, Any] | None = None
 
 
 # Case Fields
@@ -205,6 +208,10 @@ class AssigneeChangedEvent(CaseEventBase):
     new: uuid.UUID | None
 
 
+class PayloadChangedEvent(CaseEventBase):
+    type: Literal[CaseEventType.PAYLOAD_CHANGED] = CaseEventType.PAYLOAD_CHANGED
+
+
 # Read Models (for API responses) - keep the original names for backward compatibility
 class CreatedEventRead(CaseEventReadBase, CreatedEvent):
     """Event for when a case is created."""
@@ -264,6 +271,10 @@ class AttachmentDeletedEventRead(CaseEventReadBase, AttachmentDeletedEvent):
     """Event for when an attachment is deleted from a case."""
 
 
+class PayloadChangedEventRead(CaseEventReadBase, PayloadChangedEvent):
+    """Event for when a case payload is changed."""
+
+
 # Type unions
 type CaseEventVariant = Annotated[
     CreatedEvent
@@ -276,7 +287,8 @@ type CaseEventVariant = Annotated[
     | FieldsChangedEvent
     | AssigneeChangedEvent
     | AttachmentCreatedEvent
-    | AttachmentDeletedEvent,
+    | AttachmentDeletedEvent
+    | PayloadChangedEvent,
     Field(discriminator="type"),
 ]
 
@@ -296,6 +308,7 @@ class CaseEventRead(RootModel):
         | AssigneeChangedEventRead
         | AttachmentCreatedEventRead
         | AttachmentDeletedEventRead
+        | PayloadChangedEventRead
     ) = Field(discriminator="type")
 
 
@@ -350,6 +363,12 @@ class CaseAttachmentDownloadResponse(BaseModel):
     download_url: str = Field(..., description="Pre-signed download URL")
     file_name: str = Field(..., description="Original filename")
     content_type: str = Field(..., description="MIME type of the file")
+
+
+class CaseAttachmentDownloadData(BaseModel):
+    file_name: str
+    content_type: str
+    content_base64: str
 
 
 class FileRead(BaseModel):

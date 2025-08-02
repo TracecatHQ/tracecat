@@ -53,6 +53,7 @@ from tracecat.workflow.executions.common import (
     is_scheduled_event,
     is_start_event,
 )
+from tracecat.workflow.executions.constants import WF_FAILURE_REF
 from tracecat.workflow.executions.enums import (
     TemporalSearchAttr,
     TriggerType,
@@ -189,6 +190,21 @@ class WorkflowExecutionsService:
                     )
                     continue
                 id2event[event.event_id] = source
+            # ── synthetic compact event for top-level workflow failure ──
+            elif event.event_type is EventType.EVENT_TYPE_WORKFLOW_EXECUTION_FAILED:
+                failure = EventFailure.from_history_event(event)
+                id2event[event.event_id] = WorkflowExecutionEventCompact(
+                    source_event_id=event.event_id,
+                    schedule_time=event.event_time.ToDatetime(datetime.UTC),
+                    start_time=event.event_time.ToDatetime(datetime.UTC),
+                    close_time=event.event_time.ToDatetime(datetime.UTC),
+                    curr_event_type=HISTORY_TO_WF_EVENT_TYPE[event.event_type],
+                    status=WorkflowExecutionEventStatus.FAILED,
+                    action_name=WF_FAILURE_REF,
+                    action_ref=WF_FAILURE_REF,
+                    action_error=failure,
+                )
+                continue
             else:
                 logger.trace("Processing event", event_type=event.event_type)
                 source_id = get_source_event_id(event)

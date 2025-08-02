@@ -13,6 +13,7 @@ import type {
   AttachmentDeletedEventRead,
   ClosedEventRead,
   FieldChangedEventRead,
+  PayloadChangedEventRead,
   PriorityChangedEventRead,
   ReopenedEventRead,
   SeverityChangedEventRead,
@@ -352,6 +353,23 @@ export function AttachmentDeletedEvent({
       <span>
         <EventActor user={actor} /> deleted{" "}
         <span className="font-medium">{event.file_name}</span>
+      </span>
+    </div>
+  )
+}
+
+export function PayloadChangedEvent({
+  event,
+  actor,
+}: {
+  event: PayloadChangedEventRead
+  actor: User
+}) {
+  return (
+    <div className="flex items-center space-x-2 text-xs">
+      <EventIcon icon={PencilIcon} />
+      <span>
+        <EventActor user={actor} /> updated the payload
       </span>
     </div>
   )

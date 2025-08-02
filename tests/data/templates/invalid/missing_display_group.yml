@@ -1,0 +1,15 @@
+type: action
+definition:
+  name: test_missing_display_group
+  namespace: tools.test
+  display_name: Test Missing Display Group
+  description: Template missing required display_group field
+  title: Test Missing Display Group
+  # display_group field is missing - this should cause validation error
+  expects: {}
+  steps:
+    - ref: dummy
+      action: core.transform.reshape
+      args:
+        value: ${{ inputs }}
+  returns: ${{ steps.dummy.result }}

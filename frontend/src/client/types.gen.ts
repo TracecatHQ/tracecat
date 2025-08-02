@@ -18,6 +18,10 @@ export type ActionControlFlow = {
    * Wait until a specific date and time before starting. Overrides `start_delay` if both are provided.
    */
   wait_until?: string | null
+  /**
+   * Override environment for this action's execution
+   */
+  environment?: string | null
 }
 
 export type ActionCreate = {
@@ -117,6 +121,10 @@ export type ActionStatement = {
    * The strategy to use when joining on this task. By default, all branches must complete successfully before the join task can complete.
    */
   join_strategy?: JoinStrategy
+  /**
+   * Override environment for this action's execution. Can be a template expression.
+   */
+  environment?: string | null
 }
 
 export type ActionStep = {
@@ -210,7 +218,7 @@ export type AppSettingsUpdate = {
    */
   app_create_workspace_on_register?: boolean
   /**
-   * Whether to show pills in template expressions. When disabled, expressions show as plain text with syntax highlighting.
+   * Whether to show template expression pills with decorations. When disabled, expressions show as plain text with simple highlighting.
    */
   app_editor_pill_decorations_enabled?: boolean
   /**
@@ -474,6 +482,9 @@ export type CaseCreate = {
     [key: string]: unknown
   } | null
   assignee_id?: string | null
+  payload?: {
+    [key: string]: unknown
+  } | null
 }
 
 export type CaseCustomFieldRead = {
@@ -501,6 +512,7 @@ export type CaseEventRead =
   | AssigneeChangedEventRead
   | AttachmentCreatedEventRead
   | AttachmentDeletedEventRead
+  | PayloadChangedEventRead
 
 export type CaseEventsWithUsers = {
   /**
@@ -598,6 +610,9 @@ export type CaseRead = {
   description: string
   fields: Array<CaseCustomFieldRead>
   assignee?: UserRead | null
+  payload: {
+    [key: string]: unknown
+  } | null
 }
 
 export type CaseReadMinimal = {
@@ -657,6 +672,186 @@ export type CaseUpdate = {
     [key: string]: unknown
   } | null
   assignee_id?: string | null
+  payload?: {
+    [key: string]: unknown
+  } | null
+}
+
+/**
+ * Request model for creating a new chat.
+ */
+export type ChatCreate = {
+  /**
+   * Human-readable title for the chat
+   */
+  title: string
+  /**
+   * Type of entity this chat is associated with
+   */
+  entity_type: ChatEntity
+  /**
+   * ID of the associated entity
+   */
+  entity_id: string
+  /**
+   * Tools available to the agent for this chat
+   */
+  tools?: Array<string> | null
+}
+
+/**
+ * The type of entity associated with a chat.
+ */
+export type ChatEntity = "case"
+
+/**
+ * Model for chat metadata with a single message.
+ */
+export type ChatMessage = {
+  /**
+   * Unique chat identifier
+   */
+  id: string
+  /**
+   * The message from the chat
+   */
+  message: ModelRequest | ModelResponse
+}
+
+/**
+ * Model for chat metadata without messages.
+ */
+export type ChatRead = {
+  /**
+   * Unique chat identifier
+   */
+  id: string
+  /**
+   * Human-readable title for the chat
+   */
+  title: string
+  /**
+   * ID of the user who owns the chat
+   */
+  user_id: string
+  /**
+   * Type of entity this chat is associated with
+   */
+  entity_type: string
+  /**
+   * ID of the associated entity
+   */
+  entity_id: string
+  /**
+   * Tools available to the agent
+   */
+  tools: Array<string>
+  /**
+   * When the chat was created
+   */
+  created_at: string
+  /**
+   * When the chat was last updated
+   */
+  updated_at: string
+}
+
+/**
+ * Request model for starting a chat with an AI agent.
+ */
+export type ChatRequest = {
+  /**
+   * User message to send to the agent
+   */
+  message: string
+  /**
+   * AI model to use
+   */
+  model_name?: string
+  /**
+   * AI model provider
+   */
+  model_provider?: string
+  /**
+   * Optional instructions for the agent
+   */
+  instructions?: string | null
+  /**
+   * Optional context data for the agent
+   */
+  context?: {
+    [key: string]: unknown
+  } | null
+}
+
+/**
+ * Response model for chat initiation.
+ */
+export type ChatResponse = {
+  /**
+   * URL to connect for SSE streaming
+   */
+  stream_url: string
+  /**
+   * Unique chat identifier
+   */
+  chat_id: string
+}
+
+/**
+ * Request model for updating chat properties.
+ */
+export type ChatUpdate = {
+  /**
+   * Tools available to the agent
+   */
+  tools?: Array<string> | null
+  /**
+   * Chat title
+   */
+  title?: string | null
+}
+
+/**
+ * Model for chat metadata with message history.
+ */
+export type ChatWithMessages = {
+  /**
+   * Unique chat identifier
+   */
+  id: string
+  /**
+   * Human-readable title for the chat
+   */
+  title: string
+  /**
+   * ID of the user who owns the chat
+   */
+  user_id: string
+  /**
+   * Type of entity this chat is associated with
+   */
+  entity_type: string
+  /**
+   * ID of the associated entity
+   */
+  entity_id: string
+  /**
+   * Tools available to the agent
+   */
+  tools: Array<string>
+  /**
+   * When the chat was created
+   */
+  created_at: string
+  /**
+   * When the chat was last updated
+   */
+  updated_at: string
+  /**
+   * Chat messages from Redis stream
+   */
+  messages?: Array<ChatMessage>
 }
 
 /**
@@ -1313,6 +1508,50 @@ export type InteractionType = "approval" | "response"
 
 export type JoinStrategy = "any" | "all"
 
+export type ModelConfig = {
+  /**
+   * The name of the model. This is used to identify the model in the system.
+   */
+  name: string
+  /**
+   * The provider of the model. This is used to determine which organization secret to use for this model.
+   */
+  provider: string
+  /**
+   * The name of the organization secret to use for this model. This secret must be configured in the organization settings.
+   */
+  org_secret_name: string
+  /**
+   * The secrets to use for this model. This is used to determine which organization secret to use for this model.
+   */
+  secrets: ModelSecretConfig
+}
+
+/**
+ * Model for creating model credentials.
+ */
+export type ModelCredentialCreate = {
+  provider: string
+  /**
+   * Provider-specific credentials (e.g., api_key)
+   */
+  credentials: {
+    [key: string]: string
+  }
+}
+
+/**
+ * Model for updating model credentials.
+ */
+export type ModelCredentialUpdate = {
+  /**
+   * Provider-specific credentials to update
+   */
+  credentials: {
+    [key: string]: string
+  }
+}
+
 export type ModelRequest = {
   parts: Array<
     SystemPromptPart | UserPromptPart | ToolReturnPart | RetryPromptPart
@@ -1327,6 +1566,11 @@ export type ModelResponse = {
   model_name?: string | null
   timestamp?: string
   kind?: "response"
+}
+
+export type ModelSecretConfig = {
+  required?: Array<string>
+  optional?: Array<string>
 }
 
 export type OAuth2AuthorizeResponse = {
@@ -1368,6 +1612,25 @@ export type OrgMemberRead = {
 }
 
 /**
+ * Event for when a case payload is changed.
+ */
+export type PayloadChangedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
+  wf_exec_id?: string | null
+  type?: "payload_changed"
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
+}
+
+/**
  * Event for when a case priority is changed.
  */
 export type PriorityChangedEventRead = {
@@ -1389,15 +1652,157 @@ export type PriorityChangedEventRead = {
 }
 
 /**
- * Category of a provider.
+ * Request model for creating a prompt from a chat.
  */
-export type ProviderCategory =
-  | "auth"
-  | "communication"
-  | "cloud"
-  | "monitoring"
-  | "alerting"
-  | "other"
+export type PromptCreate = {
+  /**
+   * ID of the chat to freeze into a prompt
+   */
+  chat_id: string
+}
+
+/**
+ * Model for prompt details.
+ */
+export type PromptRead = {
+  /**
+   * Unique prompt identifier
+   */
+  id: string
+  /**
+   * ID of the source chat
+   */
+  chat_id: string
+  /**
+   * Human-readable title for the prompt
+   */
+  title: string
+  /**
+   * The instruction prompt/runbook string
+   */
+  content: string
+  /**
+   * The tools available to the agent for this prompt
+   */
+  tools: Array<string>
+  /**
+   * When the prompt was created
+   */
+  created_at: string
+  /**
+   * Metadata including schema version, tool SHA, token count
+   */
+  meta?: {
+    [key: string]: unknown
+  }
+  /**
+   * A summary of the prompt.
+   */
+  summary?: string | null
+}
+
+/**
+ * Request model for running a prompt on an entity.
+ */
+export type PromptRunEntity = {
+  /**
+   * ID of the entity to run the prompt on
+   */
+  entity_id: string
+  /**
+   * Type of the entity to run the prompt on
+   */
+  entity_type: ChatEntity
+}
+
+/**
+ * Request model for running a prompt on cases.
+ */
+export type PromptRunRequest = {
+  /**
+   * Entities to run the prompt on
+   */
+  entities: Array<PromptRunEntity>
+}
+
+/**
+ * Response model for prompt execution.
+ */
+export type PromptRunResponse = {
+  /**
+   * Mapping of case_id to SSE stream URL
+   */
+  stream_urls: {
+    [key: string]: string
+  }
+}
+
+/**
+ * Request model for updating prompt properties.
+ */
+export type PromptUpdate = {
+  /**
+   * New title for the prompt
+   */
+  title?: string | null
+  /**
+   * New content for the prompt
+   */
+  content?: string | null
+  /**
+   * New tools for the prompt
+   */
+  tools?: Array<string> | null
+  /**
+   * New summary for the prompt
+   */
+  summary?: string | null
+}
+
+/**
+ * Model for provider credential configuration.
+ */
+export type ProviderCredentialConfig = {
+  /**
+   * The provider name
+   */
+  provider: string
+  /**
+   * Human-readable label for the provider
+   */
+  label: string
+  /**
+   * Required credential fields
+   */
+  fields: Array<ProviderCredentialField>
+}
+
+/**
+ * Model for defining credential fields required by a provider.
+ */
+export type ProviderCredentialField = {
+  /**
+   * The environment variable key for this credential
+   */
+  key: string
+  /**
+   * Human-readable label for the field
+   */
+  label: string
+  /**
+   * Input type: 'text' or 'password'
+   */
+  type: "text" | "password"
+  /**
+   * Help text describing this credential
+   */
+  description: string
+}
+
+/**
+ * Input type: 'text' or 'password'
+ */
+export type type = "text" | "password"
 
 /**
  * Metadata for a provider.
@@ -1427,10 +1832,6 @@ export type ProviderMetadata = {
    * Whether this provider requires additional configuration
    */
   requires_config?: boolean
-  /**
-   * Categories of the provider (e.g., auth, communication)
-   */
-  categories?: Array<ProviderCategory>
   /**
    * Step-by-step instructions for setting up the provider
    */
@@ -1467,7 +1868,6 @@ export type ProviderReadMinimal = {
   name: string
   description: string
   requires_config: boolean
-  categories: Array<ProviderCategory>
   integration_status: IntegrationStatus
   enabled: boolean
   grant_type: OAuthGrantType
@@ -1487,17 +1887,9 @@ export type ProviderSchema = {
  */
 export type ProviderScopes = {
   /**
-   * Default scopes for this provider. Ultra thin layer
+   * Default scopes for this provider.
    */
   default: Array<string>
-  /**
-   * Regex patterns to validate additional scopes for this provider.
-   */
-  allowed_patterns?: Array<string> | null
-  /**
-   * Whether this provider accepts additional scopes beyond the default ones. Set to False for providers like Microsoft Graph that require exactly the default scopes.
-   */
-  accepts_additional_scopes?: boolean
 }
 
 export type ReceiveInteractionResponse = {
@@ -1567,7 +1959,7 @@ export type RegistryActionCreate = {
 /**
  * The type of the action
  */
-export type type = "udf" | "template"
+export type type2 = "udf" | "template"
 
 export type RegistryActionInterface = {
   expects: {
@@ -1953,7 +2345,7 @@ export type Role = {
     | "tracecat-ui"
 }
 
-export type type2 = "user" | "service"
+export type type3 = "user" | "service"
 
 export type service_id =
   | "tracecat-api"
@@ -2651,7 +3043,7 @@ export type Trigger = {
   }
 }
 
-export type type3 = "schedule" | "webhook"
+export type type4 = "schedule" | "webhook"
 
 /**
  * Trigger type for a workflow execution.
@@ -3804,6 +4196,60 @@ export type OrganizationDeleteSessionData = {
 
 export type OrganizationDeleteSessionResponse = void
 
+export type AgentListModelsResponse = {
+  [key: string]: ModelConfig
+}
+
+export type AgentListProvidersResponse = Array<string>
+
+export type AgentGetProvidersStatusResponse = {
+  [key: string]: boolean
+}
+
+export type AgentListProviderCredentialConfigsResponse =
+  Array<ProviderCredentialConfig>
+
+export type AgentGetProviderCredentialConfigData = {
+  provider: string
+}
+
+export type AgentGetProviderCredentialConfigResponse = ProviderCredentialConfig
+
+export type AgentCreateProviderCredentialsData = {
+  requestBody: ModelCredentialCreate
+}
+
+export type AgentCreateProviderCredentialsResponse = {
+  [key: string]: string
+}
+
+export type AgentUpdateProviderCredentialsData = {
+  provider: string
+  requestBody: ModelCredentialUpdate
+}
+
+export type AgentUpdateProviderCredentialsResponse = {
+  [key: string]: string
+}
+
+export type AgentDeleteProviderCredentialsData = {
+  provider: string
+}
+
+export type AgentDeleteProviderCredentialsResponse = {
+  [key: string]: string
+}
+
+export type AgentGetDefaultModelResponse = string | null
+
+export type AgentSetDefaultModelData = {
+  modelName: string
+}
+
+export type AgentSetDefaultModelResponse = {
+  [key: string]: string
+}
+
 export type EditorListFunctionsData = {
   workspaceId: string
 }
@@ -4276,6 +4722,116 @@ export type CasesDeleteFieldData = {
 
 export type CasesDeleteFieldResponse = void
 
+export type ChatCreateChatData = {
+  requestBody: ChatCreate
+  workspaceId: string
+}
+
+export type ChatCreateChatResponse = ChatRead
+
+export type ChatListChatsData = {
+  /**
+   * Filter by entity ID
+   */
+  entityId?: string | null
+  /**
+   * Filter by entity type
+   */
+  entityType?: string | null
+  /**
+   * Maximum number of chats to return
+   */
+  limit?: number
+  workspaceId: string
+}
+
+export type ChatListChatsResponse = Array<ChatRead>
+
+export type ChatGetChatData = {
+  chatId: string
+  workspaceId: string
+}
+
+export type ChatGetChatResponse = ChatWithMessages
+
+export type ChatUpdateChatData = {
+  chatId: string
+  requestBody: ChatUpdate
+  workspaceId: string
+}
+
+export type ChatUpdateChatResponse = ChatRead
+
+export type ChatStartChatTurnData = {
+  chatId: string
+  requestBody: ChatRequest
+  workspaceId: string
+}
+
+export type ChatStartChatTurnResponse = ChatResponse
+
+export type ChatStreamChatEventsData = {
+  chatId: string
+  workspaceId: string
+}
+
+export type ChatStreamChatEventsResponse = unknown
+
+export type PromptCreatePromptData = {
+  requestBody: PromptCreate
+  workspaceId: string
+}
+
+export type PromptCreatePromptResponse = PromptRead
+
+export type PromptListPromptsData = {
+  /**
+   * Maximum number of prompts to return
+   */
+  limit?: number
+  workspaceId: string
+}
+
+export type PromptListPromptsResponse = Array<PromptRead>
+
+export type PromptGetPromptData = {
+  promptId: string
+  workspaceId: string
+}
+
+export type PromptGetPromptResponse = PromptRead
+
+export type PromptUpdatePromptData = {
+  promptId: string
+  requestBody: PromptUpdate
+  workspaceId: string
+}
+
+export type PromptUpdatePromptResponse = PromptRead
+
+export type PromptDeletePromptData = {
+  promptId: string
+  workspaceId: string
+}
+
+export type PromptDeletePromptResponse = void
+
+export type PromptRunPromptData = {
+  promptId: string
+  requestBody: PromptRunRequest
+  workspaceId: string
+}
+
+export type PromptRunPromptResponse = PromptRunResponse
+
+export type PromptStreamPromptExecutionData = {
+  caseId: string
+  promptId: string
+  workspaceId: string
+}
+
+export type PromptStreamPromptExecutionResponse = unknown
+
 export type FoldersGetDirectoryData = {
   /**
    * Folder path
@@ -4511,7 +5067,7 @@ export type PublicCheckHealthResponse = {
 
 export type $OpenApiTs = {
   "/webhooks/{workflow_id}/{secret}": {
-    post: {
+    get: {
       req: PublicIncomingWebhookData
       res: {
         /**
@@ -4524,7 +5080,7 @@ export type $OpenApiTs = {
         422: HTTPValidationError
       }
     }
-    get: {
+    post: {
       req: PublicIncomingWebhook1Data
       res: {
         /**
@@ -5416,6 +5972,139 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/agent/models": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: {
+          [key: string]: ModelConfig
+        }
+      }
+    }
+  }
+  "/agent/providers": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<string>
+      }
+    }
+  }
+  "/agent/providers/status": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: {
+          [key: string]: boolean
+        }
+      }
+    }
+  }
+  "/agent/providers/configs": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<ProviderCredentialConfig>
+      }
+    }
+  }
+  "/agent/providers/{provider}/config": {
+    get: {
+      req: AgentGetProviderCredentialConfigData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ProviderCredentialConfig
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/credentials": {
+    post: {
+      req: AgentCreateProviderCredentialsData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: {
+          [key: string]: string
+        }
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/credentials/{provider}": {
+    put: {
+      req: AgentUpdateProviderCredentialsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: {
+          [key: string]: string
+        }
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: AgentDeleteProviderCredentialsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: {
+          [key: string]: string
+        }
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/default-model": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: string | null
+      }
+    }
+    put: {
+      req: AgentSetDefaultModelData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: {
+          [key: string]: string
+        }
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/editor/functions": {
     get: {
       req: EditorListFunctionsData
@@ -6293,6 +6982,189 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/chat/": {
+    post: {
+      req: ChatCreateChatData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ChatRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    get: {
+      req: ChatListChatsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<ChatRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/chat/{chat_id}": {
+    get: {
+      req: ChatGetChatData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ChatWithMessages
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: ChatUpdateChatData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ChatRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: ChatStartChatTurnData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ChatResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/chat/{chat_id}/stream": {
+    get: {
+      req: ChatStreamChatEventsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/prompt/": {
+    post: {
+      req: PromptCreatePromptData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: PromptRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    get: {
+      req: PromptListPromptsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<PromptRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/prompt/{prompt_id}": {
+    get: {
+      req: PromptGetPromptData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: PromptRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: PromptUpdatePromptData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: PromptRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: PromptDeletePromptData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/prompt/{prompt_id}/run": {
+    post: {
+      req: PromptRunPromptData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: PromptRunResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/prompt/{prompt_id}/case/{case_id}/stream": {
+    get: {
+      req: PromptStreamPromptExecutionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: unknown
         /**
          * Validation Error
          */

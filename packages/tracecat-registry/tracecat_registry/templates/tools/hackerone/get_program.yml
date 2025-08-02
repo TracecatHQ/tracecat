@@ -1,0 +1,25 @@
+type: action
+definition:
+  title: Get program
+  description: Get details of a specific program from HackerOne.
+  display_group: HackerOne
+  doc_url: https://api.hackerone.com/customer-resources/?python#programs-get-program
+  namespace: tools.hackerone
+  name: get_program
+  secrets:
+    - name: hackerone
+      keys: ["HACKERONE_API_USERNAME", "HACKERONE_API_TOKEN"]
+  expects:
+    program_id:
+      type: int
+      description: The ID of the program to retrieve.
+  steps:
+    - ref: call_api
+      action: core.http_request
+      args:
+        url: https://api.hackerone.com/v1/programs/${{ inputs.program_id }}/
+        method: GET
+        auth:
+          username: ${{ SECRETS.hackerone.HACKERONE_API_USERNAME }}
+          password: ${{ SECRETS.hackerone.HACKERONE_API_TOKEN }}
+  returns: ${{ steps.call_api.result.data }}

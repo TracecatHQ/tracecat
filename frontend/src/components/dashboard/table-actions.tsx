@@ -2,6 +2,7 @@
 
 import {
   Copy,
+  ExternalLink,
   FileJson2,
   FolderKanban,
   FolderUp,
@@ -9,6 +10,7 @@ import {
   TagsIcon,
   Trash2,
 } from "lucide-react"
+import Link from "next/link"
 import type {
   FolderDirectoryItem,
   WorkflowDirectoryItem,
@@ -53,25 +55,17 @@ export function WorkflowActions({
     <DropdownMenuGroup>
       <DropdownMenuItem
         className="text-xs"
-        onClick={(e) => {
-          e.stopPropagation() // Prevent row click
-          navigator.clipboard.writeText(item.id)
-          toast({
-            title: "Workflow ID copied",
-            description: (
-              <div className="flex flex-col space-y-2">
-                <span>
-                  Workflow ID copied for{" "}
-                  <b className="inline-block">{item.title}</b>
-                </span>
-                <span className="text-muted-foreground">ID: {item.id}</span>
-              </div>
-            ),
-          })
-        }}
+        onClick={(e) => e.stopPropagation()}
+        asChild
       >
-        <Copy className="mr-2 size-3.5" />
-        Copy workflow ID
+        <Link
+          href={`/workspaces/${workspaceId}/workflows/${item.id}`}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <ExternalLink className="mr-2 size-3.5" />
+          Open in new tab
+        </Link>
       </DropdownMenuItem>
       {item.alias && (
         <DropdownMenuItem
@@ -210,6 +204,28 @@ export function WorkflowActions({
         icon={<FileJson2 className="mr-2 size-3.5" />}
       />
       {/* Danger zone */}
+      <DropdownMenuItem
+        className="text-xs"
+        onClick={(e) => {
+          e.stopPropagation() // Prevent row click
+          navigator.clipboard.writeText(item.id)
+          toast({
+            title: "Workflow ID copied",
+            description: (
+              <div className="flex flex-col space-y-2">
+                <span>
+                  Workflow ID copied for{" "}
+                  <b className="inline-block">{item.title}</b>
+                </span>
+                <span className="text-muted-foreground">ID: {item.id}</span>
+              </div>
+            ),
+          })
+        }}
+      >
+        <Copy className="mr-2 size-3.5" />
+        Copy workflow ID
+      </DropdownMenuItem>
       <DeleteWorkflowAlertDialogTrigger asChild>
         <DropdownMenuItem
           className="text-xs text-rose-500 focus:text-rose-600"

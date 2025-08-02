@@ -57,9 +57,10 @@ export default function WorkspaceLayout({
 }
 
 function WorkspaceChildren({ children }: { children: React.ReactNode }) {
-  const params = useParams<{ workflowId?: string }>()
+  const params = useParams<{ workflowId?: string; caseId?: string }>()
   const pathname = usePathname()
   const isWorkflowBuilder = !!params?.workflowId
+  const isCaseDetail = !!params?.caseId
   const isSettingsPage = pathname?.includes("/settings")
   const isOrganizationPage = pathname?.includes("/organization")
   const isRegistryPage = pathname?.includes("/registry")
@@ -79,6 +80,11 @@ function WorkspaceChildren({ children }: { children: React.ReactNode }) {
     return <>{children}</>
   }
 
+  // Case detail pages have their own layout with dual SidebarInset
+  if (isCaseDetail) {
+    return <>{children}</>
+  }
+
   // All other workspace pages get the app sidebar
   return (
     <SidebarProvider>
@@ -86,7 +92,7 @@ function WorkspaceChildren({ children }: { children: React.ReactNode }) {
       <SidebarInset>
         <div className="flex h-full flex-1 flex-col">
           <ControlsHeader />
-          <div className="flex-1 overflow-auto">{children}</div>
+          <div className="flex-1 overflow-y-scroll">{children}</div>
         </div>
       </SidebarInset>
     </SidebarProvider>
@@ -119,7 +125,7 @@ function NoWorkspaces() {
   return (
     <main className="container flex size-full max-w-[400px] flex-col items-center justify-center space-y-4">
       <Image src={TracecatIcon} alt="Tracecat" className="mb-4 size-16" />
-      <h1 className="text-2xl font-semibold tracking-tight">No Workspaces</h1>
+      <h1 className="text-2xl font-semibold tracking-tight">No workspaces</h1>
       <span className="text-center text-muted-foreground">
         You are not a member of any workspace. Please contact your
         administrator.

@@ -626,6 +626,7 @@ def build_action_statements(
             wait_until=control_flow.wait_until,
             join_strategy=control_flow.join_strategy,
             interaction=interaction,
+            environment=control_flow.environment,
         )
         statements.append(action_stmt)
     return statements

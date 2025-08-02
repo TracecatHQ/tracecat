@@ -191,7 +191,7 @@ function BuilderSidebarEventsList({
           {appSettings?.app_interactions_enabled && (
             <WorkflowInteractions execution={execution} />
           )}
-          <WorkflowEvents events={execution.events} />
+          <WorkflowEvents events={execution.events} status={execution.status} />
         </>
       ),
     },

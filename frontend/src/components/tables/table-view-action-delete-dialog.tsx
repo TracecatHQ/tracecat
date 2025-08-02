@@ -51,7 +51,7 @@ export function TableViewActionDeleteDialog({
     <AlertDialog open={open} onOpenChange={onOpenChange}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Delete Row</AlertDialogTitle>
+          <AlertDialogTitle>Delete row</AlertDialogTitle>
           <AlertDialogDescription>
             Are you sure you want to delete this row from the table? This action
             cannot be undone.

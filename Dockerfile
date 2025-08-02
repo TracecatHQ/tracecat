@@ -1,8 +1,12 @@
-FROM ghcr.io/astral-sh/uv:0.6.14-python3.12-bookworm-slim
+FROM ghcr.io/astral-sh/uv:0.8.4-python3.12-bookworm-slim
 
 ENV UV_SYSTEM_PYTHON=1
 ENV HOST=0.0.0.0
 ENV PORT=8000
+# Enable bytecode compilation
+ENV UV_COMPILE_BYTECODE=1
+# Copy from the cache instead of linking since it's a mounted volume
+ENV UV_LINK_MODE=copy
 
 # Install required apt packages (this now creates ALL cache directories)
 COPY scripts/install-packages.sh .
@@ -46,10 +50,22 @@ ENV TMP="/home/apiuser/.cache/tmp"
 # Set the working directory inside the container
 WORKDIR /app
 
+# Install the project's dependencies using the lockfile and settings
+# WIHTOUT installing the project for better caching
+RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=bind,source=uv.lock,target=uv.lock \
+    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+    --mount=type=bind,source=packages,target=packages \
+    uv sync --locked --no-install-project --no-dev
+
+# Then, add the rest of the project source code and install it
+# Installing separately from its dependencies allows optimal layer caching
 # Copy the application files into the container and set ownership
 COPY --chown=apiuser:apiuser ./tracecat /app/tracecat
-COPY --chown=apiuser:apiuser ./registry /app/registry
+COPY --chown=apiuser:apiuser ./packages/tracecat-registry /app/packages/tracecat-registry
 COPY --chown=apiuser:apiuser ./pyproject.toml /app/pyproject.toml
+COPY --chown=apiuser:apiuser ./uv.lock /app/uv.lock
+COPY --chown=apiuser:apiuser ./.python-version /app/.python-version
 COPY --chown=apiuser:apiuser ./README.md /app/README.md
 COPY --chown=apiuser:apiuser ./LICENSE /app/LICENSE
 COPY --chown=apiuser:apiuser ./alembic.ini /app/alembic.ini
@@ -59,9 +75,12 @@ COPY --chown=apiuser:apiuser ./alembic /app/alembic
 COPY --chown=apiuser:apiuser scripts/entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
-# Install package and registry as root for better caching
-RUN uv pip install .
-RUN uv pip install ./registry
+# Install the project
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --locked --no-dev 
+
+# Place executables in the environment at the front of the path
+ENV PATH="/app/.venv/bin:$PATH"
 
 # Ensure uv binary is available where Ray expects it
 RUN mkdir -p /home/apiuser/.local/bin && \

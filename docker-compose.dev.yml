@@ -54,20 +54,26 @@ services:
       # Blob Storage (MinIO)
       TRACECAT__BLOB_STORAGE_PROTOCOL: minio
       TRACECAT__BLOB_STORAGE_ENDPOINT: http://minio:9000
-      TRACECAT__DISABLE_PRESIGNED_URL_IP_CHECKING: "true"
+      TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT: ${PUBLIC_APP_URL}/s3
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
       # Local registry
       TRACECAT__LOCAL_REPOSITORY_PATH: ${TRACECAT__LOCAL_REPOSITORY_PATH}
       TRACECAT__LOCAL_REPOSITORY_ENABLED: ${TRACECAT__LOCAL_REPOSITORY_ENABLED}
+      # Redis
+      REDIS_HOST: ${REDIS_HOST}
+      REDIS_PORT: ${REDIS_PORT}
+      REDIS_URL: ${REDIS_URL}
+
     volumes:
       - ./tracecat:/app/tracecat
-      - ./registry:/app/registry
+      - ./tracecat-registry:/app/tracecat-registry
       - ./alembic:/app/alembic
       - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
     depends_on:
       - temporal
       - minio
+      - redis
 
   worker:
     build:
@@ -98,7 +104,7 @@ services:
       SENTRY_DSN: ${SENTRY_DSN}
     volumes:
       - ./tracecat:/app/tracecat
-      - ./registry:/app/registry
+      - ./tracecat-registry:/app/tracecat-registry
       - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
     command: ["python", "tracecat/dsl/worker.py"]
     depends_on:
@@ -129,9 +135,13 @@ services:
       # Local registry
       TRACECAT__LOCAL_REPOSITORY_PATH: ${TRACECAT__LOCAL_REPOSITORY_PATH}
       TRACECAT__LOCAL_REPOSITORY_ENABLED: ${TRACECAT__LOCAL_REPOSITORY_ENABLED}
+      # Redis
+      REDIS_HOST: ${REDIS_HOST}
+      REDIS_PORT: ${REDIS_PORT}
+      REDIS_URL: ${REDIS_URL}
     volumes:
       - ./tracecat:/app/tracecat
-      - ./registry:/app/registry
+      - ./tracecat-registry:/app/tracecat-registry
       - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
     command:
       [
@@ -147,6 +157,7 @@ services:
       ]
     depends_on:
       - temporal
+      - redis
 
   ui:
     # image: ghcr.io/tracecathq/tracecat-ui:${TRACECAT__IMAGE_TAG:-0.36.6}
@@ -251,8 +262,25 @@ services:
       retries: 5
     attach: false
 
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    restart: unless-stopped
+    ports:
+      - 6379:6379
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    attach: false
+
 volumes:
   core-db:
   temporal-db:
   containers:
   minio-data:
+  redis-data:

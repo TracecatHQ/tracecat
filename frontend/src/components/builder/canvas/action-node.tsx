@@ -702,13 +702,11 @@ function ActionNodeToolbar({
               <CommandSeparator />
               {(childWorkflowAlias || childWorkflowId) && (
                 <CommandGroup heading="Subflow">
-                  <CommandItem
-                    disabled={!childWorkflowAlias && !childWorkflowId}
-                  >
+                  <CommandItem disabled={!childIdFromAlias && !childWorkflowId}>
                     <Link
                       href={`/workspaces/${workspaceId}/workflows/${childIdFromAlias ?? childWorkflowId}`}
                       className={
-                        !childWorkflowAlias && !childWorkflowId
+                        !childIdFromAlias && !childWorkflowId
                           ? "pointer-events-none"
                           : ""
                       }

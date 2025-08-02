@@ -9,6 +9,7 @@ from tracecat_registry.core.table import (
     create_table,
     delete_row,
     insert_row,
+    insert_rows,
     lookup,
     lookup_many,
     search_records,
@@ -512,3 +513,153 @@ class TestCoreSearchRecords:
                 table="test_table",
                 limit=TRACECAT__MAX_ROWS_CLIENT_POSTGRES + 1,
             )
+
+
+@pytest.mark.anyio
+class TestCoreInsertRows:
+    """Test cases for the insert_rows UDF."""
+
+    @patch("tracecat_registry.core.table.TablesService.with_session")
+    async def test_insert_rows_success(self, mock_with_session, mock_table):
+        """Test successful batch row insertion."""
+        # Set up the mock service context manager
+        mock_service = AsyncMock()
+        mock_service.get_table_by_name.return_value = mock_table
+        mock_service.batch_insert_rows.return_value = 3  # Number of rows inserted
+
+        # Set up the context manager's __aenter__ to return the mock service
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        # Test data
+        rows_data = [
+            {"name": "Alice", "age": 25},
+            {"name": "Bob", "age": 30},
+            {"name": "Carol", "age": 35},
+        ]
+
+        # Call the insert_rows function
+        result = await insert_rows(
+            table="test_table",
+            rows_data=rows_data,
+        )
+
+        # Assert get_table_by_name was called
+        mock_service.get_table_by_name.assert_called_once_with("test_table")
+
+        # Assert batch_insert_rows was called with expected parameters
+        mock_service.batch_insert_rows.assert_called_once_with(
+            table=mock_table,
+            rows=rows_data,
+            upsert=False,
+        )
+
+        # Verify the result
+        assert result == 3
+
+    @patch("tracecat_registry.core.table.TablesService.with_session")
+    async def test_insert_rows_with_upsert(self, mock_with_session, mock_table):
+        """Test batch row insertion with upsert enabled."""
+        # Set up the mock service context manager
+        mock_service = AsyncMock()
+        mock_service.get_table_by_name.return_value = mock_table
+        mock_service.batch_insert_rows.return_value = 4  # Number of rows affected
+
+        # Set up the context manager's __aenter__ to return the mock service
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        # Test data with some updates and some inserts
+        rows_data = [
+            {"name": "Alice", "age": 26},  # Update
+            {"name": "Bob", "age": 31},  # Update
+            {"name": "David", "age": 40},  # Insert
+            {"name": "Eve", "age": 45},  # Insert
+        ]
+
+        # Call the insert_rows function with upsert
+        result = await insert_rows(
+            table="test_table",
+            rows_data=rows_data,
+            upsert=True,
+        )
+
+        # Assert batch_insert_rows was called with upsert=True
+        mock_service.batch_insert_rows.assert_called_once_with(
+            table=mock_table,
+            rows=rows_data,
+            upsert=True,
+        )
+
+        # Verify the result
+        assert result == 4
+
+    @patch("tracecat_registry.core.table.TablesService.with_session")
+    async def test_insert_rows_empty_list(self, mock_with_session, mock_table):
+        """Test batch insertion with empty list."""
+        # Set up the mock service context manager
+        mock_service = AsyncMock()
+        mock_service.get_table_by_name.return_value = mock_table
+        mock_service.batch_insert_rows.return_value = 0
+
+        # Set up the context manager's __aenter__ to return the mock service
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        # Call the insert_rows function with empty list
+        result = await insert_rows(
+            table="test_table",
+            rows_data=[],
+        )
+
+        # Assert batch_insert_rows was called with empty list
+        mock_service.batch_insert_rows.assert_called_once_with(
+            table=mock_table,
+            rows=[],
+            upsert=False,
+        )
+
+        # Verify the result
+        assert result == 0
+
+    @patch("tracecat_registry.core.table.TablesService.with_session")
+    async def test_insert_rows_with_different_columns(
+        self, mock_with_session, mock_table
+    ):
+        """Test batch insertion with rows having different columns."""
+        # Set up the mock service context manager
+        mock_service = AsyncMock()
+        mock_service.get_table_by_name.return_value = mock_table
+        mock_service.batch_insert_rows.return_value = 3
+
+        # Set up the context manager's __aenter__ to return the mock service
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        # Test data with different columns
+        rows_data = [
+            {"name": "Alice", "age": 25},  # Has both columns
+            {"name": "Bob"},  # Missing age
+            {"name": "Carol", "age": 35, "city": "NYC"},  # Extra column
+        ]
+
+        # Call the insert_rows function
+        result = await insert_rows(
+            table="test_table",
+            rows_data=rows_data,
+            upsert=True,
+        )
+
+        # Assert batch_insert_rows was called
+        mock_service.batch_insert_rows.assert_called_once_with(
+            table=mock_table,
+            rows=rows_data,
+            upsert=True,
+        )
+
+        # Verify the result
+        assert result == 3

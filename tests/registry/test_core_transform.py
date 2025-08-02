@@ -1,6 +1,8 @@
+import asyncio
 from typing import Any
 
 import pytest
+import tracecat_registry.core.transform as transform_module
 from tracecat_registry.core.transform import (
     apply,
     deduplicate,
@@ -9,6 +11,8 @@ from tracecat_registry.core.transform import (
     map,
     not_in,
 )
+
+from tracecat.types.exceptions import TracecatExpressionError
 
 
 @pytest.mark.parametrize(
@@ -316,7 +320,441 @@ def test_not_in(
         ),
     ],
 )
-def test_deduplicate(
+@pytest.mark.anyio
+async def test_deduplicate(
     items: list[dict[str, Any]], keys: list[str], expected: list[dict[str, Any]]
 ) -> None:
-    assert deduplicate(items, keys) == expected
+    """Test the deduplicate function with various inputs and transformations."""
+    try:
+        result = await deduplicate(items, keys)
+        assert result == expected
+    except ConnectionError:
+        pytest.skip("Redis not available")
+
+
+@pytest.mark.parametrize(
+    "first_call,second_call,expected_first,expected_second",
+    [
+        # Basic persistence test
+        (
+            [{"id": 99}, {"id": 100}],
+            [{"id": 99}, {"id": 100}],
+            [{"id": 99}, {"id": 100}],
+            [],
+        ),
+        # Partial overlap
+        (
+            [{"id": 1}, {"id": 2}],
+            [{"id": 2}, {"id": 3}],
+            [{"id": 1}, {"id": 2}],
+            [{"id": 3}],
+        ),
+        # Different fields, same keys
+        (
+            [{"id": 1, "name": "Alice"}],
+            [{"id": 1, "name": "Bob", "age": 30}],
+            [{"id": 1, "name": "Alice"}],
+            [],
+        ),
+        # Empty second call
+        (
+            [{"id": 1}],
+            [],
+            [{"id": 1}],
+            [],
+        ),
+        # Empty first call
+        (
+            [],
+            [{"id": 1}],
+            [],
+            [{"id": 1}],
+        ),
+    ],
+)
+@pytest.mark.anyio
+async def test_deduplicate_persistence(
+    first_call: list[dict[str, Any]],
+    second_call: list[dict[str, Any]],
+    expected_first: list[dict[str, Any]],
+    expected_second: list[dict[str, Any]],
+) -> None:
+    """Test that deduplication persists across multiple calls."""
+    try:
+        first_result = await deduplicate(first_call, ["id"])
+        assert first_result == expected_first
+
+        second_result = await deduplicate(second_call, ["id"])
+        assert second_result == expected_second
+    except ConnectionError:
+        pytest.skip("Redis not available")
+
+
+@pytest.mark.parametrize(
+    "items,keys,description",
+    [
+        # Special values in keys
+        (
+            [{"id": None}, {"id": None}],
+            ["id"],
+            "None values",
+        ),
+        (
+            [{"id": ""}, {"id": ""}],
+            ["id"],
+            "Empty strings",
+        ),
+        (
+            [{"id": 0}, {"id": 0}],
+            ["id"],
+            "Zero values",
+        ),
+        (
+            [{"id": False}, {"id": False}],
+            ["id"],
+            "Boolean False",
+        ),
+        # Complex key types
+        (
+            [{"data": {"nested": [1, 2, 3]}}, {"data": {"nested": [1, 2, 3]}}],
+            ["data.nested"],
+            "Array values as keys",
+        ),
+        (
+            [{"config": {"settings": {"a": 1}}}, {"config": {"settings": {"a": 1}}}],
+            ["config.settings"],
+            "Dict values as keys",
+        ),
+        # Unicode and special characters
+        (
+            [{"name": "José"}, {"name": "José"}],
+            ["name"],
+            "Unicode characters",
+        ),
+        (
+            [{"path": "/usr/bin/test"}, {"path": "/usr/bin/test"}],
+            ["path"],
+            "Path with slashes",
+        ),
+        (
+            [{"email": "test@example.com"}, {"email": "test@example.com"}],
+            ["email"],
+            "Email addresses",
+        ),
+    ],
+)
+@pytest.mark.anyio
+async def test_deduplicate_special_values(
+    items: list[dict[str, Any]],
+    keys: list[str],
+    description: str,
+) -> None:
+    """Test deduplication with special values and edge cases."""
+    try:
+        # First call should return the first item only (deduped within call)
+        result = await deduplicate(items, keys)
+        assert len(result) == 1, f"Failed for {description}"
+
+        # Second call should return empty (persisted dedup)
+        result2 = await deduplicate(items, keys)
+        assert result2 == [], f"Failed persistence for {description}"
+    except ConnectionError:
+        pytest.skip("Redis not available")
+
+
+@pytest.mark.parametrize(
+    "input_data,keys,expected_type",
+    [
+        # Single dict input/output
+        (
+            {"id": 1, "name": "test"},
+            ["id"],
+            dict,
+        ),
+        # List with single item returns list
+        (
+            [{"id": 1, "name": "test"}],
+            ["id"],
+            list,
+        ),
+        # Empty list returns list
+        (
+            [],
+            ["id"],
+            list,
+        ),
+    ],
+)
+@pytest.mark.anyio
+async def test_deduplicate_return_types(
+    input_data: dict[str, Any] | list[dict[str, Any]],
+    keys: list[str],
+    expected_type: type,
+) -> None:
+    """Test that deduplicate returns the correct type based on input."""
+    try:
+        result = await deduplicate(input_data, keys)
+        assert isinstance(result, expected_type)
+
+        # For dict input, second call should return empty list
+        if isinstance(input_data, dict):
+            result2 = await deduplicate(input_data, keys)
+            assert result2 == []
+    except ConnectionError:
+        pytest.skip("Redis not available")
+
+
+@pytest.mark.anyio
+async def test_deduplicate_ttl_expiry() -> None:
+    """Test that items are no longer considered duplicates after TTL expires."""
+    try:
+        payload = [{"id": 200}]
+
+        # First call with 1 second TTL
+        first = await deduplicate(payload, ["id"], expire_seconds=1)
+        assert first == payload
+
+        # Second call immediately should be filtered
+        second = await deduplicate(payload, ["id"], expire_seconds=1)
+        assert second == []
+
+        # Wait for TTL to expire
+        await asyncio.sleep(1.1)
+
+        # Third call should work again
+        third = await deduplicate(payload, ["id"], expire_seconds=1)
+        assert third == payload
+    except ConnectionError:
+        pytest.skip("Redis not available")
+
+
+@pytest.mark.parametrize(
+    "items,keys,error_type",
+    [
+        # Missing keys
+        (
+            [{"id": 1}, {"name": "test"}],
+            ["id"],
+            TracecatExpressionError,
+        ),
+        # Invalid jsonpath
+        (
+            [{"id": 1}],
+            ["id..invalid"],
+            TracecatExpressionError,
+        ),
+        # Non-dict items in list
+        (
+            ["not a dict"],
+            ["id"],
+            TracecatExpressionError,
+        ),
+    ],
+)
+@pytest.mark.anyio
+async def test_deduplicate_error_cases(
+    items: Any,
+    keys: list[str],
+    error_type: type[Exception],
+) -> None:
+    """Test that deduplicate handles error cases appropriately."""
+    with pytest.raises(error_type):
+        await deduplicate(items, keys)
+
+
+@pytest.mark.anyio
+async def test_deduplicate_concurrent_calls() -> None:
+    """Test that concurrent calls to deduplicate work correctly."""
+    try:
+        # Create multiple items that will be processed concurrently
+        items = [{"id": i, "data": f"item_{i}"} for i in range(10)]
+
+        # Run multiple concurrent deduplicate calls
+        async def dedupe_task(item_subset):
+            return await deduplicate(item_subset, ["id"])
+
+        # Split items into overlapping subsets
+        subset1 = items[:6]  # items 0-5
+        subset2 = items[4:8]  # items 4-7 (overlap with subset1)
+        subset3 = items[6:]  # items 6-9 (overlap with subset2)
+
+        # Run concurrently
+        results = await asyncio.gather(
+            dedupe_task(subset1),
+            dedupe_task(subset2),
+            dedupe_task(subset3),
+        )
+
+        # Collect all returned items
+        all_results = []
+        for result in results:
+            all_results.extend(result)
+
+        # Should have no duplicates across all results
+        seen_ids = set()
+        for item in all_results:
+            assert item["id"] not in seen_ids, f"Duplicate id {item['id']} found"
+            seen_ids.add(item["id"])
+
+        # Should have all 10 unique items
+        assert len(seen_ids) == 10
+    except ConnectionError:
+        pytest.skip("Redis not available")
+
+
+@pytest.mark.parametrize(
+    "keys,description",
+    [
+        # Multiple levels of nesting
+        (
+            ["data.user.profile.settings.id"],
+            "Deep nesting (5 levels)",
+        ),
+        # Multiple keys with different depths
+        (
+            ["type", "data.id", "meta.source.system"],
+            "Mixed depth keys",
+        ),
+        # Many keys
+        (
+            [f"field{i}" for i in range(10)],
+            "Many keys (10)",
+        ),
+    ],
+)
+@pytest.mark.anyio
+async def test_deduplicate_complex_keys(
+    keys: list[str],
+    description: str,
+) -> None:
+    """Test deduplication with complex key configurations."""
+    try:
+        # Build test data based on keys
+        def build_nested_dict(path: str, value: Any) -> dict:
+            parts = path.split(".")
+            result = {}
+            current = result
+            for part in parts[:-1]:
+                current[part] = {}
+                current = current[part]
+            current[parts[-1]] = value
+            return result
+
+        # Create two items with same key values
+        item1 = {}
+        item2 = {}
+        for i, key in enumerate(keys):
+            nested1 = build_nested_dict(key, f"value_{i}")
+            nested2 = build_nested_dict(key, f"value_{i}")
+
+            # Merge nested dicts
+            def deep_merge(d1, d2):
+                for k, v in d2.items():
+                    if k in d1 and isinstance(d1[k], dict) and isinstance(v, dict):
+                        deep_merge(d1[k], v)
+                    else:
+                        d1[k] = v
+
+            deep_merge(item1, nested1)
+            deep_merge(item2, nested2)
+
+        items = [item1, item2]
+
+        # Should deduplicate to one item
+        result = await deduplicate(items, keys)
+        assert len(result) == 1, f"Failed for {description}"
+    except ConnectionError:
+        pytest.skip("Redis not available")
+
+
+@pytest.mark.anyio
+async def test_deduplicate_redis_operation_error(monkeypatch) -> None:
+    """Test that deduplicate raises ConnectionError on Redis operation failures."""
+
+    # Mock redis client to fail on set operation
+    class MockRedisClient:
+        async def set(self, *args, **kwargs):
+            raise Exception("Redis SET failed")
+
+    class MockRedis:
+        client = MockRedisClient()
+
+    async def mock_get_redis_client():
+        return MockRedis()
+
+    monkeypatch.setattr(transform_module, "get_redis_client", mock_get_redis_client)
+
+    with pytest.raises(ConnectionError, match="key-value store.*"):
+        await deduplicate([{"id": 1}], ["id"])
+
+
+@pytest.mark.parametrize(
+    "items,keys,expected",
+    [
+        # Basic skip_persistence deduplication
+        (
+            [
+                {"id": 1, "name": "Alice"},
+                {"id": 2, "name": "Bob"},
+                {"id": 1, "name": "Charlie"},
+            ],
+            ["id"],
+            [{"id": 1, "name": "Charlie"}, {"id": 2, "name": "Bob"}],
+        ),
+        # Single dict input with skip_persistence
+        (
+            {"id": 1, "name": "Alice"},
+            ["id"],
+            {"id": 1, "name": "Alice"},
+        ),
+        # Empty list with skip_persistence
+        (
+            [],
+            ["id"],
+            [],
+        ),
+        # Nested keys with skip_persistence
+        (
+            [{"user": {"id": 1, "name": "Alice"}}, {"user": {"id": 1, "name": "Bob"}}],
+            ["user.id"],
+            [{"user": {"id": 1, "name": "Bob"}}],
+        ),
+    ],
+)
+@pytest.mark.anyio
+async def test_deduplicate_skip_persistence(
+    items: dict[str, Any] | list[dict[str, Any]],
+    keys: list[str],
+    expected: dict[str, Any] | list[dict[str, Any]],
+) -> None:
+    """Test deduplicate with persist=False (no Redis interaction)."""
+    result = await deduplicate(items, keys, persist=False)
+    assert result == expected
+
+
+@pytest.mark.anyio
+async def test_deduplicate_skip_persistence_vs_redis() -> None:
+    """Test that persist=True persists across calls, but persist=False doesn't."""
+    items_persist = [{"id": 998, "data": "test_persist"}]
+    items_no_persist = [{"id": 997, "data": "test_no_persist"}]
+    keys = ["id"]
+
+    try:
+        # First call with persist=True should return the item
+        result1 = await deduplicate(items_persist, keys, persist=True)
+        assert result1 == items_persist
+
+        # Second call with persist=True should return empty (Redis persistence)
+        result2 = await deduplicate(items_persist, keys, persist=True)
+        assert result2 == []
+
+        # First call with persist=False should return the item
+        result3 = await deduplicate(items_no_persist, keys, persist=False)
+        assert result3 == items_no_persist
+
+        # Second call with persist=False should also return the item (no persistence)
+        result4 = await deduplicate(items_no_persist, keys, persist=False)
+        assert result4 == items_no_persist
+
+    except ConnectionError:
+        pytest.skip("Redis not available")

@@ -140,10 +140,19 @@ const actionFormSchema = z.object({
         z.string().max(1000, "For each must be less than 1000 characters")
       ),
     ])
+    .transform((val) => {
+      if (Array.isArray(val)) {
+        return val.filter((item) => item.trim() !== "")
+      } else if (typeof val === "string") {
+        return val.trim() !== "" ? val : undefined
+      }
+      return val
+    })
     .optional(),
   run_if: z
     .string()
     .max(1000, "Run if must be less than 1000 characters")
+    .transform((val) => (val?.trim() ? val.trim() : undefined))
     .optional(),
   // Retry policy fields
   max_attempts: z.number().int().min(0).optional(),
@@ -158,6 +167,10 @@ const actionFormSchema = z.object({
   wait_until: z
     .string()
     .max(1000, "Wait until must be less than 1000 characters")
+    .optional(),
+  environment: z
+    .string()
+    .max(1000, "Environment must be less than 1000 characters")
     .optional(),
   is_interactive: z.boolean().default(false),
   interaction: z
@@ -267,6 +280,9 @@ function ActionPanelContent({
     useGetRegistryAction(action?.type)
   const actionControlFlow = action?.control_flow ?? {}
 
+  // Special-case: disable form mode for reshape actions
+  const isReshapeAction = action?.type === "core.transform.reshape"
+
   const actionInputsObj = useMemo(
     () => parseYaml(action?.inputs) ?? {},
     [action?.inputs]
@@ -286,6 +302,7 @@ function ActionPanelContent({
       start_delay: actionControlFlow?.start_delay,
       join_strategy: actionControlFlow?.join_strategy,
       wait_until: actionControlFlow?.wait_until || undefined,
+      environment: actionControlFlow?.environment || undefined,
       is_interactive: action?.is_interactive ?? false,
       interaction: action?.interaction ?? undefined,
     },
@@ -298,7 +315,9 @@ function ActionPanelContent({
   const [activeTab, setActiveTab] = useState<ActionPanelTabs>("inputs")
   const [open, setOpen] = useState(false)
   // Check if form mode is enabled via organization settings
-  const formModeEnabled = appSettings?.app_action_form_mode_enabled ?? true
+  // Keep org-wide toggle AND force YAML mode for reshape
+  const formModeEnabled =
+    !isReshapeAction && (appSettings?.app_action_form_mode_enabled ?? true)
   const [inputMode, setInputMode] = useState<InputMode>(
     formModeEnabled ? "form" : "yaml"
   )
@@ -453,6 +472,7 @@ function ActionPanelContent({
             start_delay: values.start_delay,
             join_strategy: values.join_strategy,
             wait_until: values.wait_until,
+            environment: values.environment,
           },
           is_interactive: values.is_interactive,
           interaction: values.interaction,
@@ -629,7 +649,7 @@ function ActionPanelContent({
   ].filter((e) => e.ref === slugify(action.title))
 
   return (
-    <div onBlur={onPanelBlur}>
+    <div onBlur={onPanelBlur} className="pb-10">
       <Tabs
         defaultValue="inputs"
         value={activeTab}
@@ -1448,6 +1468,29 @@ function ActionPanelContent({
                                 <ExpressionInput
                                   value={field.value || ""}
                                   onChange={field.onChange}
+                                />
+                              </FormControl>
+                            </FormItem>
+                          )}
+                        />
+                      </ControlFlowField>
+
+                      {/* Environment */}
+                      <ControlFlowField
+                        label="Environment"
+                        description="Override the environment for this action, otherwise the workflow's environment is used."
+                      >
+                        <FormField
+                          name="environment"
+                          control={methods.control}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormMessage className="whitespace-pre-line" />
+                              <FormControl>
+                                <ExpressionInput
+                                  value={field.value || ""}
+                                  onChange={field.onChange}
+                                  placeholder="Type @ to begin an expression..."
                                 />
                               </FormControl>
                             </FormItem>

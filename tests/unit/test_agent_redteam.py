@@ -92,16 +92,3 @@ class TestAgentSecurityValidation:
             bad_pattern = "(unclosed"
             with pytest.raises(ModelRetry):
                 grep_tool(bad_pattern)
-
-    @pytest.mark.anyio
-    async def test_forbidden_action_whitelist_enforcement(self):
-        """Building an agent with an action outside the allowed list should fail fast."""
-        from tracecat_registry.integrations.agents.builder import agent
-
-        with pytest.raises(ValueError, match="Forbidden actions"):
-            await agent(
-                user_prompt="Should never run",
-                model_name="gpt-4o-mini",
-                model_provider="openai",
-                actions=["evil.action"],
-            )

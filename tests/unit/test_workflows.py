@@ -2548,8 +2548,8 @@ def assert_error_handler_initiated_correctly(
         ],
         "handler_wf_id": str(WorkflowUUID.new(handler_wf.id)),
         "message": (
-            "Workflow failed with 1 task exception(s)\n\n"
-            "==================== (1/1) ACTIONS.failing_action ====================\n\n"
+            "Workflow failed with 1 error(s)\n\n"
+            f"{'=' * 10} (1/1) ACTIONS.failing_action {'=' * 10}\n\n"
             "ExecutorClientError: [ACTIONS.failing_action -> run_action] (Attempt 1)\n\n"
             "There was an error in the executor when calling action 'core.transform.reshape'.\n\n"
             "\n"
@@ -2713,7 +2713,7 @@ async def test_workflow_error_handler_success(
     [
         pytest.param(
             "wf-00000000000000000000000000000000",
-            "TracecatException: Workflow definition not found for WorkflowUUID('00000000-0000-0000-0000-000000000000'), version=None",
+            "TracecatException: Workflow definition not found for wf_0000000000000000000000, version=None",
             id="id-no-match",
         ),
         pytest.param(
@@ -4852,3 +4852,90 @@ async def test_workflow_return_strategy(
             retry_policy=RETRY_POLICIES["workflow:fail_fast"],
         )
         assert validator(result)
+
+
+@pytest.mark.anyio
+async def test_workflow_environment_override(
+    test_role: Role,
+    temporal_client: Client,
+    test_worker_factory: Callable[[Client], Worker],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """
+    Test that the correct secrets are used for the action environment override.
+    """
+    # Set return strategy to context so we can verify the result
+    monkeypatch.setenv("TRACECAT__WORKFLOW_RETURN_STRATEGY", "context")
+    monkeypatch.setattr(config, "TRACECAT__WORKFLOW_RETURN_STRATEGY", "context")
+
+    test_name = f"{test_workflow_environment_override.__name__}"
+    wf_exec_id = generate_test_exec_id(test_name)
+
+    # Set up secrets in different environments
+    async with SecretsService.with_session(role=test_role) as secrets_service:
+        # Create secret in default environment
+        await secrets_service.create_secret(
+            SecretCreate(
+                name=f"{test_name}_secret",
+                environment="default",
+                keys=[
+                    SecretKeyValue(
+                        key="API_KEY", value=SecretStr(f"{test_name}_default_value")
+                    )
+                ],
+            ),
+        )
+
+        # Create secret in override environment
+        await secrets_service.create_secret(
+            SecretCreate(
+                name="test_secret",
+                environment="override_env",
+                keys=[
+                    SecretKeyValue(
+                        key="API_KEY", value=SecretStr(f"{test_name}_override_value")
+                    )
+                ],
+            )
+        )
+
+        # Define the DSL workflow
+        dsl = DSLInput(
+            title="Workflow action environment override",
+            description="Test that the workflow action environment override is respected",
+            entrypoint=DSLEntrypoint(ref="a"),
+            config=DSLConfig(environment="default"),  # Workflow default environment
+            actions=[
+                ActionStatement(
+                    ref="a",
+                    action="core.transform.reshape",
+                    args={"value": "${{ SECRETS.test_secret.API_KEY }}"},
+                    environment="override_env",  # Action environment override
+                ),
+            ],
+        )
+
+        async with test_worker_factory(temporal_client):
+            run_args = DSLRunArgs(
+                dsl=dsl,
+                role=test_role,
+                wf_id=TEST_WF_ID,
+            )
+            result = await temporal_client.execute_workflow(
+                DSLWorkflow.run,
+                run_args,
+                id=wf_exec_id,
+                task_queue=os.environ["TEMPORAL__CLUSTER_QUEUE"],
+                retry_policy=RETRY_POLICIES["workflow:fail_fast"],
+            )
+            # Verify that the action used the secret from the override environment
+            assert result == {
+                "ACTIONS": {
+                    "a": {
+                        "result": f"{test_name}_override_value",
+                        "result_typename": "str",
+                    },
+                },
+                "INPUTS": {},
+                "TRIGGER": {},
+            }

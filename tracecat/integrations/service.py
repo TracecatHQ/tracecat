@@ -10,15 +10,15 @@ from sqlmodel import and_, or_, select
 
 from tracecat.db.schemas import OAuthIntegration
 from tracecat.identifiers import UserID
-from tracecat.integrations.base import (
+from tracecat.integrations.enums import OAuthGrantType
+from tracecat.integrations.models import ProviderConfig, ProviderKey
+from tracecat.integrations.providers import get_provider_class
+from tracecat.integrations.providers.base import (
     AuthorizationCodeOAuthProvider,
     BaseOAuthProvider,
     ClientCredentialsOAuthProvider,
 )
-from tracecat.integrations.enums import OAuthGrantType
-from tracecat.integrations.models import ProviderConfig, ProviderKey
-from tracecat.integrations.providers import ProviderRegistry
-from tracecat.secrets.encryption import decrypt_value, encrypt_value
+from tracecat.secrets.encryption import decrypt_value, encrypt_value, is_set
 from tracecat.service import BaseWorkspaceService
 
 
@@ -200,9 +200,8 @@ class IntegrationService(BaseWorkspaceService):
         self, integration: OAuthIntegration
     ) -> BaseOAuthProvider | None:
         # Get provider class from registry
-        registry = ProviderRegistry.get()
         key = ProviderKey(id=integration.provider_id, grant_type=integration.grant_type)
-        provider_impl = registry.get_class(key)
+        provider_impl = get_provider_class(key)
         if not provider_impl:
             self.logger.error(
                 "Provider not found in registry",
@@ -375,14 +374,15 @@ class IntegrationService(BaseWorkspaceService):
 
         return integration
 
-    async def get_access_token(self, integration: OAuthIntegration) -> SecretStr:
+    async def get_access_token(self, integration: OAuthIntegration) -> SecretStr | None:
         """Get the decrypted access token for an integration."""
-        access_token = self._decrypt_token(integration.encrypted_access_token)
-        return SecretStr(access_token)
+        if access_token := self._decrypt_token(integration.encrypted_access_token):
+            return SecretStr(access_token)
+        return None
 
     def get_decrypted_tokens(
         self, integration: OAuthIntegration
-    ) -> tuple[str, str | None]:
+    ) -> tuple[str | None, str | None]:
         """Get decrypted access and refresh tokens for an integration."""
         access_token = self._decrypt_token(integration.encrypted_access_token)
         refresh_token = (
@@ -396,8 +396,10 @@ class IntegrationService(BaseWorkspaceService):
         """Encrypt a token using the service's encryption key."""
         return encrypt_value(token.encode("utf-8"), key=self._encryption_key)
 
-    def _decrypt_token(self, encrypted_token: bytes) -> str:
+    def _decrypt_token(self, encrypted_token: bytes) -> str | None:
         """Decrypt a token using the service's encryption key."""
+        if not is_set(encrypted_token):
+            return None
         return decrypt_value(encrypted_token, key=self._encryption_key).decode("utf-8")
 
     def encrypt_client_credential(self, credential: str) -> bytes:
@@ -542,10 +544,7 @@ class IntegrationService(BaseWorkspaceService):
             return False
 
         # If integration has tokens, just clear client credentials
-        if (
-            integration.encrypted_access_token
-            and integration.encrypted_access_token != b""
-        ):
+        if is_set(integration.encrypted_access_token):
             integration.encrypted_client_id = None
             integration.encrypted_client_secret = None
             integration.use_workspace_credentials = False

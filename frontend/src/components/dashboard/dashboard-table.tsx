@@ -68,6 +68,9 @@ export function WorkflowsDashboardTable() {
           emptyMessage="No workflows found."
           errorMessage="Error loading workflows."
           onClickRow={handleOnClickRow}
+          getRowHref={(row) =>
+            `/workspaces/${workspaceId}/workflows/${row.original.id}`
+          }
           columns={[
             {
               accessorKey: "title",

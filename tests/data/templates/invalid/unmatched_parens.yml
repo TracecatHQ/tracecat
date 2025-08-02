@@ -1,0 +1,20 @@
+type: action
+definition:
+  name: test_unmatched_parens
+  namespace: tools.test
+  display_name: Test Unmatched Parentheses
+  description: Template with unmatched parentheses in expression
+  title: Test Unmatched Parentheses
+  display_group: Testing
+  expects:
+    value:
+      type: int
+      description: Input value
+  steps:
+    - ref: calculate
+      action: core.transform.reshape
+      args:
+        value:
+          # Unmatched opening parenthesis
+          result: ${{ (inputs.value + 1 }}
+  returns: ${{ steps.calculate.result }}

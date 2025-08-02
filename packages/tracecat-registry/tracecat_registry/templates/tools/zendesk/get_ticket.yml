@@ -1,0 +1,33 @@
+type: action
+definition:
+  title: Get ticket
+  description: Retrieve a specific ticket by ID from Zendesk.
+  display_group: Zendesk
+  doc_url: https://developer.zendesk.com/api-reference/ticketing/tickets/tickets/#show-ticket
+  namespace: tools.zendesk
+  name: get_ticket
+  secrets:
+    - name: zendesk
+      keys: ["ZENDESK_EMAIL", "ZENDESK_API_TOKEN"]
+  expects:
+    subdomain:
+      type: str
+      description: Your Zendesk subdomain (e.g., 'company' for company.zendesk.com)
+    ticket_id:
+      type: int
+      description: The ID of the ticket to retrieve
+  steps:
+    - ref: encode_auth
+      action: core.transform.reshape
+      args:
+        value: ${{ FN.to_base64(SECRETS.zendesk.ZENDESK_EMAIL + "/token:" + SECRETS.zendesk.ZENDESK_API_TOKEN) }}
+    - ref: call_api
+      action: core.http_request
+      args:
+        url: https://${{ inputs.subdomain }}.zendesk.com/api/v2/tickets/${{ inputs.ticket_id }}.json
+        method: GET
+        headers:
+          Authorization: Basic ${{ steps.encode_auth.result }}
+          Content-Type: application/json
+          Accept: application/json
+  returns: ${{ steps.call_api.result.data }}

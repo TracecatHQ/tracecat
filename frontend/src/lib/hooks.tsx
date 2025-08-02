@@ -2,17 +2,31 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import Cookies from "js-cookie"
 import { AlertTriangleIcon, CircleCheck } from "lucide-react"
 import { useRouter } from "next/navigation"
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import {
   type ActionRead,
   type ActionsDeleteActionData,
   type ActionUpdate,
+  type AgentGetProviderCredentialConfigResponse,
+  type AgentGetProvidersStatusResponse,
+  type AgentListModelsResponse,
+  type AgentListProvidersResponse,
   type ApiError,
   type AppSettingsRead,
   type AuthSettingsRead,
   actionsDeleteAction,
   actionsGetAction,
   actionsUpdateAction,
+  agentCreateProviderCredentials,
+  agentDeleteProviderCredentials,
+  agentGetDefaultModel,
+  agentGetProviderCredentialConfig,
+  agentGetProvidersStatus,
+  agentListModels,
+  agentListProviderCredentialConfigs,
+  agentListProviders,
+  agentSetDefaultModel,
+  agentUpdateProviderCredentials,
   type CaseCommentCreate,
   type CaseCommentRead,
   type CaseCommentUpdate,
@@ -53,6 +67,8 @@ import {
   integrationsListIntegrations,
   integrationsTestConnection,
   integrationsUpdateIntegration,
+  type ModelCredentialCreate,
+  type ModelCredentialUpdate,
   type OAuthGrantType,
   type OAuthSettingsRead,
   type OrganizationDeleteOrgMemberData,
@@ -68,6 +84,7 @@ import {
   organizationSecretsListOrgSecrets,
   organizationSecretsUpdateOrgSecretById,
   organizationUpdateOrgMember,
+  type ProviderCredentialConfig,
   type ProviderRead,
   type ProviderReadMinimal,
   providersGetProvider,
@@ -400,7 +417,7 @@ export function useWorkflowManager(filter?: WorkflowFilter) {
   const queryClient = useQueryClient()
   const { workspaceId } = useWorkspace()
 
-  // List workflows
+  // List all workflows
   const {
     data: workflows,
     isLoading: workflowsLoading,
@@ -411,6 +428,7 @@ export function useWorkflowManager(filter?: WorkflowFilter) {
       const response = await workflowsListWorkflows({
         workspaceId,
         tag: filter?.tag,
+        limit: 0,
       })
       return response.items
     },
@@ -2415,6 +2433,14 @@ export function useBatchInsertRows() {
       queryClient.invalidateQueries({
         queryKey: ["rows", variables.tableId],
       })
+      queryClient.invalidateQueries({
+        queryKey: [
+          "rows",
+          "paginated",
+          variables.tableId,
+          variables.workspaceId,
+        ],
+      })
       toast({
         title: "Imported rows successfully",
         description: "The data has been imported into the table.",
@@ -2450,6 +2476,14 @@ export function useInsertRow() {
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({
         queryKey: ["rows", variables.tableId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: [
+          "rows",
+          "paginated",
+          variables.tableId,
+          variables.workspaceId,
+        ],
       })
     },
     onError: (error: TracecatApiError) => {
@@ -2491,6 +2525,14 @@ export function useDeleteRow() {
         queryKey: ["rows", variables.tableId],
       })
       queryClient.invalidateQueries({
+        queryKey: [
+          "rows",
+          "paginated",
+          variables.tableId,
+          variables.workspaceId,
+        ],
+      })
+      queryClient.invalidateQueries({
         queryKey: ["table", variables.tableId],
       })
     },
@@ -2515,6 +2557,14 @@ export function useImportCsv() {
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({
         queryKey: ["rows", variables.tableId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: [
+          "rows",
+          "paginated",
+          variables.tableId,
+          variables.workspaceId,
+        ],
       })
       toast({
         title: "Imported rows successfully",
@@ -2578,6 +2628,10 @@ export function useCreateCase(workspaceId: string) {
       await casesCreateCase({ workspaceId, requestBody: params }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["cases"] })
+      queryClient.invalidateQueries({ queryKey: ["cases", workspaceId] })
+      queryClient.invalidateQueries({
+        queryKey: ["cases", "paginated", workspaceId],
+      })
       toast({
         title: "Case created",
         description: "New case created successfully",
@@ -2617,6 +2671,9 @@ export function useUpdateCase({
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: ["cases", workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["cases", "paginated", workspaceId],
       })
       queryClient.invalidateQueries({
         queryKey: ["case", caseId],
@@ -2663,6 +2720,9 @@ export function useDeleteCase({ workspaceId }: { workspaceId: string }) {
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: ["cases", workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["cases", "paginated", workspaceId],
       })
     },
     onError: (error: TracecatApiError) => {
@@ -2850,32 +2910,6 @@ export function useDeleteCaseComment({
     deleteComment,
     deleteCommentIsPending,
     deleteCommentError,
-  }
-}
-
-/**
- * Hook to fetch all workflows for a given workspace.
- * @param workspaceId The ID of the workspace.
- * @returns Query result for the list of workflows.
- */
-export function useGetWorkflows(workspaceId: string) {
-  const {
-    data: workflows,
-    isLoading: workflowsLoading,
-    error: workflowsError,
-  } = useQuery<WorkflowReadMinimal[], ApiError>({
-    queryKey: ["workflows", workspaceId],
-    queryFn: async () => {
-      const response = await workflowsListWorkflows({ workspaceId })
-      return response.items
-    },
-    retry: retryHandler,
-  })
-
-  return {
-    workflows,
-    workflowsLoading,
-    workflowsError,
   }
 }
 
@@ -3241,6 +3275,7 @@ export function useIntegrationProvider({
       await integrationsUpdateIntegration({
         providerId,
         workspaceId,
+        grantType,
         requestBody: params,
       }),
     onSuccess: () => {
@@ -3377,5 +3412,367 @@ export function useIntegrationProvider({
     provider,
     providerIsLoading,
     providerError,
+  }
+}
+
+// Agent hooks
+export function useAgentModels() {
+  const {
+    data: models,
+    isLoading: modelsLoading,
+    error: modelsError,
+  } = useQuery<AgentListModelsResponse, ApiError>({
+    queryKey: ["agent-models"],
+    queryFn: async () => await agentListModels(),
+  })
+
+  return {
+    models,
+    modelsLoading,
+    modelsError,
+  }
+}
+
+export function useModelProviders() {
+  const {
+    data: providers,
+    isLoading,
+    error,
+  } = useQuery<AgentListProvidersResponse>({
+    queryKey: ["agent-providers"],
+    queryFn: async () => await agentListProviders(),
+  })
+
+  return {
+    providers,
+    isLoading,
+    error,
+  }
+}
+
+export function useModelProvidersStatus() {
+  const {
+    data: providersStatus,
+    isLoading,
+    error,
+    refetch,
+  } = useQuery<AgentGetProvidersStatusResponse>({
+    queryKey: ["agent-providers-status"],
+    queryFn: async () => await agentGetProvidersStatus(),
+  })
+
+  return {
+    providersStatus,
+    isLoading,
+    error,
+    refetch,
+  }
+}
+
+export function useAgentDefaultModel() {
+  const queryClient = useQueryClient()
+
+  // Get default model
+  const {
+    data: defaultModel,
+    isLoading: defaultModelLoading,
+    error: defaultModelError,
+  } = useQuery<string | null>({
+    queryKey: ["agent-default-model"],
+    queryFn: async () => await agentGetDefaultModel(),
+  })
+
+  // Update default model
+  const {
+    mutateAsync: updateDefaultModel,
+    isPending: isUpdating,
+    error: updateError,
+  } = useMutation({
+    mutationFn: async (modelName: string) =>
+      await agentSetDefaultModel({
+        modelName,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["agent-default-model"] })
+    },
+  })
+
+  return {
+    defaultModel,
+    defaultModelLoading,
+    defaultModelError,
+    updateDefaultModel,
+    isUpdating,
+    updateError,
+  }
+}
+
+export function useAgentCredentials() {
+  const queryClient = useQueryClient()
+
+  // Create credentials
+  const {
+    mutateAsync: createCredentials,
+    isPending: isCreating,
+    error: createError,
+  } = useMutation({
+    mutationFn: async (data: ModelCredentialCreate) =>
+      await agentCreateProviderCredentials({
+        requestBody: data,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["agent-providers-status"] })
+    },
+  })
+
+  // Update credentials
+  const {
+    mutateAsync: updateCredentials,
+    isPending: isUpdating,
+    error: updateError,
+  } = useMutation({
+    mutationFn: async ({
+      provider,
+      credentials,
+    }: {
+      provider: string
+      credentials: ModelCredentialUpdate
+    }) =>
+      await agentUpdateProviderCredentials({
+        provider,
+        requestBody: credentials,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["agent-providers-status"] })
+    },
+  })
+
+  // Delete credentials
+  const {
+    mutateAsync: deleteCredentials,
+    isPending: isDeleting,
+    error: deleteError,
+  } = useMutation({
+    mutationFn: async (provider: string) =>
+      await agentDeleteProviderCredentials({
+        provider,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["agent-providers-status"] })
+    },
+  })
+
+  return {
+    createCredentials,
+    updateCredentials,
+    deleteCredentials,
+    isCreating,
+    isUpdating,
+    isDeleting,
+    createError,
+    updateError,
+    deleteError,
+  }
+}
+
+export function useProviderCredentialConfigs() {
+  const {
+    data: providerConfigs,
+    isLoading: providerConfigsLoading,
+    error: providerConfigsError,
+  } = useQuery<ProviderCredentialConfig[]>({
+    queryKey: ["agent-provider-credential-configs"],
+    queryFn: async () => await agentListProviderCredentialConfigs(),
+  })
+
+  return {
+    providerConfigs,
+    providerConfigsLoading,
+    providerConfigsError,
+  }
+}
+
+export function useProviderCredentialConfig(provider: string | null) {
+  const {
+    data: providerConfig,
+    isLoading: providerConfigLoading,
+    error: providerConfigError,
+  } = useQuery<AgentGetProviderCredentialConfigResponse>({
+    queryKey: ["agent-provider-credential-config", provider],
+    queryFn: async () => {
+      if (!provider) {
+        throw new Error("Provider is required")
+      }
+      return await agentGetProviderCredentialConfig({ provider })
+    },
+    enabled: !!provider,
+  })
+
+  return {
+    providerConfig,
+    providerConfigLoading,
+    providerConfigError,
+  }
+}
+
+export function useDeleteProviderCredentials() {
+  const queryClient = useQueryClient()
+
+  const mutation = useMutation<void, ApiError, string>({
+    mutationFn: async (provider: string) => {
+      await agentDeleteProviderCredentials({ provider })
+    },
+    onSuccess: () => {
+      // Invalidate and refetch provider status
+      queryClient.invalidateQueries({
+        queryKey: ["agent-providers-status"],
+      })
+    },
+  })
+
+  return {
+    deleteProviderCredentials: mutation.mutate,
+    isDeletingCredentials: mutation.isPending,
+    deleteCredentialsError: mutation.error,
+  }
+}
+
+/**
+ * Are we ready to chat?
+ * Returns { ready, reason, provider }
+ *  ready   – boolean
+ *  reason  – "no_model" | "no_credentials" | null
+ *  provider – provider id that needs credentials (if any)
+ */
+export function useChatReadiness() {
+  const { defaultModel, defaultModelLoading } = useAgentDefaultModel()
+  const { models, modelsLoading } = useAgentModels()
+  const { providersStatus, isLoading: statusLoading } =
+    useModelProvidersStatus()
+
+  const loading = defaultModelLoading || modelsLoading || statusLoading
+
+  if (loading) {
+    return { ready: false, loading: true, reason: null, provider: null }
+  }
+
+  /* no default model set */
+  if (!defaultModel) {
+    return { ready: false, loading: false, reason: "no_model", provider: null }
+  }
+
+  /* unknown model name → treat as no model */
+  const modelCfg = models?.[defaultModel]
+  if (!modelCfg) {
+    return { ready: false, loading: false, reason: "no_model", provider: null }
+  }
+
+  /* check provider creds */
+  const providerId = modelCfg.provider
+  const hasCreds = providersStatus?.[providerId] ?? false
+  if (!hasCreds) {
+    return {
+      ready: false,
+      loading: false,
+      reason: "no_credentials",
+      provider: providerId,
+    }
+  }
+
+  return { ready: true, loading: false, reason: null, provider: providerId }
+}
+
+interface UseDragDividerOptions {
+  /** Current size (width for vertical divider, height for horizontal) in pixels */
+  value: number
+  /** Callback fired with the new size while dragging */
+  onChange: (newSize: number) => void
+  /** Orientation of the divider. Defaults to "vertical" (i.e. a vertical bar that resizes width) */
+  orientation?: "vertical" | "horizontal"
+  /** Minimum size constraint in pixels */
+  min?: number
+  /** Maximum size constraint in pixels */
+  max?: number
+}
+
+/**
+ * Hook for handling drag divider logic.
+ * Returns mouse event handlers to be attached to the drag handle element.
+ *
+ * This implementation avoids useEffect and global event listeners by using
+ * React's onMouseDown/onMouseMove/onMouseUp events with pointer capture.
+ */
+export function useDragDivider({
+  value,
+  onChange,
+  orientation = "vertical",
+  min = 400,
+  max = 600,
+}: UseDragDividerOptions) {
+  const [isDragging, setIsDragging] = useState(false)
+  const dragStartRef = useRef({ coord: 0, size: 0 })
+
+  const handlePointerDown = useCallback(
+    (e: React.PointerEvent<HTMLElement>) => {
+      e.preventDefault()
+
+      // Capture the pointer to receive all mouse events
+      e.currentTarget.setPointerCapture(e.pointerId)
+
+      const startCoord = orientation === "vertical" ? e.clientX : e.clientY
+      dragStartRef.current = { coord: startCoord, size: value }
+      setIsDragging(true)
+    },
+    [orientation, value]
+  )
+
+  const handlePointerMove = useCallback(
+    (e: React.PointerEvent<HTMLElement>) => {
+      if (!isDragging) return
+
+      const currentCoord = orientation === "vertical" ? e.clientX : e.clientY
+      const delta = dragStartRef.current.coord - currentCoord
+      const newSize = Math.min(
+        Math.max(dragStartRef.current.size + delta, min),
+        max
+      )
+      onChange(newSize)
+    },
+    [isDragging, orientation, min, max, onChange]
+  )
+
+  const handlePointerUp = useCallback(
+    (e: React.PointerEvent<HTMLElement>) => {
+      if (!isDragging) return
+
+      // Release the pointer capture
+      e.currentTarget.releasePointerCapture(e.pointerId)
+      setIsDragging(false)
+    },
+    [isDragging]
+  )
+
+  // Handle cases where the pointer is lost (e.g., window loses focus)
+  const handlePointerCancel = useCallback(
+    (e: React.PointerEvent<HTMLElement>) => {
+      if (!isDragging) return
+
+      e.currentTarget.releasePointerCapture(e.pointerId)
+      setIsDragging(false)
+    },
+    [isDragging]
+  )
+
+  return {
+    isDragging,
+    dragHandleProps: {
+      onPointerDown: handlePointerDown,
+      onPointerMove: handlePointerMove,
+      onPointerUp: handlePointerUp,
+      onPointerCancel: handlePointerCancel,
+      style: {
+        cursor: orientation === "vertical" ? "col-resize" : "row-resize",
+      },
+    },
   }
 }

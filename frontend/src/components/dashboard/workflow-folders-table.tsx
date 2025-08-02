@@ -122,6 +122,13 @@ export function WorkflowsDashboardTable({
           emptyMessage="No workflows found."
           errorMessage="Error loading workflows."
           onClickRow={handleOnClickRow}
+          getRowHref={(row) => {
+            const item = row.original
+            if (item.type === "workflow") {
+              return `/workspaces/${workspaceId}/workflows/${item.id}`
+            }
+            return undefined
+          }}
           columns={[
             {
               accessorKey: "type",
@@ -422,14 +429,7 @@ export function WorkflowsDashboardTable({
               enableHiding: true,
             },
             {
-              id: "Actions",
-              header: ({ column }) => (
-                <DataTableColumnHeader
-                  className="text-xs"
-                  column={column}
-                  title="Actions"
-                />
-              ),
+              id: "actions",
               cell: ({ row }) => {
                 return (
                   <DropdownMenu>

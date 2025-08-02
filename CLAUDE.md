@@ -9,19 +9,29 @@ Tracecat is a modern, open source automation platform built for security and IT 
 
 ### Environment Setup
 ```bash
-# Create Python 3.12 virtual environment
-uv venv --python 3.12
-
-# Install main package and registry in development mode
-uv pip install -e ".[dev]"
-uv pip install -e "tracecat_registry[cli] @ ./registry"
+# Create Python 3.12 virtual environment and install from lock file
+# This is a workspace project - run from anywhere inside the repo
+# (includes both tracecat and tracecat_registry packages)
+uv sync
 
 # Install frontend dependencies
 pnpm install --dir frontend
 
 # Install pre-commit hooks
-uv pip install pre-commit
 uv run pre-commit install
+```
+
+### Updating Dependencies
+```bash
+# Update dependencies and regenerate lock file
+# Lock file updates are automatic if you delete uv.lock and run uv sync
+rm uv.lock && uv sync
+
+# Or manually compile a new lock file
+uv pip compile pyproject.toml -o uv.lock
+
+# Install updated dependencies
+uv sync
 ```
 
 ### Development Stack
@@ -126,6 +136,9 @@ just gen-functions
 - Use named exports over default exports
 - Use "Title case example" over "Title Case Example" for UI text
 
+### UI Component Best Practices
+- **Avoid background colors on child elements within bordered containers**: When using shadcn components like SidebarInset that have rounded borders, don't add background colors (e.g., `bg-card`, `bg-background`) to immediate child elements. These backgrounds can paint over the parent's rounded border corners, making them appear cut off or missing. Instead, let the parent container handle the background styling.
+
 ### Code Quality
 - **Ruff**: Line length 88, comprehensive linting rules
 - **MyPy**: Strict type checking mode
@@ -146,10 +159,19 @@ just gen-functions
 - Database isolation: Each test gets its own transaction
 
 ### Action Templates and Registry
-- **Templates**: `registry/tracecat_registry/templates/` - YAML-based integration templates
-- **Schemas**: `registry/tracecat_registry/schemas/` - Response schemas for consistent APIs
-- **Integrations**: `registry/tracecat_registry/integrations/` - Python client integrations
+- **Templates**: `packages/tracecat-registry/tracecat_registry/templates/` - YAML-based integration templates
+- **Schemas**: `packages/tracecat-registry/tracecat_registry/schemas/` - Response schemas for consistent APIs
+- **Integrations**: `packages/tracecat-registry/tracecat_registry/integrations/` - Python client integrations
+- **Reference file**: `tracecat/expressions/expectations.py` – Source of primitive type mappings (e.g., `str`, `int`, `Any`) used when defining `expects:` sections in templates.
 - **Naming**: `tools.{integration_name}` namespace, titles < 5 words
+
+### Template Best Practices
+- **URL Encoding**: Use `${{ FN.url_encode(inputs.param) }}` when interpolating user inputs into URL paths (especially for IDs that might be emails)
+- **Type Syntax**: Use `str | None` instead of `str | null` for optional types
+- **GET Requests**: Don't include `Content-Type` header on GET requests
+- **Optional Parameters**: Use `core.script.run_python` to conditionally build params dict, excluding null values
+- **Response Format**: Return `${{ steps.step_name.result.data }}` directly, avoid custom response formatting
+- **Error Handling**: Let the platform handle HTTP errors, don't add custom error checking unless necessary
 
 ### Workflow and Execution
 - **DSL**: `tracecat/dsl/` - Domain Specific Language for workflows
@@ -176,3 +198,87 @@ just gen-functions
 
 ## Services and Logging Guidelines
 - When working with live services, avoid using `just` commands. You should use `docker` commands to inspect/manage services and read logs.
+
+## Tracecat Template Best Practices
+
+### Template Structure
+- Templates are YAML files located in `packages/tracecat-registry/tracecat_registry/templates/`
+- Use namespace pattern `tools.{integration_name}` (e.g., `tools.zendesk`, `tools.okta`)
+- Action titles should be < 5 words and use "Title case example" format
+
+### Expression Syntax
+- Use `${{ }}` for template expressions
+- Boolean operators: Use `||` for OR, `&&` for AND (not Python's `or`/`and`)
+- String casting: `str()` is valid in Tracecat templates
+- All FN. functions must exist in `tracecat/expressions/functions.py`
+
+### Available Functions (FN.)
+IMPORTANT: Always check `@tracecat/expressions/functions.py` for the complete and up-to-date list of available functions. Look at the `_FUNCTION_MAPPING` dictionary (around line 905) to see all available functions and their aliases.
+
+When writing templates, ensure that any FN. function you use exists in the `_FUNCTION_MAPPING` dictionary. The function names in templates must match the dictionary keys exactly.
+
+### HTTP Requests
+- Use `core.http_request` action
+- Parameter name for JSON body is `payload` (not `json` or `json_body`)
+- Example:
+  ```yaml
+  - ref: call_api
+    action: core.http_request
+    args:
+      url: https://api.example.com/endpoint
+      method: POST
+      headers:
+        Authorization: Bearer ${{ SECRETS.api.TOKEN }}
+      payload:  # Correct parameter name
+        key: value
+  ```
+
+### Complex Logic
+- For simple conditions: Use template expressions with `||` and `&&`
+  ```yaml
+  value: ${{ inputs.login || inputs.email }}
+  ```
+- For complex logic: Use `core.script.run_python`
+  ```yaml
+  - ref: complex_logic
+    action: core.script.run_python
+    args:
+      inputs:
+        data: ${{ inputs.data }}
+      script: |
+        def main(data):
+            # Complex processing here
+            return processed_data
+  ```
+
+### Best Practices
+1. **Avoid Python syntax in expressions**: Use `||` not `or`, `&&` not `and`
+2. **Use Python scripts for complexity**: Dictionary merging, complex conditionals, data transformations
+3. **Validate function names**: Ensure all FN. functions exist in expressions/functions.py
+4. **Consistent namespaces**: Always use `tools.` prefix for integrations
+5. **Proper parameter names**: Use `payload` for JSON data in HTTP requests
+6. **Handle empty responses**: Some APIs return empty responses on success
+7. **Error handling**: Consider using Python scripts to handle edge cases
+
+### Common Patterns
+- **Authentication headers**:
+  ```yaml
+  Authorization: Basic ${{ FN.to_base64(SECRETS.creds.USERNAME + ":" + SECRETS.creds.PASSWORD) }}
+  Authorization: Bearer ${{ SECRETS.api.TOKEN }}
+  ```
+- **Conditional values**:
+  ```yaml
+  value: ${{ inputs.override || defaults.standard_value }}
+  ```
+- **Complex data merging**:
+  ```yaml
+  - ref: merge_data
+    action: core.script.run_python
+    args:
+      inputs:
+        base: ${{ inputs.base_data }}
+        updates: ${{ inputs.updates }}
+      script: |
+        def main(base, updates):
+            return {**base, **updates}
+  ```

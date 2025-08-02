@@ -34,6 +34,7 @@ from tracecat.cases.models import (
     CreatedEvent,
     FieldDiff,
     FieldsChangedEvent,
+    PayloadChangedEvent,
     PriorityChangedEvent,
     ReopenedEvent,
     SeverityChangedEvent,
@@ -318,6 +319,7 @@ class CasesService(BaseWorkspaceService):
             severity=params.severity,
             status=params.status,
             assignee_id=params.assignee_id,
+            payload=params.payload,
         )
 
         self.session.add(case)
@@ -447,6 +449,10 @@ class CasesService(BaseWorkspaceService):
                         field="summary", old=old, new=value, wf_exec_id=wf_exec_id
                     )
                 )
+            elif key == "payload":
+                # Only record event if payload actually changed
+                if old != value:
+                    events.append(PayloadChangedEvent(wf_exec_id=wf_exec_id))
 
         # If there are any remaining changed fields, record a general update activity
         for event in events:
@@ -810,7 +816,7 @@ class CaseAttachmentService(BaseWorkspaceService):
 
         # Check if the associated file is not deleted
         file_statement = select(File).where(
-            File.id == attachment.file_id, File.deleted_at.is_(None)
+            File.id == attachment.file_id, col(File.deleted_at).is_(None)
         )
         file_result = await self.session.exec(file_statement)
         file_record = file_result.first()
@@ -1045,13 +1051,15 @@ class CaseAttachmentService(BaseWorkspaceService):
         case: Case,
         attachment_id: uuid.UUID,
         preview: bool = False,
+        expiry: int | None = None,
     ) -> tuple[str, str, str]:
         """Generate a presigned URL for downloading an attachment.
 
         Args:
             case: The case the attachment belongs to
             attachment_id: The attachment ID
-            preview: If True, allows inline display for safe image types only
+            preview: If true, allows inline preview for safe image types (deprecated, kept for compatibility)
+            expiry: URL expiry time in seconds (defaults to config value)
 
         Returns:
             Tuple of (presigned_url, filename, content_type)
@@ -1067,24 +1075,16 @@ class CaseAttachmentService(BaseWorkspaceService):
 
         # Generate presigned URL for blob storage
         storage_key = attachment.storage_path
-        content_type = attachment.file.content_type
 
-        # Security: Determine if we should force download or allow preview
-        safe_preview_types = {"image/png", "image/jpeg", "image/gif", "image/webp"}
+        # Security: Always force download for attachments (no preview)
         force_download = True
-        override_content_type = None
-
-        if preview and content_type in safe_preview_types:
-            # Only allow preview for safe image types
-            force_download = False
-        else:
-            # For all other types, force download with safe content type
-            override_content_type = "application/octet-stream"
+        override_content_type = "application/octet-stream"
 
         try:
             presigned_url = await storage.generate_presigned_download_url(
                 key=storage_key,
                 bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS,
+                expiry=expiry,
                 force_download=force_download,
                 override_content_type=override_content_type,
             )
@@ -1174,7 +1174,7 @@ class CaseAttachmentService(BaseWorkspaceService):
             )
             .where(
                 CaseAttachment.case_id == case.id,
-                File.deleted_at.is_(None),
+                col(File.deleted_at).is_(None),
             )
         )
         result = await self.session.exec(statement)

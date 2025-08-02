@@ -3,6 +3,7 @@
 import {
   BracesIcon,
   KeyRoundIcon,
+  ListTodoIcon,
   ShieldAlertIcon,
   Table2Icon,
   UsersIcon,
@@ -52,10 +53,10 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       isActive: pathname?.startsWith(`${basePath}/cases`),
     },
     {
-      title: "Integrations",
-      url: `${basePath}/integrations`,
-      icon: ZapIcon,
-      isActive: pathname?.startsWith(`${basePath}/integrations`),
+      title: "Runbooks",
+      url: `${basePath}/runbooks`,
+      icon: ListTodoIcon,
+      isActive: pathname?.startsWith(`${basePath}/runbooks`),
     },
   ]
 
@@ -71,6 +72,12 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       url: `${basePath}/credentials`,
       icon: KeyRoundIcon,
       isActive: pathname?.startsWith(`${basePath}/credentials`),
+    },
+    {
+      title: "Integrations",
+      url: `${basePath}/integrations`,
+      icon: ZapIcon,
+      isActive: pathname?.startsWith(`${basePath}/integrations`),
     },
     {
       title: "Members",

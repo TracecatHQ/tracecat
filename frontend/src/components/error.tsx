@@ -94,14 +94,26 @@ function apiErrorHandler(error: ApiError): CustomError {
         message: "The resource you are looking for does not exist.",
         action: <GoHome />,
       }
+    case 503:
+      return {
+        headline: "Service unavailable",
+        level,
+        message:
+          "The service is temporarily unavailable. Please try again later.",
+        action: <GoHome />,
+      }
     default:
       return {
-        headline: "Oh no! An unexpected error occurred :(",
+        headline: "An unexpected error occurred.",
         level,
         message: (
           <div className="space-y-4">
             <b>{error.message}</b>
-            <p>{JSON.stringify(error.body, null, 2)}</p>
+            <pre className="whitespace-pre-wrap break-all">
+              {typeof error.body === "string"
+                ? error.body
+                : JSON.stringify(error.body, null, 2)}
+            </pre>
           </div>
         ),
         action: <GoHome />,

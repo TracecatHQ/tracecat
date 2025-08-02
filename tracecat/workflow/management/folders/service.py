@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
+from typing import Literal
 
 import sqlalchemy as sa
 from sqlmodel import and_, cast, col, func, or_, select
@@ -450,7 +451,9 @@ class WorkflowFolderService(BaseService):
         result = await self.session.exec(statement)
         return result.all()
 
-    async def get_directory_items(self, path: str = "/") -> Sequence[DirectoryItem]:
+    async def get_directory_items(
+        self, path: str = "/", *, order_by: Literal["asc", "desc"] = "desc"
+    ) -> Sequence[DirectoryItem]:
         """Get all directory items (workflows and folders) in the given path.
 
         Args:
@@ -501,6 +504,11 @@ class WorkflowFolderService(BaseService):
                     WorkflowDefinition.workflow_id == Workflow.id,
                     WorkflowDefinition.version == latest_defn_subq.c.latest_version,
                 ),
+            )
+            .order_by(
+                col(Workflow.created_at).desc()
+                if order_by == "desc"
+                else col(Workflow.created_at).asc()
             )
         )
 

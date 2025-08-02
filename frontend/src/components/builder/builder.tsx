@@ -1,6 +1,6 @@
 "use client"
 
-import { SidebarIcon } from "lucide-react"
+import { PanelLeft } from "lucide-react"
 import * as React from "react"
 import { WorkflowCanvas } from "@/components/builder/canvas/canvas"
 import { BuilderSidebarEvents } from "@/components/builder/events/events-sidebar"
@@ -107,7 +107,7 @@ export function Builder({ defaultLayout = [0, 68, 24] }: BuilderProps) {
                     onClick={toggleSidebar}
                   >
                     <div className="group rounded-sm p-1 hover:bg-border">
-                      <SidebarIcon className="group size-4 text-muted-foreground group-hover:text-foreground" />
+                      <PanelLeft className="group size-4 text-muted-foreground group-hover:text-foreground" />
                     </div>
                   </Button>
                 </TooltipTrigger>
@@ -132,7 +132,7 @@ export function Builder({ defaultLayout = [0, 68, 24] }: BuilderProps) {
                     onClick={toggleActionPanel}
                   >
                     <div className="group rounded-sm p-1 hover:bg-border">
-                      <SidebarIcon className="group size-4 -scale-x-100 text-muted-foreground group-hover:text-foreground" />
+                      <PanelLeft className="group size-4 -scale-x-100 text-muted-foreground group-hover:text-foreground" />
                     </div>
                   </Button>
                 </TooltipTrigger>

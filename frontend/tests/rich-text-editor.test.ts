@@ -21,6 +21,7 @@ describe("getSpacedBlocks", () => {
     id: "test-id",
     props: {
       level,
+      isToggleable: false,
       textAlignment: "left",
       backgroundColor: "default",
       textColor: "default",

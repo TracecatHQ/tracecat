@@ -44,9 +44,10 @@ describe("Expression Field Behavior", () => {
     })
 
     it("should handle empty or whitespace-only expressions", () => {
-      expect(isExpression("${{}}")).toBe(true) // Empty expression is still valid syntax
-      expect(isExpression("${{ }}")).toBe(true) // Whitespace-only expression
-      expect(isExpression("${{   }}")).toBe(true) // Multiple spaces
+      expect(isExpression("${{}}")).toBe(false) // Empty expression is not valid (regex requires content)
+      expect(isExpression("${{ }}")).toBe(true) // Whitespace-only expression matches (space is content)
+      expect(isExpression("${{   }}")).toBe(true) // Multiple spaces matches (spaces are content)
+      expect(isExpression("${{ x }}")).toBe(true) // Valid expression with content
     })
   })
 

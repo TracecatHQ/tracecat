@@ -1,0 +1,25 @@
+type: action
+definition:
+  title: List pods
+  description: List all pods in a Kubernetes namespace.
+  display_group: Kubernetes
+  doc_url: https://kubernetes.io/docs/reference/generated/kubectl/kubectl-commands#get
+  namespace: tools.kubernetes
+  name: list_pods
+  expects:
+    namespace:
+      type: str
+      description: Namespace to list pods from.
+    include_status:
+      type: bool
+      description: Whether to include pod status in the result.
+      default: false
+  steps:
+    - ref: list_pods
+      action: tools.kubernetes.run_command
+      args:
+        command:
+          - "get"
+          - "pods"
+        namespace: ${{ inputs.namespace }}
+  returns: ${{ steps.list_pods.result }}

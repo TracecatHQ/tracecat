@@ -179,6 +179,11 @@ class User(SQLModelBaseUserDB, table=True):
         back_populates="user",
         sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
     )
+    # Relationships
+    chats: list["Chat"] = Relationship(
+        back_populates="user",
+        sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
+    )
 
 
 class AccessToken(SQLModelBaseAccessToken, table=True):
@@ -572,6 +577,10 @@ class Action(Resource, table=True):
         description="The interaction configuration for the action",
         sa_column=Column(JSONB),
     )
+    environment: str | None = Field(
+        default=None,
+        description="Override environment for this action's execution",
+    )
     workflow_id: uuid.UUID = Field(
         sa_column=Column(UUID, ForeignKey("workflow.id", ondelete="CASCADE"))
     )
@@ -831,6 +840,11 @@ class Case(Resource, table=True):
     status: CaseStatus = Field(
         default=CaseStatus.NEW,
         description="Current case status (open, closed, escalated)",
+    )
+    payload: dict[str, Any] | None = Field(
+        default=None,
+        sa_column=Column(JSONB),
+        description="Additional data payload for the case",
     )
     # Relationships
     fields: CaseFields | None = Relationship(
@@ -1254,3 +1268,87 @@ class OAuthStateDB(SQLModel, TimestampMixin, table=True):
     # Relationships
     workspace: Workspace = Relationship()
     user: User = Relationship()
+
+
+class Chat(Resource, table=True):
+    """A chat between a user and an AI agent."""
+
+    __tablename__: str = "chat"
+
+    id: uuid.UUID = Field(
+        default_factory=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    title: str = Field(
+        default="New Chat",
+        description="Human-readable title for the chat",
+        nullable=False,
+    )
+    user_id: UUID4 = Field(
+        sa_column=Column(
+            UUID, ForeignKey("user.id", ondelete="CASCADE"), nullable=False
+        )
+    )
+    entity_type: str = Field(
+        ...,
+        description="The entity associated with this chat. e.g. a case",
+        nullable=False,
+    )
+    entity_id: UUID4 = Field(
+        ..., description="The polymorphic id of the associated entity."
+    )
+    tools: list[str] = Field(
+        default_factory=list,
+        sa_column=Column(JSONB),
+        description="The tools available to the agent for this chat.",
+    )
+
+    # Relationships
+    user: User = Relationship(back_populates="chats")
+
+
+class Prompt(Resource, table=True):
+    """A frozen chat that can be replayed on multiple cases."""
+
+    __tablename__: str = "prompt"
+
+    id: uuid.UUID = Field(
+        default_factory=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    chat_id: UUID4 = Field(
+        sa_column=Column(
+            UUID, ForeignKey("chat.id", ondelete="CASCADE"), nullable=False
+        )
+    )
+    title: str = Field(
+        ...,
+        description="Human-readable title for the prompt",
+        nullable=False,
+    )
+    content: str = Field(
+        ...,
+        description="The instruction prompt/runbook string passed to the agent",
+        nullable=False,
+    )
+    tools: list[str] = Field(
+        default_factory=list,
+        sa_column=Column(JSONB),
+        description="The tools available to the agent for this prompt.",
+    )
+    summary: str | None = Field(
+        default=None,
+        description="A summary of the prompt.",
+    )
+    meta: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=Column(JSONB),
+        description="Metadata including schema version, tool SHA, token count",
+    )
+
+    # Relationships
+    chat: Chat = Relationship(sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS)

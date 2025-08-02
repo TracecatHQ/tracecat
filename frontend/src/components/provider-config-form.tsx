@@ -2,6 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod"
 import type { JSONSchema7 } from "json-schema"
+import { Info, Save } from "lucide-react"
 import { type HTMLInputTypeAttribute, useCallback, useMemo } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
@@ -9,9 +10,9 @@ import type { IntegrationUpdate, ProviderRead } from "@/client"
 import { MultiTagCommandInput } from "@/components/tags-input"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
 import { CollapsibleCard } from "@/components/ui/collapsible-card"
-
 import {
   Form,
   FormControl,
@@ -22,6 +23,7 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import {
   Select,
   SelectContent,
@@ -30,6 +32,12 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { useIntegrationProvider } from "@/lib/hooks"
 import { jsonSchemaToZod } from "@/lib/jsonschema"
 import { useWorkspace } from "@/providers/workspace"
@@ -86,7 +94,7 @@ export function ProviderConfigForm({
   const schema = provider.schema?.json_schema || {}
   const {
     metadata: { id },
-    scopes: { default: defaultScopes, allowed_patterns: allowedPatterns },
+    scopes: { default: defaultScopes },
     grant_type: grantType,
   } = provider
   const { workspaceId } = useWorkspace()
@@ -106,37 +114,7 @@ export function ProviderConfigForm({
   const oauthSchema = z.object({
     client_id: z.string().min(1).max(512).nullish(),
     client_secret: z.string().max(512).optional(),
-    additional_scopes: z
-      .array(z.string())
-      .optional()
-      .superRefine((scopes, ctx) => {
-        if (!scopes || scopes.length === 0) return
-        if (!allowedPatterns || allowedPatterns.length === 0) return
-
-        scopes.forEach((scope, scopeIndex) => {
-          const failedPatterns: string[] = []
-
-          allowedPatterns.forEach((pattern) => {
-            try {
-              const regex = new RegExp(pattern)
-              if (!regex.test(scope)) {
-                failedPatterns.push(pattern)
-              }
-            } catch {
-              // If regex is invalid, skip this pattern
-            }
-          })
-
-          // If scope failed any patterns, add an issue
-          if (failedPatterns.length > 0) {
-            ctx.addIssue({
-              code: z.ZodIssueCode.custom,
-              message: `Scope "${scope}" doesn't match required patterns: ${failedPatterns.join(", ")}`,
-              path: [scopeIndex],
-            })
-          }
-        })
-      }),
+    scopes: z.array(z.string()).optional(),
     config: zodSchema,
   })
   type OAuthSchema = z.infer<typeof oauthSchema>
@@ -150,13 +128,9 @@ export function ProviderConfigForm({
     )
 
     return {
-      client_id: integration?.client_id ?? "", // Integration doesn't expose client_id
+      client_id: integration?.client_id ?? "",
       client_secret: "", // Never pre-fill secrets
-      // Show only additional scopes
-      additional_scopes:
-        integration?.requested_scopes?.filter(
-          (scope) => !defaultScopes?.includes(scope)
-        ) ?? [],
+      scopes: integration?.requested_scopes ?? defaultScopes ?? [],
       config: {
         ...configDefaults,
         ...(integration?.provider_config ?? {}),
@@ -171,9 +145,8 @@ export function ProviderConfigForm({
 
   const onSubmit = useCallback(
     async (data: OAuthSchema) => {
-      const { client_id, client_secret, additional_scopes, config } = data
+      const { client_id, client_secret, scopes, config } = data
 
-      const scopes = [...(defaultScopes ?? []), ...(additional_scopes ?? [])]
       try {
         const params: IntegrationUpdate = {
           client_id: client_id ? String(client_id) : undefined,
@@ -182,7 +155,6 @@ export function ProviderConfigForm({
               ? String(client_secret)
               : undefined,
           provider_config: config || undefined,
-          // All scopes
           scopes: scopes || undefined,
           grant_type: grantType,
         }
@@ -192,7 +164,7 @@ export function ProviderConfigForm({
         console.error(error)
       }
     },
-    [updateIntegration, onSuccess, defaultScopes, grantType]
+    [updateIntegration, onSuccess, grantType]
   )
 
   if (integrationIsLoading) {
@@ -200,71 +172,66 @@ export function ProviderConfigForm({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col gap-6">
       {/* Current Configuration Summary */}
       {integration && (
         <CollapsibleCard
           title="Current configuration"
-          description="View your existing integration settings"
+          description="View your existing integration settings."
           defaultOpen={false}
           className="bg-muted/50"
         >
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-            <div className="space-y-1">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5 text-sm">
+            <div className="flex flex-col gap-2">
               <span className="font-medium text-muted-foreground">
                 Client ID
               </span>
-              <div className="text-xs">
-                {integration.status === "connected"
-                  ? "Configured"
-                  : "Not configured"}
-              </div>
-            </div>
-
-            <div className="space-y-1">
-              <span className="font-medium text-muted-foreground">
-                Client Secret
-              </span>
-              <div className="text-xs">
-                {integration.status === "connected"
-                  ? "Configured"
-                  : "Not configured"}
-              </div>
-            </div>
-
-            <div className="space-y-1 md:col-span-2">
-              <span className="font-medium text-muted-foreground">
-                OAuth Scopes
-              </span>
-              <div className="flex flex-wrap gap-1">
-                {(integration.requested_scopes ?? []).length > 0 ? (
-                  integration.requested_scopes?.map((scope) => (
-                    <Badge key={scope} variant="outline" className="text-xs">
-                      {scope}
-                    </Badge>
-                  ))
-                ) : (
-                  <span className="text-xs text-muted-foreground">
-                    None configured
+              <div className="text-xs font-mono">
+                {integration.client_id ? (
+                  <span>
+                    {integration.client_id.slice(0, 8)}****
+                    {integration.client_id.length > 12
+                      ? "****" + integration.client_id.slice(-4)
+                      : ""}
                   </span>
+                ) : (
+                  <span className="text-muted-foreground">Not configured</span>
                 )}
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <span className="font-medium text-muted-foreground">
+                Client secret
+              </span>
+              <div className="text-xs">
+                {integration.status !== "not_configured"
+                  ? "Configured"
+                  : "Not configured"}
               </div>
             </div>
 
             {integration.provider_config &&
               Object.keys(integration.provider_config).length > 0 && (
-                <div className="space-y-1 md:col-span-2">
+                <div className="flex flex-col gap-2 md:col-span-2">
                   <span className="font-medium text-muted-foreground">
-                    Provider Configuration
+                    Provider configuration
                   </span>
-                  <div className="text-xs space-y-1">
+                  <div className="flex flex-col gap-2">
                     {Object.entries(integration.provider_config).map(
                       ([key, value]) => (
-                        <div key={key} className="flex justify-between">
-                          <span className="font-medium">{key}:</span>
-                          <span className="font-mono">
-                            {typeof value === "string" && value.length > 20
-                              ? `${value.slice(0, 8)}...`
+                        <div
+                          key={key}
+                          className="flex items-start gap-3 text-xs"
+                        >
+                          <span className="font-medium text-foreground min-w-0 flex-shrink-0">
+                            {key
+                              .replace(/_/g, " ")
+                              .replace(/\b\w/g, (l) => l.toUpperCase())}
+                          </span>
+                          <span className="font-mono text-muted-foreground min-w-0 flex-1 truncate">
+                            {typeof value === "string" && value.length > 32
+                              ? `${value.slice(0, 24)}...`
                               : String(value)}
                           </span>
                         </div>
@@ -273,219 +240,101 @@ export function ProviderConfigForm({
                   </div>
                 </div>
               )}
+
+            <div className="flex flex-col gap-2 md:col-span-2">
+              <span className="font-medium text-muted-foreground">
+                OAuth scopes
+              </span>
+              <div className="text-xs">
+                {(integration.requested_scopes ?? []).length > 0 ? (
+                  <div className="flex flex-wrap gap-1">
+                    {integration.requested_scopes?.map((scope) => (
+                      <Badge key={scope} variant="outline" className="text-xs">
+                        {scope}
+                      </Badge>
+                    ))}
+                  </div>
+                ) : (
+                  <span className="text-muted-foreground">None configured</span>
+                )}
+              </div>
+            </div>
           </div>
         </CollapsibleCard>
       )}
 
       <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-          {/* Standard OAuth Configuration */}
-          <div className="space-y-4">
-            <h3 className="text-sm font-medium">OAuth Configuration</h3>
-            <FormField
-              control={form.control}
-              name="client_id"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Client ID</FormLabel>
-                  <FormControl>
-                    <Input {...field} value={field.value ?? ""} />
-                  </FormControl>
-                  <FormMessage />
-                  <FormDescription>
-                    The client ID for the OAuth application.
-                  </FormDescription>
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="client_secret"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Client Secret</FormLabel>
-                  <FormControl>
-                    <Input
-                      {...field}
-                      type="password"
-                      value={field.value ?? ""}
-                      placeholder="Enter new client secret..."
-                    />
-                  </FormControl>
-                  <FormMessage />
-                  <FormDescription>
-                    The client secret for the OAuth application. Leave empty to
-                    keep the existing secret unchanged.
-                  </FormDescription>
-                </FormItem>
-              )}
-            />
-
-            {/* OAuth Scopes Configuration */}
-            <div className="space-y-4">
-              {/* Show default scopes */}
-              {defaultScopes && defaultScopes.length > 0 && (
-                <div>
-                  <span className="text-sm font-medium text-muted-foreground mb-2">
-                    Base Scopes
-                  </span>
-                  <div className="flex flex-wrap gap-1">
-                    {defaultScopes.map((scope) => (
-                      <Badge
-                        key={scope}
-                        variant="secondary"
-                        className="text-xs"
-                      >
-                        {scope}
-                      </Badge>
-                    ))}
-                  </div>
-                  <span className="text-xs text-muted-foreground mt-1">
-                    These are the base scopes that this integration requires.
-                    {!!provider.scopes.accepts_additional_scopes && (
-                      <> You can customize additional scopes below.</>
-                    )}
-                  </span>
-                </div>
-              )}
-
-              {/* Only show additional scopes input if provider accepts them */}
-              {!!provider.scopes.accepts_additional_scopes && (
-                <FormField
-                  control={form.control}
-                  name="additional_scopes"
-                  render={({ field, fieldState }) => (
-                    <FormItem>
-                      <FormLabel>Additional OAuth Scopes (Optional)</FormLabel>
-                      <FormControl>
-                        <MultiTagCommandInput
-                          value={field.value ?? []}
-                          onChange={field.onChange}
-                          placeholder="Add scopes..."
-                          className="min-h-[42px]"
-                          searchKeys={["value", "label", "description"]}
-                          allowCustomTags
-                          disableSuggestions
-                        />
-                      </FormControl>
-                      <FormDescription>
-                        Add additional scopes beyond the base scopes. Leave
-                        empty to use only the base scopes. Start typing to see
-                        suggestions or enter any valid scope.
-                        {allowedPatterns && allowedPatterns.length > 0 && (
-                          <div className="mt-2 p-2 bg-muted/50 rounded text-xs">
-                            <strong>Allowed scope patterns:</strong>
-                            <div className="mt-1 space-y-1">
-                              {allowedPatterns.map((pattern, index) => (
-                                <div key={index} className="font-mono text-xs">
-                                  {pattern}
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                      </FormDescription>
-                      <ScopeErrors
-                        errors={
-                          fieldState.error as
-                            | Record<string, { message?: string }>
-                            | undefined
-                        }
-                        scopes={field.value ?? []}
+        <form
+          onSubmit={form.handleSubmit(onSubmit)}
+          className="flex flex-col gap-6"
+        >
+          {/* Client Credentials and Provider Configuration Card */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Client credentials</CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-4">
+              <FormField
+                control={form.control}
+                name="client_id"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Client ID</FormLabel>
+                    <FormControl>
+                      <Input
+                        {...field}
+                        value={field.value ?? ""}
+                        placeholder="Enter client ID..."
                       />
-                      {fieldState.error &&
-                        !Object.keys(fieldState.error).some(
-                          (key) => !isNaN(Number(key))
-                        ) && <FormMessage />}
-                    </FormItem>
-                  )}
-                />
-              )}
-            </div>
-          </div>
-          {/* Provider-Specific Configuration Section */}
-          {properties.length > 0 && (
-            <div className="space-y-4">
-              <h3 className="text-sm font-medium">
-                Provider-specific Configuration
-              </h3>
-              <div className="space-y-4">
-                {properties.map(([key, property]) => {
-                  if (typeof property === "boolean") {
-                    return null
-                  }
-                  const keyName = `config.${key}` as const
-                  const enumOptions = property.enum
-                  if (enumOptions) {
-                    return (
-                      <FormField
-                        key={key}
-                        control={form.control}
-                        name={keyName}
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>
-                              {property.title ||
-                                key
-                                  .replace(/_/g, " ")
-                                  .replace(/\b\w/g, (l) => l.toUpperCase())}
-                              {property.required && (
-                                <span className="ml-1 text-red-500">*</span>
-                              )}
-                            </FormLabel>
-                            <FormControl>
-                              <Select
-                                onValueChange={field.onChange}
-                                defaultValue={
-                                  field.value ? String(field.value) : ""
-                                }
-                              >
-                                <SelectTrigger>
-                                  <SelectValue
-                                    placeholder={`Select ${property.title || key}`}
-                                  />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {enumOptions.map((option: unknown) => (
-                                    <SelectItem
-                                      key={String(option)}
-                                      value={String(option)}
-                                    >
-                                      {String(option)}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            </FormControl>
-                            {property.description && (
-                              <FormDescription>
-                                {property.description}
-                              </FormDescription>
-                            )}
-                            <FormMessage />
-                          </FormItem>
-                        )}
+                    </FormControl>
+                    <FormMessage />
+                    <FormDescription className="text-xs">
+                      The client ID for the OAuth application.
+                    </FormDescription>
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="client_secret"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Client secret</FormLabel>
+                    <FormControl>
+                      <Input
+                        {...field}
+                        type="password"
+                        value={field.value ?? ""}
+                        placeholder="Enter client secret..."
                       />
-                    )
-                  }
+                    </FormControl>
+                    <FormMessage />
+                    <FormDescription className="text-xs">
+                      The client secret for the OAuth application. Leave empty
+                      to keep the existing secret unchanged.
+                    </FormDescription>
+                  </FormItem>
+                )}
+              />
 
-                  if (property.type === "boolean") {
-                    return (
-                      <FormField
-                        key={key}
-                        control={form.control}
-                        name={keyName}
-                        render={({ field }) => (
-                          <FormItem>
-                            <div className="flex items-center space-x-2">
-                              <FormControl>
-                                <Checkbox
-                                  id={key}
-                                  checked={Boolean(field.value)}
-                                  onCheckedChange={field.onChange}
-                                />
-                              </FormControl>
-                              <FormLabel htmlFor={key}>
+              {/* Provider-Specific Configuration within the same card */}
+              {properties.length > 0 && (
+                <div className="flex flex-col gap-4">
+                  {properties.map(([key, property]) => {
+                    if (typeof property === "boolean") {
+                      return null
+                    }
+                    const keyName = `config.${key}` as const
+                    const enumOptions = property.enum
+                    if (enumOptions) {
+                      return (
+                        <FormField
+                          key={key}
+                          control={form.control}
+                          name={keyName}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>
                                 {property.title ||
                                   key
                                     .replace(/_/g, " ")
@@ -494,24 +343,118 @@ export function ProviderConfigForm({
                                   <span className="ml-1 text-red-500">*</span>
                                 )}
                               </FormLabel>
-                            </div>
-                            {property.description && (
-                              <FormDescription>
-                                {property.description}
-                              </FormDescription>
-                            )}
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                    )
-                  }
+                              <FormControl>
+                                <Select
+                                  onValueChange={field.onChange}
+                                  defaultValue={
+                                    field.value ? String(field.value) : ""
+                                  }
+                                >
+                                  <SelectTrigger>
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {enumOptions.map((option: unknown) => (
+                                      <SelectItem
+                                        key={String(option)}
+                                        value={String(option)}
+                                      >
+                                        {String(option)}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </FormControl>
+                              {property.description && (
+                                <FormDescription className="text-xs">
+                                  {property.description}
+                                </FormDescription>
+                              )}
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      )
+                    }
 
-                  if (
-                    property.type === "string" &&
-                    (property.maxLength === undefined ||
-                      property.maxLength > TEXT_AREA_THRESHOLD)
-                  ) {
+                    if (property.type === "boolean") {
+                      return (
+                        <FormField
+                          key={key}
+                          control={form.control}
+                          name={keyName}
+                          render={({ field }) => (
+                            <FormItem>
+                              <div className="flex items-center space-x-2">
+                                <FormControl>
+                                  <Checkbox
+                                    id={key}
+                                    checked={Boolean(field.value)}
+                                    onCheckedChange={field.onChange}
+                                  />
+                                </FormControl>
+                                <FormLabel htmlFor={key}>
+                                  {property.title ||
+                                    key
+                                      .replace(/_/g, " ")
+                                      .replace(/\b\w/g, (l) => l.toUpperCase())}
+                                  {property.required && (
+                                    <span className="ml-1 text-red-500">*</span>
+                                  )}
+                                </FormLabel>
+                              </div>
+                              {property.description && (
+                                <FormDescription className="text-xs">
+                                  {property.description}
+                                </FormDescription>
+                              )}
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      )
+                    }
+
+                    if (
+                      property.type === "string" &&
+                      (property.maxLength === undefined ||
+                        property.maxLength > TEXT_AREA_THRESHOLD)
+                    ) {
+                      return (
+                        <FormField
+                          key={key}
+                          control={form.control}
+                          name={keyName}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>
+                                {property.title ||
+                                  key
+                                    .replace(/_/g, " ")
+                                    .replace(/\b\w/g, (l) => l.toUpperCase())}
+                                {property.required && (
+                                  <span className="ml-1 text-red-500">*</span>
+                                )}
+                              </FormLabel>
+                              <FormControl>
+                                <Textarea
+                                  {...field}
+                                  value={field.value ? String(field.value) : ""}
+                                  placeholder={`Enter ${property.title || key.replace(/_/g, " ").toLowerCase()}...`}
+                                />
+                              </FormControl>
+                              {property.description && (
+                                <FormDescription className="text-xs">
+                                  {property.description}
+                                </FormDescription>
+                              )}
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      )
+                    }
+
                     return (
                       <FormField
                         key={key}
@@ -529,17 +472,15 @@ export function ProviderConfigForm({
                               )}
                             </FormLabel>
                             <FormControl>
-                              <Textarea
+                              <Input
                                 {...field}
-                                placeholder={
-                                  property.description ||
-                                  `Enter ${property.title || key}`
-                                }
                                 value={field.value ? String(field.value) : ""}
+                                type={getInputType(property)}
+                                placeholder={`Enter ${property.title || key.replace(/_/g, " ").toLowerCase()}...`}
                               />
                             </FormControl>
                             {property.description && (
-                              <FormDescription>
+                              <FormDescription className="text-xs">
                                 {property.description}
                               </FormDescription>
                             )}
@@ -548,55 +489,106 @@ export function ProviderConfigForm({
                         )}
                       />
                     )
-                  }
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
 
-                  return (
-                    <FormField
-                      key={key}
-                      control={form.control}
-                      name={keyName}
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>
-                            {property.title ||
-                              key
-                                .replace(/_/g, " ")
-                                .replace(/\b\w/g, (l) => l.toUpperCase())}
-                            {property.required && (
-                              <span className="ml-1 text-red-500">*</span>
-                            )}
-                          </FormLabel>
-                          <FormControl>
-                            <Input
-                              {...field}
-                              value={field.value ? String(field.value) : ""}
-                              type={getInputType(property)}
-                              placeholder={
-                                property.description ||
-                                `Enter ${property.title || key}`
-                              }
-                            />
-                          </FormControl>
-                          {property.description && (
-                            <FormDescription>
-                              {property.description}
-                            </FormDescription>
-                          )}
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  )
-                })}
-              </div>
-            </div>
-          )}
+          {/* OAuth Scopes Card */}
+          <Card>
+            <CardHeader>
+              <CardTitle>OAuth scopes</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* Show default scopes */}
+              {defaultScopes && defaultScopes.length > 0 && (
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium flex items-center gap-2">
+                    Default scopes
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Info className="h-3 w-3 text-muted-foreground" />
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p className="text-xs">
+                            These are the default scopes for this provider. You
+                            can override them below.
+                          </p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  </Label>
+                  <div className="flex flex-wrap gap-2">
+                    {defaultScopes.map((scope) => (
+                      <Badge key={scope} variant="secondary">
+                        {scope}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Scopes input */}
+              <FormField
+                control={form.control}
+                name="scopes"
+                render={({ field, fieldState }) => (
+                  <FormItem>
+                    <div className="flex items-center justify-between">
+                      <FormLabel>OAuth scopes</FormLabel>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => field.onChange(defaultScopes ?? [])}
+                        className="h-7 text-xs"
+                      >
+                        Reset scopes
+                      </Button>
+                    </div>
+                    <FormControl>
+                      <MultiTagCommandInput
+                        value={field.value ?? []}
+                        onChange={field.onChange}
+                        placeholder="Add scopes..."
+                        className="min-h-[42px]"
+                        searchKeys={["value", "label", "description"]}
+                        allowCustomTags
+                        disableSuggestions
+                      />
+                    </FormControl>
+                    <FormDescription className="text-xs">
+                      <div className="flex flex-col gap-4">
+                        <span>
+                          Configure the OAuth scopes for this integration.
+                        </span>
+                      </div>
+                    </FormDescription>
+                    {fieldState.error && <FormMessage />}
+                  </FormItem>
+                )}
+              />
+            </CardContent>
+          </Card>
 
           {/* Submit Button */}
           <div className="flex justify-end items-center pt-4 gap-2">
             <div className="flex flex-wrap gap-3">{additionalButtons}</div>
-            <Button type="submit" disabled={updateIntegrationIsPending}>
-              {updateIntegrationIsPending ? "Saving..." : "Save Configuration"}
+            <Button
+              type="submit"
+              variant={
+                integration && integration.status !== "not_configured"
+                  ? "secondary"
+                  : "default"
+              }
+              disabled={updateIntegrationIsPending}
+            >
+              <Save className="h-4 w-4 mr-2" />
+              {integration && integration.status !== "not_configured"
+                ? "Update configuration"
+                : "Save configuration"}
             </Button>
           </div>
         </form>
@@ -607,64 +599,58 @@ export function ProviderConfigForm({
 
 export function ProviderConfigFormSkeleton() {
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col gap-6">
       <div className="rounded-md border p-4 bg-muted/50">
         <div className="h-4 bg-muted animate-pulse rounded mb-3"></div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <div className="space-y-2">
+          <div className="flex flex-col gap-2">
             <div className="h-3 bg-muted animate-pulse rounded w-20"></div>
             <div className="h-3 bg-muted animate-pulse rounded w-32"></div>
           </div>
-          <div className="space-y-2">
+          <div className="flex flex-col gap-2">
             <div className="h-3 bg-muted animate-pulse rounded w-24"></div>
             <div className="h-3 bg-muted animate-pulse rounded w-28"></div>
           </div>
         </div>
       </div>
-      <div className="space-y-4">
-        <div className="h-4 bg-muted animate-pulse rounded w-32"></div>
-        <div className="space-y-3">
-          <div className="space-y-2">
+
+      {/* Client Credentials Card Skeleton */}
+      <Card>
+        <CardHeader>
+          <div className="h-5 bg-muted animate-pulse rounded w-40"></div>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          <div className="flex flex-col gap-2">
             <div className="h-3 bg-muted animate-pulse rounded w-20"></div>
             <div className="h-10 bg-muted animate-pulse rounded"></div>
           </div>
-          <div className="space-y-2">
+          <div className="flex flex-col gap-2">
             <div className="h-3 bg-muted animate-pulse rounded w-24"></div>
             <div className="h-10 bg-muted animate-pulse rounded"></div>
           </div>
-        </div>
-      </div>
-    </div>
-  )
-}
+        </CardContent>
+      </Card>
 
-function ScopeErrors({
-  errors,
-  scopes,
-}: {
-  errors: Record<string, { message?: string }> | undefined
-  scopes: string[]
-}) {
-  if (!errors || !scopes) return null
-
-  // Get all scope-specific errors (errors with numeric keys)
-  const scopeErrors = Object.entries(errors)
-    .filter(([key]) => !isNaN(Number(key)))
-    .map(([index, error]) => ({
-      index: Number(index),
-      scope: scopes[Number(index)],
-      message: error?.message || "Invalid scope",
-    }))
-
-  if (scopeErrors.length === 0) return null
-
-  return (
-    <div className="space-y-1">
-      {scopeErrors.map(({ index, message }) => (
-        <div key={index} className="text-sm text-red-600">
-          {message}
-        </div>
-      ))}
+      {/* OAuth Scopes Card Skeleton */}
+      <Card>
+        <CardHeader>
+          <div className="h-5 bg-muted animate-pulse rounded w-32"></div>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          <div className="flex flex-col gap-2">
+            <div className="h-3 bg-muted animate-pulse rounded w-24"></div>
+            <div className="flex gap-2">
+              <div className="h-6 bg-muted animate-pulse rounded w-16"></div>
+              <div className="h-6 bg-muted animate-pulse rounded w-20"></div>
+              <div className="h-6 bg-muted animate-pulse rounded w-20"></div>
+            </div>
+          </div>
+          <div className="flex flex-col gap-2">
+            <div className="h-3 bg-muted animate-pulse rounded w-40"></div>
+            <div className="h-10 bg-muted animate-pulse rounded"></div>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   )
 }

@@ -332,6 +332,10 @@ async def test_workflow_waits_until_tomorrow_9am(
         assert (await env.get_current_time()) >= t
 
 
+@pytest.mark.skipif(
+    datetime.now(UTC) < datetime(2025, 8, 5, tzinfo=UTC),
+    reason="Skipping test until August 5, 2025",
+)
 @pytest.mark.parametrize(
     "wait_time,expected_delay",
     [

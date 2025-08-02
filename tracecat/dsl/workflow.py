@@ -369,13 +369,13 @@ class DSLWorkflow:
         if task_exceptions:
             n_exc = len(task_exceptions)
             formatted_exc = "\n".join(
-                f"{'=' * 20} ({i + 1}/{n_exc}) {details.expr_context}.{ref} {'=' * 20}\n\n{info.exception!s}"
+                f"{'=' * 10} ({i + 1}/{n_exc}) {details.expr_context}.{ref} {'=' * 10}\n\n{info.exception!s}"
                 for i, (ref, info) in enumerate(task_exceptions.items())
                 if (details := info.details)
             )
             # NOTE: This error is shown in the final activity in the workflow history
             raise ApplicationError(
-                f"Workflow failed with {n_exc} task exception(s)\n\n{formatted_exc}",
+                f"Workflow failed with {n_exc} error(s)\n\n{formatted_exc}",
                 # We should add the details of the exceptions to the error message because this will get captured
                 # in the error handler workflow
                 {ref: info.details for ref, info in task_exceptions.items()},
@@ -932,9 +932,19 @@ class DSLWorkflow:
 
         new_context = {**self.context, ExprContext.ACTIONS: new_action_context}
 
+        # Check if action has environment override
+        run_context = self.run_context
+        if task.environment is not None:
+            # Evaluate the environment expression
+            evaluated_env = eval_templated_object(task.environment, operand=new_context)
+            # Create a new run context with the overridden environment
+            run_context = self.run_context.model_copy(
+                update={"environment": evaluated_env}
+            )
+
         arg = RunActionInput(
             task=task,
-            run_context=self.run_context,
+            run_context=run_context,
             exec_context=new_context,
             interaction_context=ctx_interaction.get(),
             stream_id=stream_id,

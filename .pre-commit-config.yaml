@@ -32,6 +32,13 @@ repos:
     rev: v8.25.1
     hooks:
       - id: gitleaks
+  - repo: https://github.com/astral-sh/uv-pre-commit
+    rev: 0.8.4
+    hooks:
+      # Keep uv.lock in sync with changes to pyproject.toml
+      - id: uv-lock
+      # Optionally export a requirements.txt reflecting uv.lock
+      - id: uv-export
   - repo: local
     hooks:
       - id: biome-check

@@ -1,0 +1,49 @@
+type: action
+definition:
+  title: Get ticket attachments
+  description: Retrieve attachments from a specific ticket.
+  display_group: Zendesk
+  doc_url: https://developer.zendesk.com/api-reference/ticketing/tickets/ticket_comments/
+  namespace: tools.zendesk
+  name: get_ticket_attachments
+  secrets:
+    - name: zendesk
+      keys: ["ZENDESK_EMAIL", "ZENDESK_API_TOKEN"]
+  expects:
+    subdomain:
+      type: str
+      description: Your Zendesk subdomain (e.g., 'company' for company.zendesk.com)
+    ticket_id:
+      type: int
+      description: The ID of the ticket
+  steps:
+    - ref: encode_auth
+      action: core.transform.reshape
+      args:
+        value: ${{ FN.to_base64(SECRETS.zendesk.ZENDESK_EMAIL + "/token:" + SECRETS.zendesk.ZENDESK_API_TOKEN) }}
+    - ref: get_comments
+      action: core.http_request
+      args:
+        url: https://${{ inputs.subdomain }}.zendesk.com/api/v2/tickets/${{ inputs.ticket_id }}/comments.json
+        method: GET
+        headers:
+          Authorization: Basic ${{ steps.encode_auth.result }}
+          Content-Type: application/json
+          Accept: application/json
+    - ref: extract_attachments
+      action: core.script.run_python
+      args:
+        inputs:
+          comments: ${{ steps.get_comments.result.data.comments }}
+        script: |
+          def main(comments):
+            attachments = []
+            for comment in comments:
+              if comment.get("attachments"):
+                for attachment in comment["attachments"]:
+                  attachments.append({
+                    "comment_id": comment["id"],
+                    "attachment": attachment
+                  })
+            return attachments
+  returns: ${{ steps.extract_attachments.result }}

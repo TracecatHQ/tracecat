@@ -39,7 +39,12 @@ export const columns: ColumnDef<CaseReadMinimal>[] = [
       />
     ),
     cell: ({ row }) => (
-      <div onClick={(e) => e.stopPropagation()}>
+      <div
+        onClick={(e) => {
+          e.stopPropagation()
+          e.preventDefault()
+        }}
+      >
         <Checkbox
           className="border-foreground/50"
           checked={row.getIsSelected()}

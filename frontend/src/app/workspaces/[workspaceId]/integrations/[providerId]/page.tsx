@@ -8,8 +8,7 @@ import {
   LayoutListIcon,
   Loader2,
   Settings,
-  Shield,
-  UnplugIcon,
+  Unplug,
   User,
   Zap,
 } from "lucide-react"
@@ -40,26 +39,11 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { CollapsibleCard } from "@/components/ui/collapsible-card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
 import { useIntegrationProvider } from "@/lib/hooks"
-import { categoryColors } from "@/lib/provider-styles"
 import { cn } from "@/lib/utils"
 import { useWorkspace } from "@/providers/workspace"
 
@@ -124,8 +108,7 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [errorMessage, setErrorMessage] = useState("")
-  const [showConnectPrompt, setShowConnectPrompt] = useState(false)
-  const [showSuccessMessage, setShowSuccessMessage] = useState(false)
+  const [_showConnectPrompt, setShowConnectPrompt] = useState(false)
   const providerId = provider.metadata.id
 
   // Get active tab from URL query params, default to "overview"
@@ -139,11 +122,13 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
   // Function to handle tab changes and update URL
   const handleTabChange = useCallback(
     (tab: string) => {
+      const params = new URLSearchParams(searchParams?.toString() || "")
+      params.set("tab", tab)
       router.push(
-        `/workspaces/${workspaceId}/integrations/${providerId}?tab=${tab}`
+        `/workspaces/${workspaceId}/integrations/${providerId}?${params.toString()}`
       )
     },
-    [router, workspaceId, providerId]
+    [router, workspaceId, providerId, searchParams]
   )
 
   // Whether there's a connected integration
@@ -171,17 +156,13 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
     if (integrationStatus === "configured") {
       setShowConnectPrompt(true)
     }
-    // Switch back to overview tab after successful configuration
-    handleTabChange("overview")
-  }, [integrationStatus, handleTabChange])
+    // Stay on configuration tab after saving
+  }, [integrationStatus])
 
   const handleOAuthConnect = useCallback(async () => {
     try {
       setErrorMessage("")
       await connectProvider(providerId)
-      setShowSuccessMessage(true)
-      // Hide success message after 5 seconds
-      setTimeout(() => setShowSuccessMessage(false), 5000)
     } catch (_error) {
       setErrorMessage("Failed to connect. Please try again.")
     }
@@ -190,7 +171,6 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
   const handleDisconnect = useCallback(async () => {
     try {
       await disconnectProvider(providerId)
-      setShowSuccessMessage(false)
       setErrorMessage("")
     } catch (_error) {
       setErrorMessage("Failed to disconnect. Please try again.")
@@ -201,10 +181,6 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
     try {
       setErrorMessage("")
       await testConnection(providerId)
-      setShowSuccessMessage(true)
-      // Hide success message after 5 seconds
-      await new Promise((resolve) => setTimeout(resolve, 5000))
-      setShowSuccessMessage(false)
     } catch (_error) {
       setErrorMessage(
         "Failed to test connection. Please check your credentials."
@@ -215,24 +191,7 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
   const isEnabled = Boolean(metadata.enabled)
 
   return (
-    <div className="container mx-auto max-w-4xl p-6 min-h-screen">
-      {/* Breadcrumb */}
-      <Breadcrumb className="mb-6">
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink asChild>
-              <Link href={`/workspaces/${workspaceId}/integrations`}>
-                Integrations
-              </Link>
-            </BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbPage>{metadata.name}</BreadcrumbPage>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
-
+    <div className="container mx-auto max-w-4xl p-6 mb-20 mt-12">
       {/* Header */}
       <div className="mb-8 flex items-start justify-between">
         <div className="flex items-start gap-4">
@@ -244,95 +203,115 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
                 `Connect ${metadata.name} to enhance your workflows`}
             </p>
             <div className="mt-2 flex gap-2">
-              {metadata.categories?.map((category) => (
-                <Badge
-                  key={category}
-                  className={cn(
-                    "!shadow-none whitespace-nowrap capitalize",
-                    categoryColors[category || "other"]
-                  )}
-                >
-                  {category}
-                </Badge>
-              ))}
-              <Badge
-                variant="default"
-                className="text-muted-foreground bg-muted !shadow-none whitespace-nowrap hover:bg-muted hover:text-muted-foreground"
-              >
+              <Badge variant="secondary" className="whitespace-nowrap">
                 {provider.grant_type === "client_credentials" ? (
                   <>
                     <Key className="mr-1 size-3" />
-                    Client Credentials
+                    Client credentials
                   </>
                 ) : (
                   <>
                     <User className="mr-1 size-3" />
-                    Authorization Code
+                    Authorization code
                   </>
                 )}
               </Badge>
-              <Badge className={cn(statusStyles[integrationStatus].style)}>
-                {statusStyles[integrationStatus].label}
-              </Badge>
+              <div className="flex items-center gap-2">
+                <Badge
+                  variant="outline"
+                  className={cn(statusStyles[integrationStatus].style)}
+                >
+                  {statusStyles[integrationStatus].label}
+                </Badge>
+                {isConnected && provider.grant_type === "authorization_code" ? (
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-[22px] px-2 py-0 text-xs font-medium text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                        disabled={!isEnabled || disconnectProviderIsPending}
+                      >
+                        {disconnectProviderIsPending ? (
+                          <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                        ) : (
+                          <Unplug className="mr-1 h-3 w-3" />
+                        )}
+                        Disconnect
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>
+                          Disconnect integration
+                        </AlertDialogTitle>
+                        <AlertDialogDescription>
+                          Are you sure you want to disconnect from{" "}
+                          {metadata.name}? This will remove your authentication
+                          and you'll need to reconnect to use this integration.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                          variant="destructive"
+                          onClick={handleDisconnect}
+                        >
+                          Disconnect
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                ) : isConfigured ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-[22px] px-2 py-0 text-xs font-medium"
+                    onClick={
+                      provider.grant_type === "authorization_code"
+                        ? handleOAuthConnect
+                        : handleTestConnection
+                    }
+                    disabled={
+                      !isEnabled ||
+                      connectProviderIsPending ||
+                      testConnectionIsPending
+                    }
+                  >
+                    {connectProviderIsPending || testConnectionIsPending ? (
+                      <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                    ) : provider.grant_type === "authorization_code" ? (
+                      <ExternalLink className="mr-1 h-3 w-3" />
+                    ) : (
+                      <Zap className="mr-1 h-3 w-3" />
+                    )}
+                    {provider.grant_type === "authorization_code"
+                      ? "Connect with OAuth"
+                      : "Fetch token"}
+                  </Button>
+                ) : (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-[22px] px-2 py-0 text-xs font-medium"
+                    onClick={() => handleTabChange("configuration")}
+                    disabled={!isEnabled}
+                  >
+                    <Settings className="mr-1 h-3 w-3" />
+                    Configure
+                  </Button>
+                )}
+              </div>
             </div>
           </div>
         </div>
       </div>
-
-      {/* Disabled Provider Alert */}
-      {!isEnabled && (
-        <Alert className="mb-6 border-orange-200 bg-orange-50">
-          <AlertCircle className="size-4 text-orange-600" />
-          <AlertDescription className="text-orange-800">
-            This integration is coming soon and is not yet available for use.
-          </AlertDescription>
-        </Alert>
-      )}
-
-      {/* Status Alert */}
-      {showSuccessMessage && isConnected && (
-        <Alert className="mb-6 border-green-200 bg-green-50">
-          <SuccessIcon />
-          <AlertDescription className="text-green-800">
-            Successfully connected to {metadata.name}!
-          </AlertDescription>
-        </Alert>
-      )}
 
       {errorMessage && (
         <Alert className="mb-6 border-red-200 bg-red-50">
           <AlertCircle className="size-4 text-red-600" />
           <AlertDescription className="text-red-800">
             {errorMessage}
-          </AlertDescription>
-        </Alert>
-      )}
-
-      {showConnectPrompt && !isConnected && (
-        <Alert className="mb-6 border-blue-200 bg-blue-50">
-          <Shield className="size-4 text-blue-600" />
-          <AlertDescription className="flex items-center justify-between">
-            <span className="text-blue-800">
-              Configuration saved! Ready to connect with OAuth?
-            </span>
-            <div className="flex gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => setShowConnectPrompt(false)}
-              >
-                Later
-              </Button>
-              <Button
-                size="sm"
-                onClick={() => {
-                  setShowConnectPrompt(false)
-                  handleOAuthConnect()
-                }}
-              >
-                Connect Now
-              </Button>
-            </div>
           </AlertDescription>
         </Alert>
       )}
@@ -365,200 +344,64 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
             {/* Main Content */}
             <div className="space-y-6 lg:col-span-2">
               {/* Connection Status */}
-              <Card className="border-border">
-                <CardHeader>
-                  <CardTitle className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Zap className="size-5" />
-                      Connection Status
-                    </div>
-                    {isConnected && (
-                      <TooltipProvider>
-                        <AlertDialog>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <AlertDialogTrigger asChild>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  disabled={
-                                    !isEnabled || disconnectProviderIsPending
-                                  }
-                                >
-                                  {disconnectProviderIsPending ? (
-                                    <Loader2 className="size-4 animate-spin" />
-                                  ) : (
-                                    <UnplugIcon className="size-4" />
-                                  )}
-                                </Button>
-                              </AlertDialogTrigger>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              <p>Disconnect</p>
-                            </TooltipContent>
-                          </Tooltip>
-                          <AlertDialogContent>
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>
-                                Disconnect Integration
-                              </AlertDialogTitle>
-                              <AlertDialogDescription>
-                                Are you sure you want to disconnect from{" "}
-                                {metadata.name}? This will remove your
-                                authentication and you'll need to reconnect to
-                                use this integration.
-                              </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel>Cancel</AlertDialogCancel>
-                              <AlertDialogAction
-                                variant="destructive"
-                                onClick={handleDisconnect}
-                              >
-                                Disconnect
-                              </AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
-                      </TooltipProvider>
-                    )}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {isConnected ? (
-                    <div className="space-y-4">
-                      <div className="flex items-center gap-2 text-green-600">
-                        <SuccessIcon />
-                        <span className="font-medium">Connected</span>
-                      </div>
-                      {integration && (
-                        <div className="space-y-3 text-sm text-muted-foreground">
-                          <div>Token Type: {integration.token_type}</div>
-                          {integration.expires_at && (
-                            <div>
-                              Expires:{" "}
+              {isConnected ? (
+                <Card>
+                  <CardContent className="pt-6 space-y-4">
+                    {integration && (
+                      <div className="flex flex-col gap-3 text-sm">
+                        <div>
+                          <span className="font-medium">Token type:</span>{" "}
+                          <span className="text-muted-foreground">
+                            {integration.token_type}
+                          </span>
+                        </div>
+                        {integration.expires_at && (
+                          <div>
+                            <span className="font-medium">Expires:</span>{" "}
+                            <span className="text-muted-foreground">
                               {new Date(
                                 integration.expires_at
                               ).toLocaleString()}
-                              <span className="ml-2 text-xs text-muted-foreground">
-                                (auto-refreshed)
-                              </span>
+                            </span>
+                            <span className="ml-2 text-xs text-muted-foreground">
+                              (auto-refreshed)
+                            </span>
+                          </div>
+                        )}
+
+                        {/* Scopes Section */}
+                        {integration.granted_scopes &&
+                          integration.granted_scopes.length > 0 && (
+                            <div>
+                              <div className="font-medium mb-2">
+                                Granted scopes:
+                              </div>
+                              <div className="flex flex-wrap gap-1">
+                                {integration.granted_scopes.map((scope) => (
+                                  <Badge
+                                    key={scope}
+                                    variant="outline"
+                                    className="text-xs bg-green-50 text-green-700 border-green-200"
+                                  >
+                                    {scope}
+                                  </Badge>
+                                ))}
+                              </div>
                             </div>
                           )}
-
-                          {/* Scopes Section */}
-                          {integration.granted_scopes && (
-                            <div className="space-y-2">
-                              {integration.granted_scopes &&
-                                integration.granted_scopes.length > 0 && (
-                                  <div>
-                                    <div className="font-medium text-foreground mb-1">
-                                      Granted Scopes:
-                                    </div>
-                                    <div className="flex flex-wrap gap-1">
-                                      {integration.granted_scopes.map(
-                                        (scope) => (
-                                          <Badge
-                                            key={scope}
-                                            variant="outline"
-                                            className="text-xs bg-green-100 text-green-700 border-transparent"
-                                          >
-                                            {scope}
-                                          </Badge>
-                                        )
-                                      )}
-                                    </div>
-                                  </div>
-                                )}
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="space-y-4">
-                      <div className="text-sm text-muted-foreground">
-                        {provider.grant_type === "client_credentials"
-                          ? isConfigured
-                            ? "This integration is configured with client credentials. You can fetch a token to test the connection."
-                            : "This integration requires client credentials configuration. Configure your client ID and secret to enable automatic authentication."
-                          : isConfigured
-                            ? "This integration is configured but not connected. Complete the OAuth flow to start using it."
-                            : "This integration is not connected to your workspace. Configure it with your client credentials or use OAuth for quick setup."}
                       </div>
-
-                      <div className="flex flex-wrap gap-2">
-                        <Button
-                          onClick={() => handleTabChange("configuration")}
-                          className="sm:w-auto"
-                          disabled={!isEnabled}
-                        >
-                          <Settings className="mr-2 size-4" />
-                          {isConfigured
-                            ? "Update Configuration"
-                            : "Configure Integration"}
-                        </Button>
-
-                        {isConfigured &&
-                          provider.grant_type === "client_credentials" && (
-                            <Button
-                              onClick={handleTestConnection}
-                              disabled={!isEnabled || testConnectionIsPending}
-                              variant="outline"
-                              className="sm:w-auto"
-                            >
-                              {testConnectionIsPending ? (
-                                <>
-                                  <Loader2 className="mr-2 size-4 animate-spin" />
-                                  Testing...
-                                </>
-                              ) : (
-                                <>
-                                  <Zap className="mr-2 size-4" />
-                                  Fetch token
-                                </>
-                              )}
-                            </Button>
-                          )}
-
-                        {isConfigured &&
-                          provider.grant_type === "authorization_code" && (
-                            <Button
-                              onClick={handleOAuthConnect}
-                              disabled={!isEnabled || connectProviderIsPending}
-                              variant="outline"
-                              className="sm:w-auto"
-                            >
-                              {connectProviderIsPending ? (
-                                <>
-                                  <Loader2 className="mr-2 size-4 animate-spin" />
-                                  Connecting...
-                                </>
-                              ) : (
-                                <>
-                                  <ExternalLink className="mr-2 size-4" />
-                                  Connect with OAuth
-                                </>
-                              )}
-                            </Button>
-                          )}
-                      </div>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
+                    )}
+                  </CardContent>
+                </Card>
+              ) : null}
 
               {/* OAuth Redirect URI */}
               {provider.grant_type === "authorization_code" &&
                 provider.redirect_uri && (
                   <div className="space-y-3">
                     <h3 className="text-lg font-semibold">
-                      OAuth Redirect URI
+                      OAuth redirect URI
                     </h3>
-                    <div className="text-sm text-muted-foreground">
-                      Use this redirect URI when configuring your OAuth
-                      application in the provider's developer console.
-                    </div>
                     <RedirectUriDisplay redirectUri={provider.redirect_uri} />
                   </div>
                 )}
@@ -567,7 +410,7 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
               <CollapsibleCard
                 title={
                   <div className="flex items-center gap-2">
-                    Setup Guide
+                    Setup guide
                     {isConnected && (
                       <>
                         <span className="text-sm font-normal text-muted-foreground">
@@ -584,19 +427,13 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
                 <div className="space-y-3">
                   {metadata.setup_steps?.map((step, index) => (
                     <div key={step} className="flex items-start gap-3">
-                      <div
-                        className={`flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-medium ${
-                          isConnected
-                            ? "bg-green-100 text-green-800"
-                            : "bg-gray-100 text-gray-600"
-                        }`}
-                      >
-                        {isConnected ? <SuccessIcon /> : index + 1}
+                      <div className="flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-medium bg-gray-100 text-gray-600">
+                        {index + 1}
                       </div>
                       <span
                         className={`text-sm ${
                           isConnected
-                            ? "text-green-800 line-through"
+                            ? "text-gray-500 line-through"
                             : "text-gray-700"
                         }`}
                       >
@@ -628,7 +465,7 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
                         rel="noopener noreferrer"
                       >
                         <ExternalLink className="mr-2 size-4" />
-                        API Documentation
+                        API docs
                       </a>
                     </Button>
                   )}
@@ -644,7 +481,7 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
                         rel="noopener noreferrer"
                       >
                         <ExternalLink className="mr-2 size-4" />
-                        Setup Guide
+                        Setup guide
                       </a>
                     </Button>
                   )}
@@ -678,75 +515,49 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
         </TabsContent>
 
         <TabsContent value="configuration" className="space-y-6">
-          {/* OAuth Redirect URI - Prominently displayed */}
-          {provider.grant_type === "authorization_code" &&
-            provider.redirect_uri && (
-              <div className="space-y-3">
-                <h3 className="text-lg font-semibold">OAuth Redirect URI</h3>
-                <div className="text-sm text-muted-foreground">
-                  Use this redirect URI when configuring your OAuth application
-                  in the provider's developer console.
-                </div>
-                <RedirectUriDisplay redirectUri={provider.redirect_uri} />
-              </div>
-            )}
-
           {/* Configuration Form */}
           <div className="space-y-4">
-            <h3 className="text-lg font-semibold flex items-center gap-2">
-              <Settings className="size-5" />
-              Configure {metadata.name}
-            </h3>
-            <p className="text-sm text-muted-foreground">
-              Set up your {metadata.name} integration with OAuth credentials and
-              custom settings
-            </p>
             <ProviderConfigForm
               provider={provider}
               onSuccess={handleConfigSuccess}
               additionalButtons={
-                <>
-                  {isConfigured &&
-                    provider.grant_type === "client_credentials" && (
-                      <Button
-                        onClick={handleTestConnection}
-                        disabled={!isEnabled || testConnectionIsPending}
-                        variant="outline"
-                      >
-                        {testConnectionIsPending ? (
-                          <>
-                            <Loader2 className="mr-2 size-4 animate-spin" />
-                            Testing...
-                          </>
-                        ) : (
-                          <>
-                            <Zap className="mr-2 size-4" />
-                            Test Connection
-                          </>
-                        )}
-                      </Button>
-                    )}
-                  {isConfigured &&
-                    provider.grant_type === "authorization_code" && (
-                      <Button
-                        onClick={handleOAuthConnect}
-                        disabled={!isEnabled || connectProviderIsPending}
-                        variant="outline"
-                      >
-                        {connectProviderIsPending ? (
-                          <>
-                            <Loader2 className="mr-2 size-4 animate-spin" />
-                            Connecting...
-                          </>
-                        ) : (
-                          <>
-                            <ExternalLink className="mr-2 size-4" />
-                            Connect with OAuth
-                          </>
-                        )}
-                      </Button>
-                    )}
-                </>
+                isConfigured ? (
+                  provider.grant_type === "client_credentials" ? (
+                    <Button
+                      onClick={handleTestConnection}
+                      disabled={!isEnabled || testConnectionIsPending}
+                    >
+                      {testConnectionIsPending ? (
+                        <>
+                          <Loader2 className="mr-2 size-4 animate-spin" />
+                          Testing...
+                        </>
+                      ) : (
+                        <>
+                          <Zap className="mr-2 size-4" />
+                          Test connection
+                        </>
+                      )}
+                    </Button>
+                  ) : (
+                    <Button
+                      onClick={handleOAuthConnect}
+                      disabled={!isEnabled || connectProviderIsPending}
+                    >
+                      {connectProviderIsPending ? (
+                        <>
+                          <Loader2 className="mr-2 size-4 animate-spin" />
+                          Connecting...
+                        </>
+                      ) : (
+                        <>
+                          <ExternalLink className="mr-2 size-4" />
+                          Connect with OAuth
+                        </>
+                      )}
+                    </Button>
+                  )
+                ) : null
               }
             />
           </div>

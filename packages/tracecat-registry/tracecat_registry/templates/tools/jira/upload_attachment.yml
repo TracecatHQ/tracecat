@@ -1,0 +1,44 @@
+type: action
+definition:
+  title: Upload attachment
+  description: Upload an attachment to a Jira issue.
+  display_group: Jira
+  doc_url: https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-attachments/#api-rest-api-3-issue-issueidorkey-attachments-post
+  namespace: tools.jira
+  name: upload_attachment
+  secrets:
+    - name: jira
+      keys: ["JIRA_USEREMAIL", "JIRA_API_TOKEN"]
+  expects:
+    base64_content:
+      type: str
+      description: Base64 encoded content of the file to upload.
+    filename:
+      type: str
+      description: Name of the file to upload.
+    content_type:
+      type: str
+      description: MIME type of the file (e.g., "application/pdf", "image/png", "text/plain").
+    ticket:
+      type: str
+      description: Jira issue key or ID to upload the attachment to (e.g., "PROJ-123").
+    base_url:
+      type: str
+      description: Jira tenant URL (e.g. https://tracecat.atlassian.net).
+  steps:
+    - ref: upload_attachment
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/rest/api/3/issue/${{ inputs.ticket }}/attachments
+        method: POST
+        auth:
+          username: ${{ SECRETS.jira.JIRA_USEREMAIL }}
+          password: ${{ SECRETS.jira.JIRA_API_TOKEN }}
+        headers:
+          X-Atlassian-Token: nocheck
+        files:
+          file:
+            filename: ${{ inputs.filename }}
+            content_base64: ${{ inputs.base64_content }}
+            content_type: ${{ inputs.content_type }}
+  returns: ${{ steps.upload_attachment.result.data }}

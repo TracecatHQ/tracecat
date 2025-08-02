@@ -2,6 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query"
 import {
+  BotIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   GitBranchIcon,
@@ -74,6 +75,12 @@ export function OrganizationSidebar({
       icon: Settings2,
       isActive: pathname?.includes("/organization/settings/app"),
     },
+    {
+      title: "Agent",
+      url: "/organization/settings/agent",
+      icon: BotIcon,
+      isActive: pathname?.includes("/organization/settings/agent"),
+    },
   ]
 
   const navSecrets = [
@@ -114,7 +121,7 @@ export function OrganizationSidebar({
   }
 
   return (
-    <Sidebar collapsible="icon" variant="inset" {...props}>
+    <Sidebar collapsible="offcanvas" variant="inset" {...props}>
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>

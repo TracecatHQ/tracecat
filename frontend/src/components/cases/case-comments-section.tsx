@@ -91,53 +91,61 @@ export function CommentSection({
   }
   return (
     <div className="mx-auto w-full">
-      <div className="space-y-4 p-4">
-        {caseComments?.map((comment) => {
-          const user = new User(comment.user ?? SYSTEM_USER_READ)
-          const displayName = user.getDisplayName()
-          const isEditing = editingCommentId === comment.id
+      <div className="bg-card">
+        <div className="space-y-3">
+          {caseComments?.map((comment) => {
+            const user = new User(comment.user ?? SYSTEM_USER_READ)
+            const displayName = user.getDisplayName()
+            const isEditing = editingCommentId === comment.id
 
-          return (
-            <div key={comment.id} className="group flex gap-3">
-              <CaseUserAvatar user={user} />
-              <div className="flex-1 space-y-1">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    {/* This should be user name */}
-                    <span className="text-sm font-medium">{displayName}</span>
-                    <CaseEventTimestamp
-                      createdAt={comment.created_at}
-                      lastEditedAt={comment.last_edited_at}
-                    />
+            return (
+              <div key={comment.id} className="group">
+                <div className="rounded-lg border border-border/50 py-3 px-4 hover:bg-accent/30 transition-colors">
+                  {/* Two-row layout: Row 1 – avatar, name, timestamp & actions. Row 2 – comment content */}
+                  <div className="space-y-1">
+                    {/* Row 1 */}
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <CaseUserAvatar user={user} size="sm" />
+                        {/* User display name */}
+                        <span className="text-sm font-medium text-foreground">
+                          {displayName}
+                        </span>
+                        <CaseEventTimestamp
+                          createdAt={comment.created_at}
+                          lastEditedAt={comment.last_edited_at}
+                        />
+                      </div>
+                      {!isEditing && (
+                        <CommentActionsWithEditing
+                          caseId={caseId}
+                          workspaceId={workspaceId}
+                          comment={comment}
+                          onEdit={() => setEditingCommentId(comment.id)}
+                        />
+                      )}
+                    </div>
+
+                    {/* Row 2 */}
+                    {isEditing ? (
+                      <InlineCommentEdit
+                        comment={comment}
+                        caseId={caseId}
+                        workspaceId={workspaceId}
+                        onStopEditing={() => setEditingCommentId(null)}
+                      />
+                    ) : (
+                      <CaseCommentViewer content={comment.content} />
+                    )}
                   </div>
-                  {!isEditing && (
-                    <CommentActionsWithEditing
-                      caseId={caseId}
-                      workspaceId={workspaceId}
-                      comment={comment}
-                      onEdit={() => setEditingCommentId(comment.id)}
-                    />
-                  )}
                 </div>
-
-                {isEditing ? (
-                  <InlineCommentEdit
-                    comment={comment}
-                    caseId={caseId}
-                    workspaceId={workspaceId}
-                    onStopEditing={() => setEditingCommentId(null)}
-                  />
-                ) : (
-                  <CaseCommentViewer content={comment.content} />
-                )}
               </div>
-            </div>
-          )
-        })}
-      </div>
-
-      <div className="p-4 pt-0">
-        <CommentTextBox caseId={caseId} workspaceId={workspaceId} />
+            )
+          })}
+        </div>
+        <div className="mt-3">
+          <CommentTextBox caseId={caseId} workspaceId={workspaceId} />
+        </div>
       </div>
     </div>
   )
@@ -208,7 +216,8 @@ function CommentTextBox({
   }
   return (
     <div className="flex w-full items-end gap-2">
-      <div className="relative flex w-full">
+      {/* Match styling of ChatInput */}
+      <div className="relative flex w-full gap-2 rounded-md border border-border px-4 transition-colors hover:border-muted-foreground/40">
         <Form {...form}>
           <form
             onSubmit={form.handleSubmit(handleCommentSubmit)}
@@ -222,7 +231,7 @@ function CommentTextBox({
                   <FormControl>
                     <Textarea
                       placeholder="Leave a comment..."
-                      className="min-h-[80px] w-full resize-none rounded-md border-gray-200 bg-gray-50 pr-16 text-gray-800 placeholder:text-gray-400 focus-visible:ring-muted-foreground/30"
+                      className="shadow-none size-full resize-none border-none min-h-[60px] pl-0 pr-16 placeholder:text-muted-foreground focus-visible:ring-0"
                       value={field.value}
                       onChange={field.onChange}
                       onKeyDown={handleKeyDown}
@@ -231,11 +240,11 @@ function CommentTextBox({
                 </FormItem>
               )}
             />
-            <div className="absolute bottom-3 right-3 flex gap-2">
+            <div className="absolute bottom-2 right-2 flex gap-1.5">
               <Button
                 variant="ghost"
                 size="icon"
-                className="size-8 rounded-md text-gray-400 hover:bg-gray-100 hover:text-muted-foreground"
+                className="size-7 rounded-md text-gray-400 hover:bg-gray-100 hover:text-muted-foreground"
                 disabled
               >
                 <PaperclipIcon className="size-4" />
@@ -245,7 +254,7 @@ function CommentTextBox({
                 variant="ghost"
                 size="icon"
                 type="submit"
-                className="size-8 rounded-md text-gray-400 hover:bg-gray-200/80 hover:text-muted-foreground"
+                className="size-7 rounded-md text-gray-400 hover:bg-gray-200/80 hover:text-muted-foreground"
                 disabled={!form.watch("content").trim()}
               >
                 <ArrowUpIcon className="size-4" />
@@ -309,39 +318,39 @@ function InlineCommentEdit({
 
   return (
     <Form {...form}>
-      <form
-        onSubmit={form.handleSubmit(handleSubmit)}
-        className="mt-2 space-y-3"
-      >
-        <FormField
-          control={form.control}
-          name="content"
-          render={({ field }) => (
-            <FormItem>
-              <FormControl>
-                <Textarea
-                  autoFocus
-                  className="min-h-[80px] w-full resize-none rounded-md border-gray-200 bg-background"
-                  onKeyDown={handleKeyDown}
-                  {...field}
-                />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-        <div className="flex justify-end gap-2">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={onStopEditing}
-          >
-            Cancel
-          </Button>
-          <Button type="submit" size="sm">
-            Save
-          </Button>
+      <form onSubmit={form.handleSubmit(handleSubmit)} className="mt-2">
+        <div className="relative rounded-md">
+          <FormField
+            control={form.control}
+            name="content"
+            render={({ field }) => (
+              <FormItem>
+                <FormControl>
+                  <Textarea
+                    autoFocus
+                    className="min-h-[60px] w-full resize-none rounded-md border-none bg-transparent pl-0 pr-20 shadow-none placeholder:text-muted-foreground focus-visible:ring-0"
+                    onKeyDown={handleKeyDown}
+                    {...field}
+                  />
+                </FormControl>
+                <FormMessage className="px-3" />
+              </FormItem>
+            )}
+          />
+          <div className="absolute bottom-2 right-2 flex gap-1.5">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-6 px-2 text-xs"
+              onClick={onStopEditing}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" size="sm" className="h-6 px-2 text-xs">
+              Save
+            </Button>
+          </div>
         </div>
       </form>
     </Form>

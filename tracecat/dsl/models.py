@@ -149,6 +149,10 @@ class ActionStatement(BaseModel):
             "By default, all branches must complete successfully before the join task can complete."
         ),
     )
+    environment: ExpressionStr | None = Field(
+        default=None,
+        description="Override environment for this action's execution. Can be a template expression.",
+    )
 
     @property
     def title(self) -> str:
