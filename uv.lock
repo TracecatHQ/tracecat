@@ -3678,7 +3678,7 @@ requires-dist = [
     { name = "orjson", specifier = "==3.10.3" },
     { name = "paramiko", specifier = "==3.5.0" },
     { name = "phonenumbers", specifier = "==8.13.55" },
-    { name = "pip", specifier = ">=25.2" },
+    { name = "pip", specifier = ">=25.2,<26.0" },
     { name = "polyfile", specifier = ">=0.5.5,<0.6.0" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.1.19" },
     { name = "pyarrow", specifier = "==16.1.0" },
