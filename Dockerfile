@@ -1,6 +1,5 @@
 FROM ghcr.io/astral-sh/uv:0.8.4-python3.12-bookworm-slim
 
-ENV UV_SYSTEM_PYTHON=1
 ENV HOST=0.0.0.0
 ENV PORT=8000
 # Enable bytecode compilation
@@ -56,7 +55,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
     --mount=type=bind,source=packages,target=packages \
-    uv sync --locked --no-install-project --no-dev
+    uv sync --locked --no-install-project --no-dev --no-editable
 
 # Then, add the rest of the project source code and install it
 # Installing separately from its dependencies allows optimal layer caching
@@ -77,7 +76,7 @@ RUN chmod +x /app/entrypoint.sh
 
 # Install the project
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked --no-dev 
+    uv sync --locked --no-dev --no-editable
 
 # Place executables in the environment at the front of the path
 ENV PATH="/app/.venv/bin:$PATH"
@@ -90,6 +89,9 @@ RUN mkdir -p /home/apiuser/.local/bin && \
 # Fix ownership of all apiuser directories after root operations
 # This ensures apiuser can access all necessary files and directories
 RUN chown -R apiuser:apiuser /home/apiuser /app/.scripts
+
+# Ensure apiuser owns everything in /app
+RUN chown -R apiuser:apiuser /app/.venv
 
 # Verify permissions are correctly set before switching users
 RUN ls -la /home/apiuser/ && \

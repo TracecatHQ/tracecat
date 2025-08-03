@@ -17,6 +17,12 @@ dev-ui:
 	npx @agentdeskai/browser-tools-server@1.2.0
 build-dev *services:
 	docker compose -f docker-compose.dev.yml build --no-cache {{services}}
+local:
+	NODE_ENV=production NEXT_PUBLIC_APP_ENV=production TRACECAT__APP_ENV=production docker compose -f docker-compose.local.yml up
+build-local *services:
+	docker compose -f docker-compose.local.yml build {{services}}
+rebuild-local *services:
+	docker compose -f docker-compose.local.yml build --no-cache {{services}}
 up:
 	docker compose up
 

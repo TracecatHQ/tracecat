@@ -41,6 +41,11 @@ from tracecat.registry.constants import (
     DEFAULT_LOCAL_REGISTRY_ORIGIN,
     DEFAULT_REGISTRY_ORIGIN,
 )
+from tracecat.registry.dependencies import (
+    RegistryDependencyConflictError,
+    get_conflict_summary,
+    parse_dependency_conflicts,
+)
 from tracecat.registry.fields import (
     Component,
     get_components_for_union_type,
@@ -314,7 +319,7 @@ class Repository:
                 )
                 extra_args = ["--target", python_user_base]
 
-            cmd = ["uv", "pip", "install", "--system", "--refresh", "--editable"]
+            cmd = ["uv", "add", "--refresh", "--editable"]
             process = await asyncio.create_subprocess_exec(
                 *cmd,
                 repo_path.as_posix(),
@@ -325,6 +330,16 @@ class Repository:
             _, stderr = await process.communicate()
             if process.returncode != 0:
                 error_message = stderr.decode().strip()
+                # Check for dependency conflicts
+                conflicts = parse_dependency_conflicts(error_message)
+                if conflicts:
+                    toast_msg = get_conflict_summary(error_message)
+                    raise RegistryDependencyConflictError(
+                        f"Failed to install local repository due to dependency conflicts:"
+                        f"\n{toast_msg or 'See details'}"
+                        "\nPlease remove or update the conflicting dependencies in your pyproject.toml file.",
+                        conflicts=conflicts,
+                    )
                 raise RegistryError(
                     f"Failed to install local repository: {error_message}"
                 )
@@ -802,21 +817,11 @@ async def install_remote_repository(
 ) -> None:
     logger.info("Loading remote repository", url=repo_url, commit_sha=commit_sha)
 
-    cmd = ["uv", "pip", "install", "--system", "--refresh"]
-    extra_args = []
-    if config.TRACECAT__APP_ENV == "production":
-        # We set PYTHONUSERBASE in the prod Dockerfile
-        # Otherwise default to the user's home dir at ~/.local
-        python_user_base = (
-            os.getenv("PYTHONUSERBASE") or Path.home().joinpath(".local").as_posix()
-        )
-        logger.trace("Installing to PYTHONUSERBASE", python_user_base=python_user_base)
-        extra_args = ["--target", python_user_base]
+    cmd = ["uv", "add", "--refresh", f"{repo_url}@{commit_sha}"]
+    logger.debug("Installation command", cmd=cmd)
     try:
         process = await asyncio.create_subprocess_exec(
             *cmd,
-            *extra_args,
-            f"{repo_url}@{commit_sha}",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=os.environ.copy() | env.to_dict(),
@@ -825,9 +830,22 @@ async def install_remote_repository(
         if process.returncode != 0:
             error_message = stderr.decode().strip()
             logger.error(f"Failed to install repository: {error_message}")
+            # Check for dependency conflicts
+            conflicts = parse_dependency_conflicts(error_message)
+            if conflicts:
+                toast_msg = get_conflict_summary(error_message)
+                raise RegistryDependencyConflictError(
+                    f"Failed to install repository due to dependency conflicts:"
+                    f"\n{toast_msg or 'See details'}"
+                    "\nPlease remove or update the conflicting dependencies in your pyproject.toml file.",
+                    conflicts=conflicts,
+                )
             raise RuntimeError(f"Failed to install repository: {error_message}")
 
         logger.info("Remote repository installed successfully")
+    except RegistryDependencyConflictError as e:
+        logger.warning("Dependency conflicts", conflicts=e.conflicts)
+        raise e
     except Exception as e:
         logger.error(f"Error while fetching repository: {str(e)}")
         raise RuntimeError(f"Error while fetching repository: {str(e)}") from e

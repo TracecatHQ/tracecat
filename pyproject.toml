@@ -65,6 +65,8 @@ dependencies = [
     "uv==0.8.4",
     "uvicorn>=0.33.0,<0.34",
     "virtualenv==20.27.0",
+    # This is required until https://github.com/ray-project/ray/issues/54134 is released.
+    "pip>=25.2,<26.0",
 ]
 dynamic = ["version"]
 
