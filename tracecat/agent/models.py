@@ -1,4 +1,4 @@
-from typing import Literal, NotRequired, TypedDict
+from typing import Any, Literal, NotRequired, TypedDict
 
 from pydantic import BaseModel, Field
 
@@ -94,4 +94,33 @@ class ModelCredentialUpdate(BaseModel):
 
     credentials: dict[str, str] = Field(
         ..., description="Provider-specific credentials to update"
+    )
+
+
+class ToolFilters(BaseModel):
+    actions: list[str] | None = None
+    namespaces: list[str] | None = None
+
+
+class ModelRequestArgs(BaseModel):
+    message_history: bytes = Field(..., description="Serialized message history")
+    tool_filters: ToolFilters = Field(
+        default_factory=ToolFilters, description="Tool filters"
+    )
+
+
+class ModelRequestResult(BaseModel):
+    model_response: bytes = Field(..., description="Serialized model response")
+
+
+class ExecuteToolCallArgs(BaseModel):
+    tool_name: str = Field(..., description="Name of the tool to execute")
+    tool_args: dict[str, Any] = Field(..., description="Arguments for the tool")
+    tool_call_id: str = Field(..., description="ID of the tool call")
+
+
+class ExecuteToolCallResult(BaseModel):
+    tool_return: bytes = Field(..., description="Serialized tool return part")
+    error: str | None = Field(
+        default=None, description="Error message if execution failed"
     )
