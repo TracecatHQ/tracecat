@@ -10,6 +10,7 @@ from pydantic_ai.messages import (
     ModelResponse,
 )
 
+from pydantic_ai.models import Model
 from pydantic_ai.models.openai import OpenAIModel, OpenAIResponsesModel
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.models.anthropic import AnthropicModel
@@ -26,10 +27,8 @@ from pydantic_ai.settings import ModelSettings
 from tracecat.validation.common import json_schema_to_pydantic
 from tracecat_registry import RegistrySecret
 
-
 from tracecat_registry.integrations.aws_boto3 import get_sync_session
 from tracecat_registry.integrations.agents.parsers import try_parse_json
-
 
 from typing import Annotated, Any, Literal, TypeVar
 
@@ -163,18 +162,26 @@ def _parse_message_history(message_history: list[dict[str, Any]]) -> list[ModelM
     return messages
 
 
-def build_agent(
-    model_name: str,
-    model_provider: str,
-    base_url: str | None = None,
-    instructions: str | None = None,
-    output_type: str | dict[str, Any] | None = None,
-    model_settings: dict[str, Any] | None = None,
-    mcp_servers: list[MCPServerHTTP] | None = None,
-    tools: list[Tool] | None = None,
-    retries: Annotated[int, Doc("Number of retries")] = 3,
-    deps_type: type[AgentDepsT] | None = None,
-) -> Agent[AgentDepsT, Any]:
+def get_model(
+    model_name: str, model_provider: str, base_url: str | None = None
+) -> Model:
+    """Get a pydantic-ai Model instance for the specified provider and model.
+
+    Uses Tracecat secrets manager environment sandbox to securely retrieve
+    API credentials and authentication information for each provider.
+
+    Args:
+        model_name: The specific model identifier (e.g., "gpt-4o", "claude-3-sonnet")
+        model_provider: The provider name ("openai", "anthropic", "gemini", etc.)
+        base_url: Optional custom base URL for the provider's API endpoint
+
+    Returns:
+        A configured Model instance ready for use with pydantic-ai agents
+
+    Raises:
+        ValueError: If the model provider is not supported or credentials are invalid
+        orjson.JSONDecodeError: If JSON credentials (e.g., Google service account) are malformed
+    """
     match model_provider:
         case "openai":
             model = OpenAIModel(
@@ -225,6 +232,19 @@ def build_agent(
         case _:
             raise ValueError(f"Unsupported model: {model_name}")
 
+    return model
+
+
+def build_agent(
+    model: Model | None = None,
+    instructions: str | None = None,
+    output_type: str | dict[str, Any] | None = None,
+    model_settings: dict[str, Any] | None = None,
+    mcp_servers: list[MCPServerHTTP] | None = None,
+    tools: list[Tool] | None = None,
+    retries: Annotated[int, Doc("Number of retries")] = 3,
+    deps_type: type[AgentDepsT] | None = None,
+) -> Agent[AgentDepsT, Any]:
     response_format: Any = str
     if isinstance(output_type, str):
         response_format = SUPPORTED_OUTPUT_TYPES[output_type]
@@ -239,24 +259,24 @@ def build_agent(
                 f"Invalid JSONSchema: {output_type}. Missing top-level `name` or `title` field."
             )
 
-    agent_kwargs = {
-        "model": model,
-        "instructions": instructions,
-        "output_type": response_format,
-        "model_settings": ModelSettings(**model_settings) if model_settings else None,
-        "retries": retries,
-    }
-
+    kwargs = {}
     if tools:
-        agent_kwargs["tools"] = tools
+        kwargs["tools"] = tools
 
     if mcp_servers:
-        agent_kwargs["mcp_servers"] = mcp_servers
+        kwargs["mcp_servers"] = mcp_servers
 
     if deps_type is not None:
-        agent_kwargs["deps_type"] = deps_type
+        kwargs["deps_type"] = deps_type
 
-    agent = Agent(**agent_kwargs)
+    agent = Agent(
+        model=model,
+        instructions=instructions,
+        output_type=response_format,
+        model_settings=ModelSettings(**model_settings) if model_settings else None,
+        retries=retries,
+        **kwargs,
+    )
     return agent
 
 
@@ -300,11 +320,10 @@ def call(
     base_url: Annotated[str | None, Doc("Base URL for the model")] = None,
 ) -> Json[Any]:
     """Call an LLM via Pydantic AI agent."""
+    model = get_model(model_name, model_provider, base_url)
     agent = build_agent(
-        model_name=model_name,
-        model_provider=model_provider,
+        model=model,
         model_settings=model_settings,
-        base_url=base_url,
         instructions=instructions,
         output_type=output_type,
         retries=retries,

@@ -51,6 +51,7 @@ from tracecat.secrets.secrets_manager import env_sandbox
 from tracecat_registry.integrations.pydantic_ai import (
     PYDANTIC_AI_REGISTRY_SECRETS,
     build_agent,
+    get_model,
 )
 
 from tracecat_registry import registry
@@ -484,7 +485,7 @@ async def build_agent_tools(
         # Create tools from registry actions
         for reg_action in actions:
             action_name = f"{reg_action.namespace}.{reg_action.name}"
-            logger.info(f"Building tool for action: {action_name}")
+            logger.debug(f"Building tool for action: {action_name}")
 
             # Apply namespace filtering if specified
             if namespace_filters:
@@ -647,10 +648,9 @@ class TracecatAgentBuilder:
 
         # Create the agent using build_agent
         self.tools = result.tools
+        model = get_model(self.model_name, self.model_provider, self.base_url)
         agent = build_agent(
-            model_name=self.model_name,
-            model_provider=self.model_provider,
-            base_url=self.base_url,
+            model=model,
             instructions=self.instructions,
             output_type=self.output_type,
             model_settings=self.model_settings,
