@@ -6,14 +6,14 @@ from collections.abc import AsyncIterator
 from pydantic import SecretStr
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from tracecat.agent.config import MODEL_CONFIGS, PROVIDER_CREDENTIAL_CONFIGS
-from tracecat.agent.models import (
+from tracecat.db.schemas import OrganizationSecret
+from tracecat.ee.agent.config import MODEL_CONFIGS, PROVIDER_CREDENTIAL_CONFIGS
+from tracecat.ee.agent.models import (
     ModelConfig,
     ModelCredentialCreate,
     ModelCredentialUpdate,
     ProviderCredentialConfig,
 )
-from tracecat.db.schemas import OrganizationSecret
 from tracecat.logger import logger
 from tracecat.secrets import secrets_manager
 from tracecat.secrets.enums import SecretType

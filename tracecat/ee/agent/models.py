@@ -1,6 +1,13 @@
+from __future__ import annotations as _annotations
+
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import Any, Literal, NotRequired, TypedDict
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
+from pydantic_ai.messages import ModelMessage, ModelResponse
+from pydantic_ai.models import ModelRequestParameters
+from pydantic_ai.settings import ModelSettings
 
 
 class ModelSecretConfig(TypedDict):
@@ -101,6 +108,18 @@ class ToolFilters(BaseModel):
     actions: list[str] | None = None
     namespaces: list[str] | None = None
 
+    @staticmethod
+    def default() -> ToolFilters:
+        return ToolFilters(
+            actions=[
+                "core.cases.create_case",
+                "core.cases.get_case",
+                "core.cases.list_cases",
+                "core.cases.update_case",
+                "core.cases.list_cases",
+            ],
+        )
+
 
 class ModelRequestArgs(BaseModel):
     message_history: bytes = Field(..., description="Serialized message history")
@@ -124,3 +143,65 @@ class ExecuteToolCallResult(BaseModel):
     error: str | None = Field(
         default=None, description="Error message if execution failed"
     )
+
+
+class AgenticTurnArgs(BaseModel):
+    chat_id: str = Field(..., description="Chat session identifier")
+    message_id: str = Field(..., description="Unique message identifier")
+    user_text: str = Field(..., description="User message text")
+    tool_filters: ToolFilters | None = Field(
+        default=None, description="Tool filters for this turn"
+    )
+
+
+class AgenticTurnResult(BaseModel):
+    final_response: str = Field(..., description="Final agent response")
+    tool_calls_made: int = Field(..., description="Number of tool calls executed")
+    turns_used: int = Field(..., description="Number of agentic turns used")
+
+
+class ReadConversationContextArgs(BaseModel):
+    chat_id: str = Field(..., description="Chat session identifier")
+    limit: int = Field(default=50, description="Maximum number of messages to retrieve")
+
+
+class ReadConversationContextResult(BaseModel):
+    messages: bytes = Field(..., description="Serialized message history")
+
+
+class PersistConversationTurnArgs(BaseModel):
+    chat_id: str = Field(..., description="Chat session identifier")
+    message_id: str = Field(..., description="Message identifier")
+    messages: bytes = Field(..., description="Serialized message history to persist")
+
+
+class PersistConversationTurnResult(BaseModel):
+    success: bool = Field(..., description="Whether persist operation succeeded")
+
+
+class AgentTurnWorkflowArgs(BaseModel):
+    user_prompt: str
+    tool_filters: ToolFilters | None = None
+
+
+@dataclass
+class AgentDeps:
+    call_model: Callable[[ModelRequestArgs], Awaitable[ModelRequestResult]]
+    call_tool: Callable[[ExecuteToolCallArgs], Awaitable[ExecuteToolCallResult]]
+
+
+class ModelInfo(BaseModel):
+    name: str
+    provider: str
+    base_url: str | None = None
+
+
+class DurableModelRequestArgs(BaseModel):
+    model_config: ConfigDict = ConfigDict(arbitrary_types_allowed=True)
+    messages: list[ModelMessage]
+    model_settings: ModelSettings | None
+    model_request_parameters: ModelRequestParameters
+    model_info: ModelInfo
+
+
+ModelResponseTA: TypeAdapter[ModelResponse] = TypeAdapter(ModelResponse)

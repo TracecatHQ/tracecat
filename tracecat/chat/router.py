@@ -9,7 +9,6 @@ from fastapi import APIRouter, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 from tracecat_registry.integrations.agents.builder import ModelMessageTA, run_agent
 
-from tracecat.agent.service import AgentManagementService
 from tracecat.auth.credentials import RoleACL
 from tracecat.chat.models import (
     ChatCreate,
@@ -22,6 +21,7 @@ from tracecat.chat.models import (
 )
 from tracecat.chat.service import ChatService
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.ee.agent.service import AgentManagementService
 from tracecat.logger import logger
 from tracecat.redis.client import get_redis_client
 from tracecat.types.auth import Role

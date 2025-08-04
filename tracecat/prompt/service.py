@@ -17,11 +17,11 @@ from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 from tracecat_registry.integrations.pydantic_ai import build_agent, get_model
 
-from tracecat.agent.service import AgentManagementService
 from tracecat.chat.enums import ChatEntity
 from tracecat.chat.models import ChatMessage, ChatResponse
 from tracecat.chat.service import ChatService
 from tracecat.db.schemas import Chat, Prompt
+from tracecat.ee.agent.service import AgentManagementService
 from tracecat.logger import logger
 from tracecat.prompt.flows import execute_runbook_for_case
 from tracecat.prompt.models import PromptRunEntity

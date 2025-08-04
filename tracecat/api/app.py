@@ -12,7 +12,6 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import __version__ as APP_VERSION
 from tracecat import config
-from tracecat.agent.router import router as agent_router
 from tracecat.api.common import (
     add_temporal_search_attributes,
     bootstrap_role,
@@ -39,6 +38,7 @@ from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.editor.router import router as editor_router
+from tracecat.ee.agent.router import router as agent_router
 from tracecat.integrations.router import integrations_router, providers_router
 from tracecat.logger import logger
 from tracecat.middleware import (

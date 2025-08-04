@@ -1,4 +1,4 @@
-from tracecat.agent.models import (
+from tracecat.ee.agent.models import (
     ModelConfig,
     ProviderCredentialConfig,
     ProviderCredentialField,

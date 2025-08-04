@@ -2,15 +2,15 @@ from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, status
 
-from tracecat.agent.models import (
+from tracecat.auth.credentials import RoleACL
+from tracecat.db.dependencies import AsyncDBSession
+from tracecat.ee.agent.models import (
     ModelConfig,
     ModelCredentialCreate,
     ModelCredentialUpdate,
     ProviderCredentialConfig,
 )
-from tracecat.agent.service import AgentManagementService
-from tracecat.auth.credentials import RoleACL
-from tracecat.db.dependencies import AsyncDBSession
+from tracecat.ee.agent.service import AgentManagementService
 from tracecat.types.auth import AccessLevel, Role
 from tracecat.types.exceptions import TracecatNotFoundError
 

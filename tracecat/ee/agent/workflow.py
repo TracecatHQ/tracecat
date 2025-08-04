@@ -3,7 +3,6 @@ from __future__ import annotations as _annotations
 import asyncio
 from datetime import timedelta
 
-from pydantic_ai.messages import TextPart
 from temporalio import activity, workflow
 
 with workflow.unsafe.imports_passed_through():
@@ -13,6 +12,7 @@ with workflow.unsafe.imports_passed_through():
         ModelMessage,
         ModelMessagesTypeAdapter,
         ModelRequest,
+        TextPart,
         ToolCallPart,
         ToolReturnPart,
     )
@@ -24,7 +24,7 @@ with workflow.unsafe.imports_passed_through():
     )
 
     from tracecat import config
-    from tracecat.agent.models import (
+    from tracecat.ee.agent.models import (
         ExecuteToolCallArgs,
         ExecuteToolCallResult,
         ModelRequestArgs,
