@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 import inspect
+import keyword
 import textwrap
 import tempfile
 import uuid
@@ -17,6 +18,8 @@ from typing_extensions import Doc
 from timeit import timeit
 import orjson
 
+from pydantic_ai.tools import RunContext
+from pydantic_ai.usage import Usage
 from pydantic_ai import Agent, ModelRetry
 from pydantic_ai.messages import (
     FunctionToolCallEvent,
@@ -29,8 +32,7 @@ from pydantic_ai.messages import (
     ToolCallPart,
     ToolReturnPart,
 )
-from pydantic_ai.usage import Usage
-from pydantic_ai.tools import Tool
+from pydantic_ai.tools import Tool, ToolDefinition
 from pydantic_core import PydanticUndefined
 
 from tracecat.dsl.common import create_default_execution_context
@@ -146,6 +148,20 @@ async def call_tracecat_action(action_name: str, args: dict[str, Any]) -> Any:
     return result
 
 
+def _sanitize_parameter_name(name: str) -> str:
+    """Sanitize parameter names that are Python reserved keywords.
+
+    Args:
+        name: The original parameter name
+
+    Returns:
+        A valid Python parameter name
+    """
+    if keyword.iskeyword(name):
+        return f"{name}_"
+    return name
+
+
 def _extract_action_metadata(bound_action) -> tuple[str, type]:
     """Extract description and model class from a bound action.
 
@@ -183,7 +199,7 @@ def _extract_action_metadata(bound_action) -> tuple[str, type]:
 
 def _create_function_signature(
     model_cls: type, fixed_args: set[str] | None = None
-) -> tuple[inspect.Signature, dict[str, Any]]:
+) -> tuple[inspect.Signature, dict[str, Any], dict[str, str]]:
     """Create function signature and annotations from a Pydantic model.
 
     Args:
@@ -191,10 +207,12 @@ def _create_function_signature(
         fixed_args: Set of argument names that are fixed and should be excluded
 
     Returns:
-        Tuple of (signature, annotations)
+        Tuple of (signature, annotations, param_mapping)
+        param_mapping: dict mapping sanitized param names to original field names
     """
     sig_params = []
     annotations = {}
+    param_mapping = {}  # sanitized_name -> original_field_name
     fixed_args = fixed_args or set()
 
     for field_name, field_info in model_cls.model_fields.items():
@@ -224,20 +242,24 @@ def _create_function_signature(
             # Required field
             default = inspect.Parameter.empty
 
+        # Sanitize field name for Python keywords
+        param_name = _sanitize_parameter_name(field_name)
+        param_mapping[param_name] = field_name
+
         # Create parameter
         param = inspect.Parameter(
-            name=field_name,
+            name=param_name,
             kind=inspect.Parameter.KEYWORD_ONLY,
             annotation=annotation,
             default=default,
         )
         sig_params.append(param)
-        annotations[field_name] = annotation
+        annotations[param_name] = annotation
 
     # Add return annotation
     annotations["return"] = Any
 
-    return inspect.Signature(sig_params), annotations
+    return inspect.Signature(sig_params), annotations, param_mapping
 
 
 def _generate_tool_function_name(namespace: str, name: str, *, sep: str = "__") -> str:
@@ -278,10 +300,24 @@ async def create_tool_from_registry(
     fixed_args = fixed_args or {}
     fixed_arg_names = set(fixed_args.keys())
 
+    # Extract metadata from the bound action
+    description, model_cls = _extract_action_metadata(bound_action)
+
+    # Create function signature and get parameter mapping
+    signature, annotations, param_mapping = _create_function_signature(
+        model_cls, fixed_arg_names
+    )
+
     # Create wrapper function that calls the action with fixed args merged
     async def tool_func(**kwargs) -> Any:
+        # Remap sanitized parameter names back to original field names
+        remapped_kwargs = {}
+        for param_name, value in kwargs.items():
+            original_name = param_mapping.get(param_name, param_name)
+            remapped_kwargs[original_name] = value
+
         # Merge fixed arguments with runtime arguments
-        merged_args = {**fixed_args, **kwargs}
+        merged_args = {**fixed_args, **remapped_kwargs}
         return await call_tracecat_action(action_name, merged_args)
 
     # Set function name
@@ -289,15 +325,11 @@ async def create_tool_from_registry(
         bound_action.namespace, bound_action.name
     )
 
-    # Extract metadata from the bound action
-    description, model_cls = _extract_action_metadata(bound_action)
-
     # Validate description
     if not description:
         raise ValueError(f"Action '{action_name}' has no description")
 
-    # Create function signature and annotations, excluding fixed args
-    signature, annotations = _create_function_signature(model_cls, fixed_arg_names)
+    # Set function signature and annotations
     tool_func.__signature__ = signature
     tool_func.__annotations__ = annotations
 
@@ -308,7 +340,7 @@ async def create_tool_from_registry(
 
     # Create tool with enforced documentation standards
     return Tool(
-        tool_func, docstring_format="google", require_parameter_descriptions=True
+        tool_func, docstring_format="google", require_parameter_descriptions=False
     )
 
 
@@ -422,12 +454,20 @@ class BulidToolsResult:
     collected_secrets: set[RegistrySecretType]
 
 
+@dataclass
+class BuildToolDefinitionsResult:
+    tool_definitions: list[ToolDefinition]
+    failed_actions: list[str]
+    collected_secrets: set[RegistrySecretType]
+
+
 async def build_agent_tools(
-    fixed_arguments: dict[str, dict[str, Any]],
-    namespace_filters: list[str],
-    action_filters: list[str],
+    fixed_arguments: dict[str, dict[str, Any]] | None = None,
+    namespace_filters: list[str] | None = None,
+    action_filters: list[str] | None = None,
 ) -> BulidToolsResult:
     """Build tools from a list of actions."""
+    fixed_arguments = fixed_arguments or {}
     tools: list[Tool] = []
     collected_secrets: set[RegistrySecretType] = set()
 
@@ -444,6 +484,7 @@ async def build_agent_tools(
         # Create tools from registry actions
         for reg_action in actions:
             action_name = f"{reg_action.namespace}.{reg_action.name}"
+            logger.info(f"Building tool for action: {action_name}")
 
             # Apply namespace filtering if specified
             if namespace_filters:
@@ -482,6 +523,50 @@ async def build_agent_tools(
         failed_actions=failed_actions,
         collected_secrets=collected_secrets,
     )
+
+
+async def build_agent_tool_definitions(
+    fixed_arguments: dict[str, dict[str, Any]] | None = None,
+    namespace_filters: list[str] | None = None,
+    action_filters: list[str] | None = None,
+) -> BuildToolDefinitionsResult:
+    """Build tool definitions from a list of actions."""
+    tools_result = await build_agent_tools(
+        fixed_arguments=fixed_arguments,
+        namespace_filters=namespace_filters,
+        action_filters=action_filters,
+    )
+
+    # Convert tools to tool definitions
+    tool_definitions: list[ToolDefinition] = []
+
+    # Create a minimal run context for prepare_tool_def calls
+
+    # Create a mock run context - we need this for prepare_tool_def
+    run_context = RunContext(
+        deps=None,
+        model=None,  # type: ignore
+        usage=Usage(),
+        prompt=None,
+        messages=[],
+        run_step=0,
+    )
+
+    for tool in tools_result.tools:
+        try:
+            tool_def = await tool.prepare_tool_def(run_context)
+            if tool_def is not None:
+                tool_definitions.append(tool_def)
+        except Exception as e:
+            logger.warning(f"Failed to prepare tool definition for {tool.name}: {e}")
+            continue
+
+    return BuildToolDefinitionsResult(
+        tool_definitions=tool_definitions,
+        failed_actions=tools_result.failed_actions,
+        collected_secrets=tools_result.collected_secrets,
+    )
+
 
 class TracecatAgentBuilder:
     """Builder for creating Pydantic AI agents with Tracecat tool calling."""
