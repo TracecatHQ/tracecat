@@ -8,6 +8,7 @@ class TagRead(BaseModel):
 
     id: TagID
     name: str = Field(min_length=1, max_length=50)
+    ref: str
     color: str | None = Field(default=None, description="Hex color code")
 
 

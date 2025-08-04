@@ -6,7 +6,7 @@ from typing import Any, Literal
 import sqlalchemy as sa
 from asyncpg import UndefinedColumnError
 from sqlalchemy.exc import ProgrammingError
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import aliased, selectinload
 from sqlmodel import and_, cast, col, desc, func, or_, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -41,6 +41,7 @@ from tracecat.cases.models import (
     StatusChangedEvent,
     UpdatedEvent,
 )
+from tracecat.cases.tags.service import CaseTagsService
 from tracecat.contexts import ctx_run
 from tracecat.db.schemas import (
     Case,
@@ -48,12 +49,14 @@ from tracecat.db.schemas import (
     CaseComment,
     CaseEvent,
     CaseFields,
+    CaseTag,
     File,
     User,
 )
 from tracecat.logger import logger
 from tracecat.service import BaseWorkspaceService
 from tracecat.tables.service import TableEditorService, TablesService
+from tracecat.tags.models import TagRead
 from tracecat.types.auth import AccessLevel, Role
 from tracecat.types.exceptions import (
     TracecatAuthorizationError,
@@ -76,6 +79,7 @@ class CasesService(BaseWorkspaceService):
         self.fields = CaseFieldsService(session=self.session, role=self.role)
         self.events = CaseEventsService(session=self.session, role=self.role)
         self.attachments = CaseAttachmentService(session=self.session, role=self.role)
+        self.tags = CaseTagsService(session=self.session, role=self.role)
 
     async def list_cases(
         self,
@@ -107,10 +111,11 @@ class CasesService(BaseWorkspaceService):
         # Get estimated total count from table statistics
         total_estimate = await paginator.get_table_row_estimate("cases")
 
-        # Base query with workspace filter
+        # Base query with workspace filter - eagerly load tags
         stmt = (
             select(Case)
             .where(Case.owner_id == self.workspace_id)
+            .options(selectinload(Case.tags))
             .order_by(col(Case.created_at).desc(), col(Case.id).desc())
         )
 
@@ -171,23 +176,32 @@ class CasesService(BaseWorkspaceService):
                     first_case.created_at, first_case.id
                 )
 
-        # Convert to CaseReadMinimal objects
-        case_items = [
-            CaseReadMinimal(
-                id=case.id,
-                created_at=case.created_at,
-                updated_at=case.updated_at,
-                short_id=f"CASE-{case.case_number:04d}",
-                summary=case.summary,
-                status=case.status,
-                priority=case.priority,
-                severity=case.severity,
-                assignee=UserRead.model_validate(case.assignee, from_attributes=True)
-                if case.assignee
-                else None,
+        # Convert to CaseReadMinimal objects with tags
+        case_items = []
+        for case in cases:
+            # Tags are already loaded via selectinload
+            tag_reads = [
+                TagRead.model_validate(tag, from_attributes=True) for tag in case.tags
+            ]
+
+            case_items.append(
+                CaseReadMinimal(
+                    id=case.id,
+                    created_at=case.created_at,
+                    updated_at=case.updated_at,
+                    short_id=f"CASE-{case.case_number:04d}",
+                    summary=case.summary,
+                    status=case.status,
+                    priority=case.priority,
+                    severity=case.severity,
+                    assignee=UserRead.model_validate(
+                        case.assignee, from_attributes=True
+                    )
+                    if case.assignee
+                    else None,
+                    tags=tag_reads,
+                )
             )
-            for case in cases
-        ]
 
         return CursorPaginatedResponse(
             items=case_items,
@@ -204,6 +218,7 @@ class CasesService(BaseWorkspaceService):
         status: CaseStatus | None = None,
         priority: CasePriority | None = None,
         severity: CaseSeverity | None = None,
+        tag_ids: list[uuid.UUID] | None = None,
         start_time: datetime | None = None,
         end_time: datetime | None = None,
         updated_before: datetime | None = None,
@@ -231,7 +246,11 @@ class CasesService(BaseWorkspaceService):
         Returns:
             Sequence of cases matching the search criteria
         """
-        statement = select(Case).where(Case.owner_id == self.workspace_id)
+        statement = (
+            select(Case)
+            .where(Case.owner_id == self.workspace_id)
+            .options(selectinload(Case.tags))
+        )
 
         # Apply search term filter (search in summary and description)
         if search_term:
@@ -261,6 +280,16 @@ class CasesService(BaseWorkspaceService):
         # Apply severity filter
         if severity:
             statement = statement.where(Case.severity == severity)
+
+        # Apply tag filtering if specified (AND logic for multiple tags)
+        if tag_ids:
+            for tag_id in tag_ids:
+                # Self-join for each tag to ensure case has ALL specified tags
+                tag_alias = aliased(CaseTag)
+                statement = statement.join(
+                    tag_alias,
+                    and_(tag_alias.case_id == Case.id, tag_alias.tag_id == tag_id),
+                )
 
         # Apply date filters
         if start_time:
@@ -301,9 +330,13 @@ class CasesService(BaseWorkspaceService):
         Raises:
             TracecatNotFoundError: If the case doesn't exist
         """
-        statement = select(Case).where(
-            Case.owner_id == self.workspace_id,
-            Case.id == case_id,
+        statement = (
+            select(Case)
+            .where(
+                Case.owner_id == self.workspace_id,
+                Case.id == case_id,
+            )
+            .options(selectinload(Case.tags))
         )
 
         result = await self.session.exec(statement)

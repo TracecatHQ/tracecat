@@ -45,6 +45,8 @@ from tracecat.storage import (
     MaxAttachmentsExceededError,
     StorageLimitExceededError,
 )
+from tracecat.tags.models import TagRead
+from tracecat.tags.service import TagsService
 from tracecat.types.auth import AccessLevel, Role
 from tracecat.types.pagination import (
     CursorPaginatedResponse,
@@ -84,9 +86,23 @@ async def list_cases(
     limit: int = Query(20, ge=1, le=100, description="Maximum items per page"),
     cursor: str | None = Query(None, description="Cursor for pagination"),
     reverse: bool = Query(False, description="Reverse pagination direction"),
+    tags: list[str] = Query(None, description="Filter by tag IDs or slugs (AND logic)"),
 ) -> CursorPaginatedResponse[CaseReadMinimal]:
-    """List cases with cursor-based pagination."""
+    """List cases with cursor-based pagination and tag filtering."""
     service = CasesService(session, role)
+
+    # Convert tag identifiers to IDs
+    tag_ids = []
+    if tags:
+        tags_service = TagsService(session, role)
+        for tag_identifier in tags:
+            try:
+                tag = await tags_service.get_tag_by_ref_or_id(tag_identifier)
+                tag_ids.append(tag.id)
+            except Exception:
+                # Skip invalid tags silently
+                pass
+
     pagination_params = CursorPaginationParams(
         limit=limit,
         cursor=cursor,
@@ -111,6 +127,7 @@ async def search_cases(
     status: CaseStatus | None = Query(None, description="Filter by case status"),
     priority: CasePriority | None = Query(None, description="Filter by case priority"),
     severity: CaseSeverity | None = Query(None, description="Filter by case severity"),
+    tags: list[str] = Query(None, description="Filter by tag IDs or slugs (AND logic)"),
     limit: int | None = Query(None, description="Maximum number of cases to return"),
     order_by: Literal["created_at", "updated_at", "priority", "severity", "status"]
     | None = Query(None, description="Field to order the cases by"),
@@ -120,31 +137,55 @@ async def search_cases(
 ) -> list[CaseReadMinimal]:
     """Search cases based on various criteria."""
     service = CasesService(session, role)
+
+    # Convert tag identifiers to IDs
+    tag_ids = []
+    if tags:
+        tags_service = TagsService(session, role)
+        for tag_identifier in tags:
+            try:
+                tag = await tags_service.get_tag_by_ref_or_id(tag_identifier)
+                tag_ids.append(tag.id)
+            except Exception:
+                # Skip invalid tags silently
+                pass
+
     cases = await service.search_cases(
         search_term=search_term,
         status=status,
         priority=priority,
         severity=severity,
+        tag_ids=tag_ids,
         limit=limit,
         order_by=order_by,
         sort=sort,
     )
-    return [
-        CaseReadMinimal(
-            id=case.id,
-            created_at=case.created_at,
-            updated_at=case.updated_at,
-            short_id=f"CASE-{case.case_number:04d}",
-            summary=case.summary,
-            status=case.status,
-            priority=case.priority,
-            severity=case.severity,
-            assignee=UserRead.model_validate(case.assignee, from_attributes=True)
-            if case.assignee
-            else None,
+
+    # Build case responses with tags (tags are already loaded via selectinload)
+    case_responses = []
+    for case in cases:
+        tag_reads = [
+            TagRead.model_validate(tag, from_attributes=True) for tag in case.tags
+        ]
+
+        case_responses.append(
+            CaseReadMinimal(
+                id=case.id,
+                created_at=case.created_at,
+                updated_at=case.updated_at,
+                short_id=f"CASE-{case.case_number:04d}",
+                summary=case.summary,
+                status=case.status,
+                priority=case.priority,
+                severity=case.severity,
+                assignee=UserRead.model_validate(case.assignee, from_attributes=True)
+                if case.assignee
+                else None,
+                tags=tag_reads,
+            )
         )
-        for case in cases
-    ]
+
+    return case_responses
 
 
 @cases_router.get("/{case_id}")
@@ -179,6 +220,9 @@ async def get_case(
             )
         )
 
+    # Tags are already loaded via selectinload
+    tag_reads = [TagRead.model_validate(tag, from_attributes=True) for tag in case.tags]
+
     # Match up the fields with the case field definitions
     return CaseRead(
         id=case.id,
@@ -195,6 +239,7 @@ async def get_case(
         else None,
         fields=final_fields,
         payload=case.payload,
+        tags=tag_reads,
     )
 
 
