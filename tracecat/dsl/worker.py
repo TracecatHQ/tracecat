@@ -15,6 +15,7 @@ with workflow.unsafe.imports_passed_through():
     import sentry_sdk
 
     from tracecat import config
+    from tracecat.agent.workflow import AgenticLoopWorkflow, model_request
     from tracecat.dsl.action import DSLActivities
     from tracecat.dsl.client import get_temporal_client
     from tracecat.dsl.interceptor import SentryInterceptor
@@ -57,6 +58,7 @@ interrupt_event = asyncio.Event()
 
 def get_activities() -> list[Callable]:
     return [
+        model_request,
         *DSLActivities.load(),
         get_workflow_definition_activity,
         *WorkflowSchedulesService.get_activities(),
@@ -90,9 +92,9 @@ async def main() -> None:
     with ThreadPoolExecutor(max_workers=threadpool_max_workers) as executor:
         async with Worker(
             client,
-            task_queue=os.environ.get("TEMPORAL__CLUSTER_QUEUE", "tracecat-task-queue"),
+            task_queue=config.TEMPORAL__CLUSTER_QUEUE,
             activities=activities,
-            workflows=[DSLWorkflow],
+            workflows=[DSLWorkflow, AgenticLoopWorkflow],
             workflow_runner=new_sandbox_runner(),
             interceptors=interceptors,
             disable_eager_activity_execution=config.TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION,
