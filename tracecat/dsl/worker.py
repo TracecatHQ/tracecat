@@ -15,14 +15,16 @@ with workflow.unsafe.imports_passed_through():
     import sentry_sdk
 
     from tracecat import config
-    from tracecat.agent.workflow import AgenticLoopWorkflow, model_request
     from tracecat.dsl.action import DSLActivities
     from tracecat.dsl.client import get_temporal_client
     from tracecat.dsl.interceptor import SentryInterceptor
     from tracecat.dsl.validation import validate_trigger_inputs_activity
     from tracecat.dsl.workflow import DSLWorkflow
+    from tracecat.ee.agent.activities import RedisClientActivities, agent_activities
+    from tracecat.ee.agent.workflow import GraphAgentWorkflow
     from tracecat.ee.interactions.service import InteractionService
     from tracecat.logger import logger
+    from tracecat.redis.client import get_redis_client
     from tracecat.workflow.management.definitions import (
         get_workflow_definition_activity,
     )
@@ -56,15 +58,16 @@ def new_sandbox_runner() -> SandboxedWorkflowRunner:
 interrupt_event = asyncio.Event()
 
 
-def get_activities() -> list[Callable]:
+def get_activities(*extra_activities: Callable) -> list[Callable]:
     return [
-        model_request,
         *DSLActivities.load(),
         get_workflow_definition_activity,
         *WorkflowSchedulesService.get_activities(),
         validate_trigger_inputs_activity,
         *WorkflowsManagementService.get_activities(),
         *InteractionService.get_activities(),
+        *agent_activities(),
+        *extra_activities,
     ]
 
 
@@ -78,7 +81,9 @@ async def main() -> None:
         interceptors.append(SentryInterceptor())
 
     # Run a worker for the activities and workflow
-    activities = get_activities()
+    redis_client = await get_redis_client()
+    redis_activities = RedisClientActivities(client=redis_client)
+    activities = get_activities(*redis_activities.all_activities())
     logger.debug(
         "Activities loaded",
         activities=[
@@ -94,7 +99,7 @@ async def main() -> None:
             client,
             task_queue=config.TEMPORAL__CLUSTER_QUEUE,
             activities=activities,
-            workflows=[DSLWorkflow, AgenticLoopWorkflow],
+            workflows=[DSLWorkflow, GraphAgentWorkflow],
             workflow_runner=new_sandbox_runner(),
             interceptors=interceptors,
             disable_eager_activity_execution=config.TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION,
