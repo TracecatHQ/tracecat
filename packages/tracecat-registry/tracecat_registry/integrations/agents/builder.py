@@ -35,6 +35,7 @@ from pydantic_ai.messages import (
 from pydantic_ai.tools import Tool, ToolDefinition
 from pydantic_core import PydanticUndefined
 
+from tracecat.db.schemas import RegistryAction
 from tracecat.dsl.common import create_default_execution_context
 from tracecat.executor.service import (
     _run_action_direct,
@@ -449,8 +450,8 @@ async def load_conversation_history(
 
 
 @dataclass
-class BulidToolsResult:
-    tools: list[Tool]
+class BulidToolsResult[DepsT]:
+    tools: list[Tool[DepsT]]
     failed_actions: list[str]
     collected_secrets: set[RegistrySecretType]
 
@@ -460,6 +461,75 @@ class BuildToolDefinitionsResult:
     tool_definitions: list[ToolDefinition]
     failed_actions: list[str]
     collected_secrets: set[RegistrySecretType]
+
+
+@dataclass
+class CreateToolResult:
+    """Result of creating a single tool from a registry action."""
+
+    tool: Tool | None
+    """The created tool, or None if creation failed."""
+    collected_secrets: set[RegistrySecretType]
+    """Secrets collected during tool creation."""
+    action_name: str
+    """The action name that was processed."""
+    success: bool
+    """Whether tool creation was successful."""
+
+
+async def create_single_tool(
+    ra: RegistryAction,
+    service: RegistryActionsService,
+    action_name: str,
+    fixed_arguments: dict[str, dict[str, Any]],
+) -> CreateToolResult:
+    """Create a single tool from a registry action.
+
+    Args:
+        reg_action: The registry action to create a tool from
+        action_name: The formatted action name (namespace.name)
+        fixed_arguments: Fixed arguments for actions
+        service: The registry actions service instance
+
+    Returns:
+        CreateToolResult containing the tool and metadata
+    """
+    collected_secrets: set[RegistrySecretType] = set()
+
+    try:
+        # Fetch all secrets for this action
+        action_secrets = await service.fetch_all_action_secrets(ra)
+        collected_secrets.update(action_secrets)
+
+        # Determine if we should pass fixed arguments to the helper
+        has_any_fixed_args = bool(fixed_arguments)
+        action_fixed_args = fixed_arguments.get(action_name)
+
+        if has_any_fixed_args:
+            # If some fixed arguments were supplied when constructing the builder,
+            # we always include the second parameter – pass an empty dict when the
+            # current action does not have any overrides so that callers may rely on
+            # the two-argument form when the feature is in use.
+            action_fixed_args = action_fixed_args or {}
+            tool = await create_tool_from_registry(action_name, action_fixed_args)
+        else:
+            # No fixed arguments functionality requested – keep the original
+            # single-parameter call signature expected by existing tests.
+            tool = await create_tool_from_registry(action_name)
+
+        return CreateToolResult(
+            tool=tool,
+            collected_secrets=collected_secrets,
+            action_name=action_name,
+            success=True,
+        )
+    except RegistryError:
+        return CreateToolResult(
+            tool=None,
+            collected_secrets=collected_secrets,
+            action_name=action_name,
+            success=False,
+        )
 
 
 async def build_agent_tools(
@@ -483,8 +553,8 @@ async def build_agent_tools(
         failed_actions: list[str] = []
 
         # Create tools from registry actions
-        for reg_action in actions:
-            action_name = f"{reg_action.namespace}.{reg_action.name}"
+        for ra in actions:
+            action_name = f"{ra.namespace}.{ra.name}"
             logger.debug(f"Building tool for action: {action_name}")
 
             # Apply namespace filtering if specified
@@ -492,32 +562,16 @@ async def build_agent_tools(
                 if not any(action_name.startswith(ns) for ns in namespace_filters):
                     continue
 
-            try:
-                # Fetch all secrets for this action
-                action_secrets = await service.fetch_all_action_secrets(reg_action)
-                collected_secrets.update(action_secrets)
+            # Create the tool using the extracted function
+            result = await create_single_tool(ra, service, action_name, fixed_arguments)
 
-                # Determine if we should pass fixed arguments to the helper
-                has_any_fixed_args = bool(fixed_arguments)
-                action_fixed_args = fixed_arguments.get(action_name)
+            # Update collected secrets
+            collected_secrets.update(result.collected_secrets)
 
-                if has_any_fixed_args:
-                    # If some fixed arguments were supplied when constructing the builder,
-                    # we always include the second parameter – pass an empty dict when the
-                    # current action does not have any overrides so that callers may rely on
-                    # the two-argument form when the feature is in use.
-                    action_fixed_args = action_fixed_args or {}
-                    tool = await create_tool_from_registry(
-                        action_name, action_fixed_args
-                    )
-                else:
-                    # No fixed arguments functionality requested – keep the original
-                    # single-parameter call signature expected by existing tests.
-                    tool = await create_tool_from_registry(action_name)
-
-                tools.append(tool)
-            except RegistryError:
-                failed_actions.append(action_name)
+            if result.success and result.tool is not None:
+                tools.append(result.tool)
+            else:
+                failed_actions.append(result.action_name)
 
     return BulidToolsResult(
         tools=tools,
