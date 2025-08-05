@@ -1,0 +1,25 @@
+type: action
+definition:
+  title: Get incident data
+  description: Show detailed information about an incident.
+  display_group: PagerDuty
+  doc_url: https://developer.pagerduty.com/api-reference
+  namespace: tools.pagerduty
+  name: get_incident_data
+  secrets:
+    - name: pagerduty
+      keys: ["PAGERDUTY_API_KEY"]
+  expects:
+    incident_id:
+      type: str
+      description: The ID of the incident.
+  steps:
+    - ref: get_incident_data
+      action: core.http_request
+      args:
+        url: https://api.pagerduty.com/incidents/${{ inputs.incident_id }}
+        method: GET
+        headers:
+          Authorization: Token token=${{ SECRETS.pagerduty.PAGERDUTY_API_KEY }}
+          Content-Type: application/json
+  returns: ${{ steps.get_incident_data.result.data }}
