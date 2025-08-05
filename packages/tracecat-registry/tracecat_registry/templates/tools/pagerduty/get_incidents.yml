@@ -1,6 +1,6 @@
 type: action
 definition:
-  title: Incidents
+  title: Get incidents
   description: List existing incidents.
   display_group: PagerDuty
   doc_url: https://developer.pagerduty.com/api-reference

@@ -1,6 +1,6 @@
 type: action
 definition:
-  title: Resolve event
+  title: Acknowledge event
   description: Resolves an existing event in PagerDuty
   display_group: PagerDuty
   doc_url: https://developer.pagerduty.com/api-reference
