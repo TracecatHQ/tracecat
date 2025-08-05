@@ -1,259 +1,223 @@
 from __future__ import annotations as _annotations
 
-import asyncio
+from dataclasses import dataclass
 from datetime import timedelta
+from enum import StrEnum
 
-from temporalio import activity, workflow
+from temporalio import workflow
+from temporalio.exceptions import ApplicationError
 
 with workflow.unsafe.imports_passed_through():
-    import orjson
-    from pydantic_ai.direct import model_request as direct_model_request
+    # NOTE: These imports are required to avoid workflow sandbox restrictions.
+    import httpcore  # noqa: F401
+    import httpx  # noqa: F401
+    import pydantic_ai  # noqa: F401
+
+    # Rest of imports
+    from pydantic import BaseModel
+    from pydantic_ai import Agent, RunContext
     from pydantic_ai.messages import (
+        FunctionToolCallEvent,
+        FunctionToolResultEvent,
         ModelMessage,
-        ModelMessagesTypeAdapter,
-        ModelRequest,
+        ModelResponse,
         TextPart,
         ToolCallPart,
         ToolReturnPart,
     )
-    from pydantic_ai.models import ModelRequestParameters
-    from pydantic_core import from_json, to_json
-    from tracecat_registry.integrations.agents.builder import (
-        build_agent_tool_definitions,
-        call_tracecat_action,
+    from pydantic_ai.models import Model
+    from pydantic_ai.tools import (
+        AgentDepsT,
     )
+    from pydantic_core import to_json
+    from tracecat_registry.integrations.agents.tools import (
+        create_tool_call,
+        create_tool_return,
+    )
+    from tracecat_registry.integrations.pydantic_ai import build_agent
 
-    from tracecat import config
-    from tracecat.ee.agent.models import (
-        ExecuteToolCallArgs,
-        ExecuteToolCallResult,
-        ModelRequestArgs,
-        ModelRequestResult,
-        ToolFilters,
+    from tracecat.contexts import ctx_role
+    from tracecat.ee.agent.activities import (
+        BuildToolDefinitionsArgs,
+        build_tool_definitions,
     )
+    from tracecat.ee.agent.core import DurableGatedTool, DurableModel
+    from tracecat.ee.agent.models import ModelInfo, ToolFilters
     from tracecat.logger import logger
+    from tracecat.types.auth import Role
 
 
-@activity.defn
-async def model_request(request_args: ModelRequestArgs) -> ModelRequestResult:
-    logger.info(f"Requesting model with {len(request_args.message_history)} messages")
-    raw_messages = orjson.loads(request_args.message_history)
-    messages = ModelMessagesTypeAdapter.validate_python(raw_messages)
-    result = await build_agent_tool_definitions(
-        namespace_filters=request_args.tool_filters.namespaces,
-        action_filters=request_args.tool_filters.actions,
-    )
-    model_response = await direct_model_request(
-        "openai:gpt-4o-mini",
-        messages,
-        model_request_parameters=ModelRequestParameters(
-            function_tools=result.tool_definitions,
-        ),
-    )
-    for part in model_response.parts:
-        # if tool call
-        match part:
-            case ToolCallPart(tool_name=tool_name, args=args):
-                logger.info("Tool call", tool_name=tool_name, args=args)
-            case TextPart(content=content):
-                logger.info("Text part", content=content)
-
-    return ModelRequestResult(model_response=to_json(model_response))
+class AgenticGraphWorkflowArgs(BaseModel):
+    role: Role
+    user_prompt: str
+    tool_filters: ToolFilters | None = None
+    """This is static over the lifetime of the workflow, as it's for 1 turn."""
 
 
-@activity.defn
-async def execute_tool_call(args: ExecuteToolCallArgs) -> ExecuteToolCallResult:
-    """Execute a single tool call and return the result as a ToolReturnPart."""
-    logger.info(f"Executing tool call: {args.tool_name}")
+class ApprovalStatus(StrEnum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
 
-    try:
-        # Execute the tool using the existing call_tracecat_action function
-        result = await call_tracecat_action(args.tool_name, args.tool_args)
 
-        # Create a ToolReturnPart with the result
-        tool_return_part = ToolReturnPart(
-            tool_name=args.tool_name,
-            tool_call_id=args.tool_call_id,
-            content=str(result),  # Convert result to string for LLM consumption
-        )
-
-        logger.info(f"Tool call {args.tool_name} completed successfully")
-        return ExecuteToolCallResult(tool_return=to_json(tool_return_part))
-
-    except Exception as e:
-        error_msg = f"Tool execution failed: {str(e)}"
-        logger.error(f"Tool call {args.tool_name} failed: {error_msg}")
-
-        # Create an error ToolReturnPart
-        tool_return_part = ToolReturnPart(
-            tool_name=args.tool_name,
-            tool_call_id=args.tool_call_id,
-            content=f"Error: {error_msg}",
-        )
-
-        return ExecuteToolCallResult(
-            tool_return=to_json(tool_return_part), error=error_msg
-        )
+@dataclass
+class ApprovalState:
+    status: ApprovalStatus
+    tool_call_part: ToolCallPart
 
 
 @workflow.defn
-class AgenticLoopWorkflow:
+class GraphAgentWorkflow:
+    """Executes an agentic chat turn using pydantic-ai Agent."""
+
     @workflow.init
-    def __init__(self) -> None:
-        self.message_history: list[ModelMessage] = []
-        self.prompt_queue: asyncio.Queue[str] = asyncio.Queue()
-        self.tool_filters: ToolFilters = ToolFilters(
-            actions=[
-                "core.cases.create_case",
-                "core.cases.get_case",
-                "core.cases.list_cases",
-                "core.cases.update_case",
-                "core.cases.list_cases",
-            ],
-        )
-        # Safety parameters (following Gemini CLI pattern)
-        self.max_turns_per_message: int = 25
-        self.current_turn_count: int = 0
+    def __init__(self, args: AgenticGraphWorkflowArgs) -> None:
+        self.pending_approvals: dict[str, ApprovalState] = {}
 
     @workflow.signal
-    async def send_message(self, message: str) -> None:
-        await self.prompt_queue.put(message)
+    def approve_call(self, call_id: str) -> None:
+        if call_id not in self.pending_approvals:
+            raise ApplicationError(f"Call ID {call_id} not found")
+        self.pending_approvals[call_id].status = ApprovalStatus.APPROVED
+
+    @workflow.signal
+    def reject_call(self, call_id: str) -> None:
+        if call_id not in self.pending_approvals:
+            raise ApplicationError(f"Call ID {call_id} not found")
+        self.pending_approvals[call_id].status = ApprovalStatus.REJECTED
+
+    # Define how the workflow waits for human approval
+    async def approval_gate(
+        self,
+        message: ToolCallPart,
+        run_context: RunContext[AgentDepsT],
+    ) -> bool:
+        """
+        Hook that gets called before the tool call.
+
+        This gate function is invoked prior to executing any tool call,
+        allowing for human-in-the-loop approval workflow.
+
+        Args:
+            message: The tool call message containing tool name and arguments
+            run_context: The current run context with HITLDeps
+
+        Returns:
+            bool: True if the tool call should proceed, False otherwise
+        """
+        tool_name = message.tool_name
+        tool_args = message.args
+        call_id = f"{tool_name}_{workflow.uuid4().hex}"
+
+        logger.info(
+            "Creating approval state",
+            tool_name=tool_name,
+            tool_args=tool_args,
+            call_id=call_id,
+        )
+        self.pending_approvals[call_id] = ApprovalState(
+            status=ApprovalStatus.PENDING,
+            tool_call_part=message,
+        )
+        # expose to UI via workflow state or signal
+        await workflow.wait_condition(
+            lambda: self.pending_approvals[call_id].status == ApprovalStatus.APPROVED
+        )
+        return True  # proceed
 
     @workflow.run
-    async def run(self) -> str:
-        # Initial state
-        should_end = False
-        # Main conversation loop
-        while True:
-            # Receive user input
-            logger.info(f"Waiting for prompt, queue size: {self.prompt_queue.qsize()}")
-            await workflow.wait_condition(
-                lambda: self.prompt_queue.qsize() > 0 or should_end
-            )
-            if should_end:
-                return to_json(self.message_history).decode()
-
-            # Handle one message with agentic loop
-            message = await self.prompt_queue.get()
-            await self._handle_user_message(message)
-
-    async def _handle_user_message(self, message: str) -> None:
-        """Handle a single user message with full agentic loop until completion."""
-        # Reset turn counter for this message
-        self.current_turn_count = 0
-
-        # Add user message to history
-        self.message_history.append(ModelRequest.user_text_prompt(message))
-        logger.info(f"Starting agentic loop for message: {message[:100]}...")
-
-        # Agentic loop - continue until no more tool calls needed
-        while True:
-            self.current_turn_count += 1
-
-            # Safety check: prevent infinite loops
-            if self.current_turn_count > self.max_turns_per_message:
-                logger.error(
-                    f"Reached max turns ({self.max_turns_per_message}) for this message. "
-                    "Stopping agentic loop to prevent infinite execution."
-                )
-                # Add an error message to let the LLM know what happened
-                error_message = ModelRequest(
-                    parts=[
-                        ToolReturnPart(
-                            tool_name="system",
-                            tool_call_id="error",
-                            content=f"Maximum turns ({self.max_turns_per_message}) exceeded. Please provide a final response.",
-                        )
-                    ]
-                )
-                self.message_history.append(error_message)
-                break
-
-            logger.info(
-                f"Agentic turn {self.current_turn_count}/{self.max_turns_per_message}"
-            )
-
-            # Call LLM
-            response = await workflow.execute_activity(
-                model_request,
-                ModelRequestArgs(
-                    message_history=to_json(self.message_history),
-                    tool_filters=self.tool_filters,
-                ),
-                task_queue=config.TEMPORAL__CLUSTER_QUEUE,
-                start_to_close_timeout=timedelta(seconds=30),
-            )
-
-            # Parse the model response
-            raw_response = from_json(response.model_response)
-            model_response = ModelMessagesTypeAdapter.validate_python([raw_response])[0]
-            self.message_history.append(model_response)
-
-            # Check for tool calls in the response
-            tool_calls = self._extract_tool_calls(model_response)
-
-            if not tool_calls:
-                # No tool calls - the agent is done with this message
-                logger.info(
-                    f"Agentic loop completed in {self.current_turn_count} turns"
-                )
-                break
-
-            # Execute tool calls in parallel and add results to message history
-            logger.info(f"Executing {len(tool_calls)} tool calls")
-            await self._execute_tool_calls(tool_calls)
-
-    def _extract_tool_calls(self, model_response: ModelMessage) -> list[ToolCallPart]:
-        """Extract tool calls from a model response."""
-        tool_calls = []
-        if hasattr(model_response, "parts"):
-            for part in model_response.parts:
-                if isinstance(part, ToolCallPart):
-                    tool_calls.append(part)
-        return tool_calls
-
-    async def _execute_tool_calls(self, tool_calls: list[ToolCallPart]) -> None:
-        """Execute multiple tool calls in parallel and add results to message history."""
-        # Execute all tool calls in parallel (following Gemini pattern)
-        tool_results = await asyncio.gather(
-            *[
-                workflow.execute_activity(
-                    execute_tool_call,
-                    ExecuteToolCallArgs(
-                        tool_name=tool_call.tool_name,
-                        tool_args=tool_call.args
-                        if isinstance(tool_call.args, dict)
-                        else {},
-                        tool_call_id=tool_call.tool_call_id,
-                    ),
-                    task_queue=config.TEMPORAL__CLUSTER_QUEUE,
-                    start_to_close_timeout=timedelta(
-                        seconds=60
-                    ),  # Longer timeout for tool execution
-                )
-                for tool_call in tool_calls
-            ]
+    async def run(self, args: AgenticGraphWorkflowArgs) -> str:
+        ctx_role.set(args.role)
+        model_info = ModelInfo(
+            name="gpt-4o-mini",
+            provider="openai",
+            base_url=None,
+        )
+        tool_filters = args.tool_filters or ToolFilters.default()
+        build_res = await workflow.execute_activity(
+            build_tool_definitions,
+            BuildToolDefinitionsArgs(tool_filters=tool_filters),
+            start_to_close_timeout=timedelta(seconds=10),
         )
 
-        # Convert results to ToolReturnParts and add to message history
-        tool_return_parts = []
-        for result in tool_results:
-            raw_tool_return = from_json(result.tool_return)
-            # Recreate ToolReturnPart from the serialized data
-            tool_return_part = ToolReturnPart(
-                tool_name=raw_tool_return["tool_name"],
-                tool_call_id=raw_tool_return["tool_call_id"],
-                content=raw_tool_return["content"],
-            )
-            tool_return_parts.append(tool_return_part)
+        # Wrap every tool with HITLTool
+        # NOTE: These should just be stubs, not actual callable tools
+        self.tools = [
+            DurableGatedTool(defn, self.approval_gate)
+            for defn in build_res.tool_definitions
+        ]
 
-            if result.error:
-                logger.warning(f"Tool execution error: {result.error}")
+        agent = build_agent(
+            model=DurableModel(model_info),
+            instructions="You are a helpful assistant.",
+            tools=[t.tool for t in self.tools],
+        )
+        if not isinstance(agent.model, Model):
+            raise ApplicationError("Model is None")
+        logger.info("Agent built", agent=agent)
+        messages: list[ModelMessage] = []
+        async with agent.iter(user_prompt=args.user_prompt) as run:
+            async for node in run:
+                curr: ModelMessage
+                if Agent.is_user_prompt_node(node):
+                    continue
 
-        # Add all tool returns as a single ModelRequest
-        if tool_return_parts:
-            tool_response_message = ModelRequest(parts=tool_return_parts)
-            self.message_history.append(tool_response_message)
-            logger.info(
-                f"Added {len(tool_return_parts)} tool results to message history"
-            )
+                # 1️⃣  Model request (may be a normal user/tool-return message)
+                elif Agent.is_model_request_node(node):
+                    curr = node.request
+                    logger.info("Model request", curr=curr)
+
+                    # If this request is ONLY a tool-return we have
+                    # already streamed it via FunctionToolResultEvent.
+                    if any(isinstance(p, ToolReturnPart) for p in curr.parts):
+                        messages.append(curr)  # keep history
+                        continue  # ← skip duplicate stream
+                # assistant tool-call + tool-return events
+                elif Agent.is_call_tools_node(node):
+                    logger.info("Call tools node", node=node)
+                    # Probably add HITL here
+                    curr = node.model_response
+                    async with node.stream(run.ctx) as stream:
+                        async for event in stream:
+                            if isinstance(event, FunctionToolCallEvent):
+                                logger.info("Function tool call event", event=event)
+                                message = create_tool_call(
+                                    tool_name=event.part.tool_name,
+                                    tool_args=event.part.args,
+                                    tool_call_id=event.part.tool_call_id,
+                                )
+                            elif isinstance(
+                                event, FunctionToolResultEvent
+                            ) and isinstance(event.result, ToolReturnPart):
+                                logger.info("Function tool result event", event=event)
+                                message = create_tool_return(
+                                    tool_name=event.result.tool_name,
+                                    content=event.result.content,
+                                    tool_call_id=event.tool_call_id,
+                                )
+                            else:
+                                logger.info("Other event", event=event)
+                                continue
+
+                            messages.append(message)
+                    continue
+                elif Agent.is_end_node(node):
+                    final = node.data
+                    if final.tool_name:
+                        curr = create_tool_return(
+                            tool_name=final.tool_name,
+                            content=final.output,
+                            tool_call_id=final.tool_call_id or "",
+                        )
+                    else:
+                        # Plain text output
+                        curr = ModelResponse(
+                            parts=[
+                                TextPart(content=final.output),
+                            ]
+                        )
+                else:
+                    raise ValueError(f"Unknown node type: {node}")
+
+                messages.append(curr)
+        return to_json(messages).decode()

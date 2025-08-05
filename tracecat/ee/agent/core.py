@@ -1,136 +1,151 @@
-"""Core agentic loop implementation."""
-
 from __future__ import annotations as _annotations
 
-from dataclasses import dataclass
+from collections.abc import Awaitable, Callable
+from datetime import timedelta
+from typing import Any, Generic
 
-import orjson
+from pydantic_ai import RunContext, Tool, messages
 from pydantic_ai.messages import (
     ModelMessage,
-    ModelMessagesTypeAdapter,
-    ModelRequest,
-    ToolReturnPart,
+    ModelResponse,
+    ToolCallPart,
 )
-from pydantic_core import from_json, to_json
+from pydantic_ai.models import Model, ModelRequestParameters
+from pydantic_ai.settings import ModelSettings
+from pydantic_ai.tools import (
+    AgentDepsT,
+    ToolDefinition,
+)
+from pydantic_core import to_json
+from temporalio import workflow
 
-from tracecat.ee.agent.constants import MAX_TURNS_PER_MESSAGE
-from tracecat.ee.agent.models import (
-    AgentDeps,
-    ModelRequestArgs,
-    ToolFilters,
+from tracecat.contexts import ctx_role
+from tracecat.ee.agent.activities import (
+    durable_model_request,
+    execute_tool_call,
 )
-from tracecat.ee.agent.tools import execute_tool_calls_parallel, extract_tool_calls
+from tracecat.ee.agent.models import (
+    DurableModelRequestArgs,
+    ExecuteToolCallArgs,
+    ModelInfo,
+    ModelResponseTA,
+)
 from tracecat.logger import logger
 
 
-def build_message_history(message_history_bytes: bytes) -> list[ModelMessage]:
-    """Build message history from serialized bytes.
-
-    Args:
-        message_history_bytes: Serialized message history
-
-    Returns:
-        List of ModelMessage objects
+class DurableGatedTool(Generic[AgentDepsT]):
     """
-    raw_messages = orjson.loads(message_history_bytes)
-    return ModelMessagesTypeAdapter.validate_python(raw_messages)
-
-
-@dataclass
-class AgentTurnResult:
-    message_history: list[ModelMessage]
-    turn_count: int
-
-
-# Accept dependencies as a dataclass to allow for easier mocking in tests
-async def run_agent_loop(
-    user_prompt: str,
-    messages: list[ModelMessage],
-    tool_filters: ToolFilters,
-    deps: AgentDeps,
-    max_turns: int = MAX_TURNS_PER_MESSAGE,
-) -> AgentTurnResult:
-    """Run the core agentic loop until completion.
-
-    This is the heart of the agent logic - it continues calling the LLM
-    and executing tools until the LLM responds without any tool calls.
-
-    Args:
-        messages: Current message history
-        tool_filters: Tool filters for the agent
-        max_turns: Maximum number of turns to prevent infinite loops
-        task_queue: Temporal task queue name
-
-    Returns:
-        Updated message history with all turns completed
-
-    Raises:
-        RuntimeError: If max turns exceeded
+    Proxy around a real Tool that pauses for human approval
+    before letting the underlying tool run.
     """
 
-    current_turn_count = 0
-    working_messages = messages.copy() + [ModelRequest.user_text_prompt(user_prompt)]
+    def __init__(
+        self,
+        tool: ToolDefinition,
+        gate: Callable[
+            [ToolCallPart, RunContext[AgentDepsT]],  # (tool_name, args, context)
+            Awaitable[bool],  # approve = True / False
+        ],
+    ) -> None:
+        self._tool = tool
+        self._gate = gate
 
-    # Agentic loop - continue until no more tool calls needed
-    while True:
-        current_turn_count += 1
-
-        # Safety check: prevent infinite loops
-        if current_turn_count > max_turns:
-            logger.error(
-                f"Reached max turns ({max_turns}) for this message. "
-                "Stopping agentic loop to prevent infinite execution."
-            )
-            # Add an error message to let the LLM know what happened
-            error_message = ModelRequest(
-                parts=[
-                    ToolReturnPart(
-                        tool_name="system",
-                        tool_call_id="error",
-                        content=f"Maximum turns ({max_turns}) exceeded. Please provide a final response.",
-                    )
-                ]
-            )
-            working_messages.append(error_message)
-            break
-
-        logger.info(f"Agentic turn {current_turn_count}/{max_turns}")
-
-        # Call LLM
-        response = await deps.call_model(
-            ModelRequestArgs(
-                message_history=to_json(working_messages),
-                tool_filters=tool_filters,
-            )
+        # Re-export the wrapped tool’s public definition so that the
+        # LLM still “sees” the same schema.
+        self.tool = Tool[AgentDepsT](
+            self._call_gated_tool,
+            name=tool.name,
+            description=tool.description,
+            takes_ctx=True,  # we need ctx for audit trail
+            strict=tool.strict,
         )
 
-        # Parse the model response
-        raw_response = from_json(response.model_response)
-        model_response = ModelMessagesTypeAdapter.validate_python([raw_response])[0]
-        working_messages.append(model_response)
+    async def _call_gated_tool(
+        self,
+        ctx: RunContext[AgentDepsT],
+        **tool_args: Any,
+    ) -> messages.ToolReturnPart | messages.RetryPromptPart:
+        logger.info("HITLTool", tool_name=self._tool.name, tool_args=tool_args, ctx=ctx)
+        approved = await self._gate(
+            ToolCallPart(
+                tool_name=self._tool.name,
+                tool_call_id=ctx.tool_call_id or "",
+                args=tool_args,
+            ),
+            ctx,
+        )
 
-        # Check for tool calls in the response
-        tool_calls = extract_tool_calls(model_response)
-
-        if not tool_calls:
-            # No tool calls - the agent is done with this message
-            logger.info(f"Agentic loop completed in {current_turn_count} turns")
-            break
-
-        # Execute tool calls in parallel and add results to message history
-        logger.info(f"Executing {len(tool_calls)} tool calls")
-        tool_return_parts = await execute_tool_calls_parallel(deps, tool_calls)
-
-        # Add all tool returns as a single ModelRequest
-        if tool_return_parts:
-            # Cast to list[ModelRequestPart] since ToolReturnPart is a ModelRequestPart
-            tool_response_message = ModelRequest(parts=tool_return_parts)  # type: ignore[arg-type]
-            working_messages.append(tool_response_message)
-            logger.info(
-                f"Added {len(tool_return_parts)} tool results to message history"
+        if not approved:
+            # Tell the model to try again or do something else
+            return messages.RetryPromptPart(
+                tool_name=self._tool.name,
+                tool_call_id=ctx.tool_call_id
+                or "",  # echo back whatever id pydantic-ai gave
+                content="Call rejected by human reviewer. Try another approach.",
             )
 
-    return AgentTurnResult(
-        message_history=working_messages,
-        turn_count=current_turn_count,
-    )
+        # Human said yes – delegate to the real implementation
+        return await self._call_tool(ctx, tool_args)
+
+    async def _call_tool(
+        self, ctx: RunContext[AgentDepsT], tool_args: dict[str, Any]
+    ) -> Any:
+        # This function represents the actual tool call
+        # We proxy it to temporal
+        args = ExecuteToolCallArgs(
+            tool_name=self._tool.name,
+            tool_args=tool_args,
+            tool_call_id=ctx.tool_call_id or "",
+        )
+        role = ctx_role.get()
+        result = await workflow.execute_activity(
+            execute_tool_call,
+            args=(args, role),
+            start_to_close_timeout=timedelta(seconds=60),
+        )
+        logger.info("Tool call result", result=result)
+        return result.tool_return
+
+
+class DurableModel(Model):
+    """A durable AI model implementation that proxies model requests to temporal activities.
+
+    This class wraps AI model requests in Temporal activities to provide durability,
+    retry capabilities, and workflow integration. All model requests are executed
+    as Temporal activities, allowing them to be retried, monitored, and managed
+    within the Temporal workflow system.
+    """
+
+    def __init__(self, info: ModelInfo):
+        self._info = info
+
+    @property
+    def model_name(self) -> str:
+        return self._info.name
+
+    @property
+    def system(self) -> str:
+        return self._info.provider
+
+    async def request(
+        self,
+        messages: list[ModelMessage],
+        model_settings: ModelSettings | None,
+        model_request_parameters: ModelRequestParameters,
+    ) -> ModelResponse:
+        role = ctx_role.get()
+        args = DurableModelRequestArgs(
+            messages=messages,
+            model_settings=model_settings,
+            model_request_parameters=model_request_parameters,
+            model_info=self._info,
+        )
+        logger.info(f"DurableModel request: {to_json(args, indent=2).decode()}")
+        result = await workflow.execute_activity(
+            durable_model_request,
+            args=(args, role),
+            start_to_close_timeout=timedelta(seconds=120),
+        )
+        resp = ModelResponseTA.validate_json(result.model_response)
+        logger.info(f"DurableModel response: {to_json(resp, indent=2).decode()}")
+        return resp
