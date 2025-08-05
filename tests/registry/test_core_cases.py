@@ -6,12 +6,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from tracecat_registry.core.cases import (
+    add_case_tag,
     assign_user,
     create_case,
     create_comment,
     get_case,
     list_cases,
     list_comments,
+    remove_case_tag,
     search_cases,
     update_case,
     update_comment,
@@ -45,6 +47,7 @@ def mock_case():
     case.updated_at = datetime.now()
     case.case_number = 1234
     case.payload = {"alert_type": "security", "severity": "high"}
+    case.tags = []  # Empty list of tags by default
 
     # Set up model_dump to return a dict representation
     case.model_dump.return_value = {
@@ -1479,3 +1482,383 @@ class TestCoreAssignUser:
 
         with pytest.raises(ValueError, match=f"Case with ID {case_id} not found"):
             await assign_user(case_id=case_id, assignee_id=assignee_id)
+
+
+@pytest.fixture
+def mock_tag():
+    """Create a mock tag for testing."""
+    tag = MagicMock()
+    tag.id = uuid.uuid4()
+    tag.name = "Test Tag"
+    tag.ref = "test-tag"
+    tag.color = "#FF0000"
+
+    # Set up model_dump to return a dict representation
+    tag.model_dump.return_value = {
+        "id": str(tag.id),
+        "name": tag.name,
+        "ref": tag.ref,
+        "color": tag.color,
+    }
+
+    return tag
+
+
+@pytest.mark.anyio
+class TestCoreCaseTags:
+    """Test cases for case tag management UDFs."""
+
+    @patch("tracecat_registry.core.cases.CasesService.with_session")
+    async def test_add_case_tag_success(self, mock_with_session, mock_case, mock_tag):
+        """Test successful tag addition to a case."""
+        # Set up the mock service context manager
+        mock_service = AsyncMock()
+        mock_service.get_case.return_value = mock_case
+
+        # Mock the tags service
+        mock_service.tags = AsyncMock()
+        mock_service.tags.add_case_tag.return_value = mock_tag
+
+        # Set up the context manager's __aenter__ to return the mock service
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        # Call the add_case_tag function
+        result = await add_case_tag(
+            case_id=str(mock_case.id),
+            tag="test-tag",
+        )
+
+        # Assert get_case was called
+        mock_service.get_case.assert_called_once_with(mock_case.id)
+
+        # Assert add_case_tag was called with expected parameters
+        mock_service.tags.add_case_tag.assert_called_once_with(mock_case.id, "test-tag")
+
+        # Verify the result
+        assert result["id"] == str(mock_tag.id)
+        assert result["name"] == mock_tag.name
+        assert result["ref"] == mock_tag.ref
+        assert result["color"] == mock_tag.color
+
+    @patch("tracecat_registry.core.cases.CasesService.with_session")
+    async def test_add_case_tag_case_not_found(self, mock_with_session):
+        """Test add_case_tag when case is not found."""
+        # Set up the mock service context manager
+        mock_service = AsyncMock()
+        mock_service.get_case.return_value = None
+
+        # Set up the context manager's __aenter__ to return the mock service
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        # Call the add_case_tag function and expect an error
+        case_id = str(uuid.uuid4())
+        with pytest.raises(ValueError, match=f"Case with ID {case_id} not found"):
+            await add_case_tag(case_id=case_id, tag="test-tag")
+
+    @patch("tracecat_registry.core.cases.CasesService.with_session")
+    async def test_remove_case_tag_success(self, mock_with_session, mock_case):
+        """Test successful tag removal from a case."""
+        # Set up the mock service context manager
+        mock_service = AsyncMock()
+        mock_service.get_case.return_value = mock_case
+
+        # Mock the tags service
+        mock_service.tags = AsyncMock()
+        mock_service.tags.remove_case_tag.return_value = None
+
+        # Set up the context manager's __aenter__ to return the mock service
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        # Call the remove_case_tag function
+        result = await remove_case_tag(
+            case_id=str(mock_case.id),
+            tag="test-tag",
+        )
+
+        # Assert get_case was called
+        mock_service.get_case.assert_called_once_with(mock_case.id)
+
+        # Assert remove_case_tag was called with expected parameters
+        mock_service.tags.remove_case_tag.assert_called_once_with(
+            mock_case.id, "test-tag"
+        )
+
+        # Verify the result is None
+        assert result is None
+
+    @patch("tracecat_registry.core.cases.CasesService.with_session")
+    async def test_remove_case_tag_case_not_found(self, mock_with_session):
+        """Test remove_case_tag when case is not found."""
+        # Set up the mock service context manager
+        mock_service = AsyncMock()
+        mock_service.get_case.return_value = None
+
+        # Set up the context manager's __aenter__ to return the mock service
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        # Call the remove_case_tag function and expect an error
+        case_id = str(uuid.uuid4())
+        with pytest.raises(ValueError, match=f"Case with ID {case_id} not found"):
+            await remove_case_tag(case_id=case_id, tag="test-tag")
+
+    @patch("tracecat_registry.core.cases.CasesService.with_session")
+    async def test_create_case_with_tags(self, mock_with_session, mock_case, mock_tag):
+        """Test creating a case with tags."""
+        # Set up the mock service context manager
+        mock_service = AsyncMock()
+        mock_service.create_case.return_value = mock_case
+
+        # Mock the tags service
+        mock_service.tags = AsyncMock()
+        mock_service.tags.add_case_tag.return_value = mock_tag
+
+        # Mock session refresh
+        mock_service.session = AsyncMock()
+        mock_service.session.refresh = AsyncMock()
+
+        # Set up the context manager's __aenter__ to return the mock service
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        # Call the create function with tags
+        result = await create_case(
+            summary="Test Case",
+            description="Test Description",
+            priority="medium",
+            severity="medium",
+            status="new",
+            tags=["tag1", "tag2"],
+        )
+
+        # Assert create_case was called
+        mock_service.create_case.assert_called_once()
+
+        # Assert tags were added
+        assert mock_service.tags.add_case_tag.call_count == 2
+        mock_service.tags.add_case_tag.assert_any_call(mock_case.id, "tag1")
+        mock_service.tags.add_case_tag.assert_any_call(mock_case.id, "tag2")
+
+        # Assert session refresh was called
+        mock_service.session.refresh.assert_called_once_with(mock_case)
+
+        # Verify the result
+        assert result == mock_case.model_dump.return_value
+
+    @patch("tracecat_registry.core.cases.CasesService.with_session")
+    async def test_create_case_without_tags(self, mock_with_session, mock_case):
+        """Test creating a case without tags."""
+        # Set up the mock service context manager
+        mock_service = AsyncMock()
+        mock_service.create_case.return_value = mock_case
+
+        # Mock the tags service (should not be called)
+        mock_service.tags = AsyncMock()
+
+        # Set up the context manager's __aenter__ to return the mock service
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        # Call the create function without tags
+        result = await create_case(
+            summary="Test Case",
+            description="Test Description",
+            priority="medium",
+            severity="medium",
+            status="new",
+        )
+
+        # Assert create_case was called
+        mock_service.create_case.assert_called_once()
+
+        # Assert tags service was not called
+        mock_service.tags.add_case_tag.assert_not_called()
+
+        # Verify the result
+        assert result == mock_case.model_dump.return_value
+
+    @patch("tracecat_registry.core.cases.CasesService.with_session")
+    async def test_update_case_with_tags(self, mock_with_session, mock_case, mock_tag):
+        """Test updating a case with new tags (replaces existing tags)."""
+        # Set up existing tags
+        existing_tag1 = MagicMock()
+        existing_tag1.id = uuid.uuid4()
+        existing_tag1.ref = "existing-tag1"
+        existing_tag2 = MagicMock()
+        existing_tag2.id = uuid.uuid4()
+        existing_tag2.ref = "existing-tag2"
+
+        # Set up the mock service context manager
+        mock_service = AsyncMock()
+        mock_service.get_case.return_value = mock_case
+
+        updated_case = MagicMock()
+        updated_case.id = mock_case.id
+        updated_case.model_dump.return_value = {
+            "id": str(mock_case.id),
+            "summary": "Updated Summary",
+            "tags": ["new-tag1", "new-tag2"],
+        }
+        mock_service.update_case.return_value = updated_case
+
+        # Mock the tags service
+        mock_service.tags = AsyncMock()
+        mock_service.tags.list_tags_for_case.return_value = [
+            existing_tag1,
+            existing_tag2,
+        ]
+        mock_service.tags.remove_case_tag = AsyncMock()
+        mock_service.tags.add_case_tag.return_value = mock_tag
+
+        # Mock session refresh
+        mock_service.session = AsyncMock()
+        mock_service.session.refresh = AsyncMock()
+
+        # Set up the context manager's __aenter__ to return the mock service
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        # Call the update function with tags
+        result = await update_case(
+            case_id=str(mock_case.id),
+            summary="Updated Summary",
+            tags=["new-tag1", "new-tag2"],
+        )
+
+        # Assert update_case was called
+        mock_service.update_case.assert_called_once()
+
+        # Assert existing tags were listed
+        mock_service.tags.list_tags_for_case.assert_called_once_with(mock_case.id)
+
+        # Assert existing tags were removed
+        assert mock_service.tags.remove_case_tag.call_count == 2
+        mock_service.tags.remove_case_tag.assert_any_call(mock_case.id, "existing-tag1")
+        mock_service.tags.remove_case_tag.assert_any_call(mock_case.id, "existing-tag2")
+
+        # Assert new tags were added
+        assert mock_service.tags.add_case_tag.call_count == 2
+        mock_service.tags.add_case_tag.assert_any_call(mock_case.id, "new-tag1")
+        mock_service.tags.add_case_tag.assert_any_call(mock_case.id, "new-tag2")
+
+        # Assert session refresh was called
+        mock_service.session.refresh.assert_called_once_with(updated_case)
+
+        # Verify the result
+        assert result == updated_case.model_dump.return_value
+
+    @patch("tracecat_registry.core.cases.CasesService.with_session")
+    async def test_update_case_without_tags(self, mock_with_session, mock_case):
+        """Test updating a case without changing tags."""
+        # Set up the mock service context manager
+        mock_service = AsyncMock()
+        mock_service.get_case.return_value = mock_case
+
+        updated_case = MagicMock()
+        updated_case.model_dump.return_value = {
+            "id": str(mock_case.id),
+            "summary": "Updated Summary",
+        }
+        mock_service.update_case.return_value = updated_case
+
+        # Mock the tags service (should not be called)
+        mock_service.tags = AsyncMock()
+
+        # Set up the context manager's __aenter__ to return the mock service
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        # Call the update function without tags parameter
+        result = await update_case(
+            case_id=str(mock_case.id),
+            summary="Updated Summary",
+        )
+
+        # Assert update_case was called
+        mock_service.update_case.assert_called_once()
+
+        # Assert tags service was not called
+        mock_service.tags.list_tags_for_case.assert_not_called()
+        mock_service.tags.remove_case_tag.assert_not_called()
+        mock_service.tags.add_case_tag.assert_not_called()
+
+        # Verify the result
+        assert result == updated_case.model_dump.return_value
+
+    @patch("tracecat_registry.core.cases.CasesService.with_session")
+    async def test_update_case_with_empty_tags(self, mock_with_session, mock_case):
+        """Test updating a case with empty tags list (removes all tags)."""
+        # Set up existing tags
+        existing_tag1 = MagicMock()
+        existing_tag1.id = uuid.uuid4()
+        existing_tag1.ref = "existing-tag1"
+        existing_tag2 = MagicMock()
+        existing_tag2.id = uuid.uuid4()
+        existing_tag2.ref = "existing-tag2"
+
+        # Set up the mock service context manager
+        mock_service = AsyncMock()
+        mock_service.get_case.return_value = mock_case
+
+        updated_case = MagicMock()
+        updated_case.id = mock_case.id
+        updated_case.model_dump.return_value = {
+            "id": str(mock_case.id),
+            "summary": mock_case.summary,
+            "tags": [],
+        }
+        mock_service.update_case.return_value = updated_case
+
+        # Mock the tags service
+        mock_service.tags = AsyncMock()
+        mock_service.tags.list_tags_for_case.return_value = [
+            existing_tag1,
+            existing_tag2,
+        ]
+        mock_service.tags.remove_case_tag = AsyncMock()
+
+        # Mock session refresh
+        mock_service.session = AsyncMock()
+        mock_service.session.refresh = AsyncMock()
+
+        # Set up the context manager's __aenter__ to return the mock service
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        # Call the update function with empty tags
+        result = await update_case(
+            case_id=str(mock_case.id),
+            tags=[],
+        )
+
+        # Assert update_case was called
+        mock_service.update_case.assert_called_once()
+
+        # Assert existing tags were listed
+        mock_service.tags.list_tags_for_case.assert_called_once_with(mock_case.id)
+
+        # Assert existing tags were removed
+        assert mock_service.tags.remove_case_tag.call_count == 2
+        mock_service.tags.remove_case_tag.assert_any_call(mock_case.id, "existing-tag1")
+        mock_service.tags.remove_case_tag.assert_any_call(mock_case.id, "existing-tag2")
+
+        # Assert no new tags were added
+        mock_service.tags.add_case_tag.assert_not_called()
+
+        # Assert session refresh was called
+        mock_service.session.refresh.assert_called_once_with(updated_case)
+
+        # Verify the result
+        assert result == updated_case.model_dump.return_value
