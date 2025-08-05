@@ -241,7 +241,7 @@ def build_agent(
     output_type: str | dict[str, Any] | None = None,
     model_settings: dict[str, Any] | None = None,
     mcp_servers: list[MCPServerHTTP] | None = None,
-    tools: list[Tool] | None = None,
+    tools: list[Tool[AgentDepsT]] | None = None,
     retries: Annotated[int, Doc("Number of retries")] = 3,
     deps_type: type[AgentDepsT] | None = None,
 ) -> Agent[AgentDepsT, Any]:
