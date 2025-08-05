@@ -2018,6 +2018,13 @@ export const $CaseRead = {
       ],
       title: "Payload",
     },
+    tags: {
+      items: {
+        $ref: "#/components/schemas/TagRead",
+      },
+      type: "array",
+      title: "Tags",
+    },
   },
   type: "object",
   required: [
@@ -2080,6 +2087,13 @@ export const $CaseReadMinimal = {
         },
       ],
     },
+    tags: {
+      items: {
+        $ref: "#/components/schemas/TagRead",
+      },
+      type: "array",
+      title: "Tags",
+    },
   },
   type: "object",
   required: [
@@ -2134,6 +2148,60 @@ export const $CaseStatus = {
   ],
   title: "CaseStatus",
   description: "Case status values aligned with OCSF Incident Finding status.",
+} as const
+
+export const $CaseTagCreate = {
+  properties: {
+    tag_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid4",
+        },
+        {
+          type: "string",
+        },
+      ],
+      title: "Tag Id",
+      description: "Tag ID (UUID) or ref",
+    },
+  },
+  type: "object",
+  required: ["tag_id"],
+  title: "CaseTagCreate",
+} as const
+
+export const $CaseTagRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid4",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    ref: {
+      type: "string",
+      title: "Ref",
+    },
+    color: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Color",
+    },
+  },
+  type: "object",
+  required: ["id", "name", "ref", "color"],
+  title: "CaseTagRead",
+  description: "Tag data.",
 } as const
 
 export const $CaseUpdate = {
@@ -8069,6 +8137,11 @@ export const $TableRowInsertBatch = {
       type: "array",
       title: "Rows",
     },
+    upsert: {
+      type: "boolean",
+      title: "Upsert",
+      default: false,
+    },
   },
   type: "object",
   required: ["rows"],
@@ -8189,6 +8262,10 @@ export const $TagRead = {
       minLength: 1,
       title: "Name",
     },
+    ref: {
+      type: "string",
+      title: "Ref",
+    },
     color: {
       anyOf: [
         {
@@ -8203,7 +8280,7 @@ export const $TagRead = {
     },
   },
   type: "object",
-  required: ["id", "name"],
+  required: ["id", "name", "ref"],
   title: "TagRead",
   description: "Model for reading tag data with validation.",
 } as const

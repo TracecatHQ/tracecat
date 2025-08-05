@@ -613,6 +613,7 @@ export type CaseRead = {
   payload: {
     [key: string]: unknown
   } | null
+  tags?: Array<TagRead>
 }
 
 export type CaseReadMinimal = {
@@ -625,6 +626,7 @@ export type CaseReadMinimal = {
   priority: CasePriority
   severity: CaseSeverity
   assignee?: UserRead | null
+  tags?: Array<TagRead>
 }
 
 /**
@@ -661,6 +663,23 @@ export type CaseStatus =
   | "resolved"
   | "closed"
   | "other"
+
+export type CaseTagCreate = {
+  /**
+   * Tag ID (UUID) or ref
+   */
+  tag_id: string
+}
+
+/**
+ * Tag data.
+ */
+export type CaseTagRead = {
+  id: string
+  name: string
+  ref: string
+  color: string | null
+}
 
 export type CaseUpdate = {
   summary?: string | null
@@ -2782,6 +2801,7 @@ export type TableRowInsertBatch = {
   rows: Array<{
     [key: string]: unknown
   }>
+  upsert?: boolean
 }
 
 /**
@@ -2832,6 +2852,7 @@ export type TagInput = {
 export type TagRead = {
   id: string
   name: string
+  ref: string
   /**
    * Hex color code
    */
@@ -4537,6 +4558,10 @@ export type CasesListCasesData = {
    * Reverse pagination direction
    */
   reverse?: boolean
+  /**
+   * Filter by tag IDs or slugs (AND logic)
+   */
+  tags?: Array<string>
   workspaceId: string
 }
 
@@ -4584,6 +4609,10 @@ export type CasesSearchCasesData = {
    * Filter by case status
    */
   status?: CaseStatus | null
+  /**
+   * Filter by tag IDs or slugs (AND logic)
+   */
+  tags?: Array<string>
   workspaceId: string
 }
 
@@ -4721,6 +4750,29 @@ export type CasesDeleteFieldData = {
 }
 
 export type CasesDeleteFieldResponse = void
+
+export type CasesListTagsData = {
+  caseId: string
+  workspaceId: string
+}
+
+export type CasesListTagsResponse = Array<CaseTagRead>
+
+export type CasesAddTagData = {
+  caseId: string
+  requestBody: CaseTagCreate
+  workspaceId: string
+}
+
+export type CasesAddTagResponse = CaseTagRead
+
+export type CasesRemoveTagData = {
+  caseId: string
+  tagIdentifier: string
+  workspaceId: string
+}
+
+export type CasesRemoveTagResponse = void
 
 export type ChatCreateChatData = {
   requestBody: ChatCreate
@@ -5067,7 +5119,7 @@ export type PublicCheckHealthResponse = {
 
 export type $OpenApiTs = {
   "/webhooks/{workflow_id}/{secret}": {
-    get: {
+    post: {
       req: PublicIncomingWebhookData
       res: {
         /**
@@ -5080,7 +5132,7 @@ export type $OpenApiTs = {
         422: HTTPValidationError
       }
     }
-    post: {
+    get: {
       req: PublicIncomingWebhook1Data
       res: {
         /**
@@ -6977,6 +7029,49 @@ export type $OpenApiTs = {
     }
     delete: {
       req: CasesDeleteFieldData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases/{case_id}/tags": {
+    get: {
+      req: CasesListTagsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<CaseTagRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: CasesAddTagData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: CaseTagRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases/{case_id}/tags/{tag_identifier}": {
+    delete: {
+      req: CasesRemoveTagData
       res: {
         /**
          * Successful Response
