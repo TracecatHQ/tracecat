@@ -34,16 +34,25 @@ import { CasePayloadSection } from "@/components/cases/case-payload-section"
 import { CasePropertyRow } from "@/components/cases/case-property-row"
 import { CaseWorkflowTrigger } from "@/components/cases/case-workflow-trigger"
 import { AlertNotification } from "@/components/notifications"
+import { TagBadge } from "@/components/tag-badge"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { useGetCase, useUpdateCase } from "@/lib/hooks"
+import { useToast } from "@/components/ui/use-toast"
+import {
+  useAddCaseTag,
+  useGetCase,
+  useRemoveCaseTag,
+  useTags,
+  useUpdateCase,
+} from "@/lib/hooks"
 import { useWorkspace } from "@/providers/workspace"
 
 type CasePanelTab = "comments" | "activity" | "attachments" | "payload"
@@ -65,6 +74,10 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
     workspaceId,
     caseId,
   })
+  const { addCaseTag } = useAddCaseTag({ caseId, workspaceId })
+  const { removeCaseTag } = useRemoveCaseTag({ caseId, workspaceId })
+  const { tags } = useTags(workspaceId)
+  const { toast } = useToast()
   const [propertiesOpen, setPropertiesOpen] = useState(true)
   const [workflowOpen, setWorkflowOpen] = useState(true)
 
@@ -145,6 +158,25 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
     await updateCase(params)
   }
 
+  const handleTagToggle = async (tagId: string, hasTag: boolean) => {
+    try {
+      if (hasTag) {
+        // Remove tag
+        await removeCaseTag(tagId)
+      } else {
+        // Add tag
+        await addCaseTag({ tag_id: tagId })
+      }
+    } catch (error) {
+      console.error("Failed to modify tag:", error)
+      toast({
+        title: "Error",
+        description: `Failed to ${hasTag ? "remove" : "add"} tag ${hasTag ? "from" : "to"} case. Please try again.`,
+        variant: "destructive",
+      })
+    }
+  }
+
   const customFields = caseData.fields.filter((field) => !field.reserved)
 
   return (
@@ -205,6 +237,63 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                       />
                     }
                   />
+
+                  {/* Tags */}
+                  <div className="pt-2">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs">Tags</span>
+                      {tags && tags.length > 0 && (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-5 w-5 p-0"
+                            >
+                              <MoreHorizontal className="h-3 w-3" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="text-xs">
+                            {tags.map((tag) => {
+                              const hasTag = caseData.tags?.some(
+                                (t) => t.id === tag.id
+                              )
+                              return (
+                                <DropdownMenuCheckboxItem
+                                  key={tag.id}
+                                  className="text-xs"
+                                  checked={hasTag}
+                                  onClick={async (e) => {
+                                    e.stopPropagation()
+                                    await handleTagToggle(tag.id, !!hasTag)
+                                  }}
+                                >
+                                  <div
+                                    className="mr-2 flex size-2 rounded-full"
+                                    style={{
+                                      backgroundColor: tag.color || undefined,
+                                    }}
+                                  />
+                                  <span>{tag.name}</span>
+                                </DropdownMenuCheckboxItem>
+                              )
+                            })}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {caseData.tags?.length ? (
+                        caseData.tags.map((tag) => (
+                          <TagBadge key={tag.id} tag={tag} />
+                        ))
+                      ) : (
+                        <span className="text-xs text-muted-foreground">
+                          No tags
+                        </span>
+                      )}
+                    </div>
+                  </div>
 
                   {/* Custom fields */}
                   <div className="pt-2">
