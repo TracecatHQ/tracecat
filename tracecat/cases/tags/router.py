@@ -56,11 +56,6 @@ async def add_tag(
             status_code=status.HTTP_404_NOT_FOUND, detail="Tag not found"
         ) from err
     except IntegrityError as e:
-        # This shouldn't happen with our idempotent design, but handle it
-        if "duplicate key" in str(e).lower():
-            # Re-fetch the existing tag
-            tag = await service.add_case_tag(case_id, str(params.tag_id))
-            return CaseTagRead(id=tag.id, name=tag.name, ref=tag.ref, color=tag.color)
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="Tag operation failed"
         ) from e

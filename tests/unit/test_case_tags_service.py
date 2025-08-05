@@ -3,7 +3,7 @@ from collections.abc import AsyncGenerator, Sequence
 
 import pytest
 from slugify import slugify
-from sqlalchemy.exc import NoResultFound
+from sqlalchemy.exc import DatabaseError, IntegrityError, NoResultFound
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
@@ -102,7 +102,9 @@ async def multiple_tags(tags_service: TagsService) -> AsyncGenerator[list, None]
     for tag in tags:
         try:
             await tags_service.delete_tag(tag)
-        except Exception:
+        except (IntegrityError, DatabaseError, NoResultFound):
+            # Expected exceptions during cleanup - tag may be referenced elsewhere
+            # or database connection issues. These are acceptable during test cleanup.
             pass
 
 

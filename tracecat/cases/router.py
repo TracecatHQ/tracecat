@@ -3,7 +3,7 @@ import uuid
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request, UploadFile, status
-from sqlalchemy.exc import DBAPIError
+from sqlalchemy.exc import DBAPIError, NoResultFound
 
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.models import UserRead
@@ -99,9 +99,9 @@ async def list_cases(
             try:
                 tag = await tags_service.get_tag_by_ref_or_id(tag_identifier)
                 tag_ids.append(tag.id)
-            except Exception:
-                # Skip invalid tags silently
-                pass
+            except NoResultFound:
+                # Skip tags that do not exist in the workspace
+                continue
 
     pagination_params = CursorPaginationParams(
         limit=limit,
@@ -127,7 +127,9 @@ async def search_cases(
     status: CaseStatus | None = Query(None, description="Filter by case status"),
     priority: CasePriority | None = Query(None, description="Filter by case priority"),
     severity: CaseSeverity | None = Query(None, description="Filter by case severity"),
-    tags: list[str] = Query(None, description="Filter by tag IDs or slugs (AND logic)"),
+    tags: list[str] | None = Query(
+        None, description="Filter by tag IDs or slugs (AND logic)"
+    ),
     limit: int | None = Query(None, description="Maximum number of cases to return"),
     order_by: Literal["created_at", "updated_at", "priority", "severity", "status"]
     | None = Query(None, description="Field to order the cases by"),
@@ -146,9 +148,9 @@ async def search_cases(
             try:
                 tag = await tags_service.get_tag_by_ref_or_id(tag_identifier)
                 tag_ids.append(tag.id)
-            except Exception:
-                # Skip invalid tags silently
-                pass
+            except NoResultFound:
+                # Skip tags that do not exist in the workspace
+                continue
 
     cases = await service.search_cases(
         search_term=search_term,
