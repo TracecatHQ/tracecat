@@ -67,7 +67,7 @@ services:
 
     volumes:
       - ./tracecat:/app/tracecat
-      - ./tracecat-registry:/app/tracecat-registry
+      - ./packages/tracecat-registry:/app/packages/tracecat-registry
       - ./alembic:/app/alembic
       - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
     depends_on:
@@ -104,7 +104,7 @@ services:
       SENTRY_DSN: ${SENTRY_DSN}
     volumes:
       - ./tracecat:/app/tracecat
-      - ./tracecat-registry:/app/tracecat-registry
+      - ./packages/tracecat-registry:/app/packages/tracecat-registry
       - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
     command: ["python", "tracecat/dsl/worker.py"]
     depends_on:
@@ -141,7 +141,7 @@ services:
       REDIS_URL: ${REDIS_URL}
     volumes:
       - ./tracecat:/app/tracecat
-      - ./tracecat-registry:/app/tracecat-registry
+      - ./packages/tracecat-registry:/app/packages/tracecat-registry
       - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
     command:
       [
