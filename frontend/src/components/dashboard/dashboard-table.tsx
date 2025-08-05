@@ -6,7 +6,7 @@ import { format, formatDistanceToNow } from "date-fns"
 import { CircleDot } from "lucide-react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useState } from "react"
-import type { TagRead, WorkflowReadMinimal } from "@/client"
+import type { WorkflowReadMinimal } from "@/client"
 import { DeleteWorkflowAlertDialog } from "@/components/dashboard/delete-workflow-dialog"
 import { ViewMode } from "@/components/dashboard/folder-view-toggle"
 import { WorkflowActions } from "@/components/dashboard/table-actions"
@@ -16,6 +16,7 @@ import {
   DataTableColumnHeader,
   type DataTableToolbarProps,
 } from "@/components/data-table"
+import { TagBadge } from "@/components/tag-badge"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -323,20 +324,4 @@ const defaultToolbarProps: DataTableToolbarProps<WorkflowReadMinimal> = {
     placeholder: "Search workflows...",
     column: "title",
   },
-}
-
-export function TagBadge({ tag }: { tag: TagRead }) {
-  return (
-    <Badge
-      key={tag.id}
-      variant="secondary"
-      className="text-xs"
-      style={{
-        backgroundColor: tag.color || undefined,
-        color: tag.color ? "white" : undefined,
-      }}
-    >
-      {tag.name}
-    </Badge>
-  )
 }
