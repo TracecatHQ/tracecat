@@ -291,3 +291,36 @@ class TestCaseTagsService:  # noqa: D101
         # Verify we can retrieve by slug
         retrieved = await tags_service.get_tag_by_ref(expected_slug)
         assert retrieved.id == tag.id
+
+    @pytest.mark.anyio
+    async def test_add_invalid_tag_identifier(
+        self,
+        case_tags_service: CaseTagsService,
+        case_id: uuid.UUID,
+    ) -> None:
+        """Test that adding a tag with invalid identifier raises appropriate error."""
+        # Test with invalid UUID format
+        with pytest.raises(NoResultFound):
+            await case_tags_service.add_case_tag(case_id, "not-a-uuid-or-valid-ref")
+
+        # Test with non-existent UUID
+        non_existent_uuid = uuid.uuid4()
+        with pytest.raises(NoResultFound):
+            await case_tags_service.add_case_tag(case_id, str(non_existent_uuid))
+
+    @pytest.mark.anyio
+    async def test_add_tag_to_nonexistent_case(
+        self,
+        case_tags_service: CaseTagsService,
+        tags_service: TagsService,
+        tag_params: TagCreate,
+    ) -> None:
+        """Test adding a tag to a non-existent case."""
+        tag = await tags_service.create_tag(tag_params)
+        non_existent_case_id = uuid.uuid4()
+
+        # This should fail due to foreign key constraint
+        from sqlalchemy.exc import IntegrityError
+
+        with pytest.raises(IntegrityError):
+            await case_tags_service.add_case_tag(non_existent_case_id, str(tag.id))

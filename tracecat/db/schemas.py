@@ -348,6 +348,13 @@ class WorkflowFolder(Resource, table=True):
         return self.path.count("/") <= 2  # "/foldername/" has two slashes
 
 
+class WorkflowTag(SQLModel, table=True):
+    """Link table for workflows and tags with optional metadata."""
+
+    tag_id: UUID4 = Field(foreign_key="tag.id", primary_key=True)
+    workflow_id: uuid.UUID = Field(foreign_key="workflow.id", primary_key=True)
+
+
 class Workflow(Resource, table=True):
     """The workflow state.
 
@@ -452,7 +459,7 @@ class Workflow(Resource, table=True):
     )
     tags: list["Tag"] = Relationship(
         back_populates="workflows",
-        link_model="WorkflowTag",
+        link_model=WorkflowTag,
         sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
     )
 
@@ -771,6 +778,21 @@ class CaseFields(SQLModel, TimestampMixin, table=True):
     case: "Case" = Relationship(back_populates="fields")
 
 
+class CaseTag(SQLModel, table=True):
+    """Link table for cases and tags with optional metadata."""
+
+    case_id: uuid.UUID = Field(
+        sa_column=Column(
+            UUID, ForeignKey("cases.id", ondelete="CASCADE"), primary_key=True
+        )
+    )
+    tag_id: UUID4 = Field(
+        sa_column=Column(
+            UUID, ForeignKey("tag.id", ondelete="CASCADE"), primary_key=True
+        )
+    )
+
+
 class Case(Resource, table=True):
     """A case represents an incident or issue that needs to be tracked and resolved."""
 
@@ -860,7 +882,7 @@ class Case(Resource, table=True):
     )
     tags: list["Tag"] = Relationship(
         back_populates="cases",
-        link_model="CaseTag",
+        link_model=CaseTag,
         sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
     )
 
@@ -1351,25 +1373,11 @@ class Tag(Resource, table=True):
     owner: "Workspace" = Relationship(back_populates="tags")
     workflows: list["Workflow"] = Relationship(
         back_populates="tags",
-        link_model="WorkflowTag",
+        link_model=WorkflowTag,
         sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
     )
     cases: list["Case"] = Relationship(
         back_populates="tags",
-        link_model="CaseTag",
+        link_model=CaseTag,
         sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
     )
-
-
-class WorkflowTag(SQLModel, table=True):
-    """Link table for workflows and tags with optional metadata."""
-
-    tag_id: UUID4 = Field(foreign_key="tag.id", primary_key=True)
-    workflow_id: uuid.UUID = Field(foreign_key="workflow.id", primary_key=True)
-
-
-class CaseTag(SQLModel, table=True):
-    """Link table for cases and tags with optional metadata."""
-
-    tag_id: UUID4 = Field(foreign_key="tag.id", primary_key=True)
-    case_id: uuid.UUID = Field(foreign_key="cases.id", primary_key=True)

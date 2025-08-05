@@ -66,7 +66,7 @@ class TagsService(BaseService):
         # Generate ref
         ref = slugify(tag.name)
 
-        db_tag = Tag(name=tag.name, ref=ref, owner_id=workspace_id, color=tag.color)  # type: ignore
+        db_tag = Tag(name=tag.name, ref=ref, owner_id=workspace_id, color=tag.color)
         self.session.add(db_tag)
         await self.session.commit()
         return db_tag

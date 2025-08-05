@@ -1,18 +1,30 @@
+from typing import Annotated
+
 from fastapi import APIRouter, HTTPException, status
 from pydantic import UUID4
 from sqlalchemy.exc import IntegrityError, NoResultFound
 
-from tracecat.auth.dependencies import WorkspaceUserRole
+from tracecat.auth.credentials import RoleACL
 from tracecat.cases.tags.models import CaseTagCreate, CaseTagRead
 from tracecat.cases.tags.service import CaseTagsService
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.types.auth import Role
+
+WorkspaceUser = Annotated[
+    Role,
+    RoleACL(
+        allow_user=True,
+        allow_service=False,
+        require_workspace="yes",
+    ),
+]
 
 router = APIRouter(prefix="/cases", tags=["cases"])
 
 
 @router.get("/{case_id}/tags", response_model=list[CaseTagRead])
 async def list_tags(
-    role: WorkspaceUserRole,
+    role: WorkspaceUser,
     session: AsyncDBSession,
     case_id: UUID4,
 ) -> list[CaseTagRead]:
@@ -29,7 +41,7 @@ async def list_tags(
     "/{case_id}/tags", status_code=status.HTTP_201_CREATED, response_model=CaseTagRead
 )
 async def add_tag(
-    role: WorkspaceUserRole,
+    role: WorkspaceUser,
     session: AsyncDBSession,
     case_id: UUID4,
     params: CaseTagCreate,
@@ -58,7 +70,7 @@ async def add_tag(
     "/{case_id}/tags/{tag_identifier}", status_code=status.HTTP_204_NO_CONTENT
 )
 async def remove_tag(
-    role: WorkspaceUserRole,
+    role: WorkspaceUser,
     session: AsyncDBSession,
     case_id: UUID4,
     tag_identifier: str,  # Can be UUID or ref

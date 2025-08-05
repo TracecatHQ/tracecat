@@ -14,5 +14,5 @@ class CaseTagRead(BaseModel):
 
     id: TagID
     name: str
-    ref: str | None  # Made nullable to match schema
+    ref: str
     color: str | None
