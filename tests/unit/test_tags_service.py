@@ -238,12 +238,8 @@ class TestTagsService:
         # Create first tag
         await tags_service.create_tag(tag_create_params)
 
-        # Try to create duplicate - should raise error due to unique constraint
-        from sqlalchemy.exc import IntegrityError
-
-        with pytest.raises(
-            IntegrityError
-        ):  # Will be IntegrityError due to unique constraint
+        # Try to create duplicate - should raise error
+        with pytest.raises(ValueError, match="Tag with slug .* already exists"):
             await tags_service.create_tag(tag_create_params)
 
 
