@@ -38,7 +38,11 @@ import {
   type CasesGetCaseData,
   type CasesListCasesData,
   type CasesListCommentsData,
+  type CasesListTagsData,
+  type CaseTagCreate,
+  type CaseTagRead,
   type CaseUpdate,
+  casesAddTag,
   casesCreateCase,
   casesCreateComment,
   casesDeleteCase,
@@ -48,6 +52,8 @@ import {
   casesListComments,
   casesListEventsWithUsers,
   casesListFields,
+  casesListTags,
+  casesRemoveTag,
   casesUpdateCase,
   casesUpdateComment,
   type FolderDirectoryItem,
@@ -3192,6 +3198,81 @@ export function useCaseEvents({
     caseEvents,
     caseEventsIsLoading,
     caseEventsError,
+  }
+}
+
+export function useCaseTags({ caseId, workspaceId }: CasesListTagsData) {
+  const {
+    data: caseTags,
+    isLoading: caseTagsIsLoading,
+    error: caseTagsError,
+  } = useQuery<CaseTagRead[], TracecatApiError>({
+    queryKey: ["case-tags", caseId, workspaceId],
+    queryFn: async () => await casesListTags({ caseId, workspaceId }),
+  })
+
+  return {
+    caseTags,
+    caseTagsIsLoading,
+    caseTagsError,
+  }
+}
+
+export function useAddCaseTag({
+  caseId,
+  workspaceId,
+}: {
+  caseId: string
+  workspaceId: string
+}) {
+  const queryClient = useQueryClient()
+  const {
+    mutateAsync: addCaseTag,
+    isPending: addCaseTagIsPending,
+    error: addCaseTagError,
+  } = useMutation({
+    mutationFn: async (params: CaseTagCreate) =>
+      await casesAddTag({ caseId, workspaceId, requestBody: params }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["case-tags", caseId, workspaceId],
+      })
+      queryClient.invalidateQueries({ queryKey: ["case", caseId] })
+    },
+  })
+  return {
+    addCaseTag,
+    addCaseTagIsPending,
+    addCaseTagError,
+  }
+}
+
+export function useRemoveCaseTag({
+  caseId,
+  workspaceId,
+}: {
+  caseId: string
+  workspaceId: string
+}) {
+  const queryClient = useQueryClient()
+  const {
+    mutateAsync: removeCaseTag,
+    isPending: removeCaseTagIsPending,
+    error: removeCaseTagError,
+  } = useMutation({
+    mutationFn: async (tagIdentifier: string) =>
+      await casesRemoveTag({ caseId, workspaceId, tagIdentifier }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["case-tags", caseId, workspaceId],
+      })
+      queryClient.invalidateQueries({ queryKey: ["case", caseId] })
+    },
+  })
+  return {
+    removeCaseTag,
+    removeCaseTagIsPending,
+    removeCaseTagError,
   }
 }
 

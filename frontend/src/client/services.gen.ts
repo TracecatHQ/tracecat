@@ -49,6 +49,8 @@ import type {
   AuthVerifyRequestTokenResponse,
   AuthVerifyVerifyData,
   AuthVerifyVerifyResponse,
+  CasesAddTagData,
+  CasesAddTagResponse,
   CasesCreateAttachmentData,
   CasesCreateAttachmentResponse,
   CasesCreateCaseData,
@@ -81,6 +83,10 @@ import type {
   CasesListEventsWithUsersResponse,
   CasesListFieldsData,
   CasesListFieldsResponse,
+  CasesListTagsData,
+  CasesListTagsResponse,
+  CasesRemoveTagData,
+  CasesRemoveTagResponse,
   CasesSearchCasesData,
   CasesSearchCasesResponse,
   CasesUpdateCaseData,
@@ -379,7 +385,7 @@ export const publicIncomingWebhook = (
   data: PublicIncomingWebhookData
 ): CancelablePromise<PublicIncomingWebhookResponse> => {
   return __request(OpenAPI, {
-    method: "GET",
+    method: "POST",
     url: "/webhooks/{workflow_id}/{secret}",
     path: {
       secret: data.secret,
@@ -419,7 +425,7 @@ export const publicIncomingWebhook1 = (
   data: PublicIncomingWebhook1Data
 ): CancelablePromise<PublicIncomingWebhook1Response> => {
   return __request(OpenAPI, {
-    method: "POST",
+    method: "GET",
     url: "/webhooks/{workflow_id}/{secret}",
     path: {
       secret: data.secret,
@@ -3366,12 +3372,13 @@ export const tablesImportCsv = (
 
 /**
  * List Cases
- * List cases with cursor-based pagination.
+ * List cases with cursor-based pagination and tag filtering.
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.limit Maximum items per page
  * @param data.cursor Cursor for pagination
  * @param data.reverse Reverse pagination direction
+ * @param data.tags Filter by tag IDs or slugs (AND logic)
  * @returns CursorPaginatedResponse_CaseReadMinimal_ Successful Response
  * @throws ApiError
  */
@@ -3385,6 +3392,7 @@ export const casesListCases = (
       limit: data.limit,
       cursor: data.cursor,
       reverse: data.reverse,
+      tags: data.tags,
       workspace_id: data.workspaceId,
     },
     errors: {
@@ -3428,6 +3436,7 @@ export const casesCreateCase = (
  * @param data.status Filter by case status
  * @param data.priority Filter by case priority
  * @param data.severity Filter by case severity
+ * @param data.tags Filter by tag IDs or slugs (AND logic)
  * @param data.limit Maximum number of cases to return
  * @param data.orderBy Field to order the cases by
  * @param data.sort Direction to sort (asc or desc)
@@ -3445,6 +3454,7 @@ export const casesSearchCases = (
       status: data.status,
       priority: data.priority,
       severity: data.severity,
+      tags: data.tags,
       limit: data.limit,
       order_by: data.orderBy,
       sort: data.sort,
@@ -3925,6 +3935,92 @@ export const casesDeleteField = (
     url: "/case-fields/{field_id}",
     path: {
       field_id: data.fieldId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Tags
+ * List all tags for a case.
+ * @param data The data for the request.
+ * @param data.caseId
+ * @param data.workspaceId
+ * @returns CaseTagRead Successful Response
+ * @throws ApiError
+ */
+export const casesListTags = (
+  data: CasesListTagsData
+): CancelablePromise<CasesListTagsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/cases/{case_id}/tags",
+    path: {
+      case_id: data.caseId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Add Tag
+ * Add a tag to a case using tag ID or slug.
+ * @param data The data for the request.
+ * @param data.caseId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns CaseTagRead Successful Response
+ * @throws ApiError
+ */
+export const casesAddTag = (
+  data: CasesAddTagData
+): CancelablePromise<CasesAddTagResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/cases/{case_id}/tags",
+    path: {
+      case_id: data.caseId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Remove Tag
+ * Remove a tag from a case using tag ID or ref.
+ * @param data The data for the request.
+ * @param data.caseId
+ * @param data.tagIdentifier
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const casesRemoveTag = (
+  data: CasesRemoveTagData
+): CancelablePromise<CasesRemoveTagResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/cases/{case_id}/tags/{tag_identifier}",
+    path: {
+      case_id: data.caseId,
+      tag_identifier: data.tagIdentifier,
     },
     query: {
       workspace_id: data.workspaceId,

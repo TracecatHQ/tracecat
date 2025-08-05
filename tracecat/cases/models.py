@@ -13,6 +13,7 @@ from tracecat.cases.constants import RESERVED_CASE_FIELDS
 from tracecat.cases.enums import CaseEventType, CasePriority, CaseSeverity, CaseStatus
 from tracecat.tables.enums import SqlType
 from tracecat.tables.models import TableColumnCreate, TableColumnUpdate
+from tracecat.tags.models import TagRead
 
 # Case Management
 
@@ -27,6 +28,7 @@ class CaseReadMinimal(BaseModel):
     priority: CasePriority
     severity: CaseSeverity
     assignee: UserRead | None = None
+    tags: list[TagRead] = Field(default_factory=list)
 
 
 class CaseRead(BaseModel):
@@ -42,6 +44,7 @@ class CaseRead(BaseModel):
     fields: list[CaseCustomFieldRead]
     assignee: UserRead | None = None
     payload: dict[str, Any] | None
+    tags: list[TagRead] = Field(default_factory=list)
 
 
 class CaseCreate(BaseModel):

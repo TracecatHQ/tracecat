@@ -134,6 +134,114 @@ class TestTagsService:
         with pytest.raises(NoResultFound):
             await tags_service.get_tag(created_tag.id)
 
+    async def test_get_tag_by_ref(
+        self, tags_service: TagsService, tag_create_params: TagCreate
+    ) -> None:
+        """Test retrieving a tag by its ref/slug."""
+        # Create tag
+        created_tag = await tags_service.create_tag(tag_create_params)
+
+        # Get by ref
+        retrieved = await tags_service.get_tag_by_ref(created_tag.ref)
+        assert retrieved.id == created_tag.id
+        assert retrieved.name == created_tag.name
+        assert retrieved.ref == "test-tag"  # slugified version
+
+    async def test_get_tag_by_ref_or_id_with_uuid(
+        self, tags_service: TagsService, tag_create_params: TagCreate
+    ) -> None:
+        """Test get_tag_by_ref_or_id with a UUID string."""
+        # Create tag
+        created_tag = await tags_service.create_tag(tag_create_params)
+
+        # Get by UUID string
+        retrieved = await tags_service.get_tag_by_ref_or_id(str(created_tag.id))
+        assert retrieved.id == created_tag.id
+
+    async def test_get_tag_by_ref_or_id_with_ref(
+        self, tags_service: TagsService, tag_create_params: TagCreate
+    ) -> None:
+        """Test get_tag_by_ref_or_id with a ref string."""
+        # Create tag
+        created_tag = await tags_service.create_tag(tag_create_params)
+
+        # Get by ref
+        retrieved = await tags_service.get_tag_by_ref_or_id(created_tag.ref)
+        assert retrieved.id == created_tag.id
+
+    @pytest.mark.parametrize(
+        "tag_names,expected_refs",
+        [
+            (
+                ["Production", "Staging", "Development"],
+                ["production", "staging", "development"],
+            ),
+            (["High-Priority", "Low-Priority"], ["high-priority", "low-priority"]),
+            (
+                ["Tag with Spaces", "Tag_with_underscores"],
+                ["tag-with-spaces", "tag-with-underscores"],
+            ),
+            (
+                ["Tag123", "456Tag", "Tag-456-Test"],
+                ["tag123", "456tag", "tag-456-test"],
+            ),
+        ],
+        ids=["environments", "priorities", "special-chars", "numbers"],
+    )
+    async def test_bulk_tag_creation_with_refs(
+        self, tags_service: TagsService, tag_names: list[str], expected_refs: list[str]
+    ) -> None:
+        """Test creating multiple tags and verify ref generation."""
+        created_tags = []
+
+        # Create tags
+        for name in tag_names:
+            tag = await tags_service.create_tag(TagCreate(name=name, color="#000000"))
+            created_tags.append(tag)
+
+        # Verify refs
+        for tag, expected_ref in zip(created_tags, expected_refs, strict=False):
+            assert tag.ref == expected_ref
+
+            # Verify retrieval by ref
+            retrieved = await tags_service.get_tag_by_ref(expected_ref)
+            assert retrieved.id == tag.id
+
+    async def test_update_tag_regenerates_ref(
+        self, tags_service: TagsService, tag_create_params: TagCreate
+    ) -> None:
+        """Test that updating tag name regenerates the ref."""
+        # Create tag
+        created_tag = await tags_service.create_tag(tag_create_params)
+        original_ref = created_tag.ref
+
+        # Update with new name
+        update_params = TagUpdate(name="Updated Tag Name")
+        updated_tag = await tags_service.update_tag(created_tag, update_params)
+
+        # Verify ref was regenerated
+        assert updated_tag.ref == "updated-tag-name"
+        assert updated_tag.ref != original_ref
+
+        # Verify old ref no longer works
+        with pytest.raises(NoResultFound):
+            await tags_service.get_tag_by_ref(original_ref)
+
+        # Verify new ref works
+        retrieved = await tags_service.get_tag_by_ref("updated-tag-name")
+        assert retrieved.id == created_tag.id
+
+    async def test_unique_tag_names_per_workspace(
+        self, tags_service: TagsService, tag_create_params: TagCreate
+    ) -> None:
+        """Test that tag names must be unique within a workspace."""
+        # Create first tag
+        await tags_service.create_tag(tag_create_params)
+
+        # Try to create duplicate - should raise error
+        with pytest.raises(ValueError, match="Tag with slug .* already exists"):
+            await tags_service.create_tag(tag_create_params)
+
 
 @pytest.mark.anyio
 class TestWorkflowTagsService:

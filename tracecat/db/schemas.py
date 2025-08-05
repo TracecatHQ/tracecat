@@ -297,13 +297,6 @@ class WorkflowDefinition(Resource, table=True):
     )
 
 
-class WorkflowTag(SQLModel, table=True):
-    """Link table for workflows and tags with optional metadata."""
-
-    tag_id: UUID4 = Field(foreign_key="tag.id", primary_key=True)
-    workflow_id: uuid.UUID = Field(foreign_key="workflow.id", primary_key=True)
-
-
 class WorkflowFolder(Resource, table=True):
     """Folder for organizing workflows.
 
@@ -355,26 +348,11 @@ class WorkflowFolder(Resource, table=True):
         return self.path.count("/") <= 2  # "/foldername/" has two slashes
 
 
-class Tag(Resource, table=True):
-    """A tag for organizing and filtering entities."""
+class WorkflowTag(SQLModel, table=True):
+    """Link table for workflows and tags with optional metadata."""
 
-    __table_args__ = (UniqueConstraint("name", "owner_id"),)
-
-    id: UUID4 = Field(
-        default_factory=uuid.uuid4, nullable=False, unique=True, index=True
-    )
-    owner_id: OwnerID = Field(
-        sa_column=Column(UUID, ForeignKey("workspace.id", ondelete="CASCADE"))
-    )
-    name: str = Field(index=True, nullable=False)
-    color: str | None = Field(default=None)
-    # Relationships
-    owner: "Workspace" = Relationship(back_populates="tags")
-    workflows: list["Workflow"] = Relationship(
-        back_populates="tags",
-        link_model=WorkflowTag,
-        sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
-    )
+    tag_id: UUID4 = Field(foreign_key="tag.id", primary_key=True)
+    workflow_id: uuid.UUID = Field(foreign_key="workflow.id", primary_key=True)
 
 
 class Workflow(Resource, table=True):
@@ -800,6 +778,21 @@ class CaseFields(SQLModel, TimestampMixin, table=True):
     case: "Case" = Relationship(back_populates="fields")
 
 
+class CaseTag(SQLModel, table=True):
+    """Link table for cases and tags with optional metadata."""
+
+    case_id: uuid.UUID = Field(
+        sa_column=Column(
+            UUID, ForeignKey("cases.id", ondelete="CASCADE"), primary_key=True
+        )
+    )
+    tag_id: UUID4 = Field(
+        sa_column=Column(
+            UUID, ForeignKey("tag.id", ondelete="CASCADE"), primary_key=True
+        )
+    )
+
+
 class Case(Resource, table=True):
     """A case represents an incident or issue that needs to be tracked and resolved."""
 
@@ -886,6 +879,11 @@ class Case(Resource, table=True):
         sa_relationship_kwargs={
             **DEFAULT_SA_RELATIONSHIP_KWARGS,
         },
+    )
+    tags: list["Tag"] = Relationship(
+        back_populates="cases",
+        link_model=CaseTag,
+        sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
     )
 
 
@@ -1352,3 +1350,35 @@ class Prompt(Resource, table=True):
 
     # Relationships
     chat: Chat = Relationship(sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS)
+
+
+class Tag(Resource, table=True):
+    """A tag for organizing and filtering entities."""
+
+    __table_args__ = (
+        UniqueConstraint("name", "owner_id"),
+        UniqueConstraint("ref", "owner_id", name="uq_tag_ref_owner"),
+    )
+
+    id: UUID4 = Field(
+        default_factory=uuid.uuid4, nullable=False, unique=True, index=True
+    )
+    owner_id: OwnerID = Field(
+        sa_column=Column(UUID, ForeignKey("workspace.id", ondelete="CASCADE"))
+    )
+    name: str = Field(index=True, nullable=False)
+    # ref is a slug-like identifier derived from the name, used for API lookups alongside UUID
+    ref: str = Field(index=True, nullable=False)
+    color: str | None = Field(default=None)
+    # Relationships
+    owner: "Workspace" = Relationship(back_populates="tags")
+    workflows: list["Workflow"] = Relationship(
+        back_populates="tags",
+        link_model=WorkflowTag,
+        sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
+    )
+    cases: list["Case"] = Relationship(
+        back_populates="tags",
+        link_model=CaseTag,
+        sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
+    )

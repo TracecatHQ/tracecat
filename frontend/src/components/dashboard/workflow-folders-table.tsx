@@ -28,6 +28,7 @@ import {
   DataTableColumnHeader,
   type DataTableToolbarProps,
 } from "@/components/data-table"
+import { TagBadge } from "@/components/tag-badge"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -501,20 +502,4 @@ const defaultToolbarProps: DataTableToolbarProps<DirectoryItem> = {
     placeholder: "Search workflows...",
     column: "name",
   },
-}
-
-export function TagBadge({ tag }: { tag: TagRead }) {
-  return (
-    <Badge
-      key={tag.id}
-      variant="secondary"
-      className="text-xs"
-      style={{
-        backgroundColor: tag.color || undefined,
-        color: tag.color ? "white" : undefined,
-      }}
-    >
-      {tag.name}
-    </Badge>
-  )
 }

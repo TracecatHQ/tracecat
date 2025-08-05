@@ -11,7 +11,8 @@ import {
   STATUSES,
 } from "@/components/cases/case-categories"
 import { UNASSIGNED } from "@/components/cases/case-panel-selectors"
-import { columns } from "@/components/cases/case-table-columns"
+import { createColumns } from "@/components/cases/case-table-columns"
+import { DeleteCaseAlertDialog } from "@/components/cases/delete-case-dialog"
 import { PromptSelectionDialog } from "@/components/cases/runbook-selection-dialog"
 import { DataTable, type DataTableToolbarProps } from "@/components/data-table"
 import { Button } from "@/components/ui/button"
@@ -32,6 +33,7 @@ export default function CaseTable() {
     CaseReadMinimal[]
   >([])
   const [selectedRows, setSelectedRows] = useState<Row<CaseReadMinimal>[]>([])
+  const [selectedCase, setSelectedCase] = useState<CaseReadMinimal | null>(null)
   const router = useRouter()
 
   const {
@@ -54,7 +56,10 @@ export default function CaseTable() {
     workspaceId,
   })
 
-  const memoizedColumns = useMemo(() => columns, [])
+  const memoizedColumns = useMemo(
+    () => createColumns(setSelectedCase),
+    [setSelectedCase]
+  )
 
   function handleClickRow(row: Row<CaseReadMinimal>) {
     return () =>
@@ -163,58 +168,63 @@ export default function CaseTable() {
   }, [workspace])
 
   return (
-    <TooltipProvider>
-      <div className="space-y-4">
-        <DataTable
-          data={cases || []}
-          isLoading={casesIsLoading || isDeleting}
-          error={(casesError as Error) || undefined}
-          columns={memoizedColumns}
-          onClickRow={handleClickRow}
-          getRowHref={(row) =>
-            `/workspaces/${workspaceId}/cases/${row.original.id}`
-          }
-          onDeleteRows={handleDeleteRows}
-          onSelectionChange={handleSelectionChange}
-          toolbarProps={defaultToolbarProps}
-          tableId={`${user?.id}-${workspaceId}-cases`}
-          serverSidePagination={{
-            currentPage,
-            hasNextPage,
-            hasPreviousPage,
-            pageSize,
-            totalEstimate,
-            startItem,
-            endItem,
-            onNextPage: goToNextPage,
-            onPreviousPage: goToPreviousPage,
-            onFirstPage: goToFirstPage,
-            onPageSizeChange: setPageSize,
-            isLoading: casesIsLoading || isDeleting,
-          }}
+    <DeleteCaseAlertDialog
+      selectedCase={selectedCase}
+      setSelectedCase={setSelectedCase}
+    >
+      <TooltipProvider>
+        <div className="space-y-4">
+          <DataTable
+            data={cases || []}
+            isLoading={casesIsLoading || isDeleting}
+            error={(casesError as Error) || undefined}
+            columns={memoizedColumns}
+            onClickRow={handleClickRow}
+            getRowHref={(row) =>
+              `/workspaces/${workspaceId}/cases/${row.original.id}`
+            }
+            onDeleteRows={handleDeleteRows}
+            onSelectionChange={handleSelectionChange}
+            toolbarProps={defaultToolbarProps}
+            tableId={`${user?.id}-${workspaceId}-cases`}
+            serverSidePagination={{
+              currentPage,
+              hasNextPage,
+              hasPreviousPage,
+              pageSize,
+              totalEstimate,
+              startItem,
+              endItem,
+              onNextPage: goToNextPage,
+              onPreviousPage: goToPreviousPage,
+              onFirstPage: goToFirstPage,
+              onPageSizeChange: setPageSize,
+              isLoading: casesIsLoading || isDeleting,
+            }}
+          />
+
+          {selectedRows.length > 0 && (
+            <div className="flex justify-start">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleRunPrompt}
+                className="h-8"
+              >
+                <CirclePlayIcon className="size-3.5 mr-2 text-accent-foreground" />
+                Execute runbook on {selectedRows.length} case(s)
+              </Button>
+            </div>
+          )}
+        </div>
+
+        <PromptSelectionDialog
+          open={promptDialogOpen}
+          onOpenChange={setPromptDialogOpen}
+          selectedCases={selectedCasesForPrompt}
+          onSuccess={handlePromptSuccess}
         />
-
-        {selectedRows.length > 0 && (
-          <div className="flex justify-start">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleRunPrompt}
-              className="h-8"
-            >
-              <CirclePlayIcon className="size-3.5 mr-2 text-accent-foreground" />
-              Execute runbook on {selectedRows.length} case(s)
-            </Button>
-          </div>
-        )}
-      </div>
-
-      <PromptSelectionDialog
-        open={promptDialogOpen}
-        onOpenChange={setPromptDialogOpen}
-        selectedCases={selectedCasesForPrompt}
-        onSuccess={handlePromptSuccess}
-      />
-    </TooltipProvider>
+      </TooltipProvider>
+    </DeleteCaseAlertDialog>
   )
 }
