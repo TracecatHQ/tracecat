@@ -56,7 +56,6 @@ from tracecat_registry.integrations.pydantic_ai import (
 )
 
 from tracecat_registry import registry
-from tracecat.types.exceptions import RegistryError
 from tracecat_registry.integrations.agents.exceptions import AgentRunError
 from tracecat_registry.integrations.agents.tools import (
     create_secure_file_tools,
@@ -116,11 +115,23 @@ def generate_google_style_docstring(
         return f"{description}\n\nArgs:\n    None"
 
 
-async def call_tracecat_action(action_name: str, args: dict[str, Any]) -> Any:
-    async with RegistryActionsService.with_session() as service:
-        reg_action = await service.get_action(action_name)
-        action_secrets = await service.fetch_all_action_secrets(reg_action)
-        bound_action = service.get_bound(reg_action, mode="execution")
+async def call_tracecat_action(
+    action_name: str,
+    args: dict[str, Any],
+    *,
+    service: RegistryActionsService | None = None,
+) -> Any:
+    # Use provided service or create a new session context
+    if service is None:
+        async with RegistryActionsService.with_session() as session_service:
+            return await call_tracecat_action(
+                action_name, args, service=session_service
+            )
+
+    # Service provided - use it directly
+    reg_action = await service.get_action(action_name)
+    action_secrets = await service.fetch_all_action_secrets(reg_action)
+    bound_action = service.get_bound(reg_action, mode="execution")
 
     secrets = await get_action_secrets(args=args, action_secrets=action_secrets)
 
@@ -280,7 +291,10 @@ def _generate_tool_function_name(namespace: str, name: str, *, sep: str = "__") 
 
 
 async def create_tool_from_registry(
-    action_name: str, fixed_args: dict[str, Any] | None = None
+    action_name: str,
+    fixed_args: dict[str, Any] | None = None,
+    *,
+    service: RegistryActionsService | None = None,
 ) -> Tool:
     """Create a Pydantic AI Tool directly from the registry.
 
@@ -295,9 +309,14 @@ async def create_tool_from_registry(
         ValueError: If action has no description or template action is invalid
     """
     # Load action from registry
-    async with RegistryActionsService.with_session() as service:
-        reg_action = await service.get_action(action_name)
-        bound_action = service.get_bound(reg_action, mode="execution")
+    if service is None:
+        async with RegistryActionsService.with_session() as _service:
+            return await create_tool_from_registry(
+                action_name, fixed_args, service=_service
+            )
+
+    reg_action = await service.get_action(action_name)
+    bound_action = service.get_bound(reg_action, mode="execution")
 
     fixed_args = fixed_args or {}
     fixed_arg_names = set(fixed_args.keys())
@@ -311,7 +330,7 @@ async def create_tool_from_registry(
     )
 
     # Create wrapper function that calls the action with fixed args merged
-    async def tool_func(**kwargs) -> Any:
+    async def tool_func(**kwargs: Any) -> Any:
         # Remap sanitized parameter names back to original field names
         remapped_kwargs = {}
         for param_name, value in kwargs.items():
@@ -320,7 +339,7 @@ async def create_tool_from_registry(
 
         # Merge fixed arguments with runtime arguments
         merged_args = {**fixed_args, **remapped_kwargs}
-        return await call_tracecat_action(action_name, merged_args)
+        return await call_tracecat_action(action_name, merged_args, service=service)
 
     # Set function name
     tool_func.__name__ = _generate_tool_function_name(
@@ -467,22 +486,20 @@ class BuildToolDefinitionsResult:
 class CreateToolResult:
     """Result of creating a single tool from a registry action."""
 
-    tool: Tool | None
+    tool: Tool
     """The created tool, or None if creation failed."""
     collected_secrets: set[RegistrySecretType]
     """Secrets collected during tool creation."""
     action_name: str
     """The action name that was processed."""
-    success: bool
-    """Whether tool creation was successful."""
 
 
 async def create_single_tool(
-    ra: RegistryAction,
     service: RegistryActionsService,
+    ra: RegistryAction,
     action_name: str,
-    fixed_arguments: dict[str, dict[str, Any]],
-) -> CreateToolResult:
+    fixed_arguments: dict[str, dict[str, Any]] | None = None,
+) -> CreateToolResult | None:
     """Create a single tool from a registry action.
 
     Args:
@@ -495,6 +512,7 @@ async def create_single_tool(
         CreateToolResult containing the tool and metadata
     """
     collected_secrets: set[RegistrySecretType] = set()
+    fixed_arguments = fixed_arguments or {}
 
     try:
         # Fetch all secrets for this action
@@ -521,15 +539,9 @@ async def create_single_tool(
             tool=tool,
             collected_secrets=collected_secrets,
             action_name=action_name,
-            success=True,
         )
-    except RegistryError:
-        return CreateToolResult(
-            tool=None,
-            collected_secrets=collected_secrets,
-            action_name=action_name,
-            success=False,
-        )
+    except Exception:
+        return None
 
 
 async def build_agent_tools(
@@ -563,12 +575,17 @@ async def build_agent_tools(
                     continue
 
             # Create the tool using the extracted function
-            result = await create_single_tool(ra, service, action_name, fixed_arguments)
+            result = await create_single_tool(service, ra, action_name, fixed_arguments)
+
+            # Check if result is None and handle accordingly
+            if result is None:
+                failed_actions.append(action_name)
+                continue
 
             # Update collected secrets
             collected_secrets.update(result.collected_secrets)
 
-            if result.success and result.tool is not None:
+            if result.tool is not None:
                 tools.append(result.tool)
             else:
                 failed_actions.append(result.action_name)
