@@ -202,6 +202,7 @@ class DurableModelRequestArgs(BaseModel):
     model_settings: ModelSettings | None
     model_request_parameters: ModelRequestParameters
     model_info: ModelInfo
+    tool_filters: ToolFilters | None = None
 
 
 ModelResponseTA: TypeAdapter[ModelResponse] = TypeAdapter(ModelResponse)

@@ -5,6 +5,7 @@ from datetime import timedelta
 from pydantic_ai.messages import ModelMessage, ModelResponse
 from pydantic_ai.models import Model, ModelRequestParameters
 from pydantic_ai.settings import ModelSettings
+from pydantic_core import to_json
 from temporalio import workflow
 
 from tracecat.contexts import ctx_role
@@ -50,12 +51,12 @@ class DurableModel(Model):
             model_request_parameters=model_request_parameters,
             model_info=self._info,
         )
-        logger.info("DurableModel request", role=role, args=args)
+        logger.info(f"DurableModel request: {to_json(args, indent=2).decode()}")
         result = await workflow.execute_activity(
             durable_model_request,
             args=(args, role),
             start_to_close_timeout=timedelta(seconds=120),
         )
         resp = ModelResponseTA.validate_json(result.model_response)
-        logger.info("DurableModel response", response=resp)
+        logger.info(f"DurableModel response: {to_json(resp, indent=2).decode()}")
         return resp

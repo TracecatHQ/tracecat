@@ -3,34 +3,35 @@ from typing import Any
 
 import orjson
 from pydantic import BaseModel
-from pydantic_ai import ModelRetry
 from pydantic_ai.direct import model_request as direct_model_request
 from pydantic_ai.messages import (
     ModelMessage,
     ModelMessagesTypeAdapter,
-    RetryPromptPart,
-    ToolReturnPart,
 )
 from pydantic_ai.models import ModelRequestParameters
+from pydantic_ai.tools import ToolDefinition
 from pydantic_core import to_json, to_jsonable_python
 from temporalio import activity
 from tracecat_registry.integrations.agents.builder import (
     ModelMessageTA,
     build_agent_tool_definitions,
-    call_tracecat_action,
+    create_tool_from_registry,
 )
 from tracecat_registry.integrations.pydantic_ai import get_model
 
+from tracecat.contexts import ctx_role
 from tracecat.ee.agent.models import (
     DurableModelRequestArgs,
     ExecuteToolCallArgs,
     ExecuteToolCallResult,
     ModelRequestArgs,
     ModelRequestResult,
+    ToolFilters,
 )
 from tracecat.ee.agent.service import AgentManagementService
 from tracecat.logger import logger
 from tracecat.redis.client import RedisClient
+from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.types.auth import Role
 
 
@@ -54,50 +55,36 @@ async def model_request(request_args: ModelRequestArgs) -> ModelRequestResult:
 
 
 @activity.defn
-async def execute_tool_call(args: ExecuteToolCallArgs) -> ExecuteToolCallResult:
+async def execute_tool_call(
+    args: ExecuteToolCallArgs, role: Role
+) -> ExecuteToolCallResult:
     """Execute a single tool call and return the result as a ToolReturnPart."""
+    ctx_role.set(role)
+    action_name = args.tool_name.replace("__", ".")
     logger.info("Executing tool call", args=args)
+    async with RegistryActionsService.with_session() as svc:
+        tool = await create_tool_from_registry(action_name, args.tool_args, service=svc)
+    result = await tool.function(**args.tool_args)  # type: ignore
+    return ExecuteToolCallResult(tool_return=to_json(result))
 
-    try:
-        # Execute the tool using the existing call_tracecat_action function
-        result = await call_tracecat_action(args.tool_name, args.tool_args)
 
-        # Create a ToolReturnPart with the result
-        tool_return_part = ToolReturnPart(
-            tool_name=args.tool_name,
-            tool_call_id=args.tool_call_id,
-            content=str(result),  # Convert result to string for LLM consumption
-        )
+class BuildToolDefinitionsArgs(BaseModel):
+    tool_filters: ToolFilters
 
-        logger.info(f"Tool call {args.tool_name} completed successfully")
-        return ExecuteToolCallResult(tool_return=to_json(tool_return_part))
-    except ModelRetry as e:
-        logger.error("Model retry", error=e)
-        error_msg = f"Tool execution failed, retrying: {str(e)}"
-        return ExecuteToolCallResult(
-            error=error_msg,
-            tool_return=to_json(
-                RetryPromptPart(
-                    tool_name=args.tool_name,
-                    tool_call_id=args.tool_call_id,
-                    content=error_msg,
-                )
-            ),
-        )
-    except Exception as e:
-        error_msg = f"Tool execution failed: {str(e)}"
-        logger.error(f"Tool call {args.tool_name} failed: {error_msg}")
 
-        # Create an error ToolReturnPart
-        tool_return_part = ToolReturnPart(
-            tool_name=args.tool_name,
-            tool_call_id=args.tool_call_id,
-            content=f"Error: {error_msg}",
-        )
+class BuildToolDefinitionsResult(BaseModel):
+    tool_definitions: list[ToolDefinition]
 
-        return ExecuteToolCallResult(
-            tool_return=to_json(tool_return_part), error=error_msg
-        )
+
+@activity.defn
+async def build_tool_definitions(
+    args: BuildToolDefinitionsArgs,
+) -> BuildToolDefinitionsResult:
+    result = await build_agent_tool_definitions(
+        namespace_filters=args.tool_filters.namespaces,
+        action_filters=args.tool_filters.actions,
+    )
+    return BuildToolDefinitionsResult(tool_definitions=result.tool_definitions)
 
 
 @activity.defn
@@ -113,17 +100,24 @@ async def durable_model_request(
         model = get_model(
             args.model_info.name, args.model_info.provider, args.model_info.base_url
         )
-        request_params = model.customize_request_parameters(
-            args.model_request_parameters
-        )
+    request_params = model.customize_request_parameters(args.model_request_parameters)
+
+    tool_filters = args.tool_filters or ToolFilters.default()
+    result = await build_agent_tool_definitions(
+        namespace_filters=tool_filters.namespaces,
+        action_filters=tool_filters.actions,
+    )
+    request_params.function_tools += result.tool_definitions
+    logger.info(
+        f"Request params: {to_json(request_params, indent=2).decode()}",
+    )
+    logger.info(f"Model: {model.model_name}")
+    logger.info(f"Model settings: {to_json(args.model_settings, indent=2).decode()}")
+    logger.info(f"Tool filters: {to_json(tool_filters, indent=2).decode()}")
     model_response = await model.request(
         args.messages, args.model_settings, request_params
     )
     return ModelRequestResult(model_response=to_json(model_response))
-
-
-def agent_activities() -> list[Callable[..., Awaitable[Any]]]:
-    return [model_request, execute_tool_call, durable_model_request]
 
 
 class WriteChatMessageArgs(BaseModel):
@@ -191,3 +185,12 @@ class RedisClientActivities:
             )
 
         return ReadChatMessagesResult(conversation_history=conversation_history)
+
+
+def agent_activities() -> list[Callable[..., Awaitable[Any]]]:
+    return [
+        model_request,
+        execute_tool_call,
+        durable_model_request,
+        build_tool_definitions,
+    ]
