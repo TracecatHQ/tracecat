@@ -271,7 +271,7 @@ class TestCaseTagsService:  # noqa: D101
         tag = await tags_service.create_tag(tag_params)
 
         # Try to remove tag that was never added
-        with pytest.raises(NoResultFound):
+        with pytest.raises(ValueError):
             await case_tags_service.remove_case_tag(case_id, str(tag.id))
 
     @pytest.mark.anyio

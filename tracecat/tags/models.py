@@ -8,7 +8,9 @@ class TagRead(BaseModel):
 
     id: TagID
     name: str = Field(min_length=1, max_length=50)
-    ref: str
+    ref: str = Field(
+        description="Slug-like identifier derived from name, used for API lookups"
+    )
     color: str | None = Field(default=None, description="Hex color code")
 
 

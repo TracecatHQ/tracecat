@@ -135,7 +135,6 @@ export function CaseActions({
         </DropdownMenuItem>
       )}
 
-      {/* Danger zone */}
       <DropdownMenuItem
         className="text-xs"
         onClick={async (e) => {
@@ -168,6 +167,7 @@ export function CaseActions({
         Copy case ID
       </DropdownMenuItem>
 
+      {/* Danger zone */}
       <DeleteCaseAlertDialogTrigger asChild>
         <DropdownMenuItem
           className="text-xs text-rose-500 focus:text-rose-600"

@@ -6,7 +6,11 @@ TagIdentifier = TagID | str  # Can be UUID or ref
 
 
 class CaseTagCreate(BaseModel):
-    tag_id: TagIdentifier = Field(description="Tag ID (UUID) or ref")
+    tag_id: TagIdentifier = Field(
+        description="Tag ID (UUID) or ref",
+        min_length=1,
+        max_length=100,
+    )
 
 
 class CaseTagRead(BaseModel):

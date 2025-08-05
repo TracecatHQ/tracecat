@@ -1,30 +1,24 @@
 import type { TagRead } from "@/client"
 import { Badge } from "@/components/ui/badge"
-
-function getContrastColor(hexColor: string): string {
-  // Convert hex to RGB
-  const hex = hexColor.replace("#", "")
-  const r = parseInt(hex.substr(0, 2), 16)
-  const g = parseInt(hex.substr(2, 2), 16)
-  const b = parseInt(hex.substr(4, 2), 16)
-
-  // Calculate relative luminance using WCAG formula
-  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
-
-  // Return black for light backgrounds, white for dark backgrounds
-  return luminance > 0.5 ? "#000000" : "#ffffff"
-}
+import { cn } from "@/lib/utils"
 
 export function TagBadge({ tag }: { tag: TagRead }) {
+  // Use Tailwind's contrast utilities via CSS custom properties
+  const badgeStyle = tag.color
+    ? {
+        backgroundColor: tag.color,
+        "--tw-text-opacity": "1",
+        color: "rgb(255 255 255 / var(--tw-text-opacity))",
+        textShadow: "0 0 2px rgba(0,0,0,0.5)",
+      }
+    : undefined
+
   return (
     <Badge
       key={tag.id}
       variant="secondary"
-      className="text-xs"
-      style={{
-        backgroundColor: tag.color || undefined,
-        color: tag.color ? getContrastColor(tag.color) : undefined,
-      }}
+      className={cn("text-xs", tag.color && "font-medium")}
+      style={badgeStyle}
     >
       {tag.name}
     </Badge>

@@ -1367,6 +1367,7 @@ class Tag(Resource, table=True):
         sa_column=Column(UUID, ForeignKey("workspace.id", ondelete="CASCADE"))
     )
     name: str = Field(index=True, nullable=False)
+    # ref is a slug-like identifier derived from the name, used for API lookups alongside UUID
     ref: str = Field(index=True, nullable=False)
     color: str | None = Field(default=None)
     # Relationships

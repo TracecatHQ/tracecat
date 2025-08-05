@@ -18,13 +18,13 @@ class CaseTagsService(BaseWorkspaceService):
         result = await self.session.exec(stmt)
         return result.all()
 
-    async def get_case_tag(self, case_id: uuid.UUID, tag_id: TagID) -> CaseTag:
+    async def get_case_tag(self, case_id: uuid.UUID, tag_id: TagID) -> CaseTag | None:
         """Get a case tag association."""
         stmt = select(CaseTag).where(
             CaseTag.case_id == case_id, CaseTag.tag_id == tag_id
         )
         result = await self.session.exec(stmt)
-        return result.one()
+        return result.one_or_none()
 
     async def add_case_tag(self, case_id: uuid.UUID, tag_identifier: str) -> Tag:
         """Add a tag to a case by ID or ref."""
@@ -56,5 +56,7 @@ class CaseTagsService(BaseWorkspaceService):
         tag = await tags_service.get_tag_by_ref_or_id(tag_identifier)
 
         case_tag = await self.get_case_tag(case_id, tag.id)
+        if not case_tag:
+            raise ValueError(f"Tag {tag_identifier} not found on case {case_id}")
         await self.session.delete(case_tag)
         await self.session.commit()
