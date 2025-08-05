@@ -273,7 +273,12 @@ export function createColumns(
         if (!tags || tags.length === 0) {
           return false
         }
-        return tags.some((tag) => value.includes(tag.name))
+        return tags.some(
+          (tag) =>
+            value.includes(tag.name) ||
+            value.includes(tag.id) ||
+            (tag.ref && value.includes(tag.ref))
+        )
       },
     },
     {

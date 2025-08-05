@@ -86,7 +86,9 @@ async def list_cases(
     limit: int = Query(20, ge=1, le=100, description="Maximum items per page"),
     cursor: str | None = Query(None, description="Cursor for pagination"),
     reverse: bool = Query(False, description="Reverse pagination direction"),
-    tags: list[str] = Query(None, description="Filter by tag IDs or slugs (AND logic)"),
+    tags: list[str] | None = Query(
+        None, description="Filter by tag IDs or slugs (AND logic)"
+    ),
 ) -> CursorPaginatedResponse[CaseReadMinimal]:
     """List cases with cursor-based pagination and tag filtering."""
     service = CasesService(session, role)
@@ -109,7 +111,9 @@ async def list_cases(
         reverse=reverse,
     )
     try:
-        cases = await service.list_cases_paginated(pagination_params)
+        cases = await service.list_cases_paginated(
+            pagination_params, tag_ids=tag_ids if tag_ids else None
+        )
     except Exception as e:
         logger.error(f"Failed to list cases: {e}")
         raise HTTPException(status_code=500, detail="Failed to retrieve cases") from e

@@ -103,7 +103,7 @@ class CasesService(BaseWorkspaceService):
         return result.all()
 
     async def list_cases_paginated(
-        self, params: CursorPaginationParams
+        self, params: CursorPaginationParams, tag_ids: list[uuid.UUID] | None = None
     ) -> CursorPaginatedResponse[CaseReadMinimal]:
         """List cases with cursor-based pagination."""
         paginator = BaseCursorPaginator(self.session)
@@ -118,6 +118,15 @@ class CasesService(BaseWorkspaceService):
             .options(selectinload(Case.tags))
             .order_by(col(Case.created_at).desc(), col(Case.id).desc())
         )
+
+        # Apply tag filtering if tag_ids provided (AND logic - case must have all tags)
+        if tag_ids:
+            from tracecat.db.schemas import CaseTag
+
+            for tag_id in tag_ids:
+                stmt = stmt.where(
+                    Case.id.in_(select(CaseTag.case_id).where(CaseTag.tag_id == tag_id))
+                )
 
         # Apply cursor filtering
         if params.cursor:

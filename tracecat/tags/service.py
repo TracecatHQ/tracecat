@@ -66,6 +66,13 @@ class TagsService(BaseService):
         # Generate ref
         ref = slugify(tag.name)
 
+        # Check if ref already exists
+        existing = await self.session.exec(
+            select(Tag).where(Tag.ref == ref, Tag.owner_id == workspace_id)
+        )
+        if existing.one_or_none():
+            raise ValueError(f"Tag with slug '{ref}' already exists")
+
         db_tag = Tag(name=tag.name, ref=ref, owner_id=workspace_id, color=tag.color)
         self.session.add(db_tag)
         await self.session.commit()

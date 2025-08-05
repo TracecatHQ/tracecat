@@ -138,21 +138,30 @@ export function CaseActions({
       {/* Danger zone */}
       <DropdownMenuItem
         className="text-xs"
-        onClick={(e) => {
+        onClick={async (e) => {
           e.stopPropagation()
-          navigator.clipboard.writeText(item.id)
-          toast({
-            title: "Case ID copied",
-            description: (
-              <div className="flex flex-col space-y-2">
-                <span>
-                  Case ID copied for{" "}
-                  <b className="inline-block">{item.short_id}</b>
-                </span>
-                <span className="text-muted-foreground">ID: {item.id}</span>
-              </div>
-            ),
-          })
+          try {
+            await navigator.clipboard.writeText(item.id)
+            toast({
+              title: "Case ID copied",
+              description: (
+                <div className="flex flex-col space-y-2">
+                  <span>
+                    Case ID copied for{" "}
+                    <b className="inline-block">{item.short_id}</b>
+                  </span>
+                  <span className="text-muted-foreground">ID: {item.id}</span>
+                </div>
+              ),
+            })
+          } catch (error) {
+            console.error("Failed to copy to clipboard:", error)
+            toast({
+              title: "Failed to copy",
+              description: "Could not copy case ID to clipboard",
+              variant: "destructive",
+            })
+          }
         }}
       >
         <Copy className="mr-2 size-3.5" />
