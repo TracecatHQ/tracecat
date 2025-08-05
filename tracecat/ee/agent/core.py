@@ -4,11 +4,14 @@ from collections.abc import Awaitable, Callable
 from datetime import timedelta
 from typing import Any, Generic
 
-from pydantic_ai import RunContext, Tool, messages
+from pydantic_ai import RunContext, Tool
+from pydantic_ai.exceptions import ModelRetry
 from pydantic_ai.messages import (
     ModelMessage,
     ModelResponse,
+    RetryPromptPart,
     ToolCallPart,
+    ToolReturnPart,
 )
 from pydantic_ai.models import Model, ModelRequestParameters
 from pydantic_ai.settings import ModelSettings
@@ -18,6 +21,7 @@ from pydantic_ai.tools import (
 )
 from pydantic_core import to_json
 from temporalio import workflow
+from temporalio.exceptions import ActivityError, ApplicationError
 
 from tracecat.contexts import ctx_role
 from tracecat.ee.agent.activities import (
@@ -64,7 +68,7 @@ class DurableGatedTool(Generic[AgentDepsT]):
         self,
         ctx: RunContext[AgentDepsT],
         **tool_args: Any,
-    ) -> messages.ToolReturnPart | messages.RetryPromptPart:
+    ) -> ToolReturnPart | RetryPromptPart:
         logger.info("HITLTool", tool_name=self._tool.name, tool_args=tool_args, ctx=ctx)
         approved = await self._gate(
             ToolCallPart(
@@ -77,7 +81,7 @@ class DurableGatedTool(Generic[AgentDepsT]):
 
         if not approved:
             # Tell the model to try again or do something else
-            return messages.RetryPromptPart(
+            return RetryPromptPart(
                 tool_name=self._tool.name,
                 tool_call_id=ctx.tool_call_id
                 or "",  # echo back whatever id pydantic-ai gave
@@ -98,13 +102,28 @@ class DurableGatedTool(Generic[AgentDepsT]):
             tool_call_id=ctx.tool_call_id or "",
         )
         role = ctx_role.get()
-        result = await workflow.execute_activity(
-            execute_tool_call,
-            args=(args, role),
-            start_to_close_timeout=timedelta(seconds=60),
-        )
-        logger.info("Tool call result", result=result)
-        return result.tool_return
+        try:
+            result = await workflow.execute_activity(
+                execute_tool_call,
+                args=(args, role),
+                start_to_close_timeout=timedelta(seconds=60),
+            )
+            logger.info("Tool call result", result=result)
+            return result.tool_return
+        except ActivityError as e:
+            # Temporal wraps failures from the activity in ActivityError.
+            # If the real failure was a ModelRetry we resurrect it so that
+            # pydantic-ai turns it into a RetryPromptPart (recoverable).
+            match cause := e.cause:
+                case ModelRetry():
+                    # Native deserialisation case
+                    raise cause from e
+                case ApplicationError() if cause.type == "ModelRetry":
+                    # Fallback when the SDK can't deserialize the original class
+                    raise ModelRetry(cause.message) from e
+                case _:
+                    # Any other failure is unrecoverable – let it propagate
+                    raise
 
 
 class DurableModel(Model):
