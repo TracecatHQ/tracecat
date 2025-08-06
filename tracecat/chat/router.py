@@ -7,7 +7,7 @@ from typing import Annotated
 import orjson
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
-from tracecat_registry.integrations.agents.builder import ModelMessageTA, run_agent
+from tracecat_registry.integrations.agents.builder import ModelMessageTA
 
 from tracecat.auth.credentials import RoleACL
 from tracecat.chat.models import (
@@ -21,7 +21,8 @@ from tracecat.chat.models import (
 )
 from tracecat.chat.service import ChatService
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.ee.agent.service import AgentManagementService
+from tracecat.ee.agent.execution import AgentExecutionService
+from tracecat.ee.agent.models import GraphAgentWorkflowArgs, ToolFilters
 from tracecat.logger import logger
 from tracecat.redis.client import get_redis_client
 from tracecat.types.auth import Role
@@ -157,20 +158,17 @@ async def start_chat_turn(
             detail="Chat not found",
         )
 
+    stream_id = str(chat_id)
     try:
         # Fire-and-forget execution using the agent function directly
-        agent_svc = AgentManagementService(session, role)
-        async with agent_svc.with_model_config() as model_config:
-            coro = run_agent(
-                instructions=request.instructions,
-                user_prompt=request.message,
-                fixed_arguments=request.context,
-                model_name=model_config.name,
-                model_provider=model_config.provider,
-                actions=chat.tools,
-                stream_id=str(chat_id),
-            )
-            _ = asyncio.create_task(coro)
+        agent_svc = await AgentExecutionService.connect(role)
+        args = GraphAgentWorkflowArgs(
+            role=role,
+            user_prompt=request.message,
+            tool_filters=ToolFilters(actions=chat.tools),
+            stream_key=f"agent-stream:{stream_id}",
+        )
+        await agent_svc.start_agent(args)
 
         stream_url = f"/api/chat/{chat_id}/stream"
 

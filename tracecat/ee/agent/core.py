@@ -21,16 +21,14 @@ from pydantic_ai.tools import (
 )
 from pydantic_core import to_json
 from temporalio import workflow
-from temporalio.exceptions import ActivityError, ApplicationError
 
 from tracecat.contexts import ctx_role
-from tracecat.ee.agent.activities import (
-    durable_model_request,
-    execute_tool_call,
-)
+from tracecat.ee.agent.activities import AgentActivities
+from tracecat.ee.agent.context import AgentContext
 from tracecat.ee.agent.models import (
     DurableModelRequestArgs,
     ExecuteToolCallArgs,
+    ExecuteToolCallResult,
     ModelInfo,
     ModelResponseTA,
 )
@@ -70,14 +68,12 @@ class DurableGatedTool(Generic[AgentDepsT]):
         **tool_args: Any,
     ) -> ToolReturnPart | RetryPromptPart:
         logger.info("HITLTool", tool_name=self._tool.name, tool_args=tool_args, ctx=ctx)
-        approved = await self._gate(
-            ToolCallPart(
-                tool_name=self._tool.name,
-                tool_call_id=ctx.tool_call_id or "",
-                args=tool_args,
-            ),
-            ctx,
+        part = ToolCallPart(
+            tool_name=self._tool.name,
+            tool_call_id=ctx.tool_call_id or "",
+            args=tool_args,
         )
+        approved = await self._gate(part, ctx)
 
         if not approved:
             # Tell the model to try again or do something else
@@ -89,45 +85,45 @@ class DurableGatedTool(Generic[AgentDepsT]):
             )
 
         # Human said yes – delegate to the real implementation
-        return await self._call_tool(ctx, tool_args)
+        return await self._call_tool(part, tool_args)
 
     async def _call_tool(
-        self, ctx: RunContext[AgentDepsT], tool_args: dict[str, Any]
+        self, tool_call: ToolCallPart, tool_args: dict[str, Any]
     ) -> Any:
         # This function represents the actual tool call
         # We proxy it to temporal
         args = ExecuteToolCallArgs(
             tool_name=self._tool.name,
             tool_args=tool_args,
-            tool_call_id=ctx.tool_call_id or "",
+            tool_call_id=tool_call.tool_call_id,
         )
+
+        agent_ctx = AgentContext.get()
         role = ctx_role.get()
-        try:
-            result = await workflow.execute_activity(
-                execute_tool_call,
-                args=(args, role),
-                start_to_close_timeout=timedelta(seconds=60),
-            )
-            logger.info("Tool call result", result=result)
-            return result.tool_return
-        except ActivityError as e:
-            # Temporal wraps failures from the activity in ActivityError.
-            # If the real failure was a ModelRetry we resurrect it so that
-            # pydantic-ai turns it into a RetryPromptPart (recoverable).
-            match cause := e.cause:
-                case ModelRetry():
-                    # Native deserialisation case
-                    raise cause from e
-                case ApplicationError() if cause.type == "ModelRetry":
-                    # Fallback when the SDK can't deserialize the original class
-                    raise ModelRetry(cause.message) from e
-                case _:
-                    # Any other failure is unrecoverable – let it propagate
-                    raise
+        result = await workflow.execute_activity_method(
+            AgentActivities.execute_tool_call,
+            args=(args, agent_ctx, role),
+            start_to_close_timeout=timedelta(seconds=60),
+        )
+        logger.info("Tool call result", result=result)
+
+        # Check if the activity returned a retry message
+        match result:
+            case ExecuteToolCallResult(type="retry", retry_message=retry_message):
+                logger.info("Tool requested retry", message=retry_message)
+                raise ModelRetry(retry_message or "Tool requested retry")
+            case ExecuteToolCallResult(type="error", error=error):
+                logger.error("Tool call failed", error=error)
+                raise Exception(error)
+            case ExecuteToolCallResult(type="result", result=result):
+                return result
+            case _:
+                raise RuntimeError("We should never get here")
 
 
 class DurableModel(Model):
-    """A durable AI model implementation that proxies model requests to temporal activities.
+    """
+    A durable AI model implementation that proxies model requests to Temporal activities.
 
     This class wraps AI model requests in Temporal activities to provide durability,
     retry capabilities, and workflow integration. All model requests are executed
@@ -152,19 +148,20 @@ class DurableModel(Model):
         model_settings: ModelSettings | None,
         model_request_parameters: ModelRequestParameters,
     ) -> ModelResponse:
-        role = ctx_role.get()
+        agent_ctx = AgentContext.get()
         args = DurableModelRequestArgs(
             messages=messages,
             model_settings=model_settings,
             model_request_parameters=model_request_parameters,
             model_info=self._info,
         )
-        logger.info(f"DurableModel request: {to_json(args, indent=2).decode()}")
-        result = await workflow.execute_activity(
-            durable_model_request,
-            args=(args, role),
+        role = ctx_role.get()
+        logger.debug(f"DurableModel request: {to_json(args, indent=2).decode()}")
+        result = await workflow.execute_activity_method(
+            AgentActivities.durable_model_request,
+            args=(args, agent_ctx, role),
             start_to_close_timeout=timedelta(seconds=120),
         )
-        resp = ModelResponseTA.validate_json(result.model_response)
-        logger.info(f"DurableModel response: {to_json(resp, indent=2).decode()}")
+        resp = ModelResponseTA.validate_python(result.model_response)
+        logger.debug(f"DurableModel response: {to_json(resp, indent=2).decode()}")
         return resp

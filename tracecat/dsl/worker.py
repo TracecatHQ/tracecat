@@ -20,7 +20,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.dsl.interceptor import SentryInterceptor
     from tracecat.dsl.validation import validate_trigger_inputs_activity
     from tracecat.dsl.workflow import DSLWorkflow
-    from tracecat.ee.agent.activities import RedisClientActivities, agent_activities
+    from tracecat.ee.agent.activities import AgentActivities, build_tool_definitions
     from tracecat.ee.agent.workflow import GraphAgentWorkflow
     from tracecat.ee.interactions.service import InteractionService
     from tracecat.logger import logger
@@ -66,7 +66,7 @@ def get_activities(*extra_activities: Callable) -> list[Callable]:
         validate_trigger_inputs_activity,
         *WorkflowsManagementService.get_activities(),
         *InteractionService.get_activities(),
-        *agent_activities(),
+        build_tool_definitions,
         *extra_activities,
     ]
 
@@ -82,8 +82,8 @@ async def main() -> None:
 
     # Run a worker for the activities and workflow
     redis_client = await get_redis_client()
-    redis_activities = RedisClientActivities(client=redis_client)
-    activities = get_activities(*redis_activities.all_activities())
+    agent_activities = AgentActivities(client=redis_client)
+    activities = get_activities(*agent_activities.all_activities())
     logger.debug(
         "Activities loaded",
         activities=[

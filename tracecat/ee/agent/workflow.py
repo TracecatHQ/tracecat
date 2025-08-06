@@ -1,8 +1,6 @@
 from __future__ import annotations as _annotations
 
-from dataclasses import dataclass
 from datetime import timedelta
-from enum import StrEnum
 
 from temporalio import workflow
 from temporalio.exceptions import ApplicationError
@@ -12,10 +10,8 @@ with workflow.unsafe.imports_passed_through():
     import httpcore  # noqa: F401
     import httpx  # noqa: F401
     import pydantic_ai  # noqa: F401
-
-    # Rest of imports
-    from pydantic import BaseModel
     from pydantic_ai import Agent, RunContext
+    from pydantic_ai.agent import AgentRunResult
     from pydantic_ai.messages import (
         FunctionToolCallEvent,
         FunctionToolResultEvent,
@@ -29,7 +25,6 @@ with workflow.unsafe.imports_passed_through():
     from pydantic_ai.tools import (
         AgentDepsT,
     )
-    from pydantic_core import to_json
     from tracecat_registry.integrations.agents.tools import (
         create_tool_call,
         create_tool_return,
@@ -38,32 +33,29 @@ with workflow.unsafe.imports_passed_through():
 
     from tracecat.contexts import ctx_role
     from tracecat.ee.agent.activities import (
+        AgentActivities,
         BuildToolDefinitionsArgs,
+        WriteUserPromptArgs,
         build_tool_definitions,
     )
+
+    # Rest of imports
+    from tracecat.ee.agent.approvals import (
+        ApprovalAction,
+        ApprovalRequest,
+        ApprovalResponse,
+        ApprovalState,
+        ApprovalStatus,
+    )
+    from tracecat.ee.agent.context import AgentContext
     from tracecat.ee.agent.core import DurableGatedTool, DurableModel
-    from tracecat.ee.agent.models import ModelInfo, ToolFilters
+    from tracecat.ee.agent.models import (
+        GraphAgentWorkflowArgs,
+        GraphAgentWorkflowResult,
+        ModelInfo,
+        ToolFilters,
+    )
     from tracecat.logger import logger
-    from tracecat.types.auth import Role
-
-
-class AgenticGraphWorkflowArgs(BaseModel):
-    role: Role
-    user_prompt: str
-    tool_filters: ToolFilters | None = None
-    """This is static over the lifetime of the workflow, as it's for 1 turn."""
-
-
-class ApprovalStatus(StrEnum):
-    PENDING = "pending"
-    APPROVED = "approved"
-    REJECTED = "rejected"
-
-
-@dataclass
-class ApprovalState:
-    status: ApprovalStatus
-    tool_call_part: ToolCallPart
 
 
 @workflow.defn
@@ -71,20 +63,25 @@ class GraphAgentWorkflow:
     """Executes an agentic chat turn using pydantic-ai Agent."""
 
     @workflow.init
-    def __init__(self, args: AgenticGraphWorkflowArgs) -> None:
+    def __init__(self, args: GraphAgentWorkflowArgs) -> None:
         self.pending_approvals: dict[str, ApprovalState] = {}
 
-    @workflow.signal
-    def approve_call(self, call_id: str) -> None:
-        if call_id not in self.pending_approvals:
-            raise ApplicationError(f"Call ID {call_id} not found")
-        self.pending_approvals[call_id].status = ApprovalStatus.APPROVED
+    @workflow.update
+    async def approval_handler(self, input: ApprovalRequest) -> ApprovalResponse:
+        """Handle interactions from the workflow and return a result."""
+        status_map = {
+            ApprovalAction.APPROVE: ApprovalStatus.APPROVED,
+            ApprovalAction.REJECT: ApprovalStatus.REJECTED,
+        }
+        status = status_map[input.action]
+        self.pending_approvals[input.call_id].status = status
+        return ApprovalResponse(status=status)
 
-    @workflow.signal
-    def reject_call(self, call_id: str) -> None:
-        if call_id not in self.pending_approvals:
-            raise ApplicationError(f"Call ID {call_id} not found")
-        self.pending_approvals[call_id].status = ApprovalStatus.REJECTED
+    @approval_handler.validator
+    def validate_approval_handler(self, input: ApprovalRequest) -> None:
+        """Validate the approval handler."""
+        if input.call_id not in self.pending_approvals:
+            raise RuntimeError(f"Call ID {input.call_id} not found")
 
     # Define how the workflow waits for human approval
     async def approval_gate(
@@ -126,8 +123,10 @@ class GraphAgentWorkflow:
         return True  # proceed
 
     @workflow.run
-    async def run(self, args: AgenticGraphWorkflowArgs) -> str:
+    async def run(self, args: GraphAgentWorkflowArgs) -> GraphAgentWorkflowResult:
         ctx_role.set(args.role)
+        AgentContext.set(stream_key=args.stream_key)
+
         model_info = ModelInfo(
             name="gpt-4o-mini",
             provider="openai",
@@ -154,13 +153,16 @@ class GraphAgentWorkflow:
         )
         if not isinstance(agent.model, Model):
             raise ApplicationError("Model is None")
-        logger.info("Agent built", agent=agent)
+        agent_ctx = AgentContext.get()
+        logger.info("Agent built", agent=agent, agent_ctx=agent_ctx)
+
+        # Track messages in-process for diagnostics
         messages: list[ModelMessage] = []
         async with agent.iter(user_prompt=args.user_prompt) as run:
             async for node in run:
                 curr: ModelMessage
                 if Agent.is_user_prompt_node(node):
-                    continue
+                    continue  # handle this in the next node
 
                 # 1️⃣  Model request (may be a normal user/tool-return message)
                 elif Agent.is_model_request_node(node):
@@ -169,9 +171,15 @@ class GraphAgentWorkflow:
 
                     # If this request is ONLY a tool-return we have
                     # already streamed it via FunctionToolResultEvent.
-                    if any(isinstance(p, ToolReturnPart) for p in curr.parts):
-                        messages.append(curr)  # keep history
-                        continue  # ← skip duplicate stream
+                    # if any(isinstance(p, ToolReturnPart) for p in curr.parts):
+                    #     messages.append(curr)  # keep history
+                    #     continue  # ← skip duplicate stream
+
+                    await workflow.execute_activity_method(
+                        AgentActivities.write_user_prompt,
+                        args=(WriteUserPromptArgs(user_prompt=curr), agent_ctx),
+                        start_to_close_timeout=timedelta(seconds=10),
+                    )
                 # assistant tool-call + tool-return events
                 elif Agent.is_call_tools_node(node):
                     logger.info("Call tools node", node=node)
@@ -211,13 +219,17 @@ class GraphAgentWorkflow:
                         )
                     else:
                         # Plain text output
-                        curr = ModelResponse(
-                            parts=[
-                                TextPart(content=final.output),
-                            ]
-                        )
+                        curr = ModelResponse(parts=[TextPart(content=final.output)])
+                    messages.append(curr)
+                    await workflow.execute_activity_method(
+                        AgentActivities.write_end_token,
+                        args=(agent_ctx,),
+                        start_to_close_timeout=timedelta(seconds=10),
+                    )
                 else:
                     raise ValueError(f"Unknown node type: {node}")
 
-                messages.append(curr)
-        return to_json(messages).decode()
+        result = run.result
+        if not isinstance(result, AgentRunResult):
+            raise ValueError("No output returned from agent run.")
+        return GraphAgentWorkflowResult(messages=messages)
