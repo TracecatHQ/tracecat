@@ -65,8 +65,8 @@ class ReadChatMessagesResult(BaseModel):
     conversation_history: list[ModelMessage]
 
 
-class WriteUserPromptArgs(BaseModel):
-    user_prompt: ModelRequest
+class WriteModelRequestArgs(BaseModel):
+    request: ModelRequest
 
 
 class AgentActivities:
@@ -246,13 +246,13 @@ class AgentActivities:
         return ModelRequestResult(model_response=model_response)
 
     @activity.defn
-    async def write_user_prompt(
-        self, args: WriteUserPromptArgs, ctx: AgentContext
+    async def write_model_request(
+        self, args: WriteModelRequestArgs, ctx: AgentContext
     ) -> None:
-        """Log the user prompt to Redis."""
-        logger.info("Logging user prompt", prompt=args.user_prompt)
+        """Write the model request to Redis."""
+        logger.info("Writing model request", request=args.request)
         AgentContext.set_from(ctx)
-        await self._stream_message(args.user_prompt)
+        await self._stream_message(args.request)
 
     @activity.defn
     async def write_end_token(self, ctx: AgentContext) -> None:

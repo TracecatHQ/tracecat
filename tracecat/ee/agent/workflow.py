@@ -36,7 +36,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.ee.agent.activities import (
         AgentActivities,
         BuildToolDefinitionsArgs,
-        WriteUserPromptArgs,
+        WriteModelRequestArgs,
         build_tool_definitions,
     )
 
@@ -193,8 +193,8 @@ class GraphAgentWorkflow:
                     #     continue  # ← skip duplicate stream
 
                     await workflow.execute_activity_method(
-                        AgentActivities.write_user_prompt,
-                        args=(WriteUserPromptArgs(user_prompt=curr), agent_ctx),
+                        AgentActivities.write_model_request,
+                        args=(WriteModelRequestArgs(request=curr), agent_ctx),
                         start_to_close_timeout=timedelta(seconds=10),
                     )
                 # assistant tool-call + tool-return events
