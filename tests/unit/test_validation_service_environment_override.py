@@ -24,64 +24,32 @@ from tracecat.validation.service import (
 class TestGetEffectiveEnvironment:
     """Test the get_effective_environment function."""
 
-    def test_returns_default_when_no_environment_override(self):
-        """Test that default environment is returned when statement has no environment."""
+    @pytest.mark.parametrize(
+        "environment, default_env, expected",
+        [
+            (None, "default_env", "default_env"),
+            ("production", "default_env", "production"),
+            ("${{ ACTIONS.env_selector.result }}", "default_env", "default_env"),
+            (
+                "${{ 'prod' if TRIGGER.env == 'production' else 'staging' }}",
+                "workflow_env",
+                "workflow_env",
+            ),
+        ],
+    )
+    def test_get_effective_environment_scenarios(
+        self, environment, default_env, expected
+    ):
+        """Test get_effective_environment with various environment scenarios."""
         stmt = ActionStatement(
             ref="test_action",
             action="core.transform.reshape",
             args={"value": "test"},
+            environment=environment,
         )
 
-        result = get_effective_environment(stmt, "default_env")
-        assert result == "default_env"
-
-    def test_returns_default_when_environment_is_none(self):
-        """Test that default environment is returned when environment is explicitly None."""
-        stmt = ActionStatement(
-            ref="test_action",
-            action="core.transform.reshape",
-            args={"value": "test"},
-            environment=None,
-        )
-
-        result = get_effective_environment(stmt, "default_env")
-        assert result == "default_env"
-
-    def test_returns_literal_environment_override(self):
-        """Test that literal string environment override is returned."""
-        stmt = ActionStatement(
-            ref="test_action",
-            action="core.transform.reshape",
-            args={"value": "test"},
-            environment="production",
-        )
-
-        result = get_effective_environment(stmt, "default_env")
-        assert result == "production"
-
-    def test_returns_default_for_template_environment(self):
-        """Test that default environment is returned for template expressions."""
-        stmt = ActionStatement(
-            ref="test_action",
-            action="core.transform.reshape",
-            args={"value": "test"},
-            environment="${{ ACTIONS.env_selector.result }}",
-        )
-
-        result = get_effective_environment(stmt, "default_env")
-        assert result == "default_env"
-
-    def test_returns_default_for_complex_template_environment(self):
-        """Test that default environment is returned for complex template expressions."""
-        stmt = ActionStatement(
-            ref="test_action",
-            action="core.transform.reshape",
-            args={"value": "test"},
-            environment="${{ 'prod' if TRIGGER.env == 'production' else 'staging' }}",
-        )
-
-        result = get_effective_environment(stmt, "workflow_env")
-        assert result == "workflow_env"
+        result = get_effective_environment(stmt, default_env)
+        assert result == expected
 
     def test_handles_non_string_environment(self):
         """Test that non-string environment values return default."""
@@ -246,6 +214,71 @@ class TestEnvironmentOverrideValidation:
             "Template expressions are not allowed in `environment` overrides"
             in env_errors[0].msg
         )
+
+    async def test_rejects_non_string_environment_override(self):
+        """Test that non-string environment values are rejected."""
+        # Create action with non-string environment by bypassing Pydantic validation
+        action = ActionStatement.model_construct(
+            ref="test_action",
+            action="core.transform.reshape",
+            args={"value": "test"},
+            environment=123,  # Non-string - should be rejected
+        )
+        dsl = self._create_dsl_with_actions([action])
+
+        results = await validate_dsl_expressions(dsl)
+
+        # Should have error for non-string environment
+        env_errors = [r for r in results if r.expression_type == ExprType.ENV]
+        assert len(env_errors) == 1
+        assert (
+            "Template expressions are not allowed in `environment` overrides"
+            in env_errors[0].msg
+        )
+        assert env_errors[0].ref == "test_action"
+        assert env_errors[0].status == "error"
+
+    async def test_environment_error_does_not_block_other_validations(self):
+        """Test that environment validation errors don't prevent other expression validations."""
+        actions = [
+            # Action with template environment - should trigger ENV error and early continue
+            ActionStatement.model_construct(
+                ref="env_error_action",
+                action="core.transform.reshape",
+                args={"value": "test"},
+                environment="${{ ACTIONS.some_action.result }}",  # Template - not allowed
+            ),
+            # Action with malformed expression - should trigger GENERIC error
+            ActionStatement(
+                ref="expr_error_action",
+                action="core.transform.reshape",
+                args={
+                    "malformed_expr": "${{ invalid syntax }}"
+                },  # Bad expression syntax
+            ),
+        ]
+        dsl = self._create_dsl_with_actions(actions)
+
+        results = await validate_dsl_expressions(dsl)
+
+        # Should have both ENV and GENERIC errors (proves early continue didn't stop other validations)
+        env_errors = [r for r in results if r.expression_type == ExprType.ENV]
+        other_errors = [r for r in results if r.expression_type != ExprType.ENV]
+
+        assert len(env_errors) == 1
+        assert env_errors[0].ref == "env_error_action"
+        assert (
+            "Template expressions are not allowed in `environment` overrides"
+            in env_errors[0].msg
+        )
+
+        # Should have at least one non-ENV error, proving validation continued after env error
+        assert len(other_errors) >= 1
+
+        # Verify that both error types are present - proves early continue didn't block other validations
+        error_types = {r.expression_type for r in results}
+        assert ExprType.ENV in error_types
+        assert len(error_types) > 1  # At least ENV + one other type
 
 
 @pytest.mark.anyio
