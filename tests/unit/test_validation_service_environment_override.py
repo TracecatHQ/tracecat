@@ -343,14 +343,24 @@ class TestSecretValidationWithEnvironmentOverride:
             mock_secrets = AsyncMock()
             mock_secrets_service.return_value = mock_secrets
 
+            # Create mock registry actions
+            mock_http_action = AsyncMock()
+            mock_http_action.action = "core.http_request"
+            mock_transform_action = AsyncMock()
+            mock_transform_action.action = "core.transform.reshape"
+
             mock_registry = AsyncMock()
             mock_registry_service.return_value = mock_registry
-            mock_registry.list_actions.return_value = []  # No registry actions found
+            mock_registry.list_actions.return_value = [
+                mock_http_action,
+                mock_transform_action,
+            ]
 
             mock_tg = AsyncMock()
             mock_task_group.return_value.__aenter__.return_value = mock_tg
             mock_task_group.return_value.__aexit__.return_value = None
             mock_tg.create_task = MagicMock()
+            mock_tg.results = MagicMock(return_value=[])  # Add missing results method
 
             # Call the function
             await validate_actions_have_defined_secrets(dsl)
@@ -454,6 +464,9 @@ class TestSecretValidationWithEnvironmentOverride:
                         for task in tasks:
                             await task
                         return None
+
+                    def results(self):
+                        return []  # Return empty results for testing
 
                 return MockTaskGroup()
 
