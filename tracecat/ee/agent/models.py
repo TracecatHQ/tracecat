@@ -9,6 +9,8 @@ from pydantic_ai.messages import ModelMessage, ModelResponse
 from pydantic_ai.models import ModelRequestParameters
 from pydantic_ai.settings import ModelSettings
 
+from tracecat.types.auth import Role
+
 
 class ModelSecretConfig(TypedDict):
     required: NotRequired[list[str]]
@@ -129,7 +131,7 @@ class ModelRequestArgs(BaseModel):
 
 
 class ModelRequestResult(BaseModel):
-    model_response: bytes = Field(..., description="Serialized model response")
+    model_response: ModelResponse = Field(..., description="Model response")
 
 
 class ExecuteToolCallArgs(BaseModel):
@@ -139,9 +141,13 @@ class ExecuteToolCallArgs(BaseModel):
 
 
 class ExecuteToolCallResult(BaseModel):
-    tool_return: bytes = Field(..., description="Serialized tool return part")
+    type: Literal["result", "error", "retry"] = Field(..., description="Type of result")
+    result: Any = Field(default=None, description="Tool return part")
     error: str | None = Field(
         default=None, description="Error message if execution failed"
+    )
+    retry_message: str | None = Field(
+        default=None, description="Retry message if ModelRetry was raised"
     )
 
 
@@ -206,3 +212,16 @@ class DurableModelRequestArgs(BaseModel):
 
 
 ModelResponseTA: TypeAdapter[ModelResponse] = TypeAdapter(ModelResponse)
+
+
+class GraphAgentWorkflowArgs(BaseModel):
+    role: Role
+    user_prompt: str
+    tool_filters: ToolFilters | None = None
+    """This is static over the lifetime of the workflow, as it's for 1 turn."""
+    stream_key: str | None = None
+    """Optional Redis stream key for real-time event streaming."""
+
+
+class GraphAgentWorkflowResult(BaseModel):
+    messages: list[ModelMessage]
