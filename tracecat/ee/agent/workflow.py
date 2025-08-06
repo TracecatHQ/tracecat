@@ -146,9 +146,12 @@ class GraphAgentWorkflow:
             for defn in build_res.tool_definitions
         ]
 
+        # Build agent instructions with defaults
+        instructions = args.instructions or "You are a helpful assistant."
+
         agent = build_agent(
             model=DurableModel(model_info),
-            instructions="You are a helpful assistant.",
+            instructions=instructions,
             tools=[t.tool for t in self.tools],
         )
         if not isinstance(agent.model, Model):

@@ -221,6 +221,8 @@ class GraphAgentWorkflowArgs(BaseModel):
     """This is static over the lifetime of the workflow, as it's for 1 turn."""
     stream_key: str | None = None
     """Optional Redis stream key for real-time event streaming."""
+    instructions: str | None = None
+    """Optional instructions for the agent. Defaults set in workflow."""
 
 
 class GraphAgentWorkflowResult(BaseModel):

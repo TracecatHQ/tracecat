@@ -167,6 +167,7 @@ async def start_chat_turn(
             user_prompt=request.message,
             tool_filters=ToolFilters(actions=chat.tools),
             stream_key=f"agent-stream:{stream_id}",
+            instructions=request.instructions,
         )
         await agent_svc.start_agent(args)
 
