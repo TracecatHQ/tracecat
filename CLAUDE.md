@@ -125,9 +125,95 @@ just gen-functions
 - Import statements at top of file only
 - Use `uv run` for executing Python/pytest commands
 - Use `uv pip install` for package installation
-- Tests under `tests/unit` are integration tests - no mocks, test as close to production as possible
 - Always use `@pytest.mark.anyio` in async python tests over `@pytest.mark.asyncio`
 - Always avoid use of `type: ignore` when writing python code
+
+### Testing Guidelines - CRITICAL
+
+#### Integration Testing Approach
+**IMPORTANT**: Tests in `tests/unit/` are **INTEGRATION TESTS**, not unit tests!
+- Use **real database connections** with transaction isolation
+- Test **actual service interactions** without mocking internal components
+- Run as close to production behavior as possible
+- Only mock external dependencies (OAuth providers, external APIs)
+
+#### Service Testing Pattern
+```python
+# Always mark module with database fixture
+pytestmark = pytest.mark.usefixtures("db")
+
+# Create service fixture with real session and role
+@pytest.fixture
+async def service(session: AsyncSession, svc_role: Role) -> ServiceClass:
+    return ServiceClass(session=session, role=svc_role)
+
+# Test with real database operations
+@pytest.mark.anyio
+class TestServiceName:
+    async def test_create_and_get(self, service, create_params):
+        # Create real database object
+        created = await service.create_item(create_params)
+        # Retrieve from actual database
+        retrieved = await service.get_item(created.id)
+        assert retrieved.field == create_params.field
+```
+
+#### API Route Testing Pattern
+When testing API endpoints directly (for middleware, rate limiting, auth, etc.):
+
+```python
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+@pytest.fixture
+def test_app() -> FastAPI:
+    """Create test FastAPI app with middleware."""
+    app = FastAPI()
+    app.add_middleware(YourMiddleware)
+
+    @app.get("/test")
+    async def test_endpoint(role: Role = RoleACL(...)):
+        return {"data": "test"}
+
+    return app
+
+@pytest.fixture
+def client(test_app) -> TestClient:
+    return TestClient(test_app)
+
+def test_api_endpoint(client: TestClient):
+    response = client.get("/test")
+    assert response.status_code == 200
+```
+
+**Note**: Most business logic should be tested at the service layer. Use API tests for:
+- Middleware behavior (auth cache, rate limiting)
+- Request/response serialization
+- HTTP status codes and error handling
+- Integration between multiple middleware layers
+
+#### Required Test Fixtures
+- `session: AsyncSession` - Database session with transaction isolation
+- `svc_role: Role` - Service role with workspace context
+- `svc_workspace: Workspace` - Test workspace
+- `svc_admin_role: Role` - Admin role for elevated permissions
+- `TestClient` - For API endpoint testing with FastAPI
+
+#### DO NOT:
+- ❌ Mock database operations or SQLModel objects
+- ❌ Mock service methods unless testing external integrations
+- ❌ Use `@pytest.mark.asyncio` (use `@pytest.mark.anyio` instead)
+- ❌ Create isolated "unit" tests - embrace integration testing
+- ❌ Test complex business logic through API routes (test services directly)
+
+#### DO:
+- ✅ Use real database with transaction rollback for isolation
+- ✅ Test actual persistence and retrieval
+- ✅ Test authorization errors when workspace_id is missing
+- ✅ Mock only external dependencies (OAuth, external APIs)
+- ✅ Test service layer for business logic
+- ✅ Test API routes for middleware, serialization, and HTTP behavior
+- ✅ Use TestClient for API testing when needed
 
 ### Frontend Standards
 - Use kebab-case for file names
