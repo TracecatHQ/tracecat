@@ -1,6 +1,7 @@
 from __future__ import annotations as _annotations
 
-from datetime import timedelta
+import textwrap
+from datetime import datetime, timedelta
 
 from temporalio import workflow
 from temporalio.exceptions import ApplicationError
@@ -146,8 +147,27 @@ class GraphAgentWorkflow:
             for defn in build_res.tool_definitions
         ]
 
-        # Build agent instructions with defaults
-        instructions = args.instructions or "You are a helpful assistant."
+        # Build agent instructions with defaults and enhancements
+        default_instructions = "You are a helpful assistant."
+
+        if args.instructions:
+            # Enhance provided instructions with context
+            current_date_prompt = (
+                f"<current_date>{datetime.now().strftime('%Y-%m-%d')}</current_date>"
+            )
+            error_handling_prompt = textwrap.dedent("""
+                <error_handling>
+                - When you encounter errors or missing information, be specific about what's needed
+                - Stop execution immediately if critical information is missing
+                - Don't attempt workarounds or make assumptions without user confirmation
+                </error_handling>
+            """).strip()
+
+            instructions = (
+                f"{args.instructions}\n{current_date_prompt}\n{error_handling_prompt}"
+            )
+        else:
+            instructions = default_instructions
 
         agent = build_agent(
             model=DurableModel(model_info),
