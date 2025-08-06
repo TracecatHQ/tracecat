@@ -239,7 +239,7 @@ class GraphAgentWorkflow:
                         curr = ModelResponse(parts=[TextPart(content=final.output)])
                     messages.append(curr)
                     await workflow.execute_activity_method(
-                        AgentActivities.write_end_token,
+                        AgentActivities.end_turn,
                         args=(agent_ctx,),
                         start_to_close_timeout=timedelta(seconds=10),
                     )

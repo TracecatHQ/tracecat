@@ -255,9 +255,9 @@ class AgentActivities:
         await self._stream_message(args.request)
 
     @activity.defn
-    async def write_end_token(self, ctx: AgentContext) -> None:
-        """Log the model response to Redis."""
-        logger.info("Logging model response")
+    async def end_turn(self, ctx: AgentContext) -> None:
+        """End the turn by writing an end-of-stream token to Redis."""
+        logger.info("Ending turn")
         AgentContext.set_from(ctx)
         if ctx.session_id:
             await self._write_end_token(ctx.session_id)
