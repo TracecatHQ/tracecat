@@ -102,6 +102,11 @@ services:
       TRACECAT__LOCAL_REPOSITORY_ENABLED: ${TRACECAT__LOCAL_REPOSITORY_ENABLED}
       # Sentry
       SENTRY_DSN: ${SENTRY_DSN}
+      # Redis
+      # Redis
+      REDIS_HOST: ${REDIS_HOST}
+      REDIS_PORT: ${REDIS_PORT}
+      REDIS_URL: ${REDIS_URL}
     volumes:
       - ./tracecat:/app/tracecat
       - ./packages/tracecat-registry:/app/packages/tracecat-registry
@@ -110,6 +115,7 @@ services:
     depends_on:
       - api
       - temporal
+      - redis
 
   executor:
     build:
@@ -231,7 +237,7 @@ services:
     attach: false
 
   temporal_ui:
-    image: temporalio/ui:${TEMPORAL__UI_VERSION}
+    image: temporalio/ui:${TEMPORAL__UI_VERSION:-latest}
     container_name: temporal_ui
     ports:
       - 8081:8080
