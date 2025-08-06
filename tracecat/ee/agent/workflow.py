@@ -53,7 +53,6 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.ee.agent.models import (
         GraphAgentWorkflowArgs,
         GraphAgentWorkflowResult,
-        ModelInfo,
         ToolFilters,
     )
     from tracecat.logger import logger
@@ -128,11 +127,6 @@ class GraphAgentWorkflow:
         ctx_role.set(args.role)
         AgentContext.set(stream_key=args.stream_key)
 
-        model_info = ModelInfo(
-            name="gpt-4o-mini",
-            provider="openai",
-            base_url=None,
-        )
         tool_filters = args.tool_filters or ToolFilters.default()
         build_res = await workflow.execute_activity(
             build_tool_definitions,
@@ -170,7 +164,7 @@ class GraphAgentWorkflow:
             instructions = default_instructions
 
         agent = build_agent(
-            model=DurableModel(model_info),
+            model=DurableModel(args.model_info),
             instructions=instructions,
             tools=[t.tool for t in self.tools],
         )

@@ -22,7 +22,7 @@ from tracecat.chat.models import (
 from tracecat.chat.service import ChatService
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.ee.agent.execution import AgentExecutionService
-from tracecat.ee.agent.models import GraphAgentWorkflowArgs, ToolFilters
+from tracecat.ee.agent.models import GraphAgentWorkflowArgs, ModelInfo, ToolFilters
 from tracecat.logger import logger
 from tracecat.redis.client import get_redis_client
 from tracecat.types.auth import Role
@@ -162,12 +162,21 @@ async def start_chat_turn(
     try:
         # Fire-and-forget execution using the agent function directly
         agent_svc = await AgentExecutionService.connect(role)
+
+        # Build model info from request
+        model_info = ModelInfo(
+            name=request.model_name,
+            provider=request.model_provider,
+            base_url=request.base_url,
+        )
+
         args = GraphAgentWorkflowArgs(
             role=role,
             user_prompt=request.message,
             tool_filters=ToolFilters(actions=chat.tools),
             stream_key=f"agent-stream:{stream_id}",
             instructions=request.instructions,
+            model_info=model_info,
         )
         await agent_svc.start_agent(args)
 

@@ -223,6 +223,8 @@ class GraphAgentWorkflowArgs(BaseModel):
     """Optional Redis stream key for real-time event streaming."""
     instructions: str | None = None
     """Optional instructions for the agent. Defaults set in workflow."""
+    model_info: ModelInfo
+    """Model configuration."""
 
 
 class GraphAgentWorkflowResult(BaseModel):
