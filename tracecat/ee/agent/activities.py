@@ -139,9 +139,9 @@ class AgentActivities:
         """Internal helper to stream a message to Redis."""
 
         ctx = AgentContext.get()
-        if ctx and ctx.stream_key:
+        if ctx and ctx.session_id:
             try:
-                await self._write_message(ctx.stream_key, message)
+                await self._write_message(ctx.session_id, message)
             except Exception as e:
                 logger.warning("Failed to stream message to Redis", error=str(e))
 
@@ -149,7 +149,7 @@ class AgentActivities:
         """Check if streaming is enabled."""
 
         ctx = AgentContext.get()
-        return ctx is not None and ctx.stream_key is not None
+        return ctx is not None and ctx.session_id is not None
 
     @activity.defn
     async def execute_tool_call(
@@ -201,10 +201,10 @@ class AgentActivities:
 
         # Merge Redis history with new messages
         messages: list[ModelMessage] = []
-        if ctx.stream_key:
+        if ctx.session_id:
             # If there's external history, add it to the messages as a single message
             # TODO: Add a HWM (high water mark) to the stream to avoid reading too many messages
-            history = await self._read_messages(ctx.stream_key)
+            history = await self._read_messages(ctx.session_id)
             history_message = ModelResponse(
                 parts=[
                     TextPart(
@@ -259,8 +259,8 @@ class AgentActivities:
         """Log the model response to Redis."""
         logger.info("Logging model response")
         AgentContext.set_from(ctx)
-        if ctx.stream_key:
-            await self._write_end_token(ctx.stream_key)
+        if ctx.session_id:
+            await self._write_end_token(ctx.session_id)
 
     def all_activities(self) -> list[Callable[..., Any]]:
         return [

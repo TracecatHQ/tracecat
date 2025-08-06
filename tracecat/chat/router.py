@@ -158,7 +158,6 @@ async def start_chat_turn(
             detail="Chat not found",
         )
 
-    stream_id = str(chat_id)
     try:
         # Fire-and-forget execution using the agent function directly
         agent_svc = await AgentExecutionService.connect(role)
@@ -174,7 +173,7 @@ async def start_chat_turn(
             role=role,
             user_prompt=request.message,
             tool_filters=ToolFilters(actions=chat.tools),
-            stream_key=f"agent-stream:{stream_id}",
+            session_id=f"agent-stream:{str(chat_id)}",
             instructions=request.instructions,
             model_info=model_info,
         )

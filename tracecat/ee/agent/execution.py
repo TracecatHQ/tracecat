@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import uuid
-
 from temporalio.client import Client, WorkflowHandle
 
 from tracecat import config
@@ -45,7 +43,7 @@ class AgentExecutionService:
         handle = await self._client.start_workflow(
             GraphAgentWorkflow.run,
             args,
-            id=args.stream_key or f"agent-execution/{uuid.uuid4()}",
+            id=args.session_id,
             task_queue=config.TEMPORAL__CLUSTER_QUEUE,
         )
         return handle

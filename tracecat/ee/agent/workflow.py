@@ -125,7 +125,7 @@ class GraphAgentWorkflow:
     @workflow.run
     async def run(self, args: GraphAgentWorkflowArgs) -> GraphAgentWorkflowResult:
         ctx_role.set(args.role)
-        AgentContext.set(stream_key=args.stream_key)
+        AgentContext.set(session_id=args.session_id)
 
         tool_filters = args.tool_filters or ToolFilters.default()
         build_res = await workflow.execute_activity(

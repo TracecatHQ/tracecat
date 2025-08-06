@@ -219,8 +219,8 @@ class GraphAgentWorkflowArgs(BaseModel):
     user_prompt: str
     tool_filters: ToolFilters | None = None
     """This is static over the lifetime of the workflow, as it's for 1 turn."""
-    stream_key: str | None = None
-    """Optional Redis stream key for real-time event streaming."""
+    session_id: str
+    """Session ID for the agent execution."""
     instructions: str | None = None
     """Optional instructions for the agent. Defaults set in workflow."""
     model_info: ModelInfo

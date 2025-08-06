@@ -9,7 +9,7 @@ class AgentContext:
 
     __var__: ClassVar[ContextVar[Self]] = ContextVar("agent")
 
-    stream_key: str | None = None
+    session_id: str | None = None
 
     @classmethod
     def get(cls) -> Self | None:
@@ -17,9 +17,9 @@ class AgentContext:
         return cls.__var__.get(None)
 
     @classmethod
-    def set(cls, stream_key: str | None = None) -> None:
+    def set(cls, session_id: str | None = None) -> None:
         """Set the agent state in context."""
-        cls.__var__.set(cls(stream_key=stream_key))
+        cls.__var__.set(cls(session_id=session_id))
 
     @classmethod
     def set_from(cls, state: Self) -> None:
