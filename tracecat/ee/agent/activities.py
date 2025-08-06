@@ -4,9 +4,9 @@ from typing import Any
 import orjson
 from pydantic import BaseModel
 from pydantic_ai.exceptions import ModelRetry
-from pydantic_ai.messages import ModelMessage, ModelRequest
+from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, TextPart
 from pydantic_ai.tools import ToolDefinition
-from pydantic_core import to_jsonable_python
+from pydantic_core import to_json, to_jsonable_python
 from temporalio import activity
 from tracecat_registry.integrations.agents.builder import (
     ModelMessageTA,
@@ -198,6 +198,25 @@ class AgentActivities:
         logger.info(f"DurableModel request with {len(args.messages)} messages")
         ctx_role.set(role)
         AgentContext.set_from(ctx)
+
+        # Merge Redis history with new messages
+        messages: list[ModelMessage] = []
+        if ctx.stream_key:
+            # If there's external history, add it to the messages as a single message
+            # TODO: Add a HWM (high water mark) to the stream to avoid reading too many messages
+            history = await self._read_messages(ctx.stream_key)
+            history_message = ModelResponse(
+                parts=[
+                    TextPart(
+                        content=f"<chat_history>{to_json(history, indent=2).decode()}</chat_history>"
+                    )
+                ]
+            )
+
+            messages.append(history_message)
+            logger.info(f"Added {len(history)} history messages to the request")
+        messages.extend(args.messages)
+
         async with (
             AgentManagementService.with_session() as svc,
             svc.with_model_config(),
@@ -217,7 +236,7 @@ class AgentActivities:
         request_params.function_tools += result.tool_definitions
         logger.info("Request params, model, settings, filters prepared")
         model_response = await model.request(
-            args.messages, args.model_settings, request_params
+            messages, args.model_settings, request_params
         )
 
         # Optional Redis streaming
