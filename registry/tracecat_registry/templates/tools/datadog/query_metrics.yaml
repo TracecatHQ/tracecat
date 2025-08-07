@@ -1,0 +1,51 @@
+type: action
+definition:
+  title: Query metrics
+  description: Query Datadog metrics using the timeseries API to retrieve metric data over a specified time range.
+  display_group: Datadog
+  doc_url: https://docs.datadoghq.com/api/latest/metrics/#query-timeseries-data
+  namespace: tools.datadog
+  name: search_metrics
+  secrets:
+    - name: datadog
+      keys: ["DD_API_KEY", "DD_APPLICATION_KEY"]
+  expects:
+    query:
+      type: str
+      description: Datadog metric query string (e.g., "avg:system.cpu.user{*}", "sum:http.requests{service:web}").
+    from_time:
+      type: int
+      description: Start timestamp for the query range (Unix timestamp or datetime).
+    to_time:
+      type: int
+      description: End timestamp for the query range (Unix timestamp or datetime).
+    base_url:
+      type: str
+      description: Datadog API base URL (e.g., https://api.datadoghq.com, https://api.us3.datadoghq.com).
+      default: "https://api.datadoghq.com"
+  steps:
+    - ref: datadog_search_metrics
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/api/v1/query
+        method: GET
+        headers:
+          Accept: application/json
+          DD-API-KEY: ${{ SECRETS.datadog.DD_API_KEY }}
+          DD-APPLICATION-KEY: ${{ SECRETS.datadog.DD_APPLICATION_KEY }}
+        params:
+          query: ${{ inputs.query }}
+          from: ${{ inputs.from_time }}
+          to: ${{ inputs.to_time }}
+    - ref: human_readable
+      action: core.transform.reshape
+      args:
+        value:
+          status: "success"
+          result_type: ${{ steps.datadog_search_metrics.result.data.res_type }}
+          time_range:
+            from_date: ${{ steps.datadog_search_metrics.result.data.from_date }}
+            to_date: ${{ steps.datadog_search_metrics.result.data.to_date }}
+          series: ${{ steps.datadog_search_metrics.result.data.series }}
+          group_by: ${{ steps.datadog_search_metrics.result.data.group_by }}
+  returns: ${{ steps.human_readable.result }}

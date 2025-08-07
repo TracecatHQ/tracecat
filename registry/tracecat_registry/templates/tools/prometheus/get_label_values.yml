@@ -1,0 +1,41 @@
+type: action
+definition:
+  title: Get label values
+  description: Retrieve a list of label values for a given label name from Prometheus metrics, optionally filtered by series selectors.
+  display_group: Prometheus
+  doc_url: https://prometheus.io/docs/prometheus/latest/querying/api/#querying-label-values
+  namespace: tools.prometheus
+  name: get_label_values
+  secrets:
+    - name: prometheus
+      keys: ["PROMETHEUS_API_TOKEN"]
+      optional: true
+  expects:
+    label_name:
+      type: str
+      description: The name of the label to get values for (e.g., "job", "instance", "__name__").
+    match:
+      type: list[str]
+      description: Series selector to filter the returned label values (e.g., ["up", "http_requests_total{job=\"api\"}"]). Can be repeated.
+      default: []
+    base_url:
+      type: str
+      description: Prometheus server URL (e.g., http://localhost:9090).
+      default: "http://localhost:9090"
+  steps:
+    - ref: prometheus_label_values
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/api/v1/label/${{ inputs.label_name }}/values
+        method: GET
+        params:
+          match[]: ${{ inputs.match }}
+    - ref: human_readable
+      action: core.transform.reshape
+      args:
+        value:
+          status: "success"
+          message: "Retrieved Prometheus label values"
+          values: ${{ steps.prometheus_label_values.result.data.data }}
+          filter_applied: ${{ inputs.match }}
+  returns: ${{ steps.human_readable.result }}
