@@ -58,6 +58,11 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.logger import logger
 
 
+def _is_tool_return_only(node: ModelMessage) -> bool:
+    """Check if the node is a tool return only."""
+    return all(isinstance(p, ToolReturnPart) for p in node.parts)
+
+
 @workflow.defn
 class GraphAgentWorkflow:
     """Executes an agentic chat turn using pydantic-ai Agent."""
@@ -188,9 +193,9 @@ class GraphAgentWorkflow:
 
                     # If this request is ONLY a tool-return we have
                     # already streamed it via FunctionToolResultEvent.
-                    # if any(isinstance(p, ToolReturnPart) for p in curr.parts):
-                    #     messages.append(curr)  # keep history
-                    #     continue  # ← skip duplicate stream
+                    if _is_tool_return_only(curr):
+                        messages.append(curr)  # keep history
+                        continue  # ← skip duplicate stream
 
                     await workflow.execute_activity_method(
                         AgentActivities.write_model_request,
