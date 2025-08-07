@@ -14,9 +14,9 @@ from uuid import UUID
 import sqlalchemy as sa
 from sqlalchemy.sql import ColumnElement
 from sqlalchemy.sql import false as sa_false
-from sqlalchemy.sql.selectable import Select
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
+from sqlmodel.sql.expression import SelectOfScalar
 
 from tracecat.db.schemas import EntityData, FieldMetadata
 from tracecat.entities.types import FieldType
@@ -322,8 +322,11 @@ class EntityQueryBuilder:
         )
 
     async def build_query(
-        self, base_stmt: Select[Any], entity_id: UUID, filters: list[dict[str, Any]]
-    ) -> Select[Any]:
+        self,
+        base_stmt: SelectOfScalar[EntityData],
+        entity_id: UUID,
+        filters: list[dict[str, Any]],
+    ) -> SelectOfScalar[EntityData]:
         """Build complete query with all filters.
 
         Args:
