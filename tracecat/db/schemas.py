@@ -25,6 +25,7 @@ from tracecat.db.adapter import (
     SQLModelBaseOAuthAccount,
     SQLModelBaseUserDB,
 )
+from tracecat.ee.enums import ApprovalStatus, ApprovalType
 from tracecat.ee.interactions.enums import InteractionStatus, InteractionType
 from tracecat.identifiers import OwnerID, action, id_factory
 from tracecat.identifiers.workflow import WorkflowUUID
@@ -1382,3 +1383,22 @@ class Tag(Resource, table=True):
         link_model=CaseTag,
         sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
     )
+
+
+class Approval(Resource, table=True):
+    """Approval records for GraphAgent human-in-the-loop tool calls."""
+
+    __tablename__: str = "approval"
+
+    id: uuid.UUID = Field(
+        default_factory=uuid.uuid4, nullable=False, unique=True, index=True
+    )
+    session_id: str = Field(index=True, description="Corresponding Agent session_id")
+    type: ApprovalType = Field(description="Approval type")
+    status: ApprovalStatus = Field(
+        default=ApprovalStatus.PENDING, index=True, description="Approval status"
+    )
+    data: dict[str, Any] | None = Field(
+        default=None, sa_column=Column(JSONB), description="Variant-specific payload"
+    )
+    actor: str | None = Field(default=None, description="Approver identifier")

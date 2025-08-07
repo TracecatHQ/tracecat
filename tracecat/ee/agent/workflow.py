@@ -39,15 +39,6 @@ with workflow.unsafe.imports_passed_through():
         WriteModelRequestArgs,
         build_tool_definitions,
     )
-
-    # Rest of imports
-    from tracecat.ee.agent.approvals import (
-        ApprovalAction,
-        ApprovalRequest,
-        ApprovalResponse,
-        ApprovalState,
-        ApprovalStatus,
-    )
     from tracecat.ee.agent.context import AgentContext
     from tracecat.ee.agent.core import DurableGatedTool, DurableModel
     from tracecat.ee.agent.models import (
@@ -55,6 +46,14 @@ with workflow.unsafe.imports_passed_through():
         GraphAgentWorkflowResult,
         ToolFilters,
     )
+
+    # Rest of imports
+    from tracecat.ee.approvals import (
+        ApprovalRequest,
+        ApprovalResponse,
+        ApprovalState,
+    )
+    from tracecat.ee.enums import ApprovalAction, ApprovalStatus
     from tracecat.logger import logger
 
 
