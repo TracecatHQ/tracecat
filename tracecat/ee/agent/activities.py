@@ -171,7 +171,7 @@ class AgentActivities:
 
         try:
             # Use the tool executor to run the tool
-            result = await self.executor.run(args.tool_name, args.tool_args)
+            result = await self.executor.run(tool_name, args.tool_args)
 
             # Optional Redis streaming
             if self._stream_enabled():
