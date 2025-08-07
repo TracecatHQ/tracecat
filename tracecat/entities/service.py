@@ -109,7 +109,7 @@ class CustomEntitiesService(BaseWorkspaceService):
         if existing.first():
             raise ValueError(f"Entity type '{name}' already exists")
 
-        entity = EntityMetadata(
+        entity = EntityMetadata.model_construct(
             owner_id=self.workspace_id,
             name=validated.name,
             display_name=validated.display_name,
