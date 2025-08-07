@@ -1096,7 +1096,10 @@ class CaseAttachment(SQLModel, TimestampMixin, table=True):
     )
     # Relationships
     case: Case = Relationship(back_populates="attachments")
-    file: File = Relationship(back_populates="attachments")
+    file: File = Relationship(
+        back_populates="attachments",
+        sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
+    )
 
     @computed_field
     @property
@@ -1384,3 +1387,105 @@ class Tag(Resource, table=True):
         link_model=CaseTag,
         sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
     )
+
+
+class EntityMetadata(Resource, table=True):
+    """Custom entity type definitions - immutable after creation."""
+
+    __tablename__: str = "entity_metadata"
+    __table_args__ = (UniqueConstraint("owner_id", "name"),)
+
+    id: UUID4 = Field(
+        default_factory=uuid.uuid4, nullable=False, unique=True, index=True
+    )
+    name: str = Field(..., max_length=100, index=True)  # Immutable identifier
+    display_name: str = Field(..., max_length=255)  # Mutable display name
+    description: str | None = Field(default=None, max_length=1000)
+    icon: str | None = Field(default=None, max_length=100)
+    is_active: bool = Field(default=True, index=True)
+    settings: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
+
+    # Relationships
+    fields: list["FieldMetadata"] = Relationship(
+        back_populates="entity_metadata",
+        sa_relationship_kwargs={
+            "cascade": "all, delete",
+            **DEFAULT_SA_RELATIONSHIP_KWARGS,
+        },
+    )
+    data_records: list["EntityData"] = Relationship(
+        back_populates="entity_metadata",
+        sa_relationship_kwargs={
+            "cascade": "all, delete",
+            **DEFAULT_SA_RELATIONSHIP_KWARGS,
+        },
+    )
+
+
+class FieldMetadata(SQLModel, TimestampMixin, table=True):
+    """Field definitions - immutable key and type after creation."""
+
+    __tablename__: str = "field_metadata"
+    __table_args__ = (
+        UniqueConstraint("entity_metadata_id", "field_key"),
+        Index("idx_active_fields", "entity_metadata_id", "is_active"),
+    )
+
+    id: UUID4 = Field(default_factory=uuid.uuid4, primary_key=True)
+    entity_metadata_id: UUID4 = Field(
+        sa_column=Column(UUID, ForeignKey("entity_metadata.id", ondelete="CASCADE"))
+    )
+
+    # IMMUTABLE after creation
+    field_key: str = Field(..., max_length=100, index=True)
+    field_type: str = Field(..., max_length=50)  # FieldType enum value
+
+    # MUTABLE properties
+    display_name: str = Field(..., max_length=255)
+    description: str | None = Field(default=None, max_length=1000)
+    field_settings: dict[str, Any] = Field(
+        default_factory=dict, sa_column=Column(JSONB)
+    )
+
+    # Soft delete support
+    is_active: bool = Field(default=True, index=True)
+    deactivated_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(TIMESTAMP(timezone=True)),
+    )
+
+    # v1: All fields are nullable (no required fields)
+    is_required: bool = Field(default=False)  # Always False in v1
+    is_unique: bool = Field(default=False)  # For future use
+
+    # Relationships
+    entity_metadata: EntityMetadata = Relationship(back_populates="fields")
+
+
+class EntityData(Resource, table=True):
+    """Data storage with FLAT JSONB structure only."""
+
+    __tablename__: str = "entity_data"
+    __table_args__ = (
+        # GIN index for top-level JSONB queries
+        Index("idx_entity_data_gin", "field_data", postgresql_using="gin"),
+        Index(
+            "idx_entity_owner_created", "entity_metadata_id", "owner_id", "created_at"
+        ),
+        Index(
+            "idx_entity_metadata_id", "entity_metadata_id"
+        ),  # Separate index for entity_metadata_id
+    )
+
+    id: UUID4 = Field(
+        default_factory=uuid.uuid4, nullable=False, unique=True, index=True
+    )
+    entity_metadata_id: UUID4 = Field(
+        sa_column=Column(UUID, ForeignKey("entity_metadata.id", ondelete="CASCADE"))
+    )
+
+    # FLAT structure only - no nested objects allowed in v1
+    field_data: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
+
+    # Relationships
+    entity_metadata: EntityMetadata = Relationship(back_populates="data_records")
