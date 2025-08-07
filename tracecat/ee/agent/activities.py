@@ -11,7 +11,6 @@ from temporalio import activity
 from tracecat_registry.integrations.agents.builder import (
     ModelMessageTA,
     build_agent_tool_definitions,
-    create_tool_from_registry,
 )
 from tracecat_registry.integrations.agents.tools import create_tool_return
 from tracecat_registry.integrations.pydantic_ai import get_model
@@ -27,9 +26,13 @@ from tracecat.ee.agent.models import (
 )
 from tracecat.ee.agent.service import AgentManagementService
 from tracecat.ee.agent.stream import DATA_KEY, END_TOKEN, END_TOKEN_VALUE
+from tracecat.ee.agent.tools import (
+    SimpleToolExecutor,
+    ToolExecutor,
+    denormalize_tool_name,
+)
 from tracecat.logger import logger
 from tracecat.redis.client import RedisClient, get_redis_client
-from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.types.auth import Role
 
 
@@ -72,8 +75,13 @@ class WriteModelRequestArgs(BaseModel):
 class AgentActivities:
     """Activities for agent execution with optional Redis streaming."""
 
-    def __init__(self, client: RedisClient | None = None):
+    def __init__(
+        self,
+        client: RedisClient | None = None,
+        executor: ToolExecutor | None = None,
+    ):
         self.client = client
+        self.executor = executor or SimpleToolExecutor()
 
     async def _get_client(self) -> RedisClient:
         """Get Redis client, initializing if needed."""
@@ -158,34 +166,30 @@ class AgentActivities:
         """Execute a single tool call and return the result as a ToolReturnPart."""
         ctx_role.set(role)
         AgentContext.set_from(ctx)
-        action_name = args.tool_name.replace("__", ".")
+        tool_name = denormalize_tool_name(args.tool_name)
         logger.info("Executing tool call", args=args)
+
         try:
-            async with RegistryActionsService.with_session() as svc:
-                tool = await create_tool_from_registry(
-                    action_name, args.tool_args, service=svc
-                )
-            try:
-                result = await tool.function(**args.tool_args)  # type: ignore
-            except ModelRetry as e:
-                # Don't let ModelRetry fail the activity - return it as a special result
-                # that the workflow can handle
-                logger.info(
-                    "Tool raised ModelRetry", tool_name=action_name, error=str(e)
-                )
-                return ExecuteToolCallResult(
-                    type="retry", result=None, retry_message=str(e)
-                )
+            # Use the tool executor to run the tool
+            result = await self.executor.run(args.tool_name, args.tool_args)
 
             # Optional Redis streaming
             if self._stream_enabled():
                 message = create_tool_return(
-                    tool_name=action_name,
+                    tool_name=tool_name,
                     content=result,
                     tool_call_id=args.tool_call_id,
                 )
                 await self._stream_message(message)
             return ExecuteToolCallResult(type="result", result=result)
+
+        except ModelRetry as e:
+            # Don't let ModelRetry fail the activity - return it as a special result
+            # that the workflow can handle
+            logger.info("Tool raised ModelRetry", tool_name=tool_name, error=str(e))
+            return ExecuteToolCallResult(
+                type="retry", result=None, retry_message=str(e)
+            )
         except Exception as e:
             logger.error("Unexpected tool call failure", error=e, type=type(e))
             return ExecuteToolCallResult(type="error", result=None, error=str(e))
