@@ -1,5 +1,4 @@
-from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, Protocol
 
 from tracecat_registry.integrations.agents.builder import create_tool_from_registry
 
@@ -12,14 +11,13 @@ def denormalize_tool_name(tool_name: str) -> str:
     return tool_name.replace("__", ".")
 
 
-class ToolExecutor(ABC):
+class ToolExecutor(Protocol):
     """Client for tool calls."""
 
-    @abstractmethod
     async def run(self, tool_name: str, args: dict[str, Any]) -> Any: ...
 
 
-class SimpleToolExecutor(ToolExecutor):
+class SimpleToolExecutor:
     """Simple implementation of ToolExecutor that uses the registry to execute tools."""
 
     async def run(self, tool_name: str, args: dict[str, Any]) -> Any:
