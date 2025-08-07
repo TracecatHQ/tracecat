@@ -14,7 +14,7 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile
 
   api:
-    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.40.0}
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.41.0}
     container_name: api
     restart: unless-stopped
     networks:
@@ -80,7 +80,7 @@ services:
       - redis
 
   worker:
-    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.40.0}
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.41.0}
     restart: unless-stopped
     networks:
       - core
@@ -115,7 +115,7 @@ services:
       - temporal
 
   executor:
-    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.40.0}
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.41.0}
     restart: unless-stopped
     networks:
       - core-db
@@ -155,7 +155,7 @@ services:
       - redis
 
   ui:
-    image: ghcr.io/tracecathq/tracecat-ui:${TRACECAT__IMAGE_TAG:-0.40.0}
+    image: ghcr.io/tracecathq/tracecat-ui:${TRACECAT__IMAGE_TAG:-0.41.0}
     container_name: ui
     restart: unless-stopped
     networks:
