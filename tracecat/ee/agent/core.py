@@ -2,7 +2,7 @@ from __future__ import annotations as _annotations
 
 from collections.abc import Awaitable, Callable
 from datetime import timedelta
-from typing import Any, Generic
+from typing import Any
 
 from pydantic_ai import RunContext, Tool
 from pydantic_ai.exceptions import ModelRetry
@@ -35,7 +35,7 @@ from tracecat.ee.agent.models import (
 from tracecat.logger import logger
 
 
-class DurableGatedTool(Generic[AgentDepsT]):
+class DurableGatedTool[AgentDepsT]:
     """
     Proxy around a real Tool that pauses for human approval
     before letting the underlying tool run.
