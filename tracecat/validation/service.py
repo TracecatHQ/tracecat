@@ -18,7 +18,6 @@ from tracecat.db.schemas import RegistryAction
 from tracecat.dsl.common import DSLInput, ExecuteChildWorkflowArgs
 from tracecat.dsl.enums import PlatformAction
 from tracecat.dsl.models import ActionStatement
-from tracecat.ee.interactions.models import ResponseInteraction
 from tracecat.expressions import patterns
 from tracecat.expressions.common import ExprType
 from tracecat.expressions.eval import extract_expressions, is_template_only
@@ -29,6 +28,7 @@ from tracecat.expressions.validator.validator import (
 from tracecat.integrations.enums import OAuthGrantType
 from tracecat.integrations.models import ProviderKey
 from tracecat.integrations.service import IntegrationService
+from tracecat.interactions.models import ResponseInteraction
 from tracecat.logger import logger
 from tracecat.registry.actions.models import RegistryActionInterface
 from tracecat.registry.actions.service import RegistryActionsService

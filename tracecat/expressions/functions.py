@@ -22,7 +22,6 @@ from slugify import slugify
 
 from tracecat.common import is_iterable
 from tracecat.contexts import ctx_interaction
-from tracecat.ee.interactions.models import InteractionContext
 from tracecat.expressions.formatters import tabulate
 from tracecat.expressions.ioc_extractors import (
     extract_asns,
@@ -40,6 +39,7 @@ from tracecat.expressions.ioc_extractors import (
     extract_urls,
     normalize_email,
 )
+from tracecat.interactions.models import InteractionContext
 from tracecat.parse import unescape_string
 
 
