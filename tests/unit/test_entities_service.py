@@ -1,10 +1,13 @@
 import uuid
+from datetime import date, datetime
 from unittest.mock import patch
 
 import pytest
+from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from tracecat.db.schemas import EntityMetadata, FieldMetadata
+from tracecat.db.schemas import EntityData, EntityMetadata, FieldMetadata
+from tracecat.entities.models import RelationSettings, RelationType
 from tracecat.entities.service import CustomEntitiesService
 from tracecat.entities.types import FieldType
 from tracecat.types.auth import AccessLevel, Role
@@ -54,6 +57,28 @@ def field_create_params() -> dict:
         "display_name": "Test Field",
         "description": "Test field for unit testing",
         "settings": {"max_length": 100},
+    }
+
+
+@pytest.fixture
+async def test_entity(admin_entities_service: CustomEntitiesService) -> EntityMetadata:
+    """Create a test entity type."""
+    return await admin_entities_service.create_entity_type(
+        name="test_entity",
+        display_name="Test Entity",
+        description="Entity for testing constraints",
+    )
+
+
+@pytest.fixture
+def integration_entity_create_params() -> dict:
+    """Sample entity type creation parameters for integration tests."""
+    return {
+        "name": "customer",
+        "display_name": "Customer",
+        "description": "Customer entity for integration testing",
+        "icon": "user-icon",
+        "settings": {"default_view": "table"},
     }
 
 
@@ -318,7 +343,7 @@ class TestCustomEntitiesService:
         await session.commit()
 
         # Try to create record with nested object
-        with pytest.raises(TracecatValidationError, match="Expected string, got dict"):
+        with pytest.raises(TracecatValidationError, match="Nested objects not allowed"):
             await entities_service.create_record(
                 entity_id=entity.id,
                 data={"test_field": {"nested": "object"}},  # Nested object not allowed
@@ -554,3 +579,1316 @@ class TestCustomEntitiesService:
         # entities_service has basic role, should fail
         with pytest.raises(TracecatAuthorizationError):
             await entities_service.deactivate_field(field.id)
+
+
+@pytest.mark.anyio
+class TestConstraintValidationMethods:
+    """Test the internal validation methods are called correctly."""
+
+    async def test_validate_record_data_called_with_record_id_on_update(
+        self, admin_entities_service: CustomEntitiesService, mocker
+    ):
+        """Test that update_record passes record_id to validation."""
+        # Create entity and record
+        entity = await admin_entities_service.create_entity_type(
+            name="test_entity", display_name="Test Entity"
+        )
+
+        await admin_entities_service.create_field(
+            entity_id=entity.id,
+            field_key="test_field",
+            field_type=FieldType.TEXT,
+            display_name="Test Field",
+        )
+
+        record = await admin_entities_service.create_record(
+            entity_id=entity.id, data={"test_field": "initial"}
+        )
+
+        # Spy on _validate_record_data
+        spy = mocker.spy(admin_entities_service, "_validate_record_data")
+
+        # Update the record
+        await admin_entities_service.update_record(
+            record_id=record.id, updates={"test_field": "updated"}
+        )
+
+        # Verify _validate_record_data was called with record_id
+        spy.assert_called_once()
+        call_args = spy.call_args
+        assert call_args[1]["record_id"] == record.id
+
+    async def test_validate_record_data_called_with_none_on_create(
+        self, admin_entities_service: CustomEntitiesService, mocker
+    ):
+        """Test that create_record passes record_id=None to validation."""
+        # Create entity
+        entity = await admin_entities_service.create_entity_type(
+            name="test_entity", display_name="Test Entity"
+        )
+
+        await admin_entities_service.create_field(
+            entity_id=entity.id,
+            field_key="test_field",
+            field_type=FieldType.TEXT,
+            display_name="Test Field",
+        )
+
+        # Spy on _validate_record_data
+        spy = mocker.spy(admin_entities_service, "_validate_record_data")
+
+        # Create a record
+        await admin_entities_service.create_record(
+            entity_id=entity.id, data={"test_field": "value"}
+        )
+
+        # Verify _validate_record_data was called with record_id=None
+        spy.assert_called_once()
+        call_args = spy.call_args
+        assert call_args[1]["record_id"] is None
+
+
+@pytest.mark.anyio
+class TestEntitiesIntegration:
+    """Integration tests for complete entity lifecycle."""
+
+    async def test_complete_entity_lifecycle(
+        self,
+        admin_entities_service: CustomEntitiesService,
+        integration_entity_create_params: dict,
+    ) -> None:
+        """Test complete lifecycle: create entity -> add fields -> create records -> query."""
+        # Step 1: Create entity type
+        entity = await admin_entities_service.create_entity_type(
+            **integration_entity_create_params
+        )
+        assert entity.name == integration_entity_create_params["name"]
+        assert entity.display_name == integration_entity_create_params["display_name"]
+        assert entity.owner_id == admin_entities_service.workspace_id
+
+        # Step 2: Add fields of various types
+        text_field = await admin_entities_service.create_field(
+            entity_id=entity.id,
+            field_key="name",
+            field_type=FieldType.TEXT,
+            display_name="Customer Name",
+            description="Full name of the customer",
+            settings={"max_length": 255},
+        )
+        assert text_field.field_key == "name"
+        assert text_field.field_type == FieldType.TEXT
+
+        await admin_entities_service.create_field(
+            entity_id=entity.id,
+            field_key="age",
+            field_type=FieldType.INTEGER,
+            display_name="Age",
+            settings={"min": 0, "max": 150},
+        )
+
+        await admin_entities_service.create_field(
+            entity_id=entity.id,
+            field_key="status",
+            field_type=FieldType.SELECT,
+            display_name="Status",
+            settings={"options": ["active", "inactive", "pending"]},
+        )
+
+        # Step 3: Create records
+        record1 = await admin_entities_service.create_record(
+            entity_id=entity.id,
+            data={
+                "name": "John Doe",
+                "age": 30,
+                "status": "active",
+            },
+        )
+        assert record1.entity_metadata_id == entity.id
+        assert record1.field_data["name"] == "John Doe"
+        assert record1.field_data["age"] == 30
+        assert record1.field_data["status"] == "active"
+
+        record2 = await admin_entities_service.create_record(
+            entity_id=entity.id,
+            data={
+                "name": "Jane Smith",
+                "age": 25,
+                "status": "pending",
+            },
+        )
+
+        # Step 4: Query records
+        all_records = await admin_entities_service.query_records(entity_id=entity.id)
+        assert len(all_records) == 2
+        record_ids = {r.id for r in all_records}
+        assert record1.id in record_ids
+        assert record2.id in record_ids
+
+        # Step 5: Update a record
+        updated_record = await admin_entities_service.update_record(
+            record_id=record1.id, updates={"status": "inactive", "age": 31}
+        )
+        assert updated_record.field_data["status"] == "inactive"
+        assert updated_record.field_data["age"] == 31
+        assert updated_record.field_data["name"] == "John Doe"  # Unchanged
+
+        # Step 6: Delete a record
+        await admin_entities_service.delete_record(record2.id)
+        remaining_records = await admin_entities_service.query_records(
+            entity_id=entity.id
+        )
+        assert len(remaining_records) == 1
+        assert remaining_records[0].id == record1.id
+
+    async def test_create_entity_with_multiple_field_types(
+        self, admin_entities_service: CustomEntitiesService, session: AsyncSession
+    ) -> None:
+        """Test creating entity with all supported field types."""
+        # Create entity
+        entity = await admin_entities_service.create_entity_type(
+            name="test_all_types",
+            display_name="Test All Field Types",
+            description="Entity with all field types",
+        )
+
+        # Add all field types
+        field_configs = [
+            ("integer_field", FieldType.INTEGER, {"min": 0, "max": 1000}),
+            ("number_field", FieldType.NUMBER, {"min": 0.0, "max": 100.0}),
+            ("text_field", FieldType.TEXT, {"max_length": 500}),
+            ("bool_field", FieldType.BOOL, {}),
+            ("date_field", FieldType.DATE, {}),
+            ("datetime_field", FieldType.DATETIME, {}),
+            ("array_text_field", FieldType.ARRAY_TEXT, {"max_items": 10}),
+            ("array_int_field", FieldType.ARRAY_INTEGER, {"max_items": 5}),
+            ("array_num_field", FieldType.ARRAY_NUMBER, {"max_items": 5}),
+            ("select_field", FieldType.SELECT, {"options": ["opt1", "opt2", "opt3"]}),
+            (
+                "multi_select_field",
+                FieldType.MULTI_SELECT,
+                {"options": ["tag1", "tag2", "tag3"]},
+            ),
+        ]
+
+        created_fields = []
+        for field_key, field_type, settings in field_configs:
+            field = await admin_entities_service.create_field(
+                entity_id=entity.id,
+                field_key=field_key,
+                field_type=field_type,
+                display_name=field_key.replace("_", " ").title(),
+                settings=settings,
+            )
+            created_fields.append(field)
+
+        # Verify all fields were created
+        all_fields = await admin_entities_service.list_fields(entity_id=entity.id)
+        assert len(all_fields) == len(field_configs)
+
+        # Create a record with all field types
+        test_date = date.today()
+        test_datetime = datetime.now()
+
+        record = await admin_entities_service.create_record(
+            entity_id=entity.id,
+            data={
+                "integer_field": 42,
+                "number_field": 3.14,
+                "text_field": "Test text value",
+                "bool_field": True,
+                "date_field": test_date.isoformat(),
+                "datetime_field": test_datetime.isoformat(),
+                "array_text_field": ["item1", "item2", "item3"],
+                "array_int_field": [1, 2, 3],
+                "array_num_field": [1.1, 2.2, 3.3],
+                "select_field": "opt2",
+                "multi_select_field": ["tag1", "tag3"],
+            },
+        )
+
+        # Verify all values were stored correctly
+        assert record.field_data["integer_field"] == 42
+        assert record.field_data["number_field"] == 3.14
+        assert record.field_data["text_field"] == "Test text value"
+        assert record.field_data["bool_field"] is True
+        assert record.field_data["date_field"] == test_date.isoformat()
+        assert record.field_data["array_text_field"] == ["item1", "item2", "item3"]
+
+    async def test_field_immutability_after_creation(
+        self, admin_entities_service: CustomEntitiesService, session: AsyncSession
+    ) -> None:
+        """Test that field key and type are immutable after creation."""
+        # Create entity and field
+        entity = await admin_entities_service.create_entity_type(
+            name="immutable_test",
+            display_name="Immutability Test",
+        )
+
+        field = await admin_entities_service.create_field(
+            entity_id=entity.id,
+            field_key="original_key",
+            field_type=FieldType.TEXT,
+            display_name="Original Display Name",
+            description="Original Description",
+        )
+
+        original_key = field.field_key
+        original_type = field.field_type
+
+        # Update display properties only
+        updated = await admin_entities_service.update_field_display(
+            field_id=field.id,
+            display_name="New Display Name",
+            description="New Description",
+            settings={"max_length": 1000},
+        )
+
+        # Verify display properties changed
+        assert updated.display_name == "New Display Name"
+        assert updated.description == "New Description"
+
+        # Verify key and type are unchanged
+        assert updated.field_key == original_key
+        assert updated.field_type == original_type
+
+        # Verify in database
+        stmt = select(FieldMetadata).where(FieldMetadata.id == field.id)
+        result = await session.exec(stmt)
+        db_field = result.one()
+        assert db_field.field_key == original_key
+        assert db_field.field_type == original_type
+
+    async def test_soft_delete_preserves_data(
+        self, admin_entities_service: CustomEntitiesService, session: AsyncSession
+    ) -> None:
+        """Test that soft-deleting fields preserves existing data."""
+        # Create entity with fields
+        entity = await admin_entities_service.create_entity_type(
+            name="soft_delete_test",
+            display_name="Soft Delete Test",
+        )
+
+        await admin_entities_service.create_field(
+            entity_id=entity.id,
+            field_key="keep_field",
+            field_type=FieldType.TEXT,
+            display_name="Keep Field",
+        )
+
+        field2 = await admin_entities_service.create_field(
+            entity_id=entity.id,
+            field_key="delete_field",
+            field_type=FieldType.TEXT,
+            display_name="Delete Field",
+        )
+
+        # Create record with both fields
+        record = await admin_entities_service.create_record(
+            entity_id=entity.id,
+            data={
+                "keep_field": "keep this data",
+                "delete_field": "soft delete this field",
+            },
+        )
+
+        # Soft delete field2
+        deactivated = await admin_entities_service.deactivate_field(field2.id)
+        assert deactivated.is_active is False
+        assert deactivated.deactivated_at is not None
+
+        # Verify field data is still in database
+        stmt = select(EntityData).where(EntityData.id == record.id)
+        result = await session.exec(stmt)
+        db_record = result.one()
+        assert "delete_field" in db_record.field_data
+        assert db_record.field_data["delete_field"] == "soft delete this field"
+
+        # Try to create new record - deleted field should be ignored
+        new_record = await admin_entities_service.create_record(
+            entity_id=entity.id,
+            data={
+                "keep_field": "new keep data",
+                "delete_field": "this should be ignored",  # Inactive field
+            },
+        )
+        assert "keep_field" in new_record.field_data
+        assert "delete_field" not in new_record.field_data
+
+        # Reactivate field
+        reactivated = await admin_entities_service.reactivate_field(field2.id)
+        assert reactivated.is_active is True
+        assert reactivated.deactivated_at is None
+
+        # Now the field should work again
+        record_with_reactivated = await admin_entities_service.create_record(
+            entity_id=entity.id,
+            data={
+                "keep_field": "keep data",
+                "delete_field": "field is active again",
+            },
+        )
+        assert "delete_field" in record_with_reactivated.field_data
+        assert (
+            record_with_reactivated.field_data["delete_field"]
+            == "field is active again"
+        )
+
+    async def test_inactive_fields_excluded_from_validation(
+        self, admin_entities_service: CustomEntitiesService
+    ) -> None:
+        """Test that inactive fields are excluded from validation."""
+        # Create entity with active and inactive fields
+        entity = await admin_entities_service.create_entity_type(
+            name="validation_test",
+            display_name="Validation Test",
+        )
+
+        await admin_entities_service.create_field(
+            entity_id=entity.id,
+            field_key="active",
+            field_type=FieldType.INTEGER,
+            display_name="Active Field",
+            settings={"min": 0, "max": 100},
+        )
+
+        inactive_field = await admin_entities_service.create_field(
+            entity_id=entity.id,
+            field_key="inactive",
+            field_type=FieldType.INTEGER,
+            display_name="Inactive Field",
+            settings={"min": 0, "max": 100},
+        )
+
+        # Deactivate the inactive field
+        await admin_entities_service.deactivate_field(inactive_field.id)
+
+        # Create record with invalid value for inactive field (should be ignored)
+        record = await admin_entities_service.create_record(
+            entity_id=entity.id,
+            data={
+                "active": 50,  # Valid
+                "inactive": 200,  # Invalid but should be ignored
+                "unknown": "also ignored",  # Unknown field
+            },
+        )
+
+        # Only active field should be in the record
+        assert "active" in record.field_data
+        assert record.field_data["active"] == 50
+        assert "inactive" not in record.field_data
+        assert "unknown" not in record.field_data
+
+    async def test_flat_structure_enforcement(
+        self, admin_entities_service: CustomEntitiesService
+    ) -> None:
+        """Test that nested structures are rejected."""
+        entity = await admin_entities_service.create_entity_type(
+            name="flat_test",
+            display_name="Flat Structure Test",
+        )
+
+        await admin_entities_service.create_field(
+            entity_id=entity.id,
+            field_key="data_field",
+            field_type=FieldType.TEXT,
+            display_name="Data Field",
+        )
+
+        # Test nested object rejection
+        with pytest.raises(TracecatValidationError, match="Nested objects not allowed"):
+            await admin_entities_service.create_record(
+                entity_id=entity.id,
+                data={
+                    "data_field": {"nested": "object"},  # Not allowed
+                },
+            )
+
+        # Test nested array rejection
+        await admin_entities_service.create_field(
+            entity_id=entity.id,
+            field_key="array_field",
+            field_type=FieldType.ARRAY_TEXT,
+            display_name="Array Field",
+        )
+
+        with pytest.raises(TracecatValidationError, match="Nested objects not allowed"):
+            await admin_entities_service.create_record(
+                entity_id=entity.id,
+                data={
+                    "array_field": [["nested", "array"]],  # Not allowed
+                },
+            )
+
+    async def test_field_type_validation_all_types(
+        self, admin_entities_service: CustomEntitiesService
+    ) -> None:
+        """Test validation for all field types."""
+        entity = await admin_entities_service.create_entity_type(
+            name="validation_all_types",
+            display_name="Validation All Types",
+        )
+
+        # INTEGER validation
+        await admin_entities_service.create_field(
+            entity_id=entity.id,
+            field_key="int_field",
+            field_type=FieldType.INTEGER,
+            display_name="Integer Field",
+            settings={"min": 0, "max": 100},
+        )
+
+        # Test invalid integer values
+        with pytest.raises(TracecatValidationError):
+            await admin_entities_service.create_record(
+                entity_id=entity.id,
+                data={"int_field": "not an int"},
+            )
+
+        with pytest.raises(TracecatValidationError):
+            await admin_entities_service.create_record(
+                entity_id=entity.id,
+                data={"int_field": 150},  # Exceeds max
+            )
+
+        # NUMBER validation
+        await admin_entities_service.create_field(
+            entity_id=entity.id,
+            field_key="num_field",
+            field_type=FieldType.NUMBER,
+            display_name="Number Field",
+            settings={"min": 0.0, "max": 10.0},
+        )
+
+        with pytest.raises(TracecatValidationError):
+            await admin_entities_service.create_record(
+                entity_id=entity.id,
+                data={"num_field": "not a number"},
+            )
+
+        # TEXT validation
+        await admin_entities_service.create_field(
+            entity_id=entity.id,
+            field_key="text_field",
+            field_type=FieldType.TEXT,
+            display_name="Text Field",
+            settings={"max_length": 10},
+        )
+
+        with pytest.raises(TracecatValidationError):
+            await admin_entities_service.create_record(
+                entity_id=entity.id,
+                data={"text_field": "this text is too long for the field"},
+            )
+
+        # SELECT validation
+        await admin_entities_service.create_field(
+            entity_id=entity.id,
+            field_key="select_field",
+            field_type=FieldType.SELECT,
+            display_name="Select Field",
+            settings={"options": ["opt1", "opt2"]},
+        )
+
+        with pytest.raises(TracecatValidationError):
+            await admin_entities_service.create_record(
+                entity_id=entity.id,
+                data={"select_field": "invalid_option"},
+            )
+
+        # MULTI_SELECT validation
+        await admin_entities_service.create_field(
+            entity_id=entity.id,
+            field_key="multi_field",
+            field_type=FieldType.MULTI_SELECT,
+            display_name="Multi Select Field",
+            settings={"options": ["tag1", "tag2", "tag3"]},
+        )
+
+        with pytest.raises(TracecatValidationError):
+            await admin_entities_service.create_record(
+                entity_id=entity.id,
+                data={"multi_field": ["tag1", "invalid_tag"]},
+            )
+
+        # ARRAY validation
+        await admin_entities_service.create_field(
+            entity_id=entity.id,
+            field_key="array_field",
+            field_type=FieldType.ARRAY_INTEGER,
+            display_name="Array Field",
+            settings={"max_items": 3},
+        )
+
+        with pytest.raises(TracecatValidationError):
+            await admin_entities_service.create_record(
+                entity_id=entity.id,
+                data={"array_field": [1, 2, 3, 4]},  # Too many items
+            )
+
+    async def test_nullable_fields_v1(
+        self, admin_entities_service: CustomEntitiesService
+    ) -> None:
+        """Test that all fields are nullable in v1."""
+        entity = await admin_entities_service.create_entity_type(
+            name="nullable_test",
+            display_name="Nullable Test",
+        )
+
+        # Create fields of various types
+        await admin_entities_service.create_field(
+            entity_id=entity.id,
+            field_key="text",
+            field_type=FieldType.TEXT,
+            display_name="Text Field",
+        )
+
+        await admin_entities_service.create_field(
+            entity_id=entity.id,
+            field_key="integer",
+            field_type=FieldType.INTEGER,
+            display_name="Integer Field",
+        )
+
+        # Create record with null values (omitted fields)
+        record = await admin_entities_service.create_record(
+            entity_id=entity.id,
+            data={},  # No fields provided
+        )
+
+        # Verify record was created with no field data
+        assert record.field_data == {}
+
+        # Create record with explicit None values
+        record2 = await admin_entities_service.create_record(
+            entity_id=entity.id,
+            data={
+                "text": None,
+                "integer": None,
+            },
+        )
+
+        # Verify None values are accepted
+        assert record2.field_data.get("text") is None
+        assert record2.field_data.get("integer") is None
+
+        # Verify is_required is always False in v1
+        fields = await admin_entities_service.list_fields(entity_id=entity.id)
+        for field in fields:
+            assert field.is_required is False
+
+    async def test_field_settings_validation(
+        self, admin_entities_service: CustomEntitiesService
+    ) -> None:
+        """Test field settings validation."""
+        entity = await admin_entities_service.create_entity_type(
+            name="settings_test",
+            display_name="Settings Test",
+        )
+
+        # Create field with min/max settings
+        await admin_entities_service.create_field(
+            entity_id=entity.id,
+            field_key="age",
+            field_type=FieldType.INTEGER,
+            display_name="Age",
+            settings={"min": 18, "max": 65},
+        )
+
+        # Test value below minimum
+        with pytest.raises(TracecatValidationError, match="below minimum"):
+            await admin_entities_service.create_record(
+                entity_id=entity.id,
+                data={"age": 10},
+            )
+
+        # Test value above maximum
+        with pytest.raises(TracecatValidationError, match="exceeds maximum"):
+            await admin_entities_service.create_record(
+                entity_id=entity.id,
+                data={"age": 100},
+            )
+
+        # Valid value
+        record = await admin_entities_service.create_record(
+            entity_id=entity.id,
+            data={"age": 25},
+        )
+        assert record.field_data["age"] == 25
+
+    async def test_cascade_delete_entity(
+        self, admin_entities_service: CustomEntitiesService, session: AsyncSession
+    ) -> None:
+        """Test that deleting entity cascades to fields and records."""
+        # Create entity with fields and records
+        entity = await admin_entities_service.create_entity_type(
+            name="cascade_test",
+            display_name="Cascade Test",
+        )
+        entity_id = entity.id
+
+        field = await admin_entities_service.create_field(
+            entity_id=entity.id,
+            field_key="test_field",
+            field_type=FieldType.TEXT,
+            display_name="Test Field",
+        )
+        field_id = field.id
+
+        record = await admin_entities_service.create_record(
+            entity_id=entity.id,
+            data={"test_field": "test data"},
+        )
+        record_id = record.id
+
+        # Delete the entity
+        await session.delete(entity)
+        await session.commit()
+
+        # Verify entity is deleted
+        stmt = select(EntityMetadata).where(EntityMetadata.id == entity_id)
+        result = await session.exec(stmt)
+        assert result.first() is None
+
+        # Verify fields were cascade deleted
+        stmt = select(FieldMetadata).where(FieldMetadata.id == field_id)
+        result = await session.exec(stmt)
+        assert result.first() is None
+
+        # Verify records were cascade deleted
+        stmt = select(EntityData).where(EntityData.id == record_id)
+        result = await session.exec(stmt)
+        assert result.first() is None
+
+    async def test_workspace_isolation(
+        self, session: AsyncSession, svc_admin_role: Role
+    ) -> None:
+        """Test that entities are isolated by workspace."""
+        # Create service for workspace 1
+        service1 = CustomEntitiesService(session=session, role=svc_admin_role)
+
+        # Create entity in workspace 1
+        entity1 = await service1.create_entity_type(
+            name="workspace1_entity",
+            display_name="Workspace 1 Entity",
+        )
+
+        # Create a different workspace role
+        workspace2_id = uuid.uuid4()
+        role2 = Role(
+            type="service",
+            user_id=svc_admin_role.user_id,
+            workspace_id=workspace2_id,
+            service_id="tracecat-service",
+            access_level=svc_admin_role.access_level,
+        )
+        service2 = CustomEntitiesService(session=session, role=role2)
+
+        # Try to access entity1 from workspace2 - should not find it
+        with pytest.raises(TracecatNotFoundError):
+            await service2.get_entity_type(entity1.id)
+
+        # Create entity with same name in workspace2 - should succeed
+        entity2 = await service2.create_entity_type(
+            name="workspace1_entity",  # Same name as workspace1
+            display_name="Workspace 2 Entity",
+        )
+        assert entity2.owner_id == workspace2_id
+        assert entity2.owner_id != entity1.owner_id
+
+        # Each workspace can only see its own entities
+        ws1_entities = await service1.list_entity_types()
+        ws2_entities = await service2.list_entity_types()
+
+        ws1_ids = {e.id for e in ws1_entities}
+        ws2_ids = {e.id for e in ws2_entities}
+
+        assert entity1.id in ws1_ids
+        assert entity1.id not in ws2_ids
+        assert entity2.id in ws2_ids
+        assert entity2.id not in ws1_ids
+
+    async def test_unique_constraints(
+        self, admin_entities_service: CustomEntitiesService
+    ) -> None:
+        """Test unique constraints for entity names and field keys."""
+        # Create entity
+        entity = await admin_entities_service.create_entity_type(
+            name="unique_test",
+            display_name="Unique Test",
+        )
+
+        # Try to create another entity with same name - should fail
+        with pytest.raises(ValueError, match="already exists"):
+            await admin_entities_service.create_entity_type(
+                name="unique_test",  # Duplicate name
+                display_name="Another Unique Test",
+            )
+
+        # Create field
+        await admin_entities_service.create_field(
+            entity_id=entity.id,
+            field_key="unique_field",
+            field_type=FieldType.TEXT,
+            display_name="Unique Field",
+        )
+
+        # Try to create another field with same key - should fail
+        with pytest.raises(ValueError, match="already exists"):
+            await admin_entities_service.create_field(
+                entity_id=entity.id,
+                field_key="unique_field",  # Duplicate key
+                field_type=FieldType.INTEGER,
+                display_name="Another Unique Field",
+            )
+
+
+@pytest.mark.anyio
+class TestRequiredFieldConstraint:
+    """Test required field validation."""
+
+    async def test_required_field_validation_on_create(
+        self, admin_entities_service: CustomEntitiesService, test_entity: EntityMetadata
+    ):
+        """Test that required fields are enforced on record creation."""
+        # Create required field
+        await admin_entities_service.create_field(
+            entity_id=test_entity.id,
+            field_key="required_name",
+            field_type=FieldType.TEXT,
+            display_name="Required Name",
+            is_required=True,
+        )
+
+        # Try to create record without required field
+        with pytest.raises(TracecatValidationError, match="Required field"):
+            await admin_entities_service.create_record(
+                entity_id=test_entity.id, data={"other_field": "value"}
+            )
+
+        # Try to create record with null value for required field
+        with pytest.raises(TracecatValidationError, match="Required field"):
+            await admin_entities_service.create_record(
+                entity_id=test_entity.id, data={"required_name": None}
+            )
+
+        # Create with required field should succeed
+        record = await admin_entities_service.create_record(
+            entity_id=test_entity.id, data={"required_name": "John"}
+        )
+        assert record.field_data["required_name"] == "John"
+
+    async def test_required_field_validation_on_update(
+        self, admin_entities_service: CustomEntitiesService, test_entity: EntityMetadata
+    ):
+        """Test that required fields cannot be set to null on update."""
+        # Create required field
+        await admin_entities_service.create_field(
+            entity_id=test_entity.id,
+            field_key="required_email",
+            field_type=FieldType.TEXT,
+            display_name="Required Email",
+            is_required=True,
+        )
+
+        # Create record with required field
+        record = await admin_entities_service.create_record(
+            entity_id=test_entity.id, data={"required_email": "test@example.com"}
+        )
+
+        # Try to update to null - should fail
+        with pytest.raises(TracecatValidationError, match="Required field"):
+            await admin_entities_service.update_record(
+                record_id=record.id, updates={"required_email": None}
+            )
+
+        # Update with valid value should succeed
+        updated = await admin_entities_service.update_record(
+            record_id=record.id, updates={"required_email": "new@example.com"}
+        )
+        assert updated.field_data["required_email"] == "new@example.com"
+
+    async def test_enable_required_on_existing_data(
+        self, admin_entities_service: CustomEntitiesService, test_entity: EntityMetadata
+    ):
+        """Test enabling required constraint on field with existing null data."""
+        # Create optional field
+        field = await admin_entities_service.create_field(
+            entity_id=test_entity.id,
+            field_key="optional_field",
+            field_type=FieldType.TEXT,
+            display_name="Optional Field",
+            is_required=False,
+        )
+
+        # Create records, some without the field
+        await admin_entities_service.create_record(
+            entity_id=test_entity.id, data={"optional_field": "value"}
+        )
+        record2 = await admin_entities_service.create_record(
+            entity_id=test_entity.id, data={}
+        )
+
+        # Try to enable required constraint - should fail
+        with pytest.raises(ValueError, match="Cannot enable required constraint"):
+            await admin_entities_service.update_field_display(
+                field_id=field.id, is_required=True
+            )
+
+        # Update record2 to have a value
+        await admin_entities_service.update_record(
+            record_id=record2.id, updates={"optional_field": "value2"}
+        )
+
+        # Now enabling required should succeed
+        updated_field = await admin_entities_service.update_field_display(
+            field_id=field.id, is_required=True
+        )
+        assert updated_field.is_required is True
+
+
+@pytest.mark.anyio
+class TestUniqueFieldConstraint:
+    """Test unique field validation."""
+
+    async def test_unique_field_validation_on_create(
+        self, admin_entities_service: CustomEntitiesService, test_entity: EntityMetadata
+    ):
+        """Test that unique fields are enforced on record creation."""
+        # Create unique field
+        await admin_entities_service.create_field(
+            entity_id=test_entity.id,
+            field_key="unique_email",
+            field_type=FieldType.TEXT,
+            display_name="Unique Email",
+            is_unique=True,
+        )
+
+        # Create first record
+        await admin_entities_service.create_record(
+            entity_id=test_entity.id, data={"unique_email": "test@example.com"}
+        )
+
+        # Try to create duplicate
+        with pytest.raises(TracecatValidationError, match="unique constraint"):
+            await admin_entities_service.create_record(
+                entity_id=test_entity.id, data={"unique_email": "test@example.com"}
+            )
+
+        # Different value should succeed
+        record2 = await admin_entities_service.create_record(
+            entity_id=test_entity.id, data={"unique_email": "other@example.com"}
+        )
+        assert record2.field_data["unique_email"] == "other@example.com"
+
+        # Null values should not violate unique constraint
+        record3 = await admin_entities_service.create_record(
+            entity_id=test_entity.id, data={"unique_email": None}
+        )
+        record4 = await admin_entities_service.create_record(
+            entity_id=test_entity.id, data={"unique_email": None}
+        )
+        assert record3.id != record4.id
+
+    async def test_unique_field_validation_on_update(
+        self, admin_entities_service: CustomEntitiesService, test_entity: EntityMetadata
+    ):
+        """Test that unique fields are enforced on record update."""
+        # Create unique field
+        await admin_entities_service.create_field(
+            entity_id=test_entity.id,
+            field_key="unique_username",
+            field_type=FieldType.TEXT,
+            display_name="Unique Username",
+            is_unique=True,
+        )
+
+        # Create two records
+        record1 = await admin_entities_service.create_record(
+            entity_id=test_entity.id, data={"unique_username": "user1"}
+        )
+        record2 = await admin_entities_service.create_record(
+            entity_id=test_entity.id, data={"unique_username": "user2"}
+        )
+
+        # Try to update record2 to have same value as record1
+        with pytest.raises(TracecatValidationError, match="unique constraint"):
+            await admin_entities_service.update_record(
+                record_id=record2.id, updates={"unique_username": "user1"}
+            )
+
+        # Updating to same value should succeed (idempotent)
+        updated = await admin_entities_service.update_record(
+            record_id=record1.id, updates={"unique_username": "user1"}
+        )
+        assert updated.field_data["unique_username"] == "user1"
+
+    async def test_enable_unique_on_existing_data(
+        self, admin_entities_service: CustomEntitiesService, test_entity: EntityMetadata
+    ):
+        """Test enabling unique constraint on field with existing duplicate data."""
+        # Create non-unique field
+        field = await admin_entities_service.create_field(
+            entity_id=test_entity.id,
+            field_key="non_unique_field",
+            field_type=FieldType.TEXT,
+            display_name="Non-Unique Field",
+            is_unique=False,
+        )
+
+        # Create records with duplicate values
+        await admin_entities_service.create_record(
+            entity_id=test_entity.id, data={"non_unique_field": "duplicate"}
+        )
+        record2 = await admin_entities_service.create_record(
+            entity_id=test_entity.id, data={"non_unique_field": "duplicate"}
+        )
+
+        # Try to enable unique constraint - should fail
+        with pytest.raises(ValueError, match="Cannot enable unique constraint"):
+            await admin_entities_service.update_field_display(
+                field_id=field.id, is_unique=True
+            )
+
+        # Update record2 to have different value
+        await admin_entities_service.update_record(
+            record_id=record2.id, updates={"non_unique_field": "unique_value"}
+        )
+
+        # Now enabling unique should succeed
+        updated_field = await admin_entities_service.update_field_display(
+            field_id=field.id, is_unique=True
+        )
+        assert updated_field.is_unique is True
+
+    async def test_unique_constraint_on_different_field_types(
+        self, admin_entities_service: CustomEntitiesService, test_entity: EntityMetadata
+    ):
+        """Test unique constraint works with different field types."""
+        # Test with INTEGER
+        await admin_entities_service.create_field(
+            entity_id=test_entity.id,
+            field_key="unique_id",
+            field_type=FieldType.INTEGER,
+            display_name="Unique ID",
+            is_unique=True,
+        )
+
+        await admin_entities_service.create_record(
+            entity_id=test_entity.id, data={"unique_id": 123}
+        )
+
+        with pytest.raises(TracecatValidationError, match="unique constraint"):
+            await admin_entities_service.create_record(
+                entity_id=test_entity.id, data={"unique_id": 123}
+            )
+
+        # Test with SELECT
+        await admin_entities_service.create_field(
+            entity_id=test_entity.id,
+            field_key="unique_status",
+            field_type=FieldType.SELECT,
+            display_name="Unique Status",
+            settings={"options": ["active", "inactive", "pending"]},
+            is_unique=True,
+        )
+
+        await admin_entities_service.create_record(
+            entity_id=test_entity.id, data={"unique_status": "active", "unique_id": 456}
+        )
+
+        with pytest.raises(TracecatValidationError, match="unique constraint"):
+            await admin_entities_service.create_record(
+                entity_id=test_entity.id,
+                data={"unique_status": "active", "unique_id": 789},
+            )
+
+
+@pytest.mark.anyio
+class TestCombinedConstraints:
+    """Test fields with both required and unique constraints."""
+
+    async def test_required_and_unique_field(
+        self, admin_entities_service: CustomEntitiesService, test_entity: EntityMetadata
+    ):
+        """Test field that is both required and unique."""
+        # Create field with both constraints
+        await admin_entities_service.create_field(
+            entity_id=test_entity.id,
+            field_key="employee_id",
+            field_type=FieldType.TEXT,
+            display_name="Employee ID",
+            is_required=True,
+            is_unique=True,
+        )
+
+        # Cannot create without the field
+        with pytest.raises(TracecatValidationError, match="Required field"):
+            await admin_entities_service.create_record(
+                entity_id=test_entity.id, data={}
+            )
+
+        # Cannot create with null
+        with pytest.raises(TracecatValidationError, match="Required field"):
+            await admin_entities_service.create_record(
+                entity_id=test_entity.id, data={"employee_id": None}
+            )
+
+        # Create first record
+        await admin_entities_service.create_record(
+            entity_id=test_entity.id, data={"employee_id": "EMP001"}
+        )
+
+        # Cannot create duplicate
+        with pytest.raises(TracecatValidationError, match="unique constraint"):
+            await admin_entities_service.create_record(
+                entity_id=test_entity.id, data={"employee_id": "EMP001"}
+            )
+
+        # Create with different value succeeds
+        record2 = await admin_entities_service.create_record(
+            entity_id=test_entity.id, data={"employee_id": "EMP002"}
+        )
+
+        # Cannot update to null
+        with pytest.raises(TracecatValidationError, match="Required field"):
+            await admin_entities_service.update_record(
+                record_id=record2.id, updates={"employee_id": None}
+            )
+
+        # Cannot update to duplicate
+        with pytest.raises(TracecatValidationError, match="unique constraint"):
+            await admin_entities_service.update_record(
+                record_id=record2.id, updates={"employee_id": "EMP001"}
+            )
+
+
+@pytest.mark.anyio
+class TestRecordCreationValidation:
+    """Test that record creation properly validates constraints."""
+
+    async def test_create_record_validates_required_fields(
+        self, admin_entities_service: CustomEntitiesService
+    ):
+        """Test that create_record properly validates required fields."""
+        # Create entity with required field
+        entity = await admin_entities_service.create_entity_type(
+            name="test_entity", display_name="Test Entity"
+        )
+
+        await admin_entities_service.create_field(
+            entity_id=entity.id,
+            field_key="required_field",
+            field_type=FieldType.TEXT,
+            display_name="Required Field",
+            is_required=True,
+        )
+
+        # Try to create record without required field
+        with pytest.raises(TracecatValidationError, match="Required field"):
+            await admin_entities_service.create_record(
+                entity_id=entity.id, data={"other_field": "value"}
+            )
+
+        # Create with required field should work
+        record = await admin_entities_service.create_record(
+            entity_id=entity.id, data={"required_field": "value"}
+        )
+        assert record.field_data["required_field"] == "value"
+
+    async def test_create_record_validates_unique_fields(
+        self, admin_entities_service: CustomEntitiesService
+    ):
+        """Test that create_record properly validates unique fields."""
+        # Create entity with unique field
+        entity = await admin_entities_service.create_entity_type(
+            name="test_entity", display_name="Test Entity"
+        )
+
+        await admin_entities_service.create_field(
+            entity_id=entity.id,
+            field_key="unique_field",
+            field_type=FieldType.TEXT,
+            display_name="Unique Field",
+            is_unique=True,
+        )
+
+        # Create first record
+        await admin_entities_service.create_record(
+            entity_id=entity.id, data={"unique_field": "unique_value"}
+        )
+
+        # Try to create duplicate
+        with pytest.raises(TracecatValidationError, match="unique constraint"):
+            await admin_entities_service.create_record(
+                entity_id=entity.id, data={"unique_field": "unique_value"}
+            )
+
+    async def test_update_record_validates_constraints(
+        self, admin_entities_service: CustomEntitiesService
+    ):
+        """Test that update_record properly validates constraints with record_id."""
+        # Create entity with unique field
+        entity = await admin_entities_service.create_entity_type(
+            name="test_entity", display_name="Test Entity"
+        )
+
+        await admin_entities_service.create_field(
+            entity_id=entity.id,
+            field_key="unique_code",
+            field_type=FieldType.TEXT,
+            display_name="Unique Code",
+            is_unique=True,
+        )
+
+        # Create two records
+        record1 = await admin_entities_service.create_record(
+            entity_id=entity.id, data={"unique_code": "CODE001"}
+        )
+        record2 = await admin_entities_service.create_record(
+            entity_id=entity.id, data={"unique_code": "CODE002"}
+        )
+
+        # Update record1 to same value (should work - idempotent)
+        updated = await admin_entities_service.update_record(
+            record_id=record1.id, updates={"unique_code": "CODE001"}
+        )
+        assert updated.field_data["unique_code"] == "CODE001"
+
+        # Try to update record2 to record1's value (should fail)
+        with pytest.raises(TracecatValidationError, match="unique constraint"):
+            await admin_entities_service.update_record(
+                record_id=record2.id, updates={"unique_code": "CODE001"}
+            )
+
+
+@pytest.mark.anyio
+class TestRelationFieldConstraints:
+    """Test that relation fields properly support constraints."""
+
+    async def test_create_relation_field_with_required_constraint(
+        self, admin_entities_service: CustomEntitiesService
+    ):
+        """Test creating a relation field with is_required=True."""
+        # Create two entity types
+        parent_entity = await admin_entities_service.create_entity_type(
+            name="parent_entity", display_name="Parent Entity"
+        )
+        child_entity = await admin_entities_service.create_entity_type(
+            name="child_entity", display_name="Child Entity"
+        )
+
+        # Create a required belongs_to relation field
+        relation_settings = RelationSettings(
+            relation_type=RelationType.BELONGS_TO,
+            target_entity_id=parent_entity.id,
+            cascade_delete=False,
+        )
+
+        field = await admin_entities_service.create_relation_field(
+            entity_id=child_entity.id,
+            field_key="required_parent",
+            field_type=FieldType.RELATION_BELONGS_TO,
+            display_name="Required Parent",
+            relation_settings=relation_settings,
+            is_required=True,  # This should now work
+        )
+
+        # Verify the field was created with is_required=True
+        assert field.is_required is True
+        assert field.field_key == "required_parent"
+        assert field.field_type == FieldType.RELATION_BELONGS_TO
+
+    async def test_create_relation_field_with_unique_constraint(
+        self, admin_entities_service: CustomEntitiesService
+    ):
+        """Test creating a relation field with is_unique=True for one-to-one."""
+        # Create two entity types
+        entity_a = await admin_entities_service.create_entity_type(
+            name="entity_a", display_name="Entity A"
+        )
+        entity_b = await admin_entities_service.create_entity_type(
+            name="entity_b", display_name="Entity B"
+        )
+
+        # Create a unique belongs_to relation field (one-to-one)
+        relation_settings = RelationSettings(
+            relation_type=RelationType.BELONGS_TO,
+            target_entity_id=entity_b.id,
+            cascade_delete=False,
+        )
+
+        field = await admin_entities_service.create_relation_field(
+            entity_id=entity_a.id,
+            field_key="unique_link",
+            field_type=FieldType.RELATION_BELONGS_TO,
+            display_name="Unique Link",
+            relation_settings=relation_settings,
+            is_unique=True,  # This should now work
+        )
+
+        # Verify the field was created with is_unique=True
+        assert field.is_unique is True
+        assert field.field_key == "unique_link"
+
+    async def test_update_belongs_to_with_constraints(
+        self, admin_entities_service: CustomEntitiesService
+    ):
+        """Test that belongs_to relation respects required and unique constraints."""
+        # Create entities
+        parent_entity = await admin_entities_service.create_entity_type(
+            name="parent", display_name="Parent"
+        )
+        child_entity = await admin_entities_service.create_entity_type(
+            name="child", display_name="Child"
+        )
+
+        # Create required and unique belongs_to field
+        relation_settings = RelationSettings(
+            relation_type=RelationType.BELONGS_TO,
+            target_entity_id=parent_entity.id,
+            cascade_delete=False,
+        )
+
+        field = await admin_entities_service.create_relation_field(
+            entity_id=child_entity.id,
+            field_key="parent_ref",
+            field_type=FieldType.RELATION_BELONGS_TO,
+            display_name="Parent Reference",
+            relation_settings=relation_settings,
+            is_required=True,
+            is_unique=True,
+        )
+
+        # Create records
+        parent1 = await admin_entities_service.create_record(
+            entity_id=parent_entity.id, data={"name": "Parent 1"}
+        )
+        child1 = await admin_entities_service.create_record(
+            entity_id=child_entity.id, data={"name": "Child 1"}
+        )
+        child2 = await admin_entities_service.create_record(
+            entity_id=child_entity.id, data={"name": "Child 2"}
+        )
+
+        # Set the relation for child1
+        await admin_entities_service.update_belongs_to_relation(
+            source_record_id=child1.id,
+            field=field,
+            target_record_id=parent1.id,
+        )
+
+        # Try to clear required relation - should fail
+        with pytest.raises(ValueError, match="Cannot clear required relation"):
+            await admin_entities_service.update_belongs_to_relation(
+                source_record_id=child1.id,
+                field=field,
+                target_record_id=None,
+            )
+
+        # Try to link child2 to same parent (violates unique) - should fail
+        with pytest.raises(ValueError, match="unique constraint"):
+            await admin_entities_service.update_belongs_to_relation(
+                source_record_id=child2.id,
+                field=field,
+                target_record_id=parent1.id,
+            )

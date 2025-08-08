@@ -5,7 +5,7 @@ from enum import StrEnum
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
 from tracecat.entities.types import FieldType
 
@@ -136,6 +136,14 @@ class FieldMetadataCreate(BaseModel):
         default=None,
         description="Settings for relation fields (required when field_type is RELATION_*)",
     )
+    is_required: bool = Field(
+        default=False,
+        description="Field must have a non-null value (or non-empty for has_many relations)",
+    )
+    is_unique: bool = Field(
+        default=False,
+        description="Field value must be unique across all records (one-to-one for belongs_to)",
+    )
 
     @field_validator("field_key", mode="before")
     @classmethod
@@ -171,6 +179,33 @@ class FieldMetadataCreate(BaseModel):
 
         return value
 
+    @field_validator("is_unique", mode="after")
+    @classmethod
+    def validate_unique_for_field_type(cls, v: bool, info: ValidationInfo) -> bool:
+        """Validate unique constraint is appropriate for field type."""
+        if not v:
+            return v
+
+        field_type = info.data.get("field_type")
+
+        # For now, only support unique on scalar types and belongs_to
+        allowed_types = {
+            FieldType.TEXT,
+            FieldType.INTEGER,
+            FieldType.NUMBER,
+            FieldType.DATE,
+            FieldType.DATETIME,
+            FieldType.SELECT,
+            FieldType.RELATION_BELONGS_TO,
+        }
+
+        if field_type not in allowed_types:
+            raise ValueError(
+                f"Unique constraint not supported for field type {field_type}"
+            )
+
+        return v
+
 
 class FieldMetadataUpdate(BaseModel):
     """Request model for updating field display properties."""
@@ -178,6 +213,8 @@ class FieldMetadataUpdate(BaseModel):
     display_name: str | None = Field(default=None, min_length=1, max_length=255)
     description: str | None = Field(default=None, max_length=1000)
     field_settings: dict[str, Any] | None = None
+    is_required: bool | None = None
+    is_unique: bool | None = None
 
 
 class FieldMetadataRead(BaseModel):
