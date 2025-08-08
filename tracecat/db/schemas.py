@@ -4,7 +4,7 @@ import hashlib
 import os
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, Optional
 
 from pydantic import UUID4, BaseModel, ConfigDict, computed_field
 from sqlalchemy import TIMESTAMP, Column, ForeignKey, Identity, Index, Integer, func
@@ -1410,6 +1410,7 @@ class EntityMetadata(Resource, table=True):
         back_populates="entity_metadata",
         sa_relationship_kwargs={
             "cascade": "all, delete",
+            "foreign_keys": "[FieldMetadata.entity_metadata_id]",
             **DEFAULT_SA_RELATIONSHIP_KWARGS,
         },
     )
@@ -1484,14 +1485,19 @@ class FieldMetadata(SQLModel, TimestampMixin, table=True):
     )
 
     # Relationships
-    entity_metadata: EntityMetadata = Relationship(back_populates="fields")
+    entity_metadata: EntityMetadata = Relationship(
+        back_populates="fields",
+        sa_relationship_kwargs={
+            "foreign_keys": "[FieldMetadata.entity_metadata_id]",
+        },
+    )
     target_entity: EntityMetadata | None = Relationship(
         sa_relationship_kwargs={
             "foreign_keys": "[FieldMetadata.relation_target_entity_id]",
             "lazy": "selectin",
         }
     )
-    backref_field: "FieldMetadata | None" = Relationship(
+    backref_field: Optional["FieldMetadata"] = Relationship(
         sa_relationship_kwargs={
             "foreign_keys": "[FieldMetadata.relation_backref_field_id]",
             "lazy": "selectin",
@@ -1535,7 +1541,10 @@ class EntityRelationLink(SQLModel, TimestampMixin, table=True):
     __tablename__: str = "entity_relation_link"
     __table_args__ = (
         UniqueConstraint(
-            "source_record_id", "source_field_id", name="uq_entity_relation_link_source"
+            "source_record_id",
+            "source_field_id",
+            "target_record_id",
+            name="uq_entity_relation_link_triple",
         ),
         Index("idx_relation_source", "source_record_id", "source_field_id"),
         Index("idx_relation_target", "target_record_id"),

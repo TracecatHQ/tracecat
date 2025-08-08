@@ -18,7 +18,7 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 from sqlmodel.sql.expression import SelectOfScalar
 
-from tracecat.db.schemas import EntityData, FieldMetadata
+from tracecat.db.schemas import EntityData, EntityRelationLink, FieldMetadata
 from tracecat.entities.types import FieldType
 
 
@@ -406,3 +406,235 @@ class EntityQueryBuilder:
             return base_stmt.where(sa.and_(*conditions))
 
         return base_stmt
+
+    # Relation Query Methods
+
+    async def has_related(
+        self,
+        source_record_id: UUID,
+        field_id: UUID,
+        target_filters: list[dict[str, Any]] | None = None,
+        page: int = 1,
+        page_size: int = 50,
+    ) -> tuple[list[EntityData], int]:
+        """Query related records with pagination.
+
+        Args:
+            source_record_id: The source record ID
+            field_id: The relation field ID
+            target_filters: Optional filters on target records
+            page: Page number (1-indexed)
+            page_size: Number of records per page (max 100)
+
+        Returns:
+            Tuple of (records, total_count)
+
+        Raises:
+            ValueError: If pagination parameters invalid
+        """
+        if page < 1:
+            raise ValueError("Page must be >= 1")
+        if page_size < 1 or page_size > 100:
+            raise ValueError("Page size must be between 1 and 100")
+
+        # Build base query joining EntityRelationLink
+        # Ensure SQLAlchemy-typed columns for static type checkers
+        target_record_id_col = cast(
+            ColumnElement[Any], EntityRelationLink.target_record_id
+        )
+        entity_id_col = cast(ColumnElement[Any], EntityData.id)
+        onclause = cast(ColumnElement[bool], target_record_id_col == entity_id_col)
+
+        base_stmt = (
+            select(EntityData)
+            .join(
+                EntityRelationLink,
+                onclause,
+            )
+            .where(
+                cast(ColumnElement[Any], EntityRelationLink.source_record_id)
+                == source_record_id,
+                cast(ColumnElement[Any], EntityRelationLink.source_field_id)
+                == field_id,
+            )
+        )
+
+        # Get field metadata to validate filters
+        field_stmt = select(FieldMetadata).where(FieldMetadata.id == field_id)
+        field_result = await self.session.exec(field_stmt)
+        field = field_result.first()
+
+        if not field:
+            raise ValueError(f"Field {field_id} not found")
+
+        # Apply target filters if provided
+        if target_filters:
+            if field.relation_target_entity_id is None:
+                raise ValueError(f"Relation field {field_id} missing target entity id")
+            # Convert potential UUID4 to UUID for type-narrowing
+            target_entity_uuid: UUID = UUID(str(field.relation_target_entity_id))
+            base_stmt = await self.build_query(
+                base_stmt, target_entity_uuid, target_filters
+            )
+
+            # When filters are applied, count from the filtered query
+            # Build a query to get EntityData with filters first
+            count_base_query = (
+                select(EntityData)
+                .join(
+                    EntityRelationLink,
+                    onclause,
+                )
+                .where(
+                    cast(ColumnElement[Any], EntityRelationLink.source_record_id)
+                    == source_record_id,
+                    cast(ColumnElement[Any], EntityRelationLink.source_field_id)
+                    == field_id,
+                )
+            )
+            # Apply the same filters
+            filtered_count_query = await self.build_query(
+                count_base_query, target_entity_uuid, target_filters
+            )
+            # Convert to count query using subquery
+            count_stmt = select(sa.func.count()).select_from(
+                filtered_count_query.subquery()
+            )
+        else:
+            # No filters - use simple count query
+            count_stmt = (
+                select(sa.func.count())
+                .select_from(EntityRelationLink)
+                .where(
+                    EntityRelationLink.source_record_id == source_record_id,
+                    EntityRelationLink.source_field_id == field_id,
+                )
+            )
+
+        count_result = await self.session.exec(count_stmt)
+        total_count = count_result.one()
+
+        # Apply pagination
+        offset = (page - 1) * page_size
+        paginated_stmt = base_stmt.limit(page_size).offset(offset)
+
+        # Execute query
+        result = await self.session.exec(
+            cast(SelectOfScalar[EntityData], paginated_stmt)
+        )
+        records = list(result.all())
+
+        return records, total_count
+
+    async def count_related(
+        self,
+        source_record_id: UUID,
+        field_id: UUID,
+    ) -> int:
+        """Count related records efficiently.
+
+        Args:
+            source_record_id: The source record ID
+            field_id: The relation field ID
+
+        Returns:
+            Count of related records
+        """
+        stmt = (
+            select(sa.func.count())
+            .select_from(EntityRelationLink)
+            .where(
+                EntityRelationLink.source_record_id == source_record_id,
+                EntityRelationLink.source_field_id == field_id,
+            )
+        )
+        result = await self.session.exec(stmt)
+        return result.one()
+
+    async def filter_by_relation(
+        self,
+        entity_id: UUID,
+        field_key: str,
+        has_any: list[UUID] | None = None,
+        has_all: list[UUID] | None = None,
+        has_none: list[UUID] | None = None,
+    ) -> SelectOfScalar[EntityData]:
+        """Filter records by their relations.
+
+        Advanced filtering for finding records with specific relations.
+
+        Args:
+            entity_id: Entity metadata ID
+            field_key: Relation field key
+            has_any: Records must have at least one of these relations
+            has_all: Records must have all of these relations
+            has_none: Records must not have any of these relations
+
+        Returns:
+            Query statement with relation filters applied
+
+        Raises:
+            ValueError: If no filter criteria provided
+        """
+        if not any([has_any, has_all, has_none]):
+            raise ValueError("At least one filter criteria must be provided")
+
+        # Get field metadata
+        field = await self._validate_field(entity_id, field_key)
+
+        if field.field_type not in (
+            FieldType.RELATION_BELONGS_TO,
+            FieldType.RELATION_HAS_MANY,
+        ):
+            raise ValueError(f"Field {field_key} is not a relation field")
+
+        # Base query for entity records
+        base_stmt = select(EntityData).where(EntityData.entity_metadata_id == entity_id)
+
+        conditions = []
+
+        if has_any:
+            # Records that have at least one of the specified relations
+            subquery = (
+                select(EntityRelationLink.source_record_id)
+                .where(
+                    cast(ColumnElement[Any], EntityRelationLink.source_field_id)
+                    == field.id,
+                    cast(ColumnElement[Any], EntityRelationLink.target_record_id).in_(
+                        has_any
+                    ),
+                )
+                .distinct()
+            )
+            conditions.append(cast(ColumnElement[Any], EntityData.id).in_(subquery))
+
+        if has_all:
+            # Records that have all of the specified relations
+            for target_id in has_all:
+                subquery = select(EntityRelationLink.source_record_id).where(
+                    cast(ColumnElement[Any], EntityRelationLink.source_field_id)
+                    == field.id,
+                    cast(ColumnElement[Any], EntityRelationLink.target_record_id)
+                    == target_id,
+                )
+                conditions.append(cast(ColumnElement[Any], EntityData.id).in_(subquery))
+
+        if has_none:
+            # Records that don't have any of the specified relations
+            subquery = (
+                select(EntityRelationLink.source_record_id)
+                .where(
+                    cast(ColumnElement[Any], EntityRelationLink.source_field_id)
+                    == field.id,
+                    cast(ColumnElement[Any], EntityRelationLink.target_record_id).in_(
+                        has_none
+                    ),
+                )
+                .distinct()
+            )
+            conditions.append(~cast(ColumnElement[Any], EntityData.id).in_(subquery))
+
+        if conditions:
+            base_stmt = base_stmt.where(sa.and_(*conditions))
+
+        return cast(SelectOfScalar[EntityData], base_stmt)
