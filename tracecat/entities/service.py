@@ -6,6 +6,7 @@ from uuid import UUID
 
 from pydantic import UUID4, BaseModel, ConfigDict, ValidationError, create_model
 from pydantic import Field as PydanticField
+from sqlalchemy import text
 from sqlalchemy.orm.attributes import flag_modified
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -190,6 +191,8 @@ class CustomEntitiesService(BaseWorkspaceService):
         display_name: str,
         description: str | None = None,
         settings: dict[str, Any] | None = None,
+        is_required: bool = False,
+        is_unique: bool = False,
     ) -> FieldMetadata:
         """Create new field - immutable after creation.
 
@@ -200,6 +203,8 @@ class CustomEntitiesService(BaseWorkspaceService):
             display_name: Human-readable name
             description: Optional description
             settings: Optional field settings
+            is_required: Whether field is required
+            is_unique: Whether field must be unique
 
         Returns:
             Created FieldMetadata
@@ -218,6 +223,8 @@ class CustomEntitiesService(BaseWorkspaceService):
                 display_name=display_name,
                 description=description,
                 field_settings=settings or {},
+                is_required=is_required,
+                is_unique=is_unique,
             )
         except ValidationError as e:
             # Extract the first validation error message
@@ -244,6 +251,25 @@ class CustomEntitiesService(BaseWorkspaceService):
         if settings and "allow_nested" in settings:
             raise ValueError("Nested structures not supported in v1")
 
+        # Check if unique constraint can be applied to existing data
+        if is_unique:
+            # For new fields on entities with existing data, check for conflicts
+            existing_records = await self.session.exec(
+                select(EntityData)
+                .where(
+                    EntityData.entity_metadata_id == entity_id,
+                    EntityData.owner_id == self.workspace_id,
+                )
+                .limit(1)
+            )
+
+            if existing_records.first():
+                # If there are existing records, warn or handle appropriately
+                logger.warning(
+                    f"Adding unique constraint to field '{field_key}' "
+                    f"on entity with existing records"
+                )
+
         field = FieldMetadata(
             entity_metadata_id=entity_id,
             field_key=validated.field_key,
@@ -252,7 +278,8 @@ class CustomEntitiesService(BaseWorkspaceService):
             description=validated.description,
             field_settings=validated.field_settings,
             is_active=True,
-            is_required=False,  # Always false in v1
+            is_required=is_required,
+            is_unique=is_unique,
         )
 
         self.session.add(field)
@@ -310,19 +337,40 @@ class CustomEntitiesService(BaseWorkspaceService):
         display_name: str | None = None,
         description: str | None = None,
         settings: dict[str, Any] | None = None,
+        is_required: bool | None = None,
+        is_unique: bool | None = None,
     ) -> FieldMetadata:
-        """Update only display properties - no schema changes.
+        """Update field properties including constraints.
 
         Args:
             field_id: Field to update
             display_name: New display name
             description: New description
             settings: New settings (validation constraints)
+            is_required: Update required constraint
+            is_unique: Update unique constraint
 
         Returns:
             Updated FieldMetadata
+
+        Raises:
+            ValueError: If constraints cannot be applied to existing data
         """
         field = await self.get_field(field_id)
+
+        # Handle unique constraint changes
+        if is_unique is not None and is_unique != field.is_unique:
+            if is_unique:
+                # Check if existing data would violate unique constraint
+                await self._validate_unique_constraint_change(field)
+            field.is_unique = is_unique
+
+        # Handle required constraint changes
+        if is_required is not None and is_required != field.is_required:
+            if is_required:
+                # Check if existing records would violate required constraint
+                await self._validate_required_constraint_change(field)
+            field.is_required = is_required
 
         if display_name is not None:
             field.display_name = display_name
@@ -403,6 +451,8 @@ class CustomEntitiesService(BaseWorkspaceService):
         display_name: str,
         relation_settings: RelationSettings,
         description: str | None = None,
+        is_required: bool = False,
+        is_unique: bool = False,
     ) -> FieldMetadata:
         """Create a relation field with proper metadata.
 
@@ -413,6 +463,8 @@ class CustomEntitiesService(BaseWorkspaceService):
             display_name: Human-readable name
             relation_settings: Relation configuration
             description: Optional description
+            is_required: Whether field is required
+            is_unique: Whether field must be unique (one-to-one for belongs_to)
 
         Returns:
             Created FieldMetadata with relation metadata
@@ -446,6 +498,8 @@ class CustomEntitiesService(BaseWorkspaceService):
                 description=description,
                 field_settings=relation_settings.model_dump(),
                 relation_settings=relation_settings,
+                is_required=is_required,
+                is_unique=is_unique,
             )
         except ValidationError as e:
             if e.errors():
@@ -485,7 +539,8 @@ class CustomEntitiesService(BaseWorkspaceService):
             description=validated.description,
             field_settings=field_settings,
             is_active=True,
-            is_required=False,  # Always false in v1
+            is_required=is_required,
+            is_unique=is_unique,
             relation_kind=relation_kind,
             relation_target_entity_id=relation_settings.target_entity_id,
         )
@@ -649,6 +704,12 @@ class CustomEntitiesService(BaseWorkspaceService):
         # Validate source record exists
         source_record = await self.get_record(source_record_id)
 
+        # Check required constraint
+        if field.is_required and target_record_id is None:
+            raise ValueError(
+                f"Cannot clear required relation field '{field.field_key}'"
+            )
+
         # If clearing the relation
         if target_record_id is None:
             # Delete existing link if any
@@ -688,6 +749,22 @@ class CustomEntitiesService(BaseWorkspaceService):
             raise TracecatNotFoundError(
                 f"Target record {target_record_id} not found or doesn't match target entity"
             )
+
+        # Check unique constraint (one-to-one enforcement)
+        if field.is_unique:
+            # Check if target is already linked to another source
+            existing_link_stmt = select(EntityRelationLink).where(
+                EntityRelationLink.source_field_id == field.id,
+                EntityRelationLink.target_record_id == target_record_id,
+                EntityRelationLink.source_record_id != source_record_id,
+            )
+            existing_result = await self.session.exec(existing_link_stmt)
+
+            if existing_result.first():
+                raise ValueError(
+                    f"Target record is already linked to another record "
+                    f"(unique constraint on field '{field.field_key}')"
+                )
 
         # Delete existing link if any (for idempotency)
         existing_link_stmt = select(EntityRelationLink).where(
@@ -752,6 +829,27 @@ class CustomEntitiesService(BaseWorkspaceService):
 
         if source_record.entity_metadata_id != field.entity_metadata_id:
             raise ValueError("Field doesn't belong to the record's entity")
+
+        # Check if operation would violate required constraint
+        if field.is_required:
+            if operation.operation == RelationOperation.REPLACE:
+                if not operation.target_ids:
+                    raise ValueError(
+                        f"Cannot set required relation field '{field.field_key}' to empty"
+                    )
+            elif operation.operation == RelationOperation.REMOVE:
+                # Check if removal would leave the relation empty
+                existing_links_stmt = select(EntityRelationLink).where(
+                    EntityRelationLink.source_record_id == source_record_id,
+                    EntityRelationLink.source_field_id == field.id,
+                )
+                existing_result = await self.session.exec(existing_links_stmt)
+                current_count = len(list(existing_result.all()))
+
+                if current_count <= len(operation.target_ids):
+                    raise ValueError(
+                        f"Cannot remove all items from required relation field '{field.field_key}'"
+                    )
 
         stats = {"added": 0, "removed": 0, "unchanged": 0}
 
@@ -960,7 +1058,9 @@ class CustomEntitiesService(BaseWorkspaceService):
         active_fields = await self.list_fields(entity_id, include_inactive=False)
 
         # Validate data against active fields (includes flat structure check)
-        validated_data = await self._validate_record_data(data, active_fields)
+        validated_data = await self._validate_record_data(
+            data, active_fields, record_id=None
+        )
 
         # Serialize values
         serialized_data = {}
@@ -1029,7 +1129,9 @@ class CustomEntitiesService(BaseWorkspaceService):
         )
 
         # Validate updates (includes flat structure check)
-        validated_updates = await self._validate_record_data(updates, active_fields)
+        validated_updates = await self._validate_record_data(
+            updates, active_fields, record_id=record_id
+        )
 
         # Serialize and merge updates
         field_map = {f.field_key: f for f in active_fields}
@@ -1096,13 +1198,19 @@ class CustomEntitiesService(BaseWorkspaceService):
     # Helper Methods
 
     async def _validate_record_data(
-        self, data: dict[str, Any], fields: list[FieldMetadata]
+        self,
+        data: dict[str, Any],
+        fields: list[FieldMetadata],
+        record_id: UUID | None = None,
+        skip_unique_check: bool = False,
     ) -> dict[str, Any]:
         """Validate record data against field definitions.
 
         Args:
             data: Data to validate
             fields: Field definitions
+            record_id: Current record ID (for updates, to exclude from unique check)
+            skip_unique_check: Skip unique validation (for bulk operations)
 
         Returns:
             Validated data (with inactive fields removed)
@@ -1117,29 +1225,166 @@ class CustomEntitiesService(BaseWorkspaceService):
         validated = {}
         errors = []
 
+        # First pass: Check required fields
+        for field in fields:
+            if not field.is_active:
+                continue
+
+            # Check required constraint
+            if field.is_required:
+                if field.relation_kind:
+                    # Relations are handled separately in relation methods
+                    # Here we just check if it's a new record without the relation
+                    if not record_id and field.relation_kind == "belongs_to":
+                        # For new records, belongs_to can be set after creation
+                        pass
+                else:
+                    # Regular fields must have non-null values
+                    if field.field_key not in data or data[field.field_key] is None:
+                        errors.append(
+                            f"Required field '{field.field_key}' is missing or null"
+                        )
+
+        # Second pass: Validate provided data
         for key, value in data.items():
             if key not in active_field_keys:
                 # Skip inactive/unknown fields
                 continue
 
+            field = field_map[key]
+
             # Check flat structure first (more fundamental requirement)
             if not validate_flat_structure(value):
                 errors.append(f"Field '{key}': Nested objects not allowed")
+                continue
 
-            field = field_map[key]
+            # Type validation
             is_valid, error = validate_value_for_type(
                 value, FieldType(field.field_type), field.field_settings
             )
 
             if not is_valid:
                 errors.append(f"{key}: {error}")
-            else:
-                validated[key] = value
+                continue
+
+            # Unique constraint check (if not skipped)
+            if field.is_unique and value is not None and not skip_unique_check:
+                # Check for duplicates
+                duplicate_exists = await self._check_unique_violation(
+                    entity_id=field.entity_metadata_id,
+                    field_key=key,
+                    value=value,
+                    exclude_record_id=record_id,
+                )
+                if duplicate_exists:
+                    errors.append(
+                        f"Field '{key}': Value already exists (unique constraint)"
+                    )
+
+            validated[key] = value
 
         if errors:
             raise TracecatValidationError("; ".join(errors))
 
         return validated
+
+    async def _check_unique_violation(
+        self,
+        entity_id: UUID,
+        field_key: str,
+        value: Any,
+        exclude_record_id: UUID | None = None,
+    ) -> bool:
+        """Check if a value would violate unique constraint.
+
+        Args:
+            entity_id: Entity metadata ID
+            field_key: Field key to check
+            value: Value to check for uniqueness
+            exclude_record_id: Record ID to exclude (for updates)
+
+        Returns:
+            True if duplicate exists, False otherwise
+        """
+        # Build query to check for duplicates
+        stmt = select(EntityData).where(
+            EntityData.entity_metadata_id == entity_id,
+            EntityData.owner_id == self.workspace_id,
+        )
+
+        # Use query builder for type-safe comparison
+        expr = await self.query_builder.eq(entity_id, field_key, value)
+        stmt = stmt.where(expr)
+
+        # Exclude current record if updating
+        if exclude_record_id:
+            stmt = stmt.where(EntityData.id != exclude_record_id)
+
+        # Just check if any record exists
+        stmt = stmt.limit(1)
+
+        result = await self.session.exec(stmt)
+        return result.first() is not None
+
+    async def _validate_unique_constraint_change(self, field: FieldMetadata) -> None:
+        """Validate that enabling unique constraint won't violate existing data."""
+        # Check for duplicate values in existing records
+        duplicate_check = text("""
+            SELECT field_data->>:field_key as value, COUNT(*) as cnt
+            FROM entity_data
+            WHERE entity_metadata_id = :entity_id
+              AND owner_id = :owner_id
+              AND field_data ? :field_key
+              AND field_data->>:field_key IS NOT NULL
+            GROUP BY field_data->>:field_key
+            HAVING COUNT(*) > 1
+        """)
+
+        result = await self.session.execute(
+            duplicate_check,
+            {
+                "field_key": field.field_key,
+                "entity_id": field.entity_metadata_id,
+                "owner_id": self.workspace_id,
+            },
+        )
+
+        duplicates = result.fetchall()
+        if duplicates:
+            values = [f"'{row[0]}' ({row[1]} occurrences)" for row in duplicates]
+            raise ValueError(
+                f"Cannot enable unique constraint. Duplicate values found: {', '.join(values)}"
+            )
+
+    async def _validate_required_constraint_change(self, field: FieldMetadata) -> None:
+        """Validate that enabling required constraint won't violate existing data."""
+        # Check for null or missing values
+        null_check = text("""
+            SELECT COUNT(*) as cnt
+            FROM entity_data
+            WHERE entity_metadata_id = :entity_id
+              AND owner_id = :owner_id
+              AND (
+                NOT field_data ? :field_key
+                OR field_data->>:field_key IS NULL
+              )
+        """)
+
+        result = await self.session.execute(
+            null_check,
+            {
+                "field_key": field.field_key,
+                "entity_id": field.entity_metadata_id,
+                "owner_id": self.workspace_id,
+            },
+        )
+
+        null_count = result.scalar()
+        if null_count > 0:
+            raise ValueError(
+                f"Cannot enable required constraint. "
+                f"{null_count} records have null or missing values for '{field.field_key}'"
+            )
 
     def get_active_fields_model(self, fields: list[FieldMetadata]) -> type[BaseModel]:
         """Generate Pydantic model for active fields only.

@@ -170,6 +170,8 @@ async def create_field(
             display_name=params.display_name,
             description=params.description,
             settings=params.field_settings,
+            is_required=params.is_required,
+            is_unique=params.is_unique,
         )
         return FieldMetadataRead.model_validate(field, from_attributes=True)
     except ValueError as e:
@@ -224,6 +226,8 @@ async def update_field(
             display_name=params.display_name,
             description=params.description,
             settings=params.field_settings,
+            is_required=params.is_required,
+            is_unique=params.is_unique,
         )
         return FieldMetadataRead.model_validate(field, from_attributes=True)
     except ValueError as e:
@@ -297,6 +301,8 @@ async def create_relation_field(
             display_name=params.display_name,
             relation_settings=params.relation_settings,
             description=params.description,
+            is_required=params.is_required,
+            is_unique=params.is_unique,
         )
         return FieldMetadataRead.model_validate(field, from_attributes=True)
     except ValueError as e:
