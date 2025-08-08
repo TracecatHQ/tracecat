@@ -75,8 +75,12 @@ Homepage = "https://tracecat.com"
 Documentation = "https://docs.tracecat.com/"
 Repository = "https://github.com/TracecatHQ/tracecat"
 
+[project.optional-dependencies]
+ee = ["tracecat-ee"]
+
 [tool.uv.sources]
 tracecat-registry = { workspace = true }
+tracecat-ee = { workspace = true }
 
 [tool.uv.workspace]
 members = ["packages/*"]

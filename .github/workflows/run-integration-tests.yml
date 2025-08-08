@@ -136,7 +136,7 @@ jobs:
           # Expect a base64 encoded key
           CUSTOM_REPO_SSH_PRIVATE_KEY: ${{ secrets.CUSTOM_REPO_SSH_PRIVATE_KEY }}
         run: |
-          uv run pytest tests/integration -ra
+           uv run --extra ee pytest tests/integration -ra
 
       - name: Show Docker logs on failure
         if: failure()

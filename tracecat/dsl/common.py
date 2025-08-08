@@ -45,13 +45,13 @@ from tracecat.dsl.models import (
     TriggerInputs,
 )
 from tracecat.dsl.view import RFEdge, RFGraph, RFNode, TriggerNode, UDFNode, UDFNodeData
-from tracecat.ee.interactions.models import ActionInteractionValidator
 from tracecat.expressions import patterns
 from tracecat.expressions.common import ExprContext
 from tracecat.expressions.core import extract_expressions
 from tracecat.expressions.expectations import ExpectedField
 from tracecat.identifiers import ScheduleID
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID
+from tracecat.interactions.models import ActionInteractionValidator
 from tracecat.logger import logger
 from tracecat.parse import traverse_leaves
 from tracecat.types.auth import Role
