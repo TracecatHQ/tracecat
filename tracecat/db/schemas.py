@@ -1578,30 +1578,30 @@ class EntityRelationLink(SQLModel, TimestampMixin, table=True):
     source_entity_metadata: EntityMetadata = Relationship(
         sa_relationship_kwargs={
             "foreign_keys": "[EntityRelationLink.source_entity_metadata_id]",
-            "lazy": "selectin",
+            **DEFAULT_SA_RELATIONSHIP_KWARGS,
         }
     )
     source_field: FieldMetadata = Relationship(
         sa_relationship_kwargs={
             "foreign_keys": "[EntityRelationLink.source_field_id]",
-            "lazy": "selectin",
+            **DEFAULT_SA_RELATIONSHIP_KWARGS,
         }
     )
     source_record: EntityData = Relationship(
         sa_relationship_kwargs={
             "foreign_keys": "[EntityRelationLink.source_record_id]",
-            "lazy": "selectin",
+            **DEFAULT_SA_RELATIONSHIP_KWARGS,
         }
     )
     target_entity_metadata: EntityMetadata = Relationship(
         sa_relationship_kwargs={
             "foreign_keys": "[EntityRelationLink.target_entity_metadata_id]",
-            "lazy": "selectin",
+            **DEFAULT_SA_RELATIONSHIP_KWARGS,
         }
     )
     target_record: EntityData = Relationship(
         sa_relationship_kwargs={
             "foreign_keys": "[EntityRelationLink.target_record_id]",
-            "lazy": "selectin",
+            **DEFAULT_SA_RELATIONSHIP_KWARGS,
         }
     )
