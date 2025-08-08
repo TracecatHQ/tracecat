@@ -1458,8 +1458,46 @@ class FieldMetadata(SQLModel, TimestampMixin, table=True):
     is_required: bool = Field(default=False)  # Always False in v1
     is_unique: bool = Field(default=False)  # For future use
 
+    # Relation field columns
+    relation_kind: str | None = Field(
+        default=None,
+        max_length=20,
+        description="Type of relation: belongs_to or has_many",
+    )
+    relation_target_entity_id: UUID4 | None = Field(
+        default=None,
+        sa_column=Column(UUID, ForeignKey("entity_metadata.id", ondelete="CASCADE")),
+        description="Target entity for relations",
+    )
+    relation_backref_field_id: UUID4 | None = Field(
+        default=None,
+        sa_column=Column(
+            UUID,
+            ForeignKey(
+                "field_metadata.id",
+                ondelete="SET NULL",
+                deferrable=True,
+                initially="DEFERRED",
+            ),
+        ),
+        description="Backref field ID for bidirectional relations",
+    )
+
     # Relationships
     entity_metadata: EntityMetadata = Relationship(back_populates="fields")
+    target_entity: EntityMetadata | None = Relationship(
+        sa_relationship_kwargs={
+            "foreign_keys": "[FieldMetadata.relation_target_entity_id]",
+            "lazy": "selectin",
+        }
+    )
+    backref_field: "FieldMetadata | None" = Relationship(
+        sa_relationship_kwargs={
+            "foreign_keys": "[FieldMetadata.relation_backref_field_id]",
+            "lazy": "selectin",
+            "remote_side": "[FieldMetadata.id]",
+        }
+    )
 
 
 class EntityData(Resource, table=True):
@@ -1489,3 +1527,72 @@ class EntityData(Resource, table=True):
 
     # Relationships
     entity_metadata: EntityMetadata = Relationship(back_populates="data_records")
+
+
+class EntityRelationLink(SQLModel, TimestampMixin, table=True):
+    """Link table for entity relations - source of truth for all relationships."""
+
+    __tablename__: str = "entity_relation_link"
+    __table_args__ = (
+        UniqueConstraint(
+            "source_record_id", "source_field_id", name="uq_entity_relation_link_source"
+        ),
+        Index("idx_relation_source", "source_record_id", "source_field_id"),
+        Index("idx_relation_target", "target_record_id"),
+        Index("idx_relation_owner", "owner_id"),
+        Index("idx_relation_field_target", "source_field_id", "target_record_id"),
+    )
+
+    id: UUID4 = Field(default_factory=uuid.uuid4, primary_key=True)
+    owner_id: UUID4 = Field(..., index=True)  # Must match owner_id of records
+
+    # Source side
+    source_entity_metadata_id: UUID4 = Field(
+        sa_column=Column(UUID, ForeignKey("entity_metadata.id", ondelete="CASCADE"))
+    )
+    source_field_id: UUID4 = Field(
+        sa_column=Column(UUID, ForeignKey("field_metadata.id", ondelete="CASCADE"))
+    )
+    source_record_id: UUID4 = Field(
+        sa_column=Column(UUID, ForeignKey("entity_data.id", ondelete="CASCADE"))
+    )
+
+    # Target side
+    target_entity_metadata_id: UUID4 = Field(
+        sa_column=Column(UUID, ForeignKey("entity_metadata.id", ondelete="CASCADE"))
+    )
+    target_record_id: UUID4 = Field(
+        sa_column=Column(UUID, ForeignKey("entity_data.id", ondelete="CASCADE"))
+    )
+
+    # Relationships (for eager loading)
+    source_entity_metadata: EntityMetadata = Relationship(
+        sa_relationship_kwargs={
+            "foreign_keys": "[EntityRelationLink.source_entity_metadata_id]",
+            "lazy": "selectin",
+        }
+    )
+    source_field: FieldMetadata = Relationship(
+        sa_relationship_kwargs={
+            "foreign_keys": "[EntityRelationLink.source_field_id]",
+            "lazy": "selectin",
+        }
+    )
+    source_record: EntityData = Relationship(
+        sa_relationship_kwargs={
+            "foreign_keys": "[EntityRelationLink.source_record_id]",
+            "lazy": "selectin",
+        }
+    )
+    target_entity_metadata: EntityMetadata = Relationship(
+        sa_relationship_kwargs={
+            "foreign_keys": "[EntityRelationLink.target_entity_metadata_id]",
+            "lazy": "selectin",
+        }
+    )
+    target_record: EntityData = Relationship(
+        sa_relationship_kwargs={
+            "foreign_keys": "[EntityRelationLink.target_record_id]",
+            "lazy": "selectin",
+        }
+    )

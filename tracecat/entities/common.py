@@ -2,7 +2,9 @@
 
 from datetime import date, datetime
 from typing import Any
+from uuid import UUID
 
+from tracecat.entities.models import RelationSettings
 from tracecat.entities.types import FieldType
 
 
@@ -183,6 +185,48 @@ def validate_value_for_type(
                     f"Array length {len(value)} exceeds maximum {settings['max_items']}",
                 )
 
+        elif field_type == FieldType.RELATION_BELONGS_TO:
+            # Belongs-to expects a UUID or None
+            if value is not None:
+                if isinstance(value, str):
+                    try:
+                        UUID(value)
+                    except ValueError:
+                        return False, "Invalid UUID format for relation"
+                elif not isinstance(value, UUID):
+                    return (
+                        False,
+                        f"Expected UUID for belongs_to relation, got {type(value).__name__}",
+                    )
+
+        elif field_type == FieldType.RELATION_HAS_MANY:
+            # Has-many expects a structured update payload, not stored directly
+            if not isinstance(value, dict):
+                return False, "Has-many relations require structured update payload"
+
+            # Validate it's a proper HasManyRelationUpdate structure
+            if "operation" not in value or "target_ids" not in value:
+                return (
+                    False,
+                    "Has-many update must include 'operation' and 'target_ids'",
+                )
+
+            if value["operation"] not in ["add", "remove", "replace"]:
+                return False, f"Invalid operation: {value['operation']}"
+
+            if not isinstance(value["target_ids"], list):
+                return False, "target_ids must be a list"
+
+            # Validate all IDs are valid UUIDs
+            for tid in value["target_ids"]:
+                if isinstance(tid, str):
+                    try:
+                        UUID(tid)
+                    except ValueError:
+                        return False, f"Invalid UUID in target_ids: {tid}"
+                elif not isinstance(tid, UUID):
+                    return False, f"Invalid type in target_ids: {type(tid).__name__}"
+
         else:
             return False, f"Unknown field type: {field_type}"
 
@@ -215,8 +259,76 @@ def serialize_value(value: Any, field_type: FieldType) -> Any:
             return value.isoformat()
         return value  # Already a string
 
+    elif field_type == FieldType.RELATION_BELONGS_TO:
+        # Store UUID as string for JSONB
+        if isinstance(value, UUID):
+            return str(value)
+        return value
+
+    elif field_type == FieldType.RELATION_HAS_MANY:
+        # Has-many relations are not stored in field_data
+        return None
+
     # Most types are already JSON-serializable
     return value
+
+
+def validate_relation_settings(
+    field_type: FieldType, relation_settings: RelationSettings | None
+) -> tuple[bool, str | None]:
+    """Validate relation settings match field type.
+
+    Args:
+        field_type: The field type
+        relation_settings: The relation settings to validate
+
+    Returns:
+        Tuple of (is_valid, error_message)
+    """
+    is_relation = field_type in (
+        FieldType.RELATION_BELONGS_TO,
+        FieldType.RELATION_HAS_MANY,
+    )
+
+    if is_relation and not relation_settings:
+        return False, f"Relation field type {field_type} requires relation_settings"
+
+    if not is_relation and relation_settings:
+        return (
+            False,
+            f"Non-relation field type {field_type} cannot have relation_settings",
+        )
+
+    if relation_settings:
+        # Validate relation_type matches field_type
+        expected_type = (
+            "belongs_to" if field_type == FieldType.RELATION_BELONGS_TO else "has_many"
+        )
+        if relation_settings.relation_type != expected_type:
+            return (
+                False,
+                f"Relation type {relation_settings.relation_type} doesn't match field type {field_type}",
+            )
+
+    return True, None
+
+
+def format_belongs_to_cache(
+    record_id: UUID, display_value: str | None = None
+) -> dict[str, Any]:
+    """Format belongs-to relation for JSONB cache.
+
+    Args:
+        record_id: The related record's UUID
+        display_value: Optional display value for the relation
+
+    Returns:
+        Formatted cache dict
+    """
+    return {
+        "id": str(record_id),
+        "display": display_value or str(record_id),
+    }
 
 
 def deserialize_value(value: Any, field_type: FieldType) -> Any:
@@ -241,6 +353,16 @@ def deserialize_value(value: Any, field_type: FieldType) -> Any:
         if isinstance(value, str):
             return datetime.fromisoformat(value.replace("Z", "+00:00"))
         return value
+
+    elif field_type == FieldType.RELATION_BELONGS_TO:
+        # Convert string UUID to UUID object
+        if isinstance(value, str):
+            return UUID(value)
+        return value
+
+    elif field_type == FieldType.RELATION_HAS_MANY:
+        # Has-many relations are not stored in field_data
+        return None
 
     # Most types don't need deserialization
     return value
