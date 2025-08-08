@@ -128,9 +128,11 @@ class GraphAgentWorkflow:
         )
         # expose to UI via workflow state or signal
         await workflow.wait_condition(
-            lambda: self.pending_approvals[call_id].status == ApprovalStatus.APPROVED
+            lambda: self.pending_approvals[call_id].status != ApprovalStatus.PENDING
         )
-        return True  # proceed
+        status = self.pending_approvals[call_id].status
+        logger.info("Approval status", call_id=call_id, status=status)
+        return status == ApprovalStatus.APPROVED
 
     @workflow.run
     async def run(self, args: GraphAgentWorkflowArgs) -> GraphAgentWorkflowResult:
