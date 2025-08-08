@@ -114,8 +114,10 @@ just gen-functions
 - **Database Engine**: `tracecat/db/engine.py` for connection management
 
 ### Enterprise Edition
-- **Location**: `tracecat/ee/` directory contains paid enterprise features
-- **Features**: RBAC, multi-tenancy, SSO integration, advanced auth
+- **Package**: `packages/tracecat-ee/` contains paid enterprise features
+- **Installation**: Install with `uv sync --extra ee` or `pip install tracecat[ee]`
+- **Shims**: `tracecat/ee/` contains shims for backward compatibility
+- **Features**: RBAC, multi-tenancy, SSO integration, advanced auth, interactions
 
 ## Development Guidelines
 

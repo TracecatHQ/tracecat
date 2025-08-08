@@ -10,6 +10,7 @@ resolution-markers = [
 [manifest]
 members = [
     "tracecat",
+    "tracecat-ee",
     "tracecat-registry",
 ]
 
@@ -3637,6 +3638,11 @@ dependencies = [
     { name = "virtualenv" },
 ]
 
+[package.optional-dependencies]
+ee = [
+    { name = "tracecat-ee" },
+]
+
 [package.dev-dependencies]
 dev = [
     { name = "mypy" },
@@ -3693,11 +3699,13 @@ requires-dist = [
     { name = "temporalio", specifier = "==1.9.0" },
     { name = "tenacity", specifier = "==8.3.0" },
     { name = "tomli", specifier = "==2.2.1" },
+    { name = "tracecat-ee", marker = "extra == 'ee'", editable = "packages/tracecat-ee" },
     { name = "tracecat-registry", editable = "packages/tracecat-registry" },
     { name = "uv", specifier = "==0.8.4" },
     { name = "uvicorn", specifier = ">=0.33.0,<0.34" },
     { name = "virtualenv", specifier = "==20.27.0" },
 ]
+provides-extras = ["ee"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -3711,6 +3719,10 @@ dev = [
     { name = "respx", specifier = "==0.22.0" },
     { name = "ruff", specifier = "==0.9.1" },
 ]
+
+[[package]]
+name = "tracecat-ee"
+source = { editable = "packages/tracecat-ee" }
 
 [[package]]
 name = "tracecat-registry"
