@@ -7,6 +7,7 @@ from datetime import date, datetime
 from enum import StrEnum
 from types import UnionType
 from typing import Any, Protocol
+from uuid import UUID
 
 
 class FieldType(StrEnum):
@@ -35,6 +36,10 @@ class FieldType(StrEnum):
 
     # Multi-select (stored as array of strings)
     MULTI_SELECT = "MULTI_SELECT"
+
+    # Relation types
+    RELATION_BELONGS_TO = "RELATION_BELONGS_TO"  # N:1 relationship
+    RELATION_HAS_MANY = "RELATION_HAS_MANY"  # 1:N relationship
 
 
 class FieldValidator(Protocol):
@@ -111,9 +116,15 @@ def get_python_type(
         FieldType.ARRAY_NUMBER: list[float],
         FieldType.SELECT: str,
         FieldType.MULTI_SELECT: list[str],
+        FieldType.RELATION_BELONGS_TO: UUID,  # UUID of related record or None
+        FieldType.RELATION_HAS_MANY: None,  # Not stored directly in field_data
     }
 
     py_type = type_map.get(field_type, Any)
+
+    # Special case: RELATION_HAS_MANY doesn't store data in field_data
+    if py_type is None:
+        return None
 
     # In v1, all fields are nullable
     if not is_required:

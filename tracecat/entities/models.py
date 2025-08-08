@@ -1,12 +1,21 @@
 """Pydantic models for custom entities API."""
 
 from datetime import datetime
+from enum import StrEnum
 from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
 
 from tracecat.entities.types import FieldType
+
+
+class RelationType(StrEnum):
+    """Types of relations between entities."""
+
+    BELONGS_TO = "belongs_to"
+    HAS_MANY = "has_many"
+
 
 # Entity Metadata Models
 
@@ -73,6 +82,45 @@ class EntityMetadataRead(BaseModel):
     model_config = {"from_attributes": True}
 
 
+# Field Settings Models (for specific field types)
+
+
+class RelationSettings(BaseModel):
+    """Settings for relation fields."""
+
+    relation_type: RelationType
+    target_entity_id: UUID
+    backref_field_key: str | None = Field(
+        default=None,
+        description="Field key in target entity for reverse relation",
+    )
+    cascade_delete: bool = Field(
+        default=True,
+        description="Delete related records when source is deleted",
+    )
+
+
+class TextFieldSettings(BaseModel):
+    """Settings for TEXT field type."""
+
+    min_length: int | None = Field(default=None, ge=0)
+    max_length: int | None = Field(default=None, ge=1)
+    pattern: str | None = Field(default=None, description="Regex pattern")
+
+
+class NumberFieldSettings(BaseModel):
+    """Settings for INTEGER/NUMBER field types."""
+
+    min: float | None = None
+    max: float | None = None
+
+
+class SelectFieldSettings(BaseModel):
+    """Settings for SELECT/MULTI_SELECT field types."""
+
+    options: list[str] = Field(..., min_length=1)
+
+
 # Field Metadata Models
 
 
@@ -84,6 +132,10 @@ class FieldMetadataCreate(BaseModel):
     display_name: str = Field(..., min_length=1, max_length=255)
     description: str | None = Field(default=None, max_length=1000)
     field_settings: dict[str, Any] = Field(default_factory=dict)
+    relation_settings: RelationSettings | None = Field(
+        default=None,
+        description="Settings for relation fields (required when field_type is RELATION_*)",
+    )
 
     @field_validator("field_key", mode="before")
     @classmethod
@@ -144,6 +196,10 @@ class FieldMetadataRead(BaseModel):
     deactivated_at: datetime | None
     created_at: datetime
     updated_at: datetime
+    # Relation fields
+    relation_kind: str | None = None
+    relation_target_entity_id: UUID | None = None
+    relation_backref_field_id: UUID | None = None
 
     model_config = {"from_attributes": True}
 
@@ -236,31 +292,51 @@ class BulkCreateResponse(BaseModel):
     )
 
 
-# Field Settings Models (for specific field types)
-
-
-class TextFieldSettings(BaseModel):
-    """Settings for TEXT field type."""
-
-    min_length: int | None = Field(default=None, ge=0)
-    max_length: int | None = Field(default=None, ge=1)
-    pattern: str | None = Field(default=None, description="Regex pattern")
-
-
-class NumberFieldSettings(BaseModel):
-    """Settings for INTEGER/NUMBER field types."""
-
-    min: float | None = None
-    max: float | None = None
-
-
-class SelectFieldSettings(BaseModel):
-    """Settings for SELECT/MULTI_SELECT field types."""
-
-    options: list[str] = Field(..., min_length=1)
-
-
 class ArrayFieldSettings(BaseModel):
     """Settings for ARRAY_* field types."""
 
     max_items: int | None = Field(default=None, ge=1)
+
+
+# Relation Operation Models
+
+
+class RelationOperation(StrEnum):
+    """Types of operations on relation fields."""
+
+    ADD = "add"
+    REMOVE = "remove"
+    REPLACE = "replace"
+
+
+class HasManyRelationUpdate(BaseModel):
+    """Update payload for has_many relation fields."""
+
+    operation: RelationOperation
+    target_ids: list[UUID] = Field(
+        ...,
+        description="UUIDs of target records to add/remove/replace",
+        min_length=0,
+        max_length=1000,  # Batch size limit
+    )
+
+
+class RelationListRequest(BaseModel):
+    """Request for listing related records."""
+
+    page: int = Field(default=1, ge=1)
+    page_size: int = Field(default=50, ge=1, le=100)
+    filters: list["QueryFilter"] | None = Field(
+        default=None,
+        description="Optional filters on target records",
+    )
+
+
+class RelationListResponse(BaseModel):
+    """Response for related records listing."""
+
+    records: list[EntityDataRead]
+    total: int
+    page: int
+    page_size: int
+    has_next: bool
