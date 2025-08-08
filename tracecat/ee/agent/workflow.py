@@ -32,6 +32,7 @@ with workflow.unsafe.imports_passed_through():
     )
     from tracecat_registry.integrations.pydantic_ai import build_agent
 
+    from tracecat import config
     from tracecat.contexts import ctx_role
     from tracecat.ee.agent.activities import (
         AgentActivities,
@@ -107,6 +108,10 @@ class GraphAgentWorkflow:
         Returns:
             bool: True if the tool call should proceed, False otherwise
         """
+        # If approvals are disabled, allow tool call to proceed immediately
+        if not config.TRACECAT__AGENT_APPROVALS_ENABLED:
+            return True
+
         tool_name = message.tool_name
         tool_args = message.args
         call_id = f"{tool_name}_{workflow.uuid4().hex}"

@@ -41,6 +41,12 @@ TRACECAT__SERVICE_ROLES_WHITELIST = [
 TRACECAT__DEFAULT_USER_ID = uuid.UUID(int=0)
 TRACECAT__DEFAULT_ORG_ID = uuid.UUID(int=0)
 
+# If enabled, GraphAgent tool calls require human approval. Default disabled.
+TRACECAT__AGENT_APPROVALS_ENABLED = os.environ.get(
+    "TRACECAT__AGENT_APPROVALS_ENABLED", "false"
+).lower() in ("true", "1")
+"""Controls whether GraphAgent uses approvals for tool calls. Default disabled."""
+
 # === DB Config === #
 TRACECAT__DB_URI = os.environ.get(
     "TRACECAT__DB_URI",
