@@ -1,0 +1,38 @@
+type: action
+definition:
+  title: Get case data
+  description: Get PhishLabs case API data.
+  display_group: PhishLabs
+  doc_url: https://caseapi.phishlabs.com/v1/data/docs/
+  namespace: tools.phishlabs
+  name: get_case_data
+  secrets:
+    - name: phishlabs
+      keys: ["PL_USERNAME", "PL_PASSWORD"]
+  expects:
+    case_status:
+      type: str
+      description: The status of the case. Default is "Pending Input".
+      default: "Pending Input"
+    max_records:
+      type: int
+      description: The maximum number of records to return.
+      default: 200
+    verify_ssl:
+      type: bool
+      description: If False, disables SSL verification for internal networks.
+      default: true
+  steps:
+    - ref: get_case_data
+      action: core.http_request
+      args:
+        url: https://caseapi.phishlabs.com/v1/data/cases
+        method: GET
+        params:
+          caseStatus: ${{ inputs.case_status }}
+          maxRecords: ${{ inputs.max_records }}
+        auth:
+          username: ${{ SECRETS.phishlabs.PL_USERNAME }}
+          password: ${{ SECRETS.phishlabs.PL_PASSWORD }}
+        verify_ssl: ${{ inputs.verify_ssl  }}
+  returns: ${{ steps.get_case_data.result.data }}
