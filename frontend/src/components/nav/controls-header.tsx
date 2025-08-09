@@ -1,17 +1,21 @@
 "use client"
 
+import { useQueryClient } from "@tanstack/react-query"
 import { format, formatDistanceToNow } from "date-fns"
 import { Calendar, PanelRight, Plus } from "lucide-react"
 import Link from "next/link"
 import { usePathname, useSearchParams } from "next/navigation"
 import { type ReactNode, useState } from "react"
 import type { OAuthGrantType } from "@/client"
+import { entitiesCreateEntityType } from "@/client"
 import { CreateCaseDialog } from "@/components/cases/case-create-dialog"
 import { CreateWorkflowButton } from "@/components/dashboard/create-workflow-button"
 import {
   FolderViewToggle,
   ViewMode,
 } from "@/components/dashboard/folder-view-toggle"
+import { CreateEntityDialog } from "@/components/entities/create-entity-dialog"
+import { EntityDetailActions } from "@/components/entities/entity-detail-actions"
 import { CreateTableDialog } from "@/components/tables/table-create-dialog"
 import { TableInsertButton } from "@/components/tables/table-insert-button"
 import {
@@ -24,6 +28,7 @@ import {
 } from "@/components/ui/breadcrumb"
 import { Button } from "@/components/ui/button"
 import { SidebarTrigger } from "@/components/ui/sidebar"
+import { toast } from "@/components/ui/use-toast"
 import { AddCustomField } from "@/components/workspaces/add-custom-field"
 import { AddWorkspaceMember } from "@/components/workspaces/add-workspace-member"
 import {
@@ -36,6 +41,7 @@ import {
   useIntegrationProvider,
   useLocalStorage,
 } from "@/lib/hooks"
+import { useEntity } from "@/lib/hooks/use-entities"
 import { useWorkspace } from "@/providers/workspace"
 
 interface PageConfig {
@@ -129,6 +135,68 @@ function CredentialsActions() {
 
 function CustomFieldsActions() {
   return <AddCustomField />
+}
+
+function EntitiesActions() {
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const { workspaceId } = useWorkspace()
+  const queryClient = useQueryClient()
+
+  const handleCreateEntity = async (data: {
+    name: string
+    display_name: string
+    description?: string
+    icon?: string
+  }) => {
+    try {
+      await entitiesCreateEntityType({
+        workspaceId,
+        requestBody: {
+          name: data.name,
+          display_name: data.display_name,
+          description: data.description,
+          icon: data.icon,
+          settings: {},
+        },
+      })
+
+      queryClient.invalidateQueries({
+        queryKey: ["entities", workspaceId],
+      })
+
+      toast({
+        title: "Entity created",
+        description: `${data.display_name} has been created successfully.`,
+      })
+    } catch (error) {
+      console.error("Failed to create entity:", error)
+      toast({
+        title: "Error creating entity",
+        description: "Failed to create entity. Please try again.",
+        variant: "destructive",
+      })
+      throw error
+    }
+  }
+
+  return (
+    <>
+      <Button
+        variant="outline"
+        size="sm"
+        className="h-7 bg-white"
+        onClick={() => setDialogOpen(true)}
+      >
+        <Plus className="mr-1 h-3.5 w-3.5" />
+        Create custom entity
+      </Button>
+      <CreateEntityDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        onSubmit={handleCreateEntity}
+      />
+    </>
+  )
 }
 
 function CaseBreadcrumb({
@@ -268,6 +336,36 @@ function IntegrationBreadcrumb({
   )
 }
 
+function EntityBreadcrumb({
+  entityId,
+  workspaceId,
+}: {
+  entityId: string
+  workspaceId: string
+}) {
+  const { entity } = useEntity(workspaceId, entityId)
+
+  return (
+    <Breadcrumb>
+      <BreadcrumbList className="relative z-10 flex items-center gap-2 text-sm flex-nowrap overflow-hidden whitespace-nowrap min-w-0 bg-white pr-1">
+        <BreadcrumbItem>
+          <BreadcrumbLink asChild className="font-semibold hover:no-underline">
+            <Link href={`/workspaces/${workspaceId}/entities`}>Entities</Link>
+          </BreadcrumbLink>
+        </BreadcrumbItem>
+        <BreadcrumbSeparator className="shrink-0">
+          <span className="text-muted-foreground">/</span>
+        </BreadcrumbSeparator>
+        <BreadcrumbItem>
+          <BreadcrumbPage className="font-semibold">
+            {entity?.display_name || entityId}
+          </BreadcrumbPage>
+        </BreadcrumbItem>
+      </BreadcrumbList>
+    </Breadcrumb>
+  )
+}
+
 function getPageConfig(
   pathname: string,
   workspaceId: string,
@@ -362,6 +460,25 @@ function getPageConfig(
     return {
       title: "Custom fields",
       actions: <CustomFieldsActions />,
+    }
+  }
+
+  if (pagePath.startsWith("/entities")) {
+    // Check if this is an entity detail page
+    const entityMatch = pagePath.match(/^\/entities\/([^/]+)$/)
+    if (entityMatch) {
+      const entityId = entityMatch[1]
+      return {
+        title: (
+          <EntityBreadcrumb entityId={entityId} workspaceId={workspaceId} />
+        ),
+        actions: <EntityDetailActions />,
+      }
+    }
+
+    return {
+      title: "Entities",
+      actions: <EntitiesActions />,
     }
   }
 

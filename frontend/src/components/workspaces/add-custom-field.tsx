@@ -147,7 +147,7 @@ export function AddCustomField() {
               name="type"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Field Type</FormLabel>
+                  <FormLabel>Field type</FormLabel>
                   <Select
                     onValueChange={field.onChange}
                     defaultValue={field.value}
@@ -202,7 +202,7 @@ export function AddCustomField() {
               name="default"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Default Value (optional)</FormLabel>
+                  <FormLabel>Default value (optional)</FormLabel>
                   <FormControl>
                     <Input
                       placeholder="Default value"
@@ -224,7 +224,7 @@ export function AddCustomField() {
 
             <DialogFooter>
               <Button type="submit" disabled={isSubmitting}>
-                Create Field
+                Create field
               </Button>
             </DialogFooter>
           </form>
