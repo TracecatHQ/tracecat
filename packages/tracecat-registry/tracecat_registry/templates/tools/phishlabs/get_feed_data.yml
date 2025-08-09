@@ -1,0 +1,39 @@
+type: action
+definition:
+  title: Get feed data
+  description: Get PhishLabs feed API data.
+  display_group: PhishLabs
+  doc_url: https://feed.phishlabs.com/redoc#operation/Feed_GetBAFeed
+  namespace: tools.phishlabs
+  name: get_feed_data
+  secrets:
+    - name: phishlabs
+      keys: ["PL_USERNAME", "PL_PASSWORD", "PL_CUSTOMER_ID"]
+  expects:
+    incident_status:
+      type: str
+      description: The status of the incident. Default is "Requires Input".
+      default: "Requires Input"
+    grpcatid:
+      type: int
+      description: Include the integer that maps to the type of incident you want returned. Default is 0.
+      default: 0
+    verify_ssl:
+      type: bool
+      description: If False, disables SSL verification for internal networks.
+      default: true
+  steps:
+    - ref: get_feed_data
+      action: core.http_request
+      args:
+        url: https://feed.phishlabs.com/bafeed.get
+        method: GET
+        params:
+          custid: ${{ SECRETS.phishlabs.PL_CUSTOMER_ID }}
+          incidentstatus: ${{ inputs.incident_status }}
+          grpcatid: ${{ inputs.grpcatid }}
+        auth:
+          username: ${{ SECRETS.phishlabs.PL_CLIENT_ID }}
+          password: ${{ SECRETS.phishlabs.PL_CLIENT_SECRET }}
+        verify_ssl: ${{ inputs.verify_ssl  }}
+  returns: ${{ steps.get_feed_data.result.data }}
