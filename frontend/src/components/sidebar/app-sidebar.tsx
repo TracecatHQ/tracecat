@@ -1,6 +1,7 @@
 "use client"
 
 import {
+  DatabaseIcon,
   KeyRoundIcon,
   ListTodoIcon,
   SquareStackIcon,
@@ -83,6 +84,12 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       url: `${basePath}/members`,
       icon: UsersIcon,
       isActive: pathname?.startsWith(`${basePath}/members`),
+    },
+    {
+      title: "Entities",
+      url: `${basePath}/entities`,
+      icon: DatabaseIcon,
+      isActive: pathname?.startsWith(`${basePath}/entities`),
     },
   ]
 

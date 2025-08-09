@@ -249,9 +249,6 @@ export function OrgWorkspaceSettings({
       <div className="space-y-4">
         <div>
           <h3 className="text-lg font-medium text-destructive">Danger zone</h3>
-          <p className="text-sm text-muted-foreground">
-            Permanently delete this workspace and all of its data.
-          </p>
         </div>
         <div className="rounded-md border border-destructive p-4">
           <div className="flex items-center justify-between">
