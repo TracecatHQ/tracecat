@@ -24,7 +24,7 @@ def upgrade() -> None:
     # This speeds up duplicate detection in JSONB
     op.execute(
         """
-        CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_entity_data_unique_fields
+        CREATE INDEX IF NOT EXISTS idx_entity_data_unique_fields
         ON entity_data USING gin(field_data)
         WHERE owner_id IS NOT NULL
     """
@@ -33,7 +33,7 @@ def upgrade() -> None:
     # Add index for required field checks (null detection)
     op.execute(
         """
-        CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_entity_data_null_fields
+        CREATE INDEX IF NOT EXISTS idx_entity_data_null_fields
         ON entity_data USING gin(field_data jsonb_path_ops)
         WHERE owner_id IS NOT NULL
     """

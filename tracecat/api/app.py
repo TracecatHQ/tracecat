@@ -41,6 +41,7 @@ from tracecat.db.engine import get_async_session_context_manager
 from tracecat.editor.router import router as editor_router
 from tracecat.feature_flags import feature_flag_dep
 from tracecat.feature_flags.router import router as feature_flags_router
+from tracecat.entities.router import router as entities_router
 from tracecat.integrations.router import integrations_router, providers_router
 from tracecat.logger import logger
 from tracecat.middleware import (
@@ -208,6 +209,7 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(cases_router)
     app.include_router(case_fields_router)
     app.include_router(case_tags_router)
+    app.include_router(entities_router)
     app.include_router(chat_router)
     app.include_router(prompt_router)
     app.include_router(workflow_folders_router)
