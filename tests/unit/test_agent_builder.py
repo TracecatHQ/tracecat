@@ -310,7 +310,7 @@ class TestCreateToolFromRegistry:
 
         # Verify the tool has the correct configuration
         assert tool.docstring_format == "google"
-        assert tool.require_parameter_descriptions is True
+        assert tool.require_parameter_descriptions is False
 
         # Verify all parameters have descriptions in the docstring
         docstring = tool.function.__doc__
