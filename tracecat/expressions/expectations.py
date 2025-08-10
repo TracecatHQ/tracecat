@@ -34,7 +34,7 @@ FLOAT: "float"
 DATETIME: "datetime"
 DURATION: "duration"
 # Allow both lowercase and capitalized variant for the primitive "any"
-ANY: /(any|Any)/
+ANY: "any" | "Any"
 NULL: "None"
 
 list_type: "list" "[" type "]"
