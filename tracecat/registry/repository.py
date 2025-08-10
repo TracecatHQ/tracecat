@@ -688,7 +688,8 @@ def generate_model_from_function(
     for name, param in sig.parameters.items():
         # Use the annotation and default value of the parameter to define the model field
         field_annotation = param.annotation
-        raw_field_type: type = field_annotation.__origin__
+        # Handle both Annotated types and raw types
+        raw_field_type: type = getattr(field_annotation, "__origin__", field_annotation)
         field_info_kwargs = {}
         # Get the default UI for the field
         non_null_field_type = type_drop_null(raw_field_type)
