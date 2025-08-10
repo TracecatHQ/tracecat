@@ -26,6 +26,7 @@ from tracecat.expressions.functions import (
     dict_keys,
     dict_lookup,
     dict_values,
+    difference,
     div,
     endswith,
     flatten,
@@ -42,8 +43,10 @@ from tracecat.expressions.functions import (
     get_year,
     greater_than,
     greater_than_or_equal,
+    has_any_in,
     hours_between,
     index_by_key,
+    intersection,
     ipv4_in_subnet,
     ipv4_is_public,
     ipv6_in_subnet,
@@ -66,6 +69,7 @@ from tracecat.expressions.functions import (
     not_,
     not_empty,
     not_equal,
+    not_has_any_in,
     not_in,
     not_null,
     or_,
@@ -87,10 +91,12 @@ from tracecat.expressions.functions import (
     strip,
     sub,
     sum_,
+    symmetric_difference,
     titleize,
     to_datetime,
     to_time,
     to_timestamp,
+    union,
     unset_timezone,
     uppercase,
     url_decode,
@@ -395,6 +401,44 @@ def test_equality(func, a: Any, b: Any, expected: bool) -> None:
     ],
 )
 def test_is_in(func, a: Any, b: Any, expected: bool) -> None:
+    assert func(a, b) == expected
+
+
+@pytest.mark.parametrize(
+    "func,a,b,expected",
+    [
+        (has_any_in, [1, 3], [2, 3, 4], True),
+        (has_any_in, ["ex", "ma"], "hello", False),
+        (has_any_in, ["1", 2, 3.0], ["2", 2, 3.1], True),
+        (not_has_any_in, "enc", ["mic", "kitten"], True),
+        (not_has_any_in, "x", "hello", True),
+        (not_has_any_in, ["1", 4.0], ["1", 2.0, 3], False),
+    ],
+)
+def test_has_any_in(func, a: Any, b: Any, expected: bool) -> None:
+    assert func(a, b) == expected
+
+
+@pytest.mark.parametrize(
+    "func,a,b,expected",
+    [
+        (union, [1, 2, 3], [3, 4, 5], [1, 2, 3, 4, 5]),
+        (union, [1, 2, 3], ["hello", "world"], [1, 2, 3, "hello", "world"]),
+        (intersection, [1, 2, 3], [3, 4, 5], [3]),
+        (intersection, [1, 2, 3], ["hello", "world"], []),
+        (difference, [1, 2, 3], [3, 4, 5], [1, 2]),
+        (difference, [1, 2, 3], ["hello", "world"], [1, 2, 3]),
+        (symmetric_difference, [1, 2, 3], [3, 4, 5], [1, 2, 4, 5]),
+        (
+            symmetric_difference,
+            [1, 2, 3],
+            ["hello", "world"],
+            [1, 2, 3, "hello", "world"],
+        ),
+    ],
+)
+def test_set_operations(func, a: Any, b: Any, expected: list[Any]) -> None:
+    """Test set operations functions."""
     assert func(a, b) == expected
 
 

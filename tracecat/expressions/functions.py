@@ -330,6 +330,16 @@ def not_empty(x: Sequence[Any]) -> bool:
     return len(x) > 0
 
 
+def has_any_in(a: Sequence[Any], b: Sequence[Any]) -> bool:
+    """Check if any of of the elements of the first sequence exist in the second sequence."""
+    return bool(set(a) & set(b))
+
+
+def not_has_any_in(a: Sequence[Any], b: Sequence[Any]) -> bool:
+    """Check if all of of the elements of the first sequence don't exist in the second sequence."""
+    return not (bool(set(a) & set(b)))
+
+
 def _custom_chain(*args) -> Any:
     """Recursively flattens nested iterables into a single generator."""
     for arg in args:
@@ -347,6 +357,26 @@ def flatten(iterables: Sequence[Sequence[Any]]) -> list[Any]:
 def unique(items: Sequence[Any]) -> list[Any]:
     """List of hashable items (e.g. strings, numbers) to remove duplicates from."""
     return list(set(items))
+
+
+def union(a: Sequence[Any], b: Sequence[Any]) -> list[Any]:
+    """Return a list containing the union of elements from two sequences."""
+    return list(set(a).union(b))
+
+
+def intersection(a: Sequence[Any], b: Sequence[Any]) -> list[Any]:
+    """Return a list containing the intersection of elements from two sequences."""
+    return list(set(a).intersection(b))
+
+
+def difference(a: Sequence[Any], b: Sequence[Any]) -> list[Any]:
+    """Return a list of elements that are in the first sequence but not in the second."""
+    return list(set(a).difference(b))
+
+
+def symmetric_difference(a: Sequence[Any], b: Sequence[Any]) -> list[Any]:
+    """Return a list of elements that are in either sequence but not in both."""
+    return list(set(a).symmetric_difference(b))
 
 
 def join_strings(items: Sequence[str], sep: str) -> str:
@@ -943,7 +973,13 @@ _FUNCTION_MAPPING = {
     "compact": compact,
     "contains": is_in,  # alias for is_in
     "does_not_contain": not_in,  # alias for not_in
+    "contains_any": has_any_in,  # alias for has_any_in
+    "does_not_contain_any": not_has_any_in,  # alias for not_has_any_in
+    "difference": difference,
     "flatten": flatten,
+    "has_any_in": has_any_in,
+    "not_has_any_in": not_has_any_in,
+    "intersection": intersection,
     "is_empty": is_empty,
     "is_in": is_in,
     "length": len,
@@ -951,6 +987,8 @@ _FUNCTION_MAPPING = {
     "is_not_empty": not_empty,  # alias for not_empty
     "not_in": not_in,
     "is_not_in": not_in,  # alias for not_in
+    "symmetric_difference": symmetric_difference,
+    "union": union,
     "unique": unique,
     "zip_map": zip_map,  # Inspired by Terraform: https://developer.hashicorp.com/terraform/language/functions/zipmap
     # Math
