@@ -15,7 +15,7 @@ from pydantic_ai.messages import (
 )
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
-from tracecat_registry.integrations.pydantic_ai import build_agent
+from tracecat_registry.integrations.pydantic_ai import build_agent, get_model
 
 from tracecat.agent.service import AgentManagementService
 from tracecat.chat.enums import ChatEntity
@@ -300,9 +300,9 @@ Sticking to the above will help you successfully run the <Steps> over the new us
         """)
         svc = AgentManagementService(self.session, self.role)
         async with svc.with_model_config() as model_config:
+            model = get_model(model_config.name, model_config.provider)
             agent = build_agent(
-                model_name=model_config.name,
-                model_provider=model_config.provider,
+                model=model,
                 instructions=instructions,
             )
             user_prompt = f"""
