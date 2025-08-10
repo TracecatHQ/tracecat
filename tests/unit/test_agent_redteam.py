@@ -27,7 +27,7 @@ class TestAgentSecurityValidation:
             create_file = self._get_tool(tools, "create_file").function
 
             with pytest.raises(ValueError, match="Directory traversal is not allowed"):
-                create_file("../hack.txt", "bad")
+                create_file("../hack.txt", "bad")  # type: ignore
 
     def test_absolute_path_blocked(self):
         """Absolute paths are forbidden."""
@@ -36,7 +36,7 @@ class TestAgentSecurityValidation:
             read_file = self._get_tool(tools, "read_file").function
 
             with pytest.raises(ValueError, match="Absolute paths are not allowed"):
-                read_file("/etc/passwd")
+                read_file("/etc/passwd")  # type: ignore
 
     def test_hidden_file_blocked(self):
         """Hidden files should be rejected by validation."""
@@ -45,7 +45,7 @@ class TestAgentSecurityValidation:
             create_file = self._get_tool(tools, "create_file").function
 
             with pytest.raises(ValueError, match="Hidden files are not allowed"):
-                create_file(".secret", "nope")
+                create_file(".secret", "nope")  # type: ignore
 
     def test_path_length_limit_enforced(self):
         """File paths longer than the allowed limit (1000 chars) should be rejected."""
@@ -55,7 +55,7 @@ class TestAgentSecurityValidation:
 
             long_path = "a" * 1001  # 1001 > 1000 char limit
             with pytest.raises(ValueError, match="File path too long"):
-                create_file(long_path, "data")
+                create_file(long_path, "data")  # type: ignore
 
     def test_windows_device_names_blocked(self):
         """Windows reserved device names must be rejected even on non-Windows systems."""
@@ -64,7 +64,7 @@ class TestAgentSecurityValidation:
             create_file = self._get_tool(tools, "create_file").function
 
             with pytest.raises(ValueError, match="Windows device name not allowed"):
-                create_file("NUL", "oops")
+                create_file("NUL", "oops")  # type: ignore
 
     def test_binary_file_read_protection(self):
         """Attempting to read a binary file should raise a ValueError indicating the file is not text."""
@@ -80,7 +80,7 @@ class TestAgentSecurityValidation:
             # Provide the relative path
             rel_path = os.path.relpath(binary_path, tmp)
             with pytest.raises(ValueError, match="binary"):
-                read_file_tool(rel_path)
+                read_file_tool(rel_path)  # type: ignore
 
     def test_malformed_regex_raises_modelretry(self):
         """grep_search should raise ModelRetry for malformed regex patterns."""
@@ -91,4 +91,4 @@ class TestAgentSecurityValidation:
             # Unclosed group
             bad_pattern = "(unclosed"
             with pytest.raises(ModelRetry):
-                grep_tool(bad_pattern)
+                grep_tool(bad_pattern)  # type: ignore
