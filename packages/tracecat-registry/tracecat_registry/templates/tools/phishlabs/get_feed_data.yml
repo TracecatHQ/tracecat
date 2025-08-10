@@ -8,7 +8,7 @@ definition:
   name: get_feed_data
   secrets:
     - name: phishlabs
-      keys: ["PL_USERNAME", "PL_PASSWORD", "PL_CUSTOMER_ID"]
+      keys: ["PL_CUSTOMER_ID", "PL_USERNAME", "PL_PASSWORD"]
   expects:
     incident_status:
       type: str
@@ -33,7 +33,7 @@ definition:
           incidentstatus: ${{ inputs.incident_status }}
           grpcatid: ${{ inputs.grpcatid }}
         auth:
-          username: ${{ SECRETS.phishlabs.PL_CLIENT_ID }}
-          password: ${{ SECRETS.phishlabs.PL_CLIENT_SECRET }}
+          username: ${{ SECRETS.phishlabs.PL_USERNAME }}
+          password: ${{ SECRETS.phishlabs.PL_PASSWORD }}
         verify_ssl: ${{ inputs.verify_ssl  }}
   returns: ${{ steps.get_feed_data.result.data }}
