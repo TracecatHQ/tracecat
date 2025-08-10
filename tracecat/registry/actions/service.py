@@ -79,7 +79,14 @@ class RegistryActionsService(BaseService):
 
     async def get_action(self, action_name: str) -> RegistryAction:
         """Get an action by name."""
-        namespace, name = action_name.rsplit(".", maxsplit=1)
+        try:
+            namespace, name = action_name.rsplit(".", maxsplit=1)
+        except ValueError:
+            raise RegistryError(
+                f"Action {action_name} is not a valid action name",
+                detail={"action_name": action_name},
+            ) from None
+
         statement = select(RegistryAction).where(
             RegistryAction.owner_id == config.TRACECAT__DEFAULT_ORG_ID,
             RegistryAction.namespace == namespace,
