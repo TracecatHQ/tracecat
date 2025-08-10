@@ -5,16 +5,18 @@ import uuid
 from typing import Annotated
 
 import orjson
-from fastapi import APIRouter, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
-from tracecat_registry.integrations.agents.builder import ModelMessageTA, run_agent
+from tracecat_registry.integrations.agents.builder import ModelMessageTA
 from tracecat_registry.integrations.agents.tokens import (
     DATA_KEY,
     END_TOKEN,
     END_TOKEN_VALUE,
 )
 
-from tracecat.agent.service import AgentManagementService
+from tracecat.agent.executor.base import BaseAgentExecutor
+from tracecat.agent.executor.deps import get_executor
+from tracecat.agent.models import ModelInfo, RunAgentArgs, ToolFilters
 from tracecat.auth.credentials import RoleACL
 from tracecat.chat.models import (
     ChatCreate,
@@ -146,6 +148,7 @@ async def start_chat_turn(
     request: ChatRequest,
     role: WorkspaceUser,
     session: AsyncDBSession,
+    executor: Annotated[BaseAgentExecutor, Depends(get_executor)],
 ) -> ChatResponse:
     """Start a new chat turn with an AI agent.
 
@@ -164,18 +167,23 @@ async def start_chat_turn(
 
     try:
         # Fire-and-forget execution using the agent function directly
-        agent_svc = AgentManagementService(session, role)
-        async with agent_svc.with_model_config() as model_config:
-            coro = run_agent(
-                instructions=request.instructions,
-                user_prompt=request.message,
-                fixed_arguments=request.context,
-                model_name=model_config.name,
-                model_provider=model_config.provider,
-                actions=chat.tools,
-                stream_id=str(chat_id),
-            )
-            _ = asyncio.create_task(coro)
+
+        # Build model info from request
+        model_info = ModelInfo(
+            name=request.model_name,
+            provider=request.model_provider,
+            base_url=request.base_url,
+        )
+
+        args = RunAgentArgs(
+            role=role,
+            user_prompt=request.message,
+            tool_filters=ToolFilters(actions=chat.tools),
+            session_id=f"agent-stream:{str(chat_id)}",
+            instructions=request.instructions,
+            model_info=model_info,
+        )
+        await executor.start(args)
 
         stream_url = f"/api/chat/{chat_id}/stream"
 
