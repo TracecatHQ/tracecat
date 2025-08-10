@@ -210,9 +210,16 @@ def _extract_action_metadata(bound_action) -> tuple[str, type]:
     return description, model_cls
 
 
+@dataclass(frozen=True, slots=True)
+class FunctionSignature:
+    signature: inspect.Signature
+    annotations: dict[str, Any]
+    param_mapping: dict[str, str]
+
+
 def _create_function_signature(
     model_cls: type, fixed_args: set[str] | None = None
-) -> tuple[inspect.Signature, dict[str, Any], dict[str, str]]:
+) -> FunctionSignature:
     """Create function signature and annotations from a Pydantic model.
 
     Args:
@@ -272,7 +279,11 @@ def _create_function_signature(
     # Add return annotation
     annotations["return"] = Any
 
-    return inspect.Signature(sig_params), annotations, param_mapping
+    return FunctionSignature(
+        signature=inspect.Signature(sig_params),
+        annotations=annotations,
+        param_mapping=param_mapping,
+    )
 
 
 def _generate_tool_function_name(namespace: str, name: str, *, sep: str = "__") -> str:
@@ -325,16 +336,14 @@ async def create_tool_from_registry(
     description, model_cls = _extract_action_metadata(bound_action)
 
     # Create function signature and get parameter mapping
-    signature, annotations, param_mapping = _create_function_signature(
-        model_cls, fixed_arg_names
-    )
+    sig = _create_function_signature(model_cls, fixed_arg_names)
 
     # Create wrapper function that calls the action with fixed args merged
     async def tool_func(**kwargs: Any) -> Any:
         # Remap sanitized parameter names back to original field names
         remapped_kwargs = {}
         for param_name, value in kwargs.items():
-            original_name = param_mapping.get(param_name, param_name)
+            original_name = sig.param_mapping.get(param_name, param_name)
             remapped_kwargs[original_name] = value
 
         # Merge fixed arguments with runtime arguments
@@ -351,8 +360,8 @@ async def create_tool_from_registry(
         raise ValueError(f"Action '{action_name}' has no description")
 
     # Set function signature and annotations
-    tool_func.__signature__ = signature
-    tool_func.__annotations__ = annotations
+    tool_func.__signature__ = sig.signature
+    tool_func.__annotations__ = sig.annotations
 
     # Generate Google-style docstring, excluding fixed args
     tool_func.__doc__ = generate_google_style_docstring(

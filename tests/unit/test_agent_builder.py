@@ -575,10 +575,10 @@ class TestAgentBuilderHelpers:
             name: str = Field(description="User name")
             age: int = Field(description="User age")
 
-        signature, annotations = _create_function_signature(TestModel)
+        sig = _create_function_signature(TestModel)
 
         # Check signature parameters
-        params = list(signature.parameters.values())
+        params = list(sig.signature.parameters.values())
         assert len(params) == 2
 
         # Check first parameter
@@ -593,9 +593,9 @@ class TestAgentBuilderHelpers:
         assert params[1].default == inspect.Parameter.empty  # Required field
 
         # Check annotations
-        assert annotations["name"] is str
-        assert annotations["age"] is int
-        assert annotations["return"] is Any
+        assert sig.annotations["name"] is str
+        assert sig.annotations["age"] is int
+        assert sig.annotations["return"] is Any
 
     def test_create_function_signature_with_optional_params(self):
         """Test function signature creation with optional parameters."""
@@ -606,9 +606,9 @@ class TestAgentBuilderHelpers:
             email: str | None = Field(None, description="User email")
             active: bool = Field(True, description="Is active")
 
-        signature, annotations = _create_function_signature(TestModel)
+        sig = _create_function_signature(TestModel)
 
-        params = list(signature.parameters.values())
+        params = list(sig.signature.parameters.values())
         assert len(params) == 3
 
         # Required parameter
@@ -619,12 +619,12 @@ class TestAgentBuilderHelpers:
         assert params[1].name == "email"
         assert params[1].default is None
         # The field is already str | None, so it should not be double-wrapped
-        assert annotations["email"] == str | None
+        assert sig.annotations["email"] == str | None
 
         # Optional with non-None default
         assert params[2].name == "active"
         assert params[2].default is True
-        assert annotations["active"] is bool
+        assert sig.annotations["active"] is bool
 
     def test_extract_action_metadata_udf(self):
         """Test metadata extraction from a UDF action."""
@@ -894,10 +894,10 @@ class TestFixedArguments:
             name: str = Field(description="The user's name")
             age: int = Field(description="The user's age")
 
-        signature, annotations = _create_function_signature(TestModel)
+        sig = _create_function_signature(TestModel)
 
         # Check signature parameters
-        params = list(signature.parameters.values())
+        params = list(sig.signature.parameters.values())
         assert len(params) == 2
 
         # Check first parameter
@@ -912,9 +912,9 @@ class TestFixedArguments:
         assert params[1].default == inspect.Parameter.empty  # Required field
 
         # Check annotations
-        assert annotations["name"] is str
-        assert annotations["age"] is int
-        assert annotations["return"] is Any
+        assert sig.annotations["name"] is str
+        assert sig.annotations["age"] is int
+        assert sig.annotations["return"] is Any
 
     async def test_create_tool_from_registry_with_fixed_args(self, test_role):
         """Test creating a tool with fixed arguments."""
@@ -1186,19 +1186,19 @@ class TestFixedArguments:
 
         # Test with valid fixed_args
         fixed_args = {"param1", "param3"}
-        signature, annotations = _create_function_signature(TestModel, fixed_args)
-        params = list(signature.parameters.keys())
+        sig = _create_function_signature(TestModel, fixed_args)
+        params = list(sig.signature.parameters.keys())
 
         assert "param1" not in params  # Should be excluded
         assert "param2" in params  # Should be included
         assert "param3" not in params  # Should be excluded
 
         # Test with empty set
-        signature_empty, _ = _create_function_signature(TestModel, set())
-        params_empty = list(signature_empty.parameters.keys())
+        sig_empty = _create_function_signature(TestModel, set())
+        params_empty = list(sig_empty.signature.parameters.keys())
         assert len(params_empty) == 3  # All parameters should be included
 
         # Test with None (should behave like empty set)
-        signature_none, _ = _create_function_signature(TestModel, None)
-        params_none = list(signature_none.parameters.keys())
+        sig_none = _create_function_signature(TestModel, None)
+        params_none = list(sig_none.signature.parameters.keys())
         assert len(params_none) == 3  # All parameters should be included
