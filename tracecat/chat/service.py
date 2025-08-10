@@ -4,6 +4,11 @@ from collections.abc import Sequence
 import orjson
 from sqlmodel import col, select
 from tracecat_registry.integrations.agents.builder import ModelMessageTA
+from tracecat_registry.integrations.agents.tokens import (
+    DATA_KEY,
+    END_TOKEN,
+    END_TOKEN_VALUE,
+)
 
 from tracecat.chat.models import ChatMessage
 from tracecat.chat.tools import get_default_tools
@@ -129,10 +134,10 @@ class ChatService(BaseWorkspaceService):
             parsed_messages: list[ChatMessage] = []
             for id, fields in messages:
                 try:
-                    data = orjson.loads(fields["d"])
+                    data = orjson.loads(fields[DATA_KEY])
 
                     # Skip end-of-stream markers
-                    if data.get("__end__") == 1:
+                    if data.get(END_TOKEN) == END_TOKEN_VALUE:
                         continue
 
                     validated_msg = ModelMessageTA.validate_python(data)

@@ -7,6 +7,11 @@ from typing import Annotated
 import orjson
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
+from tracecat_registry.integrations.agents.tokens import (
+    DATA_KEY,
+    END_TOKEN,
+    END_TOKEN_VALUE,
+)
 
 from tracecat.auth.credentials import RoleACL
 from tracecat.cases.service import CasesService
@@ -221,10 +226,10 @@ async def stream_prompt_execution(
                         for _stream_name, messages in result:
                             for message_id, fields in messages:
                                 try:
-                                    data = orjson.loads(fields["d"])
+                                    data = orjson.loads(fields[DATA_KEY])
 
                                     # Check for end-of-stream marker
-                                    if data.get("__end__") == 1:
+                                    if data.get(END_TOKEN) == END_TOKEN_VALUE:
                                         yield f"id: {message_id}\nevent: end\ndata: {{}}\n\n"
                                     else:
                                         # Send the message
