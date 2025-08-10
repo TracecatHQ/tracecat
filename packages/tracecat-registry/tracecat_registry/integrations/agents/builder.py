@@ -1,6 +1,8 @@
 """Pydantic AI agents with tool calling."""
 
+from dataclasses import dataclass
 import inspect
+import keyword
 import textwrap
 import tempfile
 import uuid
@@ -16,6 +18,8 @@ from typing_extensions import Doc
 from timeit import timeit
 import orjson
 
+from pydantic_ai.tools import RunContext
+from pydantic_ai.usage import Usage
 from pydantic_ai import Agent, ModelRetry
 from pydantic_ai.messages import (
     FunctionToolCallEvent,
@@ -28,10 +32,10 @@ from pydantic_ai.messages import (
     ToolCallPart,
     ToolReturnPart,
 )
-from pydantic_ai.usage import Usage
-from pydantic_ai.tools import Tool
+from pydantic_ai.tools import Tool, ToolDefinition
 from pydantic_core import PydanticUndefined
 
+from tracecat.db.schemas import RegistryAction
 from tracecat.dsl.common import create_default_execution_context
 from tracecat.executor.service import (
     _run_action_direct,
@@ -48,10 +52,10 @@ from tracecat.secrets.secrets_manager import env_sandbox
 from tracecat_registry.integrations.pydantic_ai import (
     PYDANTIC_AI_REGISTRY_SECRETS,
     build_agent,
+    get_model,
 )
 
 from tracecat_registry import registry
-from tracecat.types.exceptions import RegistryError
 from tracecat_registry.integrations.agents.exceptions import AgentRunError
 from tracecat_registry.integrations.agents.tools import (
     create_secure_file_tools,
@@ -111,11 +115,23 @@ def generate_google_style_docstring(
         return f"{description}\n\nArgs:\n    None"
 
 
-async def call_tracecat_action(action_name: str, args: dict[str, Any]) -> Any:
-    async with RegistryActionsService.with_session() as service:
-        reg_action = await service.get_action(action_name)
-        action_secrets = await service.fetch_all_action_secrets(reg_action)
-        bound_action = service.get_bound(reg_action, mode="execution")
+async def call_tracecat_action(
+    action_name: str,
+    args: dict[str, Any],
+    *,
+    service: RegistryActionsService | None = None,
+) -> Any:
+    # Use provided service or create a new session context
+    if service is None:
+        async with RegistryActionsService.with_session() as session_service:
+            return await call_tracecat_action(
+                action_name, args, service=session_service
+            )
+
+    # Service provided - use it directly
+    reg_action = await service.get_action(action_name)
+    action_secrets = await service.fetch_all_action_secrets(reg_action)
+    bound_action = service.get_bound(reg_action, mode="execution")
 
     secrets = await get_action_secrets(args=args, action_secrets=action_secrets)
 
@@ -143,6 +159,20 @@ async def call_tracecat_action(action_name: str, args: dict[str, Any]) -> Any:
     except Exception as e:
         raise ModelRetry(str(e))
     return result
+
+
+def _sanitize_parameter_name(name: str) -> str:
+    """Sanitize parameter names that are Python reserved keywords.
+
+    Args:
+        name: The original parameter name
+
+    Returns:
+        A valid Python parameter name
+    """
+    if keyword.iskeyword(name):
+        return f"{name}_"
+    return name
 
 
 def _extract_action_metadata(bound_action) -> tuple[str, type]:
@@ -180,9 +210,16 @@ def _extract_action_metadata(bound_action) -> tuple[str, type]:
     return description, model_cls
 
 
+@dataclass(frozen=True, slots=True)
+class FunctionSignature:
+    signature: inspect.Signature
+    annotations: dict[str, Any]
+    param_mapping: dict[str, str]
+
+
 def _create_function_signature(
     model_cls: type, fixed_args: set[str] | None = None
-) -> tuple[inspect.Signature, dict[str, Any]]:
+) -> FunctionSignature:
     """Create function signature and annotations from a Pydantic model.
 
     Args:
@@ -190,10 +227,12 @@ def _create_function_signature(
         fixed_args: Set of argument names that are fixed and should be excluded
 
     Returns:
-        Tuple of (signature, annotations)
+        Tuple of (signature, annotations, param_mapping)
+        param_mapping: dict mapping sanitized param names to original field names
     """
     sig_params = []
     annotations = {}
+    param_mapping = {}  # sanitized_name -> original_field_name
     fixed_args = fixed_args or set()
 
     for field_name, field_info in model_cls.model_fields.items():
@@ -223,20 +262,28 @@ def _create_function_signature(
             # Required field
             default = inspect.Parameter.empty
 
+        # Sanitize field name for Python keywords
+        param_name = _sanitize_parameter_name(field_name)
+        param_mapping[param_name] = field_name
+
         # Create parameter
         param = inspect.Parameter(
-            name=field_name,
+            name=param_name,
             kind=inspect.Parameter.KEYWORD_ONLY,
             annotation=annotation,
             default=default,
         )
         sig_params.append(param)
-        annotations[field_name] = annotation
+        annotations[param_name] = annotation
 
     # Add return annotation
     annotations["return"] = Any
 
-    return inspect.Signature(sig_params), annotations
+    return FunctionSignature(
+        signature=inspect.Signature(sig_params),
+        annotations=annotations,
+        param_mapping=param_mapping,
+    )
 
 
 def _generate_tool_function_name(namespace: str, name: str, *, sep: str = "__") -> str:
@@ -255,7 +302,10 @@ def _generate_tool_function_name(namespace: str, name: str, *, sep: str = "__") 
 
 
 async def create_tool_from_registry(
-    action_name: str, fixed_args: dict[str, Any] | None = None
+    action_name: str,
+    fixed_args: dict[str, Any] | None = None,
+    *,
+    service: RegistryActionsService | None = None,
 ) -> Tool:
     """Create a Pydantic AI Tool directly from the registry.
 
@@ -270,35 +320,48 @@ async def create_tool_from_registry(
         ValueError: If action has no description or template action is invalid
     """
     # Load action from registry
-    async with RegistryActionsService.with_session() as service:
-        reg_action = await service.get_action(action_name)
-        bound_action = service.get_bound(reg_action, mode="execution")
+    if service is None:
+        async with RegistryActionsService.with_session() as _service:
+            return await create_tool_from_registry(
+                action_name, fixed_args, service=_service
+            )
+
+    reg_action = await service.get_action(action_name)
+    bound_action = service.get_bound(reg_action, mode="execution")
 
     fixed_args = fixed_args or {}
     fixed_arg_names = set(fixed_args.keys())
 
+    # Extract metadata from the bound action
+    description, model_cls = _extract_action_metadata(bound_action)
+
+    # Create function signature and get parameter mapping
+    sig = _create_function_signature(model_cls, fixed_arg_names)
+
     # Create wrapper function that calls the action with fixed args merged
-    async def tool_func(**kwargs) -> Any:
+    async def tool_func(**kwargs: Any) -> Any:
+        # Remap sanitized parameter names back to original field names
+        remapped_kwargs = {}
+        for param_name, value in kwargs.items():
+            original_name = sig.param_mapping.get(param_name, param_name)
+            remapped_kwargs[original_name] = value
+
         # Merge fixed arguments with runtime arguments
-        merged_args = {**fixed_args, **kwargs}
-        return await call_tracecat_action(action_name, merged_args)
+        merged_args = {**fixed_args, **remapped_kwargs}
+        return await call_tracecat_action(action_name, merged_args, service=service)
 
     # Set function name
     tool_func.__name__ = _generate_tool_function_name(
         bound_action.namespace, bound_action.name
     )
 
-    # Extract metadata from the bound action
-    description, model_cls = _extract_action_metadata(bound_action)
-
     # Validate description
     if not description:
         raise ValueError(f"Action '{action_name}' has no description")
 
-    # Create function signature and annotations, excluding fixed args
-    signature, annotations = _create_function_signature(model_cls, fixed_arg_names)
-    tool_func.__signature__ = signature
-    tool_func.__annotations__ = annotations
+    # Set function signature and annotations
+    tool_func.__signature__ = sig.signature
+    tool_func.__annotations__ = sig.annotations
 
     # Generate Google-style docstring, excluding fixed args
     tool_func.__doc__ = generate_google_style_docstring(
@@ -307,7 +370,7 @@ async def create_tool_from_registry(
 
     # Create tool with enforced documentation standards
     return Tool(
-        tool_func, docstring_format="google", require_parameter_descriptions=True
+        tool_func, docstring_format="google", require_parameter_descriptions=False
     )
 
 
@@ -414,6 +477,178 @@ async def load_conversation_history(
         return []
 
 
+@dataclass
+class BulidToolsResult[DepsT]:
+    tools: list[Tool[DepsT]]
+    failed_actions: list[str]
+    collected_secrets: set[RegistrySecretType]
+
+
+@dataclass
+class BuildToolDefinitionsResult:
+    tool_definitions: list[ToolDefinition]
+    failed_actions: list[str]
+    collected_secrets: set[RegistrySecretType]
+
+
+@dataclass
+class CreateToolResult:
+    """Result of creating a single tool from a registry action."""
+
+    tool: Tool
+    """The created tool, or None if creation failed."""
+    collected_secrets: set[RegistrySecretType]
+    """Secrets collected during tool creation."""
+    action_name: str
+    """The action name that was processed."""
+
+
+async def create_single_tool(
+    service: RegistryActionsService,
+    ra: RegistryAction,
+    action_name: str,
+    fixed_arguments: dict[str, dict[str, Any]] | None = None,
+) -> CreateToolResult | None:
+    """Create a single tool from a registry action.
+
+    Args:
+        reg_action: The registry action to create a tool from
+        action_name: The formatted action name (namespace.name)
+        fixed_arguments: Fixed arguments for actions
+        service: The registry actions service instance
+
+    Returns:
+        CreateToolResult containing the tool and metadata
+    """
+    collected_secrets: set[RegistrySecretType] = set()
+    fixed_arguments = fixed_arguments or {}
+
+    try:
+        # Fetch all secrets for this action
+        action_secrets = await service.fetch_all_action_secrets(ra)
+        collected_secrets.update(action_secrets)
+
+        # Determine if we should pass fixed arguments to the helper
+        has_any_fixed_args = bool(fixed_arguments)
+        action_fixed_args = fixed_arguments.get(action_name)
+
+        if has_any_fixed_args:
+            # If some fixed arguments were supplied when constructing the builder,
+            # we always include the second parameter – pass an empty dict when the
+            # current action does not have any overrides so that callers may rely on
+            # the two-argument form when the feature is in use.
+            action_fixed_args = action_fixed_args or {}
+            tool = await create_tool_from_registry(action_name, action_fixed_args)
+        else:
+            # No fixed arguments functionality requested – keep the original
+            # single-parameter call signature expected by existing tests.
+            tool = await create_tool_from_registry(action_name)
+
+        return CreateToolResult(
+            tool=tool,
+            collected_secrets=collected_secrets,
+            action_name=action_name,
+        )
+    except Exception:
+        return None
+
+
+async def build_agent_tools(
+    fixed_arguments: dict[str, dict[str, Any]] | None = None,
+    namespace_filters: list[str] | None = None,
+    action_filters: list[str] | None = None,
+) -> BulidToolsResult:
+    """Build tools from a list of actions."""
+    fixed_arguments = fixed_arguments or {}
+    tools: list[Tool] = []
+    collected_secrets: set[RegistrySecretType] = set()
+
+    # Get actions from registry
+    async with RegistryActionsService.with_session() as service:
+        if action_filters:
+            actions = await service.get_actions(action_filters)
+        else:
+            actions = await service.list_actions(include_marked=True)
+
+        # Collect failed action names
+        failed_actions: list[str] = []
+
+        # Create tools from registry actions
+        for ra in actions:
+            action_name = f"{ra.namespace}.{ra.name}"
+            logger.debug(f"Building tool for action: {action_name}")
+
+            # Apply namespace filtering if specified
+            if namespace_filters:
+                if not any(action_name.startswith(ns) for ns in namespace_filters):
+                    continue
+
+            # Create the tool using the extracted function
+            result = await create_single_tool(service, ra, action_name, fixed_arguments)
+
+            # Check if result is None and handle accordingly
+            if result is None:
+                failed_actions.append(action_name)
+                continue
+
+            # Update collected secrets
+            collected_secrets.update(result.collected_secrets)
+
+            if result.tool is not None:
+                tools.append(result.tool)
+            else:
+                failed_actions.append(result.action_name)
+
+    return BulidToolsResult(
+        tools=tools,
+        failed_actions=failed_actions,
+        collected_secrets=collected_secrets,
+    )
+
+
+async def build_agent_tool_definitions(
+    fixed_arguments: dict[str, dict[str, Any]] | None = None,
+    namespace_filters: list[str] | None = None,
+    action_filters: list[str] | None = None,
+) -> BuildToolDefinitionsResult:
+    """Build tool definitions from a list of actions."""
+    tools_result = await build_agent_tools(
+        fixed_arguments=fixed_arguments,
+        namespace_filters=namespace_filters,
+        action_filters=action_filters,
+    )
+
+    # Convert tools to tool definitions
+    tool_definitions: list[ToolDefinition] = []
+
+    # Create a minimal run context for prepare_tool_def calls
+
+    # Create a mock run context - we need this for prepare_tool_def
+    run_context = RunContext(
+        deps=None,
+        model=None,  # type: ignore
+        usage=Usage(),
+        prompt=None,
+        messages=[],
+        run_step=0,
+    )
+
+    for tool in tools_result.tools:
+        try:
+            tool_def = await tool.prepare_tool_def(run_context)
+            if tool_def is not None:
+                tool_definitions.append(tool_def)
+        except Exception as e:
+            logger.warning(f"Failed to prepare tool definition for {tool.name}: {e}")
+            continue
+
+    return BuildToolDefinitionsResult(
+        tool_definitions=tool_definitions,
+        failed_actions=tools_result.failed_actions,
+        collected_secrets=tools_result.collected_secrets,
+    )
+
+
 class TracecatAgentBuilder:
     """Builder for creating Pydantic AI agents with Tracecat tool calling."""
 
@@ -469,56 +704,15 @@ class TracecatAgentBuilder:
     async def build(self) -> Agent:
         """Build the Pydantic AI agent with tools from the registry."""
 
-        # Get actions from registry
-        async with RegistryActionsService.with_session() as service:
-            if self.action_filters:
-                actions = await service.get_actions(self.action_filters)
-            else:
-                actions = await service.list_actions(include_marked=True)
-
-        # Collect failed action names
-        failed_actions: list[str] = []
-
-        # Create tools from registry actions
-        for reg_action in actions:
-            action_name = f"{reg_action.namespace}.{reg_action.name}"
-
-            # Apply namespace filtering if specified
-            if self.namespace_filters:
-                if not any(action_name.startswith(ns) for ns in self.namespace_filters):
-                    continue
-
-            try:
-                # Fetch all secrets for this action
-                async with RegistryActionsService.with_session() as service:
-                    action_secrets = await service.fetch_all_action_secrets(reg_action)
-                    self.collected_secrets.update(action_secrets)
-
-                # Determine if we should pass fixed arguments to the helper
-                has_any_fixed_args = bool(self.fixed_arguments)
-                action_fixed_args = self.fixed_arguments.get(action_name)
-
-                if has_any_fixed_args:
-                    # If some fixed arguments were supplied when constructing the builder,
-                    # we always include the second parameter – pass an empty dict when the
-                    # current action does not have any overrides so that callers may rely on
-                    # the two-argument form when the feature is in use.
-                    action_fixed_args = action_fixed_args or {}
-                    tool = await create_tool_from_registry(
-                        action_name, action_fixed_args
-                    )
-                else:
-                    # No fixed arguments functionality requested – keep the original
-                    # single-parameter call signature expected by existing tests.
-                    tool = await create_tool_from_registry(action_name)
-
-                self.tools.append(tool)
-            except RegistryError:
-                failed_actions.append(action_name)
+        result = await build_agent_tools(
+            fixed_arguments=self.fixed_arguments,
+            namespace_filters=self.namespace_filters,
+            action_filters=self.action_filters,
+        )
 
         # If there were failures, raise simple error
-        if failed_actions:
-            failed_list = "\n".join(f"- {action}" for action in failed_actions)
+        if result.failed_actions:
+            failed_list = "\n".join(f"- {action}" for action in result.failed_actions)
             raise ValueError(
                 f"Unknown namespaces or action names. Please double check the following:\n{failed_list}"
             )
@@ -533,10 +727,10 @@ class TracecatAgentBuilder:
         # )
 
         # Create the agent using build_agent
+        self.tools = result.tools
+        model = get_model(self.model_name, self.model_provider, self.base_url)
         agent = build_agent(
-            model_name=self.model_name,
-            model_provider=self.model_provider,
-            base_url=self.base_url,
+            model=model,
             instructions=self.instructions,
             output_type=self.output_type,
             model_settings=self.model_settings,
@@ -553,36 +747,6 @@ class TracecatAgentBuilder:
             secret_count=len(self.collected_secrets),
         )
         return agent
-
-
-# TODO: unused
-async def collect_secrets_for_filters(
-    namespace_filters: list[str] | None = None,
-    action_filters: list[str] | None = None,
-) -> set[RegistrySecretType]:
-    """Collect all secrets required by actions matching the given filters."""
-    collected_secrets: set[RegistrySecretType] = set()
-
-    async with RegistryActionsService.with_session() as service:
-        if action_filters:
-            actions = await service.get_actions(action_filters)
-        else:
-            actions = await service.list_actions(include_marked=True)
-
-    for reg_action in actions:
-        action_name = f"{reg_action.namespace}.{reg_action.name}"
-
-        # Apply namespace filtering if specified
-        if namespace_filters:
-            if not any(action_name.startswith(ns) for ns in namespace_filters):
-                continue
-
-        # Fetch all secrets for this action
-        async with RegistryActionsService.with_session() as service:
-            action_secrets = await service.fetch_all_action_secrets(reg_action)
-            collected_secrets.update(action_secrets)
-
-    return collected_secrets
 
 
 ModelMessageTA: TypeAdapter[ModelMessage] = TypeAdapter(ModelMessage)
