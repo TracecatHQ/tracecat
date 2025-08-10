@@ -14,6 +14,11 @@ from pydantic_core import to_json, to_jsonable_python
 from tracecat_registry import RegistrySecretType
 from tracecat_registry.integrations.agents.parsers import try_parse_json
 from pydantic_ai.agent import AgentRunResult
+from tracecat_registry.integrations.agents.tokens import (
+    DATA_KEY,
+    END_TOKEN,
+    END_TOKEN_VALUE,
+)
 from typing_extensions import Doc
 from timeit import timeit
 import orjson
@@ -396,10 +401,10 @@ async def load_conversation_history(
 
         for message_id, fields in messages:
             try:
-                data = orjson.loads(fields["d"])
+                data = orjson.loads(fields[DATA_KEY])
 
                 # Skip non-message entries
-                if data.get("__end__") == 1:
+                if data.get(END_TOKEN) == END_TOKEN_VALUE:
                     continue
 
                 # Reconstruct message based on type
@@ -958,8 +963,8 @@ async def run_agent(
 
                 for _, fields in messages:
                     try:
-                        data = orjson.loads(fields["d"])
-                        if data.get("__end__") == 1:
+                        data = orjson.loads(fields[DATA_KEY])
+                        if data.get(END_TOKEN) == END_TOKEN_VALUE:
                             # This is an end-of-stream marker, skip
                             continue
 
@@ -982,7 +987,11 @@ async def run_agent(
                 try:
                     await redis_client.xadd(
                         stream_key,
-                        {"d": orjson.dumps(msg, default=to_jsonable_python).decode()},
+                        {
+                            DATA_KEY: orjson.dumps(
+                                msg, default=to_jsonable_python
+                            ).decode()
+                        },
                         maxlen=10000,
                         approximate=True,
                     )
@@ -1073,7 +1082,7 @@ async def run_agent(
                 try:
                     await redis_client.xadd(
                         stream_key,
-                        {"d": orjson.dumps({"__end__": 1}).decode()},
+                        {DATA_KEY: orjson.dumps({END_TOKEN: END_TOKEN_VALUE}).decode()},
                         maxlen=10000,
                         approximate=True,
                     )
