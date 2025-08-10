@@ -375,3 +375,10 @@ TRACECAT__MAX_ATTACHMENTS_PER_CASE = int(
     os.environ.get("TRACECAT__MAX_ATTACHMENTS_PER_CASE", 10)
 )
 """The maximum number of attachments allowed per case. Defaults to 10."""
+
+# === Enterprise Edition === #
+ENTERPRISE_EDITION = os.environ.get("ENTERPRISE_EDITION", "false").lower() in (
+    "true",
+    "1",
+)
+"""Whether the enterprise edition is enabled."""
