@@ -331,7 +331,7 @@ def not_empty(x: Sequence[Any]) -> bool:
 
 
 def has_any_in(a: Sequence[Any], b: Sequence[Any]) -> bool:
-    """Check if any of of the elements of the first sequence exist in the second sequence."""
+    """Check if any of the elements of the first sequence exist in the second sequence."""
     return bool(set(a) & set(b))
 
 
