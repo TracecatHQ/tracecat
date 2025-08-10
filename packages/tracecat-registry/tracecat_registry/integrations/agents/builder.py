@@ -14,7 +14,11 @@ from pydantic_core import to_json, to_jsonable_python
 from tracecat_registry import RegistrySecretType
 from tracecat_registry.integrations.agents.parsers import try_parse_json
 from pydantic_ai.agent import AgentRunResult
-from tracecat_registry.integrations.agents.tokens import END_TOKEN, END_TOKEN_VALUE
+from tracecat_registry.integrations.agents.tokens import (
+    DATA_KEY,
+    END_TOKEN,
+    END_TOKEN_VALUE,
+)
 from typing_extensions import Doc
 from timeit import timeit
 import orjson
@@ -36,7 +40,6 @@ from pydantic_ai.messages import (
 from pydantic_ai.tools import Tool, ToolDefinition
 from pydantic_core import PydanticUndefined
 
-from tracecat_registry.integrations.agents.tokens import DATA_KEY
 from tracecat.db.schemas import RegistryAction
 from tracecat.dsl.common import create_default_execution_context
 from tracecat.executor.service import (
