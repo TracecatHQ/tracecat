@@ -334,9 +334,6 @@ export default function EntityDetailPage() {
                         disabled
                         className="bg-muted max-w-md"
                       />
-                      <p className="text-xs text-muted-foreground">
-                        This cannot be changed after creation
-                      </p>
                     </div>
 
                     <div className="space-y-2">
@@ -357,9 +354,6 @@ export default function EntityDetailPage() {
                         disabled={!isEditingSettings}
                         className="text-xs resize-none max-w-md"
                       />
-                      <p className="text-xs text-muted-foreground">
-                        A brief description of what this entity represents
-                      </p>
                     </div>
 
                     <div className="space-y-2">
