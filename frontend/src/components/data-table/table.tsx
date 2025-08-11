@@ -93,27 +93,65 @@ export function DataTable<TData, TValue>({
     }
   )
 
+  // Initialize with empty state first to avoid triggering pagination reset
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>(
-    tableState.columnFilters ?? []
+    []
   )
-  const [rowSelection, setRowSelection] = React.useState(
-    tableState.rowSelection ?? {}
-  )
+  const [rowSelection, setRowSelection] = React.useState({})
   const [columnVisibility, setColumnVisibility] =
-    React.useState<VisibilityState>(tableState.columnVisibility ?? {})
-  const [sorting, setSorting] = React.useState<SortingState>(
-    tableState.sorting ?? []
-  )
+    React.useState<VisibilityState>(initialColumnVisibility ?? {})
+  const [sorting, setSorting] = React.useState<SortingState>(initialSorting)
+
+  // Track if component is mounted to prevent state updates on unmounted component
+  const isMountedRef = React.useRef(false)
+  const isInitialMountRef = React.useRef(true)
 
   React.useEffect(() => {
-    if (tableId) {
-      setTableState({
-        ...tableState,
-        columnFilters,
-        sorting,
-        rowSelection,
-        columnVisibility,
-      })
+    isMountedRef.current = true
+
+    // Restore state from localStorage after mount to avoid pagination reset during render
+    if (tableState.columnFilters) {
+      setColumnFilters(tableState.columnFilters)
+    }
+    if (tableState.rowSelection) {
+      setRowSelection(tableState.rowSelection)
+    }
+    if (tableState.columnVisibility) {
+      setColumnVisibility(tableState.columnVisibility)
+    }
+    if (tableState.sorting) {
+      setSorting(tableState.sorting)
+    }
+
+    isInitialMountRef.current = false
+
+    return () => {
+      isMountedRef.current = false
+    }
+  }, [])
+
+  React.useEffect(() => {
+    // Skip the initial mount to prevent unnecessary localStorage updates
+    if (isInitialMountRef.current) {
+      return
+    }
+
+    // Only update if component is mounted and tableId exists
+    if (tableId && isMountedRef.current) {
+      // Use setTimeout to defer the state update to the next tick
+      const timeoutId = setTimeout(() => {
+        if (isMountedRef.current) {
+          setTableState({
+            ...tableState,
+            columnFilters,
+            sorting,
+            rowSelection,
+            columnVisibility,
+          })
+        }
+      }, 0)
+
+      return () => clearTimeout(timeoutId)
     }
   }, [columnFilters, sorting, rowSelection, columnVisibility])
 
@@ -151,25 +189,49 @@ export function DataTable<TData, TValue>({
     getFacetedUniqueValues: getFacetedUniqueValues(),
     manualPagination: !!serverSidePagination,
     pageCount: serverSidePagination ? -1 : undefined,
+    autoResetPageIndex: false, // Prevent automatic page index reset
   })
 
   // Notify parent of selection changes
   React.useEffect(() => {
+    // Skip if component is not mounted or during initial mount
+    if (!isMountedRef.current || isInitialMountRef.current) {
+      return
+    }
+
     if (onSelectionChange) {
-      const selectedRows = table.getFilteredSelectedRowModel().rows
-      onSelectionChange(selectedRows)
+      // Defer the callback to avoid state updates during render
+      const timeoutId = setTimeout(() => {
+        if (isMountedRef.current) {
+          const selectedRows = table.getFilteredSelectedRowModel().rows
+          onSelectionChange(selectedRows)
+        }
+      }, 0)
+
+      return () => clearTimeout(timeoutId)
     }
   }, [rowSelection, onSelectionChange, table])
 
   // Handle initial sync when data is first loaded
   const [hasData, setHasData] = React.useState(false)
   React.useEffect(() => {
+    // Skip if component is not mounted
+    if (!isMountedRef.current) {
+      return
+    }
+
     if (data && data.length > 0 && !hasData) {
       setHasData(true)
       if (onSelectionChange && Object.keys(rowSelection).length > 0) {
-        // Force a sync of the initial selection
-        const selectedRows = table.getFilteredSelectedRowModel().rows
-        onSelectionChange(selectedRows)
+        // Defer the sync to avoid state updates during render
+        const timeoutId = setTimeout(() => {
+          if (isMountedRef.current) {
+            const selectedRows = table.getFilteredSelectedRowModel().rows
+            onSelectionChange(selectedRows)
+          }
+        }, 0)
+
+        return () => clearTimeout(timeoutId)
       }
     }
   }, [data, hasData, rowSelection, onSelectionChange, table])

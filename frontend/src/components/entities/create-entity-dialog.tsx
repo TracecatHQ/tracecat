@@ -98,7 +98,6 @@ export function CreateEntityDialog({
                   <FormLabel>Name</FormLabel>
                   <FormControl>
                     <Input
-                      placeholder="customer"
                       {...field}
                       onChange={(e) =>
                         field.onChange(e.target.value.toLowerCase())
@@ -106,7 +105,8 @@ export function CreateEntityDialog({
                     />
                   </FormControl>
                   <FormDescription>
-                    Unique identifier for the entity (lowercase, no spaces)
+                    Unique identifier for the entity (lowercase, no spaces).
+                    This cannot be changed after creation.
                   </FormDescription>
                   <FormMessage />
                 </FormItem>
@@ -119,11 +119,8 @@ export function CreateEntityDialog({
                 <FormItem>
                   <FormLabel>Display name</FormLabel>
                   <FormControl>
-                    <Input placeholder="Customer" {...field} />
+                    <Input placeholder="Human-readable name" {...field} />
                   </FormControl>
-                  <FormDescription>
-                    Human-readable name for the entity
-                  </FormDescription>
                   <FormMessage />
                 </FormItem>
               )}
@@ -136,8 +133,8 @@ export function CreateEntityDialog({
                   <FormLabel>Description</FormLabel>
                   <FormControl>
                     <Textarea
-                      placeholder="Customer information and related data"
-                      className="resize-none"
+                      className="text-xs resize-none"
+                      placeholder="Write a description"
                       {...field}
                     />
                   </FormControl>
