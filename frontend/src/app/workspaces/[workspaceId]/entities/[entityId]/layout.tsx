@@ -1,7 +1,7 @@
 import type { Metadata } from "next"
 
 export const metadata: Metadata = {
-  title: "Entity Details | Workspace",
+  title: "Entity details | Workspace",
 }
 
 export default function EntityDetailLayout({

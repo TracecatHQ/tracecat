@@ -186,7 +186,7 @@ export function EntitiesTable({
       />
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Delete Entity</AlertDialogTitle>
+          <AlertDialogTitle>Delete entity</AlertDialogTitle>
           <AlertDialogDescription>
             Are you sure you want to delete the entity{" "}
             <strong>{selectedEntity?.display_name}</strong>? This action cannot

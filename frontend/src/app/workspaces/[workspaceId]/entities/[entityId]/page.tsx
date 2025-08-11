@@ -2,10 +2,11 @@
 
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { Settings2Icon } from "lucide-react"
-import { useParams, useSearchParams } from "next/navigation"
+import { useParams, useRouter, useSearchParams } from "next/navigation"
 import { useEffect, useState } from "react"
 import {
   entitiesCreateField,
+  entitiesDeactivateEntityType,
   entitiesDeactivateField,
   entitiesReactivateField,
   entitiesUpdateEntityType,
@@ -15,6 +16,17 @@ import { CreateFieldDialog } from "@/components/entities/create-field-dialog"
 import { EntityFieldsTable } from "@/components/entities/entity-fields-table"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -27,12 +39,14 @@ import { useWorkspace } from "@/providers/workspace"
 
 export default function EntityDetailPage() {
   const { workspaceId } = useWorkspace()
+  const router = useRouter()
   const params = useParams<{ entityId: string }>()
   const entityId = params.entityId
   const searchParams = useSearchParams()
   const queryClient = useQueryClient()
   const [createFieldDialogOpen, setCreateFieldDialogOpen] = useState(false)
   const [isEditingSettings, setIsEditingSettings] = useState(false)
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
 
   const currentTab = searchParams?.get("tab") || "fields"
 
@@ -185,6 +199,35 @@ export default function EntityDetailPage() {
     },
   })
 
+  const { mutateAsync: deleteEntityMutation, isPending: isDeletingEntity } =
+    useMutation({
+      mutationFn: async () => {
+        return await entitiesDeactivateEntityType({
+          workspaceId,
+          entityId,
+        })
+      },
+      onSuccess: () => {
+        queryClient.invalidateQueries({
+          queryKey: ["entities", workspaceId],
+        })
+        toast({
+          title: "Entity deleted",
+          description: "The entity was deleted successfully.",
+        })
+        // Navigate back to entities list
+        router.push(`/workspaces/${workspaceId}/entities`)
+      },
+      onError: (error) => {
+        console.error("Failed to delete entity", error)
+        toast({
+          title: "Error deleting entity",
+          description: "Failed to delete the entity. Please try again.",
+          variant: "destructive",
+        })
+      },
+    })
+
   if (entityIsLoading || fieldsIsLoading) {
     return <CenteredSpinner />
   }
@@ -226,8 +269,12 @@ export default function EntityDetailPage() {
             ) : (
               <EntityFieldsTable
                 fields={fields}
-                onDeactivateField={deactivateFieldMutation}
-                onReactivateField={reactivateFieldMutation}
+                onDeactivateField={async (fieldId) => {
+                  await deactivateFieldMutation(fieldId)
+                }}
+                onReactivateField={async (fieldId) => {
+                  await reactivateFieldMutation(fieldId)
+                }}
                 isDeleting={isDeactivating}
               />
             )}
@@ -267,7 +314,7 @@ export default function EntityDetailPage() {
                         id="description"
                         defaultValue={entity.description || ""}
                         disabled={!isEditingSettings}
-                        className="resize-none max-w-md"
+                        className="text-xs resize-none max-w-md"
                       />
                       <p className="text-xs text-muted-foreground">
                         A brief description of what this entity represents
@@ -342,7 +389,45 @@ export default function EntityDetailPage() {
                       recovered.
                     </p>
                   </div>
-                  <Button variant="destructive">Delete entity</Button>
+                  <AlertDialog
+                    open={deleteDialogOpen}
+                    onOpenChange={setDeleteDialogOpen}
+                  >
+                    <AlertDialogTrigger asChild>
+                      <Button variant="destructive" disabled={isDeletingEntity}>
+                        Delete entity
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Delete entity</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          Are you sure you want to delete the entity{" "}
+                          <strong>{entity.display_name}</strong>? This action
+                          cannot be undone and will delete all fields and
+                          records associated with this entity.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel disabled={isDeletingEntity}>
+                          Cancel
+                        </AlertDialogCancel>
+                        <AlertDialogAction
+                          variant="destructive"
+                          onClick={async () => {
+                            try {
+                              await deleteEntityMutation()
+                            } catch (error) {
+                              console.error("Failed to delete entity:", error)
+                            }
+                          }}
+                          disabled={isDeletingEntity}
+                        >
+                          {isDeletingEntity ? "Deleting..." : "Delete"}
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
                 </div>
               </div>
             </div>
