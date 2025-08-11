@@ -256,6 +256,7 @@ class TestCaseTagsService:  # noqa: D101
 
         # Get the association
         case_tag = await case_tags_service.get_case_tag(case_id, tag.id)
+        assert case_tag is not None
         assert case_tag.case_id == case_id
         assert case_tag.tag_id == tag.id
 

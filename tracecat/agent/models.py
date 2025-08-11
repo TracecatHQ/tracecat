@@ -1,6 +1,82 @@
+"""Public models for agentic execution."""
+
+from __future__ import annotations as _annotations
+
 from typing import Literal, NotRequired, TypedDict
 
 from pydantic import BaseModel, Field
+from pydantic_ai.messages import ModelMessage
+
+from tracecat.types.auth import Role
+
+
+class RunAgentArgs(BaseModel):
+    role: Role
+    user_prompt: str
+    tool_filters: ToolFilters | None = None
+    """This is static over the lifetime of the workflow, as it's for 1 turn."""
+    session_id: str
+    """Session ID for the agent execution."""
+    instructions: str | None = None
+    """Optional instructions for the agent. Defaults set in workflow."""
+    model_info: ModelInfo
+    """Model configuration."""
+
+
+class RunAgentResult(BaseModel):
+    messages: list[ModelMessage]
+
+
+class ModelInfo(BaseModel):
+    name: str
+    provider: str
+    base_url: str | None = None
+
+
+class ToolFilters(BaseModel):
+    actions: list[str] | None = None
+    namespaces: list[str] | None = None
+
+    @staticmethod
+    def default() -> ToolFilters:
+        return ToolFilters(
+            actions=[
+                "core.cases.create_case",
+                "core.cases.get_case",
+                "core.cases.list_cases",
+                "core.cases.update_case",
+                "core.cases.list_cases",
+            ],
+        )
+
+
+class ModelConfig(BaseModel):
+    name: str = Field(
+        ...,
+        description="The name of the model. This is used to identify the model in the "
+        "system.",
+        min_length=1,
+        max_length=100,
+    )
+    provider: str = Field(
+        ...,
+        description="The provider of the model. This is used to determine which "
+        "organization secret to use for this model.",
+        min_length=1,
+        max_length=100,
+    )
+    org_secret_name: str = Field(
+        ...,
+        description="The name of the organization secret to use for this model. "
+        "This secret must be configured in the organization settings.",
+        min_length=1,
+        max_length=200,
+    )
+    secrets: ModelSecretConfig = Field(
+        ...,
+        description="The secrets to use for this model. This is used to determine "
+        "which organization secret to use for this model.",
+    )
 
 
 class ModelSecretConfig(TypedDict):
@@ -48,35 +124,6 @@ class ProviderCredentialConfig(BaseModel):
     )
     fields: list[ProviderCredentialField] = Field(
         ..., description="Required credential fields"
-    )
-
-
-class ModelConfig(BaseModel):
-    name: str = Field(
-        ...,
-        description="The name of the model. This is used to identify the model in the "
-        "system.",
-        min_length=1,
-        max_length=100,
-    )
-    provider: str = Field(
-        ...,
-        description="The provider of the model. This is used to determine which "
-        "organization secret to use for this model.",
-        min_length=1,
-        max_length=100,
-    )
-    org_secret_name: str = Field(
-        ...,
-        description="The name of the organization secret to use for this model. "
-        "This secret must be configured in the organization settings.",
-        min_length=1,
-        max_length=200,
-    )
-    secrets: ModelSecretConfig = Field(
-        ...,
-        description="The secrets to use for this model. This is used to determine "
-        "which organization secret to use for this model.",
     )
 
 

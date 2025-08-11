@@ -47,10 +47,10 @@ class DSLActivities:
     def load(cls) -> list[Callable[[RunActionInput], Any]]:
         """Load and return all UDFs in the class."""
         return [
-            getattr(cls, method_name)
+            fn
             for method_name in dir(cls)
             if hasattr(
-                getattr(cls, method_name),
+                fn := getattr(cls, method_name),
                 "__temporal_activity_definition",
             )
         ]

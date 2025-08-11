@@ -205,7 +205,7 @@ class TestAttachmentEventData:
             select(CaseEvent)
             .where(
                 CaseEvent.case_id == test_case.id,
-                CaseEvent.type.in_(
+                col(CaseEvent.type).in_(
                     [CaseEventType.ATTACHMENT_CREATED, CaseEventType.ATTACHMENT_DELETED]
                 ),
             )
@@ -344,7 +344,7 @@ class TestAttachmentEventData:
             select(CaseEvent)
             .where(
                 CaseEvent.case_id == test_case.id,
-                CaseEvent.type.in_(
+                col(CaseEvent.type).in_(
                     [CaseEventType.ATTACHMENT_CREATED, CaseEventType.ATTACHMENT_DELETED]
                 ),
             )

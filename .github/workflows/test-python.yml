@@ -111,8 +111,27 @@ jobs:
 
       - name: Start core Docker services
         env:
+          COMPOSE_BAKE: "true"
           TRACECAT__UNSAFE_DISABLE_SM_MASKING: "true"
-        run: docker compose -f docker-compose.dev.yml up -d temporal api worker executor postgres_db caddy
+        run: |
+          docker compose -f docker-compose.dev.yml up -d temporal api worker executor postgres_db caddy
+
+          # Wait for services to become healthy
+          echo "Waiting for services to become healthy..."
+          timeout 300 bash -c '
+            while true; do
+              if docker compose -f docker-compose.dev.yml ps --format json | jq -r ".[].Health" | grep -v "healthy" | grep -q "starting\|unhealthy"; then
+                echo "Waiting for services to be healthy..."
+                sleep 5
+              else
+                echo "All services are healthy"
+                break
+              fi
+            done
+          '
+
+          # Show final service status
+          docker compose -f docker-compose.dev.yml ps
 
       - name: Install dependencies
         run: uv sync --frozen --extra ee
