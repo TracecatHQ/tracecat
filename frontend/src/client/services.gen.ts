@@ -147,6 +147,8 @@ import type {
   EntitiesListRelatedRecordsResponse,
   EntitiesQueryRecordsData,
   EntitiesQueryRecordsResponse,
+  EntitiesReactivateEntityTypeData,
+  EntitiesReactivateEntityTypeResponse,
   EntitiesReactivateFieldData,
   EntitiesReactivateFieldResponse,
   EntitiesUpdateEntityTypeData,
@@ -441,7 +443,7 @@ export const publicIncomingWebhook = (
   data: PublicIncomingWebhookData
 ): CancelablePromise<PublicIncomingWebhookResponse> => {
   return __request(OpenAPI, {
-    method: "POST",
+    method: "GET",
     url: "/webhooks/{workflow_id}/{secret}",
     path: {
       secret: data.secret,
@@ -481,7 +483,7 @@ export const publicIncomingWebhook1 = (
   data: PublicIncomingWebhook1Data
 ): CancelablePromise<PublicIncomingWebhook1Response> => {
   return __request(OpenAPI, {
-    method: "GET",
+    method: "POST",
     url: "/webhooks/{workflow_id}/{secret}",
     path: {
       secret: data.secret,
@@ -4273,6 +4275,33 @@ export const entitiesDeactivateEntityType = (
   return __request(OpenAPI, {
     method: "DELETE",
     url: "/entities/types/{entity_id}",
+    path: {
+      entity_id: data.entityId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Reactivate Entity Type
+ * Reactivate soft-deleted entity type.
+ * @param data The data for the request.
+ * @param data.entityId
+ * @param data.workspaceId
+ * @returns unknown Successful Response
+ * @throws ApiError
+ */
+export const entitiesReactivateEntityType = (
+  data: EntitiesReactivateEntityTypeData
+): CancelablePromise<EntitiesReactivateEntityTypeResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/entities/types/{entity_id}/reactivate",
     path: {
       entity_id: data.entityId,
     },

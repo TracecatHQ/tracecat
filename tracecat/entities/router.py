@@ -149,6 +149,26 @@ async def deactivate_entity_type(
         raise HTTPException(status_code=404, detail=str(e)) from e
 
 
+@router.post("/types/{entity_id}/reactivate")
+async def reactivate_entity_type(
+    *,
+    role: WorkspaceUser,
+    session: AsyncDBSession,
+    entity_id: UUID,
+) -> dict:
+    """Reactivate soft-deleted entity type."""
+    service = CustomEntitiesService(session, role)
+    try:
+        entity = await service.get_entity_type(entity_id)
+        if entity.is_active:
+            raise HTTPException(status_code=400, detail="Entity type is already active")
+        entity.is_active = True
+        await service.session.commit()
+        return {"message": f"Entity type {entity_id} reactivated"}
+    except TracecatNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
 # Field Management
 
 

@@ -20,6 +20,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -32,14 +33,16 @@ import { useWorkspace } from "@/providers/workspace"
 interface EntitiesTableProps {
   entities: EntityMetadataRead[]
   fieldCounts: Record<string, number>
-  onDeleteEntity: (entityId: string) => Promise<void>
+  onDeactivateEntity: (entityId: string) => Promise<void>
+  onReactivateEntity: (entityId: string) => Promise<void>
   isDeleting?: boolean
 }
 
 export function EntitiesTable({
   entities,
   fieldCounts,
-  onDeleteEntity,
+  onDeactivateEntity,
+  onReactivateEntity,
   isDeleting,
 }: EntitiesTableProps) {
   const router = useRouter()
@@ -69,11 +72,13 @@ export function EntitiesTable({
             ),
             cell: ({ row }) => (
               <div
-                className="cursor-pointer"
+                className={row.original.is_active ? "cursor-pointer" : ""}
                 onClick={() => {
-                  router.push(
-                    `/workspaces/${workspaceId}/entities/${row.original.id}`
-                  )
+                  if (row.original.is_active) {
+                    router.push(
+                      `/workspaces/${workspaceId}/entities/${row.original.id}`
+                    )
+                  }
                 }}
               >
                 <div className="font-medium text-sm">
@@ -88,7 +93,34 @@ export function EntitiesTable({
             enableHiding: false,
           },
           {
+            id: "status",
+            accessorFn: (row) => (row.is_active ? "active" : "inactive"),
+            header: ({ column }) => (
+              <DataTableColumnHeader
+                className="text-xs"
+                column={column}
+                title="Status"
+              />
+            ),
+            cell: ({ row }) => (
+              <Badge
+                variant={row.original.is_active ? "default" : "secondary"}
+                className="text-xs"
+              >
+                {row.original.is_active ? "Active" : "Inactive"}
+              </Badge>
+            ),
+            filterFn: (row, _id, value: string[]) => {
+              const status = row.original.is_active ? "active" : "inactive"
+              return value.includes(status)
+            },
+            enableSorting: true,
+            enableHiding: false,
+            enableColumnFilter: true,
+          },
+          {
             id: "fields",
+            accessorFn: (row) => fieldCounts[row.id] || 0,
             header: ({ column }) => (
               <DataTableColumnHeader
                 className="text-xs"
@@ -99,11 +131,12 @@ export function EntitiesTable({
             cell: ({ row }) => (
               <div className="text-xs">{fieldCounts[row.original.id] || 0}</div>
             ),
-            enableSorting: false,
+            enableSorting: true,
             enableHiding: false,
           },
           {
             id: "tags",
+            accessorFn: () => 0, // Placeholder for future implementation
             header: ({ column }) => (
               <DataTableColumnHeader
                 className="text-xs"
@@ -112,11 +145,12 @@ export function EntitiesTable({
               />
             ),
             cell: () => <div className="text-xs text-muted-foreground">0</div>,
-            enableSorting: false,
+            enableSorting: true,
             enableHiding: false,
           },
           {
             id: "cases",
+            accessorFn: () => 0, // Placeholder for future implementation
             header: ({ column }) => (
               <DataTableColumnHeader
                 className="text-xs"
@@ -125,7 +159,7 @@ export function EntitiesTable({
               />
             ),
             cell: () => <div className="text-xs text-muted-foreground">0</div>,
-            enableSorting: false,
+            enableSorting: true,
             enableHiding: false,
           },
           {
@@ -154,27 +188,48 @@ export function EntitiesTable({
                       >
                         Copy entity ID
                       </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          router.push(
-                            `/workspaces/${workspaceId}/entities/${row.original.id}`
-                          )
-                        }}
-                      >
-                        View entity
-                      </DropdownMenuItem>
-                      <AlertDialogTrigger asChild>
+                      {row.original.is_active && (
                         <DropdownMenuItem
-                          className="text-rose-500 focus:text-rose-600"
                           onClick={(e) => {
                             e.stopPropagation()
-                            setSelectedEntity(row.original)
+                            router.push(
+                              `/workspaces/${workspaceId}/entities/${row.original.id}`
+                            )
                           }}
                         >
-                          Delete entity
+                          View entity
                         </DropdownMenuItem>
-                      </AlertDialogTrigger>
+                      )}
+                      {row.original.is_active ? (
+                        <AlertDialogTrigger asChild>
+                          <DropdownMenuItem
+                            className="text-rose-500 focus:text-rose-600"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setSelectedEntity(row.original)
+                            }}
+                          >
+                            Deactivate entity
+                          </DropdownMenuItem>
+                        </AlertDialogTrigger>
+                      ) : (
+                        <DropdownMenuItem
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            // Don't await here to avoid React state update issues
+                            onReactivateEntity(row.original.id).catch(
+                              (error) => {
+                                console.error(
+                                  "Failed to reactivate entity:",
+                                  error
+                                )
+                              }
+                            )
+                          }}
+                        >
+                          Reactivate entity
+                        </DropdownMenuItem>
+                      )}
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </div>
@@ -186,12 +241,12 @@ export function EntitiesTable({
       />
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Delete entity</AlertDialogTitle>
+          <AlertDialogTitle>Deactivate entity</AlertDialogTitle>
           <AlertDialogDescription>
-            Are you sure you want to delete the entity{" "}
-            <strong>{selectedEntity?.display_name}</strong>? This action cannot
-            be undone and will delete all fields and records associated with
-            this entity.
+            Are you sure you want to deactivate the entity{" "}
+            <strong>{selectedEntity?.display_name}</strong>? This will hide the
+            entity from normal use, but all data will be preserved. You can
+            reactivate the entity later.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
@@ -201,16 +256,16 @@ export function EntitiesTable({
             onClick={async () => {
               if (selectedEntity) {
                 try {
-                  await onDeleteEntity(selectedEntity.id)
+                  await onDeactivateEntity(selectedEntity.id)
                   setSelectedEntity(null)
                 } catch (error) {
-                  console.error("Failed to delete entity:", error)
+                  console.error("Failed to deactivate entity:", error)
                 }
               }
             }}
             disabled={isDeleting}
           >
-            Delete
+            Deactivate
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
@@ -223,4 +278,14 @@ const defaultToolbarProps: DataTableToolbarProps<EntityMetadataRead> = {
     placeholder: "Filter entities...",
     column: "display_name",
   },
+  fields: [
+    {
+      column: "status",
+      title: "Status",
+      options: [
+        { label: "Active", value: "active" },
+        { label: "Inactive", value: "inactive" },
+      ],
+    },
+  ],
 }
