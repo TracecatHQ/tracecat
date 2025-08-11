@@ -2,7 +2,11 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { DatabaseIcon } from "lucide-react"
-import { entitiesDeactivateEntityType, entitiesListFields } from "@/client"
+import {
+  entitiesDeactivateEntityType,
+  entitiesListFields,
+  entitiesReactivateEntityType,
+} from "@/client"
 import { EntitiesTable } from "@/components/entities/entities-table"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
@@ -15,8 +19,11 @@ export default function EntitiesPage() {
     useWorkspace()
   const queryClient = useQueryClient()
 
-  const { entities, entitiesIsLoading, entitiesError } =
-    useEntities(workspaceId)
+  // Always show all entities including inactive ones
+  const { entities, entitiesIsLoading, entitiesError } = useEntities(
+    workspaceId,
+    true // Always include inactive
+  )
 
   // Fetch field counts for all entities
   const { data: fieldCounts = {} } = useQuery({
@@ -44,38 +51,76 @@ export default function EntitiesPage() {
     enabled: !!entities && entities.length > 0,
   })
 
-  const { mutateAsync: deleteEntity, isPending: deleteEntityIsPending } =
-    useMutation({
-      mutationFn: async (entityId: string) => {
-        return await entitiesDeactivateEntityType({
-          workspaceId,
-          entityId,
-        })
-      },
-      onSuccess: () => {
-        queryClient.invalidateQueries({
-          queryKey: ["entities", workspaceId],
-        })
-        queryClient.invalidateQueries({
-          queryKey: ["entity-field-counts", workspaceId],
-        })
-        toast({
-          title: "Entity deleted",
-          description: "The entity was deleted successfully.",
-        })
-      },
-      onError: (error) => {
-        console.error("Failed to delete entity", error)
-        toast({
-          title: "Error deleting entity",
-          description: "Failed to delete the entity. Please try again.",
-          variant: "destructive",
-        })
-      },
-    })
+  const {
+    mutateAsync: deactivateEntity,
+    isPending: deactivateEntityIsPending,
+  } = useMutation({
+    mutationFn: async (entityId: string) => {
+      return await entitiesDeactivateEntityType({
+        workspaceId,
+        entityId,
+      })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["entities"],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["entity-field-counts", workspaceId],
+      })
+      toast({
+        title: "Entity deactivated",
+        description: "The entity was deactivated successfully.",
+      })
+    },
+    onError: (error) => {
+      console.error("Failed to deactivate entity", error)
+      toast({
+        title: "Error deactivating entity",
+        description: "Failed to deactivate the entity. Please try again.",
+        variant: "destructive",
+      })
+    },
+  })
 
-  const handleDeleteEntity = async (entityId: string) => {
-    await deleteEntity(entityId)
+  const {
+    mutateAsync: reactivateEntity,
+    isPending: reactivateEntityIsPending,
+  } = useMutation({
+    mutationFn: async (entityId: string) => {
+      return await entitiesReactivateEntityType({
+        workspaceId,
+        entityId,
+      })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["entities"],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["entity-field-counts", workspaceId],
+      })
+      toast({
+        title: "Entity reactivated",
+        description: "The entity was reactivated successfully.",
+      })
+    },
+    onError: (error) => {
+      console.error("Failed to reactivate entity", error)
+      toast({
+        title: "Error reactivating entity",
+        description: "Failed to reactivate the entity. Please try again.",
+        variant: "destructive",
+      })
+    },
+  })
+
+  const handleDeactivateEntity = async (entityId: string) => {
+    await deactivateEntity(entityId)
+  }
+
+  const handleReactivateEntity = async (entityId: string) => {
+    await reactivateEntity(entityId)
   }
 
   if (workspaceLoading || entitiesIsLoading) {
@@ -126,8 +171,11 @@ export default function EntitiesPage() {
             <EntitiesTable
               entities={entities}
               fieldCounts={fieldCounts}
-              onDeleteEntity={handleDeleteEntity}
-              isDeleting={deleteEntityIsPending}
+              onDeactivateEntity={handleDeactivateEntity}
+              onReactivateEntity={handleReactivateEntity}
+              isDeleting={
+                deactivateEntityIsPending || reactivateEntityIsPending
+              }
             />
           </div>
         )}

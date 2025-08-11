@@ -8,6 +8,7 @@ import {
   entitiesCreateField,
   entitiesDeactivateEntityType,
   entitiesDeactivateField,
+  entitiesReactivateEntityType,
   entitiesReactivateField,
   entitiesUpdateEntityType,
   type FieldType,
@@ -46,7 +47,7 @@ export default function EntityDetailPage() {
   const queryClient = useQueryClient()
   const [createFieldDialogOpen, setCreateFieldDialogOpen] = useState(false)
   const [isEditingSettings, setIsEditingSettings] = useState(false)
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [deactivateDialogOpen, setDeactivateDialogOpen] = useState(false)
 
   const currentTab = searchParams?.get("tab") || "fields"
 
@@ -199,34 +200,71 @@ export default function EntityDetailPage() {
     },
   })
 
-  const { mutateAsync: deleteEntityMutation, isPending: isDeletingEntity } =
-    useMutation({
-      mutationFn: async () => {
-        return await entitiesDeactivateEntityType({
-          workspaceId,
-          entityId,
-        })
-      },
-      onSuccess: () => {
-        queryClient.invalidateQueries({
-          queryKey: ["entities", workspaceId],
-        })
-        toast({
-          title: "Entity deleted",
-          description: "The entity was deleted successfully.",
-        })
-        // Navigate back to entities list
-        router.push(`/workspaces/${workspaceId}/entities`)
-      },
-      onError: (error) => {
-        console.error("Failed to delete entity", error)
-        toast({
-          title: "Error deleting entity",
-          description: "Failed to delete the entity. Please try again.",
-          variant: "destructive",
-        })
-      },
-    })
+  const {
+    mutateAsync: deactivateEntityMutation,
+    isPending: isDeactivatingEntity,
+  } = useMutation({
+    mutationFn: async () => {
+      return await entitiesDeactivateEntityType({
+        workspaceId,
+        entityId,
+      })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["entities", workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["entity", workspaceId, entityId],
+      })
+      toast({
+        title: "Entity deactivated",
+        description: "The entity was deactivated successfully.",
+      })
+      // Navigate back to entities list
+      router.push(`/workspaces/${workspaceId}/entities`)
+    },
+    onError: (error) => {
+      console.error("Failed to deactivate entity", error)
+      toast({
+        title: "Error deactivating entity",
+        description: "Failed to deactivate the entity. Please try again.",
+        variant: "destructive",
+      })
+    },
+  })
+
+  const {
+    mutateAsync: reactivateEntityMutation,
+    isPending: isReactivatingEntity,
+  } = useMutation({
+    mutationFn: async () => {
+      return await entitiesReactivateEntityType({
+        workspaceId,
+        entityId,
+      })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["entities", workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["entity", workspaceId, entityId],
+      })
+      toast({
+        title: "Entity reactivated",
+        description: "The entity was reactivated successfully.",
+      })
+    },
+    onError: (error) => {
+      console.error("Failed to reactivate entity", error)
+      toast({
+        title: "Error reactivating entity",
+        description: "Failed to reactivate the entity. Please try again.",
+        variant: "destructive",
+      })
+    },
+  })
 
   if (entityIsLoading || fieldsIsLoading) {
     return <CenteredSpinner />
@@ -282,6 +320,9 @@ export default function EntityDetailPage() {
         ) : (
           <div className="space-y-8">
             <div className="space-y-4">
+              <div>
+                <h3 className="text-lg font-medium">About</h3>
+              </div>
               <Card>
                 <CardContent className="pt-6">
                   <div className="space-y-4">
@@ -376,60 +417,108 @@ export default function EntityDetailPage() {
 
             <div className="space-y-4">
               <div>
-                <h3 className="text-lg font-medium text-destructive">
-                  Danger zone
-                </h3>
+                <h3 className="text-lg font-medium">Danger zone</h3>
               </div>
-              <div className="rounded-md border border-destructive p-4">
-                <div className="flex items-center justify-between">
-                  <div className="space-y-1">
-                    <p className="text-sm font-medium">Delete this entity</p>
-                    <p className="text-sm text-muted-foreground">
-                      Once deleted, this entity and all its data cannot be
-                      recovered.
-                    </p>
-                  </div>
-                  <AlertDialog
-                    open={deleteDialogOpen}
-                    onOpenChange={setDeleteDialogOpen}
-                  >
-                    <AlertDialogTrigger asChild>
-                      <Button variant="destructive" disabled={isDeletingEntity}>
-                        Delete entity
-                      </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>Delete entity</AlertDialogTitle>
-                        <AlertDialogDescription>
-                          Are you sure you want to delete the entity{" "}
-                          <strong>{entity.display_name}</strong>? This action
-                          cannot be undone and will delete all fields and
-                          records associated with this entity.
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel disabled={isDeletingEntity}>
-                          Cancel
-                        </AlertDialogCancel>
-                        <AlertDialogAction
-                          variant="destructive"
+              <Card>
+                <CardContent className="pt-6">
+                  <div className="space-y-4">
+                    {entity.is_active ? (
+                      <div className="flex items-center justify-between">
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium">
+                            Deactivate this entity
+                          </p>
+                          <p className="text-sm text-muted-foreground">
+                            Deactivating will hide this entity from normal use,
+                            but all data will be preserved. You can reactivate
+                            it later.
+                          </p>
+                        </div>
+                        <AlertDialog
+                          open={deactivateDialogOpen}
+                          onOpenChange={setDeactivateDialogOpen}
+                        >
+                          <AlertDialogTrigger asChild>
+                            <Button
+                              variant="outline"
+                              disabled={isDeactivatingEntity}
+                            >
+                              Deactivate entity
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>
+                                Deactivate entity
+                              </AlertDialogTitle>
+                              <AlertDialogDescription>
+                                Are you sure you want to deactivate the entity{" "}
+                                <strong>{entity.display_name}</strong>? This
+                                will hide the entity from normal use, but all
+                                data will be preserved. You can reactivate it
+                                later.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel
+                                disabled={isDeactivatingEntity}
+                              >
+                                Cancel
+                              </AlertDialogCancel>
+                              <AlertDialogAction
+                                onClick={async () => {
+                                  try {
+                                    await deactivateEntityMutation()
+                                  } catch (error) {
+                                    console.error(
+                                      "Failed to deactivate entity:",
+                                      error
+                                    )
+                                  }
+                                }}
+                                disabled={isDeactivatingEntity}
+                              >
+                                {isDeactivatingEntity
+                                  ? "Deactivating..."
+                                  : "Deactivate"}
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-between">
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium">
+                            Reactivate this entity
+                          </p>
+                          <p className="text-sm text-muted-foreground">
+                            This entity is currently inactive. Reactivate it to
+                            use it again.
+                          </p>
+                        </div>
+                        <Button
                           onClick={async () => {
                             try {
-                              await deleteEntityMutation()
+                              await reactivateEntityMutation()
                             } catch (error) {
-                              console.error("Failed to delete entity:", error)
+                              console.error(
+                                "Failed to reactivate entity:",
+                                error
+                              )
                             }
                           }}
-                          disabled={isDeletingEntity}
+                          disabled={isReactivatingEntity}
                         >
-                          {isDeletingEntity ? "Deleting..." : "Delete"}
-                        </AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
-                </div>
-              </div>
+                          {isReactivatingEntity
+                            ? "Reactivating..."
+                            : "Reactivate entity"}
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
             </div>
           </div>
         )}

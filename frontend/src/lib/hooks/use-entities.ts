@@ -5,17 +5,17 @@ import {
   entitiesListFields,
 } from "@/client"
 
-export function useEntities(workspaceId: string) {
+export function useEntities(workspaceId: string, includeInactive = true) {
   const {
     data: entities,
     isLoading: entitiesIsLoading,
     error: entitiesError,
   } = useQuery({
-    queryKey: ["entities", workspaceId],
+    queryKey: ["entities", workspaceId, includeInactive],
     queryFn: async () => {
       const response = await entitiesListEntityTypes({
         workspaceId,
-        includeInactive: false,
+        includeInactive,
       })
       return response
     },

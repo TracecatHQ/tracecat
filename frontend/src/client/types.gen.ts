@@ -5089,6 +5089,15 @@ export type EntitiesDeactivateEntityTypeResponse = {
   [key: string]: unknown
 }
 
+export type EntitiesReactivateEntityTypeData = {
+  entityId: string
+  workspaceId: string
+}
+
+export type EntitiesReactivateEntityTypeResponse = {
+  [key: string]: unknown
+}
+
 export type EntitiesCreateFieldData = {
   entityId: string
   requestBody: FieldMetadataCreate
@@ -5567,7 +5576,7 @@ export type PublicCheckHealthResponse = {
 
 export type $OpenApiTs = {
   "/webhooks/{workflow_id}/{secret}": {
-    post: {
+    get: {
       req: PublicIncomingWebhookData
       res: {
         /**
@@ -5580,7 +5589,7 @@ export type $OpenApiTs = {
         422: HTTPValidationError
       }
     }
-    get: {
+    post: {
       req: PublicIncomingWebhook1Data
       res: {
         /**
@@ -7589,6 +7598,23 @@ export type $OpenApiTs = {
     }
     delete: {
       req: EntitiesDeactivateEntityTypeData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: {
+          [key: string]: unknown
+        }
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/entities/types/{entity_id}/reactivate": {
+    post: {
+      req: EntitiesReactivateEntityTypeData
       res: {
         /**
          * Successful Response
