@@ -330,12 +330,12 @@ def not_empty(x: Sequence[Any]) -> bool:
     return len(x) > 0
 
 
-def has_any_in(a: Sequence[Any], b: Sequence[Any]) -> bool:
+def contains_any_of(a: Sequence[Any], b: Sequence[Any]) -> bool:
     """Check if any of the elements of the first sequence exist in the second sequence."""
     return bool(set(a) & set(b))
 
 
-def not_has_any_in(a: Sequence[Any], b: Sequence[Any]) -> bool:
+def contains_none_of(a: Sequence[Any], b: Sequence[Any]) -> bool:
     """Check if all of of the elements of the first sequence don't exist in the second sequence."""
     return not (bool(set(a) & set(b)))
 
@@ -973,12 +973,10 @@ _FUNCTION_MAPPING = {
     "compact": compact,
     "contains": is_in,  # alias for is_in
     "does_not_contain": not_in,  # alias for not_in
-    "contains_any": has_any_in,  # alias for has_any_in
-    "does_not_contain_any": not_has_any_in,  # alias for not_has_any_in
+    "contains_any_of": contains_any_of,
+    "contains_none_of": contains_none_of,
     "difference": difference,
     "flatten": flatten,
-    "has_any_in": has_any_in,
-    "not_has_any_in": not_has_any_in,
     "intersection": intersection,
     "is_empty": is_empty,
     "is_in": is_in,

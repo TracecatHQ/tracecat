@@ -15,6 +15,8 @@ from tracecat.expressions.functions import (
     capitalize,
     cast,
     check_ip_version,
+    contains_any_of,
+    contains_none_of,
     create_days,
     create_hours,
     create_minutes,
@@ -43,7 +45,6 @@ from tracecat.expressions.functions import (
     get_year,
     greater_than,
     greater_than_or_equal,
-    has_any_in,
     hours_between,
     index_by_key,
     intersection,
@@ -69,7 +70,6 @@ from tracecat.expressions.functions import (
     not_,
     not_empty,
     not_equal,
-    not_has_any_in,
     not_in,
     not_null,
     or_,
@@ -407,12 +407,12 @@ def test_is_in(func, a: Any, b: Any, expected: bool) -> None:
 @pytest.mark.parametrize(
     "func,a,b,expected",
     [
-        (has_any_in, [1, 3], [2, 3, 4], True),
-        (has_any_in, ["ex", "ma"], "hello", False),
-        (has_any_in, ["1", 2, 3.0], ["2", 2, 3.1], True),
-        (not_has_any_in, "enc", ["mic", "kitten"], True),
-        (not_has_any_in, "x", "hello", True),
-        (not_has_any_in, ["1", 4.0], ["1", 2.0, 3], False),
+        (contains_any_of, [1, 3], [2, 3, 4], True),
+        (contains_any_of, ["ex", "ma"], "hello", False),
+        (contains_any_of, ["1", 2, 3.0], ["2", 2, 3.1], True),
+        (contains_none_of, "enc", ["mic", "kitten"], True),
+        (contains_none_of, "x", "hello", True),
+        (contains_none_of, ["1", 4.0], ["1", 2.0, 3], False),
     ],
 )
 def test_has_any_in(func, a: Any, b: Any, expected: bool) -> None:
