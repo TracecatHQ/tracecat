@@ -150,7 +150,8 @@ export function EntityFieldsTable({
             enableHiding: false,
           },
           {
-            accessorKey: "is_active",
+            id: "status",
+            accessorFn: (row) => (row.is_active ? "active" : "inactive"),
             header: ({ column }) => (
               <DataTableColumnHeader
                 className="text-xs"
@@ -166,8 +167,13 @@ export function EntityFieldsTable({
                 {row.original.is_active ? "Active" : "Inactive"}
               </Badge>
             ),
+            filterFn: (row, _id, value: string[]) => {
+              const status = row.original.is_active ? "active" : "inactive"
+              return value.includes(status)
+            },
             enableSorting: true,
             enableHiding: false,
+            enableColumnFilter: true,
           },
           {
             id: "actions",
@@ -287,4 +293,14 @@ const defaultToolbarProps: DataTableToolbarProps<FieldMetadataRead> = {
     placeholder: "Filter fields...",
     column: "display_name",
   },
+  fields: [
+    {
+      column: "status",
+      title: "Status",
+      options: [
+        { label: "Active", value: "active" },
+        { label: "Inactive", value: "inactive" },
+      ],
+    },
+  ],
 }
