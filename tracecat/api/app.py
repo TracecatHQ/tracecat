@@ -117,7 +117,8 @@ def validation_exception_handler(request: Request, exc: RequestValidationError):
     ser_errors = to_jsonable_python(errors, fallback=str)
     logger.error(
         "API Model Validation error",
-        request=request,
+        method=request.method,
+        path=request.url.path,
         errors=ser_errors,
     )
     return ORJSONResponse(

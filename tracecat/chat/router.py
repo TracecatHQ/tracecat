@@ -15,9 +15,8 @@ from tracecat_registry.integrations.agents.tokens import (
 )
 
 from tracecat.agent.executor.base import BaseAgentExecutor
-from tracecat.agent.executor.deps import get_executor
+from tracecat.agent.executor.deps import WorkspaceUser, get_executor
 from tracecat.agent.models import ModelInfo, RunAgentArgs, ToolFilters
-from tracecat.auth.credentials import RoleACL
 from tracecat.chat.models import (
     ChatCreate,
     ChatMessage,
@@ -31,18 +30,8 @@ from tracecat.chat.service import ChatService
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.logger import logger
 from tracecat.redis.client import get_redis_client
-from tracecat.types.auth import Role
 
 router = APIRouter(prefix="/chat", tags=["chat"])
-
-WorkspaceUser = Annotated[
-    Role,
-    RoleACL(
-        allow_user=True,
-        allow_service=False,
-        require_workspace="yes",
-    ),
-]
 
 
 @router.post("/")
@@ -166,9 +155,6 @@ async def start_chat_turn(
         )
 
     try:
-        # Fire-and-forget execution using the agent function directly
-
-        # Build model info from request
         model_info = ModelInfo(
             name=request.model_name,
             provider=request.model_provider,
@@ -179,7 +165,7 @@ async def start_chat_turn(
             role=role,
             user_prompt=request.message,
             tool_filters=ToolFilters(actions=chat.tools),
-            session_id=f"agent-stream:{str(chat_id)}",
+            session_id=str(chat_id),
             instructions=request.instructions,
             model_info=model_info,
         )
