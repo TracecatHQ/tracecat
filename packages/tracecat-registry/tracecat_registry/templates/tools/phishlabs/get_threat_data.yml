@@ -14,6 +14,20 @@ definition:
       type: list[str]
       description: The status code(s) of the incident.
       default: ["RequiresInput", "RequiresApproval"]
+    incident_type_code:
+      type: str
+      description: The type of Incident to be returned. 'SocialMedia' or 'DarkWeb'
+      default: null
+    threat_type_codes:
+      type: list[str]
+      description: >
+        The type of Threats to be returned.
+        Threat Types ending with "SM" are Social Media, "DW" are Dark Web.
+      default: []
+    incident_severity_codes:
+      type: list[str]
+      description: The severity of incidents to be returned. 'Low', 'Medium', 'High'
+      default: []
     page_size:
       type: int
       description: The number of records to return per page.
@@ -39,5 +53,8 @@ definition:
           Content-Type: application/json
         params:
           IncidentStatusCodes: ${{ inputs.incident_status_codes }}
+          IncidentTypeCode: ${{ inputs.incident_type_code }}
+          ThreatTypeCodes: ${{ inputs.threat_type_codes }}
+          IncidentSeverityCodes: ${{ inputs.incident_severity_codes }}
           PageSize: ${{ inputs.page_size }}
   returns: ${{ steps.get_threat_data.result }}
