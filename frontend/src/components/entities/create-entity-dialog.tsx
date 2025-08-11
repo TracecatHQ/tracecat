@@ -95,18 +95,18 @@ export function CreateEntityDialog({
               name="name"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Name</FormLabel>
+                  <FormLabel>Identifier / Slug</FormLabel>
                   <FormControl>
                     <Input
                       {...field}
+                      placeholder="Lowercase, no spaces"
                       onChange={(e) =>
                         field.onChange(e.target.value.toLowerCase())
                       }
                     />
                   </FormControl>
                   <FormDescription>
-                    Unique identifier for the entity (lowercase, no spaces).
-                    This cannot be changed after creation.
+                    This cannot be changed after creation
                   </FormDescription>
                   <FormMessage />
                 </FormItem>
@@ -117,9 +117,9 @@ export function CreateEntityDialog({
               name="display_name"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Display name</FormLabel>
+                  <FormLabel>Name</FormLabel>
                   <FormControl>
-                    <Input placeholder="Human-readable name" {...field} />
+                    <Input placeholder="Short human-readable name" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
