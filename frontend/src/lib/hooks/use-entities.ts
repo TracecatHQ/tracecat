@@ -55,7 +55,7 @@ export function useEntityFields(workspaceId: string, entityId: string) {
       const response = await entitiesListFields({
         workspaceId,
         entityId,
-        includeInactive: false,
+        includeInactive: true,
       })
       return response
     },
