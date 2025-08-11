@@ -8,7 +8,6 @@ import os
 import re
 import sys
 from collections.abc import Callable
-from itertools import chain
 from pathlib import Path
 from timeit import default_timer
 from types import ModuleType
@@ -60,6 +59,93 @@ from tracecat.types.exceptions import RegistryError
 
 ArgsClsT = type[BaseModel]
 type F = Callable[..., Any]
+
+
+def iter_valid_files(
+    base_path: Path | str,
+    file_extensions: tuple[str, ...] = (".py",),
+    exclude_filenames: tuple[str, ...] | None = None,
+    exclude_dirnames: set[str] | None = None,
+):
+    """Generator that yields valid file paths based on extension and exclusion rules.
+
+    Args:
+        base_path: The base directory to search in
+        file_extensions: Tuple of file extensions to include (e.g., ('.py',) or ('.yml', '.yaml'))
+        exclude_filenames: Tuple of filename stems to exclude
+        exclude_dirnames: Set of directory names to exclude from traversal
+
+    Yields:
+        Path objects for valid files
+    """
+    if exclude_dirnames is None:
+        exclude_dirnames = {
+            "cli",
+            "_internal",
+            ".git",
+            "__pycache__",
+            "node_modules",
+            ".venv",
+            "venv",
+            "env",
+            ".direnv",
+            "build",
+            "dist",
+            ".mypy_cache",
+            ".pytest_cache",
+            ".ruff_cache",
+            ".tox",
+            "eggs",
+            ".eggs",
+        }
+
+    pkg_path = Path(base_path)
+
+    for root, dirnames, filenames in pkg_path.walk(
+        top_down=True, follow_symlinks=False
+    ):
+        # Prune directories so we never enter them
+        dirnames[:] = [
+            d
+            for d in dirnames
+            if not d.startswith((".", "_"))
+            and d not in exclude_dirnames
+            and d.isidentifier()
+        ]
+
+        for filename in filenames:
+            # Check file extension
+            if not any(filename.endswith(ext) for ext in file_extensions):
+                continue
+
+            # Skip hidden/private files
+            if filename.startswith((".", "_")):
+                logger.debug("Skipping hidden/private file", path=Path(root) / filename)
+                continue
+
+            # Check excluded filenames
+            stem = Path(filename).stem
+            if exclude_filenames and stem in exclude_filenames:
+                logger.debug("Skipping excluded filename", path=Path(root) / filename)
+                continue
+
+            file_path = Path(root) / filename
+
+            # For Python files, check if the module path is importable
+            if file_extensions == (".py",):
+                try:
+                    relative_path = file_path.relative_to(base_path)
+                    parts = [*relative_path.parent.parts, relative_path.stem]
+
+                    # Extra safety: only import importable module paths
+                    if any(not part.isidentifier() for part in parts):
+                        logger.debug("Skipping non-importable path", path=file_path)
+                        continue
+                except ValueError:
+                    # If relative_to fails, skip the file
+                    continue
+
+            yield file_path
 
 
 class RegisterKwargs(BaseModel):
@@ -319,7 +405,7 @@ class Repository:
                 )
                 extra_args = ["--target", python_user_base]
 
-            cmd = ["uv", "add", "--refresh", "--editable"]
+            cmd = ["uv", "pip", "install", "--refresh", "--editable"]
             process = await asyncio.create_subprocess_exec(
                 *cmd,
                 repo_path.as_posix(),
@@ -530,32 +616,25 @@ class Repository:
         origin: str = DEFAULT_REGISTRY_ORIGIN,
     ) -> None:
         start_time = default_timer()
-        # Use rglob to find all python files
         base_path = module.__path__[0]
         base_package = module.__name__
         num_udfs = 0
-        # Ignore __init__.py and __main__.py
-        exclude_filenames = ("__init__", "__main__")
-        # Ignore CLI files and internal modules
-        exclude_prefixes = (f"{base_path}/cli", f"{base_path}/_internal")
 
-        for path in Path(base_path).rglob("*.py"):
-            if path.stem in exclude_filenames:
-                logger.debug("Skipping excluded filename", path=path)
-                continue
-            p_str = path.as_posix()
-            if any(p_str.startswith(prefix) for prefix in exclude_prefixes):
-                logger.debug("Skipping excluded prefix", path=path)
-                continue
-            logger.info(f"Loading UDFs from {path!s}")
-            # Convert path to relative path
-            relative_path = path.relative_to(base_path)
-            # Create fully qualified module name
-            udf_module_parts = list(relative_path.parent.parts) + [relative_path.stem]
-            udf_module_name = f"{base_package}.{'.'.join(udf_module_parts)}"
-            module = import_and_reload(udf_module_name)
-            num_registered = self._register_udfs_from_module(module, origin=origin)
-            num_udfs += num_registered
+        # Use the new free function to iterate over Python files
+        for file_path in iter_valid_files(
+            base_path,
+            file_extensions=(".py",),
+            exclude_filenames=("__init__", "__main__"),
+        ):
+            logger.info(f"Loading UDFs from {file_path!s}")
+
+            # Convert path to module name
+            relative_path = file_path.relative_to(base_path)
+            parts = (*relative_path.parent.parts, relative_path.stem)
+            udf_module_name = f"{base_package}.{'.'.join(parts)}"
+
+            mod = import_and_reload(udf_module_name)
+            num_udfs += self._register_udfs_from_module(mod, origin=origin)
         time_elapsed = default_timer() - start_time
         logger.info(
             f"✅ Registered {num_udfs} UDFs in {time_elapsed:.2f}s",
@@ -638,11 +717,17 @@ class Repository:
     ) -> int:
         """Load template actions from a package."""
         n_loaded = 0
-        all_paths = chain(path.rglob("*.yml"), path.rglob("*.yaml"))
-        for file_path in all_paths:
+
+        # Use the new free function to iterate over YAML files
+        for file_path in iter_valid_files(
+            path,
+            file_extensions=(".yml", ".yaml"),
+        ):
+            # Skip if the ignore_path is in the file path
             if ignore_path in file_path.parts:
                 continue
 
+            logger.info(f"Loading template actions from {file_path!s}")
             template_action = self.load_template_action_from_file(
                 file_path, origin, overwrite=overwrite
             )

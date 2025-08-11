@@ -268,3 +268,186 @@ def test_parse_git_url_invalid(url: str):
     allowed_domains = {"github.com", "gitlab.com"}
     with pytest.raises(ValueError):
         parse_git_url(url, allowed_domains=allowed_domains)
+
+
+def test_iter_valid_files(tmp_path):
+    """Test iter_valid_files function with various file structures and exclusion rules."""
+    from tracecat.registry.repository import iter_valid_files
+
+    # Create a test directory structure
+    # Valid Python files
+    (tmp_path / "module1.py").touch()
+    (tmp_path / "module2.py").touch()
+
+    # Should be excluded - __init__ and __main__
+    (tmp_path / "__init__.py").touch()
+    (tmp_path / "__main__.py").touch()
+
+    # Hidden/private files - should be excluded
+    (tmp_path / ".hidden.py").touch()
+    (tmp_path / "_private.py").touch()
+
+    # Subdirectory with valid files
+    subdir = tmp_path / "subpackage"
+    subdir.mkdir()
+    (subdir / "sub_module.py").touch()
+    (subdir / "__init__.py").touch()
+
+    # Virtual environment directory - should be excluded entirely
+    venv_dir = tmp_path / ".venv"
+    venv_dir.mkdir()
+    (venv_dir / "bin").mkdir()
+    (venv_dir / "bin" / "activate.py").touch()
+    (venv_dir / "lib").mkdir()
+    (venv_dir / "lib" / "site-packages").mkdir()
+    (venv_dir / "lib" / "site-packages" / "package.py").touch()
+
+    # Another common venv name - should be excluded
+    venv_dir2 = tmp_path / "venv"
+    venv_dir2.mkdir()
+    (venv_dir2 / "some_module.py").touch()
+
+    # Build directories - should be excluded
+    build_dir = tmp_path / "build"
+    build_dir.mkdir()
+    (build_dir / "compiled.py").touch()
+
+    dist_dir = tmp_path / "dist"
+    dist_dir.mkdir()
+    (dist_dir / "package.py").touch()
+
+    # Cache directories - should be excluded
+    cache_dir = tmp_path / "__pycache__"
+    cache_dir.mkdir()
+    (cache_dir / "module.cpython-311.pyc").touch()
+
+    mypy_cache = tmp_path / ".mypy_cache"
+    mypy_cache.mkdir()
+    (mypy_cache / "cache.py").touch()
+
+    # Non-Python files - should be excluded when looking for .py
+    (tmp_path / "readme.md").touch()
+    (tmp_path / "config.yaml").touch()
+    (tmp_path / "data.json").touch()
+
+    # YAML files for testing yaml extension filter
+    (tmp_path / "template1.yml").touch()
+    (tmp_path / "template2.yaml").touch()
+    (subdir / "sub_template.yml").touch()
+
+    # Non-identifier directory names - should be excluded
+    non_ident_dir = tmp_path / "123-invalid"
+    non_ident_dir.mkdir()
+    (non_ident_dir / "module.py").touch()
+
+    # Test 1: Default behavior - Python files with explicit exclusions
+    py_files = list(
+        iter_valid_files(
+            tmp_path,
+            file_extensions=(".py",),
+            exclude_filenames=(
+                "__init__",
+                "__main__",
+            ),  # Explicit exclusions (though redundant due to _ prefix)
+        )
+    )
+
+    # Convert to relative paths for easier assertions
+    py_file_names = [f.relative_to(tmp_path).as_posix() for f in py_files]
+
+    # Should include only valid Python files
+    assert "module1.py" in py_file_names
+    assert "module2.py" in py_file_names
+    assert "subpackage/sub_module.py" in py_file_names
+
+    # These are excluded by BOTH the exclude_filenames parameter AND the _ prefix check
+    assert "__init__.py" not in py_file_names
+    assert "__main__.py" not in py_file_names
+    assert "subpackage/__init__.py" not in py_file_names
+
+    # These are excluded by the hidden/private file check
+    assert ".hidden.py" not in py_file_names
+    assert "_private.py" not in py_file_names
+
+    # Should not include anything from excluded directories
+    assert not any(".venv" in f for f in py_file_names)
+    assert not any("venv" in f for f in py_file_names)
+    assert not any("build" in f for f in py_file_names)
+    assert not any("dist" in f for f in py_file_names)
+    assert not any("__pycache__" in f for f in py_file_names)
+    assert not any(".mypy_cache" in f for f in py_file_names)
+    assert not any("123-invalid" in f for f in py_file_names)
+
+    # Test 2: YAML files only
+    yaml_files = list(
+        iter_valid_files(
+            tmp_path,
+            file_extensions=(".yml", ".yaml"),
+            exclude_filenames=(),  # No exclusions for yaml
+        )
+    )
+
+    yaml_file_names = [f.relative_to(tmp_path).as_posix() for f in yaml_files]
+
+    assert "template1.yml" in yaml_file_names
+    assert "template2.yaml" in yaml_file_names
+    assert "subpackage/sub_template.yml" in yaml_file_names
+
+    # Should not include Python files
+    assert "module1.py" not in yaml_file_names
+    assert "module2.py" not in yaml_file_names
+
+    # Test 3: Custom exclusions
+    custom_files = list(
+        iter_valid_files(
+            tmp_path,
+            file_extensions=(".py",),
+            exclude_filenames=("module1",),  # Exclude module1
+            exclude_dirnames={"subpackage"},  # Exclude subpackage directory
+        )
+    )
+
+    custom_file_names = [f.relative_to(tmp_path).as_posix() for f in custom_files]
+
+    assert "module2.py" in custom_file_names
+    assert "module1.py" not in custom_file_names  # Excluded by filename
+    assert "subpackage/sub_module.py" not in custom_file_names  # Excluded by directory
+
+    # Test 4: No explicit filename exclusions (but hidden/private files still excluded)
+    # When exclude_filenames is None (default), no specific filename exclusions are applied
+    # However, files starting with . or _ are ALWAYS excluded as hidden/private
+    all_py_files = list(
+        iter_valid_files(
+            tmp_path,
+            file_extensions=(".py",),
+            exclude_filenames=None,  # No explicit exclusions
+        )
+    )
+
+    all_py_file_names = [f.relative_to(tmp_path).as_posix() for f in all_py_files]
+
+    # Regular Python files should be included
+    assert "module1.py" in all_py_file_names
+    assert "module2.py" in all_py_file_names
+    assert "subpackage/sub_module.py" in all_py_file_names
+
+    # Files starting with _ are ALWAYS excluded as private files
+    # This includes __init__.py and __main__.py (they start with _)
+    assert "__init__.py" not in all_py_file_names
+    assert "__main__.py" not in all_py_file_names
+    assert "subpackage/__init__.py" not in all_py_file_names
+    assert "_private.py" not in all_py_file_names
+
+    # Hidden files (starting with .) are ALWAYS excluded
+    assert ".hidden.py" not in all_py_file_names
+
+    # Virtual env directories still excluded
+    assert not any(".venv" in f for f in all_py_file_names)
+
+    # The result should be the same as Test 1 since __init__ and __main__
+    # are excluded by the private file check, not by exclude_filenames
+    assert set(all_py_file_names) == {
+        "module1.py",
+        "module2.py",
+        "subpackage/sub_module.py",
+    }
