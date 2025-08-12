@@ -24,6 +24,7 @@ async def upsert_workflow_definitions(
     fetch_yaml: FetchYaml,
     commit_sha: str,
     workspace_id: str,
+    repo_url: str | None = None,
 ) -> None:
     """Upsert workflow definitions from external sources.
 
@@ -91,14 +92,12 @@ async def upsert_workflow_definitions(
                 )
 
                 # Add Git metadata to the definition
-                # This assumes WorkflowDefinition has these optional fields
-                if hasattr(defn, "origin"):
-                    defn.origin = "git"
-                if hasattr(defn, "repo_path"):
-                    defn.repo_path = source.path
-                if hasattr(defn, "commit_sha"):
-                    defn.commit_sha = commit_sha
-                # repo_url is optional and would be set by the caller if available
+                # Set git metadata fields on the definition
+                defn.origin = "git"
+                defn.repo_path = source.path
+                defn.commit_sha = commit_sha
+                if repo_url is not None:
+                    defn.repo_url = repo_url
 
                 logger.info(
                     "Created workflow definition",
