@@ -97,6 +97,7 @@ def iter_valid_files(
             ".tox",
             "eggs",
             ".eggs",
+            "tests",
         }
 
     pkg_path = Path(base_path)
