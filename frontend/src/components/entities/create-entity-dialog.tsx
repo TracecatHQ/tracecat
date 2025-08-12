@@ -4,6 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
+import { IconPicker } from "@/components/form/icon-picker"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -149,11 +150,13 @@ export function CreateEntityDialog({
                 <FormItem>
                   <FormLabel>Icon</FormLabel>
                   <FormControl>
-                    <Input placeholder="user" {...field} />
+                    <IconPicker
+                      value={field.value}
+                      onValueChange={field.onChange}
+                      className="text-xs"
+                      placeholder="Select an icon to represent this entity (optional)"
+                    />
                   </FormControl>
-                  <FormDescription>
-                    Icon name from lucide-react (optional)
-                  </FormDescription>
                   <FormMessage />
                 </FormItem>
               )}

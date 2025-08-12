@@ -20,6 +20,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -28,6 +29,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { getIconByName } from "@/lib/icon-data"
 import { useWorkspace } from "@/providers/workspace"
 
 interface EntitiesTableProps {
@@ -70,25 +72,46 @@ export function EntitiesTable({
                 title="Entity"
               />
             ),
-            cell: ({ row }) => (
-              <div
-                className={row.original.is_active ? "cursor-pointer" : ""}
-                onClick={() => {
-                  if (row.original.is_active) {
-                    router.push(
-                      `/workspaces/${workspaceId}/entities/${row.original.id}`
-                    )
-                  }
-                }}
-              >
-                <div className="font-medium text-sm">
-                  {row.original.display_name}
+            cell: ({ row }) => {
+              const IconComponent = row.original.icon
+                ? getIconByName(row.original.icon)
+                : null
+              const initials =
+                row.original.display_name?.[0]?.toUpperCase() || "?"
+
+              return (
+                <div
+                  className={row.original.is_active ? "cursor-pointer" : ""}
+                  onClick={() => {
+                    if (row.original.is_active) {
+                      router.push(
+                        `/workspaces/${workspaceId}/entities/${row.original.id}`
+                      )
+                    }
+                  }}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <Avatar className="size-7 shrink-0">
+                      <AvatarFallback className="text-xs">
+                        {IconComponent ? (
+                          <IconComponent className="size-4" />
+                        ) : (
+                          initials
+                        )}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div>
+                      <div className="font-medium text-sm">
+                        {row.original.display_name}
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {row.original.name}
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <div className="text-xs text-muted-foreground">
-                  {row.original.name}
-                </div>
-              </div>
-            ),
+              )
+            },
             enableSorting: true,
             enableHiding: false,
           },
