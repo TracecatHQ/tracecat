@@ -92,16 +92,13 @@ class TestGitWorkflowStore:
             commit_sha="abc123",
         )
 
+        wf_id = WorkflowUUID.new_uuid4()
+        wf_id_short = wf_id.short()
         # Test short pattern
-        assert store._extract_workflow_id("workflows/wf_ABC123.yml") == "wf_ABC123"
+        assert store._extract_workflow_id(f"workflows/{wf_id_short}.yml") == wf_id
 
         # Test legacy pattern
-        assert (
-            store._extract_workflow_id(
-                "playbooks/wf-1234567890abcdef1234567890abcdef.yaml"
-            )
-            == "wf-1234567890abcdef1234567890abcdef"
-        )
+        assert store._extract_workflow_id(f"playbooks/{wf_id_short}.yaml") == wf_id
 
         # Test no match
         assert store._extract_workflow_id("workflows/invalid.yml") is None
@@ -112,7 +109,11 @@ class TestGitWorkflowStore:
     ):
         """Test listing workflow sources from Git repository."""
         with patch("tracecat_ee.store.git_store.run_git") as mock_run_git:
-            # Mock git ls-tree output
+            # Create test workflow UUIDs
+            wf_uuid_1 = WorkflowUUID.new_uuid4()
+            wf_uuid_2 = WorkflowUUID.new_uuid4()
+
+            # Mock git ls-tree output with actual workflow UUID short forms
             mock_run_git.side_effect = [
                 (0, "", ""),  # init
                 (0, "", ""),  # remote add
@@ -120,7 +121,7 @@ class TestGitWorkflowStore:
                 (0, "", ""),  # checkout
                 (
                     0,
-                    "workflows/wf_ABC123.yml\nplaybooks/wf_DEF456.yaml\nREADME.md",
+                    f"workflows/{wf_uuid_1.short()}.yml\nplaybooks/{wf_uuid_2.short()}.yaml\nREADME.md",
                     "",
                 ),  # ls-tree
             ]
@@ -135,10 +136,10 @@ class TestGitWorkflowStore:
             sources = list(await store.list_sources())
 
             assert len(sources) == 2
-            assert sources[0].workflow_id == "wf_ABC123"
-            assert sources[0].path == "workflows/wf_ABC123.yml"
-            assert sources[1].workflow_id == "wf_DEF456"
-            assert sources[1].path == "playbooks/wf_DEF456.yaml"
+            assert sources[0].workflow_id == wf_uuid_1
+            assert sources[0].path == f"workflows/{wf_uuid_1.short()}.yml"
+            assert sources[1].workflow_id == wf_uuid_2
+            assert sources[1].path == f"playbooks/{wf_uuid_2.short()}.yaml"
 
     @pytest.mark.anyio
     async def test_fetch_yaml(
@@ -148,6 +149,8 @@ class TestGitWorkflowStore:
         mock_git_env: dict[str, str],
     ):
         """Test fetching YAML content from Git."""
+        wf_id = WorkflowUUID.new_uuid4()
+        wf_id_short = wf_id.short()
         with patch("tracecat_ee.store.git_store.run_git") as mock_run_git:
             mock_run_git.return_value = (0, sample_workflow_yaml, "")
 
@@ -158,11 +161,11 @@ class TestGitWorkflowStore:
                 env=mock_git_env,
             )
 
-            content = await store.fetch_yaml("workflows/wf_ABC123.yml", "abc123")
+            content = await store.fetch_yaml(f"workflows/{wf_id_short}.yml", "abc123")
 
             assert content == sample_workflow_yaml
             mock_run_git.assert_called_with(
-                ["git", "show", "abc123:workflows/wf_ABC123.yml"],
+                ["git", "show", f"abc123:workflows/{wf_id_short}.yml"],
                 env=mock_git_env,
                 cwd=str(temp_git_repo),
                 timeout=30.0,
@@ -178,12 +181,14 @@ class TestSyncOrchestrator:
         workspace_id = uuid.uuid4()
         repo_url = "git+ssh://git@github.com/org/repo.git"
         commit_sha = "abc123"
+        wf_id = WorkflowUUID.new_uuid4()
+        wf_id_short = wf_id.short()
 
         mock_sources = [
             WorkflowSource(
-                path="workflows/wf_ABC123.yml",
+                path=f"workflows/{wf_id_short}.yml",
                 sha=commit_sha,
-                workflow_id=WorkflowUUID.new_uuid4(),
+                workflow_id=wf_id,
             ),
         ]
 
