@@ -100,27 +100,6 @@ class RelationSettings(BaseModel):
     )
 
 
-class TextFieldSettings(BaseModel):
-    """Settings for TEXT field type."""
-
-    min_length: int | None = Field(default=None, ge=0)
-    max_length: int | None = Field(default=None, ge=1)
-    pattern: str | None = Field(default=None, description="Regex pattern")
-
-
-class NumberFieldSettings(BaseModel):
-    """Settings for INTEGER/NUMBER field types."""
-
-    min: float | None = None
-    max: float | None = None
-
-
-class SelectFieldSettings(BaseModel):
-    """Settings for SELECT/MULTI_SELECT field types."""
-
-    options: list[str] = Field(..., min_length=1)
-
-
 # Field Metadata Models
 
 
@@ -131,7 +110,11 @@ class FieldMetadataCreate(BaseModel):
     field_type: FieldType
     display_name: str = Field(..., min_length=1, max_length=255)
     description: str | None = Field(default=None, max_length=1000)
-    field_settings: dict[str, Any] = Field(default_factory=dict)
+    enum_options: list[str] | None = Field(
+        default=None,
+        min_length=1,
+        description="Options for SELECT/MULTI_SELECT fields",
+    )
     relation_settings: RelationSettings | None = Field(
         default=None,
         description="Settings for relation fields (required when field_type is RELATION_*)",
@@ -211,6 +194,30 @@ class FieldMetadataCreate(BaseModel):
         return v
 
     @model_validator(mode="after")
+    def validate_enum_options(self) -> Self:
+        """Validate enum_options for SELECT/MULTI_SELECT fields."""
+        # SELECT and MULTI_SELECT require enum_options
+        if self.field_type in (FieldType.SELECT, FieldType.MULTI_SELECT):
+            if not self.enum_options:
+                raise ValueError(
+                    f"Field type {self.field_type} requires enum_options to be specified"
+                )
+            # Ensure all options are unique
+            if len(set(self.enum_options)) != len(self.enum_options):
+                raise ValueError("Enum options must be unique")
+            # Ensure options are non-empty strings
+            for opt in self.enum_options:
+                if not opt or not opt.strip():
+                    raise ValueError("Enum options cannot be empty strings")
+        # Non-SELECT fields should not have enum_options
+        elif self.enum_options:
+            raise ValueError(
+                f"Field type {self.field_type} does not support enum_options"
+            )
+
+        return self
+
+    @model_validator(mode="after")
     def validate_default_value(self) -> Self:
         """Validate default value is appropriate for field type."""
         if self.default_value is None:
@@ -262,11 +269,11 @@ class FieldMetadataCreate(BaseModel):
                 raise ValueError(
                     f"Default value for SELECT field must be a string, got {type(self.default_value).__name__}"
                 )
-            # Validate against options if field_settings provided
-            if self.field_settings and "options" in self.field_settings:
-                if self.default_value not in self.field_settings["options"]:
+            # Validate against options if enum_options provided
+            if self.enum_options:
+                if self.default_value not in self.enum_options:
                     raise ValueError(
-                        f"Default value '{self.default_value}' not in available options: {self.field_settings['options']}"
+                        f"Default value '{self.default_value}' not in available options: {self.enum_options}"
                     )
         elif self.field_type == FieldType.MULTI_SELECT:
             if not isinstance(self.default_value, list):
@@ -277,16 +284,14 @@ class FieldMetadataCreate(BaseModel):
                 raise ValueError(
                     "All items in MULTI_SELECT default value must be strings"
                 )
-            # Validate against options if field_settings provided
-            if self.field_settings and "options" in self.field_settings:
+            # Validate against options if enum_options provided
+            if self.enum_options:
                 invalid_options = [
-                    opt
-                    for opt in self.default_value
-                    if opt not in self.field_settings["options"]
+                    opt for opt in self.default_value if opt not in self.enum_options
                 ]
                 if invalid_options:
                     raise ValueError(
-                        f"Default values {invalid_options} not in available options: {self.field_settings['options']}"
+                        f"Default values {invalid_options} not in available options: {self.enum_options}"
                     )
 
         return self
@@ -297,7 +302,11 @@ class FieldMetadataUpdate(BaseModel):
 
     display_name: str | None = Field(default=None, min_length=1, max_length=255)
     description: str | None = Field(default=None, max_length=1000)
-    field_settings: dict[str, Any] | None = None
+    enum_options: list[str] | None = Field(
+        default=None,
+        min_length=1,
+        description="Options for SELECT/MULTI_SELECT fields",
+    )
     is_required: bool | None = None
     is_unique: bool | None = None
     default_value: Any | None = None
@@ -312,7 +321,6 @@ class FieldMetadataRead(BaseModel):
     field_type: str
     display_name: str
     description: str | None
-    field_settings: dict[str, Any]
     is_active: bool
     is_required: bool
     is_unique: bool
@@ -323,6 +331,9 @@ class FieldMetadataRead(BaseModel):
     relation_kind: str | None = None
     relation_target_entity_id: UUID | None = None
     relation_backref_field_id: UUID | None = None
+    relation_cascade_delete: bool | None = None
+    # Enum field options
+    enum_options: list[str] | None = None
     default_value: Any | None = None
 
     model_config = {"from_attributes": True}
@@ -416,12 +427,6 @@ class BulkCreateResponse(BaseModel):
     )
 
 
-class ArrayFieldSettings(BaseModel):
-    """Settings for ARRAY_* field types."""
-
-    max_items: int | None = Field(default=None, ge=1)
-
-
 # Relation Operation Models
 
 
@@ -464,3 +469,50 @@ class RelationListResponse(BaseModel):
     page: int
     page_size: int
     has_next: bool
+
+
+# Additional Response Models
+
+
+class RelationUpdateResponse(BaseModel):
+    """Response for relation field updates."""
+
+    message: str
+    target_id: str | None = Field(
+        default=None, description="Target record ID for belongs_to updates"
+    )
+    stats: dict[str, Any] | None = Field(
+        default=None, description="Statistics for has_many updates"
+    )
+
+
+class EntitySchemaField(BaseModel):
+    """Schema field description for API responses."""
+
+    key: str = Field(..., description="Field key")
+    type: str = Field(..., description="Field type")
+    display_name: str = Field(..., description="Display name")
+    description: str | None = Field(default=None, description="Field description")
+    required: bool = Field(..., description="Whether field is required")
+    enum_options: list[str] | None = Field(
+        default=None, description="Options for SELECT/MULTI_SELECT fields"
+    )
+    relation_cascade_delete: bool | None = Field(
+        default=None, description="Cascade delete setting for relation fields"
+    )
+
+
+class EntitySchemaInfo(BaseModel):
+    """Entity metadata in schema response."""
+
+    id: str = Field(..., description="Entity ID")
+    name: str = Field(..., description="Entity name")
+    display_name: str = Field(..., description="Display name")
+    description: str | None = Field(default=None, description="Entity description")
+
+
+class EntitySchemaResponse(BaseModel):
+    """Response for entity schema endpoint."""
+
+    entity: EntitySchemaInfo = Field(..., description="Entity metadata")
+    fields: list[EntitySchemaField] = Field(..., description="Field definitions")
