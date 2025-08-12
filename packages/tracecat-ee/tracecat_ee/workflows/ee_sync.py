@@ -18,9 +18,9 @@ from tracecat.settings.service import get_setting_cached
 from tracecat.ssh import git_env_context
 from tracecat.types.auth import Role
 from tracecat.workflow.management.management import WorkflowsManagementService
-from tracecat.workflows.git_store import GitWorkflowStore
 from tracecat.workflows.store import WorkflowSource
 from tracecat.workflows.sync import upsert_workflow_definitions
+from tracecat_ee.workflows.git_store import GitWorkflowStore
 
 
 async def sync_repo_workflows(
