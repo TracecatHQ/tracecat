@@ -15,6 +15,7 @@ import {
 } from "@/client"
 import { CreateFieldDialog } from "@/components/entities/create-field-dialog"
 import { EntityFieldsTable } from "@/components/entities/entity-fields-table"
+import { IconPicker } from "@/components/form/icon-picker"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import {
@@ -28,6 +29,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -36,6 +38,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/use-toast"
 import { entityEvents } from "@/lib/entity-events"
 import { useEntity, useEntityFields } from "@/lib/hooks/use-entities"
+import { getIconByName } from "@/lib/icon-data"
 import { useWorkspace } from "@/providers/workspace"
 
 export default function EntityDetailPage() {
@@ -48,6 +51,7 @@ export default function EntityDetailPage() {
   const [createFieldDialogOpen, setCreateFieldDialogOpen] = useState(false)
   const [isEditingSettings, setIsEditingSettings] = useState(false)
   const [deactivateDialogOpen, setDeactivateDialogOpen] = useState(false)
+  const [selectedIcon, setSelectedIcon] = useState<string | undefined>()
 
   const currentTab = searchParams?.get("tab") || "fields"
 
@@ -59,6 +63,13 @@ export default function EntityDetailPage() {
     workspaceId,
     entityId
   )
+
+  // Initialize icon state when entity loads or when starting to edit
+  useEffect(() => {
+    if (entity && isEditingSettings) {
+      setSelectedIcon(entity.icon || undefined)
+    }
+  }, [entity, isEditingSettings])
 
   // Set up the callback for the Add Field button in header
   useEffect(() => {
@@ -358,13 +369,39 @@ export default function EntityDetailPage() {
 
                     <div className="space-y-2">
                       <Label htmlFor="icon">Icon</Label>
-                      <Input
-                        id="icon"
-                        defaultValue={entity.icon || ""}
-                        disabled={!isEditingSettings}
-                        placeholder="e.g., user, building, package"
-                        className="max-w-md"
-                      />
+                      <div className="max-w-md">
+                        {isEditingSettings ? (
+                          <IconPicker
+                            value={selectedIcon}
+                            onValueChange={setSelectedIcon}
+                            placeholder="Select an icon"
+                            className="w-full"
+                          />
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            {entity.icon &&
+                              (() => {
+                                const IconComponent = getIconByName(entity.icon)
+                                const initials =
+                                  entity.display_name?.[0]?.toUpperCase() || "?"
+                                return (
+                                  <Avatar className="size-8">
+                                    <AvatarFallback className="text-sm">
+                                      {IconComponent ? (
+                                        <IconComponent className="size-4" />
+                                      ) : (
+                                        initials
+                                      )}
+                                    </AvatarFallback>
+                                  </Avatar>
+                                )
+                              })()}
+                            <span className="text-sm text-muted-foreground">
+                              {entity.icon || "No icon selected"}
+                            </span>
+                          </div>
+                        )}
+                      </div>
                     </div>
 
                     <div className="flex gap-2">
@@ -378,14 +415,11 @@ export default function EntityDetailPage() {
                               const descriptionInput = document.getElementById(
                                 "description"
                               ) as HTMLTextAreaElement
-                              const iconInput = document.getElementById(
-                                "icon"
-                              ) as HTMLInputElement
 
                               await updateEntityMutation({
                                 display_name: displayNameInput.value,
                                 description: descriptionInput.value,
-                                icon: iconInput.value,
+                                icon: selectedIcon || "",
                               })
                             }}
                           >
@@ -393,7 +427,10 @@ export default function EntityDetailPage() {
                           </Button>
                           <Button
                             variant="outline"
-                            onClick={() => setIsEditingSettings(false)}
+                            onClick={() => {
+                              setIsEditingSettings(false)
+                              setSelectedIcon(entity.icon || undefined)
+                            }}
                           >
                             Cancel
                           </Button>
