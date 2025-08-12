@@ -1,8 +1,21 @@
 "use client"
 
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
+import {
+  BookA,
+  Brackets,
+  Calendar,
+  CalendarClock,
+  DecimalsArrowRight,
+  Hash,
+  ListOrdered,
+  ListTodo,
+  SquareCheck,
+  ToggleLeft,
+  Type,
+} from "lucide-react"
 import { useState } from "react"
-import type { FieldMetadataRead } from "@/client"
+import type { FieldMetadataRead, FieldType } from "@/client"
 import {
   DataTable,
   DataTableColumnHeader,
@@ -27,6 +40,23 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+
+const fieldTypeConfig: Record<
+  FieldType,
+  { label: string; icon: React.ElementType }
+> = {
+  TEXT: { label: "Text", icon: Type },
+  INTEGER: { label: "Integer", icon: Hash },
+  NUMBER: { label: "Number", icon: DecimalsArrowRight },
+  BOOL: { label: "Boolean", icon: ToggleLeft },
+  DATE: { label: "Date", icon: Calendar },
+  DATETIME: { label: "Date and time", icon: CalendarClock },
+  SELECT: { label: "Select", icon: SquareCheck },
+  MULTI_SELECT: { label: "Multi-select", icon: ListTodo },
+  ARRAY_TEXT: { label: "Text array", icon: BookA },
+  ARRAY_INTEGER: { label: "Integer array", icon: ListOrdered },
+  ARRAY_NUMBER: { label: "Number array", icon: Brackets },
+}
 
 interface EntityFieldsTableProps {
   fields: FieldMetadataRead[]
@@ -93,11 +123,18 @@ export function EntityFieldsTable({
                 title="Data type"
               />
             ),
-            cell: ({ row }) => (
-              <Badge variant="secondary" className="text-xs">
-                {row.getValue<string>("field_type")}
-              </Badge>
-            ),
+            cell: ({ row }) => {
+              const fieldType = row.getValue<FieldType>("field_type")
+              const config = fieldTypeConfig[fieldType]
+              const Icon = config?.icon
+
+              return (
+                <Badge variant="secondary" className="text-xs">
+                  {Icon && <Icon className="mr-1.5 h-3 w-3" />}
+                  {config?.label || fieldType}
+                </Badge>
+              )
+            },
             enableSorting: true,
             enableHiding: false,
           },

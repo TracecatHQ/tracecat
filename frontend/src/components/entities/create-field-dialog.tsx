@@ -1,6 +1,19 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
+import {
+  BookA,
+  Brackets,
+  Calendar,
+  CalendarClock,
+  DecimalsArrowRight,
+  Hash,
+  ListOrdered,
+  ListTodo,
+  SquareCheck,
+  ToggleLeft,
+  Type,
+} from "lucide-react"
 import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
@@ -34,18 +47,22 @@ import {
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 
-const fieldTypes: { value: FieldType; label: string }[] = [
-  { value: "TEXT", label: "Text" },
-  { value: "INTEGER", label: "Integer" },
-  { value: "NUMBER", label: "Number" },
-  { value: "BOOL", label: "Boolean" },
-  { value: "DATE", label: "Date" },
-  { value: "DATETIME", label: "DateTime" },
-  { value: "SELECT", label: "Select" },
-  { value: "MULTI_SELECT", label: "Multi-select" },
-  { value: "ARRAY_TEXT", label: "Text Array" },
-  { value: "ARRAY_INTEGER", label: "Integer Array" },
-  { value: "ARRAY_NUMBER", label: "Number Array" },
+const fieldTypes: {
+  value: FieldType
+  label: string
+  icon: React.ElementType
+}[] = [
+  { value: "TEXT", label: "Text", icon: Type },
+  { value: "INTEGER", label: "Integer", icon: Hash },
+  { value: "NUMBER", label: "Number", icon: DecimalsArrowRight },
+  { value: "BOOL", label: "Boolean", icon: ToggleLeft },
+  { value: "DATE", label: "Date", icon: Calendar },
+  { value: "DATETIME", label: "Date and time", icon: CalendarClock },
+  { value: "SELECT", label: "Select", icon: SquareCheck },
+  { value: "MULTI_SELECT", label: "Multi-select", icon: ListTodo },
+  { value: "ARRAY_TEXT", label: "Text array", icon: BookA },
+  { value: "ARRAY_INTEGER", label: "Integer array", icon: ListOrdered },
+  { value: "ARRAY_NUMBER", label: "Number array", icon: Brackets },
 ]
 
 const createFieldSchema = z.object({
@@ -178,11 +195,17 @@ export function CreateFieldDialog({
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      {fieldTypes.map((type) => (
-                        <SelectItem key={type.value} value={type.value}>
-                          {type.label}
-                        </SelectItem>
-                      ))}
+                      {fieldTypes.map((type) => {
+                        const Icon = type.icon
+                        return (
+                          <SelectItem key={type.value} value={type.value}>
+                            <div className="flex items-center gap-2">
+                              <Icon className="h-4 w-4" />
+                              <span>{type.label}</span>
+                            </div>
+                          </SelectItem>
+                        )
+                      })}
                     </SelectContent>
                   </Select>
                   <FormMessage />
