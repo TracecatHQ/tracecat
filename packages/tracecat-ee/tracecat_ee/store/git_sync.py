@@ -61,17 +61,15 @@ async def sync_repo_workflows(
     git_url = parse_git_url(repo_url, allowed_domains=allowed_domains_set)
 
     # Acquire advisory lock for this workspace+repo combination
-    lock_key = derive_lock_key(str(workspace_id), repo_url)
+    lock_key = derive_lock_key(workspace_id, repo_url)
 
     async with pg_advisory_lock(session, lock_key):
-        logger.info(
-            f"Acquired lock for sync: workspace={workspace_id}, repo={repo_url}"
-        )
+        logger.info("Acquired lock for sync", workspace=workspace_id, repo=repo_url)
 
         async with git_env_context(git_url=git_url, session=session, role=role) as env:
             # Resolve ref to commit SHA
             commit_sha = await resolve_git_ref(repo_url, ref=ref, env=env)
-            logger.info(f"Resolved {ref or 'HEAD'} to {commit_sha}")
+            logger.info("Resolved ref", ref=ref, commit_sha=commit_sha)
 
             # Check if we already synced this commit
             repo_state = await _get_or_create_repo_state(
@@ -79,7 +77,7 @@ async def sync_repo_workflows(
             )
 
             if repo_state.last_synced_sha == commit_sha:
-                logger.info(f"Repository already synced at {commit_sha}, skipping")
+                logger.info("Repository already synced", commit_sha=commit_sha)
                 return {
                     "status": "unchanged",
                     "commit_sha": commit_sha,
@@ -93,7 +91,7 @@ async def sync_repo_workflows(
             )
 
             sources = list(await git_store.list_sources())
-            logger.info(f"Found {len(sources)} workflow sources in repository")
+            logger.info("Found workflow sources", count=len(sources))
 
             # Perform mirror delete: remove workflows that no longer exist in repo
             deleted_count = await _mirror_delete_workflows(
@@ -212,7 +210,9 @@ async def _mirror_delete_workflows(
     for defn in latest_definitions.values():
         if defn.repo_path not in current_paths:
             logger.info(
-                f"Deleting workflow {defn.workflow_id} (path: {defn.repo_path})"
+                "Deleting workflow",
+                workflow_id=defn.workflow_id,
+                path=defn.repo_path,
             )
             try:
                 async with workflows_service as service:
