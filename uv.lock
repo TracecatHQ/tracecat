@@ -3632,15 +3632,11 @@ dependencies = [
     { name = "temporalio" },
     { name = "tenacity" },
     { name = "tomli" },
+    { name = "tracecat-ee" },
     { name = "tracecat-registry" },
     { name = "uv" },
     { name = "uvicorn" },
     { name = "virtualenv" },
-]
-
-[package.optional-dependencies]
-ee = [
-    { name = "tracecat-ee" },
 ]
 
 [package.dev-dependencies]
@@ -3699,13 +3695,12 @@ requires-dist = [
     { name = "temporalio", specifier = "==1.9.0" },
     { name = "tenacity", specifier = "==8.3.0" },
     { name = "tomli", specifier = "==2.2.1" },
-    { name = "tracecat-ee", marker = "extra == 'ee'", editable = "packages/tracecat-ee" },
+    { name = "tracecat-ee", editable = "packages/tracecat-ee" },
     { name = "tracecat-registry", editable = "packages/tracecat-registry" },
     { name = "uv", specifier = "==0.8.4" },
     { name = "uvicorn", specifier = ">=0.33.0,<0.34" },
     { name = "virtualenv", specifier = "==20.27.0" },
 ]
-provides-extras = ["ee"]
 
 [package.metadata.requires-dev]
 dev = [

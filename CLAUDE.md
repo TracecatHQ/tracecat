@@ -115,7 +115,7 @@ just gen-functions
 
 ### Enterprise Edition
 - **Package**: `packages/tracecat-ee/` contains paid enterprise features
-- **Installation**: Install with `uv sync --extra ee` or `pip install tracecat[ee]`
+- **Installation**: Install with `uv sync` or `pip install tracecat[ee]`
 - **Shims**: `tracecat/ee/` contains shims for backward compatibility
 - **Features**: RBAC, multi-tenancy, SSO integration, advanced auth, interactions
 
