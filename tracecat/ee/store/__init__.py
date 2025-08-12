@@ -1,7 +1,7 @@
 """EE workflows shim module."""
 
 try:
-    from tracecat_ee.workflows import (  # noqa: F401
+    from tracecat_ee.store import (  # noqa: F401
         GitWorkflowStore,
         sync_repo_workflows,
     )
