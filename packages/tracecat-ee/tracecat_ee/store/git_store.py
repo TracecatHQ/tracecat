@@ -37,13 +37,17 @@ class GitWorkflowStore(ExternalWorkflowStore):
         Args:
             repo_url: Git repository URL
             commit_sha: Specific commit SHA to checkout
-            include_globs: File patterns to include (default: ["**/*.yml", "**/*.yaml"])
+            include_globs: File patterns to include (default: ["workflows/**/*.yml", "workflows/**/*.yaml"])
             work_dir: Working directory for git operations (temp dir if None)
             env: Environment variables for git commands (SSH config, etc.)
         """
         self.repo_url = repo_url
         self.commit_sha = commit_sha
-        self.include_globs = include_globs or ["**/*.yml", "**/*.yaml"]
+        # Enforce that workflows must be under /workflows directory
+        self.include_globs = include_globs or [
+            "workflows/**/*.yml",
+            "workflows/**/*.yaml",
+        ]
         self.work_dir = work_dir
         self.env = env or {}
         self._temp_dir: tempfile.TemporaryDirectory[str] | None = None
@@ -66,6 +70,10 @@ class GitWorkflowStore(ExternalWorkflowStore):
 
         sources = []
         for path in file_paths:
+            # Enforce that workflows must be under /workflows directory
+            if not path.startswith("workflows/"):
+                continue
+
             # Check if file matches any include glob
             if not any(fnmatch.fnmatch(path, glob) for glob in self.include_globs):
                 continue
@@ -90,15 +98,21 @@ class GitWorkflowStore(ExternalWorkflowStore):
         """Fetch YAML content for a specific file and commit.
 
         Args:
-            path: File path within the repository
+            path: File path within the repository (must be under workflows/)
             sha: Commit SHA (should match store's commit_sha)
 
         Returns:
             YAML content as string
 
         Raises:
-            ValueError: If SHA doesn't match or file not found
+            ValueError: If SHA doesn't match, file not found, or path not under workflows/
         """
+        # Enforce that workflows must be under /workflows directory
+        if not path.startswith("workflows/"):
+            raise ValueError(
+                f"Invalid workflow path: {path}. Workflows must be under 'workflows/' directory"
+            )
+
         if sha != self.commit_sha:
             raise ValueError(f"SHA mismatch: expected {self.commit_sha}, got {sha}")
 

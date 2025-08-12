@@ -97,8 +97,8 @@ class TestGitWorkflowStore:
         # Test short pattern
         assert store._extract_workflow_id(f"workflows/{wf_id_short}.yml") == wf_id
 
-        # Test legacy pattern
-        assert store._extract_workflow_id(f"playbooks/{wf_id_short}.yaml") == wf_id
+        # Test legacy pattern (still under workflows/)
+        assert store._extract_workflow_id(f"workflows/{wf_id_short}.yaml") == wf_id
 
         # Test no match
         assert store._extract_workflow_id("workflows/invalid.yml") is None
@@ -121,7 +121,7 @@ class TestGitWorkflowStore:
                 (0, "", ""),  # checkout
                 (
                     0,
-                    f"workflows/{wf_uuid_1.short()}.yml\nplaybooks/{wf_uuid_2.short()}.yaml\nREADME.md",
+                    f"workflows/{wf_uuid_1.short()}.yml\nworkflows/{wf_uuid_2.short()}.yaml\nREADME.md",
                     "",
                 ),  # ls-tree
             ]
@@ -139,7 +139,7 @@ class TestGitWorkflowStore:
             assert sources[0].workflow_id == wf_uuid_1
             assert sources[0].path == f"workflows/{wf_uuid_1.short()}.yml"
             assert sources[1].workflow_id == wf_uuid_2
-            assert sources[1].path == f"playbooks/{wf_uuid_2.short()}.yaml"
+            assert sources[1].path == f"workflows/{wf_uuid_2.short()}.yaml"
 
     @pytest.mark.anyio
     async def test_fetch_yaml(
@@ -170,6 +170,78 @@ class TestGitWorkflowStore:
                 cwd=str(temp_git_repo),
                 timeout=30.0,
             )
+
+    @pytest.mark.anyio
+    async def test_workflows_directory_enforcement(
+        self, temp_git_repo: Path, mock_git_env: dict[str, str]
+    ):
+        """Test that only files under /workflows directory are included."""
+        with patch("tracecat_ee.store.git_store.run_git") as mock_run_git:
+            # Create test workflow UUIDs
+            wf_uuid_1 = WorkflowUUID.new_uuid4()
+            wf_uuid_2 = WorkflowUUID.new_uuid4()
+            wf_uuid_3 = WorkflowUUID.new_uuid4()
+
+            # Mock git ls-tree output with files in various directories
+            mock_run_git.side_effect = [
+                (0, "", ""),  # init
+                (0, "", ""),  # remote add
+                (0, "", ""),  # fetch
+                (0, "", ""),  # checkout
+                (
+                    0,
+                    f"workflows/{wf_uuid_1.short()}.yml\n"
+                    f"playbooks/{wf_uuid_2.short()}.yaml\n"  # Should be excluded
+                    f"scripts/{wf_uuid_3.short()}.yml\n"  # Should be excluded
+                    f"README.md",
+                    "",
+                ),  # ls-tree
+            ]
+
+            store = GitWorkflowStore(
+                repo_url="git+ssh://git@github.com/org/repo.git",
+                commit_sha="abc123",
+                work_dir=temp_git_repo,
+                env=mock_git_env,
+            )
+
+            sources = list(await store.list_sources())
+
+            # Only the file under /workflows should be included
+            assert len(sources) == 1
+            assert sources[0].workflow_id == wf_uuid_1
+            assert sources[0].path == f"workflows/{wf_uuid_1.short()}.yml"
+
+    @pytest.mark.anyio
+    async def test_fetch_yaml_path_validation(
+        self,
+        temp_git_repo: Path,
+        sample_workflow_yaml: str,
+        mock_git_env: dict[str, str],
+    ):
+        """Test that fetch_yaml rejects paths not under /workflows."""
+        wf_id = WorkflowUUID.new_uuid4()
+        wf_id_short = wf_id.short()
+
+        store = GitWorkflowStore(
+            repo_url="git+ssh://git@github.com/org/repo.git",
+            commit_sha="abc123",
+            work_dir=temp_git_repo,
+            env=mock_git_env,
+        )
+
+        # Test invalid path (not under workflows/)
+        with pytest.raises(
+            ValueError, match="Workflows must be under 'workflows/' directory"
+        ):
+            await store.fetch_yaml(f"playbooks/{wf_id_short}.yml", "abc123")
+
+        # Test valid path under workflows/
+        with patch("tracecat_ee.store.git_store.run_git") as mock_run_git:
+            mock_run_git.return_value = (0, sample_workflow_yaml, "")
+
+            content = await store.fetch_yaml(f"workflows/{wf_id_short}.yml", "abc123")
+            assert content == sample_workflow_yaml
 
 
 class TestSyncOrchestrator:
