@@ -139,6 +139,47 @@ export function EntityFieldsTable({
             enableHiding: false,
           },
           {
+            id: "default",
+            header: ({ column }) => (
+              <DataTableColumnHeader
+                className="text-xs"
+                column={column}
+                title="Default"
+              />
+            ),
+            cell: ({ row }) => {
+              const defaultValue = row.original.default_value
+              const fieldType = row.original.field_type
+
+              if (defaultValue === null || defaultValue === undefined) {
+                return <span className="text-xs text-muted-foreground">-</span>
+              }
+
+              // Format default value based on type
+              let displayValue: string
+              if (fieldType === "BOOL") {
+                displayValue = defaultValue ? "true" : "false"
+              } else if (
+                fieldType === "MULTI_SELECT" &&
+                Array.isArray(defaultValue)
+              ) {
+                displayValue = defaultValue.join(", ")
+              } else if (typeof defaultValue === "object") {
+                displayValue = JSON.stringify(defaultValue)
+              } else {
+                displayValue = String(defaultValue)
+              }
+
+              return (
+                <span className="text-xs font-mono text-muted-foreground">
+                  {displayValue}
+                </span>
+              )
+            },
+            enableSorting: false,
+            enableHiding: true,
+          },
+          {
             id: "constraints",
             header: ({ column }) => (
               <DataTableColumnHeader

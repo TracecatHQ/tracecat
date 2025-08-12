@@ -192,6 +192,7 @@ async def create_field(
             settings=params.field_settings,
             is_required=params.is_required,
             is_unique=params.is_unique,
+            default_value=params.default_value,
         )
         return FieldMetadataRead.model_validate(field, from_attributes=True)
     except ValueError as e:
@@ -248,6 +249,7 @@ async def update_field(
             settings=params.field_settings,
             is_required=params.is_required,
             is_unique=params.is_unique,
+            default_value=params.default_value,
         )
         return FieldMetadataRead.model_validate(field, from_attributes=True)
     except ValueError as e:

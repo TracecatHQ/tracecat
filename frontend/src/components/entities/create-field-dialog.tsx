@@ -8,13 +8,14 @@ import {
   CalendarClock,
   DecimalsArrowRight,
   Hash,
+  Info,
   ListOrdered,
   ListTodo,
   SquareCheck,
   ToggleLeft,
   Type,
 } from "lucide-react"
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import type { FieldType } from "@/client"
@@ -46,6 +47,12 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 
 const fieldTypes: {
   value: FieldType
@@ -90,9 +97,20 @@ const createFieldSchema = z.object({
   description: z.string().optional(),
   is_required: z.boolean().default(false),
   is_unique: z.boolean().default(false),
+  default_value: z.any().optional(),
 })
 
 type CreateFieldFormData = z.infer<typeof createFieldSchema>
+
+// Primitive field types that support default values
+const PRIMITIVE_FIELD_TYPES: FieldType[] = [
+  "TEXT",
+  "INTEGER",
+  "NUMBER",
+  "BOOL",
+  "SELECT",
+  "MULTI_SELECT",
+]
 
 interface CreateFieldDialogProps {
   open: boolean
@@ -116,13 +134,45 @@ export function CreateFieldDialog({
       description: "",
       is_required: false,
       is_unique: false,
+      default_value: undefined,
     },
   })
+
+  const fieldType = form.watch("field_type")
+  const supportsPrimitive = useMemo(
+    () => PRIMITIVE_FIELD_TYPES.includes(fieldType),
+    [fieldType]
+  )
 
   const handleSubmit = async (data: CreateFieldFormData) => {
     setIsSubmitting(true)
     try {
-      await onSubmit(data)
+      // Convert default value based on field type
+      let processedData = { ...data }
+      if (data.default_value !== undefined && data.default_value !== "") {
+        if (data.field_type === "INTEGER") {
+          processedData.default_value = parseInt(
+            data.default_value as string,
+            10
+          )
+        } else if (data.field_type === "NUMBER") {
+          processedData.default_value = parseFloat(data.default_value as string)
+        } else if (data.field_type === "BOOL") {
+          processedData.default_value = data.default_value === "true"
+        } else if (data.field_type === "MULTI_SELECT") {
+          // Convert comma-separated string to array
+          const value = data.default_value as string
+          processedData.default_value = value
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean)
+        }
+      } else {
+        // Remove default_value if not supported or empty
+        delete processedData.default_value
+      }
+
+      await onSubmit(processedData)
       form.reset()
       onOpenChange(false)
     } catch (error) {
@@ -133,103 +183,167 @@ export function CreateFieldDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[500px]">
-        <DialogHeader>
-          <DialogTitle>Add field</DialogTitle>
-          <DialogDescription>Add a new field to this entity.</DialogDescription>
-        </DialogHeader>
-        <Form {...form}>
-          <form
-            onSubmit={form.handleSubmit(handleSubmit)}
-            className="space-y-4"
-          >
-            <FormField
-              control={form.control}
-              name="field_key"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Identifier / Slug</FormLabel>
-                  <FormControl>
-                    <Input
-                      placeholder="Lowercase, no spaces"
-                      {...field}
-                      onChange={(e) =>
-                        field.onChange(e.target.value.toLowerCase())
-                      }
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    This cannot be changed after creation
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="display_name"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Name</FormLabel>
-                  <FormControl>
-                    <Input placeholder="Short human-readable name" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="field_type"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Data type</FormLabel>
-                  <Select
-                    onValueChange={field.onChange}
-                    defaultValue={field.value}
-                  >
+    <TooltipProvider>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Add field</DialogTitle>
+            <DialogDescription>
+              Add a new field to this entity.
+            </DialogDescription>
+          </DialogHeader>
+          <Form {...form}>
+            <form
+              onSubmit={form.handleSubmit(handleSubmit)}
+              className="space-y-4"
+            >
+              <FormField
+                control={form.control}
+                name="field_key"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Identifier / Slug</FormLabel>
                     <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select a field type" />
-                      </SelectTrigger>
+                      <Input
+                        placeholder="Lowercase, no spaces"
+                        {...field}
+                        onChange={(e) =>
+                          field.onChange(e.target.value.toLowerCase())
+                        }
+                      />
                     </FormControl>
-                    <SelectContent>
-                      {fieldTypes.map((type) => {
-                        const Icon = type.icon
-                        return (
-                          <SelectItem key={type.value} value={type.value}>
-                            <div className="flex items-center gap-2">
-                              <Icon className="h-4 w-4" />
-                              <span>{type.label}</span>
-                            </div>
-                          </SelectItem>
-                        )
-                      })}
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
+                    <FormDescription>
+                      This cannot be changed after creation
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="display_name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Name</FormLabel>
+                    <FormControl>
+                      <Input
+                        placeholder="Short human-readable name"
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="field_type"
+                render={({ field }) => (
+                  <FormItem>
+                    <div className="flex items-center gap-2">
+                      <FormLabel>Data type</FormLabel>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Info className="h-4 w-4 text-muted-foreground" />
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>* Supports default value on entity creation</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </div>
+                    <Select
+                      onValueChange={field.onChange}
+                      defaultValue={field.value}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select a field type" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {fieldTypes.map((type) => {
+                          const Icon = type.icon
+                          const supportsDefault =
+                            PRIMITIVE_FIELD_TYPES.includes(type.value)
+                          return (
+                            <SelectItem key={type.value} value={type.value}>
+                              <div className="flex items-center gap-2">
+                                <Icon className="h-4 w-4" />
+                                <span>
+                                  {type.label}
+                                  {supportsDefault && " *"}
+                                </span>
+                              </div>
+                            </SelectItem>
+                          )
+                        })}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="description"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Description</FormLabel>
+                    <FormControl>
+                      <Textarea
+                        placeholder="Write a description"
+                        className="text-xs resize-none"
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              {supportsPrimitive && (
+                <FormField
+                  control={form.control}
+                  name="default_value"
+                  render={({ field }) => (
+                    <FormItem>
+                      <div className="flex items-center gap-2">
+                        <FormLabel>Default value</FormLabel>
+                      </div>
+                      <FormControl>
+                        {fieldType === "BOOL" ? (
+                          <Select
+                            onValueChange={field.onChange}
+                            value={field.value?.toString() || ""}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select default value" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="">No default</SelectItem>
+                              <SelectItem value="true">True</SelectItem>
+                              <SelectItem value="false">False</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <Input
+                            placeholder={
+                              fieldType === "INTEGER"
+                                ? "Enter integer default"
+                                : fieldType === "NUMBER"
+                                  ? "Enter number default"
+                                  : fieldType === "MULTI_SELECT"
+                                    ? "Comma-separated values"
+                                    : "Enter default value"
+                            }
+                            {...field}
+                          />
+                        )}
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
               )}
-            />
-            <FormField
-              control={form.control}
-              name="description"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Description</FormLabel>
-                  <FormControl>
-                    <Textarea
-                      placeholder="Write a description"
-                      className="text-xs resize-none"
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <div className="space-y-3">
               <FormField
                 control={form.control}
                 name="is_required"
@@ -242,10 +356,17 @@ export function CreateFieldDialog({
                       />
                     </FormControl>
                     <div className="space-y-1 leading-none">
-                      <FormLabel>Required field</FormLabel>
-                      <FormDescription>
-                        This field must have a value
-                      </FormDescription>
+                      <div className="flex items-center gap-2">
+                        <FormLabel>Required field</FormLabel>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Info className="h-4 w-4 text-muted-foreground" />
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>This field must have a value</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </div>
                     </div>
                   </FormItem>
                 )}
@@ -262,31 +383,41 @@ export function CreateFieldDialog({
                       />
                     </FormControl>
                     <div className="space-y-1 leading-none">
-                      <FormLabel>Unique values</FormLabel>
-                      <FormDescription>
-                        Each record must have a unique value for this field
-                      </FormDescription>
+                      <div className="flex items-center gap-2">
+                        <FormLabel>Unique values</FormLabel>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Info className="h-4 w-4 text-muted-foreground" />
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>
+                              Each record must have a unique value for this
+                              field
+                            </p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </div>
                     </div>
                   </FormItem>
                 )}
               />
-            </div>
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => onOpenChange(false)}
-                disabled={isSubmitting}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={isSubmitting}>
-                {isSubmitting ? "Creating..." : "Create field"}
-              </Button>
-            </DialogFooter>
-          </form>
-        </Form>
-      </DialogContent>
-    </Dialog>
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => onOpenChange(false)}
+                  disabled={isSubmitting}
+                >
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={isSubmitting}>
+                  {isSubmitting ? "Creating..." : "Create field"}
+                </Button>
+              </DialogFooter>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
+    </TooltipProvider>
   )
 }

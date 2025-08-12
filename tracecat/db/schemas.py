@@ -1458,6 +1458,10 @@ class FieldMetadata(SQLModel, TimestampMixin, table=True):
     # v1: All fields are nullable (no required fields)
     is_required: bool = Field(default=False)  # Always False in v1
     is_unique: bool = Field(default=False)  # For future use
+    # Default value for fields (only for primitive types)
+    default_value: dict[str, Any] | None = Field(
+        default=None, sa_column=Column(JSONB), description="Default value for field"
+    )
 
     # Relation field columns
     relation_kind: str | None = Field(
