@@ -5,45 +5,77 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from tracecat.dsl.common import DSLEntrypoint, DSLInput
+from tracecat.dsl.models import ActionStatement, GatherArgs, ScatterArgs
 from tracecat.store.core import WorkflowSource
 from tracecat.store.sync import upsert_workflow_definitions
+
+
+@pytest.fixture
+def test_dsl() -> DSLInput:
+    """Fixture providing a sample DSL for testing."""
+    return DSLInput(
+        title="Hierarchical stream variable lookup: a -> scatter -> b -> gather",
+        description=(
+            "Test that a value produced before a scatter can be accessed by a reshape inside the scatter, "
+            "and then gathered. This validates hierarchical stream variable lookup."
+        ),
+        entrypoint=DSLEntrypoint(ref="gather1"),
+        actions=[
+            # a: produce a value
+            ActionStatement(
+                ref="a",
+                action="core.transform.reshape",
+                args={"value": 42},
+            ),
+            # scatter: scatter over a collection
+            ActionStatement(
+                ref="scatter1",
+                action="core.transform.scatter",
+                depends_on=["a"],
+                args=ScatterArgs(collection=[1, 2, 3]).model_dump(),
+            ),
+            # b: inside scatter, access a's value and ad to item
+            ActionStatement(
+                ref="b",
+                action="core.transform.reshape",
+                depends_on=["scatter1"],
+                args={"value": "${{ ACTIONS.a.result + ACTIONS.scatter1.result }}"},
+            ),
+            # gather: collect results from b
+            ActionStatement(
+                ref="gather1",
+                action="core.transform.gather",
+                depends_on=["b"],
+                args=GatherArgs(items="${{ ACTIONS.b.result }}").model_dump(),
+            ),
+        ],
+    )
 
 
 class TestUpsertWorkflowDefinitions:
     """Test upsert_workflow_definitions function."""
 
     @pytest.mark.anyio
-    async def test_upsert_workflow_definitions_success(self):
+    async def test_upsert_workflow_definitions_success(self, test_dsl: DSLInput):
         """Test successful workflow definitions upsert."""
         # Sample workflow sources
         sources = [
             WorkflowSource(
                 path="workflows/example1.yml",
                 sha="abc123",
-                workflow_id="wf-example1-123",
+                workflow_id="wf-550e8400-e29b-41d4-a716-446655440000",
             ),
             WorkflowSource(
                 path="workflows/example2.yml",
                 sha="def456",
-                workflow_id="wf-example2-456",
+                workflow_id="wf-550e8400-e29b-41d4-a716-446655440001",
                 version=2,
             ),
         ]
 
         # Mock YAML content
-        yaml_content = """
-title: Example Workflow
-description: A test workflow
-entrypoint:
-  ref: start
-  expects:
-    inputs: ${{FN.get_inputs()}}
-actions:
-  - ref: start
-    action: core.transform.passthrough
-    args:
-      value: ${{INPUTS.inputs}}
-"""
+        yaml_content = test_dsl.dump_yaml()
 
         # Mock fetch_yaml function
         async def mock_fetch_yaml(_path: str, _sha: str) -> str:
@@ -59,7 +91,7 @@ actions:
         workspace_id = str(uuid.uuid4())
 
         with patch(
-            "tracecat.workflows.sync.WorkflowDefinitionsService.with_session"
+            "tracecat.workflow.management.definitions.WorkflowDefinitionsService.with_session"
         ) as mock_service_ctx:
             # Mock the async context manager
             mock_service_ctx.return_value.__aenter__.return_value = mock_service
@@ -78,35 +110,20 @@ actions:
         mock_service.session.commit.assert_called_once()
 
     @pytest.mark.anyio
-    async def test_upsert_workflow_definitions_yaml_parsing(self):
+    async def test_upsert_workflow_definitions_yaml_parsing(self, test_dsl: DSLInput):
         """Test YAML parsing in workflow definitions upsert."""
         sources = [
             WorkflowSource(
                 path="workflows/test.yml",
                 sha="abc123",
-                workflow_id="wf-test-123",
+                workflow_id="wf-550e8400-e29b-41d4-a716-446655440002",
             ),
         ]
-
-        yaml_content = """
-title: Test Workflow
-description: Test description
-entrypoint:
-  ref: main
-  expects:
-    data: ${{FN.get_inputs()}}
-actions:
-  - ref: main
-    action: core.http_request
-    args:
-      url: https://api.example.com
-      method: GET
-"""
 
         async def mock_fetch_yaml(path: str, sha: str) -> str:
             assert path == "workflows/test.yml"
             assert sha == "abc123"
-            return yaml_content
+            return test_dsl.dump_yaml()
 
         mock_service = AsyncMock()
         mock_definition = MagicMock()
@@ -115,7 +132,7 @@ actions:
         mock_service.session = AsyncMock()
 
         with patch(
-            "tracecat.workflows.sync.WorkflowDefinitionsService.with_session"
+            "tracecat.workflow.management.definitions.WorkflowDefinitionsService.with_session"
         ) as mock_service_ctx:
             mock_service_ctx.return_value.__aenter__.return_value = mock_service
             mock_service_ctx.return_value.__aexit__.return_value = None
@@ -134,28 +151,18 @@ actions:
         assert dsl.description == "Test description"
 
     @pytest.mark.anyio
-    async def test_upsert_workflow_definitions_metadata(self):
+    async def test_upsert_workflow_definitions_metadata(self, test_dsl: DSLInput):
         """Test metadata handling in workflow definitions upsert."""
         sources = [
             WorkflowSource(
                 path="workflows/meta-test.yml",
                 sha="meta123",
-                workflow_id="wf-meta-test",
+                workflow_id="wf-550e8400-e29b-41d4-a716-446655440003",
             ),
         ]
 
         async def mock_fetch_yaml(_path: str, _sha: str) -> str:
-            return """
-title: Metadata Test
-description: Test workflow metadata
-entrypoint:
-  ref: start
-actions:
-  - ref: start
-    action: core.transform.passthrough
-    args:
-      value: test
-"""
+            return test_dsl.dump_yaml()
 
         mock_service = AsyncMock()
         mock_definition = MagicMock()
@@ -168,7 +175,7 @@ actions:
         mock_service.session = AsyncMock()
 
         with patch(
-            "tracecat.workflows.sync.WorkflowDefinitionsService.with_session"
+            "tracecat.workflow.management.definitions.WorkflowDefinitionsService.with_session"
         ) as mock_service_ctx:
             mock_service_ctx.return_value.__aenter__.return_value = mock_service
             mock_service_ctx.return_value.__aexit__.return_value = None
@@ -196,7 +203,7 @@ actions:
             WorkflowSource(
                 path="workflows/nonexistent.yml",
                 sha="abc123",
-                workflow_id="wf-nonexistent",
+                workflow_id="wf-550e8400-e29b-41d4-a716-446655440004",
             ),
         ]
 
@@ -206,7 +213,7 @@ actions:
         mock_service = AsyncMock()
 
         with patch(
-            "tracecat.workflows.sync.WorkflowDefinitionsService.with_session"
+            "tracecat.workflow.management.definitions.WorkflowDefinitionsService.with_session"
         ) as mock_service_ctx:
             mock_service_ctx.return_value.__aenter__.return_value = mock_service
             mock_service_ctx.return_value.__aexit__.return_value = None
@@ -230,7 +237,7 @@ actions:
             WorkflowSource(
                 path="workflows/invalid.yml",
                 sha="abc123",
-                workflow_id="wf-invalid",
+                workflow_id="wf-550e8400-e29b-41d4-a716-446655440005",
             ),
         ]
 
@@ -240,7 +247,7 @@ actions:
         mock_service = AsyncMock()
 
         with patch(
-            "tracecat.workflows.sync.WorkflowDefinitionsService.with_session"
+            "tracecat.workflow.management.definitions.WorkflowDefinitionsService.with_session"
         ) as mock_service_ctx:
             mock_service_ctx.return_value.__aenter__.return_value = mock_service
             mock_service_ctx.return_value.__aexit__.return_value = None
@@ -264,7 +271,7 @@ actions:
         mock_service.session = AsyncMock()
 
         with patch(
-            "tracecat.workflows.sync.WorkflowDefinitionsService.with_session"
+            "tracecat.workflow.management.definitions.WorkflowDefinitionsService.with_session"
         ) as mock_service_ctx:
             mock_service_ctx.return_value.__aenter__.return_value = mock_service
             mock_service_ctx.return_value.__aexit__.return_value = None
