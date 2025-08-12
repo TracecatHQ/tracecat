@@ -1,11 +1,11 @@
 type: action
 definition:
-  title: Create trip
-  description: Create a trip in AlertMedia.
+  title: Update trip
+  description: Update a trip in AlertMedia.
   display_group: AlertMedia
   doc_url: https://docs.alertmedia.com/reference/steps-create-a-trip-and-itinerary
   namespace: tools.alertmedia
-  name: create_trip
+  name: update_trip
   secrets:
     - name: alertmedia
       keys: ["ALERTMEDIA_API_KEY"]
@@ -16,12 +16,17 @@ definition:
     user_id:
       type: str
       description: User ID of the user to create the trip for.
-    name:
+    trip_id:
       type: str
+      description: Trip ID of the trip to update.
+    name:
+      type: str | None
       description: Name of the trip.
+      default: null
     start_date:
-      type: datetime
+      type: datetime | None
       description: Start date of the trip. Example 2025-06-26 00:00:00
+      default: null
     start_time_zone:
       type: str | None
       description: Time zone of the trip.
@@ -55,7 +60,6 @@ definition:
       action: core.script.run_python
       args:
         inputs:
-          user_id: ${{ inputs.user_id }}
           name: ${{ inputs.name }}
           start_date: ${{ inputs.start_date }}
           start_time_zone: ${{ inputs.start_time_zone }}
@@ -67,9 +71,8 @@ definition:
           longitude: ${{ inputs.longitude }}
         script: |
           def main(
-              user_id,
-              name,
-              start_date,
+              name=None,
+              start_date=None,
               start_time_zone=None,
               end_date=None,
               end_time_zone=None,
@@ -78,11 +81,12 @@ definition:
               latitude=None,
               longitude=None,
           ):
-              payload = {
-                  "user": user_id,
-                  "name": name,
-                  "start_date": start_date,
-              }
+              payload = {}
+
+              if name:
+                  payload["name"] = name
+              if start_date:
+                  payload["start_date"] = start_date
               if start_time_zone:
                   payload["start_time_zone"] = start_time_zone
               if end_date:
@@ -103,12 +107,12 @@ definition:
                   payload["destination_address"] = destination_address
 
               return payload
-    - ref: create_trip
+    - ref: update_trip
       action: core.http_request
       args:
-        url: ${{ inputs.base_url }}/api/users/${{ inputs.user_id }}/trips
-        method: POST
+        url: ${{ inputs.base_url }}/api/users/${{ inputs.user_id }}/trips/${{ inputs.trip_id }}
+        method: PATCH
         headers:
           Authorization: Bearer ${{ SECRETS.alertmedia.ALERTMEDIA_API_KEY }}
         payload: ${{ steps.build_payload.result }}
-  returns: ${{ steps.create_trip.result.data }}
+  returns: ${{ steps.update_trip.result.data }}
