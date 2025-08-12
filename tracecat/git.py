@@ -1,3 +1,5 @@
+"""Git functionality for Tracecat."""
+
 import asyncio
 import re
 from dataclasses import dataclass
@@ -12,67 +14,52 @@ from tracecat.ssh import SshEnv
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatSettingsError
 
+# Export list for backward compatibility
+__all__ = [
+    "GitUrl",
+    "parse_git_url",
+    "resolve_git_ref",
+    "run_git",
+    "get_git_repository_sha",
+    "prepare_git_url",
+]
+
 GIT_SSH_URL_REGEX = re.compile(
     r"^git\+ssh://git@(?P<host>[^/]+)/(?P<org>[^/]+)/(?P<repo>[^/@]+?)(?:\.git)?(?:@(?P<ref>[^/]+))?$"
 )
 """Git SSH URL with git user and optional ref."""
 
 
-@dataclass
+@dataclass(frozen=True)
 class GitUrl:
+    """Immutable Git URL representation."""
+
     host: str
     org: str
     repo: str
     ref: str | None = None
 
     def to_url(self) -> str:
+        """Convert GitUrl to string representation."""
         base = f"git+ssh://git@{self.host}/{self.org}/{self.repo}.git"
         return f"{base}@{self.ref}" if self.ref else base
 
 
-async def get_git_repository_sha(repo_url: str, env: SshEnv) -> str:
-    """Get the SHA of the HEAD commit of a Git repository."""
-    try:
-        # Use git ls-remote to get the HEAD SHA without cloning
-        process = await asyncio.create_subprocess_exec(
-            "git",
-            "ls-remote",
-            repo_url,
-            "HEAD",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=env.to_dict(),
-        )
-        stdout, stderr = await process.communicate()
-
-        if process.returncode != 0:
-            error_message = stderr.decode().strip()
-            raise RuntimeError(f"Failed to get repository SHA: {error_message}")
-
-        # The output format is: "<SHA>\tHEAD"
-        ref = stdout.decode().split()[0]
-        return ref
-
-    except Exception as e:
-        logger.error("Error getting repository SHA", error=str(e))
-        raise RuntimeError(f"Error getting repository SHA: {str(e)}") from e
-
-
 def parse_git_url(url: str, *, allowed_domains: set[str] | None = None) -> GitUrl:
-    """
-    Parse a Git repository URL to extract organization, package name, and branch.
+    """Parse a Git repository URL to extract components.
+
     Handles Git SSH URLs with 'git+ssh' prefix and optional '@' for branch specification.
 
     Args:
-        url (str): The repository URL to parse.
+        url: The repository URL to parse.
+        allowed_domains: Set of allowed domains. If provided, the host must be in this set.
 
     Returns:
-        tuple[str, str, str, str]: A tuple containing (host, organization, package_name, branch).
+        GitUrl object with parsed components.
 
     Raises:
-        ValueError: If the URL is not a valid repository URL.
+        ValueError: If the URL is not a valid repository URL or host not in allowed domains.
     """
-
     if match := GIT_SSH_URL_REGEX.match(url):
         host = match.group("host")
         org = match.group("org")
@@ -94,6 +81,146 @@ def parse_git_url(url: str, *, allowed_domains: set[str] | None = None) -> GitUr
         return GitUrl(host=host, org=org, repo=repo, ref=ref)
 
     raise ValueError(f"Unsupported URL format: {url}. Must be a valid Git SSH URL.")
+
+
+async def resolve_git_ref(
+    repo_url: str, *, ref: str | None, env: dict[str, str], timeout: float = 20.0
+) -> str:
+    """Resolve a Git reference to its SHA.
+
+    Args:
+        repo_url: Git repository URL.
+        ref: Git reference to resolve. If None, resolves HEAD.
+        env: Environment variables for the git command.
+        timeout: Command timeout in seconds.
+
+    Returns:
+        SHA string of the resolved reference.
+
+    Raises:
+        RuntimeError: If git command fails or reference cannot be resolved.
+    """
+    try:
+        if ref is None:
+            # Resolve HEAD
+            args = ["git", "ls-remote", repo_url, "HEAD"]
+        else:
+            # Try refs/heads/<ref> first, then <ref> directly
+            args = ["git", "ls-remote", repo_url, f"refs/heads/{ref}"]
+
+        code, stdout, stderr = await run_git(args, env=env, timeout=timeout)
+
+        if code != 0:
+            if ref is not None:
+                # Try with ref directly if refs/heads/<ref> failed
+                args = ["git", "ls-remote", repo_url, ref]
+                code, stdout, stderr = await run_git(args, env=env, timeout=timeout)
+
+                if code != 0:
+                    raise RuntimeError(
+                        f"Failed to resolve git ref '{ref}': {stderr.strip()}"
+                    )
+            else:
+                raise RuntimeError(f"Failed to resolve git HEAD: {stderr.strip()}")
+
+        # Parse the output to get SHA
+        lines = stdout.strip().split("\n")
+        if not lines or not lines[0]:
+            raise RuntimeError(f"No output from git ls-remote for ref: {ref or 'HEAD'}")
+
+        # The output format is: "<SHA>\t<ref_name>"
+        sha = lines[0].split()[0]
+        if not sha:
+            raise RuntimeError(
+                f"Could not parse SHA from git ls-remote output: {stdout}"
+            )
+
+        logger.debug("Resolved git ref", ref=ref or "HEAD", sha=sha)
+        return sha
+
+    except Exception as e:
+        logger.error("Error resolving git ref", ref=ref, error=str(e))
+        if isinstance(e, RuntimeError):
+            raise
+        raise RuntimeError(
+            f"Error resolving git ref '{ref or 'HEAD'}': {str(e)}"
+        ) from e
+
+
+async def run_git(
+    args: list[str],
+    *,
+    env: dict[str, str],
+    cwd: str | None = None,
+    timeout: float = 120.0,
+) -> tuple[int, str, str]:
+    """Run a git command asynchronously.
+
+    Args:
+        args: Git command arguments (including 'git' as first argument).
+        env: Environment variables for the command.
+        cwd: Working directory for the command.
+        timeout: Command timeout in seconds.
+
+    Returns:
+        Tuple of (return_code, stdout, stderr).
+
+    Raises:
+        RuntimeError: If command times out.
+    """
+    try:
+        logger.debug("Running git command", args=args, cwd=cwd)
+
+        process = await asyncio.create_subprocess_exec(
+            *args,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=env,
+            cwd=cwd,
+        )
+
+        try:
+            stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                process.communicate(), timeout=timeout
+            )
+        except TimeoutError:
+            process.kill()
+            await process.wait()
+            raise RuntimeError(
+                f"Git command timed out after {timeout} seconds: {' '.join(args)}"
+            ) from None
+
+        stdout = stdout_bytes.decode("utf-8", errors="replace")
+        stderr = stderr_bytes.decode("utf-8", errors="replace")
+
+        logger.debug(
+            "Git command completed",
+            args=args,
+            return_code=process.returncode,
+            stdout_len=len(stdout),
+            stderr_len=len(stderr),
+        )
+
+        return process.returncode or 0, stdout, stderr
+
+    except Exception as e:
+        logger.error("Error running git command", args=args, error=str(e))
+        if isinstance(e, RuntimeError):
+            raise
+        raise RuntimeError(
+            f"Error running git command {' '.join(args)}: {str(e)}"
+        ) from e
+
+
+# Existing functions for backward compatibility
+
+
+async def get_git_repository_sha(repo_url: str, env: SshEnv) -> str:
+    """Get the SHA of the HEAD commit of a Git repository.
+
+    This function maintains backward compatibility with the existing API.
+    """
+    return await resolve_git_ref(repo_url, ref=None, env=env.to_dict())
 
 
 async def prepare_git_url(role: Role | None = None) -> GitUrl | None:
@@ -136,9 +263,15 @@ async def prepare_git_url(role: Role | None = None) -> GitUrl | None:
         sha = repo.commit_sha if repo else None
 
     try:
-        # Validate
-        git_url = parse_git_url(url, allowed_domains=allowed_domains)
+        # Validate and parse URL
+        parsed_url = parse_git_url(url, allowed_domains=allowed_domains)
+        # Create new GitUrl with the resolved SHA since GitUrl is now frozen
+        git_url = GitUrl(
+            host=parsed_url.host,
+            org=parsed_url.org,
+            repo=parsed_url.repo,
+            ref=sha,
+        )
     except ValueError as e:
         raise TracecatSettingsError(str(e)) from e
-    git_url.ref = sha
     return git_url
