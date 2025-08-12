@@ -242,7 +242,7 @@ async def update_field(
     """Update field display properties (not schema)."""
     service = CustomEntitiesService(session, role)
     try:
-        field = await service.update_field_display(
+        field = await service.update_field(
             field_id=field_id,
             display_name=params.display_name,
             description=params.description,
