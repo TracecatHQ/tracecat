@@ -2,7 +2,7 @@
 
 from datetime import datetime
 from enum import StrEnum
-from typing import Any
+from typing import Any, Self
 from uuid import UUID
 
 from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
@@ -211,7 +211,7 @@ class FieldMetadataCreate(BaseModel):
         return v
 
     @model_validator(mode="after")
-    def validate_default_value(self) -> "FieldMetadataCreate":
+    def validate_default_value(self) -> Self:
         """Validate default value is appropriate for field type."""
         if self.default_value is None:
             return self
