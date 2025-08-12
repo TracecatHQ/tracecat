@@ -291,6 +291,21 @@ class WorkflowDefinition(Resource, table=True):
 
     # DSL content
     content: dict[str, Any] = Field(sa_column=Column(JSONB))
+
+    # Git metadata (for synced workflows)
+    origin: str | None = Field(
+        default=None, nullable=True, description="Origin of workflow (e.g., 'git')"
+    )
+    repo_url: str | None = Field(
+        default=None, nullable=True, description="Git repository URL"
+    )
+    repo_path: str | None = Field(
+        default=None, nullable=True, description="Path within repository"
+    )
+    commit_sha: str | None = Field(
+        default=None, nullable=True, description="Git commit SHA"
+    )
+
     workflow: "Workflow" = Relationship(
         back_populates="definitions",
         sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
@@ -461,6 +476,34 @@ class Workflow(Resource, table=True):
         back_populates="workflows",
         link_model=WorkflowTag,
         sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
+    )
+
+
+class WorkflowRepoState(SQLModel, table=True):
+    """Tracks last synced commit SHA per workspace+repo for git workflow sync."""
+
+    __tablename__: str = "workflow_repo_state"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id", "repo_url", name="uq_workflow_repo_state_workspace_repo"
+        ),
+    )
+
+    id: uuid.UUID = Field(
+        default_factory=uuid.uuid4, primary_key=True, nullable=False, index=True
+    )
+    workspace_id: uuid.UUID = Field(
+        sa_column=Column(UUID, ForeignKey("workspace.id", ondelete="CASCADE"))
+    )
+    repo_url: str = Field(..., nullable=False, description="Git repository URL")
+    last_synced_sha: str | None = Field(
+        default=None, nullable=True, description="Last synced commit SHA"
+    )
+    last_synced_at: datetime | None = Field(
+        default=None,
+        sa_type=TIMESTAMP(timezone=True),  # type: ignore
+        nullable=True,
+        description="Timestamp when last sync occurred",
     )
 
 
