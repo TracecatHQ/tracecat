@@ -31,7 +31,6 @@ from tracecat.entities.models import (
     HasManyRelationUpdate,
     RelationOperation,
     RelationSettings,
-    RelationType,
 )
 from tracecat.entities.query import EntityQueryBuilder
 from tracecat.entities.types import (
@@ -191,7 +190,7 @@ class CustomEntitiesService(BaseWorkspaceService):
         field_type: FieldType,
         display_name: str,
         description: str | None = None,
-        settings: dict[str, Any] | None = None,
+        enum_options: list[str] | None = None,
         is_required: bool = False,
         is_unique: bool = False,
         default_value: Any | None = None,
@@ -204,7 +203,7 @@ class CustomEntitiesService(BaseWorkspaceService):
             field_type: Field type (immutable)
             display_name: Human-readable name
             description: Optional description
-            settings: Optional field settings
+            enum_options: Options for SELECT/MULTI_SELECT fields
             is_required: Whether field is required
             is_unique: Whether field must be unique
             default_value: Optional default value (only for primitive types)
@@ -225,7 +224,7 @@ class CustomEntitiesService(BaseWorkspaceService):
                 field_type=field_type,
                 display_name=display_name,
                 description=description,
-                field_settings=settings or {},
+                enum_options=enum_options,
                 is_required=is_required,
                 is_unique=is_unique,
                 default_value=default_value,
@@ -250,10 +249,6 @@ class CustomEntitiesService(BaseWorkspaceService):
         )
         if existing.first():
             raise ValueError(f"Field key '{validated.field_key}' already exists")
-
-        # Validate settings don't allow nested structures
-        if settings and "allow_nested" in settings:
-            raise ValueError("Nested structures not supported in v1")
 
         # Check if unique constraint can be applied to existing data
         if is_unique:
@@ -285,7 +280,7 @@ class CustomEntitiesService(BaseWorkspaceService):
             field_type=validated.field_type,
             display_name=validated.display_name,
             description=validated.description,
-            field_settings=validated.field_settings,
+            enum_options=validated.enum_options,
             is_active=True,
             is_required=is_required,
             is_unique=is_unique,
@@ -346,7 +341,7 @@ class CustomEntitiesService(BaseWorkspaceService):
         field_id: UUID,
         display_name: str | None = None,
         description: str | None = None,
-        settings: dict[str, Any] | None = None,
+        enum_options: list[str] | None = None,
         is_required: bool | None = None,
         is_unique: bool | None = None,
         default_value: Any | None = None,
@@ -357,7 +352,7 @@ class CustomEntitiesService(BaseWorkspaceService):
             field_id: Field to update
             display_name: New display name
             description: New description
-            settings: New settings (validation constraints)
+            enum_options: New options for SELECT/MULTI_SELECT fields
             is_required: Update required constraint
             is_unique: Update unique constraint
             default_value: Update default value (None to clear, use {} for empty dict)
@@ -388,11 +383,17 @@ class CustomEntitiesService(BaseWorkspaceService):
             field.display_name = display_name
         if description is not None:
             field.description = description
-        if settings is not None:
-            # Validate settings for field type
-            if "allow_nested" in settings:
-                raise ValueError("Nested structures not supported in v1")
-            field.field_settings = settings
+        if enum_options is not None:
+            # Validate enum_options for field type
+            if FieldType(field.field_type) in (
+                FieldType.SELECT,
+                FieldType.MULTI_SELECT,
+            ):
+                field.enum_options = enum_options
+            else:
+                raise ValueError(
+                    f"Field type {field.field_type} does not support enum_options"
+                )
 
         # Handle default value update
         if default_value is not None:
@@ -405,7 +406,7 @@ class CustomEntitiesService(BaseWorkspaceService):
                     field_key=field.field_key,
                     field_type=FieldType(field.field_type),
                     display_name=field.display_name,
-                    field_settings=field.field_settings,
+                    enum_options=field.enum_options,
                     default_value=default_value,
                 )
             except ValidationError as e:
@@ -537,7 +538,6 @@ class CustomEntitiesService(BaseWorkspaceService):
                 field_type=field_type,
                 display_name=display_name,
                 description=description,
-                field_settings=relation_settings.model_dump(),
                 relation_settings=relation_settings,
                 is_required=is_required,
                 is_unique=is_unique,
@@ -567,23 +567,18 @@ class CustomEntitiesService(BaseWorkspaceService):
         )
 
         # Create field with relation metadata
-        # Convert UUIDs to strings in field_settings for JSON serialization
-        field_settings = validated.field_settings.copy()
-        if "target_entity_id" in field_settings:
-            field_settings["target_entity_id"] = str(field_settings["target_entity_id"])
-
         field = FieldMetadata(
             entity_metadata_id=entity_id,
             field_key=validated.field_key,
             field_type=validated.field_type,
             display_name=validated.display_name,
             description=validated.description,
-            field_settings=field_settings,
             is_active=True,
             is_required=is_required,
             is_unique=is_unique,
             relation_kind=relation_kind,
             relation_target_entity_id=relation_settings.target_entity_id,
+            relation_cascade_delete=relation_settings.cascade_delete,
         )
 
         # Handle backref field if specified
@@ -674,16 +669,11 @@ class CustomEntitiesService(BaseWorkspaceService):
             field_type=FieldType.RELATION_BELONGS_TO,
             display_name=source_display_name,
             description=f"Belongs to {target_entity.display_name}",
-            field_settings={
-                "relation_type": RelationType.BELONGS_TO,
-                "target_entity_id": str(target_entity_id),
-                "backref_field_key": target_field_key,
-                "cascade_delete": cascade_delete,
-            },
             is_active=True,
             is_required=False,
             relation_kind="belongs_to",
             relation_target_entity_id=target_entity_id,
+            relation_cascade_delete=cascade_delete,
         )
 
         # Create has_many field on target entity
@@ -693,16 +683,11 @@ class CustomEntitiesService(BaseWorkspaceService):
             field_type=FieldType.RELATION_HAS_MANY,
             display_name=target_display_name,
             description=f"Has many {source_entity.display_name}",
-            field_settings={
-                "relation_type": RelationType.HAS_MANY,
-                "target_entity_id": str(source_entity_id),
-                "backref_field_key": source_field_key,
-                "cascade_delete": cascade_delete,
-            },
             is_active=True,
             is_required=False,
             relation_kind="has_many",
             relation_target_entity_id=source_entity_id,
+            relation_cascade_delete=cascade_delete,
         )
 
         # Add both fields
@@ -1044,7 +1029,7 @@ class CustomEntitiesService(BaseWorkspaceService):
             links = list(links_result.all())
 
             # Check cascade_delete setting
-            cascade_delete = field.field_settings.get("cascade_delete", True)
+            cascade_delete = field.relation_cascade_delete
 
             if field.relation_kind == "belongs_to":
                 # For belongs_to: either delete source records or set to NULL
@@ -1315,7 +1300,7 @@ class CustomEntitiesService(BaseWorkspaceService):
 
             # Type validation
             is_valid, error = validate_value_for_type(
-                value, FieldType(field.field_type), field.field_settings
+                value, FieldType(field.field_type), field.enum_options
             )
 
             if not is_valid:

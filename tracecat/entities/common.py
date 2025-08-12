@@ -9,19 +9,18 @@ from tracecat.entities.types import FieldType
 
 
 def validate_value_for_type(
-    value: Any, field_type: FieldType, settings: dict[str, Any] | None = None
+    value: Any, field_type: FieldType, enum_options: list[str] | None = None
 ) -> tuple[bool, str | None]:
-    """Validate a value against a field type and settings.
+    """Validate a value against a field type.
 
     Args:
         value: The value to validate
         field_type: The expected field type
-        settings: Optional field-specific settings
+        enum_options: Options for SELECT/MULTI_SELECT fields
 
     Returns:
         Tuple of (is_valid, error_message)
     """
-    settings = settings or {}
 
     # Handle None values (all fields nullable in v1)
     if value is None:
@@ -32,44 +31,24 @@ def validate_value_for_type(
             if not isinstance(value, int) or isinstance(value, bool):
                 return False, f"Expected integer, got {type(value).__name__}"
 
-            # Check min/max if specified
-            if "min" in settings and value < settings["min"]:
-                return False, f"Value {value} is below minimum {settings['min']}"
-            if "max" in settings and value > settings["max"]:
-                return False, f"Value {value} exceeds maximum {settings['max']}"
+            # No configurable min/max for integers in v1
 
         elif field_type == FieldType.NUMBER:
             if not isinstance(value, int | float) or isinstance(value, bool):
                 return False, f"Expected number, got {type(value).__name__}"
 
-            # Check min/max if specified
-            if "min" in settings and value < settings["min"]:
-                return False, f"Value {value} is below minimum {settings['min']}"
-            if "max" in settings and value > settings["max"]:
-                return False, f"Value {value} exceeds maximum {settings['max']}"
+            # No configurable min/max for numbers in v1
 
         elif field_type == FieldType.TEXT:
             if not isinstance(value, str):
                 return False, f"Expected string, got {type(value).__name__}"
 
-            # Check length constraints
-            if "min_length" in settings and len(value) < settings["min_length"]:
+            # Hard-coded max length for text fields
+            if len(value) > 65535:  # PostgreSQL text field max
                 return (
                     False,
-                    f"Text length {len(value)} is below minimum {settings['min_length']}",
+                    f"Text length {len(value)} exceeds maximum 65535",
                 )
-            if "max_length" in settings and len(value) > settings["max_length"]:
-                return (
-                    False,
-                    f"Text length {len(value)} exceeds maximum {settings['max_length']}",
-                )
-
-            # Check regex pattern if specified
-            if "pattern" in settings:
-                import re
-
-                if not re.match(settings["pattern"], value):
-                    return False, "Text does not match required pattern"
 
         elif field_type == FieldType.BOOL:
             if not isinstance(value, bool):
@@ -109,8 +88,11 @@ def validate_value_for_type(
                 )
 
             # Check if value is in allowed options
-            if "options" in settings and value not in settings["options"]:
-                return False, f"Value '{value}' is not in allowed options"
+            if enum_options and value not in enum_options:
+                return (
+                    False,
+                    f"Value '{value}' is not in allowed options: {enum_options}",
+                )
 
         elif field_type == FieldType.MULTI_SELECT:
             if not isinstance(value, list):
@@ -124,10 +106,13 @@ def validate_value_for_type(
                 return False, "All multi-select values must be strings"
 
             # Check if all values are in allowed options
-            if "options" in settings:
-                invalid = [v for v in value if v not in settings["options"]]
+            if enum_options:
+                invalid = [v for v in value if v not in enum_options]
                 if invalid:
-                    return False, f"Values {invalid} are not in allowed options"
+                    return (
+                        False,
+                        f"Values {invalid} are not in allowed options: {enum_options}",
+                    )
 
         elif field_type == FieldType.ARRAY_TEXT:
             if not isinstance(value, list):
@@ -139,12 +124,7 @@ def validate_value_for_type(
             if not all(isinstance(item, str) for item in value):
                 return False, "All array elements must be strings"
 
-            # Check array length constraints
-            if "max_items" in settings and len(value) > settings["max_items"]:
-                return (
-                    False,
-                    f"Array length {len(value)} exceeds maximum {settings['max_items']}",
-                )
+            # No array length constraints in v1
 
         elif field_type == FieldType.ARRAY_INTEGER:
             if not isinstance(value, list):
@@ -158,12 +138,7 @@ def validate_value_for_type(
             ):
                 return False, "All array elements must be integers"
 
-            # Check array length constraints
-            if "max_items" in settings and len(value) > settings["max_items"]:
-                return (
-                    False,
-                    f"Array length {len(value)} exceeds maximum {settings['max_items']}",
-                )
+            # No array length constraints in v1
 
         elif field_type == FieldType.ARRAY_NUMBER:
             if not isinstance(value, list):
@@ -178,12 +153,7 @@ def validate_value_for_type(
             ):
                 return False, "All array elements must be numbers"
 
-            # Check array length constraints
-            if "max_items" in settings and len(value) > settings["max_items"]:
-                return (
-                    False,
-                    f"Array length {len(value)} exceeds maximum {settings['max_items']}",
-                )
+            # No array length constraints in v1
 
         elif field_type == FieldType.RELATION_BELONGS_TO:
             # Belongs-to expects a UUID or None

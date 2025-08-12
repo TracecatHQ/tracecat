@@ -1444,9 +1444,6 @@ class FieldMetadata(SQLModel, TimestampMixin, table=True):
     # MUTABLE properties
     display_name: str = Field(..., max_length=255)
     description: str | None = Field(default=None, max_length=1000)
-    field_settings: dict[str, Any] = Field(
-        default_factory=dict, sa_column=Column(JSONB)
-    )
 
     # Soft delete support
     is_active: bool = Field(default=True, index=True)
@@ -1486,6 +1483,17 @@ class FieldMetadata(SQLModel, TimestampMixin, table=True):
             ),
         ),
         description="Backref field ID for bidirectional relations",
+    )
+    relation_cascade_delete: bool = Field(
+        default=True,
+        description="Delete related records when source is deleted",
+    )
+
+    # Enum field options (for SELECT and MULTI_SELECT types)
+    enum_options: list[str] | None = Field(
+        default=None,
+        sa_column=Column(JSONB),
+        description="List of valid options for SELECT/MULTI_SELECT fields",
     )
 
     # Relationships

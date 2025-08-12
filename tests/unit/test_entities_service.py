@@ -140,7 +140,7 @@ class TestDefaultValues:
             field_key="multi_with_default",
             field_type=FieldType.MULTI_SELECT,
             display_name="Multi-Select with Default",
-            settings={"options": ["option1", "option2", "option3"]},
+            enum_options=["option1", "option2", "option3"],
             default_value=["option1", "option2"],
         )
 
@@ -241,7 +241,7 @@ class TestDefaultValues:
         )
 
         # Update the default value
-        updated_field = await admin_entities_service.update_field_display(
+        updated_field = await admin_entities_service.update_field(
             field_id=field.id,
             default_value="Updated default",
         )
@@ -258,7 +258,7 @@ class TestDefaultValues:
                 field_key="select_field",
                 field_type=FieldType.SELECT,
                 display_name="Select Field",
-                settings={"options": ["option1", "option2", "option3"]},
+                enum_options=["option1", "option2", "option3"],
                 default_value="invalid_option",
             )
 
@@ -272,7 +272,7 @@ class TestDefaultValues:
                 field_key="multi_select_field",
                 field_type=FieldType.MULTI_SELECT,
                 display_name="Multi-Select Field",
-                settings={"options": ["option1", "option2", "option3"]},
+                enum_options=["option1", "option2", "option3"],
                 default_value=["option1", "invalid_option"],
             )
 
@@ -389,7 +389,7 @@ class TestCustomEntitiesService:
     async def test_create_field_with_nested_settings(
         self, admin_entities_service: CustomEntitiesService, session: AsyncSession
     ) -> None:
-        """Test that creating field with nested structure settings is rejected."""
+        """Test that field settings have been removed - nested structures handled differently."""
         # Create an entity type
         entity = EntityMetadata(
             owner_id=admin_entities_service.workspace_id,
@@ -400,15 +400,17 @@ class TestCustomEntitiesService:
         session.add(entity)
         await session.commit()
 
-        # Try to create field with nested structure settings
-        with pytest.raises(ValueError, match="Nested structures not supported in v1"):
-            await admin_entities_service.create_field(
-                entity_id=entity.id,
-                field_key="test_field",
-                field_type=FieldType.TEXT,
-                display_name="Test Field",
-                settings={"allow_nested": True},
-            )
+        # Create field - no longer has settings parameter
+        field = await admin_entities_service.create_field(
+            entity_id=entity.id,
+            field_key="test_field",
+            field_type=FieldType.TEXT,
+            display_name="Test Field",
+        )
+
+        # Verify field was created without settings
+        assert field.field_key == "test_field"
+        assert field.field_type == FieldType.TEXT
 
     async def test_update_field_display_properties_only(
         self, admin_entities_service: CustomEntitiesService, session: AsyncSession
@@ -430,7 +432,7 @@ class TestCustomEntitiesService:
             field_type=FieldType.TEXT,
             display_name="Original Display Name",
             description="Original Description",
-            field_settings={"max_length": 100},
+            # field_settings removed - using dedicated columns now
             is_active=True,
             is_required=False,
         )
@@ -438,17 +440,17 @@ class TestCustomEntitiesService:
         await session.commit()
 
         # Update only display properties
-        updated = await admin_entities_service.update_field_display(
+        updated = await admin_entities_service.update_field(
             field_id=field.id,
             display_name="Updated Display Name",
             description="Updated Description",
-            settings={"max_length": 200},
+            # settings parameter removed
         )
 
         # Verify display properties were updated
         assert updated.display_name == "Updated Display Name"
         assert updated.description == "Updated Description"
-        assert updated.field_settings["max_length"] == 200
+        # field_settings removed - no configurable settings in v1
 
         # Verify immutable properties remain unchanged
         assert updated.field_key == "test_field"
@@ -868,7 +870,7 @@ class TestEntitiesIntegration:
             field_type=FieldType.TEXT,
             display_name="Customer Name",
             description="Full name of the customer",
-            settings={"max_length": 255},
+            # No configurable max_length in v1
         )
         assert text_field.field_key == "name"
         assert text_field.field_type == FieldType.TEXT
@@ -878,7 +880,7 @@ class TestEntitiesIntegration:
             field_key="age",
             field_type=FieldType.INTEGER,
             display_name="Age",
-            settings={"min": 0, "max": 150},
+            # No configurable min/max for integers in v1
         )
 
         await admin_entities_service.create_field(
@@ -886,7 +888,7 @@ class TestEntitiesIntegration:
             field_key="status",
             field_type=FieldType.SELECT,
             display_name="Status",
-            settings={"options": ["active", "inactive", "pending"]},
+            enum_options=["active", "inactive", "pending"],
         )
 
         # Step 3: Create records
@@ -967,12 +969,17 @@ class TestEntitiesIntegration:
 
         created_fields = []
         for field_key, field_type, settings in field_configs:
+            # Extract enum_options for SELECT/MULTI_SELECT fields
+            enum_options = None
+            if field_type in (FieldType.SELECT, FieldType.MULTI_SELECT):
+                enum_options = settings.get("options")
+
             field = await admin_entities_service.create_field(
                 entity_id=entity.id,
                 field_key=field_key,
                 field_type=field_type,
                 display_name=field_key.replace("_", " ").title(),
-                settings=settings,
+                enum_options=enum_options,
             )
             created_fields.append(field)
 
@@ -1031,11 +1038,11 @@ class TestEntitiesIntegration:
         original_type = field.field_type
 
         # Update display properties only
-        updated = await admin_entities_service.update_field_display(
+        updated = await admin_entities_service.update_field(
             field_id=field.id,
             display_name="New Display Name",
             description="New Description",
-            settings={"max_length": 1000},
+            # No configurable max_length in v1
         )
 
         # Verify display properties changed
@@ -1143,7 +1150,7 @@ class TestEntitiesIntegration:
             field_key="active",
             field_type=FieldType.INTEGER,
             display_name="Active Field",
-            settings={"min": 0, "max": 100},
+            # No configurable min/max for integers in v1
         )
 
         inactive_field = await admin_entities_service.create_field(
@@ -1151,7 +1158,7 @@ class TestEntitiesIntegration:
             field_key="inactive",
             field_type=FieldType.INTEGER,
             display_name="Inactive Field",
-            settings={"min": 0, "max": 100},
+            # No configurable min/max for integers in v1
         )
 
         # Deactivate the inactive field
@@ -1229,7 +1236,7 @@ class TestEntitiesIntegration:
             field_key="int_field",
             field_type=FieldType.INTEGER,
             display_name="Integer Field",
-            settings={"min": 0, "max": 100},
+            # No configurable min/max for integers in v1
         )
 
         # Test invalid integer values
@@ -1239,11 +1246,12 @@ class TestEntitiesIntegration:
                 data={"int_field": "not an int"},
             )
 
-        with pytest.raises(TracecatValidationError):
-            await admin_entities_service.create_record(
-                entity_id=entity.id,
-                data={"int_field": 150},  # Exceeds max
-            )
+        # No min/max validation in v1, so 150 is valid
+        record = await admin_entities_service.create_record(
+            entity_id=entity.id,
+            data={"int_field": 150},
+        )
+        assert record.field_data["int_field"] == 150
 
         # NUMBER validation
         await admin_entities_service.create_field(
@@ -1251,7 +1259,7 @@ class TestEntitiesIntegration:
             field_key="num_field",
             field_type=FieldType.NUMBER,
             display_name="Number Field",
-            settings={"min": 0.0, "max": 10.0},
+            # No configurable min/max for numbers in v1
         )
 
         with pytest.raises(TracecatValidationError):
@@ -1266,14 +1274,15 @@ class TestEntitiesIntegration:
             field_key="text_field",
             field_type=FieldType.TEXT,
             display_name="Text Field",
-            settings={"max_length": 10},
+            # No configurable max_length in v1
         )
 
-        with pytest.raises(TracecatValidationError):
-            await admin_entities_service.create_record(
-                entity_id=entity.id,
-                data={"text_field": "this text is too long for the field"},
-            )
+        # Text is only limited to 65535 chars in v1
+        record = await admin_entities_service.create_record(
+            entity_id=entity.id,
+            data={"text_field": "this text is valid"},
+        )
+        assert record.field_data["text_field"] == "this text is valid"
 
         # SELECT validation
         await admin_entities_service.create_field(
@@ -1281,7 +1290,7 @@ class TestEntitiesIntegration:
             field_key="select_field",
             field_type=FieldType.SELECT,
             display_name="Select Field",
-            settings={"options": ["opt1", "opt2"]},
+            enum_options=["opt1", "opt2"],
         )
 
         with pytest.raises(TracecatValidationError):
@@ -1296,7 +1305,7 @@ class TestEntitiesIntegration:
             field_key="multi_field",
             field_type=FieldType.MULTI_SELECT,
             display_name="Multi Select Field",
-            settings={"options": ["tag1", "tag2", "tag3"]},
+            enum_options=["tag1", "tag2", "tag3"],
         )
 
         with pytest.raises(TracecatValidationError):
@@ -1311,14 +1320,15 @@ class TestEntitiesIntegration:
             field_key="array_field",
             field_type=FieldType.ARRAY_INTEGER,
             display_name="Array Field",
-            settings={"max_items": 3},
+            # No configurable max_items in v1
         )
 
-        with pytest.raises(TracecatValidationError):
-            await admin_entities_service.create_record(
-                entity_id=entity.id,
-                data={"array_field": [1, 2, 3, 4]},  # Too many items
-            )
+        # No max_items limit in v1, so any array size is valid
+        record = await admin_entities_service.create_record(
+            entity_id=entity.id,
+            data={"array_field": [1, 2, 3, 4]},
+        )
+        assert record.field_data["array_field"] == [1, 2, 3, 4]
 
     async def test_nullable_fields_v1(
         self, admin_entities_service: CustomEntitiesService
@@ -1374,41 +1384,38 @@ class TestEntitiesIntegration:
     async def test_field_settings_validation(
         self, admin_entities_service: CustomEntitiesService
     ) -> None:
-        """Test field settings validation."""
+        """Test that field settings have been simplified - no min/max validation in v1."""
         entity = await admin_entities_service.create_entity_type(
             name="settings_test",
             display_name="Settings Test",
         )
 
-        # Create field with min/max settings
+        # Create field - no configurable settings in v1
         await admin_entities_service.create_field(
             entity_id=entity.id,
             field_key="age",
             field_type=FieldType.INTEGER,
             display_name="Age",
-            settings={"min": 18, "max": 65},
         )
 
-        # Test value below minimum
-        with pytest.raises(TracecatValidationError, match="below minimum"):
-            await admin_entities_service.create_record(
-                entity_id=entity.id,
-                data={"age": 10},
-            )
+        # All integer values are valid in v1 (no min/max)
+        record1 = await admin_entities_service.create_record(
+            entity_id=entity.id,
+            data={"age": 10},
+        )
+        assert record1.field_data["age"] == 10
 
-        # Test value above maximum
-        with pytest.raises(TracecatValidationError, match="exceeds maximum"):
-            await admin_entities_service.create_record(
-                entity_id=entity.id,
-                data={"age": 100},
-            )
+        record2 = await admin_entities_service.create_record(
+            entity_id=entity.id,
+            data={"age": 100},
+        )
+        assert record2.field_data["age"] == 100
 
-        # Valid value
-        record = await admin_entities_service.create_record(
+        record3 = await admin_entities_service.create_record(
             entity_id=entity.id,
             data={"age": 25},
         )
-        assert record.field_data["age"] == 25
+        assert record3.field_data["age"] == 25
 
     async def test_cascade_delete_entity(
         self, admin_entities_service: CustomEntitiesService, session: AsyncSession
@@ -1625,7 +1632,7 @@ class TestRequiredFieldConstraint:
 
         # Try to enable required constraint - should fail
         with pytest.raises(ValueError, match="Cannot enable required constraint"):
-            await admin_entities_service.update_field_display(
+            await admin_entities_service.update_field(
                 field_id=field.id, is_required=True
             )
 
@@ -1635,7 +1642,7 @@ class TestRequiredFieldConstraint:
         )
 
         # Now enabling required should succeed
-        updated_field = await admin_entities_service.update_field_display(
+        updated_field = await admin_entities_service.update_field(
             field_id=field.id, is_required=True
         )
         assert updated_field.is_required is True
@@ -1740,9 +1747,7 @@ class TestUniqueFieldConstraint:
 
         # Try to enable unique constraint - should fail
         with pytest.raises(ValueError, match="Cannot enable unique constraint"):
-            await admin_entities_service.update_field_display(
-                field_id=field.id, is_unique=True
-            )
+            await admin_entities_service.update_field(field_id=field.id, is_unique=True)
 
         # Update record2 to have different value
         await admin_entities_service.update_record(
@@ -1750,7 +1755,7 @@ class TestUniqueFieldConstraint:
         )
 
         # Now enabling unique should succeed
-        updated_field = await admin_entities_service.update_field_display(
+        updated_field = await admin_entities_service.update_field(
             field_id=field.id, is_unique=True
         )
         assert updated_field.is_unique is True
@@ -1783,7 +1788,7 @@ class TestUniqueFieldConstraint:
             field_key="unique_status",
             field_type=FieldType.SELECT,
             display_name="Unique Status",
-            settings={"options": ["active", "inactive", "pending"]},
+            enum_options=["active", "inactive", "pending"],
             is_unique=True,
         )
 

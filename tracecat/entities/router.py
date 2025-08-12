@@ -1,9 +1,9 @@
 """API router for custom entities."""
 
-from typing import Annotated, Any
+from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, ValidationError
 
 from tracecat.auth.credentials import RoleACL
@@ -15,6 +15,9 @@ from tracecat.entities.models import (
     EntityMetadataCreate,
     EntityMetadataRead,
     EntityMetadataUpdate,
+    EntitySchemaField,
+    EntitySchemaInfo,
+    EntitySchemaResponse,
     FieldMetadataCreate,
     FieldMetadataRead,
     FieldMetadataUpdate,
@@ -23,6 +26,7 @@ from tracecat.entities.models import (
     QueryResponse,
     RelationListRequest,
     RelationListResponse,
+    RelationUpdateResponse,
 )
 from tracecat.entities.service import CustomEntitiesService
 from tracecat.entities.types import FieldType
@@ -131,31 +135,32 @@ async def update_entity_type(
         raise HTTPException(status_code=404, detail=str(e)) from e
 
 
-@router.delete("/types/{entity_id}")
+@router.delete("/types/{entity_id}", response_model=EntityMetadataRead)
 async def deactivate_entity_type(
     *,
     role: WorkspaceUser,
     session: AsyncDBSession,
     entity_id: UUID,
-) -> dict:
+) -> EntityMetadataRead:
     """Soft delete entity type."""
     service = CustomEntitiesService(session, role)
     try:
         entity = await service.get_entity_type(entity_id)
         entity.is_active = False
         await service.session.commit()
-        return {"message": f"Entity type {entity_id} deactivated"}
+        await service.session.refresh(entity)
+        return EntityMetadataRead.model_validate(entity, from_attributes=True)
     except TracecatNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
 
 
-@router.post("/types/{entity_id}/reactivate")
+@router.post("/types/{entity_id}/reactivate", response_model=EntityMetadataRead)
 async def reactivate_entity_type(
     *,
     role: WorkspaceUser,
     session: AsyncDBSession,
     entity_id: UUID,
-) -> dict:
+) -> EntityMetadataRead:
     """Reactivate soft-deleted entity type."""
     service = CustomEntitiesService(session, role)
     try:
@@ -164,7 +169,8 @@ async def reactivate_entity_type(
             raise HTTPException(status_code=400, detail="Entity type is already active")
         entity.is_active = True
         await service.session.commit()
-        return {"message": f"Entity type {entity_id} reactivated"}
+        await service.session.refresh(entity)
+        return EntityMetadataRead.model_validate(entity, from_attributes=True)
     except TracecatNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
 
@@ -189,7 +195,7 @@ async def create_field(
             field_type=params.field_type,
             display_name=params.display_name,
             description=params.description,
-            settings=params.field_settings,
+            enum_options=params.enum_options,
             is_required=params.is_required,
             is_unique=params.is_unique,
             default_value=params.default_value,
@@ -246,7 +252,7 @@ async def update_field(
             field_id=field_id,
             display_name=params.display_name,
             description=params.description,
-            settings=params.field_settings,
+            enum_options=params.enum_options,
             is_required=params.is_required,
             is_unique=params.is_unique,
             default_value=params.default_value,
@@ -441,18 +447,17 @@ async def update_record(
         raise HTTPException(status_code=404, detail=str(e)) from e
 
 
-@router.delete("/records/{record_id}")
+@router.delete("/records/{record_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_record(
     *,
     role: WorkspaceUser,
     session: AsyncDBSession,
     record_id: UUID,
-) -> dict:
+) -> None:
     """Delete entity record."""
     service = CustomEntitiesService(session, role)
     try:
         await service.delete_record(record_id)
-        return {"message": f"Record {record_id} deleted"}
     except TracecatNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
 
@@ -494,7 +499,10 @@ async def query_records(
 # Record Relation Endpoints
 
 
-@router.put("/records/{record_id}/relations/{field_key}")
+@router.put(
+    "/records/{record_id}/relations/{field_key}",
+    response_model=RelationUpdateResponse,
+)
 async def update_record_relation(
     *,
     role: WorkspaceUser,
@@ -502,7 +510,7 @@ async def update_record_relation(
     record_id: UUID,
     field_key: str,
     value: UUID | None | HasManyRelationUpdate,
-) -> dict[str, Any]:
+) -> RelationUpdateResponse:
     """Update a relation field value.
 
     For belongs_to: Accept UUID or null
@@ -546,10 +554,10 @@ async def update_record_relation(
                 target_record_id=value if isinstance(value, UUID) else None,
             )
 
-            return {
-                "message": "Relation updated",
-                "target_id": str(value) if value else None,
-            }
+            return RelationUpdateResponse(
+                message="Relation updated",
+                target_id=str(value) if value else None,
+            )
 
         else:  # RELATION_HAS_MANY
             # Validate value is HasManyRelationUpdate
@@ -565,7 +573,10 @@ async def update_record_relation(
                 operation=value,
             )
 
-            return {"message": "Relation updated", "stats": stats}
+            return RelationUpdateResponse(
+                message="Relation updated",
+                stats=stats,
+            )
 
     except TracecatNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
@@ -645,13 +656,13 @@ async def list_related_records(
 # Schema Inspection
 
 
-@router.get("/types/{entity_id}/schema")
+@router.get("/types/{entity_id}/schema", response_model=EntitySchemaResponse)
 async def get_entity_schema(
     *,
     role: WorkspaceUser,
     session: AsyncDBSession,
     entity_id: UUID,
-) -> dict:
+) -> EntitySchemaResponse:
     """Get the dynamic schema for an entity type (for UI/validation)."""
     service = CustomEntitiesService(session, role)
     try:
@@ -659,28 +670,27 @@ async def get_entity_schema(
         entity = await service.get_entity_type(entity_id)
         fields = await service.list_fields(entity_id, include_inactive=False)
 
-        # Build schema description
-        schema = {
-            "entity": {
-                "id": str(entity.id),
-                "name": entity.name,
-                "display_name": entity.display_name,
-                "description": entity.description,
-            },
-            "fields": [
-                {
-                    "key": f.field_key,
-                    "type": f.field_type,
-                    "display_name": f.display_name,
-                    "description": f.description,
-                    "required": f.is_required,
-                    "settings": f.field_settings,
-                }
+        # Build schema response
+        return EntitySchemaResponse(
+            entity=EntitySchemaInfo(
+                id=str(entity.id),
+                name=entity.name,
+                display_name=entity.display_name,
+                description=entity.description,
+            ),
+            fields=[
+                EntitySchemaField(
+                    key=f.field_key,
+                    type=f.field_type,
+                    display_name=f.display_name,
+                    description=f.description,
+                    required=f.is_required,
+                    enum_options=f.enum_options,
+                    relation_cascade_delete=f.relation_cascade_delete,
+                )
                 for f in fields
                 if f.is_active
             ],
-        }
-
-        return schema
+        )
     except TracecatNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
