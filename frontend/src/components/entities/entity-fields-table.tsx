@@ -90,7 +90,7 @@ export function EntityFieldsTable({
               <DataTableColumnHeader
                 className="text-xs"
                 column={column}
-                title="Type"
+                title="Data type"
               />
             ),
             cell: ({ row }) => (

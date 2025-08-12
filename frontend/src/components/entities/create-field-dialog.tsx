@@ -132,10 +132,10 @@ export function CreateFieldDialog({
               name="field_key"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Field key</FormLabel>
+                  <FormLabel>Identifier / Slug</FormLabel>
                   <FormControl>
                     <Input
-                      placeholder="customer_name"
+                      placeholder="Lowercase, no spaces"
                       {...field}
                       onChange={(e) =>
                         field.onChange(e.target.value.toLowerCase())
@@ -143,7 +143,7 @@ export function CreateFieldDialog({
                     />
                   </FormControl>
                   <FormDescription>
-                    Unique identifier for the field (lowercase, no spaces)
+                    This cannot be changed after creation
                   </FormDescription>
                   <FormMessage />
                 </FormItem>
@@ -154,13 +154,10 @@ export function CreateFieldDialog({
               name="display_name"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Display name</FormLabel>
+                  <FormLabel>Name</FormLabel>
                   <FormControl>
-                    <Input placeholder="Customer Name" {...field} />
+                    <Input placeholder="Short human-readable name" {...field} />
                   </FormControl>
-                  <FormDescription>
-                    Human-readable name for the field
-                  </FormDescription>
                   <FormMessage />
                 </FormItem>
               )}
@@ -170,7 +167,7 @@ export function CreateFieldDialog({
               name="field_type"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Field type</FormLabel>
+                  <FormLabel>Data type</FormLabel>
                   <Select
                     onValueChange={field.onChange}
                     defaultValue={field.value}
@@ -188,9 +185,6 @@ export function CreateFieldDialog({
                       ))}
                     </SelectContent>
                   </Select>
-                  <FormDescription>
-                    The data type for this field
-                  </FormDescription>
                   <FormMessage />
                 </FormItem>
               )}
