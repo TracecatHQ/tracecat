@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import uuid
 from collections.abc import Sequence
 from datetime import datetime
 
@@ -12,6 +11,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from tracecat.db.locks import derive_lock_key, pg_advisory_lock
 from tracecat.db.schemas import WorkflowDefinition, WorkflowRepoState
 from tracecat.git import parse_git_url, resolve_git_ref
+from tracecat.identifiers import WorkspaceID
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
 from tracecat.settings.service import get_setting_cached
@@ -26,7 +26,7 @@ from tracecat_ee.store.git_store import GitWorkflowStore
 async def sync_repo_workflows(
     *,
     session: AsyncSession,
-    workspace_id: str,
+    workspace_id: WorkspaceID,
     repo_url: str,
     ref: str | None = None,
     role: Role | None = None,
@@ -61,7 +61,7 @@ async def sync_repo_workflows(
     git_url = parse_git_url(repo_url, allowed_domains=allowed_domains_set)
 
     # Acquire advisory lock for this workspace+repo combination
-    lock_key = derive_lock_key(workspace_id, repo_url)
+    lock_key = derive_lock_key(str(workspace_id), repo_url)
 
     async with pg_advisory_lock(session, lock_key):
         logger.info(
@@ -142,7 +142,7 @@ async def sync_repo_workflows(
 
 
 async def _get_or_create_repo_state(
-    session: AsyncSession, workspace_id: str, repo_url: str
+    session: AsyncSession, workspace_id: WorkspaceID, repo_url: str
 ) -> WorkflowRepoState:
     """Get or create WorkflowRepoState for the given workspace+repo."""
     statement = select(WorkflowRepoState).where(
@@ -155,7 +155,7 @@ async def _get_or_create_repo_state(
 
     if repo_state is None:
         repo_state = WorkflowRepoState(
-            workspace_id=uuid.UUID(workspace_id),
+            workspace_id=workspace_id,
             repo_url=repo_url,
             last_synced_sha=None,
             last_synced_at=None,
@@ -168,7 +168,7 @@ async def _get_or_create_repo_state(
 
 async def _mirror_delete_workflows(
     session: AsyncSession,
-    workspace_id: str,
+    workspace_id: WorkspaceID,
     repo_url: str,
     current_sources: Sequence[WorkflowSource],
 ) -> int:
@@ -205,7 +205,7 @@ async def _mirror_delete_workflows(
     role = Role(
         type="service",
         service_id="tracecat-service",
-        workspace_id=uuid.UUID(workspace_id),
+        workspace_id=workspace_id,
     )
     workflows_service = WorkflowsManagementService.with_session(role=role)
 
@@ -225,7 +225,7 @@ async def _mirror_delete_workflows(
 
 
 async def _count_existing_workflows(
-    session: AsyncSession, workspace_id: str, repo_url: str
+    session: AsyncSession, workspace_id: WorkspaceID, repo_url: str
 ) -> int:
     """Count existing workflows from this repo in the workspace."""
     # Count distinct workflows (not definitions) from this repo

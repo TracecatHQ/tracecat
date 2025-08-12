@@ -7,7 +7,11 @@ from collections.abc import Iterable
 from pathlib import Path
 
 from tracecat.git import run_git
-from tracecat.identifiers.workflow import LEGACY_WF_ID_PATTERN, WF_ID_SHORT_PATTERN
+from tracecat.identifiers.workflow import (
+    LEGACY_WF_ID_PATTERN,
+    WF_ID_SHORT_PATTERN,
+    WorkflowUUID,
+)
 from tracecat.logger import logger
 from tracecat.store.core import ExternalWorkflowStore, WorkflowSource
 
@@ -187,7 +191,7 @@ class GitWorkflowStore(ExternalWorkflowStore):
 
         return [line.strip() for line in stdout.splitlines() if line.strip()]
 
-    def _extract_workflow_id(self, file_path: str) -> str | None:
+    def _extract_workflow_id(self, file_path: str) -> WorkflowUUID | None:
         """Extract workflow ID from file path using regex patterns.
 
         Args:
@@ -201,12 +205,12 @@ class GitWorkflowStore(ExternalWorkflowStore):
         # Try short pattern first (e.g., wf_ABC123)
         match = re.search(WF_ID_SHORT_PATTERN, filename)
         if match:
-            return match.group(0)
+            return WorkflowUUID.new(match.group(0))
 
         # Fallback to legacy pattern (e.g., wf-1234567890abcdef...)
         match = re.search(LEGACY_WF_ID_PATTERN, filename)
         if match:
-            return match.group(0)
+            return WorkflowUUID.new(match.group(0))
 
         return None
 

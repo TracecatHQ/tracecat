@@ -9,6 +9,7 @@ import pytest
 from tracecat_ee.store.git_store import GitWorkflowStore
 from tracecat_ee.store.git_sync import sync_repo_workflows
 
+from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.store.core import WorkflowSource
 from tracecat.types.auth import Role
 
@@ -174,7 +175,7 @@ class TestSyncOrchestrator:
     @pytest.mark.anyio
     async def test_sync_basic_flow(self, mock_role: Role):
         """Test basic sync flow without database dependencies."""
-        workspace_id = str(uuid.uuid4())
+        workspace_id = uuid.uuid4()
         repo_url = "git+ssh://git@github.com/org/repo.git"
         commit_sha = "abc123"
 
@@ -182,7 +183,7 @@ class TestSyncOrchestrator:
             WorkflowSource(
                 path="workflows/wf_ABC123.yml",
                 sha=commit_sha,
-                workflow_id="wf_ABC123",
+                workflow_id=WorkflowUUID.new_uuid4(),
             ),
         ]
 
@@ -259,11 +260,11 @@ class TestAdvisoryLocks:
         """Test lock key derivation from workspace and repo URL."""
         from tracecat.db.locks import derive_lock_key
 
-        workspace_id = str(uuid.uuid4())
+        workspace_id = uuid.uuid4()
         repo_url = "git+ssh://git@github.com/org/repo.git"
 
-        key1 = derive_lock_key(workspace_id, repo_url)
-        key2 = derive_lock_key(workspace_id, repo_url)
+        key1 = derive_lock_key(str(workspace_id), repo_url)
+        key2 = derive_lock_key(str(workspace_id), repo_url)
 
         # Should be deterministic
         assert key1 == key2
@@ -272,7 +273,9 @@ class TestAdvisoryLocks:
         assert 0 <= key1 < 2**63
 
         # Different inputs should produce different keys
-        key3 = derive_lock_key(workspace_id, "git+ssh://git@github.com/other/repo.git")
+        key3 = derive_lock_key(
+            str(workspace_id), "git+ssh://git@github.com/other/repo.git"
+        )
         assert key1 != key3
 
     @pytest.mark.anyio
