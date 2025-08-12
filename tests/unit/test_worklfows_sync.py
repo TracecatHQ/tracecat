@@ -5,8 +5,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from tracecat.workflows.store import WorkflowSource
-from tracecat.workflows.sync import upsert_workflow_definitions
+from tracecat.store.core import WorkflowSource
+from tracecat.store.sync import upsert_workflow_definitions
 
 
 class TestUpsertWorkflowDefinitions:

@@ -4,7 +4,7 @@ from collections.abc import Iterable
 
 import pytest
 
-from tracecat.workflows.store import WorkflowSource
+from tracecat.store.core import WorkflowSource
 
 
 class TestWorkflowSource:
