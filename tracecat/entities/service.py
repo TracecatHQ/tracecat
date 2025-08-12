@@ -341,7 +341,7 @@ class CustomEntitiesService(BaseWorkspaceService):
         return list(result.all())
 
     @require_access_level(AccessLevel.ADMIN)
-    async def update_field_display(
+    async def update_field(
         self,
         field_id: UUID,
         display_name: str | None = None,
@@ -1434,7 +1434,7 @@ class CustomEntitiesService(BaseWorkspaceService):
             },
         )
 
-        null_count = result.scalar()
+        null_count = result.scalar() or 0
         if null_count > 0:
             raise ValueError(
                 f"Cannot enable required constraint. "
