@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import uuid
 from collections.abc import Awaitable, Callable
 
 import yaml
 
 from tracecat.dsl.common import DSLInput
-from tracecat.identifiers.workflow import WorkflowID
+from tracecat.identifiers import WorkspaceID
 from tracecat.logger import logger
 from tracecat.store.core import WorkflowSource
 from tracecat.types.auth import Role
@@ -23,7 +22,7 @@ async def upsert_workflow_definitions(
     *,
     fetch_yaml: FetchYaml,
     commit_sha: str,
-    workspace_id: str,
+    workspace_id: WorkspaceID,
     repo_url: str | None = None,
 ) -> None:
     """Upsert workflow definitions from external sources.
@@ -51,9 +50,7 @@ async def upsert_workflow_definitions(
     role = Role(
         type="service",
         service_id="tracecat-service",
-        workspace_id=uuid.UUID(workspace_id)
-        if isinstance(workspace_id, str)
-        else workspace_id,
+        workspace_id=workspace_id,
     )
 
     async with WorkflowDefinitionsService.with_session(role=role) as service:
@@ -79,8 +76,8 @@ async def upsert_workflow_definitions(
                     workflow_id=source.workflow_id,
                 )
 
-                # Convert string workflow_id to WorkflowID
-                workflow_id = WorkflowID(source.workflow_id)
+                # workflow_id is already a WorkflowID instance
+                workflow_id = source.workflow_id
 
                 # Create workflow definition with Git metadata
                 # Note: We extend the base create method to include Git metadata

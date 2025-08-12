@@ -7,6 +7,8 @@ from contextlib import asynccontextmanager
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat.identifiers import WorkspaceID
+
 
 @asynccontextmanager
 async def pg_advisory_lock(session: AsyncSession, key: int) -> AsyncIterator[None]:
@@ -81,7 +83,7 @@ async def pg_advisory_unlock(session: AsyncSession, key: int) -> bool:
     return result.scalar() is True
 
 
-def derive_lock_key(workspace_id: str, repo_url: str) -> int:
+def derive_lock_key(workspace_id: WorkspaceID, repo_url: str) -> int:
     """Derive a stable 64-bit lock key from workspace_id and repo_url.
 
     Args:

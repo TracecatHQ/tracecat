@@ -7,13 +7,15 @@ from typing import Protocol
 
 from pydantic import BaseModel
 
+from tracecat.identifiers.workflow import WorkflowID
+
 
 class WorkflowSource(BaseModel):
     """Represents a workflow source file in a repository."""
 
     path: str
     sha: str
-    workflow_id: str
+    workflow_id: WorkflowID
     version: int | None = None
 
 
