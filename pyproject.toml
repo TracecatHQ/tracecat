@@ -61,6 +61,7 @@ dependencies = [
     "temporalio==1.9.0",
     "tenacity==8.3.0",
     "tomli==2.2.1",
+    "tracecat-ee",
     "tracecat-registry",
     "uv==0.8.4",
     "uvicorn>=0.33.0,<0.34",
@@ -75,8 +76,6 @@ Homepage = "https://tracecat.com"
 Documentation = "https://docs.tracecat.com/"
 Repository = "https://github.com/TracecatHQ/tracecat"
 
-[project.optional-dependencies]
-ee = ["tracecat-ee"]
 
 [tool.uv.sources]
 tracecat-registry = { workspace = true }
