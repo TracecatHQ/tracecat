@@ -220,8 +220,8 @@ export function CreateFieldDialog({
                   <FormLabel>Description</FormLabel>
                   <FormControl>
                     <Textarea
-                      placeholder="A brief description of the field"
-                      className="resize-none"
+                      placeholder="Write a description"
+                      className="text-xs resize-none"
                       {...field}
                     />
                   </FormControl>
