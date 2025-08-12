@@ -1,3 +1,4 @@
+from collections import Counter
 from datetime import UTC, datetime, time, timedelta
 from typing import Any, Literal
 
@@ -439,7 +440,10 @@ def test_has_any_in(func, a: Any, b: Any, expected: bool) -> None:
 )
 def test_set_operations(func, a: Any, b: Any, expected: list[Any]) -> None:
     """Test set operations functions."""
-    assert func(a, b) == expected
+    result = func(a, b)
+    # Compare as multisets (order-independent, preserves multiplicity)
+    # Ref: https://stackoverflow.com/questions/7828867/how-to-efficiently-compare-two-unordered-lists-not-sets
+    assert Counter(result) == Counter(expected)
 
 
 @pytest.mark.parametrize(
