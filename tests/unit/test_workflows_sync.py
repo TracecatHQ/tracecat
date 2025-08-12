@@ -7,6 +7,7 @@ import pytest
 
 from tracecat.dsl.common import DSLEntrypoint, DSLInput
 from tracecat.dsl.models import ActionStatement, GatherArgs, ScatterArgs
+from tracecat.identifiers.workflow import WorkflowUUID, WorkspaceUUID
 from tracecat.store.core import WorkflowSource
 from tracecat.store.sync import upsert_workflow_definitions
 
@@ -64,12 +65,12 @@ class TestUpsertWorkflowDefinitions:
             WorkflowSource(
                 path="workflows/example1.yml",
                 sha="abc123",
-                workflow_id="wf-550e8400-e29b-41d4-a716-446655440000",
+                workflow_id=WorkflowUUID.new_uuid4(),
             ),
             WorkflowSource(
                 path="workflows/example2.yml",
                 sha="def456",
-                workflow_id="wf-550e8400-e29b-41d4-a716-446655440001",
+                workflow_id=WorkflowUUID.new_uuid4(),
                 version=2,
             ),
         ]
@@ -88,7 +89,7 @@ class TestUpsertWorkflowDefinitions:
         mock_service.create_workflow_definition.return_value = mock_definition
         mock_service.session = AsyncMock()
 
-        workspace_id = str(uuid.uuid4())
+        workspace_id = WorkspaceUUID.new_uuid4()
 
         with patch(
             "tracecat.workflow.management.definitions.WorkflowDefinitionsService.with_session"
@@ -116,7 +117,7 @@ class TestUpsertWorkflowDefinitions:
             WorkflowSource(
                 path="workflows/test.yml",
                 sha="abc123",
-                workflow_id="wf-550e8400-e29b-41d4-a716-446655440002",
+                workflow_id=WorkflowUUID.new_uuid4(),
             ),
         ]
 
@@ -141,14 +142,20 @@ class TestUpsertWorkflowDefinitions:
                 sources=sources,
                 fetch_yaml=mock_fetch_yaml,
                 commit_sha="commit123",
-                workspace_id=str(uuid.uuid4()),
+                workspace_id=WorkspaceUUID.new_uuid4(),
             )
 
         # Verify the DSL was created correctly
         call_args = mock_service.create_workflow_definition.call_args
         dsl = call_args[1]["dsl"]  # Get the DSL from kwargs
-        assert dsl.title == "Test Workflow"
-        assert dsl.description == "Test description"
+        assert (
+            dsl.title
+            == "Hierarchical stream variable lookup: a -> scatter -> b -> gather"
+        )
+        assert (
+            dsl.description
+            == "Test that a value produced before a scatter can be accessed by a reshape inside the scatter, and then gathered. This validates hierarchical stream variable lookup."
+        )
 
     @pytest.mark.anyio
     async def test_upsert_workflow_definitions_metadata(self, test_dsl: DSLInput):
@@ -157,7 +164,7 @@ class TestUpsertWorkflowDefinitions:
             WorkflowSource(
                 path="workflows/meta-test.yml",
                 sha="meta123",
-                workflow_id="wf-550e8400-e29b-41d4-a716-446655440003",
+                workflow_id=WorkflowUUID.new_uuid4(),
             ),
         ]
 
@@ -184,7 +191,7 @@ class TestUpsertWorkflowDefinitions:
                 sources=sources,
                 fetch_yaml=mock_fetch_yaml,
                 commit_sha="meta-commit-123",
-                workspace_id=str(uuid.uuid4()),
+                workspace_id=uuid.uuid4(),
             )
 
         # Verify metadata was set (if the definition supports it)
@@ -203,7 +210,7 @@ class TestUpsertWorkflowDefinitions:
             WorkflowSource(
                 path="workflows/nonexistent.yml",
                 sha="abc123",
-                workflow_id="wf-550e8400-e29b-41d4-a716-446655440004",
+                workflow_id=WorkflowUUID.new_uuid4(),
             ),
         ]
 
@@ -223,7 +230,7 @@ class TestUpsertWorkflowDefinitions:
                     sources=sources,
                     fetch_yaml=mock_fetch_yaml_error,
                     commit_sha="commit123",
-                    workspace_id=str(uuid.uuid4()),
+                    workspace_id=uuid.uuid4(),
                 )
 
         # Verify service was not called due to error
@@ -237,7 +244,7 @@ class TestUpsertWorkflowDefinitions:
             WorkflowSource(
                 path="workflows/invalid.yml",
                 sha="abc123",
-                workflow_id="wf-550e8400-e29b-41d4-a716-446655440005",
+                workflow_id=WorkflowUUID.new_uuid4(),
             ),
         ]
 
@@ -257,7 +264,7 @@ class TestUpsertWorkflowDefinitions:
                     sources=sources,
                     fetch_yaml=mock_fetch_invalid_yaml,
                     commit_sha="commit123",
-                    workspace_id=str(uuid.uuid4()),
+                    workspace_id=uuid.uuid4(),
                 )
 
     @pytest.mark.anyio
@@ -280,7 +287,7 @@ class TestUpsertWorkflowDefinitions:
                 sources=[],  # Empty sources
                 fetch_yaml=mock_fetch_yaml,
                 commit_sha="commit123",
-                workspace_id=str(uuid.uuid4()),
+                workspace_id=uuid.uuid4(),
             )
 
         # Should still commit (empty transaction)
