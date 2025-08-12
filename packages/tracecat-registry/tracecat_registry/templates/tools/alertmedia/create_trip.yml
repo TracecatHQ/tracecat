@@ -23,86 +23,29 @@ definition:
       type: datetime
       description: Start date of the trip. Example 2025-06-26 00:00:00
     start_time_zone:
-      type: str | None
+      type: str
       description: Time zone of the trip.
-      default: null
+      default: "America/New_York"
     end_date:
-      type: datetime | None
+      type: datetime
       description: End date of the trip. Example 2025-06-26 23:59:59
-      default: null
     end_time_zone:
-      type: str | None
+      type: str
       description: Time zone of the trip.
-      default: null
+      default: "America/New_York"
     city:
-      type: str | None
+      type: str
       description: City of the trip.
-      default: null
     country_code:
-      type: str | None
+      type: str
       description: Country code of the trip. For example, US, CA, GB, etc.
-      default: null
     latitude:
-      type: str | None
+      type: str
       description: Latitude of the trip.
-      default: null
     longitude:
-      type: str | None
+      type: str
       description: Longitude of the trip.
-      default: null
   steps:
-    - ref: build_payload
-      action: core.script.run_python
-      args:
-        inputs:
-          user_id: ${{ inputs.user_id }}
-          name: ${{ inputs.name }}
-          start_date: ${{ inputs.start_date }}
-          start_time_zone: ${{ inputs.start_time_zone }}
-          end_date: ${{ inputs.end_date }}
-          end_time_zone: ${{ inputs.end_time_zone }}
-          city: ${{ inputs.city }}
-          country_code: ${{ inputs.country_code }}
-          latitude: ${{ inputs.latitude }}
-          longitude: ${{ inputs.longitude }}
-        script: |
-          def main(
-              user_id,
-              name,
-              start_date,
-              start_time_zone=None,
-              end_date=None,
-              end_time_zone=None,
-              city=None,
-              country_code=None,
-              latitude=None,
-              longitude=None,
-          ):
-              payload = {
-                  "user": user_id,
-                  "name": name,
-                  "start_date": start_date,
-              }
-              if start_time_zone:
-                  payload["start_time_zone"] = start_time_zone
-              if end_date:
-                  payload["end_date"] = end_date
-              if end_time_zone:
-                  payload["end_time_zone"] = end_time_zone
-
-              destination_address = {}
-              if city:
-                  destination_address["city"] = city
-              if country_code:
-                  destination_address["country"] = country_code
-              if latitude:
-                  destination_address["latitude"] = latitude
-              if longitude:
-                  destination_address["longitude"] = longitude
-              if destination_address:
-                  payload["destination_address"] = destination_address
-
-              return payload
     - ref: create_trip
       action: core.http_request
       args:
@@ -110,5 +53,16 @@ definition:
         method: POST
         headers:
           Authorization: Bearer ${{ SECRETS.alertmedia.ALERTMEDIA_API_KEY }}
-        payload: ${{ steps.build_payload.result }}
+        payload:
+          user: ${{ inputs.user_id }}
+          name: ${{ inputs.name }}
+          start_date: ${{ inputs.start_date }}
+          start_time_zone: ${{ inputs.start_time_zone }}
+          end_date: ${{ inputs.end_date }}
+          end_time_zone: ${{ inputs.end_time_zone }}
+          destination_address:
+            city: ${{ inputs.city }}
+            country: ${{ inputs.country_code }}
+            latitude: ${{ inputs.latitude }}
+            longitude: ${{ inputs.longitude }}
   returns: ${{ steps.create_trip.result.data }}
