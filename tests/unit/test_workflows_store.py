@@ -4,6 +4,7 @@ from collections.abc import Iterable
 
 import pytest
 
+from tracecat.identifiers.workflow import WorkflowID
 from tracecat.store.core import WorkflowSource
 
 
@@ -12,14 +13,15 @@ class TestWorkflowSource:
 
     def test_workflow_source_creation(self):
         """Test WorkflowSource creation with required fields."""
+        workflow_id = WorkflowID.new_uuid4()
         source = WorkflowSource(
             path="workflows/example.yml",
             sha="abc123",
-            workflow_id="wf-example-123",
+            workflow_id=workflow_id,
         )
         assert source.path == "workflows/example.yml"
         assert source.sha == "abc123"
-        assert source.workflow_id == "wf-example-123"
+        assert source.workflow_id == workflow_id
         assert source.version is None
 
     def test_workflow_source_with_version(self):
@@ -27,7 +29,7 @@ class TestWorkflowSource:
         source = WorkflowSource(
             path="workflows/example.yml",
             sha="abc123",
-            workflow_id="wf-example-123",
+            workflow_id=WorkflowID.new_uuid4(),
             version=2,
         )
         assert source.version == 2
@@ -40,11 +42,11 @@ class TestWorkflowSource:
 
         # Test that path is required
         with pytest.raises((TypeError, ValueError)):
-            WorkflowSource(sha="abc123", workflow_id="wf-123")  # type: ignore
+            WorkflowSource(sha="abc123", workflow_id=WorkflowID.new_uuid4())  # type: ignore
 
         # Test that sha is required
         with pytest.raises((TypeError, ValueError)):
-            WorkflowSource(path="test.yml", workflow_id="wf-123")  # type: ignore
+            WorkflowSource(path="test.yml", workflow_id=WorkflowID.new_uuid4())  # type: ignore
 
         # Test that workflow_id is required
         with pytest.raises((TypeError, ValueError)):
@@ -52,10 +54,11 @@ class TestWorkflowSource:
 
     def test_workflow_source_serialization(self):
         """Test WorkflowSource can be serialized/deserialized."""
+        workflow_id = WorkflowID.new_uuid4()
         source = WorkflowSource(
             path="workflows/example.yml",
             sha="abc123",
-            workflow_id="wf-example-123",
+            workflow_id=workflow_id,
             version=1,
         )
 
@@ -64,7 +67,7 @@ class TestWorkflowSource:
         assert data == {
             "path": "workflows/example.yml",
             "sha": "abc123",
-            "workflow_id": "wf-example-123",
+            "workflow_id": str(workflow_id),
             "version": 1,
         }
 
@@ -88,12 +91,12 @@ class TestExternalWorkflowStore:
                     WorkflowSource(
                         path="workflows/example1.yml",
                         sha="abc123",
-                        workflow_id="wf-example1-123",
+                        workflow_id=WorkflowID.new_uuid4(),
                     ),
                     WorkflowSource(
                         path="workflows/example2.yml",
                         sha="def456",
-                        workflow_id="wf-example2-456",
+                        workflow_id=WorkflowID.new_uuid4(),
                         version=2,
                     ),
                 ]
@@ -131,7 +134,7 @@ actions:
                     WorkflowSource(
                         path="workflows/test.yml",
                         sha="abc123",
-                        workflow_id="wf-test-123",
+                        workflow_id=WorkflowID.new_uuid4(),
                     )
                 ]
                 self.yaml_content = """
