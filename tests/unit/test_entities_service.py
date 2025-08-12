@@ -83,6 +83,201 @@ def integration_entity_create_params() -> dict:
 
 
 @pytest.mark.anyio
+class TestDefaultValues:
+    """Tests for field default value functionality."""
+
+    async def test_create_field_with_text_default(
+        self, admin_entities_service: CustomEntitiesService, test_entity: EntityMetadata
+    ) -> None:
+        """Test creating a field with a text default value."""
+        field = await admin_entities_service.create_field(
+            entity_id=test_entity.id,
+            field_key="text_with_default",
+            field_type=FieldType.TEXT,
+            display_name="Text with Default",
+            default_value="Default text value",
+        )
+
+        assert field.default_value == "Default text value"
+        assert field.field_type == FieldType.TEXT.value
+
+    async def test_create_field_with_integer_default(
+        self, admin_entities_service: CustomEntitiesService, test_entity: EntityMetadata
+    ) -> None:
+        """Test creating a field with an integer default value."""
+        field = await admin_entities_service.create_field(
+            entity_id=test_entity.id,
+            field_key="int_with_default",
+            field_type=FieldType.INTEGER,
+            display_name="Integer with Default",
+            default_value=42,
+        )
+
+        assert field.default_value == 42
+        assert field.field_type == FieldType.INTEGER.value
+
+    async def test_create_field_with_bool_default(
+        self, admin_entities_service: CustomEntitiesService, test_entity: EntityMetadata
+    ) -> None:
+        """Test creating a field with a boolean default value."""
+        field = await admin_entities_service.create_field(
+            entity_id=test_entity.id,
+            field_key="bool_with_default",
+            field_type=FieldType.BOOL,
+            display_name="Boolean with Default",
+            default_value=True,
+        )
+
+        assert field.default_value is True
+        assert field.field_type == FieldType.BOOL.value
+
+    async def test_create_field_with_multi_select_default(
+        self, admin_entities_service: CustomEntitiesService, test_entity: EntityMetadata
+    ) -> None:
+        """Test creating a field with a multi-select default value."""
+        field = await admin_entities_service.create_field(
+            entity_id=test_entity.id,
+            field_key="multi_with_default",
+            field_type=FieldType.MULTI_SELECT,
+            display_name="Multi-Select with Default",
+            settings={"options": ["option1", "option2", "option3"]},
+            default_value=["option1", "option2"],
+        )
+
+        assert field.default_value == ["option1", "option2"]
+        assert field.field_type == FieldType.MULTI_SELECT.value
+
+    async def test_create_field_rejects_non_primitive_default(
+        self, admin_entities_service: CustomEntitiesService, test_entity: EntityMetadata
+    ) -> None:
+        """Test that non-primitive field types cannot have default values."""
+        with pytest.raises(
+            ValueError, match="Default values not supported for field type"
+        ):
+            await admin_entities_service.create_field(
+                entity_id=test_entity.id,
+                field_key="array_field",
+                field_type=FieldType.ARRAY_TEXT,
+                display_name="Array Field",
+                default_value=["item1", "item2"],
+            )
+
+    async def test_create_record_applies_defaults(
+        self,
+        entities_service: CustomEntitiesService,
+        admin_entities_service: CustomEntitiesService,
+        test_entity: EntityMetadata,
+    ) -> None:
+        """Test that default values are applied when creating records."""
+        # Create fields with defaults
+        await admin_entities_service.create_field(
+            entity_id=test_entity.id,
+            field_key="name",
+            field_type=FieldType.TEXT,
+            display_name="Name",
+            default_value="Unnamed",
+        )
+        await admin_entities_service.create_field(
+            entity_id=test_entity.id,
+            field_key="count",
+            field_type=FieldType.INTEGER,
+            display_name="Count",
+            default_value=0,
+        )
+        await admin_entities_service.create_field(
+            entity_id=test_entity.id,
+            field_key="active",
+            field_type=FieldType.BOOL,
+            display_name="Active",
+            default_value=True,
+        )
+
+        # Create record with only one field provided
+        record = await entities_service.create_record(
+            entity_id=test_entity.id,
+            data={"count": 5},  # Only provide count, others should get defaults
+        )
+
+        assert record.field_data["name"] == "Unnamed"
+        assert record.field_data["count"] == 5  # Provided value
+        assert record.field_data["active"] is True
+
+    async def test_required_field_with_default_passes_validation(
+        self,
+        entities_service: CustomEntitiesService,
+        admin_entities_service: CustomEntitiesService,
+        test_entity: EntityMetadata,
+    ) -> None:
+        """Test that required fields with defaults pass validation even when not provided."""
+        # Create a required field with a default
+        await admin_entities_service.create_field(
+            entity_id=test_entity.id,
+            field_key="required_field",
+            field_type=FieldType.TEXT,
+            display_name="Required Field",
+            is_required=True,
+            default_value="Default required value",
+        )
+
+        # Should be able to create a record without providing the required field
+        record = await entities_service.create_record(
+            entity_id=test_entity.id,
+            data={},  # No fields provided
+        )
+
+        assert record.field_data["required_field"] == "Default required value"
+
+    async def test_update_field_default_value(
+        self, admin_entities_service: CustomEntitiesService, test_entity: EntityMetadata
+    ) -> None:
+        """Test updating a field's default value."""
+        # Create field with initial default
+        field = await admin_entities_service.create_field(
+            entity_id=test_entity.id,
+            field_key="updatable_field",
+            field_type=FieldType.TEXT,
+            display_name="Updatable Field",
+            default_value="Initial default",
+        )
+
+        # Update the default value
+        updated_field = await admin_entities_service.update_field_display(
+            field_id=field.id,
+            default_value="Updated default",
+        )
+
+        assert updated_field.default_value == "Updated default"
+
+    async def test_select_default_validates_against_options(
+        self, admin_entities_service: CustomEntitiesService, test_entity: EntityMetadata
+    ) -> None:
+        """Test that SELECT field default value must be one of the options."""
+        with pytest.raises(ValueError, match="not in available options"):
+            await admin_entities_service.create_field(
+                entity_id=test_entity.id,
+                field_key="select_field",
+                field_type=FieldType.SELECT,
+                display_name="Select Field",
+                settings={"options": ["option1", "option2", "option3"]},
+                default_value="invalid_option",
+            )
+
+    async def test_multi_select_default_validates_against_options(
+        self, admin_entities_service: CustomEntitiesService, test_entity: EntityMetadata
+    ) -> None:
+        """Test that MULTI_SELECT field default values must be from the options."""
+        with pytest.raises(ValueError, match="not in available options"):
+            await admin_entities_service.create_field(
+                entity_id=test_entity.id,
+                field_key="multi_select_field",
+                field_type=FieldType.MULTI_SELECT,
+                display_name="Multi-Select Field",
+                settings={"options": ["option1", "option2", "option3"]},
+                default_value=["option1", "invalid_option"],
+            )
+
+
+@pytest.mark.anyio
 class TestCustomEntitiesService:
     async def test_init_requires_workspace_id(self, session: AsyncSession) -> None:
         """Test that service initialization requires a workspace ID."""

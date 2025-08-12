@@ -43,6 +43,7 @@ from tracecat.logger import logger
 from tracecat.service import BaseWorkspaceService
 from tracecat.types.auth import AccessLevel
 from tracecat.types.exceptions import (
+    InvalidFieldDefaultError,
     TracecatNotFoundError,
     TracecatValidationError,
 )
@@ -193,6 +194,7 @@ class CustomEntitiesService(BaseWorkspaceService):
         settings: dict[str, Any] | None = None,
         is_required: bool = False,
         is_unique: bool = False,
+        default_value: Any | None = None,
     ) -> FieldMetadata:
         """Create new field - immutable after creation.
 
@@ -205,6 +207,7 @@ class CustomEntitiesService(BaseWorkspaceService):
             settings: Optional field settings
             is_required: Whether field is required
             is_unique: Whether field must be unique
+            default_value: Optional default value (only for primitive types)
 
         Returns:
             Created FieldMetadata
@@ -225,6 +228,7 @@ class CustomEntitiesService(BaseWorkspaceService):
                 field_settings=settings or {},
                 is_required=is_required,
                 is_unique=is_unique,
+                default_value=default_value,
             )
         except ValidationError as e:
             # Extract the first validation error message
@@ -270,6 +274,11 @@ class CustomEntitiesService(BaseWorkspaceService):
                     f"on entity with existing records"
                 )
 
+        # Serialize default value if provided
+        serialized_default = None
+        if default_value is not None:
+            serialized_default = serialize_value(default_value, field_type)
+
         field = FieldMetadata(
             entity_metadata_id=entity_id,
             field_key=validated.field_key,
@@ -280,6 +289,7 @@ class CustomEntitiesService(BaseWorkspaceService):
             is_active=True,
             is_required=is_required,
             is_unique=is_unique,
+            default_value=serialized_default,
         )
 
         self.session.add(field)
@@ -339,6 +349,7 @@ class CustomEntitiesService(BaseWorkspaceService):
         settings: dict[str, Any] | None = None,
         is_required: bool | None = None,
         is_unique: bool | None = None,
+        default_value: Any | None = None,
     ) -> FieldMetadata:
         """Update field properties including constraints.
 
@@ -349,6 +360,7 @@ class CustomEntitiesService(BaseWorkspaceService):
             settings: New settings (validation constraints)
             is_required: Update required constraint
             is_unique: Update unique constraint
+            default_value: Update default value (None to clear, use {} for empty dict)
 
         Returns:
             Updated FieldMetadata
@@ -381,6 +393,35 @@ class CustomEntitiesService(BaseWorkspaceService):
             if "allow_nested" in settings:
                 raise ValueError("Nested structures not supported in v1")
             field.field_settings = settings
+
+        # Handle default value update
+        if default_value is not None:
+            # Validate default value is appropriate for field type
+            from tracecat.entities.models import FieldMetadataCreate
+
+            # Use the validator from FieldMetadataCreate
+            try:
+                FieldMetadataCreate(
+                    field_key=field.field_key,
+                    field_type=FieldType(field.field_type),
+                    display_name=field.display_name,
+                    field_settings=field.field_settings,
+                    default_value=default_value,
+                )
+            except ValidationError as e:
+                # Extract the validation error message
+                if e.errors():
+                    first_error = e.errors()[0]
+                    msg = first_error.get("msg", "Invalid default value")
+                    if msg.startswith("Value error, "):
+                        msg = msg[13:]
+                    raise InvalidFieldDefaultError(msg) from e
+                raise InvalidFieldDefaultError("Invalid default value") from e
+
+            # Serialize and store the default value
+            field.default_value = serialize_value(
+                default_value, FieldType(field.field_type)
+            )
 
         await self.session.commit()
         await self.session.refresh(field)
@@ -1057,9 +1098,20 @@ class CustomEntitiesService(BaseWorkspaceService):
         # Get active fields
         active_fields = await self.list_fields(entity_id, include_inactive=False)
 
+        # Apply default values for missing fields
+        data_with_defaults = dict(data)  # Create a copy
+        for field in active_fields:
+            if (
+                field.field_key not in data_with_defaults
+                and field.default_value is not None
+                and not field.relation_kind  # Don't apply defaults to relation fields
+            ):
+                # Default value is already serialized in the database
+                data_with_defaults[field.field_key] = field.default_value
+
         # Validate data against active fields (includes flat structure check)
         validated_data = await self._validate_record_data(
-            data, active_fields, record_id=None
+            data_with_defaults, active_fields, record_id=None
         )
 
         # Serialize values
@@ -1240,10 +1292,13 @@ class CustomEntitiesService(BaseWorkspaceService):
                         pass
                 else:
                     # Regular fields must have non-null values
+                    # Consider default values when checking required fields
                     if field.field_key not in data or data[field.field_key] is None:
-                        errors.append(
-                            f"Required field '{field.field_key}' is missing or null"
-                        )
+                        # If field has a default value, it's okay to be missing
+                        if field.default_value is None:
+                            errors.append(
+                                f"Required field '{field.field_key}' is missing or null"
+                            )
 
         # Second pass: Validate provided data
         for key, value in data.items():

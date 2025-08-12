@@ -4135,6 +4135,16 @@ export const $FieldMetadataCreate = {
         "Field value must be unique across all records (one-to-one for belongs_to)",
       default: false,
     },
+    default_value: {
+      anyOf: [
+        {},
+        {
+          type: "null",
+        },
+      ],
+      title: "Default Value",
+      description: "Default value for the field (only for primitive types)",
+    },
   },
   type: "object",
   required: ["field_key", "field_type", "display_name"],
@@ -4250,6 +4260,15 @@ export const $FieldMetadataRead = {
       ],
       title: "Relation Backref Field Id",
     },
+    default_value: {
+      anyOf: [
+        {},
+        {
+          type: "null",
+        },
+      ],
+      title: "Default Value",
+    },
   },
   type: "object",
   required: [
@@ -4330,6 +4349,15 @@ export const $FieldMetadataUpdate = {
         },
       ],
       title: "Is Unique",
+    },
+    default_value: {
+      anyOf: [
+        {},
+        {
+          type: "null",
+        },
+      ],
+      title: "Default Value",
     },
   },
   type: "object",

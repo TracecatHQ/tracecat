@@ -5,7 +5,7 @@ from enum import StrEnum
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, Field, ValidationInfo, field_validator
+from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
 
 from tracecat.entities.types import FieldType
 
@@ -144,6 +144,10 @@ class FieldMetadataCreate(BaseModel):
         default=False,
         description="Field value must be unique across all records (one-to-one for belongs_to)",
     )
+    default_value: Any | None = Field(
+        default=None,
+        description="Default value for the field (only for primitive types)",
+    )
 
     @field_validator("field_key", mode="before")
     @classmethod
@@ -206,6 +210,87 @@ class FieldMetadataCreate(BaseModel):
 
         return v
 
+    @model_validator(mode="after")
+    def validate_default_value(self) -> "FieldMetadataCreate":
+        """Validate default value is appropriate for field type."""
+        if self.default_value is None:
+            return self
+
+        # Only allow defaults for primitive field types
+        primitive_types = {
+            FieldType.TEXT,
+            FieldType.INTEGER,
+            FieldType.NUMBER,
+            FieldType.BOOL,
+            FieldType.SELECT,
+            FieldType.MULTI_SELECT,
+        }
+
+        if self.field_type not in primitive_types:
+            raise ValueError(
+                f"Default values not supported for field type {self.field_type}. "
+                f"Only primitive types support defaults: {', '.join(t.value for t in primitive_types)}"
+            )
+
+        # Type-specific validation
+        if self.field_type == FieldType.TEXT:
+            if not isinstance(self.default_value, str):
+                raise ValueError(
+                    f"Default value for TEXT field must be a string, got {type(self.default_value).__name__}"
+                )
+        elif self.field_type == FieldType.INTEGER:
+            if not isinstance(self.default_value, int) or isinstance(
+                self.default_value, bool
+            ):
+                raise ValueError(
+                    f"Default value for INTEGER field must be an integer, got {type(self.default_value).__name__}"
+                )
+        elif self.field_type == FieldType.NUMBER:
+            if not isinstance(self.default_value, int | float) or isinstance(
+                self.default_value, bool
+            ):
+                raise ValueError(
+                    f"Default value for NUMBER field must be a number, got {type(self.default_value).__name__}"
+                )
+        elif self.field_type == FieldType.BOOL:
+            if not isinstance(self.default_value, bool):
+                raise ValueError(
+                    f"Default value for BOOL field must be a boolean, got {type(self.default_value).__name__}"
+                )
+        elif self.field_type == FieldType.SELECT:
+            if not isinstance(self.default_value, str):
+                raise ValueError(
+                    f"Default value for SELECT field must be a string, got {type(self.default_value).__name__}"
+                )
+            # Validate against options if field_settings provided
+            if self.field_settings and "options" in self.field_settings:
+                if self.default_value not in self.field_settings["options"]:
+                    raise ValueError(
+                        f"Default value '{self.default_value}' not in available options: {self.field_settings['options']}"
+                    )
+        elif self.field_type == FieldType.MULTI_SELECT:
+            if not isinstance(self.default_value, list):
+                raise ValueError(
+                    f"Default value for MULTI_SELECT field must be a list, got {type(self.default_value).__name__}"
+                )
+            if not all(isinstance(item, str) for item in self.default_value):
+                raise ValueError(
+                    "All items in MULTI_SELECT default value must be strings"
+                )
+            # Validate against options if field_settings provided
+            if self.field_settings and "options" in self.field_settings:
+                invalid_options = [
+                    opt
+                    for opt in self.default_value
+                    if opt not in self.field_settings["options"]
+                ]
+                if invalid_options:
+                    raise ValueError(
+                        f"Default values {invalid_options} not in available options: {self.field_settings['options']}"
+                    )
+
+        return self
+
 
 class FieldMetadataUpdate(BaseModel):
     """Request model for updating field display properties."""
@@ -215,6 +300,7 @@ class FieldMetadataUpdate(BaseModel):
     field_settings: dict[str, Any] | None = None
     is_required: bool | None = None
     is_unique: bool | None = None
+    default_value: Any | None = None
 
 
 class FieldMetadataRead(BaseModel):
@@ -237,6 +323,7 @@ class FieldMetadataRead(BaseModel):
     relation_kind: str | None = None
     relation_target_entity_id: UUID | None = None
     relation_backref_field_id: UUID | None = None
+    default_value: Any | None = None
 
     model_config = {"from_attributes": True}
 

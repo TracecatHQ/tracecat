@@ -1379,6 +1379,10 @@ export type FieldMetadataCreate = {
    * Field value must be unique across all records (one-to-one for belongs_to)
    */
   is_unique?: boolean
+  /**
+   * Default value for the field (only for primitive types)
+   */
+  default_value?: unknown | null
 }
 
 /**
@@ -1403,6 +1407,7 @@ export type FieldMetadataRead = {
   relation_kind?: string | null
   relation_target_entity_id?: string | null
   relation_backref_field_id?: string | null
+  default_value?: unknown | null
 }
 
 /**
@@ -1416,6 +1421,7 @@ export type FieldMetadataUpdate = {
   } | null
   is_required?: boolean | null
   is_unique?: boolean | null
+  default_value?: unknown | null
 }
 
 /**
