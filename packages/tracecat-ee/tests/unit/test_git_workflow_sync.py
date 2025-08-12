@@ -263,19 +263,17 @@ class TestAdvisoryLocks:
         workspace_id = uuid.uuid4()
         repo_url = "git+ssh://git@github.com/org/repo.git"
 
-        key1 = derive_lock_key(str(workspace_id), repo_url)
-        key2 = derive_lock_key(str(workspace_id), repo_url)
+        key1 = derive_lock_key(workspace_id, repo_url)
+        key2 = derive_lock_key(workspace_id, repo_url)
 
         # Should be deterministic
-        assert key1 == key2
+        assert key1 == key2  # noqa: PLR0913
 
         # Should be in valid range for PostgreSQL advisory locks
         assert 0 <= key1 < 2**63
 
         # Different inputs should produce different keys
-        key3 = derive_lock_key(
-            str(workspace_id), "git+ssh://git@github.com/other/repo.git"
-        )
+        key3 = derive_lock_key(workspace_id, "git+ssh://git@github.com/other/repo.git")
         assert key1 != key3
 
     @pytest.mark.anyio

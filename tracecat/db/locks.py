@@ -7,6 +7,8 @@ from contextlib import asynccontextmanager
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat.identifiers import WorkspaceID
+
 
 @asynccontextmanager
 async def pg_advisory_lock(session: AsyncSession, key: int) -> AsyncIterator[None]:
@@ -81,7 +83,7 @@ async def pg_advisory_unlock(session: AsyncSession, key: int) -> bool:
     return result.scalar() is True
 
 
-def derive_lock_key(workspace_id: str, repo_url: str) -> int:
+def derive_lock_key(workspace_id: WorkspaceID, repo_url: str) -> int:
     """Derive a stable 64-bit lock key from workspace_id and repo_url.
 
     Args:
@@ -94,16 +96,17 @@ def derive_lock_key(workspace_id: str, repo_url: str) -> int:
     Raises:
         ValueError: If inputs are invalid (empty, None, or too long)
     """
-    if not isinstance(workspace_id, str) or not isinstance(repo_url, str):
+    ws_id = str(workspace_id)
+    if not isinstance(ws_id, str) or not isinstance(repo_url, str):
         raise ValueError("workspace_id and repo_url must be strings")
-    if not workspace_id or not repo_url:
-        raise ValueError("workspace_id and repo_url must be non-empty strings")
-    if len(workspace_id) > 100 or len(repo_url) > 500:
+    if not ws_id or not repo_url:
+        raise ValueError("workspace_id and repo_url must be non-empty")
+    if len(ws_id) > 100 or len(repo_url) > 500:
         raise ValueError(
             "Input strings too long (workspace_id max 100, repo_url max 500 chars)"
         )
 
-    combined = f"{workspace_id}:{repo_url}"
+    combined = f"{ws_id}:{repo_url}"
     digest = hashlib.sha256(combined.encode("utf-8")).digest()
     # Take first 8 bytes and convert to signed 64-bit int
     raw_int = int.from_bytes(digest[:8], "big")
