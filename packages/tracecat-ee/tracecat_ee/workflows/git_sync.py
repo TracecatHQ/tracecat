@@ -20,7 +20,8 @@ from tracecat.types.auth import Role
 from tracecat.workflow.management.management import WorkflowsManagementService
 from tracecat.workflows.store import WorkflowSource
 from tracecat.workflows.sync import upsert_workflow_definitions
-from tracecat_ee.workflows.git_store import GitWorkflowStore
+
+from .git_store import GitWorkflowStore
 
 
 async def sync_repo_workflows(
