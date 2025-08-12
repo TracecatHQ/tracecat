@@ -10,9 +10,9 @@ import yaml
 from tracecat.dsl.common import DSLInput
 from tracecat.identifiers.workflow import WorkflowID
 from tracecat.logger import logger
+from tracecat.store.core import WorkflowSource
 from tracecat.types.auth import Role
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
-from tracecat.workflows.store import WorkflowSource
 
 # Type alias for YAML fetching function
 FetchYaml = Callable[[str, str], Awaitable[str]]

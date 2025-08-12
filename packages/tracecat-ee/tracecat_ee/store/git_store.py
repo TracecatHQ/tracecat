@@ -9,7 +9,7 @@ from pathlib import Path
 from tracecat.git import run_git
 from tracecat.identifiers.workflow import LEGACY_WF_ID_PATTERN, WF_ID_SHORT_PATTERN
 from tracecat.logger import logger
-from tracecat.workflows.store import ExternalWorkflowStore, WorkflowSource
+from tracecat.store.core import ExternalWorkflowStore, WorkflowSource
 
 
 class GitWorkflowStore(ExternalWorkflowStore):
