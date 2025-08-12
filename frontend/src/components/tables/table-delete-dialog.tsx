@@ -59,7 +59,7 @@ export function DeleteTableDialog({
     <AlertDialog open={open} onOpenChange={onOpenChange}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Delete Table</AlertDialogTitle>
+          <AlertDialogTitle>Delete table</AlertDialogTitle>
           <AlertDialogDescription>
             Are you sure you want to delete the table {table.name}? This action
             cannot be undone.
