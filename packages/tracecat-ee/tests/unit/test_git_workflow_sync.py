@@ -6,11 +6,11 @@ from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from tracecat_ee.workflows.git_store import GitWorkflowStore
-from tracecat_ee.workflows.git_sync import sync_repo_workflows
+from tracecat_ee.store.git_store import GitWorkflowStore
+from tracecat_ee.store.git_sync import sync_repo_workflows
 
+from tracecat.store.core import WorkflowSource
 from tracecat.types.auth import Role
-from tracecat.workflows.store import WorkflowSource
 
 
 @pytest.fixture
