@@ -17,6 +17,14 @@ TRACECAT__PUBLIC_APP_URL = os.environ.get(
     "TRACECAT__PUBLIC_APP_URL", "http://localhost"
 )
 
+# New: Global override for LLM provider base URL (e.g., OpenAI compatible endpoints)
+TRACECAT__LLM_BASE_URL = os.environ.get("TRACECAT__LLM_BASE_URL")
+"""Optional base URL override for LLM provider APIs used by agents."""
+
+# New: Per-tool fixed arguments override for agents, JSON string mapping action IDs to args
+TRACECAT__AGENT_FIXED_ARGUMENTS = os.environ.get("TRACECAT__AGENT_FIXED_ARGUMENTS")
+"""Optional JSON string mapping action IDs (e.g., core.transform.reshape) to fixed argument dicts."""
+
 TRACECAT__EXECUTOR_URL = os.environ.get(
     "TRACECAT__EXECUTOR_URL", "http://executor:8000"
 )

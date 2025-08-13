@@ -59,6 +59,7 @@ from tracecat_registry.integrations.pydantic_ai import (
     build_agent,
     get_model,
 )
+from tracecat.config import TRACECAT__LLM_BASE_URL, TRACECAT__AGENT_FIXED_ARGUMENTS
 
 from tracecat_registry import registry
 from tracecat_registry.integrations.agents.exceptions import AgentRunError
@@ -900,6 +901,32 @@ async def run_agent(
         ```
     """
 
+    # Apply environment overrides
+    # 1) base_url: env wins over argument
+    effective_base_url: str | None = TRACECAT__LLM_BASE_URL or base_url
+
+    # 2) fixed_arguments: merge env JSON mapping with provided dict; env wins per action key
+    merged_fixed_arguments: dict[str, dict[str, Any]] = {}
+
+    # Parse env JSON if present
+    if TRACECAT__AGENT_FIXED_ARGUMENTS:
+        try:
+            env_fixed_args_raw = try_parse_json(TRACECAT__AGENT_FIXED_ARGUMENTS)
+            if isinstance(env_fixed_args_raw, dict):
+                # Ensure inner values are dicts
+                for k, v in env_fixed_args_raw.items():
+                    if isinstance(v, dict):
+                        merged_fixed_arguments[k] = v
+        except Exception:
+            # Silently ignore malformed env; proceed with provided args
+            pass
+
+    # Merge provided fixed_arguments, but keep env values when conflict
+    if fixed_arguments:
+        for k, v in fixed_arguments.items():
+            if k not in merged_fixed_arguments:
+                merged_fixed_arguments[k] = v
+
     # Only enhance instructions when provided (not None)
     enhanced_instrs: str | None = None
     if instructions is not None:
@@ -925,12 +952,12 @@ async def run_agent(
     builder = TracecatAgentBuilder(
         model_name=model_name,
         model_provider=model_provider,
-        base_url=base_url,
+        base_url=effective_base_url,
         instructions=enhanced_instrs,
         output_type=output_type,
         model_settings=model_settings,
         retries=retries,
-        fixed_arguments=fixed_arguments,
+        fixed_arguments=merged_fixed_arguments or None,
     )
 
     if not actions:
@@ -960,7 +987,7 @@ async def run_agent(
                 logger.debug("Redis streaming enabled", stream_key=stream_key)
 
                 messages = await redis_client.xrange(stream_key, min_id="-", max_id="+")
-
+                # Load previous messages (if any) and validate
                 for _, fields in messages:
                     try:
                         data = orjson.loads(fields[DATA_KEY])
