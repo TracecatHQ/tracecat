@@ -63,7 +63,7 @@ export default function EntitiesPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: ["entities"],
+        queryKey: ["entities", workspaceId],
       })
       queryClient.invalidateQueries({
         queryKey: ["entity-field-counts", workspaceId],
@@ -95,7 +95,7 @@ export default function EntitiesPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: ["entities"],
+        queryKey: ["entities", workspaceId],
       })
       queryClient.invalidateQueries({
         queryKey: ["entity-field-counts", workspaceId],
