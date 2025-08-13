@@ -683,9 +683,10 @@ class ConstraintValidators:
             HAVING COUNT(*) > 1
         """)
 
-        result = await self.session.execute(
+        # Use exec() with params as keyword argument for raw SQL
+        result = await self.session.exec(
             duplicate_check,
-            {
+            params={
                 "field_key": field.field_key,
                 "entity_id": field.entity_metadata_id,
                 "owner_id": self.workspace_id,
@@ -719,9 +720,10 @@ class ConstraintValidators:
               )
         """)
 
-        result = await self.session.execute(
+        # Use exec() with params as keyword argument for raw SQL
+        result = await self.session.exec(
             null_check,
-            {
+            params={
                 "field_key": field.field_key,
                 "entity_id": field.entity_metadata_id,
                 "owner_id": self.workspace_id,
