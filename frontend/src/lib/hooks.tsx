@@ -962,20 +962,20 @@ export function useSchedules(workflowId: string) {
   }
 }
 
-export function useWorkspaceSecrets() {
+export function useWorkspaceSecrets(workspaceId: string) {
   const queryClient = useQueryClient()
-  const { workspaceId } = useWorkspace()
   const {
     data: secrets,
     isLoading: secretsIsLoading,
     error: secretsError,
   } = useQuery<SecretReadMinimal[], ApiError>({
-    queryKey: ["workspace-secrets"],
+    queryKey: ["workspace-secrets", workspaceId],
     queryFn: async () =>
       await secretsListSecrets({
         workspaceId,
         type: ["custom"],
       }),
+    enabled: !!workspaceId,
   })
 
   // Create secret
@@ -990,7 +990,9 @@ export function useWorkspaceSecrets() {
         title: "Added new secret",
         description: "New secret added successfully.",
       })
-      queryClient.invalidateQueries({ queryKey: ["workspace-secrets"] })
+      queryClient.invalidateQueries({
+        queryKey: ["workspace-secrets", workspaceId],
+      })
     },
     onError: (error: TracecatApiError) => {
       switch (error.status) {
@@ -1034,7 +1036,9 @@ export function useWorkspaceSecrets() {
         title: "Updated secret",
         description: "Secret updated successfully.",
       })
-      queryClient.invalidateQueries({ queryKey: ["workspace-secrets"] })
+      queryClient.invalidateQueries({
+        queryKey: ["workspace-secrets", workspaceId],
+      })
     },
     onError: (error: TracecatApiError) => {
       switch (error.status) {
@@ -1058,7 +1062,9 @@ export function useWorkspaceSecrets() {
     mutationFn: async (secret: SecretReadMinimal) =>
       await secretsDeleteSecretById({ workspaceId, secretId: secret.id }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["workspace-secrets"] })
+      queryClient.invalidateQueries({
+        queryKey: ["workspace-secrets", workspaceId],
+      })
       toast({
         title: "Deleted secret",
         description: "Secret deleted successfully.",
