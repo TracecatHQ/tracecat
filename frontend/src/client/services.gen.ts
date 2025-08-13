@@ -341,6 +341,8 @@ import type {
   WorkflowsListWorkflowsResponse,
   WorkflowsMoveWorkflowToFolderData,
   WorkflowsMoveWorkflowToFolderResponse,
+  WorkflowsPublishWorkflowData,
+  WorkflowsPublishWorkflowResponse,
   WorkflowsRemoveTagData,
   WorkflowsRemoveTagResponse,
   WorkflowsUpdateWorkflowData,
@@ -1554,6 +1556,35 @@ export const workflowsRemoveTag = (
     query: {
       workspace_id: data.workspaceId,
     },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Publish Workflow
+ * @param data The data for the request.
+ * @param data.workflowId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const workflowsPublishWorkflow = (
+  data: WorkflowsPublishWorkflowData
+): CancelablePromise<WorkflowsPublishWorkflowResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workflows/{workflow_id}/publish",
+    path: {
+      workflow_id: data.workflowId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
     errors: {
       422: "Validation Error",
     },
