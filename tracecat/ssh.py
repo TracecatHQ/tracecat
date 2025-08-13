@@ -277,7 +277,7 @@ async def get_git_ssh_command(
 
 @asynccontextmanager
 async def git_env_context(
-    *, git_url: GitUrl, session: AsyncSession, role: Role | None
+    *, git_url: GitUrl, session: AsyncSession, role: Role | None = None
 ) -> AsyncIterator[dict[str, str]]:
     """Context manager for Git SSH environment variables.
 
