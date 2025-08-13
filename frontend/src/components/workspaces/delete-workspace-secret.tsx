@@ -14,6 +14,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 import { useWorkspaceSecrets } from "@/lib/hooks"
+import { useWorkspace } from "@/providers/workspace"
 
 export function DeleteSecretAlertDialog({
   selectedSecret,
@@ -23,7 +24,8 @@ export function DeleteSecretAlertDialog({
   selectedSecret: SecretReadMinimal | null
   setSelectedSecret: (selectedSecret: SecretReadMinimal | null) => void
 }>) {
-  const { deleteSecretById } = useWorkspaceSecrets()
+  const { workspaceId } = useWorkspace()
+  const { deleteSecretById } = useWorkspaceSecrets(workspaceId)
   return (
     <AlertDialog
       onOpenChange={(isOpen) => {
