@@ -11,9 +11,11 @@ import {
   entitiesReactivateEntityType,
   entitiesReactivateField,
   entitiesUpdateEntityType,
+  type FieldMetadataRead,
   type FieldType,
 } from "@/client"
 import { CreateFieldDialog } from "@/components/entities/create-field-dialog"
+import { EditFieldDialog } from "@/components/entities/edit-field-dialog"
 import { EntityFieldsTable } from "@/components/entities/entity-fields-table"
 import { IconPicker } from "@/components/form/icon-picker"
 import { CenteredSpinner } from "@/components/loading/spinner"
@@ -37,7 +39,11 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/use-toast"
 import { entityEvents } from "@/lib/entity-events"
-import { useEntity, useEntityFields } from "@/lib/hooks/use-entities"
+import {
+  useEntity,
+  useEntityFields,
+  useUpdateEntityField,
+} from "@/lib/hooks/use-entities"
 import { getIconByName } from "@/lib/icon-data"
 import { useWorkspace } from "@/providers/workspace"
 
@@ -49,6 +55,9 @@ export default function EntityDetailPage() {
   const searchParams = useSearchParams()
   const queryClient = useQueryClient()
   const [createFieldDialogOpen, setCreateFieldDialogOpen] = useState(false)
+  const [editFieldDialogOpen, setEditFieldDialogOpen] = useState(false)
+  const [selectedFieldForEdit, setSelectedFieldForEdit] =
+    useState<FieldMetadataRead | null>(null)
   const [isEditingSettings, setIsEditingSettings] = useState(false)
   const [deactivateDialogOpen, setDeactivateDialogOpen] = useState(false)
   const [selectedIcon, setSelectedIcon] = useState<string | undefined>()
@@ -60,6 +69,10 @@ export default function EntityDetailPage() {
     entityId
   )
   const { fields, fieldsIsLoading, fieldsError } = useEntityFields(
+    workspaceId,
+    entityId
+  )
+  const { updateField, updateFieldIsPending } = useUpdateEntityField(
     workspaceId,
     entityId
   )
@@ -95,7 +108,6 @@ export default function EntityDetailPage() {
           field_type: data.field_type as FieldType,
           display_name: data.display_name,
           description: data.description,
-          field_settings: {},
           is_required: data.is_required,
           is_unique: data.is_unique,
         },
@@ -318,6 +330,10 @@ export default function EntityDetailPage() {
             ) : (
               <EntityFieldsTable
                 fields={fields}
+                onEditField={(field) => {
+                  setSelectedFieldForEdit(field)
+                  setEditFieldDialogOpen(true)
+                }}
                 onDeactivateField={async (fieldId) => {
                   await deactivateFieldMutation(fieldId)
                 }}
@@ -561,6 +577,21 @@ export default function EntityDetailPage() {
         onSubmit={async (data) => {
           await createFieldMutation(data)
         }}
+      />
+
+      <EditFieldDialog
+        field={selectedFieldForEdit}
+        open={editFieldDialogOpen}
+        onOpenChange={(open) => {
+          setEditFieldDialogOpen(open)
+          if (!open) {
+            setSelectedFieldForEdit(null)
+          }
+        }}
+        onSubmit={async (fieldId, data) => {
+          await updateField({ fieldId, data })
+        }}
+        isPending={updateFieldIsPending}
       />
     </div>
   )

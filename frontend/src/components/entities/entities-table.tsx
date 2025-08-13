@@ -1,6 +1,7 @@
 "use client"
 
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
+import { CheckCircle, Copy, Eye, Settings, XCircle } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useState } from "react"
 import type { EntityMetadataRead } from "@/client"
@@ -209,19 +210,34 @@ export function EntitiesTable({
                           navigator.clipboard.writeText(row.original.id)
                         }}
                       >
+                        <Copy className="mr-2 h-3 w-3" />
                         Copy entity ID
                       </DropdownMenuItem>
                       {row.original.is_active && (
-                        <DropdownMenuItem
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            router.push(
-                              `/workspaces/${workspaceId}/entities/${row.original.id}`
-                            )
-                          }}
-                        >
-                          View entity
-                        </DropdownMenuItem>
+                        <>
+                          <DropdownMenuItem
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              router.push(
+                                `/workspaces/${workspaceId}/entities/${row.original.id}`
+                              )
+                            }}
+                          >
+                            <Eye className="mr-2 h-3 w-3" />
+                            View fields
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              router.push(
+                                `/workspaces/${workspaceId}/entities/${row.original.id}?tab=settings`
+                              )
+                            }}
+                          >
+                            <Settings className="mr-2 h-3 w-3" />
+                            Edit entity
+                          </DropdownMenuItem>
+                        </>
                       )}
                       {row.original.is_active ? (
                         <AlertDialogTrigger asChild>
@@ -232,6 +248,7 @@ export function EntitiesTable({
                               setSelectedEntity(row.original)
                             }}
                           >
+                            <XCircle className="mr-2 h-3 w-3" />
                             Deactivate entity
                           </DropdownMenuItem>
                         </AlertDialogTrigger>
@@ -250,6 +267,7 @@ export function EntitiesTable({
                             )
                           }}
                         >
+                          <CheckCircle className="mr-2 h-3 w-3" />
                           Reactivate entity
                         </DropdownMenuItem>
                       )}

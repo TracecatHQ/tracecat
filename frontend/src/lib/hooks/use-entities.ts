@@ -1,9 +1,12 @@
-import { useQuery } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   entitiesGetEntityType,
   entitiesListEntityTypes,
   entitiesListFields,
+  entitiesUpdateField,
+  type FieldMetadataUpdate,
 } from "@/client"
+import { toast } from "@/components/ui/use-toast"
 
 export function useEntities(workspaceId: string, includeInactive = true) {
   const {
@@ -63,4 +66,44 @@ export function useEntityFields(workspaceId: string, entityId: string) {
   })
 
   return { fields, fieldsIsLoading, fieldsError }
+}
+
+export function useUpdateEntityField(workspaceId: string, entityId: string) {
+  const queryClient = useQueryClient()
+
+  const { mutateAsync: updateField, isPending: updateFieldIsPending } =
+    useMutation({
+      mutationFn: async ({
+        fieldId,
+        data,
+      }: {
+        fieldId: string
+        data: FieldMetadataUpdate
+      }) => {
+        return await entitiesUpdateField({
+          workspaceId,
+          fieldId,
+          requestBody: data,
+        })
+      },
+      onSuccess: () => {
+        queryClient.invalidateQueries({
+          queryKey: ["entity-fields", workspaceId, entityId],
+        })
+        toast({
+          title: "Field updated",
+          description: "The field was updated successfully.",
+        })
+      },
+      onError: (error) => {
+        console.error("Failed to update field", error)
+        toast({
+          title: "Error updating field",
+          description: "Failed to update the field. Please try again.",
+          variant: "destructive",
+        })
+      },
+    })
+
+  return { updateField, updateFieldIsPending }
 }

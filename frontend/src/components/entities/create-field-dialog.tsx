@@ -227,7 +227,7 @@ export function CreateFieldDialog({
                     <FormLabel>Name</FormLabel>
                     <FormControl>
                       <Input
-                        placeholder="Short human-readable name"
+                        placeholder="Write a short human-readable name"
                         {...field}
                       />
                     </FormControl>
