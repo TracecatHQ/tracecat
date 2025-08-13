@@ -61,6 +61,8 @@ export default function EntityDetailPage() {
   const [isEditingSettings, setIsEditingSettings] = useState(false)
   const [deactivateDialogOpen, setDeactivateDialogOpen] = useState(false)
   const [selectedIcon, setSelectedIcon] = useState<string | undefined>()
+  const [displayName, setDisplayName] = useState<string>("")
+  const [description, setDescription] = useState<string>("")
 
   const currentTab = searchParams?.get("tab") || "fields"
 
@@ -77,10 +79,14 @@ export default function EntityDetailPage() {
     entityId
   )
 
-  // Initialize icon state when entity loads or when starting to edit
+  // Initialize form state when entity loads or when starting to edit
   useEffect(() => {
-    if (entity && isEditingSettings) {
-      setSelectedIcon(entity.icon || undefined)
+    if (entity) {
+      setDisplayName(entity.display_name)
+      setDescription(entity.description || "")
+      if (isEditingSettings) {
+        setSelectedIcon(entity.icon || undefined)
+      }
     }
   }, [entity, isEditingSettings])
 
@@ -367,7 +373,8 @@ export default function EntityDetailPage() {
                       <Label htmlFor="display_name">Name</Label>
                       <Input
                         id="display_name"
-                        defaultValue={entity.display_name}
+                        value={displayName}
+                        onChange={(e) => setDisplayName(e.target.value)}
                         disabled={!isEditingSettings}
                         className="max-w-md"
                       />
@@ -377,7 +384,8 @@ export default function EntityDetailPage() {
                       <Label htmlFor="description">Description</Label>
                       <Textarea
                         id="description"
-                        defaultValue={entity.description || ""}
+                        value={description}
+                        onChange={(e) => setDescription(e.target.value)}
                         disabled={!isEditingSettings}
                         className="text-xs resize-none max-w-md"
                       />
@@ -425,16 +433,9 @@ export default function EntityDetailPage() {
                         <>
                           <Button
                             onClick={async () => {
-                              const displayNameInput = document.getElementById(
-                                "display_name"
-                              ) as HTMLInputElement
-                              const descriptionInput = document.getElementById(
-                                "description"
-                              ) as HTMLTextAreaElement
-
                               await updateEntityMutation({
-                                display_name: displayNameInput.value,
-                                description: descriptionInput.value,
+                                display_name: displayName,
+                                description: description,
                                 icon: selectedIcon ?? undefined,
                               })
                             }}
@@ -445,6 +446,9 @@ export default function EntityDetailPage() {
                             variant="outline"
                             onClick={() => {
                               setIsEditingSettings(false)
+                              // Reset form to original values
+                              setDisplayName(entity.display_name)
+                              setDescription(entity.description || "")
                               setSelectedIcon(entity.icon || undefined)
                             }}
                           >

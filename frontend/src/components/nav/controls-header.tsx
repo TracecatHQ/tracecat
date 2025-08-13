@@ -161,6 +161,15 @@ function EntitiesActions() {
     description?: string
     icon?: string
   }) => {
+    if (!workspaceId) {
+      toast({
+        title: "Error",
+        description: "No workspace selected",
+        variant: "destructive",
+      })
+      return
+    }
+
     try {
       await entitiesCreateEntityType({
         workspaceId,
@@ -181,14 +190,15 @@ function EntitiesActions() {
         title: "Entity created",
         description: `${data.display_name} has been created successfully.`,
       })
-    } catch (error) {
-      console.error("Failed to create entity:", error)
+    } catch (_error) {
+      // Log error but don't use console.error in production
+      // The error is already handled by the toast
       toast({
         title: "Error creating entity",
         description: "Failed to create entity. Please try again.",
         variant: "destructive",
       })
-      throw error
+      // Don't rethrow - it's already handled
     }
   }
 
