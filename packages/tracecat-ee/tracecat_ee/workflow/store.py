@@ -3,7 +3,7 @@
 import fnmatch
 import re
 import tempfile
-from collections.abc import Iterable
+from collections.abc import Sequence
 from pathlib import Path
 
 from tracecat.git import run_git
@@ -53,7 +53,7 @@ class GitWorkflowStore(WorkflowStore):
         self._temp_dir: tempfile.TemporaryDirectory[str] | None = None
         self._work_path: Path | None = None
 
-    async def list_sources(self) -> Iterable[WorkflowSource]:
+    async def list_sources(self) -> Sequence[WorkflowSource]:
         """List all workflow sources in the repository.
 
         Returns:

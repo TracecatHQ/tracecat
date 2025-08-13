@@ -298,18 +298,18 @@ async def git_env_context(
     Raises:
         Exception: If SSH setup fails.
     """
-    role = role or ctx_role.get()
-    sec_svc = SecretsService(session, role=role)
-    secret = await sec_svc.get_ssh_key()
-
-    async with temporary_ssh_agent() as ssh_env:
-        # Add SSH key to agent
-        await add_ssh_key_to_agent(secret.get_secret_value(), env=ssh_env)
-
-        # Ensure host is in known_hosts
-        await add_host_to_known_hosts(git_url.host, env=ssh_env)
+    async with ssh_context(
+        git_url=git_url, session=session, role=role, target="store"
+    ) as ssh_env:
+        if ssh_env is None:
+            # Fallback environment if no SSH key is available
+            yield {}
+            return
 
         # Get the Git SSH command
+        role = role or ctx_role.get()
+        sec_svc = SecretsService(session, role=role)
+        secret = await sec_svc.get_ssh_key(target="store")
         git_ssh_cmd = await prepare_ssh_key_file(git_url=git_url, ssh_key=secret)
 
         # Build complete environment

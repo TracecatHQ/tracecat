@@ -8,7 +8,7 @@ import pytest
 from tracecat.dsl.common import DSLEntrypoint, DSLInput
 from tracecat.dsl.models import ActionStatement, GatherArgs, ScatterArgs
 from tracecat.identifiers.workflow import WorkflowUUID, WorkspaceUUID
-from tracecat.workflow.store.core import WorkflowSource
+from tracecat.workflow.store.models import WorkflowSource
 from tracecat.workflow.store.sync import upsert_workflow_definitions
 
 

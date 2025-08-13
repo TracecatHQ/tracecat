@@ -10,7 +10,6 @@ from tracecat.logger import logger
 from tracecat.service import BaseService
 from tracecat.types.exceptions import TracecatAuthorizationError, TracecatException
 from tracecat.workflow.management.models import GetWorkflowDefinitionActivityInputs
-from tracecat.workflow.store import PublishRequest
 
 
 class WorkflowDefinitionsService(BaseService):
@@ -75,24 +74,6 @@ class WorkflowDefinitionsService(BaseService):
             await self.session.commit()
             await self.session.refresh(defn)
         return defn
-
-    async def publish_workflow(
-        self, workflow_id: WorkflowID, request: PublishRequest
-    ) -> None:
-        """Take the latest version of the workflow definition and publish it to the store."""
-        defn = await self.get_definition_by_workflow_id(workflow_id)
-        if not defn:
-            raise TracecatException(
-                f"Workflow definition not found for {workflow_id.short()}"
-            )
-        dsl = DSLInput(**defn.content)
-        await self.publish_workflow_definition(workflow_id, dsl)
-
-    async def publish_workflow_definition(
-        self, workflow_id: WorkflowID, dsl: DSLInput
-    ) -> None:
-        """Publish the workflow definition to the store."""
-        pass
 
 
 @activity.defn
