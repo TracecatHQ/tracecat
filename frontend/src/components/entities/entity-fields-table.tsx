@@ -6,13 +6,18 @@ import {
   Brackets,
   Calendar,
   CalendarClock,
+  CheckCircle,
+  Copy,
   DecimalsArrowRight,
   Hash,
   ListOrdered,
   ListTodo,
+  Pencil,
   SquareCheck,
   ToggleLeft,
+  Trash2,
   Type,
+  XCircle,
 } from "lucide-react"
 import { useState } from "react"
 import type { FieldMetadataRead, FieldType } from "@/client"
@@ -41,9 +46,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 
-const fieldTypeConfig: Record<
-  FieldType,
-  { label: string; icon: React.ElementType }
+const fieldTypeConfig: Partial<
+  Record<FieldType, { label: string; icon: React.ElementType }>
 > = {
   TEXT: { label: "Text", icon: Type },
   INTEGER: { label: "Integer", icon: Hash },
@@ -60,6 +64,7 @@ const fieldTypeConfig: Record<
 
 interface EntityFieldsTableProps {
   fields: FieldMetadataRead[]
+  onEditField?: (field: FieldMetadataRead) => void
   onDeleteField?: (fieldId: string) => Promise<void>
   onDeactivateField?: (fieldId: string) => Promise<void>
   onReactivateField?: (fieldId: string) => Promise<void>
@@ -68,6 +73,7 @@ interface EntityFieldsTableProps {
 
 export function EntityFieldsTable({
   fields,
+  onEditField,
   onDeleteField,
   onDeactivateField,
   onReactivateField,
@@ -272,16 +278,27 @@ export function EntityFieldsTable({
                           navigator.clipboard.writeText(row.original.id)
                         }
                       >
+                        <Copy className="mr-2 h-3 w-3" />
                         Copy field ID
                       </DropdownMenuItem>
+                      {onEditField && (
+                        <DropdownMenuItem
+                          onClick={() => onEditField(row.original)}
+                        >
+                          <Pencil className="mr-2 h-3 w-3" />
+                          Edit field
+                        </DropdownMenuItem>
+                      )}
                       {row.original.is_active && onDeactivateField && (
                         <AlertDialogTrigger asChild>
                           <DropdownMenuItem
+                            className="text-rose-500 focus:text-rose-600"
                             onClick={() => {
                               setSelectedField(row.original)
                               setActionType("deactivate")
                             }}
                           >
+                            <XCircle className="mr-2 h-3 w-3" />
                             Deactivate field
                           </DropdownMenuItem>
                         </AlertDialogTrigger>
@@ -290,6 +307,7 @@ export function EntityFieldsTable({
                         <DropdownMenuItem
                           onClick={() => onReactivateField(row.original.id)}
                         >
+                          <CheckCircle className="mr-2 h-3 w-3" />
                           Reactivate field
                         </DropdownMenuItem>
                       )}
@@ -302,6 +320,7 @@ export function EntityFieldsTable({
                               setActionType("delete")
                             }}
                           >
+                            <Trash2 className="mr-2 h-3 w-3" />
                             Delete field
                           </DropdownMenuItem>
                         </AlertDialogTrigger>

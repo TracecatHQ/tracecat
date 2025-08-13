@@ -120,7 +120,10 @@ export function CreateEntityDialog({
                 <FormItem>
                   <FormLabel>Name</FormLabel>
                   <FormControl>
-                    <Input placeholder="Short human-readable name" {...field} />
+                    <Input
+                      placeholder="Write a short human-readable name"
+                      {...field}
+                    />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
