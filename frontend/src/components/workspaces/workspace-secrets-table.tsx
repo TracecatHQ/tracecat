@@ -27,9 +27,12 @@ import {
   EditCredentialsDialogTrigger,
 } from "@/components/workspaces/edit-workspace-secret"
 import { useWorkspaceSecrets } from "@/lib/hooks"
+import { useWorkspace } from "@/providers/workspace"
 
 export function WorkspaceSecretsTable() {
-  const { secrets, secretsIsLoading, secretsError } = useWorkspaceSecrets()
+  const { workspaceId } = useWorkspace()
+  const { secrets, secretsIsLoading, secretsError } =
+    useWorkspaceSecrets(workspaceId)
   const [selectedSecret, setSelectedSecret] =
     useState<SecretReadMinimal | null>(null)
   if (secretsIsLoading) {
