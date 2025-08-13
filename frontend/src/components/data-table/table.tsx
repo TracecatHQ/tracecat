@@ -141,13 +141,13 @@ export function DataTable<TData, TValue>({
       // Use setTimeout to defer the state update to the next tick
       const timeoutId = setTimeout(() => {
         if (isMountedRef.current) {
-          setTableState({
-            ...tableState,
+          setTableState((prev) => ({
+            ...prev,
             columnFilters,
             sorting,
             rowSelection,
             columnVisibility,
-          })
+          }))
         }
       }, 0)
 

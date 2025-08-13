@@ -305,7 +305,9 @@ export function EntityFieldsTable({
                       )}
                       {!row.original.is_active && onReactivateField && (
                         <DropdownMenuItem
-                          onClick={() => onReactivateField(row.original.id)}
+                          onClick={() =>
+                            void onReactivateField(row.original.id)
+                          }
                         >
                           <CheckCircle className="mr-2 h-3 w-3" />
                           Reactivate field

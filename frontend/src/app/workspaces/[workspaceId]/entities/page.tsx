@@ -27,7 +27,7 @@ export default function EntitiesPage() {
 
   // Fetch field counts for all entities
   const { data: fieldCounts = {} } = useQuery({
-    queryKey: ["entity-field-counts", workspaceId],
+    queryKey: ["entity-field-counts", workspaceId, entities?.length],
     queryFn: async () => {
       if (!entities) return {}
 

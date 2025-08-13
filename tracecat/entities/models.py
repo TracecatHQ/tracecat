@@ -5,7 +5,14 @@ from enum import StrEnum
 from typing import Any, Self
 from uuid import UUID
 
-from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 from pydantic_core import PydanticCustomError
 
 from tracecat.entities.types import FieldType, validate_field_key_format
@@ -326,8 +333,7 @@ class EntityDataCreate(BaseModel):
     This is a base model - actual validation happens in service.
     """
 
-    class Config:
-        extra = "allow"  # Allow additional fields
+    model_config = ConfigDict(extra="allow")  # Allow additional fields
 
 
 class EntityDataUpdate(BaseModel):
@@ -336,8 +342,7 @@ class EntityDataUpdate(BaseModel):
     Note: The actual fields are dynamic based on entity type.
     """
 
-    class Config:
-        extra = "allow"  # Allow additional fields
+    model_config = ConfigDict(extra="allow")  # Allow additional fields
 
 
 class EntityDataRead(BaseModel):

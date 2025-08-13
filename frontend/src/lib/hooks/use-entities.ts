@@ -41,7 +41,7 @@ export function useEntity(workspaceId: string, entityId: string) {
       })
       return response
     },
-    enabled: !!entityId,
+    enabled: !!workspaceId && !!entityId,
   })
 
   return { entity, entityIsLoading, entityError }
@@ -62,7 +62,7 @@ export function useEntityFields(workspaceId: string, entityId: string) {
       })
       return response
     },
-    enabled: !!entityId,
+    enabled: !!workspaceId && !!entityId,
   })
 
   return { fields, fieldsIsLoading, fieldsError }
