@@ -3309,6 +3309,22 @@ export type WorkflowDefinition = {
   content: {
     [key: string]: unknown
   }
+  /**
+   * Origin of workflow (e.g., 'git')
+   */
+  origin?: string | null
+  /**
+   * Git repository URL
+   */
+  repo_url?: string | null
+  /**
+   * Path within repository
+   */
+  repo_path?: string | null
+  /**
+   * Git commit SHA
+   */
+  commit_sha?: string | null
 }
 
 export type WorkflowDefinitionReadMinimal = {
@@ -3332,6 +3348,10 @@ export type WorkflowDirectoryItem = {
   latest_definition?: WorkflowDefinitionReadMinimal | null
   folder_id?: string | null
   type: "workflow"
+}
+
+export type WorkflowDslPublish = {
+  message?: string | null
 }
 
 /**
@@ -4093,6 +4113,14 @@ export type WorkflowsRemoveTagData = {
 }
 
 export type WorkflowsRemoveTagResponse = void
+
+export type WorkflowsPublishWorkflowData = {
+  requestBody: WorkflowDslPublish
+  workflowId: string
+  workspaceId: string
+}
+
+export type WorkflowsPublishWorkflowResponse = void
 
 export type SecretsSearchSecretsData = {
   environment: string
@@ -5746,6 +5774,21 @@ export type $OpenApiTs = {
   "/workflows/{workflow_id}/tags/{tag_id}": {
     delete: {
       req: WorkflowsRemoveTagData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workflows/{workflow_id}/publish": {
+    post: {
+      req: WorkflowsPublishWorkflowData
       res: {
         /**
          * Successful Response
