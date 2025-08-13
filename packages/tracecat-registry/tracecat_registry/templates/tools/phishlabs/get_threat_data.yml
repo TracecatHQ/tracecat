@@ -1,0 +1,60 @@
+type: action
+definition:
+  title: Get threat intel data
+  description: Get PhishLabs Threat Intel API data.
+  display_group: PhishLabs
+  doc_url: https://threatintel.phishlabs.com/redoc/incidentexternalapi
+  namespace: tools.phishlabs
+  name: get_threat_data
+  secrets:
+    - name: phishlabs
+      keys: ["PL_CLIENT_ID", "PL_CLIENT_SECRET"]
+  expects:
+    incident_status_codes:
+      type: list[str]
+      description: The status code(s) of the incident.
+      default: ["RequiresInput", "RequiresApproval"]
+    incident_type_code:
+      type: str
+      description: The type of Incident to be returned. 'SocialMedia' or 'DarkWeb'
+      default: null
+    threat_type_codes:
+      type: list[str]
+      description: >
+        The type of Threats to be returned.
+        Threat Types ending with "SM" are Social Media, "DW" are Dark Web.
+      default: []
+    incident_severity_codes:
+      type: list[str]
+      description: The severity of incidents to be returned. 'Low', 'Medium', 'High'
+      default: []
+    page_size:
+      type: int
+      description: The number of records to return per page.
+      default: 200
+  steps:
+    - ref: get_access_token
+      action: core.http_request
+      args:
+        url: https://login.phishlabs.com/connect/token
+        method: POST
+        headers:
+          Authorization: Basic ${{ FN.to_base64(SECRETS.phishlabs.PL_CLIENT_ID + ":" + SECRETS.phishlabs.PL_CLIENT_SECRET) }}
+          Content-Type: application/x-www-form-urlencoded
+        form_data:
+          grant_type: "client_credentials"
+    - ref: get_threat_data
+      action: core.http_request
+      args:
+        url: https://threatintel.phishlabs.com/api/external/incident/search
+        method: GET
+        headers:
+          Authorization: "Bearer ${{ steps.get_access_token.result.data.access_token }}"
+          Content-Type: application/json
+        params:
+          IncidentStatusCodes: ${{ inputs.incident_status_codes }}
+          IncidentTypeCode: ${{ inputs.incident_type_code }}
+          ThreatTypeCodes: ${{ inputs.threat_type_codes }}
+          IncidentSeverityCodes: ${{ inputs.incident_severity_codes }}
+          PageSize: ${{ inputs.page_size }}
+  returns: ${{ steps.get_threat_data.result }}
