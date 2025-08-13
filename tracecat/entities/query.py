@@ -549,7 +549,7 @@ class EntityQueryBuilder:
             )
         )
         result = await self.session.exec(stmt)
-        return result.scalar_one()
+        return result.one()
 
     async def filter_by_relation(
         self,
