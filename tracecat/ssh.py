@@ -18,6 +18,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat.contexts import ctx_role
 from tracecat.logger import logger
+from tracecat.secrets.models import SSHKeyTarget
 from tracecat.secrets.service import SecretsService
 from tracecat.types.auth import Role
 
@@ -236,13 +237,15 @@ async def ssh_context(
     git_url: GitUrl | None = None,
     session: AsyncSession,
     role: Role | None = None,
+    key_name: str | None = None,
+    target: SSHKeyTarget = "registry",
 ) -> AsyncIterator[SshEnv | None]:
     """Context manager for SSH environment variables."""
     if git_url is None:
         yield None
     else:
         sec_svc = SecretsService(session, role=role)
-        secret = await sec_svc.get_ssh_key()
+        secret = await sec_svc.get_ssh_key(key_name=key_name, target=target)
         async with temporary_ssh_agent() as env:
             await add_ssh_key_to_agent(secret.get_secret_value(), env=env)
             await add_host_to_known_hosts(git_url.host, env=env)
@@ -270,7 +273,7 @@ async def get_git_ssh_command(
     """
     role = role or ctx_role.get()
     service = SecretsService(session=session, role=role)
-    ssh_key = await service.get_ssh_key()
+    ssh_key = await service.get_ssh_key(target="registry")
     ssh_cmd = await prepare_ssh_key_file(git_url=git_url, ssh_key=ssh_key)
     return ssh_cmd
 
