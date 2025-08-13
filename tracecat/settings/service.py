@@ -137,7 +137,7 @@ class SettingsService(BaseService):
         """
         if self.role is None and key not in PUBLIC_SETTINGS_KEYS:
             # Block access to private settings
-            self.logger.warning("Blocked attempted access to private setting", key=key)
+            self.logger.debug("Blocked attempted access to private setting", key=key)
             return None
 
         statement = select(OrganizationSetting).where(OrganizationSetting.key == key)
@@ -310,7 +310,7 @@ async def get_setting(
             no_default_val = service.get_value(setting) if setting else None
 
     if no_default_val is None and default is not UNSET:
-        logger.warning("Setting not found, using default value", key=key)
+        logger.debug("Setting not found, using default value", key=key)
         return default
     return no_default_val
 
