@@ -322,6 +322,7 @@ class TestRecordValidators:
         self,
         record_validators: RecordValidators,
         test_entity: EntityMetadata,
+        test_field: FieldMetadata,
         test_record: EntityData,
     ):
         """Test detecting unique constraint violations."""
@@ -341,6 +342,7 @@ class TestRecordValidators:
         self,
         record_validators: RecordValidators,
         test_entity: EntityMetadata,
+        test_field: FieldMetadata,
         test_record: EntityData,
     ):
         """Test unique violation check excludes current record."""
@@ -431,7 +433,7 @@ class TestRecordValidators:
                 {"test_field": {"nested": "object"}},
                 [test_field],
             )
-        assert "flat structure" in str(exc_info.value).lower()
+        assert "nested objects not allowed" in str(exc_info.value).lower()
 
 
 @pytest.mark.anyio
@@ -445,7 +447,7 @@ class TestRelationValidators:
         # Should pass for matching types
         belongs_to_settings = RelationSettings(
             relation_type="belongs_to",
-            target_entity_name="target",
+            target_entity_id=UUID("00000000-0000-0000-0000-000000000001"),
         )
         relation_validators.validate_relation_settings(
             FieldType.RELATION_BELONGS_TO, belongs_to_settings
@@ -453,7 +455,7 @@ class TestRelationValidators:
 
         has_many_settings = RelationSettings(
             relation_type="has_many",
-            target_entity_name="target",
+            target_entity_id=UUID("00000000-0000-0000-0000-000000000002"),
         )
         relation_validators.validate_relation_settings(
             FieldType.RELATION_HAS_MANY, has_many_settings
@@ -539,10 +541,8 @@ class TestRelationValidators:
             field_type=FieldType.RELATION_HAS_MANY.value,
             display_name="Unique Relation",
             is_unique=True,
-            relation_settings={
-                "relation_type": "has_many",
-                "target_entity_name": test_entity.name,
-            },
+            relation_kind="has_many",
+            relation_target_entity_id=test_entity.id,
             owner_id=svc_workspace.id,
         )
         session.add(has_many_field)
@@ -564,9 +564,11 @@ class TestRelationValidators:
 
         # Create existing link
         link = EntityRelationLink(
-            field_metadata_id=has_many_field.id,
-            source_entity_data_id=test_record.id,
-            target_entity_data_id=target_record.id,
+            source_field_id=has_many_field.id,
+            source_record_id=test_record.id,
+            target_record_id=target_record.id,
+            source_entity_metadata_id=test_entity.id,
+            target_entity_metadata_id=test_entity.id,
             owner_id=svc_workspace.id,
         )
         session.add(link)
