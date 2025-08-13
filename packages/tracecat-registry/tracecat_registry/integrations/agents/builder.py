@@ -538,16 +538,11 @@ async def create_single_tool(
         has_any_fixed_args = bool(fixed_arguments)
         action_fixed_args = fixed_arguments.get(action_name)
 
-        if has_any_fixed_args:
-            # If some fixed arguments were supplied when constructing the builder,
-            # we always include the second parameter – pass an empty dict when the
-            # current action does not have any overrides so that callers may rely on
-            # the two-argument form when the feature is in use.
-            action_fixed_args = action_fixed_args or {}
+        if action_fixed_args is not None:
+            # Inject only for tools that have fixed arguments defined
             tool = await create_tool_from_registry(action_name, action_fixed_args)
         else:
-            # No fixed arguments functionality requested – keep the original
-            # single-parameter call signature expected by existing tests.
+            # No fixed args defined for this action – build tool without overrides
             tool = await create_tool_from_registry(action_name)
 
         return CreateToolResult(

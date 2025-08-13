@@ -1078,7 +1078,7 @@ class TestFixedArguments:
         # Verify create_tool_from_registry was called correctly
         expected_calls = [
             call("core.cases.create_case", {"priority": "high"}),  # Has fixed args
-            call("tools.slack.post_message", {}),  # No fixed args, empty dict
+            call("tools.slack.post_message"),  # No fixed args, no overrides injected
         ]
         mock_create_tool.assert_has_calls(expected_calls, any_order=True)
 
