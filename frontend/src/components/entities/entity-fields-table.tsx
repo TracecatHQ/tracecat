@@ -10,8 +10,10 @@ import {
   Copy,
   DecimalsArrowRight,
   Hash,
+  Link,
   ListOrdered,
   ListTodo,
+  Network,
   Pencil,
   SquareCheck,
   ToggleLeft,
@@ -60,6 +62,8 @@ const fieldTypeConfig: Partial<
   ARRAY_TEXT: { label: "Text array", icon: BookA },
   ARRAY_INTEGER: { label: "Integer array", icon: ListOrdered },
   ARRAY_NUMBER: { label: "Number array", icon: Brackets },
+  RELATION_BELONGS_TO: { label: "Belongs to", icon: Link },
+  RELATION_HAS_MANY: { label: "Has many", icon: Network },
 }
 
 interface EntityFieldsTableProps {

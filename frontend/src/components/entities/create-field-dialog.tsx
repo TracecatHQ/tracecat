@@ -7,8 +7,10 @@ import {
   Calendar,
   CalendarClock,
   DecimalsArrowRight,
+  GitBranch,
   Hash,
   Info,
+  Link2,
   ListOrdered,
   ListTodo,
   SquareCheck,
@@ -70,6 +72,8 @@ const fieldTypes: {
   { value: "ARRAY_TEXT", label: "Text array", icon: BookA },
   { value: "ARRAY_INTEGER", label: "Integer array", icon: ListOrdered },
   { value: "ARRAY_NUMBER", label: "Number array", icon: Brackets },
+  { value: "RELATION_BELONGS_TO", label: "Belongs to", icon: Link2 },
+  { value: "RELATION_HAS_MANY", label: "Has many", icon: GitBranch },
 ]
 
 const createFieldSchema = z.object({
@@ -92,6 +96,8 @@ const createFieldSchema = z.object({
     "ARRAY_TEXT",
     "ARRAY_INTEGER",
     "ARRAY_NUMBER",
+    "RELATION_BELONGS_TO",
+    "RELATION_HAS_MANY",
   ] as const),
   display_name: z.string().min(1, "Display name is required"),
   description: z.string().optional(),
@@ -149,7 +155,11 @@ export function CreateFieldDialog({
     try {
       // Convert default value based on field type
       let processedData = { ...data }
-      if (data.default_value !== undefined && data.default_value !== "") {
+      if (
+        data.default_value !== undefined &&
+        data.default_value !== "" &&
+        data.default_value !== "_none"
+      ) {
         if (data.field_type === "INTEGER") {
           processedData.default_value = parseInt(
             data.default_value as string,
@@ -310,13 +320,13 @@ export function CreateFieldDialog({
                         {fieldType === "BOOL" ? (
                           <Select
                             onValueChange={field.onChange}
-                            value={field.value?.toString() || ""}
+                            value={field.value?.toString() || "_none"}
                           >
                             <SelectTrigger>
                               <SelectValue placeholder="Select default value" />
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="">No default</SelectItem>
+                              <SelectItem value="_none">No default</SelectItem>
                               <SelectItem value="true">True</SelectItem>
                               <SelectItem value="false">False</SelectItem>
                             </SelectContent>
