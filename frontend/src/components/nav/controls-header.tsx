@@ -155,21 +155,17 @@ function EntitiesActions() {
   const { workspaceId } = useWorkspace()
   const queryClient = useQueryClient()
 
+  // Early return if no workspace is selected
+  if (!workspaceId) {
+    return null
+  }
+
   const handleCreateEntity = async (data: {
     name: string
     display_name: string
     description?: string
     icon?: string
   }) => {
-    if (!workspaceId) {
-      toast({
-        title: "Error",
-        description: "No workspace selected",
-        variant: "destructive",
-      })
-      return
-    }
-
     try {
       await entitiesCreateEntityType({
         workspaceId,
