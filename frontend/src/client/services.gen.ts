@@ -4266,7 +4266,7 @@ export const entitiesUpdateEntityType = (
  * @param data The data for the request.
  * @param data.entityId
  * @param data.workspaceId
- * @returns unknown Successful Response
+ * @returns EntityMetadataRead Successful Response
  * @throws ApiError
  */
 export const entitiesDeactivateEntityType = (
@@ -4293,7 +4293,7 @@ export const entitiesDeactivateEntityType = (
  * @param data The data for the request.
  * @param data.entityId
  * @param data.workspaceId
- * @returns unknown Successful Response
+ * @returns EntityMetadataRead Successful Response
  * @throws ApiError
  */
 export const entitiesReactivateEntityType = (
@@ -4635,7 +4635,7 @@ export const entitiesUpdateRecord = (
  * @param data The data for the request.
  * @param data.recordId
  * @param data.workspaceId
- * @returns unknown Successful Response
+ * @returns void Successful Response
  * @throws ApiError
  */
 export const entitiesDeleteRecord = (
@@ -4690,14 +4690,14 @@ export const entitiesQueryRecords = (
  * Update Record Relation
  * Update a relation field value.
  *
- * For belongs_to: Accept UUID or null
+ * For belongs_to: Accept BelongsToRelationUpdate
  * For has_many: Accept HasManyRelationUpdate
  * @param data The data for the request.
  * @param data.recordId
  * @param data.fieldKey
  * @param data.workspaceId
  * @param data.requestBody
- * @returns unknown Successful Response
+ * @returns RelationUpdateResponse Successful Response
  * @throws ApiError
  */
 export const entitiesUpdateRecordRelation = (
@@ -4762,7 +4762,7 @@ export const entitiesListRelatedRecords = (
  * @param data The data for the request.
  * @param data.entityId
  * @param data.workspaceId
- * @returns unknown Successful Response
+ * @returns EntitySchemaResponse Successful Response
  * @throws ApiError
  */
 export const entitiesGetEntitySchema = (

@@ -1274,6 +1274,28 @@ export const $AuthSettingsUpdate = {
   title: "AuthSettingsUpdate",
 } as const
 
+export const $BelongsToRelationUpdate = {
+  properties: {
+    target_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Target Id",
+      description: "UUID of target record or None to clear relation",
+    },
+  },
+  type: "object",
+  required: ["target_id"],
+  title: "BelongsToRelationUpdate",
+  description: "Update payload for belongs_to relation fields.",
+} as const
+
 export const $BinaryContent = {
   properties: {
     data: {
@@ -3714,6 +3736,131 @@ export const $EntityMetadataUpdate = {
   description: "Request model for updating entity type.",
 } as const
 
+export const $EntitySchemaField = {
+  properties: {
+    key: {
+      type: "string",
+      title: "Key",
+      description: "Field key",
+    },
+    type: {
+      type: "string",
+      title: "Type",
+      description: "Field type",
+    },
+    display_name: {
+      type: "string",
+      title: "Display Name",
+      description: "Display name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+      description: "Field description",
+    },
+    required: {
+      type: "boolean",
+      title: "Required",
+      description: "Whether field is required",
+    },
+    enum_options: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Enum Options",
+      description: "Options for SELECT/MULTI_SELECT fields",
+    },
+    relation_cascade_delete: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Relation Cascade Delete",
+      description: "Cascade delete setting for relation fields",
+    },
+  },
+  type: "object",
+  required: ["key", "type", "display_name", "required"],
+  title: "EntitySchemaField",
+  description: "Schema field description for API responses.",
+} as const
+
+export const $EntitySchemaInfo = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+      description: "Entity ID",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+      description: "Entity name",
+    },
+    display_name: {
+      type: "string",
+      title: "Display Name",
+      description: "Display name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+      description: "Entity description",
+    },
+  },
+  type: "object",
+  required: ["id", "name", "display_name"],
+  title: "EntitySchemaInfo",
+  description: "Entity metadata in schema response.",
+} as const
+
+export const $EntitySchemaResponse = {
+  properties: {
+    entity: {
+      $ref: "#/components/schemas/EntitySchemaInfo",
+      description: "Entity metadata",
+    },
+    fields: {
+      items: {
+        $ref: "#/components/schemas/EntitySchemaField",
+      },
+      type: "array",
+      title: "Fields",
+      description: "Field definitions",
+    },
+  },
+  type: "object",
+  required: ["entity", "fields"],
+  title: "EntitySchemaResponse",
+  description: "Response for entity schema endpoint.",
+} as const
+
 export const $ErrorDetails = {
   properties: {
     type: {
@@ -4232,9 +4379,21 @@ export const $FieldMetadataCreate = {
       ],
       title: "Description",
     },
-    field_settings: {
-      type: "object",
-      title: "Field Settings",
+    enum_options: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+          minItems: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Enum Options",
+      description: "Options for SELECT/MULTI_SELECT fields",
     },
     relation_settings: {
       anyOf: [
@@ -4314,10 +4473,6 @@ export const $FieldMetadataRead = {
       ],
       title: "Description",
     },
-    field_settings: {
-      type: "object",
-      title: "Field Settings",
-    },
     is_active: {
       type: "boolean",
       title: "Is Active",
@@ -4387,6 +4542,31 @@ export const $FieldMetadataRead = {
       ],
       title: "Relation Backref Field Id",
     },
+    relation_cascade_delete: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Relation Cascade Delete",
+    },
+    enum_options: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Enum Options",
+    },
     default_value: {
       anyOf: [
         {},
@@ -4405,7 +4585,6 @@ export const $FieldMetadataRead = {
     "field_type",
     "display_name",
     "description",
-    "field_settings",
     "is_active",
     "is_required",
     "is_unique",
@@ -4444,16 +4623,21 @@ export const $FieldMetadataUpdate = {
       ],
       title: "Description",
     },
-    field_settings: {
+    enum_options: {
       anyOf: [
         {
-          type: "object",
+          items: {
+            type: "string",
+          },
+          type: "array",
+          minItems: 1,
         },
         {
           type: "null",
         },
       ],
-      title: "Field Settings",
+      title: "Enum Options",
+      description: "Options for SELECT/MULTI_SELECT fields",
     },
     is_required: {
       anyOf: [
@@ -7763,6 +7947,43 @@ export const $RelationType = {
   enum: ["belongs_to", "has_many"],
   title: "RelationType",
   description: "Types of relations between entities.",
+} as const
+
+export const $RelationUpdateResponse = {
+  properties: {
+    message: {
+      type: "string",
+      title: "Message",
+    },
+    target_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Target Id",
+      description: "Target record ID for belongs_to updates",
+    },
+    stats: {
+      anyOf: [
+        {
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Stats",
+      description: "Statistics for has_many updates",
+    },
+  },
+  type: "object",
+  required: ["message"],
+  title: "RelationUpdateResponse",
+  description: "Response for relation field updates.",
 } as const
 
 export const $ReopenedEventRead = {

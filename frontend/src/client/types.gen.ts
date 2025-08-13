@@ -381,6 +381,16 @@ export type AuthSettingsUpdate = {
   auth_session_expire_time_seconds?: number
 }
 
+/**
+ * Update payload for belongs_to relation fields.
+ */
+export type BelongsToRelationUpdate = {
+  /**
+   * UUID of target record or None to clear relation
+   */
+  target_id: string | null
+}
+
 export type BinaryContent = {
   data: Blob | File
   media_type:
@@ -1253,6 +1263,76 @@ export type EntityMetadataUpdate = {
   } | null
 }
 
+/**
+ * Schema field description for API responses.
+ */
+export type EntitySchemaField = {
+  /**
+   * Field key
+   */
+  key: string
+  /**
+   * Field type
+   */
+  type: string
+  /**
+   * Display name
+   */
+  display_name: string
+  /**
+   * Field description
+   */
+  description?: string | null
+  /**
+   * Whether field is required
+   */
+  required: boolean
+  /**
+   * Options for SELECT/MULTI_SELECT fields
+   */
+  enum_options?: Array<string> | null
+  /**
+   * Cascade delete setting for relation fields
+   */
+  relation_cascade_delete?: boolean | null
+}
+
+/**
+ * Entity metadata in schema response.
+ */
+export type EntitySchemaInfo = {
+  /**
+   * Entity ID
+   */
+  id: string
+  /**
+   * Entity name
+   */
+  name: string
+  /**
+   * Display name
+   */
+  display_name: string
+  /**
+   * Entity description
+   */
+  description?: string | null
+}
+
+/**
+ * Response for entity schema endpoint.
+ */
+export type EntitySchemaResponse = {
+  /**
+   * Entity metadata
+   */
+  entity: EntitySchemaInfo
+  /**
+   * Field definitions
+   */
+  fields: Array<EntitySchemaField>
+}
+
 export type ErrorDetails = {
   type: string
   loc: Array<number | string>
@@ -1406,9 +1486,10 @@ export type FieldMetadataCreate = {
   field_type: FieldType
   display_name: string
   description?: string | null
-  field_settings?: {
-    [key: string]: unknown
-  }
+  /**
+   * Options for SELECT/MULTI_SELECT fields
+   */
+  enum_options?: Array<string> | null
   /**
    * Settings for relation fields (required when field_type is RELATION_*)
    */
@@ -1437,9 +1518,6 @@ export type FieldMetadataRead = {
   field_type: string
   display_name: string
   description: string | null
-  field_settings: {
-    [key: string]: unknown
-  }
   is_active: boolean
   is_required: boolean
   is_unique: boolean
@@ -1449,6 +1527,8 @@ export type FieldMetadataRead = {
   relation_kind?: string | null
   relation_target_entity_id?: string | null
   relation_backref_field_id?: string | null
+  relation_cascade_delete?: boolean | null
+  enum_options?: Array<string> | null
   default_value?: unknown | null
 }
 
@@ -1458,9 +1538,10 @@ export type FieldMetadataRead = {
 export type FieldMetadataUpdate = {
   display_name?: string | null
   description?: string | null
-  field_settings?: {
-    [key: string]: unknown
-  } | null
+  /**
+   * Options for SELECT/MULTI_SELECT fields
+   */
+  enum_options?: Array<string> | null
   is_required?: boolean | null
   is_unique?: boolean | null
   default_value?: unknown | null
@@ -2683,6 +2764,23 @@ export type RelationSettings = {
  * Types of relations between entities.
  */
 export type RelationType = "belongs_to" | "has_many"
+
+/**
+ * Response for relation field updates.
+ */
+export type RelationUpdateResponse = {
+  message: string
+  /**
+   * Target record ID for belongs_to updates
+   */
+  target_id?: string | null
+  /**
+   * Statistics for has_many updates
+   */
+  stats?: {
+    [key: string]: unknown
+  } | null
+}
 
 /**
  * Event for when a case is reopened.
@@ -5239,18 +5337,14 @@ export type EntitiesDeactivateEntityTypeData = {
   workspaceId: string
 }
 
-export type EntitiesDeactivateEntityTypeResponse = {
-  [key: string]: unknown
-}
+export type EntitiesDeactivateEntityTypeResponse = EntityMetadataRead
 
 export type EntitiesReactivateEntityTypeData = {
   entityId: string
   workspaceId: string
 }
 
-export type EntitiesReactivateEntityTypeResponse = {
-  [key: string]: unknown
-}
+export type EntitiesReactivateEntityTypeResponse = EntityMetadataRead
 
 export type EntitiesCreateFieldData = {
   entityId: string
@@ -5344,9 +5438,7 @@ export type EntitiesDeleteRecordData = {
   workspaceId: string
 }
 
-export type EntitiesDeleteRecordResponse = {
-  [key: string]: unknown
-}
+export type EntitiesDeleteRecordResponse = void
 
 export type EntitiesQueryRecordsData = {
   entityId: string
@@ -5359,13 +5451,11 @@ export type EntitiesQueryRecordsResponse = QueryResponse
 export type EntitiesUpdateRecordRelationData = {
   fieldKey: string
   recordId: string
-  requestBody: string | HasManyRelationUpdate | null
+  requestBody: BelongsToRelationUpdate | HasManyRelationUpdate
   workspaceId: string
 }
 
-export type EntitiesUpdateRecordRelationResponse = {
-  [key: string]: unknown
-}
+export type EntitiesUpdateRecordRelationResponse = RelationUpdateResponse
 
 export type EntitiesListRelatedRecordsData = {
   fieldKey: string
@@ -5381,9 +5471,7 @@ export type EntitiesGetEntitySchemaData = {
   workspaceId: string
 }
 
-export type EntitiesGetEntitySchemaResponse = {
-  [key: string]: unknown
-}
+export type EntitiesGetEntitySchemaResponse = EntitySchemaResponse
 
 export type ChatCreateChatData = {
   requestBody: ChatCreate
@@ -7828,9 +7916,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: {
-          [key: string]: unknown
-        }
+        200: EntityMetadataRead
         /**
          * Validation Error
          */
@@ -7845,9 +7931,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: {
-          [key: string]: unknown
-        }
+        200: EntityMetadataRead
         /**
          * Validation Error
          */
@@ -8019,9 +8103,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: {
-          [key: string]: unknown
-        }
+        204: void
         /**
          * Validation Error
          */
@@ -8051,9 +8133,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: {
-          [key: string]: unknown
-        }
+        200: RelationUpdateResponse
         /**
          * Validation Error
          */
@@ -8081,9 +8161,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: {
-          [key: string]: unknown
-        }
+        200: EntitySchemaResponse
         /**
          * Validation Error
          */

@@ -4,11 +4,12 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, status
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 
 from tracecat.auth.credentials import RoleACL
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.entities.models import (
+    BelongsToRelationUpdate,
     EntityDataCreate,
     EntityDataRead,
     EntityDataUpdate,
@@ -399,8 +400,6 @@ async def create_record(
 
         record = await service.create_record(entity_id, record_data)
         return EntityDataRead.model_validate(record, from_attributes=True)
-    except ValidationError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     except TracecatNotFoundError as e:
@@ -439,8 +438,6 @@ async def update_record(
 
         record = await service.update_record(record_id, update_data)
         return EntityDataRead.model_validate(record, from_attributes=True)
-    except ValidationError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     except TracecatNotFoundError as e:
@@ -509,11 +506,11 @@ async def update_record_relation(
     session: AsyncDBSession,
     record_id: UUID,
     field_key: str,
-    value: UUID | None | HasManyRelationUpdate,
+    value: BelongsToRelationUpdate | HasManyRelationUpdate,
 ) -> RelationUpdateResponse:
     """Update a relation field value.
 
-    For belongs_to: Accept UUID or null
+    For belongs_to: Accept BelongsToRelationUpdate
     For has_many: Accept HasManyRelationUpdate
     """
     service = CustomEntitiesService(session, role)
@@ -542,21 +539,22 @@ async def update_record_relation(
 
         # Handle based on field type
         if field.field_type == FieldType.RELATION_BELONGS_TO:
-            # Validate value is UUID or None
-            if value is not None and not isinstance(value, UUID):
+            # Validate value is BelongsToRelationUpdate
+            if not isinstance(value, BelongsToRelationUpdate):
                 raise HTTPException(
-                    status_code=400, detail="Belongs-to relation expects UUID or null"
+                    status_code=400,
+                    detail="Belongs-to relation expects BelongsToRelationUpdate",
                 )
 
             await service.update_belongs_to_relation(
                 source_record_id=record_id,
                 field=field,
-                target_record_id=value if isinstance(value, UUID) else None,
+                target_record_id=value.target_id,
             )
 
             return RelationUpdateResponse(
                 message="Relation updated",
-                target_id=str(value) if value else None,
+                target_id=str(value.target_id) if value.target_id else None,
             )
 
         else:  # RELATION_HAS_MANY
@@ -564,7 +562,7 @@ async def update_record_relation(
             if not isinstance(value, HasManyRelationUpdate):
                 raise HTTPException(
                     status_code=400,
-                    detail="Has-many relation expects operation payload",
+                    detail="Has-many relation expects HasManyRelationUpdate",
                 )
 
             stats = await service.update_has_many_relation(
