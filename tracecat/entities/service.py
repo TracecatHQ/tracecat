@@ -1050,6 +1050,11 @@ class CustomEntitiesService(BaseWorkspaceService):
                 # Default value is already serialized in the database
                 data_with_defaults[field.field_key] = field.default_value
 
+        # Validate required fields first
+        self.record_validators.validate_required_fields(
+            data_with_defaults, active_fields
+        )
+
         # Validate data against active fields (includes flat structure check)
         validated_data = await self.record_validators.validate_record_data(
             data_with_defaults, active_fields, exclude_record_id=None
@@ -1120,6 +1125,13 @@ class CustomEntitiesService(BaseWorkspaceService):
         active_fields = await self.list_fields(
             record.entity_metadata_id, include_inactive=False
         )
+
+        # Merge existing data with updates for required field validation
+        merged_data = dict(record.field_data)
+        merged_data.update(updates)
+
+        # Validate required fields on the merged data
+        self.record_validators.validate_required_fields(merged_data, active_fields)
 
         # Validate updates (includes flat structure check)
         validated_updates = await self.record_validators.validate_record_data(

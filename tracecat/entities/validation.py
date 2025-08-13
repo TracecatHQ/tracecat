@@ -385,13 +385,19 @@ class RecordValidators:
         errors = []
         validated = {}
 
-        validate_flat_structure(data)
-
         active_fields = {f.field_key: f for f in fields if f.is_active}
+
+        # Check for flat structure (no nested objects) - only for active fields
+        for key, value in data.items():
+            if key in active_fields and not validate_flat_structure(value):
+                errors.append(f"Field '{key}': Nested objects not allowed")
+
+        if errors:
+            raise TracecatValidationError("; ".join(errors))
 
         for key, value in data.items():
             if key not in active_fields:
-                errors.append(f"Field '{key}' is not active or doesn't exist")
+                # Silently skip inactive/unknown fields
                 continue
 
             field = active_fields[key]
@@ -434,6 +440,9 @@ class RecordValidators:
         errors = []
         for field in fields:
             if field.is_required and field.is_active:
+                # Skip relation fields - they are validated separately
+                if field.relation_kind:
+                    continue
                 value = data.get(field.field_key)
                 if value is None:
                     errors.append(f"Required field '{field.field_key}' is missing")
