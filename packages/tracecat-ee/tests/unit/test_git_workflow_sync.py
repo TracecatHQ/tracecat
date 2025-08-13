@@ -11,7 +11,7 @@ from tracecat_ee.workflow.sync import sync_repo_workflows
 
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.types.auth import Role
-from tracecat.workflow.store.core import WorkflowSource
+from tracecat.workflow.store.models import WorkflowSource
 
 
 @pytest.fixture
@@ -67,7 +67,7 @@ class TestGitWorkflowStore:
         self, temp_git_repo: Path, mock_git_env: dict[str, str]
     ):
         """Test repository initialization."""
-        with patch("tracecat_ee.store.git_store.run_git") as mock_run_git:
+        with patch("tracecat_ee.workflow.store.run_git") as mock_run_git:
             # Mock successful git commands
             mock_run_git.return_value = (0, "", "")
 
@@ -108,7 +108,7 @@ class TestGitWorkflowStore:
         self, temp_git_repo: Path, mock_git_env: dict[str, str]
     ):
         """Test listing workflow sources from Git repository."""
-        with patch("tracecat_ee.store.git_store.run_git") as mock_run_git:
+        with patch("tracecat.git.run_git") as mock_run_git:
             # Create test workflow UUIDs
             wf_uuid_1 = WorkflowUUID.new_uuid4()
             wf_uuid_2 = WorkflowUUID.new_uuid4()
@@ -151,7 +151,7 @@ class TestGitWorkflowStore:
         """Test fetching YAML content from Git."""
         wf_id = WorkflowUUID.new_uuid4()
         wf_id_short = wf_id.short()
-        with patch("tracecat_ee.store.git_store.run_git") as mock_run_git:
+        with patch("tracecat.git.run_git") as mock_run_git:
             mock_run_git.return_value = (0, sample_workflow_yaml, "")
 
             store = GitWorkflowStore(
@@ -182,7 +182,7 @@ class TestGitWorkflowStore:
         self, temp_git_repo: Path, mock_git_env: dict[str, str]
     ):
         """Test that only files under /workflows directory are included."""
-        with patch("tracecat_ee.store.git_store.run_git") as mock_run_git:
+        with patch("tracecat.git.run_git") as mock_run_git:
             # Create test workflow UUIDs
             wf_uuid_1 = WorkflowUUID.new_uuid4()
             wf_uuid_2 = WorkflowUUID.new_uuid4()
@@ -249,7 +249,7 @@ class TestGitWorkflowStore:
             )
 
         # Test valid path under workflows/
-        with patch("tracecat_ee.store.git_store.run_git") as mock_run_git:
+        with patch("tracecat.git.run_git") as mock_run_git:
             mock_run_git.return_value = (0, sample_workflow_yaml, "")
 
             content = await store.fetch_content(
@@ -282,50 +282,48 @@ class TestSyncOrchestrator:
             ),
         ]
 
-        with patch("tracecat_ee.store.git_sync.resolve_git_ref") as mock_resolve:
+        with patch("tracecat_ee.workflow.sync.resolve_git_ref") as mock_resolve:
             mock_resolve.return_value = commit_sha
 
-            with patch(
-                "tracecat_ee.store.git_sync.git_env_context"
-            ) as mock_env_context:
+            with patch("tracecat_ee.workflow.sync.git_env_context") as mock_env_context:
                 mock_env_context.return_value.__aenter__.return_value = {}
 
                 with patch(
-                    "tracecat_ee.store.git_sync.get_setting_cached"
+                    "tracecat_ee.workflow.sync.get_setting_cached"
                 ) as mock_settings:
                     mock_settings.return_value = ["github.com"]
 
                     with patch(
-                        "tracecat_ee.store.git_sync.pg_advisory_lock"
+                        "tracecat_ee.workflow.sync.pg_advisory_lock"
                     ) as mock_lock:
                         mock_lock.return_value.__aenter__.return_value = None
 
                         with patch(
-                            "tracecat_ee.store.git_sync._get_or_create_repo_state"
+                            "tracecat_ee.workflow.sync._get_or_create_repo_state"
                         ) as mock_get_state:
                             mock_repo_state = AsyncMock()
                             mock_repo_state.last_synced_sha = None  # Not synced before
                             mock_get_state.return_value = mock_repo_state
 
                             with patch(
-                                "tracecat_ee.store.git_sync.GitWorkflowStore"
+                                "tracecat_ee.workflow.sync.GitWorkflowStore"
                             ) as mock_store_class:
                                 mock_store = AsyncMock()
                                 mock_store.list_sources.return_value = mock_sources
                                 mock_store_class.return_value = mock_store
 
                                 with patch(
-                                    "tracecat_ee.store.git_sync._mirror_delete_workflows"
+                                    "tracecat_ee.workflow.sync._mirror_delete_workflows"
                                 ) as mock_delete:
                                     mock_delete.return_value = 0
 
                                     with patch(
-                                        "tracecat_ee.store.git_sync._count_existing_workflows"
+                                        "tracecat_ee.workflow.sync._count_existing_workflows"
                                     ) as mock_count:
                                         mock_count.side_effect = [0, 1]  # before, after
 
                                         with patch(
-                                            "tracecat_ee.store.git_sync.upsert_workflow_definitions"
+                                            "tracecat_ee.workflow.sync.upsert_workflow_definitions"
                                         ) as mock_upsert:
                                             mock_session = AsyncMock()
 

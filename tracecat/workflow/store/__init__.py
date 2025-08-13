@@ -1,5 +1,12 @@
 """Workflow store functionality for Tracecat."""
 
-from .core import PublishRequest, WorkflowSource, WorkflowStore
+from .models import WorkflowDslPublish, WorkflowSource, WorkflowStore
+from .sync import WorkflowSyncService, upsert_workflow_definitions
 
-__all__ = ["PublishRequest", "WorkflowStore", "WorkflowSource"]
+__all__ = [
+    "WorkflowDslPublish",
+    "WorkflowStore",
+    "WorkflowSource",
+    "WorkflowSyncService",
+    "upsert_workflow_definitions",
+]
