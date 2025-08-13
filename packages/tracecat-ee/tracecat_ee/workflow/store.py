@@ -13,10 +13,10 @@ from tracecat.identifiers.workflow import (
     WorkflowUUID,
 )
 from tracecat.logger import logger
-from tracecat.store.core import ExternalWorkflowStore, WorkflowSource
+from tracecat.workflow.store.core import WorkflowSource, WorkflowStore
 
 
-class GitWorkflowStore(ExternalWorkflowStore):
+class GitWorkflowStore(WorkflowStore):
     """Git-based external workflow storage implementation.
 
     Provides access to workflow YAML files stored in a Git repository by
@@ -88,18 +88,17 @@ class GitWorkflowStore(ExternalWorkflowStore):
                 WorkflowSource(
                     path=path,
                     sha=self.commit_sha,
-                    workflow_id=workflow_id,
+                    id=workflow_id,
                 )
             )
 
         return sources
 
-    async def fetch_yaml(self, path: str, sha: str) -> str:
+    async def fetch_content(self, source: WorkflowSource) -> str:
         """Fetch YAML content for a specific file and commit.
 
         Args:
-            path: File path within the repository (must be under workflows/)
-            sha: Commit SHA (should match store's commit_sha)
+            source: Workflow source to fetch content for
 
         Returns:
             YAML content as string
@@ -107,6 +106,9 @@ class GitWorkflowStore(ExternalWorkflowStore):
         Raises:
             ValueError: If SHA doesn't match, file not found, or path not under workflows/
         """
+        path = source.path
+        sha = source.sha
+
         # Enforce that workflows must be under /workflows directory
         if not path.startswith("workflows/"):
             raise ValueError(

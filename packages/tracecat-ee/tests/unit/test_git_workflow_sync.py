@@ -6,12 +6,12 @@ from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from tracecat_ee.store.git_store import GitWorkflowStore
-from tracecat_ee.store.git_sync import sync_repo_workflows
+from tracecat_ee.workflow.store import GitWorkflowStore
+from tracecat_ee.workflow.sync import sync_repo_workflows
 
 from tracecat.identifiers.workflow import WorkflowUUID
-from tracecat.store.core import WorkflowSource
 from tracecat.types.auth import Role
+from tracecat.workflow.store.core import WorkflowSource
 
 
 @pytest.fixture
@@ -136,9 +136,9 @@ class TestGitWorkflowStore:
             sources = list(await store.list_sources())
 
             assert len(sources) == 2
-            assert sources[0].workflow_id == wf_uuid_1
+            assert sources[0].id == wf_uuid_1
             assert sources[0].path == f"workflows/{wf_uuid_1.short()}.yml"
-            assert sources[1].workflow_id == wf_uuid_2
+            assert sources[1].id == wf_uuid_2
             assert sources[1].path == f"workflows/{wf_uuid_2.short()}.yaml"
 
     @pytest.mark.anyio
@@ -161,7 +161,13 @@ class TestGitWorkflowStore:
                 env=mock_git_env,
             )
 
-            content = await store.fetch_yaml(f"workflows/{wf_id_short}.yml", "abc123")
+            content = await store.fetch_content(
+                WorkflowSource(
+                    path=f"workflows/{wf_id_short}.yml",
+                    sha="abc123",
+                    id=wf_id,
+                )
+            )
 
             assert content == sample_workflow_yaml
             mock_run_git.assert_called_with(
@@ -209,7 +215,7 @@ class TestGitWorkflowStore:
 
             # Only the file under /workflows should be included
             assert len(sources) == 1
-            assert sources[0].workflow_id == wf_uuid_1
+            assert sources[0].id == wf_uuid_1
             assert sources[0].path == f"workflows/{wf_uuid_1.short()}.yml"
 
     @pytest.mark.anyio
@@ -234,13 +240,25 @@ class TestGitWorkflowStore:
         with pytest.raises(
             ValueError, match="Workflows must be under 'workflows/' directory"
         ):
-            await store.fetch_yaml(f"playbooks/{wf_id_short}.yml", "abc123")
+            await store.fetch_content(
+                WorkflowSource(
+                    path=f"playbooks/{wf_id_short}.yml",
+                    sha="abc123",
+                    id=wf_id,
+                )
+            )
 
         # Test valid path under workflows/
         with patch("tracecat_ee.store.git_store.run_git") as mock_run_git:
             mock_run_git.return_value = (0, sample_workflow_yaml, "")
 
-            content = await store.fetch_yaml(f"workflows/{wf_id_short}.yml", "abc123")
+            content = await store.fetch_content(
+                WorkflowSource(
+                    path=f"workflows/{wf_id_short}.yml",
+                    sha="abc123",
+                    id=wf_id,
+                )
+            )
             assert content == sample_workflow_yaml
 
 
@@ -260,7 +278,7 @@ class TestSyncOrchestrator:
             WorkflowSource(
                 path=f"workflows/{wf_id_short}.yml",
                 sha=commit_sha,
-                workflow_id=wf_id,
+                id=wf_id,
             ),
         ]
 

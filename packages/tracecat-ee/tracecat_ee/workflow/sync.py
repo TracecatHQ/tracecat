@@ -16,11 +16,11 @@ from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
 from tracecat.settings.service import get_setting_cached
 from tracecat.ssh import git_env_context
-from tracecat.store.core import WorkflowSource
-from tracecat.store.sync import upsert_workflow_definitions
 from tracecat.types.auth import Role
 from tracecat.workflow.management.management import WorkflowsManagementService
-from tracecat_ee.store.git_store import GitWorkflowStore
+from tracecat.workflow.store.core import WorkflowSource
+from tracecat.workflow.store.sync import upsert_workflow_definitions
+from tracecat_ee.workflow.store import GitWorkflowStore
 
 
 async def sync_repo_workflows(
@@ -106,7 +106,7 @@ async def sync_repo_workflows(
             # Upsert workflow definitions from Git sources
             await upsert_workflow_definitions(
                 sources,
-                fetch_yaml=git_store.fetch_yaml,
+                fetch_yaml=git_store.fetch_content,
                 commit_sha=commit_sha,
                 workspace_id=workspace_id,
                 repo_url=repo_url,

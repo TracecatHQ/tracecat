@@ -8,8 +8,8 @@ import pytest
 from tracecat.dsl.common import DSLEntrypoint, DSLInput
 from tracecat.dsl.models import ActionStatement, GatherArgs, ScatterArgs
 from tracecat.identifiers.workflow import WorkflowUUID, WorkspaceUUID
-from tracecat.store.core import WorkflowSource
-from tracecat.store.sync import upsert_workflow_definitions
+from tracecat.workflow.store.core import WorkflowSource
+from tracecat.workflow.store.sync import upsert_workflow_definitions
 
 
 @pytest.fixture
@@ -65,12 +65,12 @@ class TestUpsertWorkflowDefinitions:
             WorkflowSource(
                 path="workflows/example1.yml",
                 sha="abc123",
-                workflow_id=WorkflowUUID.new_uuid4(),
+                id=WorkflowUUID.new_uuid4(),
             ),
             WorkflowSource(
                 path="workflows/example2.yml",
                 sha="def456",
-                workflow_id=WorkflowUUID.new_uuid4(),
+                id=WorkflowUUID.new_uuid4(),
                 version=2,
             ),
         ]
@@ -79,7 +79,7 @@ class TestUpsertWorkflowDefinitions:
         yaml_content = test_dsl.dump_yaml()
 
         # Mock fetch_yaml function
-        async def mock_fetch_yaml(_path: str, _sha: str) -> str:
+        async def mock_fetch_yaml(_source: WorkflowSource) -> str:
             return yaml_content
 
         # Mock service and definition
@@ -117,13 +117,13 @@ class TestUpsertWorkflowDefinitions:
             WorkflowSource(
                 path="workflows/test.yml",
                 sha="abc123",
-                workflow_id=WorkflowUUID.new_uuid4(),
+                id=WorkflowUUID.new_uuid4(),
             ),
         ]
 
-        async def mock_fetch_yaml(path: str, sha: str) -> str:
-            assert path == "workflows/test.yml"
-            assert sha == "abc123"
+        async def mock_fetch_yaml(source: WorkflowSource) -> str:
+            assert source.path == "workflows/test.yml"
+            assert source.sha == "abc123"
             return test_dsl.dump_yaml()
 
         mock_service = AsyncMock()
@@ -164,11 +164,11 @@ class TestUpsertWorkflowDefinitions:
             WorkflowSource(
                 path="workflows/meta-test.yml",
                 sha="meta123",
-                workflow_id=WorkflowUUID.new_uuid4(),
+                id=WorkflowUUID.new_uuid4(),
             ),
         ]
 
-        async def mock_fetch_yaml(_path: str, _sha: str) -> str:
+        async def mock_fetch_yaml(_source: WorkflowSource) -> str:
             return test_dsl.dump_yaml()
 
         mock_service = AsyncMock()
@@ -210,12 +210,12 @@ class TestUpsertWorkflowDefinitions:
             WorkflowSource(
                 path="workflows/nonexistent.yml",
                 sha="abc123",
-                workflow_id=WorkflowUUID.new_uuid4(),
+                id=WorkflowUUID.new_uuid4(),
             ),
         ]
 
-        async def mock_fetch_yaml_error(path: str, _sha: str) -> str:
-            raise FileNotFoundError(f"File not found: {path}")
+        async def mock_fetch_yaml_error(source: WorkflowSource) -> str:
+            raise FileNotFoundError(f"File not found: {source.path}")
 
         mock_service = AsyncMock()
 
@@ -244,11 +244,11 @@ class TestUpsertWorkflowDefinitions:
             WorkflowSource(
                 path="workflows/invalid.yml",
                 sha="abc123",
-                workflow_id=WorkflowUUID.new_uuid4(),
+                id=WorkflowUUID.new_uuid4(),
             ),
         ]
 
-        async def mock_fetch_invalid_yaml(_path: str, _sha: str) -> str:
+        async def mock_fetch_invalid_yaml(_source: WorkflowSource) -> str:
             return "invalid: yaml: content: ["  # Invalid YAML
 
         mock_service = AsyncMock()
@@ -271,7 +271,7 @@ class TestUpsertWorkflowDefinitions:
     async def test_upsert_workflow_definitions_empty_sources(self):
         """Test upsert with empty sources list."""
 
-        async def mock_fetch_yaml(_path: str, _sha: str) -> str:
+        async def mock_fetch_yaml(_source: WorkflowSource) -> str:
             return ""  # Should not be called
 
         mock_service = AsyncMock()
