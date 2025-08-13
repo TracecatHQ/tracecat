@@ -9,12 +9,12 @@ import yaml
 from tracecat.dsl.common import DSLInput
 from tracecat.identifiers import WorkspaceID
 from tracecat.logger import logger
-from tracecat.store.core import WorkflowSource
 from tracecat.types.auth import Role
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
+from tracecat.workflow.store.core import WorkflowSource
 
 # Type alias for YAML fetching function
-FetchYaml = Callable[[str, str], Awaitable[str]]
+FetchYaml = Callable[[WorkflowSource], Awaitable[str]]
 
 
 async def upsert_workflow_definitions(
@@ -59,12 +59,12 @@ async def upsert_workflow_definitions(
                 logger.debug(
                     "Processing workflow source",
                     path=source.path,
-                    workflow_id=source.workflow_id,
+                    workflow_id=source.id,
                     sha=source.sha,
                 )
 
                 # Fetch YAML content
-                yaml_content = await fetch_yaml(source.path, source.sha)
+                yaml_content = await fetch_yaml(source)
 
                 # Parse YAML to DSL
                 workflow_data = yaml.safe_load(yaml_content)
@@ -73,11 +73,11 @@ async def upsert_workflow_definitions(
                 logger.debug(
                     "Parsed workflow DSL",
                     title=dsl.title,
-                    workflow_id=source.workflow_id,
+                    workflow_id=source.id,
                 )
 
                 # workflow_id is already a WorkflowID instance
-                workflow_id = source.workflow_id
+                workflow_id = source.id
 
                 # Create workflow definition with Git metadata
                 # Note: We extend the base create method to include Git metadata
@@ -98,7 +98,7 @@ async def upsert_workflow_definitions(
 
                 logger.info(
                     "Created workflow definition",
-                    workflow_id=source.workflow_id,
+                    workflow_id=source.id,
                     version=defn.version,
                     path=source.path,
                 )
@@ -107,7 +107,7 @@ async def upsert_workflow_definitions(
                 logger.error(
                     "Failed to process workflow source",
                     path=source.path,
-                    workflow_id=source.workflow_id,
+                    workflow_id=source.id,
                     error=str(e),
                 )
                 raise
