@@ -302,29 +302,29 @@ class TestCustomEntitiesService:
         invalid_cases = [
             (
                 "Test Entity",
-                "Entity name must be alphanumeric with underscores only",
+                "Field key must be alphanumeric with underscores only",
             ),  # spaces before lowercase check
             (
                 "test entity",
-                "Entity name must be alphanumeric with underscores only",
+                "Field key must be alphanumeric with underscores only",
             ),  # spaces
             (
                 "test-entity",
-                "Entity name must be alphanumeric with underscores only",
+                "Field key must be alphanumeric with underscores only",
             ),  # hyphens
             (
                 "123test",
-                "Entity name must start with a letter",
+                "Field key must start with a letter",
             ),  # must start with letter
             (
                 "test@entity",
-                "Entity name must be alphanumeric with underscores only",
+                "Field key must be alphanumeric with underscores only",
             ),  # special chars
-            ("_test", "Entity name must start with a letter"),  # must start with letter
-            ("", "Entity name cannot be empty"),  # empty string
+            ("_test", "Field key must start with a letter"),  # must start with letter
+            ("", "Field key cannot be empty"),  # empty string
             (
                 "TestEntity",
-                "Entity name must be lowercase",
+                "Field key must be lowercase",
             ),  # uppercase without special chars
         ]
 
@@ -802,18 +802,21 @@ class TestConstraintValidationMethods:
             entity_id=entity.id, data={"test_field": "initial"}
         )
 
-        # Spy on _validate_record_data
-        spy = mocker.spy(admin_entities_service, "_validate_record_data")
+        # Spy on record_validators.validate_record_data
+        spy = mocker.spy(
+            admin_entities_service.record_validators, "validate_record_data"
+        )
 
         # Update the record
         await admin_entities_service.update_record(
             record_id=record.id, updates={"test_field": "updated"}
         )
 
-        # Verify _validate_record_data was called with record_id
-        spy.assert_called_once()
-        call_args = spy.call_args
-        assert call_args[1]["record_id"] == record.id
+        # Verify validate_record_data was called with exclude_record_id
+        spy.assert_called()
+        # Get the last call (there might be multiple calls due to create_record)
+        last_call = spy.call_args_list[-1]
+        assert last_call[1]["exclude_record_id"] == record.id
 
     async def test_validate_record_data_called_with_none_on_create(
         self, admin_entities_service: CustomEntitiesService, mocker
@@ -831,18 +834,20 @@ class TestConstraintValidationMethods:
             display_name="Test Field",
         )
 
-        # Spy on _validate_record_data
-        spy = mocker.spy(admin_entities_service, "_validate_record_data")
+        # Spy on record_validators.validate_record_data
+        spy = mocker.spy(
+            admin_entities_service.record_validators, "validate_record_data"
+        )
 
         # Create a record
         await admin_entities_service.create_record(
             entity_id=entity.id, data={"test_field": "value"}
         )
 
-        # Verify _validate_record_data was called with record_id=None
+        # Verify validate_record_data was called with exclude_record_id=None
         spy.assert_called_once()
         call_args = spy.call_args
-        assert call_args[1]["record_id"] is None
+        assert call_args[1]["exclude_record_id"] is None
 
 
 @pytest.mark.anyio
@@ -1671,7 +1676,7 @@ class TestUniqueFieldConstraint:
         )
 
         # Try to create duplicate
-        with pytest.raises(TracecatValidationError, match="unique constraint"):
+        with pytest.raises(TracecatValidationError, match="already exists"):
             await admin_entities_service.create_record(
                 entity_id=test_entity.id, data={"unique_email": "test@example.com"}
             )
@@ -1713,7 +1718,7 @@ class TestUniqueFieldConstraint:
         )
 
         # Try to update record2 to have same value as record1
-        with pytest.raises(TracecatValidationError, match="unique constraint"):
+        with pytest.raises(TracecatValidationError, match="already exists"):
             await admin_entities_service.update_record(
                 record_id=record2.id, updates={"unique_username": "user1"}
             )
@@ -1777,7 +1782,7 @@ class TestUniqueFieldConstraint:
             entity_id=test_entity.id, data={"unique_id": 123}
         )
 
-        with pytest.raises(TracecatValidationError, match="unique constraint"):
+        with pytest.raises(TracecatValidationError, match="already exists"):
             await admin_entities_service.create_record(
                 entity_id=test_entity.id, data={"unique_id": 123}
             )
@@ -1796,7 +1801,7 @@ class TestUniqueFieldConstraint:
             entity_id=test_entity.id, data={"unique_status": "active", "unique_id": 456}
         )
 
-        with pytest.raises(TracecatValidationError, match="unique constraint"):
+        with pytest.raises(TracecatValidationError, match="already exists"):
             await admin_entities_service.create_record(
                 entity_id=test_entity.id,
                 data={"unique_status": "active", "unique_id": 789},
@@ -1839,7 +1844,7 @@ class TestCombinedConstraints:
         )
 
         # Cannot create duplicate
-        with pytest.raises(TracecatValidationError, match="unique constraint"):
+        with pytest.raises(TracecatValidationError, match="already exists"):
             await admin_entities_service.create_record(
                 entity_id=test_entity.id, data={"employee_id": "EMP001"}
             )
@@ -1856,7 +1861,7 @@ class TestCombinedConstraints:
             )
 
         # Cannot update to duplicate
-        with pytest.raises(TracecatValidationError, match="unique constraint"):
+        with pytest.raises(TracecatValidationError, match="already exists"):
             await admin_entities_service.update_record(
                 record_id=record2.id, updates={"employee_id": "EMP001"}
             )
@@ -1918,7 +1923,7 @@ class TestRecordCreationValidation:
         )
 
         # Try to create duplicate
-        with pytest.raises(TracecatValidationError, match="unique constraint"):
+        with pytest.raises(TracecatValidationError, match="already exists"):
             await admin_entities_service.create_record(
                 entity_id=entity.id, data={"unique_field": "unique_value"}
             )
@@ -1955,7 +1960,7 @@ class TestRecordCreationValidation:
         assert updated.field_data["unique_code"] == "CODE001"
 
         # Try to update record2 to record1's value (should fail)
-        with pytest.raises(TracecatValidationError, match="unique constraint"):
+        with pytest.raises(TracecatValidationError, match="already exists"):
             await admin_entities_service.update_record(
                 record_id=record2.id, updates={"unique_code": "CODE001"}
             )

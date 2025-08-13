@@ -132,8 +132,8 @@ class TestEntityRelations:
         assert has_many_field.relation_backref_field_id == belongs_to_field.id
 
         # Verify field settings
-        assert belongs_to_field.field_settings["cascade_delete"] is True
-        assert has_many_field.field_settings["cascade_delete"] is True
+        assert belongs_to_field.relation_cascade_delete is True
+        assert has_many_field.relation_cascade_delete is True
 
     async def test_create_relation_field_with_settings(
         self,
@@ -161,7 +161,7 @@ class TestEntityRelations:
         assert field.field_type == FieldType.RELATION_BELONGS_TO
         assert field.relation_kind == "belongs_to"
         assert field.relation_target_entity_id == organization_entity.id
-        assert field.field_settings["cascade_delete"] is False
+        assert field.relation_cascade_delete is False
 
     async def test_belongs_to_relation_crud(
         self,

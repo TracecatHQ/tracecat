@@ -72,7 +72,7 @@ async def test_entity_with_fields(
         field_key="status",
         field_type=FieldType.SELECT,
         display_name="Status",
-        settings={"options": ["pending", "approved", "rejected"]},
+        enum_options=["pending", "approved", "rejected"],
     )
     fields.append(select_field)
 
@@ -89,7 +89,7 @@ async def test_entity_with_fields(
         field_key="categories",
         field_type=FieldType.MULTI_SELECT,
         display_name="Categories",
-        settings={"options": ["cat1", "cat2", "cat3"]},
+        enum_options=["cat1", "cat2", "cat3"],
     )
     fields.append(multi_select_field)
 
