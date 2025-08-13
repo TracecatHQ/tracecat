@@ -5,15 +5,17 @@ Revises: 35612be3b3a5
 Create Date: 2025-08-11 22:32:58.064794
 
 """
+
 from collections.abc import Sequence
-from alembic import op
+
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import JSONB
 
+from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = '4701058ce39a'
-down_revision: str | None = '35612be3b3a5'
+revision: str = "4701058ce39a"
+down_revision: str | None = "35612be3b3a5"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

@@ -6,8 +6,9 @@ from typing import Any, Self
 from uuid import UUID
 
 from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
+from pydantic_core import PydanticCustomError
 
-from tracecat.entities.types import FieldType
+from tracecat.entities.types import FieldType, validate_field_key_format
 
 
 class RelationType(StrEnum):
@@ -33,27 +34,7 @@ class EntityMetadataCreate(BaseModel):
     @classmethod
     def validate_name(cls, value: str) -> str:
         """Validate entity name format (same rules as field keys)."""
-        if not value:
-            raise ValueError("Entity name cannot be empty")
-
-        if len(value) > 100:
-            raise ValueError("Entity name cannot exceed 100 characters")
-
-        if not value[0].isalpha():
-            raise ValueError("Entity name must start with a letter")
-
-        if not value.replace("_", "").isalnum():
-            raise ValueError("Entity name must be alphanumeric with underscores only")
-
-        if value != value.lower():
-            raise ValueError("Entity name must be lowercase")
-
-        # Reserved keywords
-        reserved = {"id", "created_at", "updated_at", "owner_id", "field_data"}
-        if value in reserved:
-            raise ValueError(f"Entity name '{value}' is reserved")
-
-        return value
+        return validate_field_key_format(value)
 
 
 class EntityMetadataUpdate(BaseModel):
@@ -135,36 +116,8 @@ class FieldMetadataCreate(BaseModel):
     @field_validator("field_key", mode="before")
     @classmethod
     def validate_field_key(cls, value: str) -> str:
-        """Validate field key format.
-
-        Field keys must be:
-        - Alphanumeric with underscores only
-        - Start with a letter
-        - Not exceed 100 characters
-        - Lowercase
-        - Not use reserved keywords
-        """
-        if not value:
-            raise ValueError("Field key cannot be empty")
-
-        if len(value) > 100:
-            raise ValueError("Field key cannot exceed 100 characters")
-
-        if not value[0].isalpha():
-            raise ValueError("Field key must start with a letter")
-
-        if not value.replace("_", "").isalnum():
-            raise ValueError("Field key must be alphanumeric with underscores only")
-
-        if value != value.lower():
-            raise ValueError("Field key must be lowercase")
-
-        # Reserved keywords
-        reserved = {"id", "created_at", "updated_at", "owner_id", "field_data"}
-        if value in reserved:
-            raise ValueError(f"Field key '{value}' is reserved")
-
-        return value
+        """Validate field key format."""
+        return validate_field_key_format(value)
 
     @field_validator("is_unique", mode="after")
     @classmethod
@@ -311,6 +264,30 @@ class FieldMetadataUpdate(BaseModel):
     is_unique: bool | None = None
     default_value: Any | None = None
 
+    @field_validator("enum_options", mode="after")
+    @classmethod
+    def validate_enum_options(cls, v: list[str] | None) -> list[str] | None:
+        """Validate enum options are unique and non-empty."""
+        if v is None:
+            return v
+
+        # Ensure all options are unique
+        if len(set(v)) != len(v):
+            raise PydanticCustomError(
+                "duplicate_enum_options",
+                "Enum options must be unique",
+            )
+
+        # Ensure options are non-empty strings
+        for opt in v:
+            if not opt or not opt.strip():
+                raise PydanticCustomError(
+                    "empty_enum_option",
+                    "Enum options cannot be empty strings",
+                )
+
+        return v
+
 
 class FieldMetadataRead(BaseModel):
     """Response model for field."""
@@ -438,6 +415,39 @@ class RelationOperation(StrEnum):
     REPLACE = "replace"
 
 
+class BelongsToRelationUpdate(BaseModel):
+    """Update payload for belongs_to relation fields."""
+
+    target_id: UUID | None = Field(
+        ...,
+        description="UUID of target record or None to clear relation",
+    )
+
+    @field_validator("target_id", mode="before")
+    @classmethod
+    def validate_target_id(cls, v: Any) -> UUID | None:
+        """Validate and convert target ID to UUID."""
+        if v is None:
+            return None
+
+        if isinstance(v, UUID):
+            return v
+        elif isinstance(v, str):
+            try:
+                return UUID(v)
+            except ValueError as e:
+                raise PydanticCustomError(
+                    "invalid_uuid",
+                    "Invalid UUID format for target_id",
+                ) from e
+        else:
+            raise PydanticCustomError(
+                "invalid_type",
+                "Expected UUID, string, or None for target_id, got {type_name}",
+                {"type_name": type(v).__name__},
+            )
+
+
 class HasManyRelationUpdate(BaseModel):
     """Update payload for has_many relation fields."""
 
@@ -448,6 +458,31 @@ class HasManyRelationUpdate(BaseModel):
         min_length=0,
         max_length=1000,  # Batch size limit
     )
+
+    @field_validator("target_ids", mode="before")
+    @classmethod
+    def validate_target_ids(cls, v: list[Any]) -> list[UUID]:
+        """Validate and convert target IDs to UUIDs."""
+        validated_ids = []
+        for idx, tid in enumerate(v):
+            if isinstance(tid, UUID):
+                validated_ids.append(tid)
+            elif isinstance(tid, str):
+                try:
+                    validated_ids.append(UUID(tid))
+                except ValueError as e:
+                    raise PydanticCustomError(
+                        "invalid_uuid",
+                        "Invalid UUID at index {idx}: {tid}",
+                        {"idx": idx, "tid": str(tid)},
+                    ) from e
+            else:
+                raise PydanticCustomError(
+                    "invalid_type",
+                    "Expected UUID or string at index {idx}, got {type_name}",
+                    {"idx": idx, "type_name": type(tid).__name__},
+                )
+        return validated_ids
 
 
 class RelationListRequest(BaseModel):
