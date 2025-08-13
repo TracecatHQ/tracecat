@@ -14,7 +14,8 @@ class EntityEventEmitter {
   emitAddField() {
     const callbacks = this.listeners.get("add-field")
     if (callbacks) {
-      callbacks.forEach((callback) => callback())
+      // Copy the Set to avoid issues if callbacks modify the Set during iteration
+      Array.from(callbacks).forEach((callback) => callback())
     }
   }
 

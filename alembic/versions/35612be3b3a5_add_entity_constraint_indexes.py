@@ -18,17 +18,8 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    # Add functional index for unique field checks
-    # This speeds up duplicate detection in JSONB
-    op.execute(
-        """
-        CREATE INDEX IF NOT EXISTS idx_entity_data_unique_fields
-        ON entity_data USING gin(field_data)
-        WHERE owner_id IS NOT NULL
-    """
-    )
-
     # Add index for required field checks (null detection)
+    # Note: idx_entity_data_gin already exists for general GIN indexing
     op.execute(
         """
         CREATE INDEX IF NOT EXISTS idx_entity_data_null_fields
@@ -39,5 +30,4 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.execute("DROP INDEX IF EXISTS idx_entity_data_unique_fields")
     op.execute("DROP INDEX IF EXISTS idx_entity_data_null_fields")

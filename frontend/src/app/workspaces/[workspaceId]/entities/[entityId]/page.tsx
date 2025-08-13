@@ -435,7 +435,7 @@ export default function EntityDetailPage() {
                               await updateEntityMutation({
                                 display_name: displayNameInput.value,
                                 description: descriptionInput.value,
-                                icon: selectedIcon || "",
+                                icon: selectedIcon ?? undefined,
                               })
                             }}
                           >
@@ -575,7 +575,12 @@ export default function EntityDetailPage() {
         open={createFieldDialogOpen}
         onOpenChange={setCreateFieldDialogOpen}
         onSubmit={async (data) => {
-          await createFieldMutation(data)
+          try {
+            await createFieldMutation(data)
+          } catch (error) {
+            // Error is already handled by mutation's onError callback
+            console.error("Failed to create field:", error)
+          }
         }}
       />
 
@@ -589,7 +594,12 @@ export default function EntityDetailPage() {
           }
         }}
         onSubmit={async (fieldId, data) => {
-          await updateField({ fieldId, data })
+          try {
+            await updateField({ fieldId, data })
+          } catch (error) {
+            // Error is already handled by mutation's onError callback
+            console.error("Failed to update field:", error)
+          }
         }}
         isPending={updateFieldIsPending}
       />
