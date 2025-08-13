@@ -564,18 +564,20 @@ export function ControlsHeader({
   const searchParams = useSearchParams()
   const { workspaceId } = useWorkspace()
 
-  const pageConfig = pathname
-    ? getPageConfig(pathname, workspaceId, searchParams)
-    : null
+  const pageConfig =
+    pathname && workspaceId
+      ? getPageConfig(pathname, workspaceId, searchParams)
+      : null
 
   if (!pageConfig) {
     return null
   }
 
   // Check if this is a case detail page to show timestamp
-  const pagePath = pathname
-    ? pathname.replace(`/workspaces/${workspaceId}`, "") || "/"
-    : "/"
+  const pagePath =
+    pathname && workspaceId
+      ? pathname.replace(`/workspaces/${workspaceId}`, "") || "/"
+      : "/"
   const isCaseDetail = pagePath.match(/^\/cases\/([^/]+)$/)
 
   return (
@@ -597,7 +599,8 @@ export function ControlsHeader({
       <div className="flex items-center gap-2 flex-shrink-0">
         {pageConfig.actions
           ? pageConfig.actions
-          : isCaseDetail && (
+          : isCaseDetail &&
+            workspaceId && (
               <CaseTimestamp
                 caseId={isCaseDetail[1]}
                 workspaceId={workspaceId}
