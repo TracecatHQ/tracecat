@@ -9,7 +9,6 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
-    ValidationInfo,
     field_validator,
     model_validator,
 )
@@ -93,14 +92,6 @@ class FieldMetadataCreate(BaseModel):
         default=None,
         description="Settings for relation fields (required when field_type is RELATION_*)",
     )
-    is_required: bool = Field(
-        default=False,
-        description="Field must have a non-null value (or non-empty for has_many relations)",
-    )
-    is_unique: bool = Field(
-        default=False,
-        description="Field value must be unique across all records (one-to-one for belongs_to)",
-    )
     default_value: Any | None = Field(
         default=None,
         description="Default value for the field (only for primitive types)",
@@ -112,53 +103,36 @@ class FieldMetadataCreate(BaseModel):
         """Validate field key format."""
         return validate_field_key_format(value)
 
-    @field_validator("is_unique", mode="after")
-    @classmethod
-    def validate_unique_for_field_type(cls, v: bool, info: ValidationInfo) -> bool:
-        """Validate unique constraint is appropriate for field type."""
-        if not v:
-            return v
-
-        field_type = info.data.get("field_type")
-
-        # For now, only support unique on scalar types and belongs_to
-        allowed_types = {
-            FieldType.TEXT,
-            FieldType.INTEGER,
-            FieldType.NUMBER,
-            FieldType.DATE,
-            FieldType.DATETIME,
-            FieldType.SELECT,
-            FieldType.RELATION_BELONGS_TO,
-        }
-
-        if field_type not in allowed_types:
-            raise ValueError(
-                f"Unique constraint not supported for field type {field_type}"
-            )
-
-        return v
-
     @model_validator(mode="after")
     def validate_enum_options(self) -> Self:
         """Validate enum_options for SELECT/MULTI_SELECT fields."""
         # SELECT and MULTI_SELECT require enum_options
         if self.field_type in (FieldType.SELECT, FieldType.MULTI_SELECT):
             if not self.enum_options:
-                raise ValueError(
-                    f"Field type {self.field_type} requires enum_options to be specified"
+                raise PydanticCustomError(
+                    "missing_enum_options",
+                    "Field type '{field_type}' requires enum_options",
+                    {"field_type": self.field_type.value},
                 )
             # Ensure all options are unique
             if len(set(self.enum_options)) != len(self.enum_options):
-                raise ValueError("Enum options must be unique")
+                raise PydanticCustomError(
+                    "duplicate_enum_options",
+                    "Enum options must be unique",
+                )
             # Ensure options are non-empty strings
             for opt in self.enum_options:
                 if not opt or not opt.strip():
-                    raise ValueError("Enum options cannot be empty strings")
+                    raise PydanticCustomError(
+                        "empty_enum_option",
+                        "Enum options cannot be empty strings",
+                    )
         # Non-SELECT fields should not have enum_options
         elif self.enum_options:
-            raise ValueError(
-                f"Field type {self.field_type} does not support enum_options"
+            raise PydanticCustomError(
+                "invalid_enum_options",
+                "Field type '{field_type}' cannot have enum_options",
+                {"field_type": self.field_type.value},
             )
 
         return self
@@ -169,66 +143,83 @@ class FieldMetadataCreate(BaseModel):
         if self.default_value is None:
             return self
 
-        # Only allow defaults for primitive field types
-        primitive_types = {
-            FieldType.TEXT,
-            FieldType.INTEGER,
-            FieldType.NUMBER,
-            FieldType.BOOL,
-            FieldType.SELECT,
-            FieldType.MULTI_SELECT,
+        # Check if field type supports default values
+        unsupported_types = {
+            FieldType.RELATION_BELONGS_TO,
+            FieldType.RELATION_HAS_MANY,
+            FieldType.ARRAY_TEXT,
+            FieldType.ARRAY_INTEGER,
+            FieldType.ARRAY_NUMBER,
+            FieldType.DATE,
+            FieldType.DATETIME,
         }
 
-        if self.field_type not in primitive_types:
-            raise ValueError(
-                f"Default values not supported for field type {self.field_type}. "
-                f"Only primitive types support defaults: {', '.join(t.value for t in primitive_types)}"
+        if self.field_type in unsupported_types:
+            raise PydanticCustomError(
+                "default_not_supported",
+                "Field type '{field_type}' does not support default values",
+                {"field_type": self.field_type.value},
             )
 
         # Type-specific validation
         if self.field_type == FieldType.TEXT:
             if not isinstance(self.default_value, str):
-                raise ValueError(
-                    f"Default value for TEXT field must be a string, got {type(self.default_value).__name__}"
+                raise PydanticCustomError(
+                    "invalid_default_type",
+                    "Default value for TEXT field must be a string, got {type_name}",
+                    {"type_name": type(self.default_value).__name__},
                 )
         elif self.field_type == FieldType.INTEGER:
             if not isinstance(self.default_value, int) or isinstance(
                 self.default_value, bool
             ):
-                raise ValueError(
-                    f"Default value for INTEGER field must be an integer, got {type(self.default_value).__name__}"
+                raise PydanticCustomError(
+                    "invalid_default_type",
+                    "Default value for INTEGER field must be an integer, got {type_name}",
+                    {"type_name": type(self.default_value).__name__},
                 )
         elif self.field_type == FieldType.NUMBER:
             if not isinstance(self.default_value, int | float) or isinstance(
                 self.default_value, bool
             ):
-                raise ValueError(
-                    f"Default value for NUMBER field must be a number, got {type(self.default_value).__name__}"
+                raise PydanticCustomError(
+                    "invalid_default_type",
+                    "Default value for NUMBER field must be a number, got {type_name}",
+                    {"type_name": type(self.default_value).__name__},
                 )
         elif self.field_type == FieldType.BOOL:
             if not isinstance(self.default_value, bool):
-                raise ValueError(
-                    f"Default value for BOOL field must be a boolean, got {type(self.default_value).__name__}"
+                raise PydanticCustomError(
+                    "invalid_default_type",
+                    "Default value for BOOL field must be a boolean, got {type_name}",
+                    {"type_name": type(self.default_value).__name__},
                 )
         elif self.field_type == FieldType.SELECT:
             if not isinstance(self.default_value, str):
-                raise ValueError(
-                    f"Default value for SELECT field must be a string, got {type(self.default_value).__name__}"
+                raise PydanticCustomError(
+                    "invalid_default_type",
+                    "Default value for SELECT field must be a string, got {type_name}",
+                    {"type_name": type(self.default_value).__name__},
                 )
             # Validate against options if enum_options provided
             if self.enum_options:
                 if self.default_value not in self.enum_options:
-                    raise ValueError(
-                        f"Default value '{self.default_value}' not in available options: {self.enum_options}"
+                    raise PydanticCustomError(
+                        "invalid_default_option",
+                        "Default value '{value}' not in available options: {options}",
+                        {"value": self.default_value, "options": self.enum_options},
                     )
         elif self.field_type == FieldType.MULTI_SELECT:
             if not isinstance(self.default_value, list):
-                raise ValueError(
-                    f"Default value for MULTI_SELECT field must be a list, got {type(self.default_value).__name__}"
+                raise PydanticCustomError(
+                    "invalid_default_type",
+                    "Default value for MULTI_SELECT field must be a list, got {type_name}",
+                    {"type_name": type(self.default_value).__name__},
                 )
             if not all(isinstance(item, str) for item in self.default_value):
-                raise ValueError(
-                    "All items in MULTI_SELECT default value must be strings"
+                raise PydanticCustomError(
+                    "invalid_default_item",
+                    "All items in MULTI_SELECT default value must be strings",
                 )
             # Validate against options if enum_options provided
             if self.enum_options:
@@ -236,9 +227,54 @@ class FieldMetadataCreate(BaseModel):
                     opt for opt in self.default_value if opt not in self.enum_options
                 ]
                 if invalid_options:
-                    raise ValueError(
-                        f"Default values {invalid_options} not in available options: {self.enum_options}"
+                    raise PydanticCustomError(
+                        "invalid_default_options",
+                        "Default values {invalid} not in available options: {options}",
+                        {"invalid": invalid_options, "options": self.enum_options},
                     )
+
+        return self
+
+    @model_validator(mode="after")
+    def validate_relation_settings(self) -> Self:
+        """Validate relation settings match field type."""
+        is_relation = self.field_type in (
+            FieldType.RELATION_BELONGS_TO,
+            FieldType.RELATION_HAS_MANY,
+        )
+
+        if is_relation and not self.relation_settings:
+            raise PydanticCustomError(
+                "missing_relation_settings",
+                "Relation field type {field_type} requires relation_settings",
+                {"field_type": self.field_type.value},
+            )
+
+        if not is_relation and self.relation_settings:
+            raise PydanticCustomError(
+                "invalid_relation_settings",
+                "Non-relation field type {field_type} cannot have relation_settings",
+                {"field_type": self.field_type.value},
+            )
+
+        if self.relation_settings:
+            # Validate relation_type matches field_type
+            from tracecat.entities.enums import RelationType
+
+            expected_type = (
+                RelationType.BELONGS_TO
+                if self.field_type == FieldType.RELATION_BELONGS_TO
+                else RelationType.HAS_MANY
+            )
+            if self.relation_settings.relation_type != expected_type:
+                raise PydanticCustomError(
+                    "mismatched_relation_type",
+                    "Relation type {relation_type} doesn't match field type {field_type}",
+                    {
+                        "relation_type": self.relation_settings.relation_type.value,
+                        "field_type": self.field_type.value,
+                    },
+                )
 
         return self
 
@@ -253,8 +289,6 @@ class FieldMetadataUpdate(BaseModel):
         min_length=1,
         description="Options for SELECT/MULTI_SELECT fields",
     )
-    is_required: bool | None = None
-    is_unique: bool | None = None
     default_value: Any | None = None
 
     @field_validator("enum_options", mode="after")
@@ -292,8 +326,6 @@ class FieldMetadataRead(BaseModel):
     display_name: str
     description: str | None
     is_active: bool
-    is_required: bool
-    is_unique: bool
     deactivated_at: datetime | None
     created_at: datetime
     updated_at: datetime
@@ -518,7 +550,6 @@ class EntitySchemaField(BaseModel):
     type: str = Field(..., description="Field type")
     display_name: str = Field(..., description="Display name")
     description: str | None = Field(default=None, description="Field description")
-    required: bool = Field(..., description="Whether field is required")
     enum_options: list[str] | None = Field(
         default=None, description="Options for SELECT/MULTI_SELECT fields"
     )

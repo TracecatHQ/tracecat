@@ -3,11 +3,11 @@ from datetime import date, datetime
 from unittest.mock import patch
 
 import pytest
+from pydantic import ValidationError
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat.db.schemas import EntityData, EntityMetadata, FieldMetadata
-from tracecat.entities.models import RelationSettings, RelationType
 from tracecat.entities.service import CustomEntitiesService
 from tracecat.entities.types import FieldType
 from tracecat.types.auth import AccessLevel, Role
@@ -151,9 +151,7 @@ class TestDefaultValues:
         self, admin_entities_service: CustomEntitiesService, test_entity: EntityMetadata
     ) -> None:
         """Test that non-primitive field types cannot have default values."""
-        with pytest.raises(
-            ValueError, match="Default values not supported for field type"
-        ):
+        with pytest.raises(ValueError, match="does not support default values"):
             await admin_entities_service.create_field(
                 entity_id=test_entity.id,
                 field_key="array_field",
@@ -202,30 +200,29 @@ class TestDefaultValues:
         assert record.field_data["count"] == 5  # Provided value
         assert record.field_data["active"] is True
 
-    async def test_required_field_with_default_passes_validation(
+    async def test_field_with_default_value(
         self,
         entities_service: CustomEntitiesService,
         admin_entities_service: CustomEntitiesService,
         test_entity: EntityMetadata,
     ) -> None:
-        """Test that required fields with defaults pass validation even when not provided."""
-        # Create a required field with a default
+        """Test that fields with defaults apply the default value when not provided."""
+        # Create a field with a default
         await admin_entities_service.create_field(
             entity_id=test_entity.id,
-            field_key="required_field",
+            field_key="field_with_default",
             field_type=FieldType.TEXT,
-            display_name="Required Field",
-            is_required=True,
-            default_value="Default required value",
+            display_name="Field with Default",
+            default_value="Default value",
         )
 
-        # Should be able to create a record without providing the required field
+        # Should be able to create a record without providing the field
         record = await entities_service.create_record(
             entity_id=test_entity.id,
             data={},  # No fields provided
         )
 
-        assert record.field_data["required_field"] == "Default required value"
+        assert record.field_data["field_with_default"] == "Default value"
 
     async def test_update_field_default_value(
         self, admin_entities_service: CustomEntitiesService, test_entity: EntityMetadata
@@ -434,7 +431,6 @@ class TestCustomEntitiesService:
             description="Original Description",
             # field_settings removed - using dedicated columns now
             is_active=True,
-            is_required=False,
         )
         session.add(field)
         await session.commit()
@@ -476,7 +472,6 @@ class TestCustomEntitiesService:
             field_type=FieldType.TEXT,
             display_name="Test Field",
             is_active=False,  # Already inactive
-            is_required=False,
         )
         session.add(field)
         await session.commit()
@@ -505,7 +500,6 @@ class TestCustomEntitiesService:
             field_type=FieldType.TEXT,
             display_name="Test Field",
             is_active=True,  # Already active
-            is_required=False,
         )
         session.add(field)
         await session.commit()
@@ -534,7 +528,6 @@ class TestCustomEntitiesService:
             field_type=FieldType.TEXT,
             display_name="Test Field",
             is_active=True,
-            is_required=False,
         )
         session.add(field)
         await session.commit()
@@ -566,7 +559,6 @@ class TestCustomEntitiesService:
             field_type=FieldType.TEXT,
             display_name="Active Field",
             is_active=True,
-            is_required=False,
         )
         inactive_field = FieldMetadata(
             entity_metadata_id=entity.id,
@@ -574,7 +566,6 @@ class TestCustomEntitiesService:
             field_type=FieldType.TEXT,
             display_name="Inactive Field",
             is_active=False,  # Inactive
-            is_required=False,
         )
         session.add(active_field)
         session.add(inactive_field)
@@ -678,7 +669,6 @@ class TestCustomEntitiesService:
                 display_name="Text Field",
                 description="A text field",
                 is_active=True,
-                is_required=False,
             ),
             FieldMetadata(
                 entity_metadata_id=uuid.uuid4(),
@@ -687,7 +677,6 @@ class TestCustomEntitiesService:
                 display_name="Number Field",
                 description="A number field",
                 is_active=True,
-                is_required=False,
             ),
             FieldMetadata(
                 entity_metadata_id=uuid.uuid4(),
@@ -695,7 +684,6 @@ class TestCustomEntitiesService:
                 field_type=FieldType.TEXT,
                 display_name="Inactive Field",
                 is_active=False,  # Inactive - should be excluded
-                is_required=False,
             ),
         ]
 
@@ -706,9 +694,6 @@ class TestCustomEntitiesService:
         assert "text_field" in model.model_fields
         assert "number_field" in model.model_fields
         assert "inactive_field" not in model.model_fields  # Excluded
-
-        # Verify model rejects extra fields
-        from pydantic import ValidationError
 
         with pytest.raises(ValidationError):  # Pydantic will raise validation error
             model(text_field="test", unknown_field="should fail")
@@ -768,7 +753,6 @@ class TestCustomEntitiesService:
             field_type=FieldType.TEXT,
             display_name="Test Field",
             is_active=True,
-            is_required=False,
         )
         session.add(field)
         await session.commit()
@@ -1381,10 +1365,9 @@ class TestEntitiesIntegration:
         assert record2.field_data.get("text") is None
         assert record2.field_data.get("integer") is None
 
-        # Verify is_required is always False in v1
+        # Verify fields were created without constraints
         fields = await admin_entities_service.list_fields(entity_id=entity.id)
-        for field in fields:
-            assert field.is_required is False
+        assert len(fields) == 2
 
     async def test_field_settings_validation(
         self, admin_entities_service: CustomEntitiesService
@@ -1546,551 +1529,4 @@ class TestEntitiesIntegration:
                 field_key="unique_field",  # Duplicate key
                 field_type=FieldType.INTEGER,
                 display_name="Another Unique Field",
-            )
-
-
-@pytest.mark.anyio
-class TestRequiredFieldConstraint:
-    """Test required field validation."""
-
-    async def test_required_field_validation_on_create(
-        self, admin_entities_service: CustomEntitiesService, test_entity: EntityMetadata
-    ):
-        """Test that required fields are enforced on record creation."""
-        # Create required field
-        await admin_entities_service.create_field(
-            entity_id=test_entity.id,
-            field_key="required_name",
-            field_type=FieldType.TEXT,
-            display_name="Required Name",
-            is_required=True,
-        )
-
-        # Try to create record without required field
-        with pytest.raises(TracecatValidationError, match="Required field"):
-            await admin_entities_service.create_record(
-                entity_id=test_entity.id, data={"other_field": "value"}
-            )
-
-        # Try to create record with null value for required field
-        with pytest.raises(TracecatValidationError, match="Required field"):
-            await admin_entities_service.create_record(
-                entity_id=test_entity.id, data={"required_name": None}
-            )
-
-        # Create with required field should succeed
-        record = await admin_entities_service.create_record(
-            entity_id=test_entity.id, data={"required_name": "John"}
-        )
-        assert record.field_data["required_name"] == "John"
-
-    async def test_required_field_validation_on_update(
-        self, admin_entities_service: CustomEntitiesService, test_entity: EntityMetadata
-    ):
-        """Test that required fields cannot be set to null on update."""
-        # Create required field
-        await admin_entities_service.create_field(
-            entity_id=test_entity.id,
-            field_key="required_email",
-            field_type=FieldType.TEXT,
-            display_name="Required Email",
-            is_required=True,
-        )
-
-        # Create record with required field
-        record = await admin_entities_service.create_record(
-            entity_id=test_entity.id, data={"required_email": "test@example.com"}
-        )
-
-        # Try to update to null - should fail
-        with pytest.raises(TracecatValidationError, match="Required field"):
-            await admin_entities_service.update_record(
-                record_id=record.id, updates={"required_email": None}
-            )
-
-        # Update with valid value should succeed
-        updated = await admin_entities_service.update_record(
-            record_id=record.id, updates={"required_email": "new@example.com"}
-        )
-        assert updated.field_data["required_email"] == "new@example.com"
-
-    async def test_enable_required_on_existing_data(
-        self, admin_entities_service: CustomEntitiesService, test_entity: EntityMetadata
-    ):
-        """Test enabling required constraint on field with existing null data."""
-        # Create optional field
-        field = await admin_entities_service.create_field(
-            entity_id=test_entity.id,
-            field_key="optional_field",
-            field_type=FieldType.TEXT,
-            display_name="Optional Field",
-            is_required=False,
-        )
-
-        # Create records, some without the field
-        await admin_entities_service.create_record(
-            entity_id=test_entity.id, data={"optional_field": "value"}
-        )
-        record2 = await admin_entities_service.create_record(
-            entity_id=test_entity.id, data={}
-        )
-
-        # Try to enable required constraint - should fail
-        with pytest.raises(ValueError, match="Cannot enable required constraint"):
-            await admin_entities_service.update_field(
-                field_id=field.id, is_required=True
-            )
-
-        # Update record2 to have a value
-        await admin_entities_service.update_record(
-            record_id=record2.id, updates={"optional_field": "value2"}
-        )
-
-        # Now enabling required should succeed
-        updated_field = await admin_entities_service.update_field(
-            field_id=field.id, is_required=True
-        )
-        assert updated_field.is_required is True
-
-
-@pytest.mark.anyio
-class TestUniqueFieldConstraint:
-    """Test unique field validation."""
-
-    async def test_unique_field_validation_on_create(
-        self, admin_entities_service: CustomEntitiesService, test_entity: EntityMetadata
-    ):
-        """Test that unique fields are enforced on record creation."""
-        # Create unique field
-        await admin_entities_service.create_field(
-            entity_id=test_entity.id,
-            field_key="unique_email",
-            field_type=FieldType.TEXT,
-            display_name="Unique Email",
-            is_unique=True,
-        )
-
-        # Create first record
-        await admin_entities_service.create_record(
-            entity_id=test_entity.id, data={"unique_email": "test@example.com"}
-        )
-
-        # Try to create duplicate
-        with pytest.raises(TracecatValidationError, match="already exists"):
-            await admin_entities_service.create_record(
-                entity_id=test_entity.id, data={"unique_email": "test@example.com"}
-            )
-
-        # Different value should succeed
-        record2 = await admin_entities_service.create_record(
-            entity_id=test_entity.id, data={"unique_email": "other@example.com"}
-        )
-        assert record2.field_data["unique_email"] == "other@example.com"
-
-        # Null values should not violate unique constraint
-        record3 = await admin_entities_service.create_record(
-            entity_id=test_entity.id, data={"unique_email": None}
-        )
-        record4 = await admin_entities_service.create_record(
-            entity_id=test_entity.id, data={"unique_email": None}
-        )
-        assert record3.id != record4.id
-
-    async def test_unique_field_validation_on_update(
-        self, admin_entities_service: CustomEntitiesService, test_entity: EntityMetadata
-    ):
-        """Test that unique fields are enforced on record update."""
-        # Create unique field
-        await admin_entities_service.create_field(
-            entity_id=test_entity.id,
-            field_key="unique_username",
-            field_type=FieldType.TEXT,
-            display_name="Unique Username",
-            is_unique=True,
-        )
-
-        # Create two records
-        record1 = await admin_entities_service.create_record(
-            entity_id=test_entity.id, data={"unique_username": "user1"}
-        )
-        record2 = await admin_entities_service.create_record(
-            entity_id=test_entity.id, data={"unique_username": "user2"}
-        )
-
-        # Try to update record2 to have same value as record1
-        with pytest.raises(TracecatValidationError, match="already exists"):
-            await admin_entities_service.update_record(
-                record_id=record2.id, updates={"unique_username": "user1"}
-            )
-
-        # Updating to same value should succeed (idempotent)
-        updated = await admin_entities_service.update_record(
-            record_id=record1.id, updates={"unique_username": "user1"}
-        )
-        assert updated.field_data["unique_username"] == "user1"
-
-    async def test_enable_unique_on_existing_data(
-        self, admin_entities_service: CustomEntitiesService, test_entity: EntityMetadata
-    ):
-        """Test enabling unique constraint on field with existing duplicate data."""
-        # Create non-unique field
-        field = await admin_entities_service.create_field(
-            entity_id=test_entity.id,
-            field_key="non_unique_field",
-            field_type=FieldType.TEXT,
-            display_name="Non-Unique Field",
-            is_unique=False,
-        )
-
-        # Create records with duplicate values
-        await admin_entities_service.create_record(
-            entity_id=test_entity.id, data={"non_unique_field": "duplicate"}
-        )
-        record2 = await admin_entities_service.create_record(
-            entity_id=test_entity.id, data={"non_unique_field": "duplicate"}
-        )
-
-        # Try to enable unique constraint - should fail
-        with pytest.raises(ValueError, match="Cannot enable unique constraint"):
-            await admin_entities_service.update_field(field_id=field.id, is_unique=True)
-
-        # Update record2 to have different value
-        await admin_entities_service.update_record(
-            record_id=record2.id, updates={"non_unique_field": "unique_value"}
-        )
-
-        # Now enabling unique should succeed
-        updated_field = await admin_entities_service.update_field(
-            field_id=field.id, is_unique=True
-        )
-        assert updated_field.is_unique is True
-
-    async def test_unique_constraint_on_different_field_types(
-        self, admin_entities_service: CustomEntitiesService, test_entity: EntityMetadata
-    ):
-        """Test unique constraint works with different field types."""
-        # Test with INTEGER
-        await admin_entities_service.create_field(
-            entity_id=test_entity.id,
-            field_key="unique_id",
-            field_type=FieldType.INTEGER,
-            display_name="Unique ID",
-            is_unique=True,
-        )
-
-        await admin_entities_service.create_record(
-            entity_id=test_entity.id, data={"unique_id": 123}
-        )
-
-        with pytest.raises(TracecatValidationError, match="already exists"):
-            await admin_entities_service.create_record(
-                entity_id=test_entity.id, data={"unique_id": 123}
-            )
-
-        # Test with SELECT
-        await admin_entities_service.create_field(
-            entity_id=test_entity.id,
-            field_key="unique_status",
-            field_type=FieldType.SELECT,
-            display_name="Unique Status",
-            enum_options=["active", "inactive", "pending"],
-            is_unique=True,
-        )
-
-        await admin_entities_service.create_record(
-            entity_id=test_entity.id, data={"unique_status": "active", "unique_id": 456}
-        )
-
-        with pytest.raises(TracecatValidationError, match="already exists"):
-            await admin_entities_service.create_record(
-                entity_id=test_entity.id,
-                data={"unique_status": "active", "unique_id": 789},
-            )
-
-
-@pytest.mark.anyio
-class TestCombinedConstraints:
-    """Test fields with both required and unique constraints."""
-
-    async def test_required_and_unique_field(
-        self, admin_entities_service: CustomEntitiesService, test_entity: EntityMetadata
-    ):
-        """Test field that is both required and unique."""
-        # Create field with both constraints
-        await admin_entities_service.create_field(
-            entity_id=test_entity.id,
-            field_key="employee_id",
-            field_type=FieldType.TEXT,
-            display_name="Employee ID",
-            is_required=True,
-            is_unique=True,
-        )
-
-        # Cannot create without the field
-        with pytest.raises(TracecatValidationError, match="Required field"):
-            await admin_entities_service.create_record(
-                entity_id=test_entity.id, data={}
-            )
-
-        # Cannot create with null
-        with pytest.raises(TracecatValidationError, match="Required field"):
-            await admin_entities_service.create_record(
-                entity_id=test_entity.id, data={"employee_id": None}
-            )
-
-        # Create first record
-        await admin_entities_service.create_record(
-            entity_id=test_entity.id, data={"employee_id": "EMP001"}
-        )
-
-        # Cannot create duplicate
-        with pytest.raises(TracecatValidationError, match="already exists"):
-            await admin_entities_service.create_record(
-                entity_id=test_entity.id, data={"employee_id": "EMP001"}
-            )
-
-        # Create with different value succeeds
-        record2 = await admin_entities_service.create_record(
-            entity_id=test_entity.id, data={"employee_id": "EMP002"}
-        )
-
-        # Cannot update to null
-        with pytest.raises(TracecatValidationError, match="Required field"):
-            await admin_entities_service.update_record(
-                record_id=record2.id, updates={"employee_id": None}
-            )
-
-        # Cannot update to duplicate
-        with pytest.raises(TracecatValidationError, match="already exists"):
-            await admin_entities_service.update_record(
-                record_id=record2.id, updates={"employee_id": "EMP001"}
-            )
-
-
-@pytest.mark.anyio
-class TestRecordCreationValidation:
-    """Test that record creation properly validates constraints."""
-
-    async def test_create_record_validates_required_fields(
-        self, admin_entities_service: CustomEntitiesService
-    ):
-        """Test that create_record properly validates required fields."""
-        # Create entity with required field
-        entity = await admin_entities_service.create_entity_type(
-            name="test_entity", display_name="Test Entity"
-        )
-
-        await admin_entities_service.create_field(
-            entity_id=entity.id,
-            field_key="required_field",
-            field_type=FieldType.TEXT,
-            display_name="Required Field",
-            is_required=True,
-        )
-
-        # Try to create record without required field
-        with pytest.raises(TracecatValidationError, match="Required field"):
-            await admin_entities_service.create_record(
-                entity_id=entity.id, data={"other_field": "value"}
-            )
-
-        # Create with required field should work
-        record = await admin_entities_service.create_record(
-            entity_id=entity.id, data={"required_field": "value"}
-        )
-        assert record.field_data["required_field"] == "value"
-
-    async def test_create_record_validates_unique_fields(
-        self, admin_entities_service: CustomEntitiesService
-    ):
-        """Test that create_record properly validates unique fields."""
-        # Create entity with unique field
-        entity = await admin_entities_service.create_entity_type(
-            name="test_entity", display_name="Test Entity"
-        )
-
-        await admin_entities_service.create_field(
-            entity_id=entity.id,
-            field_key="unique_field",
-            field_type=FieldType.TEXT,
-            display_name="Unique Field",
-            is_unique=True,
-        )
-
-        # Create first record
-        await admin_entities_service.create_record(
-            entity_id=entity.id, data={"unique_field": "unique_value"}
-        )
-
-        # Try to create duplicate
-        with pytest.raises(TracecatValidationError, match="already exists"):
-            await admin_entities_service.create_record(
-                entity_id=entity.id, data={"unique_field": "unique_value"}
-            )
-
-    async def test_update_record_validates_constraints(
-        self, admin_entities_service: CustomEntitiesService
-    ):
-        """Test that update_record properly validates constraints with record_id."""
-        # Create entity with unique field
-        entity = await admin_entities_service.create_entity_type(
-            name="test_entity", display_name="Test Entity"
-        )
-
-        await admin_entities_service.create_field(
-            entity_id=entity.id,
-            field_key="unique_code",
-            field_type=FieldType.TEXT,
-            display_name="Unique Code",
-            is_unique=True,
-        )
-
-        # Create two records
-        record1 = await admin_entities_service.create_record(
-            entity_id=entity.id, data={"unique_code": "CODE001"}
-        )
-        record2 = await admin_entities_service.create_record(
-            entity_id=entity.id, data={"unique_code": "CODE002"}
-        )
-
-        # Update record1 to same value (should work - idempotent)
-        updated = await admin_entities_service.update_record(
-            record_id=record1.id, updates={"unique_code": "CODE001"}
-        )
-        assert updated.field_data["unique_code"] == "CODE001"
-
-        # Try to update record2 to record1's value (should fail)
-        with pytest.raises(TracecatValidationError, match="already exists"):
-            await admin_entities_service.update_record(
-                record_id=record2.id, updates={"unique_code": "CODE001"}
-            )
-
-
-@pytest.mark.anyio
-class TestRelationFieldConstraints:
-    """Test that relation fields properly support constraints."""
-
-    async def test_create_relation_field_with_required_constraint(
-        self, admin_entities_service: CustomEntitiesService
-    ):
-        """Test creating a relation field with is_required=True."""
-        # Create two entity types
-        parent_entity = await admin_entities_service.create_entity_type(
-            name="parent_entity", display_name="Parent Entity"
-        )
-        child_entity = await admin_entities_service.create_entity_type(
-            name="child_entity", display_name="Child Entity"
-        )
-
-        # Create a required belongs_to relation field
-        relation_settings = RelationSettings(
-            relation_type=RelationType.BELONGS_TO,
-            target_entity_id=parent_entity.id,
-        )
-
-        field = await admin_entities_service.create_relation_field(
-            entity_id=child_entity.id,
-            field_key="required_parent",
-            field_type=FieldType.RELATION_BELONGS_TO,
-            display_name="Required Parent",
-            relation_settings=relation_settings,
-            is_required=True,  # This should now work
-        )
-
-        # Verify the field was created with is_required=True
-        assert field.is_required is True
-        assert field.field_key == "required_parent"
-        assert field.field_type == FieldType.RELATION_BELONGS_TO
-
-    async def test_create_relation_field_with_unique_constraint(
-        self, admin_entities_service: CustomEntitiesService
-    ):
-        """Test creating a relation field with is_unique=True for one-to-one."""
-        # Create two entity types
-        entity_a = await admin_entities_service.create_entity_type(
-            name="entity_a", display_name="Entity A"
-        )
-        entity_b = await admin_entities_service.create_entity_type(
-            name="entity_b", display_name="Entity B"
-        )
-
-        # Create a unique belongs_to relation field (one-to-one)
-        relation_settings = RelationSettings(
-            relation_type=RelationType.BELONGS_TO,
-            target_entity_id=entity_b.id,
-        )
-
-        field = await admin_entities_service.create_relation_field(
-            entity_id=entity_a.id,
-            field_key="unique_link",
-            field_type=FieldType.RELATION_BELONGS_TO,
-            display_name="Unique Link",
-            relation_settings=relation_settings,
-            is_unique=True,  # This should now work
-        )
-
-        # Verify the field was created with is_unique=True
-        assert field.is_unique is True
-        assert field.field_key == "unique_link"
-
-    async def test_update_belongs_to_with_constraints(
-        self, admin_entities_service: CustomEntitiesService
-    ):
-        """Test that belongs_to relation respects required and unique constraints."""
-        # Create entities
-        parent_entity = await admin_entities_service.create_entity_type(
-            name="parent", display_name="Parent"
-        )
-        child_entity = await admin_entities_service.create_entity_type(
-            name="child", display_name="Child"
-        )
-
-        # Create required and unique belongs_to field
-        relation_settings = RelationSettings(
-            relation_type=RelationType.BELONGS_TO,
-            target_entity_id=parent_entity.id,
-        )
-
-        field = await admin_entities_service.create_relation_field(
-            entity_id=child_entity.id,
-            field_key="parent_ref",
-            field_type=FieldType.RELATION_BELONGS_TO,
-            display_name="Parent Reference",
-            relation_settings=relation_settings,
-            is_required=True,
-            is_unique=True,
-        )
-
-        # Create records
-        parent1 = await admin_entities_service.create_record(
-            entity_id=parent_entity.id, data={"name": "Parent 1"}
-        )
-        child1 = await admin_entities_service.create_record(
-            entity_id=child_entity.id, data={"name": "Child 1"}
-        )
-        child2 = await admin_entities_service.create_record(
-            entity_id=child_entity.id, data={"name": "Child 2"}
-        )
-
-        # Set the relation for child1
-        await admin_entities_service.update_belongs_to_relation(
-            source_record_id=child1.id,
-            field=field,
-            target_record_id=parent1.id,
-        )
-
-        # Try to clear required relation - should fail
-        with pytest.raises(ValueError, match="Cannot clear required relation"):
-            await admin_entities_service.update_belongs_to_relation(
-                source_record_id=child1.id,
-                field=field,
-                target_record_id=None,
-            )
-
-        # Try to link child2 to same parent (violates unique) - should fail
-        with pytest.raises(ValueError, match="unique constraint"):
-            await admin_entities_service.update_belongs_to_relation(
-                source_record_id=child2.id,
-                field=field,
-                target_record_id=parent1.id,
             )

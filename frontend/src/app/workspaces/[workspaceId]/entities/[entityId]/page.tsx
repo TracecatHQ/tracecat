@@ -108,8 +108,6 @@ export default function EntityDetailPage() {
       field_type: string
       display_name: string
       description?: string
-      is_required: boolean
-      is_unique: boolean
       enum_options?: string[]
       relation_settings?: RelationSettings
       default_value?: unknown
@@ -127,8 +125,6 @@ export default function EntityDetailPage() {
             field_type: data.field_type as FieldType,
             display_name: data.display_name,
             description: data.description,
-            is_required: data.is_required,
-            is_unique: data.is_unique,
             relation_settings: data.relation_settings,
           },
         })
@@ -141,8 +137,6 @@ export default function EntityDetailPage() {
             field_type: data.field_type as FieldType,
             display_name: data.display_name,
             description: data.description,
-            is_required: data.is_required,
-            is_unique: data.is_unique,
             enum_options: data.enum_options,
             default_value: data.default_value,
           },

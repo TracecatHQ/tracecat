@@ -94,17 +94,14 @@ def validate_flat_structure(value: Any) -> bool:
     return True
 
 
-def get_python_type(
-    field_type: FieldType, is_required: bool = False
-) -> type | UnionType | None:
+def get_python_type(field_type: FieldType) -> type | UnionType | None:
     """Get Python type for a field type.
 
     Args:
         field_type: The field type
-        is_required: Whether field is required (v1: always False)
 
     Returns:
-        Python type for Pydantic model generation, or None for has_many relations
+        Python type for Pydantic model generation (always Optional in v1), or None for has_many relations
     """
     type_map: dict[FieldType, type | None] = {
         FieldType.INTEGER: int,
@@ -129,10 +126,7 @@ def get_python_type(
         return None
 
     # In v1, all fields are nullable
-    if not is_required:
-        return py_type | None
-
-    return py_type
+    return py_type | None
 
 
 def validate_field_value_type(
@@ -160,33 +154,38 @@ def validate_field_value_type(
         if not isinstance(value, int) or isinstance(value, bool):
             raise PydanticCustomError(
                 "invalid_type",
-                f"Expected integer, got {type(value).__name__}",
+                "Expected integer, got {type_name}",
+                {"type_name": type(value).__name__},
             )
 
     elif field_type == FieldType.NUMBER:
         if not isinstance(value, int | float) or isinstance(value, bool):
             raise PydanticCustomError(
                 "invalid_type",
-                f"Expected number, got {type(value).__name__}",
+                "Expected number, got {type_name}",
+                {"type_name": type(value).__name__},
             )
 
     elif field_type == FieldType.TEXT:
         if not isinstance(value, str):
             raise PydanticCustomError(
                 "invalid_type",
-                f"Expected string, got {type(value).__name__}",
+                "Expected string, got {type_name}",
+                {"type_name": type(value).__name__},
             )
         if len(value) > 65535:  # PostgreSQL text field max
             raise PydanticCustomError(
                 "string_too_long",
-                f"Text length {len(value)} exceeds maximum 65535",
+                "Text length {length} exceeds maximum 65535",
+                {"length": len(value)},
             )
 
     elif field_type == FieldType.BOOL:
         if not isinstance(value, bool):
             raise PydanticCustomError(
                 "invalid_type",
-                f"Expected boolean, got {type(value).__name__}",
+                "Expected boolean, got {type_name}",
+                {"type_name": type(value).__name__},
             )
 
     elif field_type == FieldType.DATE:
@@ -201,7 +200,8 @@ def validate_field_value_type(
         elif not isinstance(value, date):
             raise PydanticCustomError(
                 "invalid_type",
-                f"Expected date or ISO date string, got {type(value).__name__}",
+                "Expected date or ISO date string, got {type_name}",
+                {"type_name": type(value).__name__},
             )
 
     elif field_type == FieldType.DATETIME:
@@ -216,26 +216,30 @@ def validate_field_value_type(
         elif not isinstance(value, datetime):
             raise PydanticCustomError(
                 "invalid_type",
-                f"Expected datetime or ISO datetime string, got {type(value).__name__}",
+                "Expected datetime or ISO datetime string, got {type_name}",
+                {"type_name": type(value).__name__},
             )
 
     elif field_type == FieldType.SELECT:
         if not isinstance(value, str):
             raise PydanticCustomError(
                 "invalid_type",
-                f"Expected string for select field, got {type(value).__name__}",
+                "Expected string for select field, got {type_name}",
+                {"type_name": type(value).__name__},
             )
         if enum_options and value not in enum_options:
             raise PydanticCustomError(
                 "invalid_enum_value",
-                f"Value '{value}' is not in allowed options: {enum_options}",
+                "Value '{value}' is not in allowed options: {options}",
+                {"value": value, "options": enum_options},
             )
 
     elif field_type == FieldType.MULTI_SELECT:
         if not isinstance(value, list):
             raise PydanticCustomError(
                 "invalid_type",
-                f"Expected list for multi-select field, got {type(value).__name__}",
+                "Expected list for multi-select field, got {type_name}",
+                {"type_name": type(value).__name__},
             )
         if not all(isinstance(item, str) for item in value):
             raise PydanticCustomError(
@@ -247,14 +251,16 @@ def validate_field_value_type(
             if invalid:
                 raise PydanticCustomError(
                     "invalid_enum_values",
-                    f"Values {invalid} are not in allowed options: {enum_options}",
+                    "Values {invalid} are not in allowed options: {options}",
+                    {"invalid": invalid, "options": enum_options},
                 )
 
     elif field_type == FieldType.ARRAY_TEXT:
         if not isinstance(value, list):
             raise PydanticCustomError(
                 "invalid_type",
-                f"Expected list for array field, got {type(value).__name__}",
+                "Expected list for array field, got {type_name}",
+                {"type_name": type(value).__name__},
             )
         if not all(isinstance(item, str) for item in value):
             raise PydanticCustomError(
@@ -266,7 +272,8 @@ def validate_field_value_type(
         if not isinstance(value, list):
             raise PydanticCustomError(
                 "invalid_type",
-                f"Expected list for array field, got {type(value).__name__}",
+                "Expected list for array field, got {type_name}",
+                {"type_name": type(value).__name__},
             )
         if not all(
             isinstance(item, int) and not isinstance(item, bool) for item in value
@@ -280,7 +287,8 @@ def validate_field_value_type(
         if not isinstance(value, list):
             raise PydanticCustomError(
                 "invalid_type",
-                f"Expected list for array field, got {type(value).__name__}",
+                "Expected list for array field, got {type_name}",
+                {"type_name": type(value).__name__},
             )
         if not all(
             isinstance(item, int | float) and not isinstance(item, bool)
@@ -304,7 +312,8 @@ def validate_field_value_type(
             elif not isinstance(value, UUID):
                 raise PydanticCustomError(
                     "invalid_type",
-                    f"Expected UUID for belongs_to relation, got {type(value).__name__}",
+                    "Expected UUID for belongs_to relation, got {type_name}",
+                    {"type_name": type(value).__name__},
                 )
 
     elif field_type == FieldType.RELATION_HAS_MANY:
@@ -317,7 +326,8 @@ def validate_field_value_type(
     else:
         raise PydanticCustomError(
             "unknown_field_type",
-            f"Unknown field type: {field_type}",
+            "Unknown field type: {field_type}",
+            {"field_type": field_type},
         )
 
     return value
@@ -374,7 +384,8 @@ def validate_field_key_format(value: str) -> str:
     if value in reserved:
         raise PydanticCustomError(
             "reserved_field_key",
-            f"Field key '{value}' is reserved",
+            "Field key '{value}' is reserved",
+            {"value": value},
         )
 
     return value

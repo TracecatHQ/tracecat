@@ -3661,11 +3661,6 @@ export const $EntitySchemaField = {
       title: "Description",
       description: "Field description",
     },
-    required: {
-      type: "boolean",
-      title: "Required",
-      description: "Whether field is required",
-    },
     enum_options: {
       anyOf: [
         {
@@ -3683,7 +3678,7 @@ export const $EntitySchemaField = {
     },
   },
   type: "object",
-  required: ["key", "type", "display_name", "required"],
+  required: ["key", "type", "display_name"],
   title: "EntitySchemaField",
   description: "Schema field description for API responses.",
 } as const
@@ -4268,20 +4263,6 @@ export const $FieldMetadataCreate = {
       description:
         "Settings for relation fields (required when field_type is RELATION_*)",
     },
-    is_required: {
-      type: "boolean",
-      title: "Is Required",
-      description:
-        "Field must have a non-null value (or non-empty for has_many relations)",
-      default: false,
-    },
-    is_unique: {
-      type: "boolean",
-      title: "Is Unique",
-      description:
-        "Field value must be unique across all records (one-to-one for belongs_to)",
-      default: false,
-    },
     default_value: {
       anyOf: [
         {},
@@ -4337,14 +4318,6 @@ export const $FieldMetadataRead = {
     is_active: {
       type: "boolean",
       title: "Is Active",
-    },
-    is_required: {
-      type: "boolean",
-      title: "Is Required",
-    },
-    is_unique: {
-      type: "boolean",
-      title: "Is Unique",
     },
     deactivated_at: {
       anyOf: [
@@ -4424,8 +4397,6 @@ export const $FieldMetadataRead = {
     "display_name",
     "description",
     "is_active",
-    "is_required",
-    "is_unique",
     "deactivated_at",
     "created_at",
     "updated_at",
@@ -4476,28 +4447,6 @@ export const $FieldMetadataUpdate = {
       ],
       title: "Enum Options",
       description: "Options for SELECT/MULTI_SELECT fields",
-    },
-    is_required: {
-      anyOf: [
-        {
-          type: "boolean",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Is Required",
-    },
-    is_unique: {
-      anyOf: [
-        {
-          type: "boolean",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Is Unique",
     },
     default_value: {
       anyOf: [

@@ -189,6 +189,7 @@ async def create_field(
     """Create a new field for an entity type."""
     service = CustomEntitiesService(session, role)
     try:
+        # Pass parameters directly - Pydantic handles None values properly
         field = await service.create_field(
             entity_id=entity_id,
             field_key=params.field_key,
@@ -196,8 +197,6 @@ async def create_field(
             display_name=params.display_name,
             description=params.description,
             enum_options=params.enum_options,
-            is_required=params.is_required,
-            is_unique=params.is_unique,
             default_value=params.default_value,
         )
         return FieldMetadataRead.model_validate(field, from_attributes=True)
@@ -253,8 +252,6 @@ async def update_field(
             display_name=params.display_name,
             description=params.description,
             enum_options=params.enum_options,
-            is_required=params.is_required,
-            is_unique=params.is_unique,
             default_value=params.default_value,
         )
         return FieldMetadataRead.model_validate(field, from_attributes=True)
@@ -329,8 +326,6 @@ async def create_relation_field(
             display_name=params.display_name,
             relation_settings=params.relation_settings,
             description=params.description,
-            is_required=params.is_required,
-            is_unique=params.is_unique,
         )
         return FieldMetadataRead.model_validate(field, from_attributes=True)
     except ValueError as e:
@@ -640,7 +635,6 @@ async def get_entity_schema(
                     type=f.field_type,
                     display_name=f.display_name,
                     description=f.description,
-                    required=f.is_required,
                     enum_options=f.enum_options,
                 )
                 for f in fields
