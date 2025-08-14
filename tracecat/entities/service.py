@@ -557,6 +557,17 @@ class CustomEntitiesService(BaseWorkspaceService):
                 f"Target entity {relation_settings.target_entity_id} not found"
             ) from err
 
+        # Validate relation nesting policy
+        (
+            is_valid,
+            error_msg,
+        ) = await self.relation_validators.nesting_validator.validate_relation_creation(
+            source_entity_id=entity_id,
+            target_entity_id=relation_settings.target_entity_id,
+        )
+        if not is_valid:
+            raise ValueError(error_msg)
+
         # Validate using Pydantic model
         try:
             validated = FieldMetadataCreate(

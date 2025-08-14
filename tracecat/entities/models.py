@@ -377,7 +377,7 @@ class HasManyRelationUpdate(BaseModel):
             except PydanticCustomError as e:
                 # Re-raise with index context
                 raise PydanticCustomError(
-                    e.type,
+                    "invalid_target_id",
                     "Invalid UUID at index {idx}: {message}",
                     {"idx": idx, "message": e.message()},
                 ) from e

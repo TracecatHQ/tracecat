@@ -4,11 +4,12 @@ This module provides both pure validation functions and database-dependent valid
 Pure functions are at module level, database-dependent validators are in classes.
 """
 
+from enum import Enum
 from typing import Any
 from uuid import UUID
 
 from pydantic_core import PydanticCustomError
-from sqlmodel import select
+from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat.db.schemas import (
@@ -25,6 +26,25 @@ from tracecat.entities.types import (
 )
 from tracecat.identifiers import WorkspaceID
 from tracecat.types.exceptions import TracecatNotFoundError, TracecatValidationError
+
+
+# Relation Nesting Configuration
+class RelationNestingPolicy(Enum):
+    """Policy for relation nesting restrictions.
+
+    This enum allows easy configuration of relation restrictions.
+    Future policies can be added without changing validation logic.
+    """
+
+    BLOCK_ALL = "block_all"  # No relations to entities with relations
+    ALLOW_ONE_LEVEL = "allow_one_level"  # Allow 1 level of nesting
+    ALLOW_TWO_LEVELS = "allow_two_levels"  # Allow 2 levels
+    UNRESTRICTED = "unrestricted"  # No restrictions
+
+
+# Module-level configuration (easy to change in the future)
+CURRENT_NESTING_POLICY = RelationNestingPolicy.BLOCK_ALL
+
 
 # Pure validation functions (no database dependencies)
 
@@ -517,6 +537,107 @@ class RecordValidators:
         return False, f"Unknown relation kind: {field.relation_kind}"
 
 
+class RelationNestingValidator:
+    """Validator for relation nesting restrictions.
+
+    This validator checks if creating a relation field would violate
+    the configured nesting policy. Easy to extend for future policies.
+    """
+
+    def __init__(
+        self,
+        session: AsyncSession,
+        workspace_id: str | UUID | WorkspaceID | None,
+        policy: RelationNestingPolicy = CURRENT_NESTING_POLICY,
+    ):
+        """Initialize nesting validator.
+
+        Args:
+            session: Database session
+            workspace_id: Workspace ID for scoping queries
+            policy: Nesting policy to enforce (defaults to module config)
+        """
+        self.session = session
+        self.workspace_id = workspace_id
+        self.policy = policy
+
+    async def validate_relation_creation(
+        self,
+        source_entity_id: UUID,
+        target_entity_id: UUID,
+    ) -> tuple[bool, str | None]:
+        """Validate if a relation can be created based on nesting policy.
+
+        Args:
+            source_entity_id: Entity where the relation field is being created
+            target_entity_id: Entity that the relation will point to
+
+        Returns:
+            Tuple of (is_valid, error_message)
+        """
+        if self.policy == RelationNestingPolicy.UNRESTRICTED:
+            return True, None
+
+        if self.policy == RelationNestingPolicy.BLOCK_ALL:
+            # Check if target entity has any relation fields
+            if await self._entity_has_relations(target_entity_id):
+                return False, (
+                    "Cannot create relation to an entity that has relation fields. "
+                    "Nested relations are currently not supported."
+                )
+
+            # Check if any entity already references the source entity
+            if await self._entity_is_referenced(source_entity_id):
+                return False, (
+                    "Cannot create relation field on an entity that is already "
+                    "referenced by another entity. Nested relations are currently not supported."
+                )
+
+        # Future policies can be implemented here
+        elif self.policy == RelationNestingPolicy.ALLOW_ONE_LEVEL:
+            # TODO: Implement 1-level nesting validation
+            # This would check the depth of the relation chain
+            pass
+        elif self.policy == RelationNestingPolicy.ALLOW_TWO_LEVELS:
+            # TODO: Implement 2-level nesting validation
+            pass
+
+        return True, None
+
+    async def _entity_has_relations(self, entity_id: UUID) -> bool:
+        """Check if entity has any active relation fields.
+
+        Args:
+            entity_id: Entity to check
+
+        Returns:
+            True if entity has relation fields, False otherwise
+        """
+        stmt = select(FieldMetadata).where(
+            FieldMetadata.entity_metadata_id == entity_id,
+            col(FieldMetadata.relation_kind).isnot(None),
+            FieldMetadata.is_active,
+        )
+        result = await self.session.exec(stmt)
+        return result.first() is not None
+
+    async def _entity_is_referenced(self, entity_id: UUID) -> bool:
+        """Check if any other entity has a relation field targeting this entity.
+
+        Args:
+            entity_id: Entity to check
+
+        Returns:
+            True if entity is referenced by another entity, False otherwise
+        """
+        stmt = select(FieldMetadata).where(
+            FieldMetadata.relation_target_entity_id == entity_id,
+            FieldMetadata.is_active,
+        )
+        result = await self.session.exec(stmt)
+        return result.first() is not None
+
+
 class RelationValidators:
     """Database-dependent validators for relation operations."""
 
@@ -533,6 +654,7 @@ class RelationValidators:
         self.workspace_id = workspace_id
         self.entity_validators = EntityValidators(session, workspace_id)
         self.record_validators = RecordValidators(session, workspace_id)
+        self.nesting_validator = RelationNestingValidator(session, workspace_id)
 
     async def validate_target_entity(self, target_entity_name: str) -> EntityMetadata:
         """Validate that target entity exists and is active.

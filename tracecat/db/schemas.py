@@ -897,6 +897,13 @@ class Case(Resource, table=True):
         link_model=CaseTag,
         sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
     )
+    entity_links: list["CaseEntityLink"] = Relationship(
+        back_populates="case",
+        sa_relationship_kwargs={
+            "cascade": "all, delete",
+            **DEFAULT_SA_RELATIONSHIP_KWARGS,
+        },
+    )
 
 
 class CaseComment(Resource, table=True):
@@ -1599,6 +1606,51 @@ class EntityRelationLink(SQLModel, TimestampMixin, table=True):
     target_record: EntityData = Relationship(
         sa_relationship_kwargs={
             "foreign_keys": "[EntityRelationLink.target_record_id]",
+            **DEFAULT_SA_RELATIONSHIP_KWARGS,
+        }
+    )
+
+
+class CaseEntityLink(Resource, table=True):
+    """Link between cases and entity records."""
+
+    __tablename__: str = "case_entity_link"
+    __table_args__ = (
+        UniqueConstraint("case_id", "entity_data_id", name="uq_case_entity_link"),
+        Index("idx_case_entity_case", "case_id"),
+        Index("idx_case_entity_metadata", "entity_metadata_id"),
+    )
+
+    id: UUID4 = Field(
+        default_factory=uuid.uuid4, nullable=False, unique=True, index=True
+    )
+    case_id: UUID4 = Field(
+        sa_column=Column(UUID, ForeignKey("cases.id", ondelete="CASCADE"))
+    )
+    entity_metadata_id: UUID4 = Field(
+        sa_column=Column(UUID, ForeignKey("entity_metadata.id", ondelete="CASCADE"))
+    )
+    entity_data_id: UUID4 = Field(
+        sa_column=Column(UUID, ForeignKey("entity_data.id", ondelete="CASCADE"))
+    )
+
+    # Relationships
+    case: "Case" = Relationship(
+        back_populates="entity_links",
+        sa_relationship_kwargs={
+            "foreign_keys": "[CaseEntityLink.case_id]",
+            **DEFAULT_SA_RELATIONSHIP_KWARGS,
+        },
+    )
+    entity_metadata: EntityMetadata = Relationship(
+        sa_relationship_kwargs={
+            "foreign_keys": "[CaseEntityLink.entity_metadata_id]",
+            **DEFAULT_SA_RELATIONSHIP_KWARGS,
+        }
+    )
+    entity_data: EntityData = Relationship(
+        sa_relationship_kwargs={
+            "foreign_keys": "[CaseEntityLink.entity_data_id]",
             **DEFAULT_SA_RELATIONSHIP_KWARGS,
         }
     )
