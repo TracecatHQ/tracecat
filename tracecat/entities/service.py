@@ -81,7 +81,6 @@ class CustomEntitiesService(BaseWorkspaceService):
         display_name: str,
         description: str | None = None,
         icon: str | None = None,
-        settings: dict[str, Any] | None = None,
     ) -> EntityMetadata:
         """Create a new entity type.
 
@@ -90,7 +89,6 @@ class CustomEntitiesService(BaseWorkspaceService):
             display_name: Human-readable name
             description: Optional description
             icon: Optional icon identifier
-            settings: Optional settings dict
 
         Returns:
             Created EntityMetadata
@@ -104,7 +102,6 @@ class CustomEntitiesService(BaseWorkspaceService):
             display_name=display_name,
             description=description,
             icon=icon,
-            settings=settings or {},
         )
 
         # Check uniqueness
@@ -116,7 +113,6 @@ class CustomEntitiesService(BaseWorkspaceService):
             display_name=validated.display_name,
             description=validated.description,
             icon=validated.icon,
-            settings=validated.settings,
             is_active=True,
         )
 
