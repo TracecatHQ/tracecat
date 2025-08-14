@@ -112,12 +112,7 @@ const createFieldSchema = z.object({
     .object({
       relation_type: z.enum(["belongs_to", "has_many"]),
       target_entity_id: z.string(),
-      backref_field_key: z
-        .string()
-        .regex(/^[a-z][a-z0-9_]*$/)
-        .optional()
-        .or(z.literal("")),
-      cascade_delete: z.boolean().default(true),
+      // v1: Relations are unidirectional, cascade delete is always true
     })
     .optional(),
 })
@@ -165,8 +160,7 @@ export function CreateFieldDialog({
       relation_settings: {
         relation_type: "belongs_to",
         target_entity_id: "",
-        backref_field_key: "",
-        cascade_delete: true,
+        // v1: No backref or cascade config
       },
     },
   })
@@ -245,13 +239,7 @@ export function CreateFieldDialog({
                 ? "belongs_to"
                 : "has_many",
             target_entity_id: data.relation_settings.target_entity_id,
-            backref_field_key:
-              data.relation_settings.backref_field_key || undefined,
-            cascade_delete: data.relation_settings.cascade_delete,
-          }
-          // Remove empty backref_field_key
-          if (!processedData.relation_settings.backref_field_key) {
-            delete processedData.relation_settings.backref_field_key
+            // v1: No backref or cascade config
           }
         } else {
           // Relation fields require a target entity
@@ -429,14 +417,14 @@ export function CreateFieldDialog({
                     name="relation_settings.target_entity_id"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Target Entity</FormLabel>
+                        <FormLabel>Target entity</FormLabel>
                         <Select
                           onValueChange={field.onChange}
                           value={field.value}
                         >
                           <FormControl>
                             <SelectTrigger>
-                              <SelectValue placeholder="Select target entity" />
+                              <SelectValue />
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
@@ -451,70 +439,6 @@ export function CreateFieldDialog({
                           The entity that this field will relate to
                         </FormDescription>
                         <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="relation_settings.backref_field_key"
-                    render={({ field }) => (
-                      <FormItem>
-                        <div className="flex items-center gap-2">
-                          <FormLabel>Backref Field Key</FormLabel>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Info className="h-4 w-4 text-muted-foreground" />
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              <p>
-                                Optional: Creates a reverse relation field on
-                                the target entity
-                              </p>
-                            </TooltipContent>
-                          </Tooltip>
-                        </div>
-                        <FormControl>
-                          <Input
-                            placeholder="e.g., parent_items"
-                            {...field}
-                            onChange={(e) =>
-                              field.onChange(e.target.value.toLowerCase())
-                            }
-                          />
-                        </FormControl>
-                        <FormDescription>
-                          Leave empty for one-way relation
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="relation_settings.cascade_delete"
-                    render={({ field }) => (
-                      <FormItem className="flex flex-row items-start space-x-3 space-y-0">
-                        <FormControl>
-                          <Checkbox
-                            checked={field.value}
-                            onCheckedChange={field.onChange}
-                          />
-                        </FormControl>
-                        <div className="space-y-1 leading-none">
-                          <div className="flex items-center gap-2">
-                            <FormLabel>Cascade delete</FormLabel>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Info className="h-4 w-4 text-muted-foreground" />
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                <p>
-                                  Delete related records when source is deleted
-                                </p>
-                              </TooltipContent>
-                            </Tooltip>
-                          </div>
-                        </div>
                       </FormItem>
                     )}
                   />

@@ -1291,10 +1291,6 @@ export type EntitySchemaField = {
    * Options for SELECT/MULTI_SELECT fields
    */
   enum_options?: Array<string> | null
-  /**
-   * Cascade delete setting for relation fields
-   */
-  relation_cascade_delete?: boolean | null
 }
 
 /**
@@ -1526,8 +1522,6 @@ export type FieldMetadataRead = {
   updated_at: string
   relation_kind?: string | null
   relation_target_entity_id?: string | null
-  relation_backref_field_id?: string | null
-  relation_cascade_delete?: boolean | null
   enum_options?: Array<string> | null
   default_value?: unknown | null
 }
@@ -2000,19 +1994,6 @@ export type OrgMemberRead = {
   is_superuser: boolean
   is_verified: boolean
   last_login_at: string | null
-}
-
-/**
- * Request for creating paired relation fields.
- */
-export type PairedRelationCreate = {
-  source_entity_id: string
-  source_field_key: string
-  source_display_name: string
-  target_entity_id: string
-  target_field_key: string
-  target_display_name: string
-  cascade_delete?: boolean
 }
 
 /**
@@ -2750,14 +2731,6 @@ export type RelationOperation = "add" | "remove" | "replace"
 export type RelationSettings = {
   relation_type: RelationType
   target_entity_id: string
-  /**
-   * Field key in target entity for reverse relation
-   */
-  backref_field_key?: string | null
-  /**
-   * Delete related records when source is deleted
-   */
-  cascade_delete?: boolean
 }
 
 /**
@@ -5402,14 +5375,6 @@ export type EntitiesCreateRelationFieldData = {
 
 export type EntitiesCreateRelationFieldResponse = FieldMetadataRead
 
-export type EntitiesCreatePairedRelationFieldsData = {
-  requestBody: PairedRelationCreate
-  workspaceId: string
-}
-
-export type EntitiesCreatePairedRelationFieldsResponse =
-  Array<FieldMetadataRead>
-
 export type EntitiesCreateRecordData = {
   entityId: string
   requestBody: EntityDataCreate
@@ -5852,7 +5817,7 @@ export type PublicCheckHealthResponse = {
 
 export type $OpenApiTs = {
   "/webhooks/{workflow_id}/{secret}": {
-    get: {
+    post: {
       req: PublicIncomingWebhookData
       res: {
         /**
@@ -5865,7 +5830,7 @@ export type $OpenApiTs = {
         422: HTTPValidationError
       }
     }
-    post: {
+    get: {
       req: PublicIncomingWebhook1Data
       res: {
         /**
@@ -8033,21 +7998,6 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: FieldMetadataRead
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/entities/types/fields/paired-relation": {
-    post: {
-      req: EntitiesCreatePairedRelationFieldsData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: Array<FieldMetadataRead>
         /**
          * Validation Error
          */

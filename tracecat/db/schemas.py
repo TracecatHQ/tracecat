@@ -4,7 +4,7 @@ import hashlib
 import os
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import UUID4, BaseModel, ConfigDict, computed_field
 from sqlalchemy import TIMESTAMP, Column, ForeignKey, Identity, Index, Integer, func
@@ -1452,8 +1452,8 @@ class FieldMetadata(SQLModel, TimestampMixin, table=True):
         sa_column=Column(TIMESTAMP(timezone=True)),
     )
 
-    # v1: All fields are nullable (no required fields)
-    is_required: bool = Field(default=False)  # Always False in v1
+    # All fields are nullable (no required fields)
+    is_required: bool = Field(default=False)
     is_unique: bool = Field(default=False)  # For future use
     # Default value for fields (only for primitive types)
     default_value: dict[str, Any] | None = Field(
@@ -1470,23 +1470,6 @@ class FieldMetadata(SQLModel, TimestampMixin, table=True):
         default=None,
         sa_column=Column(UUID, ForeignKey("entity_metadata.id", ondelete="CASCADE")),
         description="Target entity for relations",
-    )
-    relation_backref_field_id: UUID4 | None = Field(
-        default=None,
-        sa_column=Column(
-            UUID,
-            ForeignKey(
-                "field_metadata.id",
-                ondelete="SET NULL",
-                deferrable=True,
-                initially="DEFERRED",
-            ),
-        ),
-        description="Backref field ID for bidirectional relations",
-    )
-    relation_cascade_delete: bool = Field(
-        default=True,
-        description="Delete related records when source is deleted",
     )
 
     # Enum field options (for SELECT and MULTI_SELECT types)
@@ -1507,13 +1490,6 @@ class FieldMetadata(SQLModel, TimestampMixin, table=True):
         sa_relationship_kwargs={
             "foreign_keys": "[FieldMetadata.relation_target_entity_id]",
             "lazy": "selectin",
-        }
-    )
-    backref_field: Optional["FieldMetadata"] = Relationship(
-        sa_relationship_kwargs={
-            "foreign_keys": "[FieldMetadata.relation_backref_field_id]",
-            "lazy": "selectin",
-            "remote_side": "[FieldMetadata.id]",
         }
     )
 
@@ -1540,7 +1516,7 @@ class EntityData(Resource, table=True):
         sa_column=Column(UUID, ForeignKey("entity_metadata.id", ondelete="CASCADE"))
     )
 
-    # FLAT structure only - no nested objects allowed in v1
+    # FLAT structure only - no nested objects allowed
     field_data: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
 
     # Relationships

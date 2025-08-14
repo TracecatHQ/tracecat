@@ -3785,18 +3785,6 @@ export const $EntitySchemaField = {
       title: "Enum Options",
       description: "Options for SELECT/MULTI_SELECT fields",
     },
-    relation_cascade_delete: {
-      anyOf: [
-        {
-          type: "boolean",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Relation Cascade Delete",
-      description: "Cascade delete setting for relation fields",
-    },
   },
   type: "object",
   required: ["key", "type", "display_name", "required"],
@@ -4529,29 +4517,6 @@ export const $FieldMetadataRead = {
         },
       ],
       title: "Relation Target Entity Id",
-    },
-    relation_backref_field_id: {
-      anyOf: [
-        {
-          type: "string",
-          format: "uuid",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Relation Backref Field Id",
-    },
-    relation_cascade_delete: {
-      anyOf: [
-        {
-          type: "boolean",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Relation Cascade Delete",
     },
     enum_options: {
       anyOf: [
@@ -6038,53 +6003,6 @@ export const $OrgMemberRead = {
     "last_login_at",
   ],
   title: "OrgMemberRead",
-} as const
-
-export const $PairedRelationCreate = {
-  properties: {
-    source_entity_id: {
-      type: "string",
-      format: "uuid",
-      title: "Source Entity Id",
-    },
-    source_field_key: {
-      type: "string",
-      title: "Source Field Key",
-    },
-    source_display_name: {
-      type: "string",
-      title: "Source Display Name",
-    },
-    target_entity_id: {
-      type: "string",
-      format: "uuid",
-      title: "Target Entity Id",
-    },
-    target_field_key: {
-      type: "string",
-      title: "Target Field Key",
-    },
-    target_display_name: {
-      type: "string",
-      title: "Target Display Name",
-    },
-    cascade_delete: {
-      type: "boolean",
-      title: "Cascade Delete",
-      default: true,
-    },
-  },
-  type: "object",
-  required: [
-    "source_entity_id",
-    "source_field_key",
-    "source_display_name",
-    "target_entity_id",
-    "target_field_key",
-    "target_display_name",
-  ],
-  title: "PairedRelationCreate",
-  description: "Request for creating paired relation fields.",
 } as const
 
 export const $PayloadChangedEventRead = {
@@ -7916,24 +7834,6 @@ export const $RelationSettings = {
       type: "string",
       format: "uuid",
       title: "Target Entity Id",
-    },
-    backref_field_key: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Backref Field Key",
-      description: "Field key in target entity for reverse relation",
-    },
-    cascade_delete: {
-      type: "boolean",
-      title: "Cascade Delete",
-      description: "Delete related records when source is deleted",
-      default: true,
     },
   },
   type: "object",

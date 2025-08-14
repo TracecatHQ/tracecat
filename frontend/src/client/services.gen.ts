@@ -119,8 +119,6 @@ import type {
   EntitiesCreateEntityTypeResponse,
   EntitiesCreateFieldData,
   EntitiesCreateFieldResponse,
-  EntitiesCreatePairedRelationFieldsData,
-  EntitiesCreatePairedRelationFieldsResponse,
   EntitiesCreateRecordData,
   EntitiesCreateRecordResponse,
   EntitiesCreateRelationFieldData,
@@ -443,7 +441,7 @@ export const publicIncomingWebhook = (
   data: PublicIncomingWebhookData
 ): CancelablePromise<PublicIncomingWebhookResponse> => {
   return __request(OpenAPI, {
-    method: "GET",
+    method: "POST",
     url: "/webhooks/{workflow_id}/{secret}",
     path: {
       secret: data.secret,
@@ -483,7 +481,7 @@ export const publicIncomingWebhook1 = (
   data: PublicIncomingWebhook1Data
 ): CancelablePromise<PublicIncomingWebhook1Response> => {
   return __request(OpenAPI, {
-    method: "POST",
+    method: "GET",
     url: "/webhooks/{workflow_id}/{secret}",
     path: {
       secret: data.secret,
@@ -4505,32 +4503,6 @@ export const entitiesCreateRelationField = (
     path: {
       entity_id: data.entityId,
     },
-    query: {
-      workspace_id: data.workspaceId,
-    },
-    body: data.requestBody,
-    mediaType: "application/json",
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * Create Paired Relation Fields
- * Atomically create bidirectional relation fields.
- * @param data The data for the request.
- * @param data.workspaceId
- * @param data.requestBody
- * @returns FieldMetadataRead Successful Response
- * @throws ApiError
- */
-export const entitiesCreatePairedRelationFields = (
-  data: EntitiesCreatePairedRelationFieldsData
-): CancelablePromise<EntitiesCreatePairedRelationFieldsResponse> => {
-  return __request(OpenAPI, {
-    method: "POST",
-    url: "/entities/types/fields/paired-relation",
     query: {
       workspace_id: data.workspaceId,
     },

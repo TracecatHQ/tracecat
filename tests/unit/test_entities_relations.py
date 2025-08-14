@@ -96,25 +96,39 @@ async def organization_entity(entities_service: CustomEntitiesService):
 class TestEntityRelations:
     """Integration tests for entity relations."""
 
-    async def test_create_paired_relation_fields(
+    async def test_create_unidirectional_relation_fields(
         self,
         entities_service: CustomEntitiesService,
         customer_entity,
         organization_entity,
     ):
-        """Test atomic creation of bidirectional fields."""
-        # Create paired relation fields
-        (
-            belongs_to_field,
-            has_many_field,
-        ) = await entities_service.create_paired_relation_fields(
-            source_entity_id=customer_entity.id,
-            source_field_key="organization",
-            source_display_name="Organization",
+        """Test creation of unidirectional relation fields."""
+        # Create belongs_to field
+        relation_settings = RelationSettings(
+            relation_type=RelationType.BELONGS_TO,
             target_entity_id=organization_entity.id,
-            target_field_key="customers",
-            target_display_name="Customers",
-            cascade_delete=True,
+        )
+
+        belongs_to_field = await entities_service.create_relation_field(
+            entity_id=customer_entity.id,
+            field_key="organization",
+            field_type=FieldType.RELATION_BELONGS_TO,
+            display_name="Organization",
+            relation_settings=relation_settings,
+        )
+
+        # Create has_many field separately
+        has_many_settings = RelationSettings(
+            relation_type=RelationType.HAS_MANY,
+            target_entity_id=customer_entity.id,
+        )
+
+        has_many_field = await entities_service.create_relation_field(
+            entity_id=organization_entity.id,
+            field_key="customers",
+            field_type=FieldType.RELATION_HAS_MANY,
+            display_name="Customers",
+            relation_settings=has_many_settings,
         )
 
         # Verify belongs_to field
@@ -122,18 +136,12 @@ class TestEntityRelations:
         assert belongs_to_field.entity_metadata_id == customer_entity.id
         assert belongs_to_field.relation_kind == "belongs_to"
         assert belongs_to_field.relation_target_entity_id == organization_entity.id
-        assert belongs_to_field.relation_backref_field_id == has_many_field.id
 
         # Verify has_many field
         assert has_many_field.field_type == FieldType.RELATION_HAS_MANY
         assert has_many_field.entity_metadata_id == organization_entity.id
         assert has_many_field.relation_kind == "has_many"
         assert has_many_field.relation_target_entity_id == customer_entity.id
-        assert has_many_field.relation_backref_field_id == belongs_to_field.id
-
-        # Verify field settings
-        assert belongs_to_field.relation_cascade_delete is True
-        assert has_many_field.relation_cascade_delete is True
 
     async def test_create_relation_field_with_settings(
         self,
@@ -145,8 +153,6 @@ class TestEntityRelations:
         relation_settings = RelationSettings(
             relation_type=RelationType.BELONGS_TO,
             target_entity_id=organization_entity.id,
-            backref_field_key=None,
-            cascade_delete=False,
         )
 
         field = await entities_service.create_relation_field(
@@ -161,7 +167,7 @@ class TestEntityRelations:
         assert field.field_type == FieldType.RELATION_BELONGS_TO
         assert field.relation_kind == "belongs_to"
         assert field.relation_target_entity_id == organization_entity.id
-        assert field.relation_cascade_delete is False
+        # v1: cascade_delete is always true, field removed
 
     async def test_belongs_to_relation_crud(
         self,
@@ -171,14 +177,18 @@ class TestEntityRelations:
         session: AsyncSession,
     ):
         """Test belongs-to operations."""
-        # Create paired fields
-        belongs_to_field, _ = await entities_service.create_paired_relation_fields(
-            source_entity_id=customer_entity.id,
-            source_field_key="organization",
-            source_display_name="Organization",
+        # Create belongs_to field
+        relation_settings = RelationSettings(
+            relation_type=RelationType.BELONGS_TO,
             target_entity_id=organization_entity.id,
-            target_field_key="customers",
-            target_display_name="Customers",
+        )
+
+        belongs_to_field = await entities_service.create_relation_field(
+            entity_id=customer_entity.id,
+            field_key="organization",
+            field_type=FieldType.RELATION_BELONGS_TO,
+            display_name="Organization",
+            relation_settings=relation_settings,
         )
 
         # Create organization and customer records
@@ -240,14 +250,18 @@ class TestEntityRelations:
         session: AsyncSession,
     ):
         """Test that belongs-to enforces uniqueness."""
-        # Create paired fields
-        belongs_to_field, _ = await entities_service.create_paired_relation_fields(
-            source_entity_id=customer_entity.id,
-            source_field_key="organization",
-            source_display_name="Organization",
+        # Create belongs_to field
+        relation_settings = RelationSettings(
+            relation_type=RelationType.BELONGS_TO,
             target_entity_id=organization_entity.id,
-            target_field_key="customers",
-            target_display_name="Customers",
+        )
+
+        belongs_to_field = await entities_service.create_relation_field(
+            entity_id=customer_entity.id,
+            field_key="organization",
+            field_type=FieldType.RELATION_BELONGS_TO,
+            display_name="Organization",
+            relation_settings=relation_settings,
         )
 
         # Create organizations and customer
@@ -298,14 +312,18 @@ class TestEntityRelations:
         organization_entity,
     ):
         """Test has-many batch operations."""
-        # Create paired fields
-        _, has_many_field = await entities_service.create_paired_relation_fields(
-            source_entity_id=customer_entity.id,
-            source_field_key="organization",
-            source_display_name="Organization",
-            target_entity_id=organization_entity.id,
-            target_field_key="customers",
-            target_display_name="Customers",
+        # Create has_many field
+        has_many_settings = RelationSettings(
+            relation_type=RelationType.HAS_MANY,
+            target_entity_id=customer_entity.id,
+        )
+
+        has_many_field = await entities_service.create_relation_field(
+            entity_id=organization_entity.id,
+            field_key="customers",
+            field_type=FieldType.RELATION_HAS_MANY,
+            display_name="Customers",
+            relation_settings=has_many_settings,
         )
 
         # Create organization and multiple customers
@@ -400,15 +418,19 @@ class TestEntityRelations:
         num_customers: int,
     ):
         """Test paginated query performance with different cardinality sizes."""
-        # Setup: Create paired fields and records with unique field names
+        # Setup: Create has_many field with unique field names
         field_suffix = f"_{num_customers}"
-        _, has_many_field = await entities_service.create_paired_relation_fields(
-            source_entity_id=customer_entity.id,
-            source_field_key=f"organization{field_suffix}",
-            source_display_name="Organization",
-            target_entity_id=organization_entity.id,
-            target_field_key=f"customers{field_suffix}",
-            target_display_name="Customers",
+        has_many_settings = RelationSettings(
+            relation_type=RelationType.HAS_MANY,
+            target_entity_id=customer_entity.id,
+        )
+
+        has_many_field = await entities_service.create_relation_field(
+            entity_id=organization_entity.id,
+            field_key=f"customers{field_suffix}",
+            field_type=FieldType.RELATION_HAS_MANY,
+            display_name="Customers",
+            relation_settings=has_many_settings,
         )
 
         org = await entities_service.create_record(
@@ -484,15 +506,19 @@ class TestEntityRelations:
         batch_size: int,
     ):
         """Test batch add operations performance with different sizes."""
-        # Setup: Create paired fields and pre-create customers with unique field names
+        # Setup: Create has_many field with unique field names
         field_suffix = f"_add_{num_customers}_{batch_size}"
-        _, has_many_field = await entities_service.create_paired_relation_fields(
-            source_entity_id=customer_entity.id,
-            source_field_key=f"organization{field_suffix}",
-            source_display_name="Organization",
-            target_entity_id=organization_entity.id,
-            target_field_key=f"customers{field_suffix}",
-            target_display_name="Customers",
+        has_many_settings = RelationSettings(
+            relation_type=RelationType.HAS_MANY,
+            target_entity_id=customer_entity.id,
+        )
+
+        has_many_field = await entities_service.create_relation_field(
+            entity_id=organization_entity.id,
+            field_key=f"customers{field_suffix}",
+            field_type=FieldType.RELATION_HAS_MANY,
+            display_name="Customers",
+            relation_settings=has_many_settings,
         )
 
         org = await entities_service.create_record(
@@ -560,15 +586,19 @@ class TestEntityRelations:
         remove_size: int,
     ):
         """Test batch remove operations performance with different sizes."""
-        # Setup: Create paired fields and populate data with unique field names
+        # Setup: Create has_many field with unique field names
         field_suffix = f"_remove_{num_customers}_{remove_size}"
-        _, has_many_field = await entities_service.create_paired_relation_fields(
-            source_entity_id=customer_entity.id,
-            source_field_key=f"organization{field_suffix}",
-            source_display_name="Organization",
-            target_entity_id=organization_entity.id,
-            target_field_key=f"customers{field_suffix}",
-            target_display_name="Customers",
+        has_many_settings = RelationSettings(
+            relation_type=RelationType.HAS_MANY,
+            target_entity_id=customer_entity.id,
+        )
+
+        has_many_field = await entities_service.create_relation_field(
+            entity_id=organization_entity.id,
+            field_key=f"customers{field_suffix}",
+            field_type=FieldType.RELATION_HAS_MANY,
+            display_name="Customers",
+            relation_settings=has_many_settings,
         )
 
         org = await entities_service.create_record(
@@ -656,15 +686,18 @@ class TestEntityRelations:
         session: AsyncSession,
     ):
         """Test cascade delete scenarios."""
-        # Create fields with cascade_delete=True
-        belongs_to_field, _ = await entities_service.create_paired_relation_fields(
-            source_entity_id=customer_entity.id,
-            source_field_key="organization",
-            source_display_name="Organization",
+        # Create belongs_to field (cascade is always true in v1)
+        relation_settings = RelationSettings(
+            relation_type=RelationType.BELONGS_TO,
             target_entity_id=organization_entity.id,
-            target_field_key="customers",
-            target_display_name="Customers",
-            cascade_delete=True,
+        )
+
+        belongs_to_field = await entities_service.create_relation_field(
+            entity_id=customer_entity.id,
+            field_key="organization",
+            field_type=FieldType.RELATION_BELONGS_TO,
+            display_name="Organization",
+            relation_settings=relation_settings,
         )
 
         # Create organization and customers
@@ -709,8 +742,8 @@ class TestEntityRelations:
         with pytest.raises(TracecatNotFoundError):
             await entities_service.get_record(customer2.id)
 
-        # Test with cascade_delete=False
-        # Create new fields with cascade_delete=False
+        # v1: cascade_delete is always true, test deletion without cascade_relations flag
+        # Create new relation field
         no_cascade_field = await entities_service.create_relation_field(
             entity_id=customer_entity.id,
             field_key="optional_org",
@@ -719,7 +752,6 @@ class TestEntityRelations:
             relation_settings=RelationSettings(
                 relation_type=RelationType.BELONGS_TO,
                 target_entity_id=organization_entity.id,
-                cascade_delete=False,
             ),
         )
 
@@ -740,13 +772,14 @@ class TestEntityRelations:
             target_record_id=org2.id,
         )
 
-        # Handle deletion without cascade
+        # Handle deletion with cascade_relations=False
+        # Even though field always cascades, this flag controls the behavior
         await entities_service.handle_record_deletion(
             record_id=org2.id,
             cascade_relations=False,
         )
 
-        # Verify customer still exists but relation is cleared
+        # When cascade_relations=False, customer should still exist but relation is cleared
         customer3_after = await entities_service.get_record(customer3.id)
         assert customer3_after is not None
         assert "optional_org" not in customer3_after.field_data
@@ -839,14 +872,18 @@ class TestEntityRelations:
         organization_entity,
     ):
         """Test paginated queries for related records."""
-        # Create paired fields
-        _, has_many_field = await entities_service.create_paired_relation_fields(
-            source_entity_id=customer_entity.id,
-            source_field_key="organization",
-            source_display_name="Organization",
-            target_entity_id=organization_entity.id,
-            target_field_key="customers",
-            target_display_name="Customers",
+        # Create has_many field
+        has_many_settings = RelationSettings(
+            relation_type=RelationType.HAS_MANY,
+            target_entity_id=customer_entity.id,
+        )
+
+        has_many_field = await entities_service.create_relation_field(
+            entity_id=organization_entity.id,
+            field_key="customers",
+            field_type=FieldType.RELATION_HAS_MANY,
+            display_name="Customers",
+            relation_settings=has_many_settings,
         )
 
         # Create organization and 150 customers

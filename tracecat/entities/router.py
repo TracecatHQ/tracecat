@@ -4,7 +4,6 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, status
-from pydantic import BaseModel
 
 from tracecat.auth.credentials import RoleACL
 from tracecat.db.dependencies import AsyncDBSession
@@ -340,47 +339,6 @@ async def create_relation_field(
         raise HTTPException(status_code=404, detail=str(e)) from e
 
 
-class PairedRelationCreate(BaseModel):
-    """Request for creating paired relation fields."""
-
-    source_entity_id: UUID
-    source_field_key: str
-    source_display_name: str
-    target_entity_id: UUID
-    target_field_key: str
-    target_display_name: str
-    cascade_delete: bool = True
-
-
-@router.post("/types/fields/paired-relation", response_model=list[FieldMetadataRead])
-async def create_paired_relation_fields(
-    *,
-    role: WorkspaceUser,
-    session: AsyncDBSession,
-    params: PairedRelationCreate,
-) -> list[FieldMetadataRead]:
-    """Atomically create bidirectional relation fields."""
-    service = CustomEntitiesService(session, role)
-    try:
-        belongs_to_field, has_many_field = await service.create_paired_relation_fields(
-            source_entity_id=params.source_entity_id,
-            source_field_key=params.source_field_key,
-            source_display_name=params.source_display_name,
-            target_entity_id=params.target_entity_id,
-            target_field_key=params.target_field_key,
-            target_display_name=params.target_display_name,
-            cascade_delete=params.cascade_delete,
-        )
-        return [
-            FieldMetadataRead.model_validate(belongs_to_field, from_attributes=True),
-            FieldMetadataRead.model_validate(has_many_field, from_attributes=True),
-        ]
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
-    except TracecatNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
-
-
 # Data Operations
 
 
@@ -684,7 +642,6 @@ async def get_entity_schema(
                     description=f.description,
                     required=f.is_required,
                     enum_options=f.enum_options,
-                    relation_cascade_delete=f.relation_cascade_delete,
                 )
                 for f in fields
                 if f.is_active

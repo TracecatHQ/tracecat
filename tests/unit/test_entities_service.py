@@ -1986,7 +1986,6 @@ class TestRelationFieldConstraints:
         relation_settings = RelationSettings(
             relation_type=RelationType.BELONGS_TO,
             target_entity_id=parent_entity.id,
-            cascade_delete=False,
         )
 
         field = await admin_entities_service.create_relation_field(
@@ -2019,7 +2018,6 @@ class TestRelationFieldConstraints:
         relation_settings = RelationSettings(
             relation_type=RelationType.BELONGS_TO,
             target_entity_id=entity_b.id,
-            cascade_delete=False,
         )
 
         field = await admin_entities_service.create_relation_field(
@@ -2051,7 +2049,6 @@ class TestRelationFieldConstraints:
         relation_settings = RelationSettings(
             relation_type=RelationType.BELONGS_TO,
             target_entity_id=parent_entity.id,
-            cascade_delete=False,
         )
 
         field = await admin_entities_service.create_relation_field(
