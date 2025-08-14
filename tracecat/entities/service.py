@@ -144,6 +144,31 @@ class CustomEntitiesService(BaseWorkspaceService):
 
         return entity
 
+    async def get_entity_type_by_name(self, name: str) -> EntityMetadata:
+        """Get entity type by name (slug).
+
+        Args:
+            name: Entity type name/slug (e.g., "customer", "incident")
+
+        Returns:
+            EntityMetadata
+
+        Raises:
+            TracecatNotFoundError: If not found
+        """
+        stmt = select(EntityMetadata).where(
+            EntityMetadata.name == name,
+            EntityMetadata.owner_id == self.workspace_id,
+            EntityMetadata.is_active,
+        )
+        result = await self.session.exec(stmt)
+        entity = result.first()
+
+        if not entity:
+            raise TracecatNotFoundError(f"Entity type '{name}' not found")
+
+        return entity
+
     async def list_entity_types(
         self, include_inactive: bool = False
     ) -> list[EntityMetadata]:
@@ -1164,6 +1189,95 @@ class CustomEntitiesService(BaseWorkspaceService):
         stmt = stmt.limit(limit).offset(offset)
 
         result = await self.session.exec(cast(SelectOfScalar[EntityData], stmt))
+        return list(result.all())
+
+    async def get_record_by_slug(
+        self, entity_id: UUID, slug_value: str, slug_field: str = "name"
+    ) -> EntityData:
+        """Get a single record by slug field value.
+
+        Args:
+            entity_id: Entity metadata ID
+            slug_value: The slug value to search for
+            slug_field: Field to use as slug (default: "name", can be "title", etc.)
+
+        Returns:
+            EntityData record
+
+        Raises:
+            TracecatNotFoundError: If no record found
+            ValueError: If multiple records found (slug not unique)
+        """
+        # Validate entity exists
+        await self.get_entity_type(entity_id)
+
+        # Build query using the slug_equals method
+        slug_condition = await self.query_builder.slug_equals(
+            entity_id, slug_field, slug_value
+        )
+
+        stmt = select(EntityData).where(
+            EntityData.entity_metadata_id == entity_id,
+            EntityData.owner_id == self.workspace_id,
+            slug_condition,
+        )
+
+        result = await self.session.exec(stmt)
+        records = list(result.all())
+
+        if not records:
+            raise TracecatNotFoundError(
+                f"No record found with {slug_field}='{slug_value}' in entity {entity_id}"
+            )
+
+        if len(records) > 1:
+            raise ValueError(
+                f"Multiple records found with {slug_field}='{slug_value}'. "
+                f"Slug field '{slug_field}' is not unique for this entity."
+            )
+
+        return records[0]
+
+    async def query_records_by_slug(
+        self,
+        entity_id: UUID,
+        slug_pattern: str,
+        slug_field: str = "name",
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[EntityData]:
+        """Query records by slug field pattern.
+
+        Args:
+            entity_id: Entity metadata ID
+            slug_pattern: Pattern to match (supports % wildcards)
+            slug_field: Field to search (default: "name")
+            limit: Max records to return
+            offset: Number of records to skip
+
+        Returns:
+            List of matching EntityData records
+        """
+        # Validate entity exists
+        await self.get_entity_type(entity_id)
+
+        # Build query using the slug_matches method
+        slug_condition = await self.query_builder.slug_matches(
+            entity_id, slug_field, slug_pattern
+        )
+
+        stmt = (
+            select(EntityData)
+            .where(
+                EntityData.entity_metadata_id == entity_id,
+                EntityData.owner_id == self.workspace_id,
+                slug_condition,
+            )
+            .limit(limit)
+            .offset(offset)
+        )
+
+        result = await self.session.exec(stmt)
         return list(result.all())
 
     # Helper Methods

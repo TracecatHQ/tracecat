@@ -551,6 +551,73 @@ class EntityQueryBuilder:
         result = await self.session.exec(stmt)
         return result.one()
 
+    async def slug_equals(
+        self, entity_id: UUID, slug_field: str, slug_value: str
+    ) -> ColumnElement[bool]:
+        """Build optimized query for exact slug match.
+
+        Uses GIN index optimization for JSONB field access.
+        Case-insensitive by default.
+
+        Args:
+            entity_id: Entity metadata ID
+            slug_field: Field to use as slug (e.g., "name", "title")
+            slug_value: Exact value to match
+
+        Returns:
+            SQLAlchemy expression for slug equality
+
+        Raises:
+            ValueError: If field not found or not a text type
+        """
+        field = await self._validate_field(entity_id, slug_field)
+
+        field_type = FieldType(field.field_type)
+        if field_type not in (FieldType.TEXT, FieldType.SELECT):
+            raise ValueError(
+                f"Field '{slug_field}' must be a text type for slug operations"
+            )
+
+        # Use case-insensitive comparison for slug matching
+        # This still leverages the GIN index for the field access
+        return cast(
+            ColumnElement[bool],
+            sa.func.lower(EntityData.field_data[slug_field].astext)
+            == sa.func.lower(slug_value),
+        )
+
+    async def slug_matches(
+        self, entity_id: UUID, slug_field: str, pattern: str
+    ) -> ColumnElement[bool]:
+        """Build query for slug pattern matching.
+
+        Supports case-insensitive pattern matching with wildcards.
+
+        Args:
+            entity_id: Entity metadata ID
+            slug_field: Field to use as slug
+            pattern: Pattern to match (supports % wildcards)
+
+        Returns:
+            SQLAlchemy expression for pattern matching
+
+        Raises:
+            ValueError: If field not found or not a text type
+        """
+        field = await self._validate_field(entity_id, slug_field)
+
+        field_type = FieldType(field.field_type)
+        if field_type not in (FieldType.TEXT, FieldType.SELECT):
+            raise ValueError(
+                f"Field '{slug_field}' must be a text type for slug operations"
+            )
+
+        # Use ILIKE for case-insensitive pattern matching
+        return cast(
+            ColumnElement[bool],
+            EntityData.field_data[slug_field].astext.ilike(pattern),
+        )
+
     async def filter_by_relation(
         self,
         entity_id: UUID,
