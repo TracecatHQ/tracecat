@@ -233,12 +233,10 @@ class CustomEntitiesService(BaseWorkspaceService):
         field = FieldMetadata(
             entity_metadata_id=entity_id,
             field_key=validated.field_key,
-            field_type=validated.field_type.value
-            if hasattr(validated.field_type, "value")
-            else validated.field_type,
+            field_type=validated.field_type.value,
             display_name=validated.display_name,
-            description=validated.description if validated.description else None,
-            enum_options=validated.enum_options if validated.enum_options else None,
+            description=validated.description,
+            enum_options=validated.enum_options,
             is_active=True,
             default_value=serialized_default,
         )

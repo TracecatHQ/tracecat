@@ -237,44 +237,13 @@ export function EntityFieldsTable({
               }
 
               return (
-                <span className="text-xs font-mono text-muted-foreground">
+                <span className="text-xs text-muted-foreground">
                   {displayValue}
                 </span>
               )
             },
             enableSorting: false,
             enableHiding: true,
-          },
-          {
-            id: "constraints",
-            header: ({ column }) => (
-              <DataTableColumnHeader
-                className="text-xs"
-                column={column}
-                title="Constraints"
-              />
-            ),
-            cell: ({ row }) => {
-              const constraints = []
-              if (row.original.is_required) constraints.push("Required")
-              if (row.original.is_unique) constraints.push("Unique")
-
-              return (
-                <div className="flex gap-1">
-                  {constraints.length > 0 ? (
-                    constraints.map((c) => (
-                      <Badge key={c} variant="outline" className="text-xs">
-                        {c}
-                      </Badge>
-                    ))
-                  ) : (
-                    <span className="text-xs text-muted-foreground">-</span>
-                  )}
-                </div>
-              )
-            },
-            enableSorting: false,
-            enableHiding: false,
           },
           {
             accessorKey: "description",
