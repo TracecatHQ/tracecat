@@ -64,7 +64,6 @@ async def create_entity_type(
             display_name=params.display_name,
             description=params.description,
             icon=params.icon,
-            settings=params.settings,
         )
         return EntityMetadataRead.model_validate(entity, from_attributes=True)
     except ValueError as e:
@@ -124,8 +123,6 @@ async def update_entity_type(
             entity.description = params.description
         if params.icon is not None:
             entity.icon = params.icon
-        if params.settings is not None:
-            entity.settings = params.settings
 
         await service.session.commit()
         await service.session.refresh(entity)

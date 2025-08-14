@@ -1822,6 +1822,95 @@ export const $CaseCustomFieldRead = {
   title: "CaseCustomFieldRead",
 } as const
 
+export const $CaseEntityLinkCreate = {
+  properties: {
+    entity_metadata_id: {
+      type: "string",
+      format: "uuid4",
+      title: "Entity Metadata Id",
+      description: "Entity type ID",
+    },
+    entity_data_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid4",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Entity Data Id",
+      description: "Existing entity record ID to link",
+    },
+    entity_data: {
+      anyOf: [
+        {
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Entity Data",
+      description: "Data for creating a new entity record",
+    },
+  },
+  type: "object",
+  required: ["entity_metadata_id"],
+  title: "CaseEntityLinkCreate",
+  description: "Create a link between a case and an entity record.",
+} as const
+
+export const $CaseEntityLinkRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid4",
+      title: "Id",
+    },
+    case_id: {
+      type: "string",
+      format: "uuid4",
+      title: "Case Id",
+    },
+    entity_metadata_id: {
+      type: "string",
+      format: "uuid4",
+      title: "Entity Metadata Id",
+    },
+    entity_data_id: {
+      type: "string",
+      format: "uuid4",
+      title: "Entity Data Id",
+    },
+    entity_metadata: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/tracecat__cases__entities__models__EntityMetadataRead",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    entity_data: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/tracecat__cases__entities__models__EntityDataRead",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+  },
+  type: "object",
+  required: ["id", "case_id", "entity_metadata_id", "entity_data_id"],
+  title: "CaseEntityLinkRead",
+  description: "Case entity link with entity details.",
+} as const
+
 export const $CaseEventRead = {
   oneOf: [
     {
@@ -3498,51 +3587,6 @@ Note: The actual fields are dynamic based on entity type.
 This is a base model - actual validation happens in service.`,
 } as const
 
-export const $EntityDataRead = {
-  properties: {
-    id: {
-      type: "string",
-      format: "uuid",
-      title: "Id",
-    },
-    entity_metadata_id: {
-      type: "string",
-      format: "uuid",
-      title: "Entity Metadata Id",
-    },
-    field_data: {
-      type: "object",
-      title: "Field Data",
-    },
-    created_at: {
-      type: "string",
-      format: "date-time",
-      title: "Created At",
-    },
-    updated_at: {
-      type: "string",
-      format: "date-time",
-      title: "Updated At",
-    },
-    owner_id: {
-      type: "string",
-      format: "uuid",
-      title: "Owner Id",
-    },
-  },
-  type: "object",
-  required: [
-    "id",
-    "entity_metadata_id",
-    "field_data",
-    "created_at",
-    "updated_at",
-    "owner_id",
-  ],
-  title: "EntityDataRead",
-  description: "Response model for entity record.",
-} as const
-
 export const $EntityDataUpdate = {
   properties: {},
   additionalProperties: true,
@@ -3591,93 +3635,11 @@ export const $EntityMetadataCreate = {
       ],
       title: "Icon",
     },
-    settings: {
-      type: "object",
-      title: "Settings",
-    },
   },
   type: "object",
   required: ["name", "display_name"],
   title: "EntityMetadataCreate",
   description: "Request model for creating entity type.",
-} as const
-
-export const $EntityMetadataRead = {
-  properties: {
-    id: {
-      type: "string",
-      format: "uuid",
-      title: "Id",
-    },
-    name: {
-      type: "string",
-      title: "Name",
-    },
-    display_name: {
-      type: "string",
-      title: "Display Name",
-    },
-    description: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Description",
-    },
-    icon: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Icon",
-    },
-    is_active: {
-      type: "boolean",
-      title: "Is Active",
-    },
-    settings: {
-      type: "object",
-      title: "Settings",
-    },
-    created_at: {
-      type: "string",
-      format: "date-time",
-      title: "Created At",
-    },
-    updated_at: {
-      type: "string",
-      format: "date-time",
-      title: "Updated At",
-    },
-    owner_id: {
-      type: "string",
-      format: "uuid",
-      title: "Owner Id",
-    },
-  },
-  type: "object",
-  required: [
-    "id",
-    "name",
-    "display_name",
-    "description",
-    "icon",
-    "is_active",
-    "settings",
-    "created_at",
-    "updated_at",
-    "owner_id",
-  ],
-  title: "EntityMetadataRead",
-  description: "Response model for entity type.",
 } as const
 
 export const $EntityMetadataUpdate = {
@@ -3718,17 +3680,6 @@ export const $EntityMetadataUpdate = {
         },
       ],
       title: "Icon",
-    },
-    settings: {
-      anyOf: [
-        {
-          type: "object",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Settings",
     },
   },
   type: "object",
@@ -3842,6 +3793,35 @@ export const $EntitySchemaResponse = {
   required: ["entity", "fields"],
   title: "EntitySchemaResponse",
   description: "Response for entity schema endpoint.",
+} as const
+
+export const $EntityTypeListRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid4",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+  },
+  type: "object",
+  required: ["id", "name", "description"],
+  title: "EntityTypeListRead",
+  description: "Available entity type for selection.",
 } as const
 
 export const $ErrorDetails = {
@@ -6605,7 +6585,7 @@ export const $QueryResponse = {
   properties: {
     records: {
       items: {
-        $ref: "#/components/schemas/EntityDataRead",
+        $ref: "#/components/schemas/tracecat__entities__models__EntityDataRead",
       },
       type: "array",
       title: "Records",
@@ -7739,7 +7719,7 @@ export const $RelationListResponse = {
   properties: {
     records: {
       items: {
-        $ref: "#/components/schemas/EntityDataRead",
+        $ref: "#/components/schemas/tracecat__entities__models__EntityDataRead",
       },
       type: "array",
       title: "Records",
@@ -12716,4 +12696,178 @@ export const $login = {
   type: "object",
   required: ["username", "password"],
   title: "Body_auth-auth:database.login",
+} as const
+
+export const $tracecat__cases__entities__models__EntityDataRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid4",
+      title: "Id",
+    },
+    entity_metadata_id: {
+      type: "string",
+      format: "uuid4",
+      title: "Entity Metadata Id",
+    },
+    field_data: {
+      type: "object",
+      title: "Field Data",
+    },
+  },
+  type: "object",
+  required: ["id", "entity_metadata_id", "field_data"],
+  title: "EntityDataRead",
+  description: "Entity record data.",
+} as const
+
+export const $tracecat__cases__entities__models__EntityMetadataRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid4",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    is_active: {
+      type: "boolean",
+      title: "Is Active",
+    },
+  },
+  type: "object",
+  required: ["id", "name", "description", "is_active"],
+  title: "EntityMetadataRead",
+  description: "Entity type metadata.",
+} as const
+
+export const $tracecat__entities__models__EntityDataRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    entity_metadata_id: {
+      type: "string",
+      format: "uuid",
+      title: "Entity Metadata Id",
+    },
+    field_data: {
+      type: "object",
+      title: "Field Data",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+    owner_id: {
+      type: "string",
+      format: "uuid",
+      title: "Owner Id",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "entity_metadata_id",
+    "field_data",
+    "created_at",
+    "updated_at",
+    "owner_id",
+  ],
+  title: "EntityDataRead",
+  description: "Response model for entity record.",
+} as const
+
+export const $tracecat__entities__models__EntityMetadataRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    display_name: {
+      type: "string",
+      title: "Display Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    icon: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Icon",
+    },
+    is_active: {
+      type: "boolean",
+      title: "Is Active",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+    owner_id: {
+      type: "string",
+      format: "uuid",
+      title: "Owner Id",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "name",
+    "display_name",
+    "description",
+    "icon",
+    "is_active",
+    "created_at",
+    "updated_at",
+    "owner_id",
+  ],
+  title: "EntityMetadataRead",
+  description: "Response model for entity type.",
 } as const

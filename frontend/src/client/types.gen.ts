@@ -534,6 +534,38 @@ export type CaseCustomFieldRead = {
 }
 
 /**
+ * Create a link between a case and an entity record.
+ */
+export type CaseEntityLinkCreate = {
+  /**
+   * Entity type ID
+   */
+  entity_metadata_id: string
+  /**
+   * Existing entity record ID to link
+   */
+  entity_data_id?: string | null
+  /**
+   * Data for creating a new entity record
+   */
+  entity_data?: {
+    [key: string]: unknown
+  } | null
+}
+
+/**
+ * Case entity link with entity details.
+ */
+export type CaseEntityLinkRead = {
+  id: string
+  case_id: string
+  entity_metadata_id: string
+  entity_data_id: string
+  entity_metadata?: tracecat__cases__entities__models__EntityMetadataRead | null
+  entity_data?: tracecat__cases__entities__models__EntityDataRead | null
+}
+
+/**
  * Base read model for all event types.
  */
 export type CaseEventRead =
@@ -1198,20 +1230,6 @@ export type EntityDataCreate = {
 }
 
 /**
- * Response model for entity record.
- */
-export type EntityDataRead = {
-  id: string
-  entity_metadata_id: string
-  field_data: {
-    [key: string]: unknown
-  }
-  created_at: string
-  updated_at: string
-  owner_id: string
-}
-
-/**
  * Request model for updating entity record.
  *
  * Note: The actual fields are dynamic based on entity type.
@@ -1228,27 +1246,6 @@ export type EntityMetadataCreate = {
   display_name: string
   description?: string | null
   icon?: string | null
-  settings?: {
-    [key: string]: unknown
-  }
-}
-
-/**
- * Response model for entity type.
- */
-export type EntityMetadataRead = {
-  id: string
-  name: string
-  display_name: string
-  description: string | null
-  icon: string | null
-  is_active: boolean
-  settings: {
-    [key: string]: unknown
-  }
-  created_at: string
-  updated_at: string
-  owner_id: string
 }
 
 /**
@@ -1258,9 +1255,6 @@ export type EntityMetadataUpdate = {
   display_name?: string | null
   description?: string | null
   icon?: string | null
-  settings?: {
-    [key: string]: unknown
-  } | null
 }
 
 /**
@@ -1323,6 +1317,15 @@ export type EntitySchemaResponse = {
    * Field definitions
    */
   fields: Array<EntitySchemaField>
+}
+
+/**
+ * Available entity type for selection.
+ */
+export type EntityTypeListRead = {
+  id: string
+  name: string
+  description: string | null
 }
 
 export type ErrorDetails = {
@@ -2302,7 +2305,7 @@ export type QueryRequest = {
  * Response model for query results.
  */
 export type QueryResponse = {
-  records: Array<EntityDataRead>
+  records: Array<tracecat__entities__models__EntityDataRead>
   /**
    * Total count if available
    */
@@ -2697,7 +2700,7 @@ export type RelationListRequest = {
  * Response for related records listing.
  */
 export type RelationListResponse = {
-  records: Array<EntityDataRead>
+  records: Array<tracecat__entities__models__EntityDataRead>
   total: number
   page: number
   page_size: number
@@ -4174,6 +4177,56 @@ export type login = {
   client_secret?: string | null
 }
 
+/**
+ * Entity record data.
+ */
+export type tracecat__cases__entities__models__EntityDataRead = {
+  id: string
+  entity_metadata_id: string
+  field_data: {
+    [key: string]: unknown
+  }
+}
+
+/**
+ * Entity type metadata.
+ */
+export type tracecat__cases__entities__models__EntityMetadataRead = {
+  id: string
+  name: string
+  description: string | null
+  is_active: boolean
+}
+
+/**
+ * Response model for entity record.
+ */
+export type tracecat__entities__models__EntityDataRead = {
+  id: string
+  entity_metadata_id: string
+  field_data: {
+    [key: string]: unknown
+  }
+  created_at: string
+  updated_at: string
+  owner_id: string
+}
+
+/**
+ * Response model for entity type.
+ */
+export type tracecat__entities__models__EntityMetadataRead = {
+  id: string
+  name: string
+  display_name: string
+  description: string | null
+  icon: string | null
+  is_active: boolean
+  created_at: string
+  updated_at: string
+  owner_id: string
+}
+
 export type PublicIncomingWebhookData = {
   contentType?: string | null
   /**
@@ -5260,12 +5313,43 @@ export type CasesRemoveTagData = {
 
 export type CasesRemoveTagResponse = void
 
+export type CasesListCaseEntitiesData = {
+  caseId: string
+  entityMetadataId?: string | null
+  workspaceId: string
+}
+
+export type CasesListCaseEntitiesResponse = Array<CaseEntityLinkRead>
+
+export type CasesAssociateEntityWithCaseData = {
+  caseId: string
+  requestBody: CaseEntityLinkCreate
+  workspaceId: string
+}
+
+export type CasesAssociateEntityWithCaseResponse = CaseEntityLinkRead
+
+export type CasesListAvailableEntityTypesData = {
+  workspaceId: string
+}
+
+export type CasesListAvailableEntityTypesResponse = Array<EntityTypeListRead>
+
+export type CasesRemoveEntityAssociationData = {
+  caseId: string
+  linkId: string
+  workspaceId: string
+}
+
+export type CasesRemoveEntityAssociationResponse = void
+
 export type EntitiesCreateEntityTypeData = {
   requestBody: EntityMetadataCreate
   workspaceId: string
 }
 
-export type EntitiesCreateEntityTypeResponse = EntityMetadataRead
+export type EntitiesCreateEntityTypeResponse =
+  tracecat__entities__models__EntityMetadataRead
 
 export type EntitiesListEntityTypesData = {
   /**
@@ -5275,14 +5359,16 @@ export type EntitiesListEntityTypesData = {
   workspaceId: string
 }
 
-export type EntitiesListEntityTypesResponse = Array<EntityMetadataRead>
+export type EntitiesListEntityTypesResponse =
+  Array<tracecat__entities__models__EntityMetadataRead>
 
 export type EntitiesGetEntityTypeData = {
   entityId: string
   workspaceId: string
 }
 
-export type EntitiesGetEntityTypeResponse = EntityMetadataRead
+export type EntitiesGetEntityTypeResponse =
+  tracecat__entities__models__EntityMetadataRead
 
 export type EntitiesUpdateEntityTypeData = {
   entityId: string
@@ -5290,21 +5376,24 @@ export type EntitiesUpdateEntityTypeData = {
   workspaceId: string
 }
 
-export type EntitiesUpdateEntityTypeResponse = EntityMetadataRead
+export type EntitiesUpdateEntityTypeResponse =
+  tracecat__entities__models__EntityMetadataRead
 
 export type EntitiesDeactivateEntityTypeData = {
   entityId: string
   workspaceId: string
 }
 
-export type EntitiesDeactivateEntityTypeResponse = EntityMetadataRead
+export type EntitiesDeactivateEntityTypeResponse =
+  tracecat__entities__models__EntityMetadataRead
 
 export type EntitiesReactivateEntityTypeData = {
   entityId: string
   workspaceId: string
 }
 
-export type EntitiesReactivateEntityTypeResponse = EntityMetadataRead
+export type EntitiesReactivateEntityTypeResponse =
+  tracecat__entities__models__EntityMetadataRead
 
 export type EntitiesDeleteEntityTypeData = {
   entityId: string
@@ -5382,14 +5471,16 @@ export type EntitiesCreateRecordData = {
   workspaceId: string
 }
 
-export type EntitiesCreateRecordResponse = EntityDataRead
+export type EntitiesCreateRecordResponse =
+  tracecat__entities__models__EntityDataRead
 
 export type EntitiesGetRecordData = {
   recordId: string
   workspaceId: string
 }
 
-export type EntitiesGetRecordResponse = EntityDataRead
+export type EntitiesGetRecordResponse =
+  tracecat__entities__models__EntityDataRead
 
 export type EntitiesUpdateRecordData = {
   recordId: string
@@ -5397,7 +5488,8 @@ export type EntitiesUpdateRecordData = {
   workspaceId: string
 }
 
-export type EntitiesUpdateRecordResponse = EntityDataRead
+export type EntitiesUpdateRecordResponse =
+  tracecat__entities__models__EntityDataRead
 
 export type EntitiesDeleteRecordData = {
   recordId: string
@@ -5818,7 +5910,7 @@ export type PublicCheckHealthResponse = {
 
 export type $OpenApiTs = {
   "/webhooks/{workflow_id}/{secret}": {
-    get: {
+    post: {
       req: PublicIncomingWebhookData
       res: {
         /**
@@ -5831,7 +5923,7 @@ export type $OpenApiTs = {
         422: HTTPValidationError
       }
     }
-    post: {
+    get: {
       req: PublicIncomingWebhook1Data
       res: {
         /**
@@ -7821,6 +7913,64 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/cases/{case_id}/entities": {
+    get: {
+      req: CasesListCaseEntitiesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<CaseEntityLinkRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: CasesAssociateEntityWithCaseData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: CaseEntityLinkRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases/entity-types": {
+    get: {
+      req: CasesListAvailableEntityTypesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<EntityTypeListRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases/{case_id}/entities/{link_id}": {
+    delete: {
+      req: CasesRemoveEntityAssociationData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/entities/types": {
     post: {
       req: EntitiesCreateEntityTypeData
@@ -7828,7 +7978,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: EntityMetadataRead
+        200: tracecat__entities__models__EntityMetadataRead
         /**
          * Validation Error
          */
@@ -7841,7 +7991,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: Array<EntityMetadataRead>
+        200: Array<tracecat__entities__models__EntityMetadataRead>
         /**
          * Validation Error
          */
@@ -7856,7 +8006,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: EntityMetadataRead
+        200: tracecat__entities__models__EntityMetadataRead
         /**
          * Validation Error
          */
@@ -7869,7 +8019,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: EntityMetadataRead
+        200: tracecat__entities__models__EntityMetadataRead
         /**
          * Validation Error
          */
@@ -7882,7 +8032,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: EntityMetadataRead
+        200: tracecat__entities__models__EntityMetadataRead
         /**
          * Validation Error
          */
@@ -7897,7 +8047,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: EntityMetadataRead
+        200: tracecat__entities__models__EntityMetadataRead
         /**
          * Validation Error
          */
@@ -8043,7 +8193,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: EntityDataRead
+        200: tracecat__entities__models__EntityDataRead
         /**
          * Validation Error
          */
@@ -8058,7 +8208,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: EntityDataRead
+        200: tracecat__entities__models__EntityDataRead
         /**
          * Validation Error
          */
@@ -8071,7 +8221,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: EntityDataRead
+        200: tracecat__entities__models__EntityDataRead
         /**
          * Validation Error
          */

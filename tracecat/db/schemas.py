@@ -1420,7 +1420,6 @@ class EntityMetadata(Resource, table=True):
     description: str | None = Field(default=None, max_length=1000)
     icon: str | None = Field(default=None, max_length=100)
     is_active: bool = Field(default=True, index=True)
-    settings: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
 
     # Relationships
     fields: list["FieldMetadata"] = Relationship(

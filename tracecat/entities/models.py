@@ -32,7 +32,6 @@ class EntityMetadataCreate(BaseModel):
     display_name: str = Field(..., min_length=1, max_length=255)
     description: str | None = Field(default=None, max_length=1000)
     icon: str | None = Field(default=None, max_length=100)
-    settings: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("name", mode="before")
     @classmethod
@@ -47,7 +46,6 @@ class EntityMetadataUpdate(BaseModel):
     display_name: str | None = Field(default=None, min_length=1, max_length=255)
     description: str | None = Field(default=None, max_length=1000)
     icon: str | None = Field(default=None, max_length=100)
-    settings: dict[str, Any] | None = None
 
 
 class EntityMetadataRead(BaseModel):
@@ -59,7 +57,6 @@ class EntityMetadataRead(BaseModel):
     description: str | None
     icon: str | None
     is_active: bool
-    settings: dict[str, Any]
     created_at: datetime
     updated_at: datetime
     owner_id: UUID

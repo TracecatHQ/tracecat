@@ -51,6 +51,8 @@ import type {
   AuthVerifyVerifyResponse,
   CasesAddTagData,
   CasesAddTagResponse,
+  CasesAssociateEntityWithCaseData,
+  CasesAssociateEntityWithCaseResponse,
   CasesCreateAttachmentData,
   CasesCreateAttachmentResponse,
   CasesCreateCaseData,
@@ -75,6 +77,10 @@ import type {
   CasesGetStorageUsageResponse,
   CasesListAttachmentsData,
   CasesListAttachmentsResponse,
+  CasesListAvailableEntityTypesData,
+  CasesListAvailableEntityTypesResponse,
+  CasesListCaseEntitiesData,
+  CasesListCaseEntitiesResponse,
   CasesListCasesData,
   CasesListCasesResponse,
   CasesListCommentsData,
@@ -85,6 +91,8 @@ import type {
   CasesListFieldsResponse,
   CasesListTagsData,
   CasesListTagsResponse,
+  CasesRemoveEntityAssociationData,
+  CasesRemoveEntityAssociationResponse,
   CasesRemoveTagData,
   CasesRemoveTagResponse,
   CasesSearchCasesData,
@@ -445,7 +453,7 @@ export const publicIncomingWebhook = (
   data: PublicIncomingWebhookData
 ): CancelablePromise<PublicIncomingWebhookResponse> => {
   return __request(OpenAPI, {
-    method: "GET",
+    method: "POST",
     url: "/webhooks/{workflow_id}/{secret}",
     path: {
       secret: data.secret,
@@ -485,7 +493,7 @@ export const publicIncomingWebhook1 = (
   data: PublicIncomingWebhook1Data
 ): CancelablePromise<PublicIncomingWebhook1Response> => {
   return __request(OpenAPI, {
-    method: "POST",
+    method: "GET",
     url: "/webhooks/{workflow_id}/{secret}",
     path: {
       secret: data.secret,
@@ -4155,12 +4163,130 @@ export const casesRemoveTag = (
 }
 
 /**
+ * List Case Entities
+ * List all entity records associated with a case.
+ *
+ * Optionally filter by entity type using entity_metadata_id.
+ * @param data The data for the request.
+ * @param data.caseId
+ * @param data.workspaceId
+ * @param data.entityMetadataId
+ * @returns CaseEntityLinkRead Successful Response
+ * @throws ApiError
+ */
+export const casesListCaseEntities = (
+  data: CasesListCaseEntitiesData
+): CancelablePromise<CasesListCaseEntitiesResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/cases/{case_id}/entities",
+    path: {
+      case_id: data.caseId,
+    },
+    query: {
+      entity_metadata_id: data.entityMetadataId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Associate Entity With Case
+ * Associate an entity record with a case.
+ *
+ * Either provide entity_data_id to link an existing record,
+ * or provide entity_data to create a new record and link it.
+ * @param data The data for the request.
+ * @param data.caseId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns CaseEntityLinkRead Successful Response
+ * @throws ApiError
+ */
+export const casesAssociateEntityWithCase = (
+  data: CasesAssociateEntityWithCaseData
+): CancelablePromise<CasesAssociateEntityWithCaseResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/cases/{case_id}/entities",
+    path: {
+      case_id: data.caseId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Available Entity Types
+ * List all available entity types in the workspace.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @returns EntityTypeListRead Successful Response
+ * @throws ApiError
+ */
+export const casesListAvailableEntityTypes = (
+  data: CasesListAvailableEntityTypesData
+): CancelablePromise<CasesListAvailableEntityTypesResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/cases/entity-types",
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Remove Entity Association
+ * Remove an entity association from a case.
+ *
+ * This only removes the association; the entity record itself is preserved.
+ * @param data The data for the request.
+ * @param data.caseId
+ * @param data.linkId
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const casesRemoveEntityAssociation = (
+  data: CasesRemoveEntityAssociationData
+): CancelablePromise<CasesRemoveEntityAssociationResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/cases/{case_id}/entities/{link_id}",
+    path: {
+      case_id: data.caseId,
+      link_id: data.linkId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * Create Entity Type
  * Create a new entity type.
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.requestBody
- * @returns EntityMetadataRead Successful Response
+ * @returns tracecat__entities__models__EntityMetadataRead Successful Response
  * @throws ApiError
  */
 export const entitiesCreateEntityType = (
@@ -4186,7 +4312,7 @@ export const entitiesCreateEntityType = (
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.includeInactive Include soft-deleted entity types
- * @returns EntityMetadataRead Successful Response
+ * @returns tracecat__entities__models__EntityMetadataRead Successful Response
  * @throws ApiError
  */
 export const entitiesListEntityTypes = (
@@ -4211,7 +4337,7 @@ export const entitiesListEntityTypes = (
  * @param data The data for the request.
  * @param data.entityId
  * @param data.workspaceId
- * @returns EntityMetadataRead Successful Response
+ * @returns tracecat__entities__models__EntityMetadataRead Successful Response
  * @throws ApiError
  */
 export const entitiesGetEntityType = (
@@ -4239,7 +4365,7 @@ export const entitiesGetEntityType = (
  * @param data.entityId
  * @param data.workspaceId
  * @param data.requestBody
- * @returns EntityMetadataRead Successful Response
+ * @returns tracecat__entities__models__EntityMetadataRead Successful Response
  * @throws ApiError
  */
 export const entitiesUpdateEntityType = (
@@ -4268,7 +4394,7 @@ export const entitiesUpdateEntityType = (
  * @param data The data for the request.
  * @param data.entityId
  * @param data.workspaceId
- * @returns EntityMetadataRead Successful Response
+ * @returns tracecat__entities__models__EntityMetadataRead Successful Response
  * @throws ApiError
  */
 export const entitiesDeactivateEntityType = (
@@ -4295,7 +4421,7 @@ export const entitiesDeactivateEntityType = (
  * @param data The data for the request.
  * @param data.entityId
  * @param data.workspaceId
- * @returns EntityMetadataRead Successful Response
+ * @returns tracecat__entities__models__EntityMetadataRead Successful Response
  * @throws ApiError
  */
 export const entitiesReactivateEntityType = (
@@ -4584,7 +4710,7 @@ export const entitiesCreateRelationField = (
  * @param data.entityId
  * @param data.workspaceId
  * @param data.requestBody
- * @returns EntityDataRead Successful Response
+ * @returns tracecat__entities__models__EntityDataRead Successful Response
  * @throws ApiError
  */
 export const entitiesCreateRecord = (
@@ -4613,7 +4739,7 @@ export const entitiesCreateRecord = (
  * @param data The data for the request.
  * @param data.recordId
  * @param data.workspaceId
- * @returns EntityDataRead Successful Response
+ * @returns tracecat__entities__models__EntityDataRead Successful Response
  * @throws ApiError
  */
 export const entitiesGetRecord = (
@@ -4641,7 +4767,7 @@ export const entitiesGetRecord = (
  * @param data.recordId
  * @param data.workspaceId
  * @param data.requestBody
- * @returns EntityDataRead Successful Response
+ * @returns tracecat__entities__models__EntityDataRead Successful Response
  * @throws ApiError
  */
 export const entitiesUpdateRecord = (
