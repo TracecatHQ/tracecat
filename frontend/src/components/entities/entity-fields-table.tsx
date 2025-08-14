@@ -45,6 +45,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import {
@@ -319,42 +320,51 @@ export function EntityFieldsTable({
                         </DropdownMenuItem>
                       )}
                       {row.original.is_active && onDeactivateField && (
-                        <AlertDialogTrigger asChild>
-                          <DropdownMenuItem
-                            className="text-rose-500 focus:text-rose-600"
-                            onClick={() => {
-                              setSelectedField(row.original)
-                              setActionType("deactivate")
-                            }}
-                          >
-                            <XCircle className="mr-2 h-3 w-3" />
-                            Deactivate field
-                          </DropdownMenuItem>
-                        </AlertDialogTrigger>
+                        <>
+                          <DropdownMenuSeparator />
+                          <AlertDialogTrigger asChild>
+                            <DropdownMenuItem
+                              className="text-rose-500 focus:text-rose-600"
+                              onClick={() => {
+                                setSelectedField(row.original)
+                                setActionType("deactivate")
+                              }}
+                            >
+                              <XCircle className="mr-2 h-3 w-3" />
+                              Deactivate field
+                            </DropdownMenuItem>
+                          </AlertDialogTrigger>
+                        </>
                       )}
                       {!row.original.is_active && onReactivateField && (
-                        <DropdownMenuItem
-                          onClick={() =>
-                            void onReactivateField(row.original.id)
-                          }
-                        >
-                          <CheckCircle className="mr-2 h-3 w-3" />
-                          Reactivate field
-                        </DropdownMenuItem>
-                      )}
-                      {onDeleteField && (
-                        <AlertDialogTrigger asChild>
+                        <>
+                          <DropdownMenuSeparator />
                           <DropdownMenuItem
-                            className="text-rose-500 focus:text-rose-600"
-                            onClick={() => {
-                              setSelectedField(row.original)
-                              setActionType("delete")
-                            }}
+                            onClick={() =>
+                              void onReactivateField(row.original.id)
+                            }
                           >
-                            <Trash2 className="mr-2 h-3 w-3" />
-                            Delete field
+                            <CheckCircle className="mr-2 h-3 w-3" />
+                            Reactivate field
                           </DropdownMenuItem>
-                        </AlertDialogTrigger>
+                        </>
+                      )}
+                      {!row.original.is_active && onDeleteField && (
+                        <>
+                          {!onReactivateField && <DropdownMenuSeparator />}
+                          <AlertDialogTrigger asChild>
+                            <DropdownMenuItem
+                              className="text-rose-500 focus:text-rose-600"
+                              onClick={() => {
+                                setSelectedField(row.original)
+                                setActionType("delete")
+                              }}
+                            >
+                              <Trash2 className="mr-2 h-3 w-3" />
+                              Delete field
+                            </DropdownMenuItem>
+                          </AlertDialogTrigger>
+                        </>
                       )}
                     </DropdownMenuContent>
                   </DropdownMenu>
@@ -368,15 +378,17 @@ export function EntityFieldsTable({
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>
-            {actionType === "delete" ? "Delete Field" : "Deactivate Field"}
+            {actionType === "delete"
+              ? "Delete field permanently"
+              : "Deactivate field"}
           </AlertDialogTitle>
           <AlertDialogDescription>
             {actionType === "delete" ? (
               <>
-                Are you sure you want to delete the field{" "}
+                Are you sure you want to permanently delete the field{" "}
                 <strong>{selectedField?.display_name}</strong>? This action
                 cannot be undone and will delete all existing values for this
-                field.
+                field across all records.
               </>
             ) : (
               <>
@@ -408,7 +420,7 @@ export function EntityFieldsTable({
             }}
             disabled={isDeleting}
           >
-            {actionType === "delete" ? "Delete" : "Deactivate"}
+            {actionType === "delete" ? "Delete Permanently" : "Deactivate"}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

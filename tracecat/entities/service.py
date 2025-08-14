@@ -169,6 +169,62 @@ class CustomEntitiesService(BaseWorkspaceService):
         result = await self.session.exec(stmt)
         return list(result.all())
 
+    @require_access_level(AccessLevel.ADMIN)
+    async def delete_entity_type(self, entity_id: UUID) -> None:
+        """Permanently delete an entity type and all associated data.
+
+        Args:
+            entity_id: Entity to delete
+
+        Note:
+            This is a hard delete - all data will be permanently lost.
+            - Deletes all records of this entity type
+            - Deletes all fields
+            - Deletes all relation links
+            - Deletes the entity metadata
+        """
+        entity = await self.get_entity_type(entity_id)
+
+        # Delete all relation links involving this entity
+        # Links where records of this entity are sources
+        source_links_stmt = select(EntityRelationLink).where(
+            EntityRelationLink.source_entity_metadata_id == entity_id
+        )
+        source_links_result = await self.session.exec(source_links_stmt)
+        for link in source_links_result.all():
+            await self.session.delete(link)
+
+        # Links where records of this entity are targets
+        target_links_stmt = select(EntityRelationLink).where(
+            EntityRelationLink.target_entity_metadata_id == entity_id
+        )
+        target_links_result = await self.session.exec(target_links_stmt)
+        for link in target_links_result.all():
+            await self.session.delete(link)
+
+        # Delete all records of this entity type
+        records_stmt = select(EntityData).where(
+            EntityData.entity_metadata_id == entity_id,
+            EntityData.owner_id == self.workspace_id,
+        )
+        records_result = await self.session.exec(records_stmt)
+        for record in records_result.all():
+            await self.session.delete(record)
+
+        # Delete all fields (cascade will handle this, but let's be explicit)
+        fields_stmt = select(FieldMetadata).where(
+            FieldMetadata.entity_metadata_id == entity_id
+        )
+        fields_result = await self.session.exec(fields_stmt)
+        for field in fields_result.all():
+            await self.session.delete(field)
+
+        # Delete the entity metadata itself
+        await self.session.delete(entity)
+        await self.session.commit()
+
+        logger.info(f"Permanently deleted entity type {entity.name}")
+
     # Field Operations
 
     @require_access_level(AccessLevel.ADMIN)
@@ -412,6 +468,48 @@ class CustomEntitiesService(BaseWorkspaceService):
         logger.info(f"Reactivated field {field.field_key}")
         return field
 
+    @require_access_level(AccessLevel.ADMIN)
+    async def delete_field(self, field_id: UUID) -> None:
+        """Permanently delete a field and all associated data.
+
+        Args:
+            field_id: Field to delete
+
+        Note:
+            This is a hard delete - all data will be permanently lost.
+            - Removes field from all records
+            - Deletes all relation links if it's a relation field
+            - Deletes the field metadata
+        """
+        field = await self.get_field(field_id)
+
+        # If it's a relation field, delete all associated links
+        if field.relation_kind:
+            # Delete all links where this field is the source
+            links_stmt = select(EntityRelationLink).where(
+                EntityRelationLink.source_field_id == field_id
+            )
+            links_result = await self.session.exec(links_stmt)
+            for link in links_result.all():
+                await self.session.delete(link)
+
+        # Remove field data from all records of this entity
+        records_stmt = select(EntityData).where(
+            EntityData.entity_metadata_id == field.entity_metadata_id,
+            EntityData.owner_id == self.workspace_id,
+        )
+        records_result = await self.session.exec(records_stmt)
+        for record in records_result.all():
+            if field.field_key in record.field_data:
+                del record.field_data[field.field_key]
+                flag_modified(record, "field_data")
+
+        # Delete the field metadata itself
+        await self.session.delete(field)
+        await self.session.commit()
+
+        logger.info(f"Permanently deleted field {field.field_key}")
+
     # Relation Field Operations
 
     @require_access_level(AccessLevel.ADMIN)
@@ -495,17 +593,12 @@ class CustomEntitiesService(BaseWorkspaceService):
             is_active=True,
             relation_kind=relation_kind,
             relation_target_entity_id=relation_settings.target_entity_id,
-            # v1: cascade_delete is always true
         )
-
-        # v1: No backref support - relations are unidirectional
 
         self.session.add(field)
         await self.session.commit()
         await self.session.refresh(field)
         return field
-
-    # v1: Removed create_paired_relation_fields - relations are unidirectional
 
     # Relation Record Operations
 
@@ -783,8 +876,6 @@ class CustomEntitiesService(BaseWorkspaceService):
             )
             links_result = await self.session.exec(links_stmt)
             links = list(links_result.all())
-
-            # v1: cascade_delete is always true
 
             if field.relation_kind == RelationKind.ONE_TO_ONE:
                 # For one_to_one: always cascade delete source records

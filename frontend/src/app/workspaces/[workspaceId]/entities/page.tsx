@@ -3,9 +3,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { DatabaseIcon } from "lucide-react"
 import {
+  type EntityMetadataRead,
   entitiesDeactivateEntityType,
+  entitiesDeleteEntityType,
   entitiesListFields,
   entitiesReactivateEntityType,
+  entitiesUpdateEntityType,
 } from "@/client"
 import { EntitiesTable } from "@/components/entities/entities-table"
 import { CenteredSpinner } from "@/components/loading/spinner"
@@ -115,6 +118,89 @@ export default function EntitiesPage() {
     },
   })
 
+  const { mutateAsync: updateEntity, isPending: updateEntityIsPending } =
+    useMutation({
+      mutationFn: async ({
+        entity,
+        data,
+      }: {
+        entity: EntityMetadataRead
+        data: {
+          display_name: string
+          description?: string
+          icon?: string
+        }
+      }) => {
+        return await entitiesUpdateEntityType({
+          workspaceId,
+          entityId: entity.id,
+          requestBody: data,
+        })
+      },
+      onSuccess: () => {
+        queryClient.invalidateQueries({
+          queryKey: ["entities", workspaceId],
+        })
+        toast({
+          title: "Entity updated",
+          description: "The entity settings were updated successfully.",
+        })
+      },
+      onError: (error) => {
+        console.error("Failed to update entity", error)
+        toast({
+          title: "Error updating entity",
+          description: "Failed to update the entity. Please try again.",
+          variant: "destructive",
+        })
+      },
+    })
+
+  const { mutateAsync: deleteEntity, isPending: deleteEntityIsPending } =
+    useMutation({
+      mutationFn: async (entityId: string) => {
+        return await entitiesDeleteEntityType({
+          workspaceId,
+          entityId,
+        })
+      },
+      onSuccess: () => {
+        queryClient.invalidateQueries({
+          queryKey: ["entities", workspaceId],
+        })
+        queryClient.invalidateQueries({
+          queryKey: ["entity-field-counts", workspaceId],
+        })
+        toast({
+          title: "Entity deleted",
+          description: "The entity and all its data were permanently deleted.",
+        })
+      },
+      onError: (error) => {
+        console.error("Failed to delete entity", error)
+        toast({
+          title: "Error deleting entity",
+          description: "Failed to delete the entity. Please try again.",
+          variant: "destructive",
+        })
+      },
+    })
+
+  const handleEditEntity = async (
+    entity: EntityMetadataRead,
+    data: {
+      display_name: string
+      description?: string
+      icon?: string
+    }
+  ) => {
+    await updateEntity({ entity, data })
+  }
+
+  const handleDeleteEntity = async (entityId: string) => {
+    await deleteEntity(entityId)
+  }
+
   const handleDeactivateEntity = async (entityId: string) => {
     await deactivateEntity(entityId)
   }
@@ -171,11 +257,16 @@ export default function EntitiesPage() {
             <EntitiesTable
               entities={entities}
               fieldCounts={fieldCounts}
+              onEditEntity={handleEditEntity}
+              onDeleteEntity={handleDeleteEntity}
               onDeactivateEntity={handleDeactivateEntity}
               onReactivateEntity={handleReactivateEntity}
               isDeleting={
-                deactivateEntityIsPending || reactivateEntityIsPending
+                deactivateEntityIsPending ||
+                reactivateEntityIsPending ||
+                deleteEntityIsPending
               }
+              isUpdating={updateEntityIsPending}
             />
           </div>
         )}
