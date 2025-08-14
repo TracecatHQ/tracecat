@@ -534,135 +534,17 @@ class CustomEntitiesService(BaseWorkspaceService):
             is_unique=is_unique,
             relation_kind=relation_kind,
             relation_target_entity_id=relation_settings.target_entity_id,
-            relation_cascade_delete=relation_settings.cascade_delete,
+            # v1: cascade_delete is always true
         )
 
-        # Handle backref field if specified
-        if relation_settings.backref_field_key:
-            # Check if backref field already exists on target entity
-            backref_stmt = select(FieldMetadata).where(
-                FieldMetadata.entity_metadata_id == relation_settings.target_entity_id,
-                FieldMetadata.field_key == relation_settings.backref_field_key,
-            )
-            backref_result = await self.session.exec(backref_stmt)
-            backref_field = backref_result.first()
-
-            if backref_field:
-                # Validate it's the correct type
-                expected_backref_type = (
-                    FieldType.RELATION_HAS_MANY
-                    if field_type == FieldType.RELATION_BELONGS_TO
-                    else FieldType.RELATION_BELONGS_TO
-                )
-                if backref_field.field_type != expected_backref_type:
-                    raise ValueError(
-                        f"Backref field {relation_settings.backref_field_key} exists but is not a {expected_backref_type} field"
-                    )
-                # Set the backref field ID
-                field.relation_backref_field_id = backref_field.id
-            # If backref doesn't exist, it will be created later via create_paired_relation_fields
+        # v1: No backref support - relations are unidirectional
 
         self.session.add(field)
         await self.session.commit()
         await self.session.refresh(field)
         return field
 
-    @require_access_level(AccessLevel.ADMIN)
-    async def create_paired_relation_fields(
-        self,
-        source_entity_id: UUID,
-        source_field_key: str,
-        source_display_name: str,
-        target_entity_id: UUID,
-        target_field_key: str,
-        target_display_name: str,
-        cascade_delete: bool = True,
-    ) -> tuple[FieldMetadata, FieldMetadata]:
-        """Atomically create bidirectional relation fields.
-
-        Creates a belongs_to field on the source entity and a has_many field on the target entity.
-
-        Args:
-            source_entity_id: Entity that will have the belongs_to field
-            source_field_key: Field key for belongs_to field
-            source_display_name: Display name for belongs_to field
-            target_entity_id: Entity that will have the has_many field
-            target_field_key: Field key for has_many field
-            target_display_name: Display name for has_many field
-            cascade_delete: Whether to cascade delete related records
-
-        Returns:
-            Tuple of (belongs_to field, has_many field)
-
-        Raises:
-            ValueError: If validation fails
-            TracecatNotFoundError: If entities not found
-        """
-        # Validate both entities exist and belong to same owner
-        source_entity = await self.get_entity_type(source_entity_id)
-        target_entity = await self.get_entity_type(target_entity_id)
-
-        # Check field uniqueness
-        for entity_id, field_key in [
-            (source_entity_id, source_field_key),
-            (target_entity_id, target_field_key),
-        ]:
-            existing = await self.session.exec(
-                select(FieldMetadata).where(
-                    FieldMetadata.entity_metadata_id == entity_id,
-                    FieldMetadata.field_key == field_key,
-                )
-            )
-            if existing.first():
-                raise ValueError(
-                    f"Field key '{field_key}' already exists on entity {entity_id}"
-                )
-
-        # Create belongs_to field on source entity
-        belongs_to_field = FieldMetadata(
-            entity_metadata_id=source_entity_id,
-            field_key=source_field_key,
-            field_type=FieldType.RELATION_BELONGS_TO,
-            display_name=source_display_name,
-            description=f"Belongs to {target_entity.display_name}",
-            is_active=True,
-            is_required=False,
-            relation_kind="belongs_to",
-            relation_target_entity_id=target_entity_id,
-            relation_cascade_delete=cascade_delete,
-        )
-
-        # Create has_many field on target entity
-        has_many_field = FieldMetadata(
-            entity_metadata_id=target_entity_id,
-            field_key=target_field_key,
-            field_type=FieldType.RELATION_HAS_MANY,
-            display_name=target_display_name,
-            description=f"Has many {source_entity.display_name}",
-            is_active=True,
-            is_required=False,
-            relation_kind="has_many",
-            relation_target_entity_id=source_entity_id,
-            relation_cascade_delete=cascade_delete,
-        )
-
-        # Add both fields
-        self.session.add(belongs_to_field)
-        self.session.add(has_many_field)
-
-        # Flush to get IDs
-        await self.session.flush()
-
-        # Set backref field IDs (DEFERRABLE constraint allows this)
-        belongs_to_field.relation_backref_field_id = has_many_field.id
-        has_many_field.relation_backref_field_id = belongs_to_field.id
-
-        # Commit the transaction
-        await self.session.commit()
-        await self.session.refresh(belongs_to_field)
-        await self.session.refresh(has_many_field)
-
-        return belongs_to_field, has_many_field
+    # v1: Removed create_paired_relation_fields - relations are unidirectional
 
     # Relation Record Operations
 
@@ -984,12 +866,11 @@ class CustomEntitiesService(BaseWorkspaceService):
             links_result = await self.session.exec(links_stmt)
             links = list(links_result.all())
 
-            # Check cascade_delete setting
-            cascade_delete = field.relation_cascade_delete
+            # v1: cascade_delete is always true
 
             if field.relation_kind == "belongs_to":
-                # For belongs_to: either delete source records or set to NULL
-                if cascade_delete and cascade_relations:
+                # For belongs_to: always cascade delete source records
+                if cascade_relations:
                     # Delete source records
                     for link in links:
                         source_record = await self.get_record(link.source_record_id)

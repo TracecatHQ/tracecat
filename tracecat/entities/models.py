@@ -78,14 +78,7 @@ class RelationSettings(BaseModel):
 
     relation_type: RelationType
     target_entity_id: UUID
-    backref_field_key: str | None = Field(
-        default=None,
-        description="Field key in target entity for reverse relation",
-    )
-    cascade_delete: bool = Field(
-        default=True,
-        description="Delete related records when source is deleted",
-    )
+    # v1: Relations are unidirectional, cascade delete is always true
 
 
 # Field Metadata Models
@@ -314,8 +307,7 @@ class FieldMetadataRead(BaseModel):
     # Relation fields
     relation_kind: str | None = None
     relation_target_entity_id: UUID | None = None
-    relation_backref_field_id: UUID | None = None
-    relation_cascade_delete: bool | None = None
+    # v1: No backref_field_id or cascade_delete (always true)
     # Enum field options
     enum_options: list[str] | None = None
     default_value: Any | None = None
@@ -536,9 +528,6 @@ class EntitySchemaField(BaseModel):
     required: bool = Field(..., description="Whether field is required")
     enum_options: list[str] | None = Field(
         default=None, description="Options for SELECT/MULTI_SELECT fields"
-    )
-    relation_cascade_delete: bool | None = Field(
-        default=None, description="Cascade delete setting for relation fields"
     )
 
 
