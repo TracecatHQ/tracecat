@@ -801,6 +801,10 @@ export type ChatRequest = {
   context?: {
     [key: string]: unknown
   } | null
+  /**
+   * Optional base URL for the model provider
+   */
+  base_url?: string | null
 }
 
 /**
@@ -1816,6 +1820,10 @@ export type ProviderCredentialField = {
    * Help text describing this credential
    */
   description: string
+  /**
+   * Whether this field is required
+   */
+  required?: boolean
 }
 
 /**
@@ -2852,6 +2860,9 @@ export type TagInput = {
 export type TagRead = {
   id: string
   name: string
+  /**
+   * Slug-like identifier derived from name, used for API lookups
+   */
   ref: string
   /**
    * Hex color code
@@ -4561,7 +4572,7 @@ export type CasesListCasesData = {
   /**
    * Filter by tag IDs or slugs (AND logic)
    */
-  tags?: Array<string>
+  tags?: Array<string> | null
   workspaceId: string
 }
 
@@ -4612,7 +4623,7 @@ export type CasesSearchCasesData = {
   /**
    * Filter by tag IDs or slugs (AND logic)
    */
-  tags?: Array<string>
+  tags?: Array<string> | null
   workspaceId: string
 }
 
@@ -5119,7 +5130,7 @@ export type PublicCheckHealthResponse = {
 
 export type $OpenApiTs = {
   "/webhooks/{workflow_id}/{secret}": {
-    post: {
+    get: {
       req: PublicIncomingWebhookData
       res: {
         /**
@@ -5132,7 +5143,7 @@ export type $OpenApiTs = {
         422: HTTPValidationError
       }
     }
-    get: {
+    post: {
       req: PublicIncomingWebhook1Data
       res: {
         /**

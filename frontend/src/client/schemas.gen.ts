@@ -2162,6 +2162,8 @@ export const $CaseTagCreate = {
           type: "string",
         },
       ],
+      maxLength: 100,
+      minLength: 1,
       title: "Tag Id",
       description: "Tag ID (UUID) or ref",
     },
@@ -2494,6 +2496,19 @@ export const $ChatRequest = {
       ],
       title: "Context",
       description: "Optional context data for the agent",
+    },
+    base_url: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 500,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Base Url",
+      description: "Optional base URL for the model provider",
     },
   },
   type: "object",
@@ -5282,6 +5297,12 @@ export const $ProviderCredentialField = {
       minLength: 1,
       title: "Description",
       description: "Help text describing this credential",
+    },
+    required: {
+      type: "boolean",
+      title: "Required",
+      description: "Whether this field is required",
+      default: true,
     },
   },
   type: "object",
@@ -8265,6 +8286,8 @@ export const $TagRead = {
     ref: {
       type: "string",
       title: "Ref",
+      description:
+        "Slug-like identifier derived from name, used for API lookups",
     },
     color: {
       anyOf: [
