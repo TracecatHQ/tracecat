@@ -8,13 +8,7 @@ import { useForm } from "react-hook-form"
 import { z } from "zod"
 import { ChatToolsDialog } from "@/components/chat/chat-tools-dialog"
 import { Button } from "@/components/ui/button"
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormMessage,
-} from "@/components/ui/form"
+import { Form, FormControl, FormField, FormItem } from "@/components/ui/form"
 import { Textarea } from "@/components/ui/textarea"
 import {
   Tooltip,
@@ -134,7 +128,6 @@ export function ChatInput({
                       disabled={disabled}
                     />
                   </FormControl>
-                  <FormMessage />
                 </FormItem>
               )}
             />
