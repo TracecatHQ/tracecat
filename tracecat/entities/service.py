@@ -38,6 +38,7 @@ from tracecat.entities.types import (
 )
 from tracecat.entities.validation import (
     EntityValidators,
+    FieldValidators,
     RecordValidators,
     RelationValidators,
 )
@@ -65,6 +66,7 @@ class CustomEntitiesService(BaseWorkspaceService):
         self.query_builder = EntityQueryBuilder(session)
         # Initialize validators
         self.entity_validators = EntityValidators(session, self.workspace_id)
+        self.field_validators = FieldValidators(session, self.workspace_id)
         self.record_validators = RecordValidators(
             session, str(self.workspace_id), self.query_builder
         )
@@ -199,6 +201,9 @@ class CustomEntitiesService(BaseWorkspaceService):
         """
         # Validate entity exists
         await self.get_entity_type(entity_id)
+
+        # Check field key uniqueness
+        await self.field_validators.validate_field_key_unique(entity_id, field_key)
 
         # Validate using Pydantic model
         try:
@@ -470,15 +475,10 @@ class CustomEntitiesService(BaseWorkspaceService):
             error_msg = first_error.get("msg", str(e))
             raise ValueError(error_msg) from e
 
-        # Check uniqueness
-        existing = await self.session.exec(
-            select(FieldMetadata).where(
-                FieldMetadata.entity_metadata_id == entity_id,
-                FieldMetadata.field_key == validated.field_key,
-            )
+        # Check field key uniqueness
+        await self.field_validators.validate_field_key_unique(
+            entity_id, validated.field_key
         )
-        if existing.first():
-            raise ValueError(f"Field key '{validated.field_key}' already exists")
 
         # Determine relation_kind based on field_type
         relation_kind = (
