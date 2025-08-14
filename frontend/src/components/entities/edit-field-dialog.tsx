@@ -1,9 +1,11 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
+import { useMemo } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import type { FieldMetadataRead, FieldMetadataUpdate } from "@/client"
+import { MultiTagCommandInput } from "@/components/tags-input"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -28,6 +30,7 @@ import { Textarea } from "@/components/ui/textarea"
 const editFieldSchema = z.object({
   display_name: z.string().min(1, "Display name is required"),
   description: z.string().optional(),
+  enum_options: z.array(z.string()).optional(),
 })
 
 type EditFieldSchema = z.infer<typeof editFieldSchema>
@@ -52,17 +55,39 @@ export function EditFieldDialog({
     values: {
       display_name: field?.display_name || "",
       description: field?.description || "",
+      enum_options: field?.enum_options || [],
     },
   })
+
+  const isSelectField = useMemo(
+    () =>
+      field?.field_type === "SELECT" || field?.field_type === "MULTI_SELECT",
+    [field?.field_type]
+  )
 
   const handleSubmit = async (data: EditFieldSchema) => {
     if (!field) return
 
     try {
-      await onSubmit(field.id, {
+      const updateData: FieldMetadataUpdate = {
         display_name: data.display_name,
         description: data.description || null,
-      })
+      }
+
+      // Only include enum_options for SELECT/MULTI_SELECT fields
+      if (isSelectField) {
+        if (data.enum_options && data.enum_options.length > 0) {
+          updateData.enum_options = data.enum_options
+        } else {
+          // SELECT/MULTI_SELECT require at least one option
+          console.error(
+            "SELECT/MULTI_SELECT fields require at least one option"
+          )
+          throw new Error("Please add at least one option for this field type")
+        }
+      }
+
+      await onSubmit(field.id, updateData)
       onOpenChange(false)
       form.reset()
     } catch (error) {
@@ -148,6 +173,33 @@ export function EditFieldDialog({
                 </FormItem>
               )}
             />
+
+            {isSelectField && (
+              <FormField
+                control={form.control}
+                name="enum_options"
+                render={({ field: formField }) => (
+                  <FormItem>
+                    <FormLabel>Options</FormLabel>
+                    <FormControl>
+                      <MultiTagCommandInput
+                        value={formField.value || []}
+                        onChange={formField.onChange}
+                        placeholder="Add options..."
+                        allowCustomTags={true}
+                        disableSuggestions={true}
+                        className="w-full"
+                        searchKeys={["label"]}
+                      />
+                    </FormControl>
+                    <FormDescription className="text-xs">
+                      Add or remove available options for this field
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
 
             <DialogFooter>
               <Button
