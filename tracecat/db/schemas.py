@@ -25,6 +25,8 @@ from tracecat.db.adapter import (
     SQLModelBaseOAuthAccount,
     SQLModelBaseUserDB,
 )
+from tracecat.ee.interactions.enums import InteractionStatus, InteractionType
+from tracecat.entities.enums import RelationKind
 from tracecat.identifiers import OwnerID, action, id_factory
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.integrations.enums import IntegrationStatus, OAuthGrantType
@@ -1461,10 +1463,10 @@ class FieldMetadata(SQLModel, TimestampMixin, table=True):
     )
 
     # Relation field columns
-    relation_kind: str | None = Field(
+    relation_kind: RelationKind | None = Field(
         default=None,
         max_length=20,
-        description="Type of relation: belongs_to or has_many",
+        description="Type of relation: one_to_one or one_to_many",
     )
     relation_target_entity_id: UUID4 | None = Field(
         default=None,

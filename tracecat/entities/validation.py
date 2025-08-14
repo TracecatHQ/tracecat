@@ -605,50 +605,6 @@ class RelationValidators:
                     f"Record is already linked to another {field.field_key}"
                 )
 
-    async def validate_backref_field(
-        self, field: FieldMetadata, target_entity: EntityMetadata
-    ) -> FieldMetadata | None:
-        """Validate and retrieve backref field if specified.
-
-        Args:
-            field: Field with relation settings
-            target_entity: Target entity metadata
-
-        Returns:
-            Backref FieldMetadata if exists and valid, None otherwise
-
-        Raises:
-            TracecatNotFoundError: If backref field specified but not found
-            TracecatValidationError: If backref field is not active
-        """
-        if not field.relation_backref_field_id:
-            return None
-
-        # Get the backref field by ID
-        stmt = select(FieldMetadata).where(
-            FieldMetadata.id == field.relation_backref_field_id
-        )
-        result = await self.session.exec(stmt)
-        backref_field = result.first()
-
-        if not backref_field:
-            raise TracecatNotFoundError(
-                f"Backref field with ID '{field.relation_backref_field_id}' not found"
-            )
-
-        # Verify it belongs to the target entity
-        if backref_field.entity_metadata_id != target_entity.id:
-            raise TracecatValidationError(
-                f"Backref field does not belong to target entity '{target_entity.name}'"
-            )
-
-        if not backref_field.is_active:
-            raise TracecatValidationError(
-                f"Backref field '{backref_field.field_key}' is not active"
-            )
-
-        return backref_field
-
 
 class ConstraintValidators:
     """Validators for constraint changes on existing data."""

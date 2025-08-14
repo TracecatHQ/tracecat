@@ -7846,7 +7846,10 @@ export const $RelationType = {
   type: "string",
   enum: ["belongs_to", "has_many"],
   title: "RelationType",
-  description: "Types of relations between entities.",
+  description: `Types of relations between entities (for API/models).
+
+These values are used in the API and models layer to represent
+the type of relationship from the perspective of the source entity.`,
 } as const
 
 export const $RelationUpdateResponse = {

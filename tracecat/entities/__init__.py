@@ -4,7 +4,6 @@ This module provides workspace-level custom object definitions without SQL migra
 Fields are immutable after creation (v1) with soft delete support.
 """
 
-from tracecat.entities.service import CustomEntitiesService
 from tracecat.entities.types import FieldType
 
-__all__ = ["CustomEntitiesService", "FieldType"]
+__all__ = ["FieldType"]

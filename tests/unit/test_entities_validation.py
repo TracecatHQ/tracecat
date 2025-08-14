@@ -13,6 +13,7 @@ from tracecat.db.schemas import (
     FieldMetadata,
     Workspace,
 )
+from tracecat.entities.enums import RelationKind
 from tracecat.entities.models import RelationSettings
 from tracecat.entities.types import FieldType
 from tracecat.entities.validation import (
@@ -541,7 +542,7 @@ class TestRelationValidators:
             field_type=FieldType.RELATION_HAS_MANY.value,
             display_name="Unique Relation",
             is_unique=True,
-            relation_kind="has_many",
+            relation_kind=RelationKind.ONE_TO_MANY,
             relation_target_entity_id=test_entity.id,
             owner_id=svc_workspace.id,
         )

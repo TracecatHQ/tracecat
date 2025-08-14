@@ -15,15 +15,8 @@ from pydantic import (
 )
 from pydantic_core import PydanticCustomError
 
+from tracecat.entities.enums import RelationType
 from tracecat.entities.types import FieldType, validate_field_key_format
-
-
-class RelationType(StrEnum):
-    """Types of relations between entities."""
-
-    BELONGS_TO = "belongs_to"
-    HAS_MANY = "has_many"
-
 
 # Entity Metadata Models
 
