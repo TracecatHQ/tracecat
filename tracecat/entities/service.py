@@ -278,11 +278,13 @@ class CustomEntitiesService(BaseWorkspaceService):
             error_msg = first_error.get("msg", str(e))
             raise ValueError(error_msg) from e
 
-        # Serialize default value if provided
+        # Validate and serialize default value if provided
         serialized_default = None
         if validated.default_value is not None:
-            serialized_default = serialize_value(
-                validated.default_value, validated.field_type
+            from tracecat.entities.common import validate_and_serialize_default_value
+
+            serialized_default = validate_and_serialize_default_value(
+                validated.default_value, validated.field_type, validated.enum_options
             )
 
         # Ensure None values are properly passed (not empty strings or "null")
@@ -843,6 +845,50 @@ class CustomEntitiesService(BaseWorkspaceService):
         for i in range(0, len(ids), batch_size):
             yield ids[i : i + batch_size]
 
+    async def _process_relation_fields_on_create(
+        self,
+        record: EntityData,
+        relation_fields: dict[str, FieldMetadata],
+        relation_data: dict[str, Any],
+    ) -> None:
+        """Process relation fields when creating a record.
+
+        Args:
+            record: The newly created record
+            relation_fields: Dictionary of relation field metadata
+            relation_data: Dictionary of relation values to process
+        """
+        for field_key, value in relation_data.items():
+            if value is None:
+                continue
+
+            field = relation_fields[field_key]
+
+            if field.relation_kind == RelationKind.ONE_TO_ONE:
+                # Handle belongs_to relation
+                target_id = UUID(value) if isinstance(value, str) else value
+                await self.update_belongs_to_relation(
+                    source_record_id=record.id,
+                    field=field,
+                    target_record_id=target_id,
+                )
+            elif field.relation_kind == RelationKind.ONE_TO_MANY:
+                # Handle has_many relation - use REPLACE operation for initial creation
+                target_ids = []
+                for item in value:
+                    target_id = UUID(item) if isinstance(item, str) else item
+                    target_ids.append(target_id)
+
+                operation = HasManyRelationUpdate(
+                    operation=RelationOperation.REPLACE,
+                    target_ids=target_ids,
+                )
+                await self.update_has_many_relation(
+                    source_record_id=record.id,
+                    field=field,
+                    operation=operation,
+                )
+
     async def handle_record_deletion(
         self,
         record_id: UUID,
@@ -929,27 +975,55 @@ class CustomEntitiesService(BaseWorkspaceService):
         # Get active fields
         active_fields = await self.list_fields(entity_id, include_inactive=False)
 
-        # Apply default values for missing fields
-        data_with_defaults = dict(data)  # Create a copy
-        for field in active_fields:
+        # Separate relation fields from regular fields
+        relation_fields = {f.field_key: f for f in active_fields if f.relation_kind}
+        regular_fields = [f for f in active_fields if not f.relation_kind]
+
+        # Extract relation data before processing
+        relation_data = {}
+        data_without_relations = dict(data)  # Create a copy
+        for field_key in list(data_without_relations.keys()):
+            if field_key in relation_fields:
+                relation_data[field_key] = data_without_relations.pop(field_key)
+
+        # Apply default values for missing regular fields only
+        data_with_defaults = dict(data_without_relations)
+        for field in regular_fields:
             if (
                 field.field_key not in data_with_defaults
                 and field.default_value is not None
-                and not field.relation_kind  # Don't apply defaults to relation fields
             ):
-                # Default value is already serialized in the database
-                data_with_defaults[field.field_key] = field.default_value
+                # Validate that the stored default is still valid
+                # This protects against corrupted or manually edited defaults
+                try:
+                    from tracecat.entities.validation import validate_default_value_type
 
-        # Validate data against active fields (includes flat structure check)
+                    validate_default_value_type(
+                        field.default_value,
+                        FieldType(field.field_type),
+                        field.enum_options,
+                    )
+                    # Default value is already serialized in the database
+                    data_with_defaults[field.field_key] = field.default_value
+                except Exception as e:
+                    # Log warning but don't fail record creation
+                    logger.warning(
+                        f"Invalid default value for field '{field.field_key}' "
+                        f"(type: {field.field_type}): {e}. Skipping default."
+                    )
+                    # Skip this default value rather than fail the entire record creation
+
+        # Validate all data (regular + relation fields)
+        all_data_to_validate = {**data_with_defaults, **relation_data}
         validated_data = await self.record_validators.validate_record_data(
-            data_with_defaults, active_fields, exclude_record_id=None
+            all_data_to_validate, active_fields
         )
 
-        # Serialize values
+        # Serialize only non-relation values
         serialized_data = {}
         field_map = {f.field_key: f for f in active_fields}
         for key, value in validated_data.items():
-            if key in field_map:
+            if key in field_map and not field_map[key].relation_kind:
                 serialized_data[key] = serialize_value(
                     value, FieldType(field_map[key].field_type)
                 )
@@ -964,6 +1038,13 @@ class CustomEntitiesService(BaseWorkspaceService):
         self.session.add(record)
         await self.session.commit()
         await self.session.refresh(record)
+
+        # Now handle relation fields if any were provided
+        if relation_data:
+            await self._process_relation_fields_on_create(
+                record, relation_fields, relation_data
+            )
+
         return record
 
     async def get_record(self, record_id: UUID) -> EntityData:
@@ -1013,7 +1094,7 @@ class CustomEntitiesService(BaseWorkspaceService):
 
         # Validate updates (includes flat structure check)
         validated_updates = await self.record_validators.validate_record_data(
-            updates, active_fields, exclude_record_id=record_id
+            updates, active_fields
         )
 
         # Serialize and merge updates

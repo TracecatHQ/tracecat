@@ -7,6 +7,7 @@ from uuid import UUID
 from tracecat.entities.enums import RelationType
 from tracecat.entities.models import RelationSettings
 from tracecat.entities.types import FieldType, validate_field_value_type
+from tracecat.entities.validation import validate_default_value_type
 
 
 def validate_value_for_type(
@@ -166,3 +167,33 @@ def deserialize_value(value: Any, field_type: FieldType) -> Any:
 
     # Most types don't need deserialization
     return value
+
+
+def validate_and_serialize_default_value(
+    value: Any, field_type: FieldType, enum_options: list[str] | None = None
+) -> Any:
+    """Validate and serialize a default value for storage.
+
+    This function:
+    1. Validates using shared validator
+    2. Serializes the value for JSONB storage
+
+    Args:
+        value: The default value to validate
+        field_type: The field type
+        enum_options: Options for SELECT/MULTI_SELECT fields
+
+    Returns:
+        Serialized value ready for storage
+
+    Raises:
+        PydanticCustomError: If validation fails
+    """
+    if value is None:
+        return None
+
+    # Use shared validator
+    validated_value = validate_default_value_type(value, field_type, enum_options)
+
+    # Serialize for storage
+    return serialize_value(validated_value, field_type)
