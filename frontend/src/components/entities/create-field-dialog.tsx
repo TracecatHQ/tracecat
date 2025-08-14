@@ -17,10 +17,12 @@ import {
   ToggleLeft,
   Type,
 } from "lucide-react"
+import { useParams } from "next/navigation"
 import { useMemo, useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import type { FieldType } from "@/client"
+import { MultiTagCommandInput } from "@/components/tags-input"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
@@ -55,6 +57,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { useEntities } from "@/lib/hooks/use-entities"
 
 const fieldTypes: {
   value: FieldType
@@ -104,6 +107,19 @@ const createFieldSchema = z.object({
   is_required: z.boolean().default(false),
   is_unique: z.boolean().default(false),
   default_value: z.any().optional(),
+  enum_options: z.array(z.string()).optional(),
+  relation_settings: z
+    .object({
+      relation_type: z.enum(["belongs_to", "has_many"]),
+      target_entity_id: z.string(),
+      backref_field_key: z
+        .string()
+        .regex(/^[a-z][a-z0-9_]*$/)
+        .optional()
+        .or(z.literal("")),
+      cascade_delete: z.boolean().default(true),
+    })
+    .optional(),
 })
 
 type CreateFieldFormData = z.infer<typeof createFieldSchema>
@@ -122,14 +138,18 @@ interface CreateFieldDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   onSubmit: (data: CreateFieldFormData) => Promise<void>
+  errorMessage?: string
 }
 
 export function CreateFieldDialog({
   open,
   onOpenChange,
   onSubmit,
+  errorMessage,
 }: CreateFieldDialogProps) {
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const params = useParams<{ workspaceId: string }>()
+  const { entities } = useEntities(params.workspaceId)
 
   const form = useForm<CreateFieldFormData>({
     resolver: zodResolver(createFieldSchema),
@@ -140,13 +160,29 @@ export function CreateFieldDialog({
       description: "",
       is_required: false,
       is_unique: false,
-      default_value: undefined,
+      default_value: "",
+      enum_options: [],
+      relation_settings: {
+        relation_type: "belongs_to",
+        target_entity_id: "",
+        backref_field_key: "",
+        cascade_delete: true,
+      },
     },
   })
 
   const fieldType = form.watch("field_type")
   const supportsPrimitive = useMemo(
     () => PRIMITIVE_FIELD_TYPES.includes(fieldType),
+    [fieldType]
+  )
+  const isSelectField = useMemo(
+    () => fieldType === "SELECT" || fieldType === "MULTI_SELECT",
+    [fieldType]
+  )
+  const isRelationField = useMemo(
+    () =>
+      fieldType === "RELATION_BELONGS_TO" || fieldType === "RELATION_HAS_MANY",
     [fieldType]
   )
 
@@ -182,6 +218,54 @@ export function CreateFieldDialog({
         delete processedData.default_value
       }
 
+      // Process enum_options for SELECT/MULTI_SELECT fields
+      if (data.field_type === "SELECT" || data.field_type === "MULTI_SELECT") {
+        if (data.enum_options && data.enum_options.length > 0) {
+          processedData.enum_options = data.enum_options
+        } else {
+          // SELECT/MULTI_SELECT require at least one option
+          console.error(
+            "SELECT/MULTI_SELECT fields require at least one option"
+          )
+          throw new Error("Please add at least one option for this field type")
+        }
+      } else {
+        delete processedData.enum_options
+      }
+
+      // Process relation_settings for RELATION fields
+      if (
+        data.field_type === "RELATION_BELONGS_TO" ||
+        data.field_type === "RELATION_HAS_MANY"
+      ) {
+        if (data.relation_settings?.target_entity_id) {
+          processedData.relation_settings = {
+            relation_type:
+              data.field_type === "RELATION_BELONGS_TO"
+                ? "belongs_to"
+                : "has_many",
+            target_entity_id: data.relation_settings.target_entity_id,
+            backref_field_key:
+              data.relation_settings.backref_field_key || undefined,
+            cascade_delete: data.relation_settings.cascade_delete,
+          }
+          // Remove empty backref_field_key
+          if (!processedData.relation_settings.backref_field_key) {
+            delete processedData.relation_settings.backref_field_key
+          }
+        } else {
+          // Relation fields require a target entity
+          console.error(
+            "Relation fields require a target entity to be selected"
+          )
+          throw new Error(
+            "Please select a target entity for this relation field"
+          )
+        }
+      } else {
+        delete processedData.relation_settings
+      }
+
       await onSubmit(processedData)
       form.reset()
       onOpenChange(false)
@@ -201,6 +285,11 @@ export function CreateFieldDialog({
             <DialogDescription>
               Add a new field to this entity.
             </DialogDescription>
+            {errorMessage && (
+              <p className="text-sm font-medium text-destructive">
+                {errorMessage}
+              </p>
+            )}
           </DialogHeader>
           <Form {...form}>
             <form
@@ -307,6 +396,130 @@ export function CreateFieldDialog({
                   </FormItem>
                 )}
               />
+              {isSelectField && (
+                <FormField
+                  control={form.control}
+                  name="enum_options"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Options</FormLabel>
+                      <FormControl>
+                        <MultiTagCommandInput
+                          value={field.value || []}
+                          onChange={field.onChange}
+                          placeholder="Add options..."
+                          allowCustomTags={true}
+                          disableSuggestions={true}
+                          className="w-full"
+                          searchKeys={["label"]}
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        Add the available options for this field
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
+              {isRelationField && (
+                <>
+                  <FormField
+                    control={form.control}
+                    name="relation_settings.target_entity_id"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Target Entity</FormLabel>
+                        <Select
+                          onValueChange={field.onChange}
+                          value={field.value}
+                        >
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select target entity" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {entities?.map((entity) => (
+                              <SelectItem key={entity.id} value={entity.id}>
+                                {entity.display_name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormDescription>
+                          The entity that this field will relate to
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="relation_settings.backref_field_key"
+                    render={({ field }) => (
+                      <FormItem>
+                        <div className="flex items-center gap-2">
+                          <FormLabel>Backref Field Key</FormLabel>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Info className="h-4 w-4 text-muted-foreground" />
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p>
+                                Optional: Creates a reverse relation field on
+                                the target entity
+                              </p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </div>
+                        <FormControl>
+                          <Input
+                            placeholder="e.g., parent_items"
+                            {...field}
+                            onChange={(e) =>
+                              field.onChange(e.target.value.toLowerCase())
+                            }
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          Leave empty for one-way relation
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="relation_settings.cascade_delete"
+                    render={({ field }) => (
+                      <FormItem className="flex flex-row items-start space-x-3 space-y-0">
+                        <FormControl>
+                          <Checkbox
+                            checked={field.value}
+                            onCheckedChange={field.onChange}
+                          />
+                        </FormControl>
+                        <div className="space-y-1 leading-none">
+                          <div className="flex items-center gap-2">
+                            <FormLabel>Cascade delete</FormLabel>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Info className="h-4 w-4 text-muted-foreground" />
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p>
+                                  Delete related records when source is deleted
+                                </p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </div>
+                        </div>
+                      </FormItem>
+                    )}
+                  />
+                </>
+              )}
               {supportsPrimitive && (
                 <FormField
                   control={form.control}

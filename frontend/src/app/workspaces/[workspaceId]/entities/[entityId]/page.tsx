@@ -13,6 +13,7 @@ import {
   entitiesUpdateEntityType,
   type FieldMetadataRead,
   type FieldType,
+  type RelationSettings,
 } from "@/client"
 import { CreateFieldDialog } from "@/components/entities/create-field-dialog"
 import { EditFieldDialog } from "@/components/entities/edit-field-dialog"
@@ -55,6 +56,7 @@ export default function EntityDetailPage() {
   const searchParams = useSearchParams()
   const queryClient = useQueryClient()
   const [createFieldDialogOpen, setCreateFieldDialogOpen] = useState(false)
+  const [createFieldError, setCreateFieldError] = useState<string | null>(null)
   const [editFieldDialogOpen, setEditFieldDialogOpen] = useState(false)
   const [selectedFieldForEdit, setSelectedFieldForEdit] =
     useState<FieldMetadataRead | null>(null)
@@ -105,6 +107,9 @@ export default function EntityDetailPage() {
       description?: string
       is_required: boolean
       is_unique: boolean
+      enum_options?: string[]
+      relation_settings?: RelationSettings
+      default_value?: unknown
     }) => {
       return await entitiesCreateField({
         workspaceId,
@@ -116,6 +121,9 @@ export default function EntityDetailPage() {
           description: data.description,
           is_required: data.is_required,
           is_unique: data.is_unique,
+          enum_options: data.enum_options,
+          relation_settings: data.relation_settings,
+          default_value: data.default_value,
         },
       })
     },
@@ -131,13 +139,15 @@ export default function EntityDetailPage() {
         description: "The field was created successfully.",
       })
     },
-    onError: (error) => {
+    onError: (error: unknown) => {
       console.error("Failed to create field", error)
-      toast({
-        title: "Error creating field",
-        description: "Failed to create the field. Please try again.",
-        variant: "destructive",
-      })
+      // Try to extract a user-friendly message if available
+      let message = "Failed to create the field. Please try again."
+      if (error && typeof error === "object") {
+        const err = error as { body?: { detail?: string }; message?: string }
+        message = err.body?.detail || err.message || message
+      }
+      setCreateFieldError(message)
     },
   })
 
@@ -577,12 +587,18 @@ export default function EntityDetailPage() {
 
       <CreateFieldDialog
         open={createFieldDialogOpen}
-        onOpenChange={setCreateFieldDialogOpen}
+        onOpenChange={(open) => {
+          setCreateFieldDialogOpen(open)
+          if (!open) {
+            setCreateFieldError(null) // reset error when closing dialog
+          }
+        }}
+        errorMessage={createFieldError || undefined}
         onSubmit={async (data) => {
           try {
+            setCreateFieldError(null) // clear previous errors
             await createFieldMutation(data)
           } catch (error) {
-            // Error is already handled by mutation's onError callback
             console.error("Failed to create field:", error)
           }
         }}
