@@ -5306,6 +5306,13 @@ export type EntitiesReactivateEntityTypeData = {
 
 export type EntitiesReactivateEntityTypeResponse = EntityMetadataRead
 
+export type EntitiesDeleteEntityTypeData = {
+  entityId: string
+  workspaceId: string
+}
+
+export type EntitiesDeleteEntityTypeResponse = void
+
 export type EntitiesCreateFieldData = {
   entityId: string
   requestBody: FieldMetadataCreate
@@ -5353,6 +5360,13 @@ export type EntitiesReactivateFieldData = {
 }
 
 export type EntitiesReactivateFieldResponse = FieldMetadataRead
+
+export type EntitiesDeleteFieldData = {
+  fieldId: string
+  workspaceId: string
+}
+
+export type EntitiesDeleteFieldResponse = void
 
 export type EntitiesCreateRelationFieldData = {
   entityId: string
@@ -7891,6 +7905,21 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/entities/types/{entity_id}/hard": {
+    delete: {
+      req: EntitiesDeleteEntityTypeData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/entities/types/{entity_id}/fields": {
     post: {
       req: EntitiesCreateFieldData
@@ -7970,6 +7999,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: FieldMetadataRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/entities/fields/{field_id}/hard": {
+    delete: {
+      req: EntitiesDeleteFieldData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
         /**
          * Validation Error
          */

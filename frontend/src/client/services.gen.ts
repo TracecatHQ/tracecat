@@ -127,6 +127,10 @@ import type {
   EntitiesDeactivateEntityTypeResponse,
   EntitiesDeactivateFieldData,
   EntitiesDeactivateFieldResponse,
+  EntitiesDeleteEntityTypeData,
+  EntitiesDeleteEntityTypeResponse,
+  EntitiesDeleteFieldData,
+  EntitiesDeleteFieldResponse,
   EntitiesDeleteRecordData,
   EntitiesDeleteRecordResponse,
   EntitiesGetEntitySchemaData,
@@ -4313,6 +4317,36 @@ export const entitiesReactivateEntityType = (
 }
 
 /**
+ * Delete Entity Type
+ * Permanently delete an entity type and all associated data.
+ *
+ * Warning: This is a hard delete - all data will be permanently lost.
+ * This includes all records, fields, and relation links.
+ * @param data The data for the request.
+ * @param data.entityId
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const entitiesDeleteEntityType = (
+  data: EntitiesDeleteEntityTypeData
+): CancelablePromise<EntitiesDeleteEntityTypeResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/entities/types/{entity_id}/hard",
+    path: {
+      entity_id: data.entityId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * Create Field
  * Create a new field for an entity type.
  * @param data The data for the request.
@@ -4470,6 +4504,35 @@ export const entitiesReactivateField = (
   return __request(OpenAPI, {
     method: "POST",
     url: "/entities/fields/{field_id}/reactivate",
+    path: {
+      field_id: data.fieldId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Field
+ * Permanently delete a field and all associated data.
+ *
+ * Warning: This is a hard delete - all data will be permanently lost.
+ * @param data The data for the request.
+ * @param data.fieldId
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const entitiesDeleteField = (
+  data: EntitiesDeleteFieldData
+): CancelablePromise<EntitiesDeleteFieldResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/entities/fields/{field_id}/hard",
     path: {
       field_id: data.fieldId,
     },

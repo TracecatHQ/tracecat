@@ -175,6 +175,25 @@ async def reactivate_entity_type(
         raise HTTPException(status_code=404, detail=str(e)) from e
 
 
+@router.delete("/types/{entity_id}/hard", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_entity_type(
+    *,
+    role: WorkspaceUser,
+    session: AsyncDBSession,
+    entity_id: UUID,
+) -> None:
+    """Permanently delete an entity type and all associated data.
+
+    Warning: This is a hard delete - all data will be permanently lost.
+    This includes all records, fields, and relation links.
+    """
+    service = CustomEntitiesService(session, role)
+    try:
+        await service.delete_entity_type(entity_id)
+    except TracecatNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
 # Field Management
 
 
@@ -293,6 +312,24 @@ async def reactivate_field(
         return FieldMetadataRead.model_validate(field, from_attributes=True)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+    except TracecatNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@router.delete("/fields/{field_id}/hard", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_field(
+    *,
+    role: WorkspaceUser,
+    session: AsyncDBSession,
+    field_id: UUID,
+) -> None:
+    """Permanently delete a field and all associated data.
+
+    Warning: This is a hard delete - all data will be permanently lost.
+    """
+    service = CustomEntitiesService(session, role)
+    try:
+        await service.delete_field(field_id)
     except TracecatNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
 
