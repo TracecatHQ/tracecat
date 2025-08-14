@@ -2608,7 +2608,10 @@ export type RelationSettings = {
 }
 
 /**
- * Types of relations between entities.
+ * Types of relations between entities (for API/models).
+ *
+ * These values are used in the API and models layer to represent
+ * the type of relationship from the perspective of the source entity.
  */
 export type RelationType = "belongs_to" | "has_many"
 
@@ -5635,7 +5638,7 @@ export type PublicCheckHealthResponse = {
 
 export type $OpenApiTs = {
   "/webhooks/{workflow_id}/{secret}": {
-    post: {
+    get: {
       req: PublicIncomingWebhookData
       res: {
         /**
@@ -5648,7 +5651,7 @@ export type $OpenApiTs = {
         422: HTTPValidationError
       }
     }
-    get: {
+    post: {
       req: PublicIncomingWebhook1Data
       res: {
         /**

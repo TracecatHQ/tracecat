@@ -4,6 +4,7 @@ from datetime import date, datetime
 from typing import Any
 from uuid import UUID
 
+from tracecat.entities.enums import RelationType
 from tracecat.entities.models import RelationSettings
 from tracecat.entities.types import FieldType, validate_field_value_type
 
@@ -99,7 +100,9 @@ def validate_relation_settings(
     if relation_settings:
         # Validate relation_type matches field_type
         expected_type = (
-            "belongs_to" if field_type == FieldType.RELATION_BELONGS_TO else "has_many"
+            RelationType.BELONGS_TO
+            if field_type == FieldType.RELATION_BELONGS_TO
+            else RelationType.HAS_MANY
         )
         if relation_settings.relation_type != expected_type:
             return (

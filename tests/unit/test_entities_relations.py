@@ -16,6 +16,7 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat.db.schemas import EntityRelationLink
+from tracecat.entities.enums import RelationKind
 from tracecat.entities.models import (
     HasManyRelationUpdate,
     RelationOperation,
@@ -134,13 +135,13 @@ class TestEntityRelations:
         # Verify belongs_to field
         assert belongs_to_field.field_type == FieldType.RELATION_BELONGS_TO
         assert belongs_to_field.entity_metadata_id == customer_entity.id
-        assert belongs_to_field.relation_kind == "belongs_to"
+        assert belongs_to_field.relation_kind == RelationKind.ONE_TO_ONE
         assert belongs_to_field.relation_target_entity_id == organization_entity.id
 
         # Verify has_many field
         assert has_many_field.field_type == FieldType.RELATION_HAS_MANY
         assert has_many_field.entity_metadata_id == organization_entity.id
-        assert has_many_field.relation_kind == "has_many"
+        assert has_many_field.relation_kind == RelationKind.ONE_TO_MANY
         assert has_many_field.relation_target_entity_id == customer_entity.id
 
     async def test_create_relation_field_with_settings(
@@ -165,7 +166,7 @@ class TestEntityRelations:
         )
 
         assert field.field_type == FieldType.RELATION_BELONGS_TO
-        assert field.relation_kind == "belongs_to"
+        assert field.relation_kind == RelationKind.ONE_TO_ONE
         assert field.relation_target_entity_id == organization_entity.id
         # v1: cascade_delete is always true, field removed
 

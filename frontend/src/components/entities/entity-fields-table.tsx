@@ -174,7 +174,7 @@ export function EntityFieldsTable({
                 if (!targetEntityName || !currentEntityName) return null
 
                 if (fieldType === "RELATION_BELONGS_TO") {
-                  return `Many ${currentEntityName} to one ${targetEntityName}`
+                  return `One ${currentEntityName} to one ${targetEntityName}`
                 } else if (fieldType === "RELATION_HAS_MANY") {
                   return `One ${currentEntityName} to many ${targetEntityName}`
                 }

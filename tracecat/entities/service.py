@@ -23,6 +23,7 @@ from tracecat.entities.common import (
     serialize_value,
     validate_relation_settings,
 )
+from tracecat.entities.enums import RelationKind
 from tracecat.entities.models import (
     EntityMetadataCreate,
     FieldMetadataCreate,
@@ -519,7 +520,9 @@ class CustomEntitiesService(BaseWorkspaceService):
 
         # Determine relation_kind based on field_type
         relation_kind = (
-            "belongs_to" if field_type == FieldType.RELATION_BELONGS_TO else "has_many"
+            RelationKind.ONE_TO_ONE
+            if field_type == FieldType.RELATION_BELONGS_TO
+            else RelationKind.ONE_TO_MANY
         )
 
         # Create field with relation metadata
@@ -868,8 +871,8 @@ class CustomEntitiesService(BaseWorkspaceService):
 
             # v1: cascade_delete is always true
 
-            if field.relation_kind == "belongs_to":
-                # For belongs_to: always cascade delete source records
+            if field.relation_kind == RelationKind.ONE_TO_ONE:
+                # For one_to_one: always cascade delete source records
                 if cascade_relations:
                     # Delete source records
                     for link in links:
@@ -886,8 +889,8 @@ class CustomEntitiesService(BaseWorkspaceService):
                             del source_record.field_data[field.field_key]
                             flag_modified(source_record, "field_data")
 
-            elif field.relation_kind == "has_many":
-                # For has_many: just delete the links
+            elif field.relation_kind == RelationKind.ONE_TO_MANY:
+                # For one_to_many: just delete the links
                 # (The source record deletion is handled separately)
                 for link in links:
                     await self.session.delete(link)
