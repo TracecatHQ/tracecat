@@ -16,6 +16,11 @@ from pydantic_core import PydanticCustomError
 
 from tracecat.entities.enums import RelationType
 from tracecat.entities.types import FieldType, validate_field_key_format
+from tracecat.entities.validation import (
+    validate_default_value_type,
+    validate_enum_options,
+    validate_relation_uuid,
+)
 
 # Entity Metadata Models
 
@@ -114,19 +119,8 @@ class FieldMetadataCreate(BaseModel):
                     "Field type '{field_type}' requires enum_options",
                     {"field_type": self.field_type.value},
                 )
-            # Ensure all options are unique
-            if len(set(self.enum_options)) != len(self.enum_options):
-                raise PydanticCustomError(
-                    "duplicate_enum_options",
-                    "Enum options must be unique",
-                )
-            # Ensure options are non-empty strings
-            for opt in self.enum_options:
-                if not opt or not opt.strip():
-                    raise PydanticCustomError(
-                        "empty_enum_option",
-                        "Enum options cannot be empty strings",
-                    )
+            # Use shared validator
+            self.enum_options = validate_enum_options(self.enum_options)
         # Non-SELECT fields should not have enum_options
         elif self.enum_options:
             raise PydanticCustomError(
@@ -143,95 +137,14 @@ class FieldMetadataCreate(BaseModel):
         if self.default_value is None:
             return self
 
-        # Check if field type supports default values
-        unsupported_types = {
-            FieldType.RELATION_BELONGS_TO,
-            FieldType.RELATION_HAS_MANY,
-            FieldType.ARRAY_TEXT,
-            FieldType.ARRAY_INTEGER,
-            FieldType.ARRAY_NUMBER,
-            FieldType.DATE,
-            FieldType.DATETIME,
-        }
-
-        if self.field_type in unsupported_types:
-            raise PydanticCustomError(
-                "default_not_supported",
-                "Field type '{field_type}' does not support default values",
-                {"field_type": self.field_type.value},
+        # Use shared validator for consistent validation
+        try:
+            self.default_value = validate_default_value_type(
+                self.default_value, self.field_type, self.enum_options
             )
-
-        # Type-specific validation
-        if self.field_type == FieldType.TEXT:
-            if not isinstance(self.default_value, str):
-                raise PydanticCustomError(
-                    "invalid_default_type",
-                    "Default value for TEXT field must be a string, got {type_name}",
-                    {"type_name": type(self.default_value).__name__},
-                )
-        elif self.field_type == FieldType.INTEGER:
-            if not isinstance(self.default_value, int) or isinstance(
-                self.default_value, bool
-            ):
-                raise PydanticCustomError(
-                    "invalid_default_type",
-                    "Default value for INTEGER field must be an integer, got {type_name}",
-                    {"type_name": type(self.default_value).__name__},
-                )
-        elif self.field_type == FieldType.NUMBER:
-            if not isinstance(self.default_value, int | float) or isinstance(
-                self.default_value, bool
-            ):
-                raise PydanticCustomError(
-                    "invalid_default_type",
-                    "Default value for NUMBER field must be a number, got {type_name}",
-                    {"type_name": type(self.default_value).__name__},
-                )
-        elif self.field_type == FieldType.BOOL:
-            if not isinstance(self.default_value, bool):
-                raise PydanticCustomError(
-                    "invalid_default_type",
-                    "Default value for BOOL field must be a boolean, got {type_name}",
-                    {"type_name": type(self.default_value).__name__},
-                )
-        elif self.field_type == FieldType.SELECT:
-            if not isinstance(self.default_value, str):
-                raise PydanticCustomError(
-                    "invalid_default_type",
-                    "Default value for SELECT field must be a string, got {type_name}",
-                    {"type_name": type(self.default_value).__name__},
-                )
-            # Validate against options if enum_options provided
-            if self.enum_options:
-                if self.default_value not in self.enum_options:
-                    raise PydanticCustomError(
-                        "invalid_default_option",
-                        "Default value '{value}' not in available options: {options}",
-                        {"value": self.default_value, "options": self.enum_options},
-                    )
-        elif self.field_type == FieldType.MULTI_SELECT:
-            if not isinstance(self.default_value, list):
-                raise PydanticCustomError(
-                    "invalid_default_type",
-                    "Default value for MULTI_SELECT field must be a list, got {type_name}",
-                    {"type_name": type(self.default_value).__name__},
-                )
-            if not all(isinstance(item, str) for item in self.default_value):
-                raise PydanticCustomError(
-                    "invalid_default_item",
-                    "All items in MULTI_SELECT default value must be strings",
-                )
-            # Validate against options if enum_options provided
-            if self.enum_options:
-                invalid_options = [
-                    opt for opt in self.default_value if opt not in self.enum_options
-                ]
-                if invalid_options:
-                    raise PydanticCustomError(
-                        "invalid_default_options",
-                        "Default values {invalid} not in available options: {options}",
-                        {"invalid": invalid_options, "options": self.enum_options},
-                    )
+        except PydanticCustomError:
+            # Re-raise as-is for consistent error messages
+            raise
 
         return self
 
@@ -295,25 +208,8 @@ class FieldMetadataUpdate(BaseModel):
     @classmethod
     def validate_enum_options(cls, v: list[str] | None) -> list[str] | None:
         """Validate enum options are unique and non-empty."""
-        if v is None:
-            return v
-
-        # Ensure all options are unique
-        if len(set(v)) != len(v):
-            raise PydanticCustomError(
-                "duplicate_enum_options",
-                "Enum options must be unique",
-            )
-
-        # Ensure options are non-empty strings
-        for opt in v:
-            if not opt or not opt.strip():
-                raise PydanticCustomError(
-                    "empty_enum_option",
-                    "Enum options cannot be empty strings",
-                )
-
-        return v
+        # Use shared validator
+        return validate_enum_options(v)
 
 
 class FieldMetadataRead(BaseModel):
@@ -449,25 +345,8 @@ class BelongsToRelationUpdate(BaseModel):
     @classmethod
     def validate_target_id(cls, v: Any) -> UUID | None:
         """Validate and convert target ID to UUID."""
-        if v is None:
-            return None
-
-        if isinstance(v, UUID):
-            return v
-        elif isinstance(v, str):
-            try:
-                return UUID(v)
-            except ValueError as e:
-                raise PydanticCustomError(
-                    "invalid_uuid",
-                    "Invalid UUID format for target_id",
-                ) from e
-        else:
-            raise PydanticCustomError(
-                "invalid_type",
-                "Expected UUID, string, or None for target_id, got {type_name}",
-                {"type_name": type(v).__name__},
-            )
+        # Use shared validator
+        return validate_relation_uuid(v, allow_none=True, context="target_id")
 
 
 class HasManyRelationUpdate(BaseModel):
@@ -487,23 +366,21 @@ class HasManyRelationUpdate(BaseModel):
         """Validate and convert target IDs to UUIDs."""
         validated_ids = []
         for idx, tid in enumerate(v):
-            if isinstance(tid, UUID):
-                validated_ids.append(tid)
-            elif isinstance(tid, str):
-                try:
-                    validated_ids.append(UUID(tid))
-                except ValueError as e:
-                    raise PydanticCustomError(
-                        "invalid_uuid",
-                        "Invalid UUID at index {idx}: {tid}",
-                        {"idx": idx, "tid": str(tid)},
-                    ) from e
-            else:
-                raise PydanticCustomError(
-                    "invalid_type",
-                    "Expected UUID or string at index {idx}, got {type_name}",
-                    {"idx": idx, "type_name": type(tid).__name__},
+            try:
+                validated_id = validate_relation_uuid(
+                    tid, allow_none=False, context=f"target_id at index {idx}"
                 )
+                if (
+                    validated_id is not None
+                ):  # Should never be None with allow_none=False
+                    validated_ids.append(validated_id)
+            except PydanticCustomError as e:
+                # Re-raise with index context
+                raise PydanticCustomError(
+                    e.type,
+                    "Invalid UUID at index {idx}: {message}",
+                    {"idx": idx, "message": e.message()},
+                ) from e
         return validated_ids
 
 

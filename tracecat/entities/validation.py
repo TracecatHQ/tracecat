@@ -1,7 +1,7 @@
-"""Database-dependent validators for custom entities.
+"""Validators for custom entities.
 
-This module provides validation logic that requires database queries,
-complementing Pydantic's synchronous schema validation.
+This module provides both pure validation functions and database-dependent validators.
+Pure functions are at module level, database-dependent validators are in classes.
 """
 
 from typing import Any
@@ -16,11 +16,149 @@ from tracecat.db.schemas import (
     EntityMetadata,
     FieldMetadata,
 )
-from tracecat.entities.common import validate_value_for_type
+from tracecat.entities.enums import RelationKind
 from tracecat.entities.query import EntityQueryBuilder
-from tracecat.entities.types import FieldType, validate_flat_structure
+from tracecat.entities.types import (
+    FieldType,
+    validate_field_value_type,
+    validate_flat_structure,
+)
 from tracecat.identifiers import WorkspaceID
 from tracecat.types.exceptions import TracecatNotFoundError, TracecatValidationError
+
+# Pure validation functions (no database dependencies)
+
+
+def validate_enum_options(options: list[str] | None) -> list[str] | None:
+    """Validate enum options are unique and non-empty.
+
+    Args:
+        options: List of enum options to validate
+
+    Returns:
+        Validated options or None
+
+    Raises:
+        PydanticCustomError: If validation fails
+    """
+    if options is None:
+        return None
+
+    # Ensure all options are unique
+    if len(set(options)) != len(options):
+        raise PydanticCustomError(
+            "duplicate_enum_options",
+            "Enum options must be unique",
+        )
+
+    # Ensure options are non-empty strings
+    for opt in options:
+        if not opt or not opt.strip():
+            raise PydanticCustomError(
+                "empty_enum_option",
+                "Enum options cannot be empty strings",
+            )
+
+    return options
+
+
+def validate_default_value_type(
+    value: Any, field_type: FieldType, enum_options: list[str] | None = None
+) -> Any:
+    """Validate a default value matches the field type.
+
+    This function:
+    1. Checks if the field type supports default values
+    2. Validates the value matches the field type
+    3. Checks for flat structure (no nested objects)
+
+    Args:
+        value: The default value to validate
+        field_type: The field type
+        enum_options: Options for SELECT/MULTI_SELECT fields
+
+    Returns:
+        Validated value
+
+    Raises:
+        PydanticCustomError: If validation fails
+    """
+    if value is None:
+        return None
+
+    # Check if field type supports default values
+    unsupported_types = {
+        FieldType.RELATION_BELONGS_TO,
+        FieldType.RELATION_HAS_MANY,
+        FieldType.ARRAY_TEXT,
+        FieldType.ARRAY_INTEGER,
+        FieldType.ARRAY_NUMBER,
+        FieldType.DATE,
+        FieldType.DATETIME,
+    }
+
+    if field_type in unsupported_types:
+        raise PydanticCustomError(
+            "default_not_supported",
+            "Field type '{field_type}' does not support default values",
+            {"field_type": field_type.value},
+        )
+
+    # Check for flat structure
+    if not validate_flat_structure(value):
+        raise PydanticCustomError(
+            "nested_structure",
+            "Default values cannot contain nested objects or arrays",
+        )
+
+    # Validate the value against the field type
+    # This will raise PydanticCustomError if invalid
+    return validate_field_value_type(value, field_type, enum_options)
+
+
+def validate_relation_uuid(
+    value: Any, allow_none: bool = False, context: str = "relation"
+) -> UUID | None:
+    """Validate and convert a value to UUID for relations.
+
+    Args:
+        value: Value to validate (UUID, string, or None)
+        allow_none: Whether None is allowed
+        context: Context for error messages
+
+    Returns:
+        UUID object or None
+
+    Raises:
+        PydanticCustomError: If validation fails
+    """
+    if value is None:
+        if allow_none:
+            return None
+        raise PydanticCustomError(
+            "null_not_allowed",
+            "{context} cannot be null",
+            {"context": context},
+        )
+
+    if isinstance(value, UUID):
+        return value
+
+    if isinstance(value, str):
+        try:
+            return UUID(value)
+        except (ValueError, TypeError) as e:
+            raise PydanticCustomError(
+                "invalid_uuid",
+                "Invalid UUID format for {context}",
+                {"context": context},
+            ) from e
+
+    raise PydanticCustomError(
+        "invalid_type",
+        "Expected UUID or string for {context}, got {type_name}",
+        {"context": context, "type_name": type(value).__name__},
+    )
 
 
 class EntityValidators:
@@ -273,14 +411,12 @@ class RecordValidators:
         self,
         data: dict[str, Any],
         fields: list[FieldMetadata],
-        exclude_record_id: UUID | None = None,
     ) -> dict[str, Any]:
         """Validate record data against field definitions.
 
         Args:
             data: Record data to validate
             fields: Field definitions
-            exclude_record_id: Record ID to exclude for unique checks
 
         Returns:
             Validated data dict
@@ -308,20 +444,77 @@ class RecordValidators:
 
             field = active_fields[key]
 
-            if value is not None:
-                is_valid, error = validate_value_for_type(
-                    value, FieldType(field.field_type), field.enum_options
-                )
-                if not is_valid:
-                    errors.append(f"Field '{key}': {error}")
-                    continue
-
-            validated[key] = value
+            # Handle relation fields separately
+            if field.relation_kind:
+                if value is not None:
+                    # Validate relation field value
+                    is_valid, error = await self._validate_relation_field_value(
+                        field, value
+                    )
+                    if not is_valid:
+                        errors.append(f"Field '{key}': {error}")
+                        continue
+                validated[key] = value
+            else:
+                # Regular field validation
+                if value is not None:
+                    # Validate the value against the field type
+                    try:
+                        validate_field_value_type(
+                            value, FieldType(field.field_type), field.enum_options
+                        )
+                    except PydanticCustomError as e:
+                        errors.append(f"Field '{key}': {e.message()}")
+                        continue
+                validated[key] = value
 
         if errors:
             raise TracecatValidationError("; ".join(errors))
 
         return validated
+
+    async def _validate_relation_field_value(
+        self, field: FieldMetadata, value: Any
+    ) -> tuple[bool, str | None]:
+        """Validate a relation field value.
+
+        Args:
+            field: Field metadata with relation info
+            value: Value to validate
+
+        Returns:
+            Tuple of (is_valid, error_message)
+        """
+
+        if field.relation_kind == RelationKind.ONE_TO_ONE:
+            # BELONGS_TO expects a single UUID or string UUID
+            try:
+                validate_relation_uuid(
+                    value, allow_none=False, context="belongs_to relation"
+                )
+                return True, None
+            except PydanticCustomError as e:
+                return False, e.message()
+
+        elif field.relation_kind == RelationKind.ONE_TO_MANY:
+            # HAS_MANY expects a list of UUIDs
+            if not isinstance(value, list):
+                return (
+                    False,
+                    f"Expected list for has_many relation, got {type(value).__name__}",
+                )
+
+            for idx, item in enumerate(value):
+                try:
+                    validate_relation_uuid(
+                        item, allow_none=False, context=f"item at index {idx}"
+                    )
+                except PydanticCustomError as e:
+                    return False, f"Item at index {idx}: {e.message()}"
+
+            return True, None
+
+        return False, f"Unknown relation kind: {field.relation_kind}"
 
 
 class RelationValidators:
