@@ -1284,10 +1284,6 @@ export type EntitySchemaField = {
    */
   description?: string | null
   /**
-   * Whether field is required
-   */
-  required: boolean
-  /**
    * Options for SELECT/MULTI_SELECT fields
    */
   enum_options?: Array<string> | null
@@ -1491,14 +1487,6 @@ export type FieldMetadataCreate = {
    */
   relation_settings?: RelationSettings | null
   /**
-   * Field must have a non-null value (or non-empty for has_many relations)
-   */
-  is_required?: boolean
-  /**
-   * Field value must be unique across all records (one-to-one for belongs_to)
-   */
-  is_unique?: boolean
-  /**
    * Default value for the field (only for primitive types)
    */
   default_value?: unknown | null
@@ -1515,8 +1503,6 @@ export type FieldMetadataRead = {
   display_name: string
   description: string | null
   is_active: boolean
-  is_required: boolean
-  is_unique: boolean
   deactivated_at: string | null
   created_at: string
   updated_at: string
@@ -1536,8 +1522,6 @@ export type FieldMetadataUpdate = {
    * Options for SELECT/MULTI_SELECT fields
    */
   enum_options?: Array<string> | null
-  is_required?: boolean | null
-  is_unique?: boolean | null
   default_value?: unknown | null
 }
 

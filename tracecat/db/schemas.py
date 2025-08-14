@@ -7,7 +7,16 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from pydantic import UUID4, BaseModel, ConfigDict, computed_field
-from sqlalchemy import TIMESTAMP, Column, ForeignKey, Identity, Index, Integer, func
+from sqlalchemy import (
+    TIMESTAMP,
+    Column,
+    ForeignKey,
+    Identity,
+    Index,
+    Integer,
+    String,
+    func,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import UUID, Field, Relationship, SQLModel, UniqueConstraint
 
@@ -26,7 +35,6 @@ from tracecat.db.adapter import (
     SQLModelBaseUserDB,
 )
 from tracecat.ee.interactions.enums import InteractionStatus, InteractionType
-from tracecat.entities.enums import RelationKind
 from tracecat.identifiers import OwnerID, action, id_factory
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.integrations.enums import IntegrationStatus, OAuthGrantType
@@ -1454,18 +1462,17 @@ class FieldMetadata(SQLModel, TimestampMixin, table=True):
         sa_column=Column(TIMESTAMP(timezone=True)),
     )
 
-    # All fields are nullable (no required fields)
-    is_required: bool = Field(default=False)
-    is_unique: bool = Field(default=False)  # For future use
+    # All fields are nullable and non-unique in v1
     # Default value for fields (only for primitive types)
     default_value: dict[str, Any] | None = Field(
         default=None, sa_column=Column(JSONB), description="Default value for field"
     )
 
     # Relation field columns
-    relation_kind: RelationKind | None = Field(
+    relation_kind: str | None = Field(
         default=None,
         max_length=20,
+        sa_column=Column(String(20)),
         description="Type of relation: one_to_one or one_to_many",
     )
     relation_target_entity_id: UUID4 | None = Field(

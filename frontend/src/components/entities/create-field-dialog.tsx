@@ -24,7 +24,6 @@ import { z } from "zod"
 import type { FieldType } from "@/client"
 import { MultiTagCommandInput } from "@/components/tags-input"
 import { Button } from "@/components/ui/button"
-import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
   DialogContent,
@@ -104,8 +103,6 @@ const createFieldSchema = z.object({
   ] as const),
   display_name: z.string().min(1, "Display name is required"),
   description: z.string().optional(),
-  is_required: z.boolean().default(false),
-  is_unique: z.boolean().default(false),
   default_value: z.any().optional(),
   enum_options: z.array(z.string()).optional(),
   relation_settings: z
@@ -153,14 +150,11 @@ export function CreateFieldDialog({
       field_type: "TEXT" as const,
       display_name: "",
       description: "",
-      is_required: false,
-      is_unique: false,
       default_value: "",
       enum_options: [],
       relation_settings: {
         relation_type: "belongs_to",
         target_entity_id: "",
-        // v1: No backref or cascade config
       },
     },
   })
@@ -185,6 +179,13 @@ export function CreateFieldDialog({
     try {
       // Convert default value based on field type
       let processedData = { ...data }
+
+      // Clean up empty values - set to undefined for proper API handling
+      if (!processedData.description || processedData.description === "") {
+        delete processedData.description
+      }
+
+      // Handle default value conversion and cleanup
       if (
         data.default_value !== undefined &&
         data.default_value !== "" &&
@@ -207,8 +208,9 @@ export function CreateFieldDialog({
             .map((s) => s.trim())
             .filter(Boolean)
         }
+        // Keep the default_value for TEXT and SELECT types as-is
       } else {
-        // Remove default_value if not supported or empty
+        // Remove default_value if not supported, empty, or "_none"
         delete processedData.default_value
       }
 
@@ -224,6 +226,7 @@ export function CreateFieldDialog({
           throw new Error("Please add at least one option for this field type")
         }
       } else {
+        // Ensure enum_options is completely removed for non-select fields
         delete processedData.enum_options
       }
 
@@ -436,7 +439,8 @@ export function CreateFieldDialog({
                           </SelectContent>
                         </Select>
                         <FormDescription>
-                          The entity that this field will relate to
+                          Link this entity to another entity via a relation
+                          field
                         </FormDescription>
                         <FormMessage />
                       </FormItem>
@@ -488,63 +492,6 @@ export function CreateFieldDialog({
                   )}
                 />
               )}
-              <FormField
-                control={form.control}
-                name="is_required"
-                render={({ field }) => (
-                  <FormItem className="flex flex-row items-start space-x-3 space-y-0">
-                    <FormControl>
-                      <Checkbox
-                        checked={field.value}
-                        onCheckedChange={field.onChange}
-                      />
-                    </FormControl>
-                    <div className="space-y-1 leading-none">
-                      <div className="flex items-center gap-2">
-                        <FormLabel>Required field</FormLabel>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Info className="h-4 w-4 text-muted-foreground" />
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            <p>This field must have a value</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      </div>
-                    </div>
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="is_unique"
-                render={({ field }) => (
-                  <FormItem className="flex flex-row items-start space-x-3 space-y-0">
-                    <FormControl>
-                      <Checkbox
-                        checked={field.value}
-                        onCheckedChange={field.onChange}
-                      />
-                    </FormControl>
-                    <div className="space-y-1 leading-none">
-                      <div className="flex items-center gap-2">
-                        <FormLabel>Unique values</FormLabel>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Info className="h-4 w-4 text-muted-foreground" />
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            <p>
-                              Each record must have a unique value for this
-                              field
-                            </p>
-                          </TooltipContent>
-                        </Tooltip>
-                      </div>
-                    </div>
-                  </FormItem>
-                )}
-              />
               <DialogFooter>
                 <Button
                   type="button"

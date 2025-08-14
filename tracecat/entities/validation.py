@@ -8,27 +8,27 @@ from typing import Any
 from uuid import UUID
 
 from pydantic_core import PydanticCustomError
-from sqlalchemy import text
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat.db.schemas import (
     EntityData,
     EntityMetadata,
-    EntityRelationLink,
     FieldMetadata,
 )
-from tracecat.entities.common import validate_relation_settings, validate_value_for_type
-from tracecat.entities.models import RelationSettings
+from tracecat.entities.common import validate_value_for_type
 from tracecat.entities.query import EntityQueryBuilder
 from tracecat.entities.types import FieldType, validate_flat_structure
+from tracecat.identifiers import WorkspaceID
 from tracecat.types.exceptions import TracecatNotFoundError, TracecatValidationError
 
 
 class EntityValidators:
     """Database-dependent validators for entity-level operations."""
 
-    def __init__(self, session: AsyncSession, workspace_id: str | UUID):
+    def __init__(
+        self, session: AsyncSession, workspace_id: str | UUID | WorkspaceID | None
+    ):
         """Initialize entity validators.
 
         Args:
@@ -115,7 +115,9 @@ class EntityValidators:
 class FieldValidators:
     """Database-dependent validators for field-level operations."""
 
-    def __init__(self, session: AsyncSession, workspace_id: str | UUID):
+    def __init__(
+        self, session: AsyncSession, workspace_id: str | UUID | WorkspaceID | None
+    ):
         """Initialize field validators.
 
         Args:
@@ -213,69 +215,6 @@ class FieldValidators:
             raise TracecatValidationError(f"Field {field.field_key} is not active")
         return field
 
-    def validate_enum_options_for_type(
-        self, field_type: FieldType, enum_options: list[str] | None
-    ) -> None:
-        """Validate enum options are provided for SELECT/MULTI_SELECT types.
-
-        Args:
-            field_type: Field type
-            enum_options: Enum options list
-
-        Raises:
-            PydanticCustomError: If validation fails
-        """
-        if field_type in (FieldType.SELECT, FieldType.MULTI_SELECT):
-            if not enum_options:
-                raise PydanticCustomError(
-                    "missing_enum_options",
-                    "Field type '{field_type}' requires enum_options",
-                    {"field_type": field_type.value},
-                )
-        elif enum_options:
-            raise PydanticCustomError(
-                "invalid_enum_options",
-                "Field type '{field_type}' cannot have enum_options",
-                {"field_type": field_type.value},
-            )
-
-    def validate_field_type_supports_unique(self, field_type: FieldType) -> None:
-        """Validate that field type supports unique constraint.
-
-        Args:
-            field_type: Field type to check
-
-        Raises:
-            PydanticCustomError: If type doesn't support unique
-        """
-        supported_types = {FieldType.TEXT, FieldType.NUMBER}
-        if field_type not in supported_types:
-            raise PydanticCustomError(
-                "constraint_not_supported",
-                "Field type '{field_type}' does not support unique constraint",
-                {"field_type": field_type.value},
-            )
-
-    def validate_field_type_supports_default(self, field_type: FieldType) -> None:
-        """Validate that field type supports default values.
-
-        Args:
-            field_type: Field type to check
-
-        Raises:
-            PydanticCustomError: If type doesn't support defaults
-        """
-        unsupported_types = {
-            FieldType.RELATION_BELONGS_TO,
-            FieldType.RELATION_HAS_MANY,
-        }
-        if field_type in unsupported_types:
-            raise PydanticCustomError(
-                "default_not_supported",
-                "Field type '{field_type}' does not support default values",
-                {"field_type": field_type.value},
-            )
-
 
 class RecordValidators:
     """Database-dependent validators for record-level operations."""
@@ -283,7 +222,7 @@ class RecordValidators:
     def __init__(
         self,
         session: AsyncSession,
-        workspace_id: str,
+        workspace_id: str | UUID | WorkspaceID | None,
         query_builder: EntityQueryBuilder | None = None,
     ):
         """Initialize record validators.
@@ -329,39 +268,6 @@ class RecordValidators:
         if not record and raise_on_missing:
             raise TracecatNotFoundError(f"Record with ID {record_id} not found")
         return record
-
-    async def check_unique_violation(
-        self,
-        entity_id: UUID,
-        field_key: str,
-        value: Any,
-        exclude_record_id: UUID | None = None,
-    ) -> bool:
-        """Check if a value would violate unique constraint.
-
-        Args:
-            entity_id: Entity metadata ID
-            field_key: Field key to check
-            value: Value to check for uniqueness
-            exclude_record_id: Record ID to exclude (for updates)
-
-        Returns:
-            True if duplicate exists, False otherwise
-        """
-        stmt = select(EntityData).where(
-            EntityData.entity_metadata_id == entity_id,
-            EntityData.owner_id == self.workspace_id,
-        )
-
-        expr = await self.query_builder.eq(entity_id, field_key, value)
-        stmt = stmt.where(expr)
-
-        if exclude_record_id:
-            stmt = stmt.where(EntityData.id != exclude_record_id)
-
-        stmt = stmt.limit(1)
-        result = await self.session.exec(stmt)
-        return result.first() is not None
 
     async def validate_record_data(
         self,
@@ -410,14 +316,6 @@ class RecordValidators:
                     errors.append(f"Field '{key}': {error}")
                     continue
 
-                if field.is_unique:
-                    has_duplicate = await self.check_unique_violation(
-                        field.entity_metadata_id, key, value, exclude_record_id
-                    )
-                    if has_duplicate:
-                        errors.append(f"Field '{key}': Value '{value}' already exists")
-                        continue
-
             validated[key] = value
 
         if errors:
@@ -425,36 +323,13 @@ class RecordValidators:
 
         return validated
 
-    def validate_required_fields(
-        self, data: dict[str, Any], fields: list[FieldMetadata]
-    ) -> None:
-        """Validate that all required fields have values.
-
-        Args:
-            data: Record data
-            fields: Field definitions
-
-        Raises:
-            TracecatValidationError: If required fields are missing
-        """
-        errors = []
-        for field in fields:
-            if field.is_required and field.is_active:
-                # Skip relation fields - they are validated separately
-                if field.relation_kind:
-                    continue
-                value = data.get(field.field_key)
-                if value is None:
-                    errors.append(f"Required field '{field.field_key}' is missing")
-
-        if errors:
-            raise TracecatValidationError("; ".join(errors))
-
 
 class RelationValidators:
     """Database-dependent validators for relation operations."""
 
-    def __init__(self, session: AsyncSession, workspace_id: str | UUID):
+    def __init__(
+        self, session: AsyncSession, workspace_id: str | UUID | WorkspaceID | None
+    ):
         """Initialize relation validators.
 
         Args:
@@ -464,30 +339,7 @@ class RelationValidators:
         self.session = session
         self.workspace_id = workspace_id
         self.entity_validators = EntityValidators(session, workspace_id)
-        self.record_validators = RecordValidators(session, str(workspace_id))
-
-    def validate_relation_settings(
-        self, field_type: FieldType, relation_settings: RelationSettings | None
-    ) -> None:
-        """Validate relation settings match field type.
-
-        Args:
-            field_type: Field type
-            relation_settings: Relation settings to validate
-
-        Raises:
-            PydanticCustomError: If validation fails
-        """
-        is_valid, error = validate_relation_settings(
-            FieldType(field_type), relation_settings
-        )
-        if not is_valid:
-            details = error or "Invalid relation settings"
-            raise PydanticCustomError(
-                "invalid_relation_settings",
-                "Invalid relation settings: {details}",
-                {"details": details},
-            )
+        self.record_validators = RecordValidators(session, workspace_id)
 
     async def validate_target_entity(self, target_entity_name: str) -> EntityMetadata:
         """Validate that target entity exists and is active.
@@ -544,151 +396,3 @@ class RelationValidators:
                 f"Target record {record_id} not found in entity"
             )
         return record
-
-    async def validate_relation_required_constraint(
-        self, field: FieldMetadata, record_id: UUID
-    ) -> None:
-        """Validate that a required relation has a value.
-
-        Args:
-            field: Field metadata with relation settings
-            record_id: Record ID to check
-
-        Raises:
-            TracecatValidationError: If required relation is missing
-        """
-        if not field.is_required or not field.relation_kind:
-            return
-
-        if field.relation_kind == "belongs_to":
-            record = await self.record_validators.validate_record_exists(record_id)
-            if record:
-                value = record.field_data.get(field.field_key)
-                if value is None:
-                    raise TracecatValidationError(
-                        f"Required relation field '{field.field_key}' is missing"
-                    )
-
-    async def validate_unique_relation(
-        self,
-        field: FieldMetadata,
-        target_record_id: UUID,
-        exclude_record_id: UUID | None = None,
-    ) -> None:
-        """Validate unique constraint on has-many relation.
-
-        Args:
-            field: Field metadata with relation settings
-            target_record_id: Target record ID
-            exclude_record_id: Record to exclude from check
-
-        Raises:
-            TracecatValidationError: If relation would violate unique constraint
-        """
-        if not field.is_unique or not field.relation_kind:
-            return
-
-        if field.relation_kind == "has_many":
-            stmt = select(EntityRelationLink).where(
-                EntityRelationLink.source_field_id == field.id,
-                EntityRelationLink.target_record_id == target_record_id,
-                EntityRelationLink.owner_id == self.workspace_id,
-            )
-            if exclude_record_id:
-                stmt = stmt.where(
-                    EntityRelationLink.source_record_id != exclude_record_id
-                )
-
-            result = await self.session.exec(stmt)
-            if result.first():
-                raise TracecatValidationError(
-                    f"Record is already linked to another {field.field_key}"
-                )
-
-
-class ConstraintValidators:
-    """Validators for constraint changes on existing data."""
-
-    def __init__(self, session: AsyncSession, workspace_id: str | UUID):
-        """Initialize constraint validators.
-
-        Args:
-            session: Database session
-            workspace_id: Workspace ID for scoping queries
-        """
-        self.session = session
-        self.workspace_id = workspace_id
-
-    async def validate_unique_constraint_change(self, field: FieldMetadata) -> None:
-        """Validate that enabling unique constraint won't violate existing data.
-
-        Args:
-            field: Field metadata to check
-
-        Raises:
-            ValueError: If duplicate values exist
-        """
-        duplicate_check = text("""
-            SELECT field_data->>:field_key as value, COUNT(*) as cnt
-            FROM entity_data
-            WHERE entity_metadata_id = :entity_id
-              AND owner_id = :owner_id
-              AND field_data ? :field_key
-              AND field_data->>:field_key IS NOT NULL
-            GROUP BY field_data->>:field_key
-            HAVING COUNT(*) > 1
-        """)
-
-        # Use exec() with params as keyword argument for raw SQL
-        result = await self.session.exec(
-            duplicate_check,
-            params={
-                "field_key": field.field_key,
-                "entity_id": field.entity_metadata_id,
-                "owner_id": self.workspace_id,
-            },
-        )
-
-        duplicates = result.fetchall()
-        if duplicates:
-            values = [f"'{row[0]}' ({row[1]} occurrences)" for row in duplicates]
-            raise ValueError(
-                f"Cannot enable unique constraint. Duplicate values found: {', '.join(values)}"
-            )
-
-    async def validate_required_constraint_change(self, field: FieldMetadata) -> None:
-        """Validate that enabling required constraint won't violate existing data.
-
-        Args:
-            field: Field metadata to check
-
-        Raises:
-            ValueError: If null or missing values exist
-        """
-        null_check = text("""
-            SELECT COUNT(*) as cnt
-            FROM entity_data
-            WHERE entity_metadata_id = :entity_id
-              AND owner_id = :owner_id
-              AND (
-                NOT field_data ? :field_key
-                OR field_data->>:field_key IS NULL
-              )
-        """)
-
-        # Use exec() with params as keyword argument for raw SQL
-        result = await self.session.exec(
-            null_check,
-            params={
-                "field_key": field.field_key,
-                "entity_id": field.entity_metadata_id,
-                "owner_id": self.workspace_id,
-            },
-        )
-
-        null_count = result.scalar() or 0
-        if null_count > 0:
-            raise ValueError(
-                f"Cannot enable required constraint. "
-                f"{null_count} records have null or missing values for '{field.field_key}'"
-            )
