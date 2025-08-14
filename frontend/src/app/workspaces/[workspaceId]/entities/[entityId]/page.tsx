@@ -6,6 +6,7 @@ import { useParams, useRouter, useSearchParams } from "next/navigation"
 import { useEffect, useState } from "react"
 import {
   entitiesCreateField,
+  entitiesCreateRelationField,
   entitiesDeactivateEntityType,
   entitiesDeactivateField,
   entitiesReactivateEntityType,
@@ -41,6 +42,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/use-toast"
 import { entityEvents } from "@/lib/entity-events"
 import {
+  useEntities,
   useEntity,
   useEntityFields,
   useUpdateEntityField,
@@ -80,6 +82,7 @@ export default function EntityDetailPage() {
     workspaceId,
     entityId
   )
+  const { entities } = useEntities(workspaceId)
 
   // Initialize form state when entity loads or when starting to edit
   useEffect(() => {
@@ -111,21 +114,40 @@ export default function EntityDetailPage() {
       relation_settings?: RelationSettings
       default_value?: unknown
     }) => {
-      return await entitiesCreateField({
-        workspaceId,
-        entityId,
-        requestBody: {
-          field_key: data.field_key,
-          field_type: data.field_type as FieldType,
-          display_name: data.display_name,
-          description: data.description,
-          is_required: data.is_required,
-          is_unique: data.is_unique,
-          enum_options: data.enum_options,
-          relation_settings: data.relation_settings,
-          default_value: data.default_value,
-        },
-      })
+      // Use different endpoint for relation fields
+      if (
+        data.field_type === "RELATION_BELONGS_TO" ||
+        data.field_type === "RELATION_HAS_MANY"
+      ) {
+        return await entitiesCreateRelationField({
+          workspaceId,
+          entityId,
+          requestBody: {
+            field_key: data.field_key,
+            field_type: data.field_type as FieldType,
+            display_name: data.display_name,
+            description: data.description,
+            is_required: data.is_required,
+            is_unique: data.is_unique,
+            relation_settings: data.relation_settings,
+          },
+        })
+      } else {
+        return await entitiesCreateField({
+          workspaceId,
+          entityId,
+          requestBody: {
+            field_key: data.field_key,
+            field_type: data.field_type as FieldType,
+            display_name: data.display_name,
+            description: data.description,
+            is_required: data.is_required,
+            is_unique: data.is_unique,
+            enum_options: data.enum_options,
+            default_value: data.default_value,
+          },
+        })
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({
@@ -346,6 +368,8 @@ export default function EntityDetailPage() {
             ) : (
               <EntityFieldsTable
                 fields={fields}
+                entities={entities}
+                currentEntityName={entity?.display_name}
                 onEditField={(field) => {
                   setSelectedFieldForEdit(field)
                   setEditFieldDialogOpen(true)

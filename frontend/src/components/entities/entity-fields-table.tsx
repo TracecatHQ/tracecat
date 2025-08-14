@@ -22,7 +22,7 @@ import {
   XCircle,
 } from "lucide-react"
 import { useState } from "react"
-import type { FieldMetadataRead, FieldType } from "@/client"
+import type { EntityMetadataRead, FieldMetadataRead, FieldType } from "@/client"
 import {
   DataTable,
   DataTableColumnHeader,
@@ -47,6 +47,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 
 const fieldTypeConfig: Partial<
   Record<FieldType, { label: string; icon: React.ElementType }>
@@ -68,6 +73,8 @@ const fieldTypeConfig: Partial<
 
 interface EntityFieldsTableProps {
   fields: FieldMetadataRead[]
+  entities?: EntityMetadataRead[]
+  currentEntityName?: string
   onEditField?: (field: FieldMetadataRead) => void
   onDeleteField?: (fieldId: string) => Promise<void>
   onDeactivateField?: (fieldId: string) => Promise<void>
@@ -77,6 +84,8 @@ interface EntityFieldsTableProps {
 
 export function EntityFieldsTable({
   fields,
+  entities,
+  currentEntityName,
   onEditField,
   onDeleteField,
   onDeactivateField,
@@ -137,13 +146,60 @@ export function EntityFieldsTable({
               const fieldType = row.getValue<FieldType>("field_type")
               const config = fieldTypeConfig[fieldType]
               const Icon = config?.icon
+              const field = row.original
 
-              return (
+              // Get target entity name (slug) for relation fields
+              let targetEntityName: string | undefined
+              if (
+                (fieldType === "RELATION_BELONGS_TO" ||
+                  fieldType === "RELATION_HAS_MANY") &&
+                field.relation_target_entity_id &&
+                entities
+              ) {
+                const targetEntity = entities.find(
+                  (e) => e.id === field.relation_target_entity_id
+                )
+                // Use the entity's name (slug) instead of display_name
+                targetEntityName = targetEntity?.name
+              }
+
+              // Build label for badge
+              let badgeLabel = config?.label || fieldType
+              if (targetEntityName) {
+                badgeLabel = `${config?.label} ${targetEntityName}`
+              }
+
+              // Build tooltip content for relation fields
+              const getTooltipContent = () => {
+                if (!targetEntityName || !currentEntityName) return null
+
+                if (fieldType === "RELATION_BELONGS_TO") {
+                  return `Many ${currentEntityName} to one ${targetEntityName}`
+                } else if (fieldType === "RELATION_HAS_MANY") {
+                  return `One ${currentEntityName} to many ${targetEntityName}`
+                }
+                return null
+              }
+
+              const tooltipContent = getTooltipContent()
+
+              const badge = (
                 <Badge variant="secondary" className="text-xs">
                   {Icon && <Icon className="mr-1.5 h-3 w-3" />}
-                  {config?.label || fieldType}
+                  {badgeLabel}
                 </Badge>
               )
+
+              if (tooltipContent) {
+                return (
+                  <Tooltip>
+                    <TooltipTrigger asChild>{badge}</TooltipTrigger>
+                    <TooltipContent>{tooltipContent}</TooltipContent>
+                  </Tooltip>
+                )
+              }
+
+              return badge
             },
             enableSorting: true,
             enableHiding: false,
