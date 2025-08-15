@@ -33,7 +33,7 @@ import { useWorkspace } from "@/providers/workspace"
 export default function EntityDetailPage() {
   const { workspaceId } = useWorkspace()
   const params = useParams<{ entityId: string }>()
-  const entityId = params.entityId
+  const entityId = params?.entityId ?? ""
   const queryClient = useQueryClient()
   const [createFieldDialogOpen, setCreateFieldDialogOpen] = useState(false)
   const [createFieldError, setCreateFieldError] = useState<string | null>(null)

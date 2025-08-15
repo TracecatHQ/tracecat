@@ -3857,3 +3857,15 @@ export function useDragDivider({
     },
   }
 }
+
+// Export case entities hooks
+export {
+  useCreateCaseRecord,
+  useDeleteCaseRecord,
+  useGetCaseRecord,
+  useGetEntitySchema,
+  useListCaseRecords,
+  useListEntities,
+  useRemoveCaseRecordLink,
+  useUpdateCaseRecord,
+} from "./hooks/use-case-entities"

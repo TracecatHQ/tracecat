@@ -141,7 +141,7 @@ export function CreateFieldDialog({
 }: CreateFieldDialogProps) {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const params = useParams<{ workspaceId: string }>()
-  const { entities } = useEntities(params.workspaceId)
+  const { entities } = useEntities(params?.workspaceId || "")
 
   const form = useForm<CreateFieldFormData>({
     resolver: zodResolver(createFieldSchema),
