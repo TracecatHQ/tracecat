@@ -13,10 +13,10 @@ from sqlmodel.sql.expression import SelectOfScalar
 
 from tracecat.authz.controls import require_access_level
 from tracecat.db.schemas import (
-    EntityData,
-    EntityMetadata,
-    EntityRelationLink,
+    Entity,
     FieldMetadata,
+    Record,
+    RecordRelationLink,
 )
 from tracecat.entities.common import (
     format_belongs_to_cache,
@@ -25,7 +25,7 @@ from tracecat.entities.common import (
 )
 from tracecat.entities.enums import RelationKind
 from tracecat.entities.models import (
-    EntityMetadataCreate,
+    EntityCreate,
     FieldMetadataCreate,
     HasManyRelationUpdate,
     RelationOperation,
@@ -72,32 +72,32 @@ class CustomEntitiesService(BaseWorkspaceService):
         )
         self.relation_validators = RelationValidators(session, self.workspace_id)
 
-    # Entity Metadata Operations
+    # Entity Operations
 
     @require_access_level(AccessLevel.ADMIN)
-    async def create_entity_type(
+    async def create_entity(
         self,
         name: str,
         display_name: str,
         description: str | None = None,
         icon: str | None = None,
-    ) -> EntityMetadata:
-        """Create a new entity type.
+    ) -> Entity:
+        """Create a new entity.
 
         Args:
-            name: Unique identifier for the entity type (immutable)
+            name: Unique identifier for the entity (immutable)
             display_name: Human-readable name
             description: Optional description
             icon: Optional icon identifier
 
         Returns:
-            Created EntityMetadata
+            Created Entity
 
         Raises:
             ValueError: If name already exists or is invalid
         """
         # Validate using Pydantic model
-        validated = EntityMetadataCreate(
+        validated = EntityCreate(
             name=name,
             display_name=display_name,
             description=description,
@@ -107,7 +107,7 @@ class CustomEntitiesService(BaseWorkspaceService):
         # Check uniqueness
         await self.entity_validators.validate_entity_name_unique(name)
 
-        entity = EntityMetadata(
+        entity = Entity(
             owner_id=self.workspace_id,
             name=validated.name,
             display_name=validated.display_name,
@@ -121,20 +121,20 @@ class CustomEntitiesService(BaseWorkspaceService):
         await self.session.refresh(entity)
         return entity
 
-    async def get_entity_type(self, entity_id: UUID) -> EntityMetadata:
-        """Get entity type by ID.
+    async def get_entity(self, entity_id: UUID) -> Entity:
+        """Get entity by ID.
 
         Args:
             entity_id: Entity metadata ID
 
         Returns:
-            EntityMetadata
+            Entity
 
         Raises:
             TracecatNotFoundError: If not found
         """
-        stmt = select(EntityMetadata).where(
-            EntityMetadata.id == entity_id, EntityMetadata.owner_id == self.workspace_id
+        stmt = select(Entity).where(
+            Entity.id == entity_id, Entity.owner_id == self.workspace_id
         )
         result = await self.session.exec(stmt)
         entity = result.first()
@@ -144,22 +144,22 @@ class CustomEntitiesService(BaseWorkspaceService):
 
         return entity
 
-    async def get_entity_type_by_name(self, name: str) -> EntityMetadata:
-        """Get entity type by name (slug).
+    async def get_entity_by_name(self, name: str) -> Entity:
+        """Get entity by name (slug).
 
         Args:
             name: Entity type name/slug (e.g., "customer", "incident")
 
         Returns:
-            EntityMetadata
+            Entity
 
         Raises:
             TracecatNotFoundError: If not found
         """
-        stmt = select(EntityMetadata).where(
-            EntityMetadata.name == name,
-            EntityMetadata.owner_id == self.workspace_id,
-            EntityMetadata.is_active,
+        stmt = select(Entity).where(
+            Entity.name == name,
+            Entity.owner_id == self.workspace_id,
+            Entity.is_active,
         )
         result = await self.session.exec(stmt)
         entity = result.first()
@@ -169,37 +169,33 @@ class CustomEntitiesService(BaseWorkspaceService):
 
         return entity
 
-    async def list_entity_types(
-        self, include_inactive: bool = False
-    ) -> list[EntityMetadata]:
-        """List all entity types.
+    async def list_entities(self, include_inactive: bool = False) -> list[Entity]:
+        """List all entities.
 
         Args:
             include_inactive: Whether to include soft-deleted entities
 
         Returns:
-            List of EntityMetadata
+            List of Entity
         """
-        stmt = select(EntityMetadata).where(
-            EntityMetadata.owner_id == self.workspace_id
-        )
+        stmt = select(Entity).where(Entity.owner_id == self.workspace_id)
 
         if not include_inactive:
-            stmt = stmt.where(EntityMetadata.is_active)
+            stmt = stmt.where(Entity.is_active)
 
         result = await self.session.exec(stmt)
         return list(result.all())
 
     @require_access_level(AccessLevel.ADMIN)
-    async def delete_entity_type(self, entity_id: UUID) -> None:
-        """Permanently delete an entity type and all associated data.
+    async def delete_entity(self, entity_id: UUID) -> None:
+        """Permanently delete an entity and all associated data.
 
         Args:
             entity_id: Entity to delete
 
         Note:
             This is a hard delete - all data will be permanently lost.
-            - Deletes all records of this entity type
+            - Deletes all records of this entity
             - Deletes all fields
             - Deletes all relation links
             - Deletes the entity metadata
@@ -208,34 +204,32 @@ class CustomEntitiesService(BaseWorkspaceService):
 
         # Delete all relation links involving this entity
         # Links where records of this entity are sources
-        source_links_stmt = select(EntityRelationLink).where(
-            EntityRelationLink.source_entity_metadata_id == entity_id
+        source_links_stmt = select(RecordRelationLink).where(
+            RecordRelationLink.source_entity_id == entity_id
         )
         source_links_result = await self.session.exec(source_links_stmt)
         for link in source_links_result.all():
             await self.session.delete(link)
 
         # Links where records of this entity are targets
-        target_links_stmt = select(EntityRelationLink).where(
-            EntityRelationLink.target_entity_metadata_id == entity_id
+        target_links_stmt = select(RecordRelationLink).where(
+            RecordRelationLink.target_entity_id == entity_id
         )
         target_links_result = await self.session.exec(target_links_stmt)
         for link in target_links_result.all():
             await self.session.delete(link)
 
-        # Delete all records of this entity type
-        records_stmt = select(EntityData).where(
-            EntityData.entity_metadata_id == entity_id,
-            EntityData.owner_id == self.workspace_id,
+        # Delete all records of this entity
+        records_stmt = select(Record).where(
+            Record.entity_id == entity_id,
+            Record.owner_id == self.workspace_id,
         )
         records_result = await self.session.exec(records_stmt)
         for record in records_result.all():
             await self.session.delete(record)
 
         # Delete all fields (cascade will handle this, but let's be explicit)
-        fields_stmt = select(FieldMetadata).where(
-            FieldMetadata.entity_metadata_id == entity_id
-        )
+        fields_stmt = select(FieldMetadata).where(FieldMetadata.entity_id == entity_id)
         fields_result = await self.session.exec(fields_stmt)
         for field in fields_result.all():
             await self.session.delete(field)
@@ -244,7 +238,7 @@ class CustomEntitiesService(BaseWorkspaceService):
         await self.session.delete(entity)
         await self.session.commit()
 
-        logger.info(f"Permanently deleted entity type {entity.name}")
+        logger.info(f"Permanently deleted entity {entity.name}")
 
     # Field Operations
 
@@ -310,7 +304,7 @@ class CustomEntitiesService(BaseWorkspaceService):
 
         # Ensure None values are properly passed (not empty strings or "null")
         field = FieldMetadata(
-            entity_metadata_id=entity_id,
+            entity_id=entity_id,
             field_key=validated.field_key,
             field_type=validated.field_type.value,
             display_name=validated.display_name,
@@ -358,9 +352,7 @@ class CustomEntitiesService(BaseWorkspaceService):
         Returns:
             List of FieldMetadata
         """
-        stmt = select(FieldMetadata).where(
-            FieldMetadata.entity_metadata_id == entity_id
-        )
+        stmt = select(FieldMetadata).where(FieldMetadata.entity_id == entity_id)
 
         if not include_inactive:
             stmt = stmt.where(FieldMetadata.is_active)
@@ -509,17 +501,17 @@ class CustomEntitiesService(BaseWorkspaceService):
         # If it's a relation field, delete all associated links
         if field.relation_kind:
             # Delete all links where this field is the source
-            links_stmt = select(EntityRelationLink).where(
-                EntityRelationLink.source_field_id == field_id
+            links_stmt = select(RecordRelationLink).where(
+                RecordRelationLink.source_field_id == field_id
             )
             links_result = await self.session.exec(links_stmt)
             for link in links_result.all():
                 await self.session.delete(link)
 
         # Remove field data from all records of this entity
-        records_stmt = select(EntityData).where(
-            EntityData.entity_metadata_id == field.entity_metadata_id,
-            EntityData.owner_id == self.workspace_id,
+        records_stmt = select(Record).where(
+            Record.entity_id == field.entity_id,
+            Record.owner_id == self.workspace_id,
         )
         records_result = await self.session.exec(records_stmt)
         for record in records_result.all():
@@ -619,7 +611,7 @@ class CustomEntitiesService(BaseWorkspaceService):
 
         # Create field with relation metadata
         field = FieldMetadata(
-            entity_metadata_id=entity_id,
+            entity_id=entity_id,
             field_key=validated.field_key,
             field_type=validated.field_type,
             display_name=validated.display_name,
@@ -659,9 +651,9 @@ class CustomEntitiesService(BaseWorkspaceService):
         # If clearing the relation
         if target_record_id is None:
             # Delete existing link if any
-            existing_link_stmt = select(EntityRelationLink).where(
-                EntityRelationLink.source_record_id == source_record_id,
-                EntityRelationLink.source_field_id == field.id,
+            existing_link_stmt = select(RecordRelationLink).where(
+                RecordRelationLink.source_record_id == source_record_id,
+                RecordRelationLink.source_field_id == field.id,
             )
             existing_result = await self.session.exec(existing_link_stmt)
             existing_link = existing_result.first()
@@ -679,14 +671,14 @@ class CustomEntitiesService(BaseWorkspaceService):
 
         # Validate target record exists and has same owner
         # Ensure target entity id is present for relation fields
-        target_entity_id = field.relation_target_entity_id
+        target_entity_id = field.target_entity_id
         if target_entity_id is None:
             raise ValueError("Relation field is missing target entity id")
 
-        target_record_stmt = select(EntityData).where(
-            EntityData.id == target_record_id,
-            EntityData.owner_id == self.workspace_id,
-            EntityData.entity_metadata_id == target_entity_id,
+        target_record_stmt = select(Record).where(
+            Record.id == target_record_id,
+            Record.owner_id == self.workspace_id,
+            Record.entity_id == target_entity_id,
         )
         target_result = await self.session.exec(target_record_stmt)
         target_record = target_result.first()
@@ -697,9 +689,9 @@ class CustomEntitiesService(BaseWorkspaceService):
             )
 
         # Delete existing link if any (for idempotency)
-        existing_link_stmt = select(EntityRelationLink).where(
-            EntityRelationLink.source_record_id == source_record_id,
-            EntityRelationLink.source_field_id == field.id,
+        existing_link_stmt = select(RecordRelationLink).where(
+            RecordRelationLink.source_record_id == source_record_id,
+            RecordRelationLink.source_field_id == field.id,
         )
         existing_result = await self.session.exec(existing_link_stmt)
         existing_link = existing_result.first()
@@ -708,12 +700,12 @@ class CustomEntitiesService(BaseWorkspaceService):
             await self.session.delete(existing_link)
 
         # Create new link
-        new_link = EntityRelationLink(
+        new_link = RecordRelationLink(
             owner_id=self.workspace_id,
-            source_entity_metadata_id=source_record.entity_metadata_id,
+            source_entity_id=source_record.entity_id,
             source_field_id=field.id,
             source_record_id=source_record_id,
-            target_entity_metadata_id=cast(UUID4, target_entity_id),
+            target_entity_id=cast(UUID4, target_entity_id),
             target_record_id=target_record_id,
         )
 
@@ -757,23 +749,23 @@ class CustomEntitiesService(BaseWorkspaceService):
         # Validate source record exists
         source_record = await self.get_record(source_record_id)
 
-        if source_record.entity_metadata_id != field.entity_metadata_id:
+        if source_record.entity_id != field.entity_id:
             raise ValueError("Field doesn't belong to the record's entity")
 
         stats = {"added": 0, "removed": 0, "unchanged": 0}
 
         # Validate all target records exist and have same owner
-        target_entity_id = field.relation_target_entity_id
+        target_entity_id = field.target_entity_id
         if target_entity_id is None:
             raise ValueError("Relation field is missing target entity id")
         if operation.target_ids:
             # Check in batches for performance
             for batch_ids in self._batch_ids(operation.target_ids, batch_size=500):
                 # Cast to Any to satisfy type checker for SQLAlchemy expression API
-                target_stmt = select(EntityData).where(
-                    cast(Any, EntityData.id).in_(batch_ids),
-                    EntityData.owner_id == self.workspace_id,
-                    EntityData.entity_metadata_id == target_entity_id,
+                target_stmt = select(Record).where(
+                    cast(Any, Record.id).in_(batch_ids),
+                    Record.owner_id == self.workspace_id,
+                    Record.entity_id == target_entity_id,
                 )
                 target_result = await self.session.exec(target_stmt)
                 found_ids = {str(record.id) for record in target_result.all()}
@@ -791,9 +783,9 @@ class CustomEntitiesService(BaseWorkspaceService):
 
         if operation.operation == RelationOperation.REPLACE:
             # Delete all existing links
-            delete_stmt = select(EntityRelationLink).where(
-                EntityRelationLink.source_record_id == source_record_id,
-                EntityRelationLink.source_field_id == field.id,
+            delete_stmt = select(RecordRelationLink).where(
+                RecordRelationLink.source_record_id == source_record_id,
+                RecordRelationLink.source_field_id == field.id,
             )
             existing_result = await self.session.exec(delete_stmt)
             existing_links = list(existing_result.all())
@@ -805,12 +797,12 @@ class CustomEntitiesService(BaseWorkspaceService):
             # Add new links
             for batch_ids in self._batch_ids(operation.target_ids, batch_size=500):
                 for target_id in batch_ids:
-                    new_link = EntityRelationLink(
+                    new_link = RecordRelationLink(
                         owner_id=self.workspace_id,
-                        source_entity_metadata_id=field.entity_metadata_id,
+                        source_entity_id=field.entity_id,
                         source_field_id=field.id,
                         source_record_id=source_record_id,
-                        target_entity_metadata_id=cast(UUID4, target_entity_id),
+                        target_entity_id=cast(UUID4, target_entity_id),
                         target_record_id=target_id,
                     )
                     self.session.add(new_link)
@@ -818,9 +810,9 @@ class CustomEntitiesService(BaseWorkspaceService):
 
         elif operation.operation == RelationOperation.ADD:
             # Get existing links to check for duplicates
-            existing_stmt = select(EntityRelationLink.target_record_id).where(
-                EntityRelationLink.source_record_id == source_record_id,
-                EntityRelationLink.source_field_id == field.id,
+            existing_stmt = select(RecordRelationLink.target_record_id).where(
+                RecordRelationLink.source_record_id == source_record_id,
+                RecordRelationLink.source_field_id == field.id,
             )
             existing_result = await self.session.exec(existing_stmt)
             existing_target_ids = {str(id) for id in existing_result.all()}
@@ -832,12 +824,12 @@ class CustomEntitiesService(BaseWorkspaceService):
                         str(target_id) if isinstance(target_id, UUID) else target_id
                     )
                     if target_id_str not in existing_target_ids:
-                        new_link = EntityRelationLink(
+                        new_link = RecordRelationLink(
                             owner_id=self.workspace_id,
-                            source_entity_metadata_id=field.entity_metadata_id,
+                            source_entity_id=field.entity_id,
                             source_field_id=field.id,
                             source_record_id=source_record_id,
-                            target_entity_metadata_id=cast(UUID4, target_entity_id),
+                            target_entity_id=cast(UUID4, target_entity_id),
                             target_record_id=target_id,
                         )
                         self.session.add(new_link)
@@ -849,10 +841,10 @@ class CustomEntitiesService(BaseWorkspaceService):
             # Delete specified links
             if operation.target_ids:
                 for batch_ids in self._batch_ids(operation.target_ids, batch_size=500):
-                    delete_stmt = select(EntityRelationLink).where(
-                        EntityRelationLink.source_record_id == source_record_id,
-                        EntityRelationLink.source_field_id == field.id,
-                        cast(Any, EntityRelationLink.target_record_id).in_(batch_ids),
+                    delete_stmt = select(RecordRelationLink).where(
+                        RecordRelationLink.source_record_id == source_record_id,
+                        RecordRelationLink.source_field_id == field.id,
+                        cast(Any, RecordRelationLink.target_record_id).in_(batch_ids),
                     )
                     delete_result = await self.session.exec(delete_stmt)
                     links_to_delete = list(delete_result.all())
@@ -879,7 +871,7 @@ class CustomEntitiesService(BaseWorkspaceService):
 
     async def _process_relation_fields_on_create(
         self,
-        record: EntityData,
+        record: Record,
         relation_fields: dict[str, FieldMetadata],
         relation_data: dict[str, Any],
     ) -> None:
@@ -940,7 +932,7 @@ class CustomEntitiesService(BaseWorkspaceService):
 
         # Find all fields that reference this record's entity as a target
         referencing_fields_stmt = select(FieldMetadata).where(
-            FieldMetadata.relation_target_entity_id == record.entity_metadata_id,
+            FieldMetadata.target_entity_id == record.entity_id,
             FieldMetadata.is_active,
         )
         referencing_fields_result = await self.session.exec(referencing_fields_stmt)
@@ -948,9 +940,9 @@ class CustomEntitiesService(BaseWorkspaceService):
 
         for field in referencing_fields:
             # Find all source records that link to this record
-            links_stmt = select(EntityRelationLink).where(
-                EntityRelationLink.target_record_id == record_id,
-                EntityRelationLink.source_field_id == field.id,
+            links_stmt = select(RecordRelationLink).where(
+                RecordRelationLink.target_record_id == record_id,
+                RecordRelationLink.source_field_id == field.id,
             )
             links_result = await self.session.exec(links_stmt)
             links = list(links_result.all())
@@ -990,7 +982,7 @@ class CustomEntitiesService(BaseWorkspaceService):
 
     # Data Operations
 
-    async def create_record(self, entity_id: UUID, data: dict[str, Any]) -> EntityData:
+    async def create_record(self, entity_id: UUID, data: dict[str, Any]) -> Record:
         """Create a new entity record.
 
         Args:
@@ -998,7 +990,7 @@ class CustomEntitiesService(BaseWorkspaceService):
             data: Field data (validated against active fields)
 
         Returns:
-            Created EntityData
+            Created Record
 
         Raises:
             ValidationError: If data invalid
@@ -1061,8 +1053,8 @@ class CustomEntitiesService(BaseWorkspaceService):
                 )
 
         # Create record
-        record = EntityData(
-            entity_metadata_id=entity_id,
+        record = Record(
+            entity_id=entity_id,
             owner_id=self.workspace_id,
             field_data=serialized_data,
         )
@@ -1079,20 +1071,20 @@ class CustomEntitiesService(BaseWorkspaceService):
 
         return record
 
-    async def get_record(self, record_id: UUID) -> EntityData:
+    async def get_record(self, record_id: UUID) -> Record:
         """Get entity record by ID.
 
         Args:
             record_id: Record ID
 
         Returns:
-            EntityData
+            Record
 
         Raises:
             TracecatNotFoundError: If not found
         """
-        stmt = select(EntityData).where(
-            EntityData.id == record_id, EntityData.owner_id == self.workspace_id
+        stmt = select(Record).where(
+            Record.id == record_id, Record.owner_id == self.workspace_id
         )
         result = await self.session.exec(stmt)
         record = result.first()
@@ -1102,9 +1094,7 @@ class CustomEntitiesService(BaseWorkspaceService):
 
         return record
 
-    async def update_record(
-        self, record_id: UUID, updates: dict[str, Any]
-    ) -> EntityData:
+    async def update_record(self, record_id: UUID, updates: dict[str, Any]) -> Record:
         """Update entity record.
 
         Args:
@@ -1112,7 +1102,7 @@ class CustomEntitiesService(BaseWorkspaceService):
             updates: Field updates (validated against active fields)
 
         Returns:
-            Updated EntityData
+            Updated Record
 
         Raises:
             ValidationError: If updates invalid
@@ -1120,9 +1110,7 @@ class CustomEntitiesService(BaseWorkspaceService):
         record = await self.get_record(record_id)
 
         # Get active fields for validation
-        active_fields = await self.list_fields(
-            record.entity_metadata_id, include_inactive=False
-        )
+        active_fields = await self.list_fields(record.entity_id, include_inactive=False)
 
         # Validate updates (includes flat structure check)
         validated_updates = await self.record_validators.validate_record_data(
@@ -1160,7 +1148,7 @@ class CustomEntitiesService(BaseWorkspaceService):
         filters: list[dict[str, Any]] | None = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> list[EntityData]:
+    ) -> list[Record]:
         """Query entity records with filters.
 
         Args:
@@ -1170,15 +1158,15 @@ class CustomEntitiesService(BaseWorkspaceService):
             offset: Number of records to skip
 
         Returns:
-            List of EntityData matching filters
+            List of Record matching filters
         """
         # Validate entity exists
         await self.get_entity_type(entity_id)
 
         # Build base query
-        stmt = select(EntityData).where(
-            EntityData.entity_metadata_id == entity_id,
-            EntityData.owner_id == self.workspace_id,
+        stmt = select(Record).where(
+            Record.entity_id == entity_id,
+            Record.owner_id == self.workspace_id,
         )
 
         # Apply filters if provided
@@ -1188,12 +1176,12 @@ class CustomEntitiesService(BaseWorkspaceService):
         # Apply pagination
         stmt = stmt.limit(limit).offset(offset)
 
-        result = await self.session.exec(cast(SelectOfScalar[EntityData], stmt))
+        result = await self.session.exec(cast(SelectOfScalar[Record], stmt))
         return list(result.all())
 
     async def get_record_by_slug(
         self, entity_id: UUID, slug_value: str, slug_field: str = "name"
-    ) -> EntityData:
+    ) -> Record:
         """Get a single record by slug field value.
 
         Args:
@@ -1202,7 +1190,7 @@ class CustomEntitiesService(BaseWorkspaceService):
             slug_field: Field to use as slug (default: "name", can be "title", etc.)
 
         Returns:
-            EntityData record
+            Record record
 
         Raises:
             TracecatNotFoundError: If no record found
@@ -1216,9 +1204,9 @@ class CustomEntitiesService(BaseWorkspaceService):
             entity_id, slug_field, slug_value
         )
 
-        stmt = select(EntityData).where(
-            EntityData.entity_metadata_id == entity_id,
-            EntityData.owner_id == self.workspace_id,
+        stmt = select(Record).where(
+            Record.entity_id == entity_id,
+            Record.owner_id == self.workspace_id,
             slug_condition,
         )
 
@@ -1245,7 +1233,7 @@ class CustomEntitiesService(BaseWorkspaceService):
         slug_field: str = "name",
         limit: int = 100,
         offset: int = 0,
-    ) -> list[EntityData]:
+    ) -> list[Record]:
         """Query records by slug field pattern.
 
         Args:
@@ -1267,10 +1255,10 @@ class CustomEntitiesService(BaseWorkspaceService):
         )
 
         stmt = (
-            select(EntityData)
+            select(Record)
             .where(
-                EntityData.entity_metadata_id == entity_id,
-                EntityData.owner_id == self.workspace_id,
+                Record.entity_id == entity_id,
+                Record.owner_id == self.workspace_id,
                 slug_condition,
             )
             .limit(limit)
@@ -1308,7 +1296,7 @@ class CustomEntitiesService(BaseWorkspaceService):
 
         # Create model with extra="forbid" to reject inactive fields
         return create_model(
-            "EntityDataModel",
+            "RecordModel",
             __config__=ConfigDict(extra="forbid"),
             **field_definitions,
         )

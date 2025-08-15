@@ -4,7 +4,7 @@ from typing import Any
 
 from sqlmodel import select
 
-from tracecat.db.schemas import CaseEntityLink, EntityData
+from tracecat.db.schemas import CaseRecordLink, Record
 from tracecat.entities.service import CustomEntitiesService
 from tracecat.service import BaseWorkspaceService
 from tracecat.types.exceptions import TracecatNotFoundError
@@ -14,28 +14,26 @@ class CaseEntitiesService(BaseWorkspaceService):
     service_name = "case_entities"
 
     async def list_records(
-        self, case_id: uuid.UUID, entity_metadata_id: uuid.UUID | None = None
-    ) -> Sequence[CaseEntityLink]:
+        self, case_id: uuid.UUID, entity_id: uuid.UUID | None = None
+    ) -> Sequence[CaseRecordLink]:
         """List entity records associated with a case.
 
         Args:
             case_id: The case ID to list records for
-            entity_metadata_id: Optional filter by entity type
+            entity_id: Optional filter by entity
 
         Returns:
-            List of CaseEntityLink records with relationships loaded
+            List of CaseRecordLink records with relationships loaded
         """
-        statement = select(CaseEntityLink).where(CaseEntityLink.case_id == case_id)
+        statement = select(CaseRecordLink).where(CaseRecordLink.case_id == case_id)
 
-        if entity_metadata_id:
-            statement = statement.where(
-                CaseEntityLink.entity_metadata_id == entity_metadata_id
-            )
+        if entity_id:
+            statement = statement.where(CaseRecordLink.entity_id == entity_id)
 
         result = await self.session.exec(statement)
         return result.all()
 
-    async def get_record(self, case_id: uuid.UUID, record_id: uuid.UUID) -> EntityData:
+    async def get_record(self, case_id: uuid.UUID, record_id: uuid.UUID) -> Record:
         """Get a specific entity record linked to a case.
 
         Args:
@@ -43,15 +41,15 @@ class CaseEntitiesService(BaseWorkspaceService):
             record_id: The entity record ID
 
         Returns:
-            EntityData record
+            Record record
 
         Raises:
             TracecatNotFoundError: If record not found or not linked to case
         """
         # Check if record is linked to this case
-        link_stmt = select(CaseEntityLink).where(
-            CaseEntityLink.case_id == case_id,
-            CaseEntityLink.entity_data_id == record_id,
+        link_stmt = select(CaseRecordLink).where(
+            CaseRecordLink.case_id == case_id,
+            CaseRecordLink.record_id == record_id,
         )
         link_result = await self.session.exec(link_stmt)
         link = link_result.first()
@@ -68,55 +66,55 @@ class CaseEntitiesService(BaseWorkspaceService):
     async def get_record_by_slug(
         self,
         case_id: uuid.UUID,
-        entity_type_name: str,
+        entity_name: str,
         slug_value: str,
         slug_field: str = "name",
-    ) -> EntityData:
+    ) -> Record:
         """Get a specific entity record linked to a case by its slug.
 
         Args:
             case_id: The case ID
-            entity_type_name: The entity type name (e.g., "customer", "incident")
+            entity_name: The entity name (e.g., "customer", "incident")
             slug_value: The slug value to search for
             slug_field: Field to use as slug (default: "name")
 
         Returns:
-            EntityData record
+            Record record
 
         Raises:
             TracecatNotFoundError: If record not found or not linked to case
         """
-        # Get entity type by name
+        # Get entity by name
         entity_service = CustomEntitiesService(session=self.session, role=self.role)
-        entity_type = await entity_service.get_entity_type_by_name(entity_type_name)
+        entity = await entity_service.get_entity_by_name(entity_name)
 
         # Get the record by slug
         record = await entity_service.get_record_by_slug(
-            entity_type.id, slug_value, slug_field
+            entity.id, slug_value, slug_field
         )
 
         # Check if this record is linked to the case
-        link_stmt = select(CaseEntityLink).where(
-            CaseEntityLink.case_id == case_id,
-            CaseEntityLink.entity_data_id == record.id,
+        link_stmt = select(CaseRecordLink).where(
+            CaseRecordLink.case_id == case_id,
+            CaseRecordLink.record_id == record.id,
         )
         link_result = await self.session.exec(link_stmt)
         link = link_result.first()
 
         if not link:
             raise TracecatNotFoundError(
-                f"Record '{slug_value}' (entity: {entity_type_name}) not linked to case {case_id}"
+                f"Record '{slug_value}' (entity: {entity_name}) not linked to case {case_id}"
             )
 
         return record
 
     async def get_case_entity_link(
         self, case_id: uuid.UUID, link_id: uuid.UUID
-    ) -> CaseEntityLink | None:
+    ) -> CaseRecordLink | None:
         """Get a specific case-entity association."""
-        stmt = select(CaseEntityLink).where(
-            CaseEntityLink.id == link_id,
-            CaseEntityLink.case_id == case_id,
+        stmt = select(CaseRecordLink).where(
+            CaseRecordLink.id == link_id,
+            CaseRecordLink.case_id == case_id,
         )
         result = await self.session.exec(stmt)
         return result.one_or_none()
@@ -124,47 +122,47 @@ class CaseEntitiesService(BaseWorkspaceService):
     async def add_record_to_case(
         self,
         case_id: uuid.UUID,
-        entity_data_id: uuid.UUID,
-        entity_metadata_id: uuid.UUID,
-    ) -> CaseEntityLink:
+        record_id: uuid.UUID,
+        entity_id: uuid.UUID,
+    ) -> CaseRecordLink:
         """Associate an existing entity record with a case.
 
         Args:
             case_id: The case ID to associate with
-            entity_data_id: The entity record ID
-            entity_metadata_id: The entity type ID
+            record_id: The entity record ID
+            entity_id: The entity ID
 
         Returns:
-            Created CaseEntityLink
+            Created CaseRecordLink
 
         Raises:
             ValueError: If entity doesn't exist or already linked
         """
         # Verify entity record exists and belongs to workspace
-        entity_stmt = select(EntityData).where(
-            EntityData.id == entity_data_id,
-            EntityData.entity_metadata_id == entity_metadata_id,
-            EntityData.owner_id == self.workspace_id,
+        entity_stmt = select(Record).where(
+            Record.id == record_id,
+            Record.entity_id == entity_id,
+            Record.owner_id == self.workspace_id,
         )
         entity_result = await self.session.exec(entity_stmt)
         if not entity_result.first():
-            raise ValueError(f"Entity record {entity_data_id} not found")
+            raise ValueError(f"Entity record {record_id} not found")
 
         # Check if already linked
-        existing_stmt = select(CaseEntityLink).where(
-            CaseEntityLink.case_id == case_id,
-            CaseEntityLink.entity_data_id == entity_data_id,
+        existing_stmt = select(CaseRecordLink).where(
+            CaseRecordLink.case_id == case_id,
+            CaseRecordLink.record_id == record_id,
         )
         existing_result = await self.session.exec(existing_stmt)
         if existing_result.first():
             raise ValueError("Entity record already associated with this case")
 
         # Create link
-        link = CaseEntityLink(
+        link = CaseRecordLink(
             owner_id=self.workspace_id,
             case_id=case_id,
-            entity_metadata_id=entity_metadata_id,
-            entity_data_id=entity_data_id,
+            entity_id=entity_id,
+            record_id=record_id,
         )
 
         self.session.add(link)
@@ -175,14 +173,14 @@ class CaseEntitiesService(BaseWorkspaceService):
     async def create_record(
         self,
         case_id: uuid.UUID,
-        entity_metadata_id: uuid.UUID,
+        entity_id: uuid.UUID,
         entity_data: dict[str, Any],
-    ) -> tuple[EntityData, CaseEntityLink]:
+    ) -> tuple[Record, CaseRecordLink]:
         """Create a new entity record and associate it with a case.
 
         Args:
             case_id: The case ID to associate with
-            entity_metadata_id: The entity type ID
+            entity_id: The entity ID
             entity_data: Field data for the entity
 
         Returns:
@@ -196,14 +194,14 @@ class CaseEntitiesService(BaseWorkspaceService):
 
         # Create the entity record
         entity_record = await entity_service.create_record(
-            entity_id=entity_metadata_id, data=entity_data
+            entity_id=entity_id, data=entity_data
         )
 
         # Associate with case
         link = await self.add_record_to_case(
             case_id=case_id,
-            entity_data_id=entity_record.id,
-            entity_metadata_id=entity_metadata_id,
+            record_id=entity_record.id,
+            entity_id=entity_id,
         )
 
         return entity_record, link
@@ -213,7 +211,7 @@ class CaseEntitiesService(BaseWorkspaceService):
         case_id: uuid.UUID,
         record_id: uuid.UUID,
         updates: dict[str, Any],
-    ) -> EntityData:
+    ) -> Record:
         """Update an entity record linked to a case.
 
         Args:
@@ -222,16 +220,16 @@ class CaseEntitiesService(BaseWorkspaceService):
             updates: Field updates
 
         Returns:
-            Updated EntityData
+            Updated Record
 
         Raises:
             TracecatNotFoundError: If record not found or not linked to case
             ValueError: If validation fails
         """
         # Verify record is linked to this case
-        link_stmt = select(CaseEntityLink).where(
-            CaseEntityLink.case_id == case_id,
-            CaseEntityLink.entity_data_id == record_id,
+        link_stmt = select(CaseRecordLink).where(
+            CaseRecordLink.case_id == case_id,
+            CaseRecordLink.record_id == record_id,
         )
         link_result = await self.session.exec(link_stmt)
         link = link_result.first()
@@ -250,7 +248,7 @@ class CaseEntitiesService(BaseWorkspaceService):
 
         Args:
             case_id: The case ID
-            link_id: The CaseEntityLink ID to remove
+            link_id: The CaseRecordLink ID to remove
 
         Raises:
             ValueError: If link not found

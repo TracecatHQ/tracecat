@@ -18,7 +18,7 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 from sqlmodel.sql.expression import SelectOfScalar
 
-from tracecat.db.schemas import EntityData, EntityRelationLink, FieldMetadata
+from tracecat.db.schemas import FieldMetadata, Record, RecordRelationLink
 from tracecat.entities.types import FieldType
 
 
@@ -69,7 +69,7 @@ class EntityQueryBuilder:
 
         if cache_key not in self._field_cache:
             stmt = select(FieldMetadata).where(
-                FieldMetadata.entity_metadata_id == entity_id,
+                FieldMetadata.entity_id == entity_id,
                 FieldMetadata.field_key == field_key,
                 FieldMetadata.is_active,  # SQLModel uses actual boolean, not comparison
             )
@@ -132,21 +132,20 @@ class EntityQueryBuilder:
             # JSON booleans are stored as true/false (lowercase strings)
             return cast(
                 ColumnElement[bool],
-                EntityData.field_data[field_key].astext
-                == ("true" if value else "false"),
+                Record.field_data[field_key].astext == ("true" if value else "false"),
             )
         elif isinstance(value, int | float):
             # For numbers, use astext and compare as strings
             # This maintains GIN index optimization
             return cast(
                 ColumnElement[bool],
-                EntityData.field_data[field_key].astext == str(value),
+                Record.field_data[field_key].astext == str(value),
             )
         else:
             # For strings, use astext for consistent comparison
             return cast(
                 ColumnElement[bool],
-                EntityData.field_data[field_key].astext == str(value),
+                Record.field_data[field_key].astext == str(value),
             )
 
     async def in_(
@@ -171,12 +170,12 @@ class EntityQueryBuilder:
             if isinstance(value, bool):
                 # Convert boolean to JSON string representation
                 conditions.append(
-                    EntityData.field_data[field_key].astext
+                    Record.field_data[field_key].astext
                     == ("true" if value else "false")
                 )
             else:
                 # All other types use string comparison
-                conditions.append(EntityData.field_data[field_key].astext == str(value))
+                conditions.append(Record.field_data[field_key].astext == str(value))
 
         return sa.or_(*conditions) if conditions else sa_false()
 
@@ -204,7 +203,7 @@ class EntityQueryBuilder:
 
         return cast(
             ColumnElement[bool],
-            EntityData.field_data[field_key].astext.ilike(pattern),
+            Record.field_data[field_key].astext.ilike(pattern),
         )
 
     async def array_contains(
@@ -236,7 +235,7 @@ class EntityQueryBuilder:
         # The contains() method uses the @> operator internally
         return cast(
             ColumnElement[bool],
-            EntityData.field_data[field_key].contains(values),
+            Record.field_data[field_key].contains(values),
         )
 
     async def between(
@@ -266,13 +265,13 @@ class EntityQueryBuilder:
 
         # For numeric types, cast to appropriate type
         if field_type in (FieldType.INTEGER, FieldType.NUMBER):
-            field_expr = EntityData.field_data[field_key].astext.cast(sa.Numeric)
+            field_expr = Record.field_data[field_key].astext.cast(sa.Numeric)
             return sa.and_(
                 field_expr >= sa.cast(start, sa.Numeric),
                 field_expr <= sa.cast(end, sa.Numeric),
             )
         else:
-            field_expr = EntityData.field_data[field_key].astext
+            field_expr = Record.field_data[field_key].astext
             return sa.and_(field_expr >= str(start), field_expr <= str(end))
 
     async def is_null(self, entity_id: UUID, field_key: str) -> ColumnElement[bool]:
@@ -290,10 +289,10 @@ class EntityQueryBuilder:
         # Check if key doesn't exist or value is JSON null
         # Use JSONB ? operator for key existence check
         # Cast to ColumnElement to access JSONB operators
-        field_data_col = cast(ColumnElement[Any], EntityData.field_data)
+        field_data_col = cast(ColumnElement[Any], Record.field_data)
         return sa.or_(
             ~field_data_col.op("?")(field_key),  # Key doesn't exist
-            EntityData.field_data[field_key].astext.is_(
+            Record.field_data[field_key].astext.is_(
                 None
             ),  # JSON null becomes SQL NULL with astext
         )
@@ -313,20 +312,20 @@ class EntityQueryBuilder:
         # Key exists and value is not JSON null
         # Use JSONB ? operator for key existence check
         # Cast to ColumnElement to access JSONB operators
-        field_data_col = cast(ColumnElement[Any], EntityData.field_data)
+        field_data_col = cast(ColumnElement[Any], Record.field_data)
         return sa.and_(
             field_data_col.op("?")(field_key),  # Key exists
-            EntityData.field_data[field_key].astext.isnot(
+            Record.field_data[field_key].astext.isnot(
                 None
             ),  # Not JSON null (using astext)
         )
 
     async def build_query(
         self,
-        base_stmt: SelectOfScalar[EntityData],
+        base_stmt: SelectOfScalar[Record],
         entity_id: UUID,
         filters: list[dict[str, Any]],
-    ) -> SelectOfScalar[EntityData]:
+    ) -> SelectOfScalar[Record]:
         """Build complete query with all filters.
 
         Args:
@@ -416,7 +415,7 @@ class EntityQueryBuilder:
         target_filters: list[dict[str, Any]] | None = None,
         page: int = 1,
         page_size: int = 50,
-    ) -> tuple[list[EntityData], int]:
+    ) -> tuple[list[Record], int]:
         """Query related records with pagination.
 
         Args:
@@ -437,24 +436,24 @@ class EntityQueryBuilder:
         if page_size < 1 or page_size > 100:
             raise ValueError("Page size must be between 1 and 100")
 
-        # Build base query joining EntityRelationLink
+        # Build base query joining RecordRelationLink
         # Ensure SQLAlchemy-typed columns for static type checkers
         target_record_id_col = cast(
-            ColumnElement[Any], EntityRelationLink.target_record_id
+            ColumnElement[Any], RecordRelationLink.target_record_id
         )
-        entity_id_col = cast(ColumnElement[Any], EntityData.id)
+        entity_id_col = cast(ColumnElement[Any], Record.id)
         onclause = cast(ColumnElement[bool], target_record_id_col == entity_id_col)
 
         base_stmt = (
-            select(EntityData)
+            select(Record)
             .join(
-                EntityRelationLink,
+                RecordRelationLink,
                 onclause,
             )
             .where(
-                cast(ColumnElement[Any], EntityRelationLink.source_record_id)
+                cast(ColumnElement[Any], RecordRelationLink.source_record_id)
                 == source_record_id,
-                cast(ColumnElement[Any], EntityRelationLink.source_field_id)
+                cast(ColumnElement[Any], RecordRelationLink.source_field_id)
                 == field_id,
             )
         )
@@ -478,17 +477,17 @@ class EntityQueryBuilder:
             )
 
             # When filters are applied, count from the filtered query
-            # Build a query to get EntityData with filters first
+            # Build a query to get Record with filters first
             count_base_query = (
-                select(EntityData)
+                select(Record)
                 .join(
-                    EntityRelationLink,
+                    RecordRelationLink,
                     onclause,
                 )
                 .where(
-                    cast(ColumnElement[Any], EntityRelationLink.source_record_id)
+                    cast(ColumnElement[Any], RecordRelationLink.source_record_id)
                     == source_record_id,
-                    cast(ColumnElement[Any], EntityRelationLink.source_field_id)
+                    cast(ColumnElement[Any], RecordRelationLink.source_field_id)
                     == field_id,
                 )
             )
@@ -504,10 +503,10 @@ class EntityQueryBuilder:
             # No filters - use simple count query
             count_stmt = (
                 select(sa.func.count())
-                .select_from(EntityRelationLink)
+                .select_from(RecordRelationLink)
                 .where(
-                    EntityRelationLink.source_record_id == source_record_id,
-                    EntityRelationLink.source_field_id == field_id,
+                    RecordRelationLink.source_record_id == source_record_id,
+                    RecordRelationLink.source_field_id == field_id,
                 )
             )
 
@@ -519,9 +518,7 @@ class EntityQueryBuilder:
         paginated_stmt = base_stmt.limit(page_size).offset(offset)
 
         # Execute query
-        result = await self.session.exec(
-            cast(SelectOfScalar[EntityData], paginated_stmt)
-        )
+        result = await self.session.exec(cast(SelectOfScalar[Record], paginated_stmt))
         records = list(result.all())
 
         return records, total_count
@@ -542,10 +539,10 @@ class EntityQueryBuilder:
         """
         stmt = (
             select(sa.func.count())
-            .select_from(EntityRelationLink)
+            .select_from(RecordRelationLink)
             .where(
-                EntityRelationLink.source_record_id == source_record_id,
-                EntityRelationLink.source_field_id == field_id,
+                RecordRelationLink.source_record_id == source_record_id,
+                RecordRelationLink.source_field_id == field_id,
             )
         )
         result = await self.session.exec(stmt)
@@ -582,7 +579,7 @@ class EntityQueryBuilder:
         # This still leverages the GIN index for the field access
         return cast(
             ColumnElement[bool],
-            sa.func.lower(EntityData.field_data[slug_field].astext)
+            sa.func.lower(Record.field_data[slug_field].astext)
             == sa.func.lower(slug_value),
         )
 
@@ -615,7 +612,7 @@ class EntityQueryBuilder:
         # Use ILIKE for case-insensitive pattern matching
         return cast(
             ColumnElement[bool],
-            EntityData.field_data[slug_field].astext.ilike(pattern),
+            Record.field_data[slug_field].astext.ilike(pattern),
         )
 
     async def filter_by_relation(
@@ -625,7 +622,7 @@ class EntityQueryBuilder:
         has_any: list[UUID] | None = None,
         has_all: list[UUID] | None = None,
         has_none: list[UUID] | None = None,
-    ) -> SelectOfScalar[EntityData]:
+    ) -> SelectOfScalar[Record]:
         """Filter records by their relations.
 
         Advanced filtering for finding records with specific relations.
@@ -656,52 +653,52 @@ class EntityQueryBuilder:
             raise ValueError(f"Field {field_key} is not a relation field")
 
         # Base query for entity records
-        base_stmt = select(EntityData).where(EntityData.entity_metadata_id == entity_id)
+        base_stmt = select(Record).where(Record.entity_id == entity_id)
 
         conditions = []
 
         if has_any:
             # Records that have at least one of the specified relations
             subquery = (
-                select(EntityRelationLink.source_record_id)
+                select(RecordRelationLink.source_record_id)
                 .where(
-                    cast(ColumnElement[Any], EntityRelationLink.source_field_id)
+                    cast(ColumnElement[Any], RecordRelationLink.source_field_id)
                     == field.id,
-                    cast(ColumnElement[Any], EntityRelationLink.target_record_id).in_(
+                    cast(ColumnElement[Any], RecordRelationLink.target_record_id).in_(
                         has_any
                     ),
                 )
                 .distinct()
             )
-            conditions.append(cast(ColumnElement[Any], EntityData.id).in_(subquery))
+            conditions.append(cast(ColumnElement[Any], Record.id).in_(subquery))
 
         if has_all:
             # Records that have all of the specified relations
             for target_id in has_all:
-                subquery = select(EntityRelationLink.source_record_id).where(
-                    cast(ColumnElement[Any], EntityRelationLink.source_field_id)
+                subquery = select(RecordRelationLink.source_record_id).where(
+                    cast(ColumnElement[Any], RecordRelationLink.source_field_id)
                     == field.id,
-                    cast(ColumnElement[Any], EntityRelationLink.target_record_id)
+                    cast(ColumnElement[Any], RecordRelationLink.target_record_id)
                     == target_id,
                 )
-                conditions.append(cast(ColumnElement[Any], EntityData.id).in_(subquery))
+                conditions.append(cast(ColumnElement[Any], Record.id).in_(subquery))
 
         if has_none:
             # Records that don't have any of the specified relations
             subquery = (
-                select(EntityRelationLink.source_record_id)
+                select(RecordRelationLink.source_record_id)
                 .where(
-                    cast(ColumnElement[Any], EntityRelationLink.source_field_id)
+                    cast(ColumnElement[Any], RecordRelationLink.source_field_id)
                     == field.id,
-                    cast(ColumnElement[Any], EntityRelationLink.target_record_id).in_(
+                    cast(ColumnElement[Any], RecordRelationLink.target_record_id).in_(
                         has_none
                     ),
                 )
                 .distinct()
             )
-            conditions.append(~cast(ColumnElement[Any], EntityData.id).in_(subquery))
+            conditions.append(~cast(ColumnElement[Any], Record.id).in_(subquery))
 
         if conditions:
             base_stmt = base_stmt.where(sa.and_(*conditions))
 
-        return cast(SelectOfScalar[EntityData], base_stmt)
+        return cast(SelectOfScalar[Record], base_stmt)
