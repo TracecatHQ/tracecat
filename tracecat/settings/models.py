@@ -147,12 +147,19 @@ class AppSettingsUpdate(BaseSettingsGroup):
 
 class AgentSettingsRead(BaseSettingsGroup):
     agent_default_model: str | None
+    agent_fixed_args: str
 
 
 class AgentSettingsUpdate(BaseSettingsGroup):
     agent_default_model: str | None = Field(
         default=None,
         description="The default AI model to use for agent operations.",
+    )
+    agent_fixed_args: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=10000,
+        description="Fixed arguments for agent tools as a JSON string. Format: {'tool_name': {'arg': 'value'}}",
     )
 
 
