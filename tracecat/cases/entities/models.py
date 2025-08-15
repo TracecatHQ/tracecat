@@ -20,13 +20,13 @@ class CaseRecordLinkRead(BaseModel):
     case_id: UUID4
     entity_id: UUID4
     record_id: UUID4
-    entity: "EntityRead | None" = None
-    record: "RecordRead | None" = None
+    entity: "CaseEntityRead | None" = None
+    record: "CaseRecordRead | None" = None
 
     model_config = {"from_attributes": True}
 
 
-class EntityRead(BaseModel):
+class CaseEntityRead(BaseModel):
     """Entity metadata."""
 
     id: UUID4
@@ -39,7 +39,7 @@ class EntityRead(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class RecordRead(BaseModel):
+class CaseRecordRead(BaseModel):
     """Record data."""
 
     id: UUID4
@@ -49,7 +49,7 @@ class RecordRead(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class EntityListRead(BaseModel):
+class CaseEntityListRead(BaseModel):
     """Available entity for selection."""
 
     id: UUID4

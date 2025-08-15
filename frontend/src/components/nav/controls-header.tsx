@@ -161,7 +161,6 @@ function EntitiesActions() {
           display_name: data.display_name,
           description: data.description,
           icon: data.icon,
-          settings: {},
         },
       })
 

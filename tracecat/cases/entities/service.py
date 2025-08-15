@@ -4,9 +4,9 @@ from typing import Any
 from sqlmodel import select
 
 from tracecat.cases.entities.models import (
+    CaseEntityRead,
     CaseRecordLinkRead,
-    EntityRead,
-    RecordRead,
+    CaseRecordRead,
 )
 from tracecat.cases.service import CasesService
 from tracecat.db.schemas import Case, CaseRecordLink, Record
@@ -69,14 +69,18 @@ class CaseEntitiesService(BaseWorkspaceService):
             # Get entity metadata
             try:
                 entity = await entity_service.get_entity(link.entity_id)
-                entity_read = EntityRead.model_validate(entity, from_attributes=True)
+                entity_read = CaseEntityRead.model_validate(
+                    entity, from_attributes=True
+                )
             except TracecatNotFoundError:
                 entity_read = None
 
             # Get record data
             try:
                 record = await entity_service.get_record(link.record_id)
-                record_read = RecordRead.model_validate(record, from_attributes=True)
+                record_read = CaseRecordRead.model_validate(
+                    record, from_attributes=True
+                )
             except TracecatNotFoundError:
                 record_read = None
 
@@ -93,7 +97,9 @@ class CaseEntitiesService(BaseWorkspaceService):
 
         return results
 
-    async def get_record(self, case_id: uuid.UUID, record_id: uuid.UUID) -> RecordRead:
+    async def get_record(
+        self, case_id: uuid.UUID, record_id: uuid.UUID
+    ) -> CaseRecordRead:
         """Get a specific entity record linked to a case.
 
         Args:
@@ -125,7 +131,7 @@ class CaseEntitiesService(BaseWorkspaceService):
         # Get the actual record using entities service
         entity_service = CustomEntitiesService(session=self.session, role=self.role)
         record = await entity_service.get_record(record_id)
-        return RecordRead.model_validate(record, from_attributes=True)
+        return CaseRecordRead.model_validate(record, from_attributes=True)
 
     async def get_record_by_slug(
         self,
@@ -133,7 +139,7 @@ class CaseEntitiesService(BaseWorkspaceService):
         entity_name: str,
         slug_value: str,
         slug_field: str = "name",
-    ) -> RecordRead:
+    ) -> CaseRecordRead:
         """Get a specific entity record linked to a case by its slug.
 
         Args:
@@ -170,7 +176,7 @@ class CaseEntitiesService(BaseWorkspaceService):
                 f"Record '{slug_value}' (entity: {entity_name}) not linked to case {case_id}"
             )
 
-        return RecordRead.model_validate(record, from_attributes=True)
+        return CaseRecordRead.model_validate(record, from_attributes=True)
 
     async def get_case_entity_link(
         self, case_id: uuid.UUID, link_id: uuid.UUID
@@ -240,13 +246,13 @@ class CaseEntitiesService(BaseWorkspaceService):
         entity_service = CustomEntitiesService(session=self.session, role=self.role)
         try:
             entity = await entity_service.get_entity(entity_id)
-            entity_read = EntityRead.model_validate(entity, from_attributes=True)
+            entity_read = CaseEntityRead.model_validate(entity, from_attributes=True)
         except TracecatNotFoundError:
             entity_read = None
 
         try:
             record = await entity_service.get_record(record_id)
-            record_read = RecordRead.model_validate(record, from_attributes=True)
+            record_read = CaseRecordRead.model_validate(record, from_attributes=True)
         except TracecatNotFoundError:
             record_read = None
 
@@ -300,7 +306,7 @@ class CaseEntitiesService(BaseWorkspaceService):
             entity_id=link_read.entity_id,
             record_id=link_read.record_id,
             entity=link_read.entity,
-            record=RecordRead.model_validate(entity_record, from_attributes=True),
+            record=CaseRecordRead.model_validate(entity_record, from_attributes=True),
         )
 
     async def update_record(
@@ -308,7 +314,7 @@ class CaseEntitiesService(BaseWorkspaceService):
         case_id: uuid.UUID,
         record_id: uuid.UUID,
         updates: dict[str, Any],
-    ) -> RecordRead:
+    ) -> CaseRecordRead:
         """Update an entity record linked to a case.
 
         Args:
@@ -339,7 +345,7 @@ class CaseEntitiesService(BaseWorkspaceService):
         # Update the record using entities service
         entity_service = CustomEntitiesService(session=self.session, role=self.role)
         updated = await entity_service.update_record(record_id, updates)
-        return RecordRead.model_validate(updated, from_attributes=True)
+        return CaseRecordRead.model_validate(updated, from_attributes=True)
 
     async def remove_record(self, case_id: uuid.UUID, link_id: uuid.UUID) -> None:
         """Remove an entity record association from a case.

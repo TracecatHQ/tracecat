@@ -7,7 +7,7 @@ from tracecat.auth.credentials import RoleACL
 from tracecat.cases.entities.models import (
     CaseRecordLinkCreate,
     CaseRecordLinkRead,
-    RecordRead,
+    CaseRecordRead,
 )
 from tracecat.cases.entities.service import CaseEntitiesService
 from tracecat.db.dependencies import AsyncDBSession
@@ -50,13 +50,13 @@ async def list_case_records(
         ) from e
 
 
-@router.get("/{case_id}/records/{record_id}", response_model=RecordRead)
+@router.get("/{case_id}/records/{record_id}", response_model=CaseRecordRead)
 async def get_case_record(
     role: WorkspaceUser,
     session: AsyncDBSession,
     case_id: UUID4,
     record_id: UUID4,
-) -> RecordRead:
+) -> CaseRecordRead:
     """Get a specific record linked to a case.
 
     Args:
@@ -127,14 +127,14 @@ async def add_record_to_case(
         ) from e
 
 
-@router.patch("/{case_id}/records/{record_id}", response_model=RecordRead)
+@router.patch("/{case_id}/records/{record_id}", response_model=CaseRecordRead)
 async def update_case_record(
     role: WorkspaceUser,
     session: AsyncDBSession,
     case_id: UUID4,
     record_id: UUID4,
     updates: RecordUpdate,
-) -> RecordRead:
+) -> CaseRecordRead:
     """Update an record linked to a case.
 
     Args:

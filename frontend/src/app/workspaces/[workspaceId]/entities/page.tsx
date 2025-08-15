@@ -3,7 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { DatabaseIcon } from "lucide-react"
 import {
-  type EntityMetadataRead,
+  type EntityRead,
   entitiesDeactivateEntity,
   entitiesDeleteEntity,
   entitiesListFields,
@@ -124,7 +124,7 @@ export default function EntitiesPage() {
         entity,
         data,
       }: {
-        entity: EntityMetadataRead
+        entity: EntityRead
         data: {
           display_name: string
           description?: string
@@ -187,7 +187,7 @@ export default function EntitiesPage() {
     })
 
   const handleEditEntity = async (
-    entity: EntityMetadataRead,
+    entity: EntityRead,
     data: {
       display_name: string
       description?: string
