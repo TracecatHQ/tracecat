@@ -7,7 +7,7 @@ import Link from "next/link"
 import { usePathname, useSearchParams } from "next/navigation"
 import { type ReactNode, useState } from "react"
 import type { OAuthGrantType } from "@/client"
-import { entitiesCreateEntityType } from "@/client"
+import { entitiesCreateEntity } from "@/client"
 import { CreateCaseDialog } from "@/components/cases/case-create-dialog"
 import {
   CasesViewMode,
@@ -167,14 +167,13 @@ function EntitiesActions() {
     icon?: string
   }) => {
     try {
-      await entitiesCreateEntityType({
+      await entitiesCreateEntity({
         workspaceId,
         requestBody: {
           name: data.name,
           display_name: data.display_name,
           description: data.description,
           icon: data.icon,
-          settings: {},
         },
       })
 

@@ -4,11 +4,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { DatabaseIcon } from "lucide-react"
 import {
   type EntityMetadataRead,
-  entitiesDeactivateEntityType,
-  entitiesDeleteEntityType,
+  entitiesDeactivateEntity,
+  entitiesDeleteEntity,
   entitiesListFields,
-  entitiesReactivateEntityType,
-  entitiesUpdateEntityType,
+  entitiesReactivateEntity,
+  entitiesUpdateEntity,
 } from "@/client"
 import { EntitiesTable } from "@/components/entities/entities-table"
 import { CenteredSpinner } from "@/components/loading/spinner"
@@ -59,7 +59,7 @@ export default function EntitiesPage() {
     isPending: deactivateEntityIsPending,
   } = useMutation({
     mutationFn: async (entityId: string) => {
-      return await entitiesDeactivateEntityType({
+      return await entitiesDeactivateEntity({
         workspaceId,
         entityId,
       })
@@ -91,7 +91,7 @@ export default function EntitiesPage() {
     isPending: reactivateEntityIsPending,
   } = useMutation({
     mutationFn: async (entityId: string) => {
-      return await entitiesReactivateEntityType({
+      return await entitiesReactivateEntity({
         workspaceId,
         entityId,
       })
@@ -131,7 +131,7 @@ export default function EntitiesPage() {
           icon?: string
         }
       }) => {
-        return await entitiesUpdateEntityType({
+        return await entitiesUpdateEntity({
           workspaceId,
           entityId: entity.id,
           requestBody: data,
@@ -159,7 +159,7 @@ export default function EntitiesPage() {
   const { mutateAsync: deleteEntity, isPending: deleteEntityIsPending } =
     useMutation({
       mutationFn: async (entityId: string) => {
-        return await entitiesDeleteEntityType({
+        return await entitiesDeleteEntity({
           workspaceId,
           entityId,
         })

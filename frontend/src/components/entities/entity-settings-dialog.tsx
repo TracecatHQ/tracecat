@@ -113,8 +113,8 @@ export function EntitySettingsDialog({
               id="description"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Enter description (optional)"
-              className="resize-none"
+              placeholder="Write a description"
+              className="text-xs resize-none"
               rows={3}
             />
           </div>

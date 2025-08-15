@@ -251,7 +251,7 @@ export default function EntityDetailPage() {
             <EntityFieldsTable
               fields={fields}
               entities={entities}
-              currentEntityName={entity?.display_name}
+              currentEntityName={entity?.name}
               onEditField={(field) => {
                 setSelectedFieldForEdit(field)
                 setEditFieldDialogOpen(true)

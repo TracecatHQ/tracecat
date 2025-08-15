@@ -1274,28 +1274,6 @@ export const $AuthSettingsUpdate = {
   title: "AuthSettingsUpdate",
 } as const
 
-export const $BelongsToRelationUpdate = {
-  properties: {
-    target_id: {
-      anyOf: [
-        {
-          type: "string",
-          format: "uuid",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Target Id",
-      description: "UUID of target record or None to clear relation",
-    },
-  },
-  type: "object",
-  required: ["target_id"],
-  title: "BelongsToRelationUpdate",
-  description: "Update payload for belongs_to relation fields.",
-} as const
-
 export const $BinaryContent = {
   properties: {
     data: {
@@ -1822,95 +1800,6 @@ export const $CaseCustomFieldRead = {
   title: "CaseCustomFieldRead",
 } as const
 
-export const $CaseEntityLinkCreate = {
-  properties: {
-    entity_metadata_id: {
-      type: "string",
-      format: "uuid4",
-      title: "Entity Metadata Id",
-      description: "Entity type ID",
-    },
-    entity_data_id: {
-      anyOf: [
-        {
-          type: "string",
-          format: "uuid4",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Entity Data Id",
-      description: "Existing entity record ID to link",
-    },
-    entity_data: {
-      anyOf: [
-        {
-          type: "object",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Entity Data",
-      description: "Data for creating a new entity record",
-    },
-  },
-  type: "object",
-  required: ["entity_metadata_id"],
-  title: "CaseEntityLinkCreate",
-  description: "Create a link between a case and an entity record.",
-} as const
-
-export const $CaseEntityLinkRead = {
-  properties: {
-    id: {
-      type: "string",
-      format: "uuid4",
-      title: "Id",
-    },
-    case_id: {
-      type: "string",
-      format: "uuid4",
-      title: "Case Id",
-    },
-    entity_metadata_id: {
-      type: "string",
-      format: "uuid4",
-      title: "Entity Metadata Id",
-    },
-    entity_data_id: {
-      type: "string",
-      format: "uuid4",
-      title: "Entity Data Id",
-    },
-    entity_metadata: {
-      anyOf: [
-        {
-          $ref: "#/components/schemas/tracecat__cases__entities__models__EntityMetadataRead",
-        },
-        {
-          type: "null",
-        },
-      ],
-    },
-    entity_data: {
-      anyOf: [
-        {
-          $ref: "#/components/schemas/tracecat__cases__entities__models__EntityDataRead",
-        },
-        {
-          type: "null",
-        },
-      ],
-    },
-  },
-  type: "object",
-  required: ["id", "case_id", "entity_metadata_id", "entity_data_id"],
-  title: "CaseEntityLinkRead",
-  description: "Case entity link with entity details.",
-} as const
-
 export const $CaseEventRead = {
   oneOf: [
     {
@@ -2309,6 +2198,95 @@ export const $CaseReadMinimal = {
     "severity",
   ],
   title: "CaseReadMinimal",
+} as const
+
+export const $CaseRecordLinkCreate = {
+  properties: {
+    entity_id: {
+      type: "string",
+      format: "uuid4",
+      title: "Entity Id",
+      description: "Entity ID",
+    },
+    record_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid4",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Record Id",
+      description: "Existing record ID to link",
+    },
+    record_data: {
+      anyOf: [
+        {
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Record Data",
+      description: "Data for creating a new record",
+    },
+  },
+  type: "object",
+  required: ["entity_id"],
+  title: "CaseRecordLinkCreate",
+  description: "Create a link between a case and a record.",
+} as const
+
+export const $CaseRecordLinkRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid4",
+      title: "Id",
+    },
+    case_id: {
+      type: "string",
+      format: "uuid4",
+      title: "Case Id",
+    },
+    entity_id: {
+      type: "string",
+      format: "uuid4",
+      title: "Entity Id",
+    },
+    record_id: {
+      type: "string",
+      format: "uuid4",
+      title: "Record Id",
+    },
+    entity: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/tracecat__cases__entities__models__EntityRead",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    record: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/tracecat__cases__entities__models__RecordRead",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+  },
+  type: "object",
+  required: ["id", "case_id", "entity_id", "record_id"],
+  title: "CaseRecordLinkRead",
+  description: "Case record link with entity and record details.",
 } as const
 
 export const $CaseSeverity = {
@@ -3576,28 +3554,7 @@ export const $EditorParamRead = {
   title: "EditorParamRead",
 } as const
 
-export const $EntityDataCreate = {
-  properties: {},
-  additionalProperties: true,
-  type: "object",
-  title: "EntityDataCreate",
-  description: `Request model for creating entity record.
-
-Note: The actual fields are dynamic based on entity type.
-This is a base model - actual validation happens in service.`,
-} as const
-
-export const $EntityDataUpdate = {
-  properties: {},
-  additionalProperties: true,
-  type: "object",
-  title: "EntityDataUpdate",
-  description: `Request model for updating entity record.
-
-Note: The actual fields are dynamic based on entity type.`,
-} as const
-
-export const $EntityMetadataCreate = {
+export const $EntityCreate = {
   properties: {
     name: {
       type: "string",
@@ -3638,53 +3595,8 @@ export const $EntityMetadataCreate = {
   },
   type: "object",
   required: ["name", "display_name"],
-  title: "EntityMetadataCreate",
-  description: "Request model for creating entity type.",
-} as const
-
-export const $EntityMetadataUpdate = {
-  properties: {
-    display_name: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 255,
-          minLength: 1,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Display Name",
-    },
-    description: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 1000,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Description",
-    },
-    icon: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 100,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Icon",
-    },
-  },
-  type: "object",
-  title: "EntityMetadataUpdate",
-  description: "Request model for updating entity type.",
+  title: "EntityCreate",
+  description: "Request model for creating entity.",
 } as const
 
 export const $EntitySchemaField = {
@@ -3795,21 +3707,26 @@ export const $EntitySchemaResponse = {
   description: "Response for entity schema endpoint.",
 } as const
 
-export const $EntityTypeListRead = {
+export const $EntityUpdate = {
   properties: {
-    id: {
-      type: "string",
-      format: "uuid4",
-      title: "Id",
-    },
-    name: {
-      type: "string",
-      title: "Name",
+    display_name: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Display Name",
     },
     description: {
       anyOf: [
         {
           type: "string",
+          maxLength: 1000,
         },
         {
           type: "null",
@@ -3817,11 +3734,22 @@ export const $EntityTypeListRead = {
       ],
       title: "Description",
     },
+    icon: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 100,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Icon",
+    },
   },
   type: "object",
-  required: ["id", "name", "description"],
-  title: "EntityTypeListRead",
-  description: "Available entity type for selection.",
+  title: "EntityUpdate",
+  description: "Request model for updating entity.",
 } as const
 
 export const $ErrorDetails = {
@@ -4394,10 +4322,10 @@ export const $FieldMetadataRead = {
       format: "uuid",
       title: "Id",
     },
-    entity_metadata_id: {
+    entity_id: {
       type: "string",
       format: "uuid",
-      title: "Entity Metadata Id",
+      title: "Entity Id",
     },
     field_key: {
       type: "string",
@@ -4459,7 +4387,7 @@ export const $FieldMetadataRead = {
       ],
       title: "Relation Kind",
     },
-    relation_target_entity_id: {
+    target_entity_id: {
       anyOf: [
         {
           type: "string",
@@ -4469,7 +4397,7 @@ export const $FieldMetadataRead = {
           type: "null",
         },
       ],
-      title: "Relation Target Entity Id",
+      title: "Target Entity Id",
     },
     enum_options: {
       anyOf: [
@@ -4498,7 +4426,7 @@ export const $FieldMetadataRead = {
   type: "object",
   required: [
     "id",
-    "entity_metadata_id",
+    "entity_id",
     "field_key",
     "field_type",
     "display_name",
@@ -5022,29 +4950,6 @@ export const $HTTPValidationError = {
   },
   type: "object",
   title: "HTTPValidationError",
-} as const
-
-export const $HasManyRelationUpdate = {
-  properties: {
-    operation: {
-      $ref: "#/components/schemas/RelationOperation",
-    },
-    target_ids: {
-      items: {
-        type: "string",
-        format: "uuid",
-      },
-      type: "array",
-      maxItems: 1000,
-      minItems: 0,
-      title: "Target Ids",
-      description: "UUIDs of target records to add/remove/replace",
-    },
-  },
-  type: "object",
-  required: ["operation", "target_ids"],
-  title: "HasManyRelationUpdate",
-  description: "Update payload for has_many relation fields.",
 } as const
 
 export const $ImageUrl = {
@@ -6585,7 +6490,7 @@ export const $QueryResponse = {
   properties: {
     records: {
       items: {
-        $ref: "#/components/schemas/tracecat__entities__models__EntityDataRead",
+        $ref: "#/components/schemas/tracecat__entities__models__RecordRead",
       },
       type: "array",
       title: "Records",
@@ -6627,6 +6532,27 @@ export const $ReceiveInteractionResponse = {
   type: "object",
   required: ["message"],
   title: "ReceiveInteractionResponse",
+} as const
+
+export const $RecordCreate = {
+  properties: {},
+  additionalProperties: true,
+  type: "object",
+  title: "RecordCreate",
+  description: `Request model for creating record.
+
+Note: The actual fields are dynamic based on entity type.
+This is a base model - actual validation happens in service.`,
+} as const
+
+export const $RecordUpdate = {
+  properties: {},
+  additionalProperties: true,
+  type: "object",
+  title: "RecordUpdate",
+  description: `Request model for updating record.
+
+Note: The actual fields are dynamic based on entity type.`,
 } as const
 
 export const $RegistryActionCreate = {
@@ -7679,81 +7605,6 @@ export const $RegistrySecretType_Output = {
   },
 } as const
 
-export const $RelationListRequest = {
-  properties: {
-    page: {
-      type: "integer",
-      minimum: 1,
-      title: "Page",
-      default: 1,
-    },
-    page_size: {
-      type: "integer",
-      maximum: 100,
-      minimum: 1,
-      title: "Page Size",
-      default: 50,
-    },
-    filters: {
-      anyOf: [
-        {
-          items: {
-            $ref: "#/components/schemas/QueryFilter",
-          },
-          type: "array",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Filters",
-      description: "Optional filters on target records",
-    },
-  },
-  type: "object",
-  title: "RelationListRequest",
-  description: "Request for listing related records.",
-} as const
-
-export const $RelationListResponse = {
-  properties: {
-    records: {
-      items: {
-        $ref: "#/components/schemas/tracecat__entities__models__EntityDataRead",
-      },
-      type: "array",
-      title: "Records",
-    },
-    total: {
-      type: "integer",
-      title: "Total",
-    },
-    page: {
-      type: "integer",
-      title: "Page",
-    },
-    page_size: {
-      type: "integer",
-      title: "Page Size",
-    },
-    has_next: {
-      type: "boolean",
-      title: "Has Next",
-    },
-  },
-  type: "object",
-  required: ["records", "total", "page", "page_size", "has_next"],
-  title: "RelationListResponse",
-  description: "Response for related records listing.",
-} as const
-
-export const $RelationOperation = {
-  type: "string",
-  enum: ["add", "remove", "replace"],
-  title: "RelationOperation",
-  description: "Types of operations on relation fields.",
-} as const
-
 export const $RelationSettings = {
   properties: {
     relation_type: {
@@ -7779,43 +7630,6 @@ export const $RelationType = {
 
 These values are used in the API and models layer to represent
 the type of relationship from the perspective of the source entity.`,
-} as const
-
-export const $RelationUpdateResponse = {
-  properties: {
-    message: {
-      type: "string",
-      title: "Message",
-    },
-    target_id: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Target Id",
-      description: "Target record ID for belongs_to updates",
-    },
-    stats: {
-      anyOf: [
-        {
-          type: "object",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Stats",
-      description: "Statistics for has_many updates",
-    },
-  },
-  type: "object",
-  required: ["message"],
-  title: "RelationUpdateResponse",
-  description: "Response for relation field updates.",
 } as const
 
 export const $ReopenedEventRead = {
@@ -12698,30 +12512,7 @@ export const $login = {
   title: "Body_auth-auth:database.login",
 } as const
 
-export const $tracecat__cases__entities__models__EntityDataRead = {
-  properties: {
-    id: {
-      type: "string",
-      format: "uuid4",
-      title: "Id",
-    },
-    entity_metadata_id: {
-      type: "string",
-      format: "uuid4",
-      title: "Entity Metadata Id",
-    },
-    field_data: {
-      type: "object",
-      title: "Field Data",
-    },
-  },
-  type: "object",
-  required: ["id", "entity_metadata_id", "field_data"],
-  title: "EntityDataRead",
-  description: "Entity record data.",
-} as const
-
-export const $tracecat__cases__entities__models__EntityMetadataRead = {
+export const $tracecat__cases__entities__models__EntityRead = {
   properties: {
     id: {
       type: "string",
@@ -12731,6 +12522,10 @@ export const $tracecat__cases__entities__models__EntityMetadataRead = {
     name: {
       type: "string",
       title: "Name",
+    },
+    display_name: {
+      type: "string",
+      title: "Display Name",
     },
     description: {
       anyOf: [
@@ -12743,63 +12538,52 @@ export const $tracecat__cases__entities__models__EntityMetadataRead = {
       ],
       title: "Description",
     },
+    icon: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Icon",
+    },
     is_active: {
       type: "boolean",
       title: "Is Active",
     },
   },
   type: "object",
-  required: ["id", "name", "description", "is_active"],
-  title: "EntityMetadataRead",
-  description: "Entity type metadata.",
+  required: ["id", "name", "display_name", "description", "icon", "is_active"],
+  title: "EntityRead",
+  description: "Entity metadata.",
 } as const
 
-export const $tracecat__entities__models__EntityDataRead = {
+export const $tracecat__cases__entities__models__RecordRead = {
   properties: {
     id: {
       type: "string",
-      format: "uuid",
+      format: "uuid4",
       title: "Id",
     },
-    entity_metadata_id: {
+    entity_id: {
       type: "string",
-      format: "uuid",
-      title: "Entity Metadata Id",
+      format: "uuid4",
+      title: "Entity Id",
     },
     field_data: {
       type: "object",
       title: "Field Data",
     },
-    created_at: {
-      type: "string",
-      format: "date-time",
-      title: "Created At",
-    },
-    updated_at: {
-      type: "string",
-      format: "date-time",
-      title: "Updated At",
-    },
-    owner_id: {
-      type: "string",
-      format: "uuid",
-      title: "Owner Id",
-    },
   },
   type: "object",
-  required: [
-    "id",
-    "entity_metadata_id",
-    "field_data",
-    "created_at",
-    "updated_at",
-    "owner_id",
-  ],
-  title: "EntityDataRead",
-  description: "Response model for entity record.",
+  required: ["id", "entity_id", "field_data"],
+  title: "RecordRead",
+  description: "Record data.",
 } as const
 
-export const $tracecat__entities__models__EntityMetadataRead = {
+export const $tracecat__entities__models__EntityRead = {
   properties: {
     id: {
       type: "string",
@@ -12868,6 +12652,51 @@ export const $tracecat__entities__models__EntityMetadataRead = {
     "updated_at",
     "owner_id",
   ],
-  title: "EntityMetadataRead",
-  description: "Response model for entity type.",
+  title: "EntityRead",
+  description: "Response model for entity.",
+} as const
+
+export const $tracecat__entities__models__RecordRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    entity_id: {
+      type: "string",
+      format: "uuid",
+      title: "Entity Id",
+    },
+    field_data: {
+      type: "object",
+      title: "Field Data",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+    owner_id: {
+      type: "string",
+      format: "uuid",
+      title: "Owner Id",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "entity_id",
+    "field_data",
+    "created_at",
+    "updated_at",
+    "owner_id",
+  ],
+  title: "RecordRead",
+  description: "Response model for record.",
 } as const
