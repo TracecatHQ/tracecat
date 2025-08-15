@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import type { EntityMetadataRead } from "@/client"
+import type { EntityRead } from "@/client"
 import { IconPicker } from "@/components/form/icon-picker"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
@@ -19,7 +19,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { getIconByName } from "@/lib/icon-data"
 
 interface EntitySettingsDialogProps {
-  entity: EntityMetadataRead | null
+  entity: EntityRead | null
   open: boolean
   onOpenChange: (open: boolean) => void
   onSubmit: (data: {
@@ -74,7 +74,6 @@ export function EntitySettingsDialog({
 
   if (!entity) return null
 
-  const IconComponent = entity.icon ? getIconByName(entity.icon) : null
   const initials = entity.display_name?.[0]?.toUpperCase() || "?"
 
   return (

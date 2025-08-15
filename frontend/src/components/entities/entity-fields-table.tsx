@@ -22,11 +22,7 @@ import {
   XCircle,
 } from "lucide-react"
 import { useState } from "react"
-import type {
-  tracecat__entities__models__EntityRead as EntityMetadataRead,
-  FieldMetadataRead,
-  FieldType,
-} from "@/client"
+import type { EntityRead, FieldMetadataRead, FieldType } from "@/client"
 import {
   DataTable,
   DataTableColumnHeader,
@@ -79,7 +75,7 @@ const fieldTypeConfig: Partial<
 
 interface EntityFieldsTableProps {
   fields: FieldMetadataRead[]
-  entities?: EntityMetadataRead[]
+  entities?: EntityRead[]
   currentEntityName?: string
   onEditField?: (field: FieldMetadataRead) => void
   onDeleteField?: (fieldId: string) => Promise<void>

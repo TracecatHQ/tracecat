@@ -4,7 +4,7 @@ import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import { CheckCircle, Copy, Eye, Pencil, Trash2, XCircle } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useState } from "react"
-import type { EntityMetadataRead } from "@/client"
+import type { EntityRead } from "@/client"
 import {
   DataTable,
   DataTableColumnHeader,
@@ -36,10 +36,10 @@ import { getIconByName } from "@/lib/icon-data"
 import { useWorkspace } from "@/providers/workspace"
 
 interface EntitiesTableProps {
-  entities: EntityMetadataRead[]
+  entities: EntityRead[]
   fieldCounts: Record<string, number>
   onEditEntity?: (
-    entity: EntityMetadataRead,
+    entity: EntityRead,
     data: {
       display_name: string
       description?: string
@@ -65,15 +65,12 @@ export function EntitiesTable({
 }: EntitiesTableProps) {
   const router = useRouter()
   const { workspaceId } = useWorkspace()
-  const [selectedEntity, setSelectedEntity] =
-    useState<EntityMetadataRead | null>(null)
+  const [selectedEntity, setSelectedEntity] = useState<EntityRead | null>(null)
   const [actionType, setActionType] = useState<"deactivate" | "delete" | null>(
     null
   )
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false)
-  const [entityToEdit, setEntityToEdit] = useState<EntityMetadataRead | null>(
-    null
-  )
+  const [entityToEdit, setEntityToEdit] = useState<EntityRead | null>(null)
 
   return (
     <>
@@ -408,7 +405,7 @@ export function EntitiesTable({
   )
 }
 
-const defaultToolbarProps: DataTableToolbarProps<EntityMetadataRead> = {
+const defaultToolbarProps: DataTableToolbarProps<EntityRead> = {
   filterProps: {
     placeholder: "Filter entities...",
     column: "display_name",

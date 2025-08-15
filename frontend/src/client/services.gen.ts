@@ -4240,7 +4240,7 @@ export const casesAddRecordToCase = (
  * @param data.caseId
  * @param data.recordId
  * @param data.workspaceId
- * @returns tracecat__cases__entities__models__RecordRead Successful Response
+ * @returns CaseRecordRead Successful Response
  * @throws ApiError
  */
 export const casesGetCaseRecord = (
@@ -4278,7 +4278,7 @@ export const casesGetCaseRecord = (
  * @param data.recordId
  * @param data.workspaceId
  * @param data.requestBody
- * @returns tracecat__cases__entities__models__RecordRead Successful Response
+ * @returns CaseRecordRead Successful Response
  * @throws ApiError
  */
 export const casesUpdateCaseRecord = (
@@ -4372,7 +4372,7 @@ export const casesRemoveRecordFromCase = (
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.requestBody
- * @returns tracecat__entities__models__EntityRead Successful Response
+ * @returns EntityRead Successful Response
  * @throws ApiError
  */
 export const entitiesCreateEntity = (
@@ -4398,7 +4398,7 @@ export const entitiesCreateEntity = (
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.includeInactive Include soft-deleted entities
- * @returns tracecat__entities__models__EntityRead Successful Response
+ * @returns EntityRead Successful Response
  * @throws ApiError
  */
 export const entitiesListEntities = (
@@ -4423,7 +4423,7 @@ export const entitiesListEntities = (
  * @param data The data for the request.
  * @param data.entityId
  * @param data.workspaceId
- * @returns tracecat__entities__models__EntityRead Successful Response
+ * @returns EntityRead Successful Response
  * @throws ApiError
  */
 export const entitiesGetEntity = (
@@ -4451,7 +4451,7 @@ export const entitiesGetEntity = (
  * @param data.entityId
  * @param data.workspaceId
  * @param data.requestBody
- * @returns tracecat__entities__models__EntityRead Successful Response
+ * @returns EntityRead Successful Response
  * @throws ApiError
  */
 export const entitiesUpdateEntity = (
@@ -4480,7 +4480,7 @@ export const entitiesUpdateEntity = (
  * @param data The data for the request.
  * @param data.entityId
  * @param data.workspaceId
- * @returns tracecat__entities__models__EntityRead Successful Response
+ * @returns EntityRead Successful Response
  * @throws ApiError
  */
 export const entitiesDeactivateEntity = (
@@ -4507,7 +4507,7 @@ export const entitiesDeactivateEntity = (
  * @param data The data for the request.
  * @param data.entityId
  * @param data.workspaceId
- * @returns tracecat__entities__models__EntityRead Successful Response
+ * @returns EntityRead Successful Response
  * @throws ApiError
  */
 export const entitiesReactivateEntity = (
@@ -4796,7 +4796,7 @@ export const entitiesCreateRelationField = (
  * @param data.entityId
  * @param data.workspaceId
  * @param data.requestBody
- * @returns tracecat__entities__models__RecordRead Successful Response
+ * @returns RecordRead Successful Response
  * @throws ApiError
  */
 export const entitiesCreateRecord = (
@@ -4825,7 +4825,7 @@ export const entitiesCreateRecord = (
  * @param data The data for the request.
  * @param data.recordId
  * @param data.workspaceId
- * @returns tracecat__entities__models__RecordRead Successful Response
+ * @returns RecordRead Successful Response
  * @throws ApiError
  */
 export const entitiesGetRecord = (
@@ -4853,7 +4853,7 @@ export const entitiesGetRecord = (
  * @param data.recordId
  * @param data.workspaceId
  * @param data.requestBody
- * @returns tracecat__entities__models__RecordRead Successful Response
+ * @returns RecordRead Successful Response
  * @throws ApiError
  */
 export const entitiesUpdateRecord = (
