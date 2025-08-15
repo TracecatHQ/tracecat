@@ -5,15 +5,15 @@ from pydantic import UUID4
 
 from tracecat.auth.credentials import RoleACL
 from tracecat.cases.entities.models import (
-    CaseEntityLinkCreate,
-    CaseEntityLinkRead,
-    EntityDataRead,
-    EntityMetadataRead,
+    CaseRecordLinkCreate,
+    CaseRecordLinkRead,
+    EntityRead,
+    RecordRead,
 )
 from tracecat.cases.entities.service import CaseEntitiesService
 from tracecat.cases.service import CasesService
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.entities.models import EntityDataUpdate
+from tracecat.entities.models import RecordUpdate
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatNotFoundError
 
@@ -29,16 +29,16 @@ WorkspaceUser = Annotated[
 router = APIRouter(prefix="/cases", tags=["cases"])
 
 
-@router.get("/{case_id}/entities", response_model=list[CaseEntityLinkRead])
+@router.get("/{case_id}/records", response_model=list[CaseRecordLinkRead])
 async def list_case_records(
     role: WorkspaceUser,
     session: AsyncDBSession,
     case_id: UUID4,
-    entity_metadata_id: UUID4 | None = None,
-) -> list[CaseEntityLinkRead]:
-    """List all entity records associated with a case.
+    entity_id: UUID4 | None = None,
+) -> list[CaseRecordLinkRead]:
+    """List all records associated with a case.
 
-    Optionally filter by entity type using entity_metadata_id.
+    Optionally filter by entity using entity_id.
     """
     # Verify case exists
     cases_service = CasesService(session, role=role)
@@ -50,52 +50,50 @@ async def list_case_records(
 
     # List records
     service = CaseEntitiesService(session, role=role)
-    links = await service.list_records(case_id, entity_metadata_id)
+    links = await service.list_records(case_id, entity_id)
 
     # Transform to response model using model_validate
     result = []
     for link in links:
         # Use model_validate for nested models if they exist
-        entity_metadata = (
-            EntityMetadataRead.model_validate(
-                link.entity_metadata, from_attributes=True
-            )
-            if link.entity_metadata
+        entity = (
+            EntityRead.model_validate(link.entity, from_attributes=True)
+            if link.entity
             else None
         )
 
-        entity_data = (
-            EntityDataRead.model_validate(link.entity_data, from_attributes=True)
-            if link.entity_data
+        record = (
+            RecordRead.model_validate(link.record, from_attributes=True)
+            if link.record
             else None
         )
 
         result.append(
-            CaseEntityLinkRead(
+            CaseRecordLinkRead(
                 id=link.id,
                 case_id=link.case_id,
-                entity_metadata_id=link.entity_metadata_id,
-                entity_data_id=link.entity_data_id,
-                entity_metadata=entity_metadata,
-                entity_data=entity_data,
+                entity_id=link.entity_id,
+                record_id=link.record_id,
+                entity=entity,
+                record=record,
             )
         )
 
     return result
 
 
-@router.get("/{case_id}/entities/{record_id}", response_model=EntityDataRead)
+@router.get("/{case_id}/records/{record_id}", response_model=RecordRead)
 async def get_case_record(
     role: WorkspaceUser,
     session: AsyncDBSession,
     case_id: UUID4,
     record_id: UUID4,
-) -> EntityDataRead:
-    """Get a specific entity record linked to a case.
+) -> RecordRead:
+    """Get a specific record linked to a case.
 
     Args:
         case_id: The case ID
-        record_id: The entity record ID
+        record_id: The record ID
 
     Returns:
         Entity record data
@@ -111,7 +109,7 @@ async def get_case_record(
     service = CaseEntitiesService(session, role=role)
     try:
         record = await service.get_record(case_id, record_id)
-        return EntityDataRead.model_validate(record, from_attributes=True)
+        return RecordRead.model_validate(record, from_attributes=True)
     except TracecatNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -120,20 +118,20 @@ async def get_case_record(
 
 
 @router.post(
-    "/{case_id}/entities",
+    "/{case_id}/records",
     status_code=status.HTTP_201_CREATED,
-    response_model=CaseEntityLinkRead,
+    response_model=CaseRecordLinkRead,
 )
 async def add_record_to_case(
     role: WorkspaceUser,
     session: AsyncDBSession,
     case_id: UUID4,
-    params: CaseEntityLinkCreate,
-) -> CaseEntityLinkRead:
-    """Associate an entity record with a case.
+    params: CaseRecordLinkCreate,
+) -> CaseRecordLinkRead:
+    """Associate an record with a case.
 
-    Either provide entity_data_id to link an existing record,
-    or provide entity_data to create a new record and link it.
+    Either provide record_id to link an existing record,
+    or provide record to create a new record and link it.
     """
     # Verify case exists
     cases_service = CasesService(session, role=role)
@@ -146,25 +144,25 @@ async def add_record_to_case(
     service = CaseEntitiesService(session, role=role)
 
     try:
-        if params.entity_data_id:
+        if params.record_id:
             # Link existing entity
             link = await service.add_record_to_case(
                 case_id=case_id,
-                entity_data_id=params.entity_data_id,
-                entity_metadata_id=params.entity_metadata_id,
+                record_id=params.record_id,
+                entity_id=params.entity_id,
             )
             entity_record = None
-        elif params.entity_data:
+        elif params.record_data:
             # Create and link new entity
             entity_record, link = await service.create_record(
                 case_id=case_id,
-                entity_metadata_id=params.entity_metadata_id,
-                entity_data=params.entity_data,
+                entity_id=params.entity_id,
+                data=params.record_data,
             )
         else:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Either entity_data_id or entity_data must be provided",
+                detail="Either record_id or record must be provided",
             )
 
         # Get metadata for response - use the entities service
@@ -172,49 +170,43 @@ async def add_record_to_case(
 
         entities_service = CustomEntitiesService(session, role=role)
         try:
-            entity_metadata = await entities_service.get_entity_type(
-                params.entity_metadata_id
-            )
+            entity = await entities_service.get_entity_type(params.entity_id)
         except Exception:
-            entity_metadata = None
+            entity = None
 
         # Use model_validate for nested models
         metadata_read = (
-            EntityMetadataRead.model_validate(entity_metadata, from_attributes=True)
-            if entity_metadata
-            else None
+            EntityRead.model_validate(entity, from_attributes=True) if entity else None
         )
 
-        # For entity_data, we need to handle the case where we created a new record
+        # For record, we need to handle the case where we created a new record
         # or are linking an existing one
         data_read = None
         if entity_record:
             # We created a new record
-            data_read = EntityDataRead.model_validate(
-                entity_record, from_attributes=True
-            )
-        elif link.entity_data_id:
+            data_read = RecordRead.model_validate(entity_record, from_attributes=True)
+        elif link.record_id:
             # We're linking to an existing record - fetch it
             try:
-                existing_record = await service.get_record(case_id, link.entity_data_id)
-                data_read = EntityDataRead.model_validate(
+                existing_record = await service.get_record(case_id, link.record_id)
+                data_read = RecordRead.model_validate(
                     existing_record, from_attributes=True
                 )
             except Exception:
                 # Fallback to minimal response
-                data_read = EntityDataRead(
-                    id=link.entity_data_id,
-                    entity_metadata_id=params.entity_metadata_id,
+                data_read = RecordRead(
+                    id=link.record_id,
+                    entity_id=params.entity_id,
                     field_data={},
                 )
 
-        return CaseEntityLinkRead(
+        return CaseRecordLinkRead(
             id=link.id,
             case_id=link.case_id,
-            entity_metadata_id=link.entity_metadata_id,
-            entity_data_id=link.entity_data_id,
-            entity_metadata=metadata_read,
-            entity_data=data_read,
+            entity_id=link.entity_id,
+            record_id=link.record_id,
+            entity=metadata_read,
+            record=data_read,
         )
     except ValueError as e:
         raise HTTPException(
@@ -228,23 +220,23 @@ async def add_record_to_case(
         ) from e
 
 
-@router.patch("/{case_id}/entities/{record_id}", response_model=EntityDataRead)
+@router.patch("/{case_id}/records/{record_id}", response_model=RecordRead)
 async def update_case_record(
     role: WorkspaceUser,
     session: AsyncDBSession,
     case_id: UUID4,
     record_id: UUID4,
-    updates: EntityDataUpdate,
-) -> EntityDataRead:
-    """Update an entity record linked to a case.
+    updates: RecordUpdate,
+) -> RecordRead:
+    """Update an record linked to a case.
 
     Args:
         case_id: The case ID
-        record_id: The entity record ID to update
+        record_id: The record ID to update
         updates: Field updates
 
     Returns:
-        Updated entity record
+        Updated record
     """
     # Verify case exists
     cases_service = CasesService(session, role=role)
@@ -259,7 +251,7 @@ async def update_case_record(
         # Extract dynamic field updates
         update_data = updates.model_dump(exclude_unset=True)
         updated_record = await service.update_record(case_id, record_id, update_data)
-        return EntityDataRead.model_validate(updated_record, from_attributes=True)
+        return RecordRead.model_validate(updated_record, from_attributes=True)
     except TracecatNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -273,7 +265,7 @@ async def update_case_record(
 
 
 @router.delete(
-    "/{case_id}/entities/{link_id}",
+    "/{case_id}/record-links/{link_id}",
     status_code=status.HTTP_204_NO_CONTENT,
 )
 async def remove_record_from_case(
@@ -282,9 +274,9 @@ async def remove_record_from_case(
     case_id: UUID4,
     link_id: UUID4,
 ) -> None:
-    """Remove an entity record association from a case.
+    """Remove an record association from a case.
 
-    This only removes the association; the entity record itself is preserved.
+    This only removes the association; the record itself is preserved.
     """
     # Verify case exists
     cases_service = CasesService(session, role=role)

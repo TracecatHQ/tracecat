@@ -22,11 +22,11 @@ from tracecat.entities.validation import (
     validate_relation_uuid,
 )
 
-# Entity Metadata Models
+# Entity Models
 
 
-class EntityMetadataCreate(BaseModel):
-    """Request model for creating entity type."""
+class EntityCreate(BaseModel):
+    """Request model for creating entity."""
 
     name: str = Field(..., min_length=1, max_length=100)
     display_name: str = Field(..., min_length=1, max_length=255)
@@ -40,16 +40,16 @@ class EntityMetadataCreate(BaseModel):
         return validate_field_key_format(value)
 
 
-class EntityMetadataUpdate(BaseModel):
-    """Request model for updating entity type."""
+class EntityUpdate(BaseModel):
+    """Request model for updating entity."""
 
     display_name: str | None = Field(default=None, min_length=1, max_length=255)
     description: str | None = Field(default=None, max_length=1000)
     icon: str | None = Field(default=None, max_length=100)
 
 
-class EntityMetadataRead(BaseModel):
-    """Response model for entity type."""
+class EntityRead(BaseModel):
+    """Response model for entity."""
 
     id: UUID
     name: str
@@ -213,7 +213,7 @@ class FieldMetadataRead(BaseModel):
     """Response model for field."""
 
     id: UUID
-    entity_metadata_id: UUID
+    entity_id: UUID
     field_key: str
     field_type: str
     display_name: str
@@ -224,7 +224,7 @@ class FieldMetadataRead(BaseModel):
     updated_at: datetime
     # Relation fields
     relation_kind: str | None = None
-    relation_target_entity_id: UUID | None = None
+    target_entity_id: UUID | None = None
     # v1: No backref_field_id or cascade_delete (always true)
     # Enum field options
     enum_options: list[str] | None = None
@@ -233,11 +233,11 @@ class FieldMetadataRead(BaseModel):
     model_config = {"from_attributes": True}
 
 
-# Entity Data Models
+# Record Models
 
 
-class EntityDataCreate(BaseModel):
-    """Request model for creating entity record.
+class RecordCreate(BaseModel):
+    """Request model for creating record.
 
     Note: The actual fields are dynamic based on entity type.
     This is a base model - actual validation happens in service.
@@ -246,8 +246,8 @@ class EntityDataCreate(BaseModel):
     model_config = ConfigDict(extra="allow")  # Allow additional fields
 
 
-class EntityDataUpdate(BaseModel):
-    """Request model for updating entity record.
+class RecordUpdate(BaseModel):
+    """Request model for updating record.
 
     Note: The actual fields are dynamic based on entity type.
     """
@@ -255,11 +255,11 @@ class EntityDataUpdate(BaseModel):
     model_config = ConfigDict(extra="allow")  # Allow additional fields
 
 
-class EntityDataRead(BaseModel):
-    """Response model for entity record."""
+class RecordRead(BaseModel):
+    """Response model for record."""
 
     id: UUID
-    entity_metadata_id: UUID
+    entity_id: UUID
     field_data: dict[str, Any]
     created_at: datetime
     updated_at: datetime
@@ -294,7 +294,7 @@ class QueryRequest(BaseModel):
 class QueryResponse(BaseModel):
     """Response model for query results."""
 
-    records: list[EntityDataRead]
+    records: list[RecordRead]
     total: int | None = Field(default=None, description="Total count if available")
     limit: int
     offset: int
@@ -395,7 +395,7 @@ class RelationListRequest(BaseModel):
 class RelationListResponse(BaseModel):
     """Response for related records listing."""
 
-    records: list[EntityDataRead]
+    records: list[RecordRead]
     total: int
     page: int
     page_size: int

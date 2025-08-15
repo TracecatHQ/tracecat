@@ -13,9 +13,9 @@ from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat.db.schemas import (
-    EntityData,
-    EntityMetadata,
+    Entity,
     FieldMetadata,
+    Record,
 )
 from tracecat.entities.enums import RelationKind
 from tracecat.entities.query import EntityQueryBuilder
@@ -198,7 +198,7 @@ class EntityValidators:
 
     async def validate_entity_exists(
         self, entity_id: UUID, raise_on_missing: bool = True
-    ) -> EntityMetadata | None:
+    ) -> Entity | None:
         """Validate that an entity exists in the workspace.
 
         Args:
@@ -206,14 +206,14 @@ class EntityValidators:
             raise_on_missing: Whether to raise exception if not found
 
         Returns:
-            EntityMetadata if found, None if not found and not raising
+            Entity if found, None if not found and not raising
 
         Raises:
             TracecatNotFoundError: If entity not found and raise_on_missing=True
         """
-        stmt = select(EntityMetadata).where(
-            EntityMetadata.id == entity_id,
-            EntityMetadata.owner_id == self.workspace_id,
+        stmt = select(Entity).where(
+            Entity.id == entity_id,
+            Entity.owner_id == self.workspace_id,
         )
         result = await self.session.exec(stmt)
         entity = result.first()
@@ -234,12 +234,12 @@ class EntityValidators:
         Raises:
             PydanticCustomError: If name already exists
         """
-        stmt = select(EntityMetadata).where(
-            EntityMetadata.name == name,
-            EntityMetadata.owner_id == self.workspace_id,
+        stmt = select(Entity).where(
+            Entity.name == name,
+            Entity.owner_id == self.workspace_id,
         )
         if exclude_id:
-            stmt = stmt.where(EntityMetadata.id != exclude_id)
+            stmt = stmt.where(Entity.id != exclude_id)
 
         result = await self.session.exec(stmt)
         if result.first():
@@ -249,14 +249,14 @@ class EntityValidators:
                 {"name": name},
             )
 
-    async def validate_entity_active(self, entity_id: UUID) -> EntityMetadata:
+    async def validate_entity_active(self, entity_id: UUID) -> Entity:
         """Validate that an entity is active.
 
         Args:
             entity_id: Entity metadata ID to check
 
         Returns:
-            EntityMetadata if active
+            Entity if active
 
         Raises:
             TracecatValidationError: If entity is not active
@@ -300,13 +300,13 @@ class FieldValidators:
         Raises:
             TracecatNotFoundError: If field not found and raise_on_missing=True
         """
-        # Join with EntityMetadata to check workspace ownership
+        # Join with Entity to check workspace ownership
         stmt = (
             select(FieldMetadata)
-            .join(EntityMetadata, FieldMetadata.entity_metadata_id == EntityMetadata.id)  # type: ignore[arg-type]
+            .join(Entity, FieldMetadata.entity_id == Entity.id)  # type: ignore[arg-type]
             .where(
                 FieldMetadata.id == field_id,
-                EntityMetadata.owner_id == self.workspace_id,
+                Entity.owner_id == self.workspace_id,
             )
         )
         result = await self.session.exec(stmt)
@@ -332,14 +332,14 @@ class FieldValidators:
         Raises:
             PydanticCustomError: If field key already exists
         """
-        # Join with EntityMetadata to check workspace ownership
+        # Join with Entity to check workspace ownership
         stmt = (
             select(FieldMetadata)
-            .join(EntityMetadata, FieldMetadata.entity_metadata_id == EntityMetadata.id)  # type: ignore[arg-type]
+            .join(Entity, FieldMetadata.entity_id == Entity.id)  # type: ignore[arg-type]
             .where(
-                FieldMetadata.entity_metadata_id == entity_id,
+                FieldMetadata.entity_id == entity_id,
                 FieldMetadata.field_key == field_key,
-                EntityMetadata.owner_id == self.workspace_id,
+                Entity.owner_id == self.workspace_id,
             )
         )
         if exclude_id:
@@ -399,7 +399,7 @@ class RecordValidators:
         record_id: UUID,
         entity_id: UUID | None = None,
         raise_on_missing: bool = True,
-    ) -> EntityData | None:
+    ) -> Record | None:
         """Validate that a record exists.
 
         Args:
@@ -408,17 +408,17 @@ class RecordValidators:
             raise_on_missing: Whether to raise exception if not found
 
         Returns:
-            EntityData if found, None if not found and not raising
+            Record if found, None if not found and not raising
 
         Raises:
             TracecatNotFoundError: If record not found and raise_on_missing=True
         """
-        stmt = select(EntityData).where(
-            EntityData.id == record_id,
-            EntityData.owner_id == self.workspace_id,
+        stmt = select(Record).where(
+            Record.id == record_id,
+            Record.owner_id == self.workspace_id,
         )
         if entity_id:
-            stmt = stmt.where(EntityData.entity_metadata_id == entity_id)
+            stmt = stmt.where(Record.entity_id == entity_id)
 
         result = await self.session.exec(stmt)
         record = result.first()
@@ -614,7 +614,7 @@ class RelationNestingValidator:
             True if entity has relation fields, False otherwise
         """
         stmt = select(FieldMetadata).where(
-            FieldMetadata.entity_metadata_id == entity_id,
+            FieldMetadata.entity_id == entity_id,
             col(FieldMetadata.relation_kind).isnot(None),
             FieldMetadata.is_active,
         )
@@ -631,7 +631,7 @@ class RelationNestingValidator:
             True if entity is referenced by another entity, False otherwise
         """
         stmt = select(FieldMetadata).where(
-            FieldMetadata.relation_target_entity_id == entity_id,
+            FieldMetadata.target_entity_id == entity_id,
             FieldMetadata.is_active,
         )
         result = await self.session.exec(stmt)
@@ -656,22 +656,22 @@ class RelationValidators:
         self.record_validators = RecordValidators(session, workspace_id)
         self.nesting_validator = RelationNestingValidator(session, workspace_id)
 
-    async def validate_target_entity(self, target_entity_name: str) -> EntityMetadata:
+    async def validate_target_entity(self, target_entity_name: str) -> Entity:
         """Validate that target entity exists and is active.
 
         Args:
             target_entity_name: Name of target entity
 
         Returns:
-            EntityMetadata of target entity
+            Entity of target entity
 
         Raises:
             TracecatNotFoundError: If entity not found
             TracecatValidationError: If entity not active
         """
-        stmt = select(EntityMetadata).where(
-            EntityMetadata.name == target_entity_name,
-            EntityMetadata.owner_id == self.workspace_id,
+        stmt = select(Entity).where(
+            Entity.name == target_entity_name,
+            Entity.owner_id == self.workspace_id,
         )
         result = await self.session.exec(stmt)
         entity = result.first()
@@ -690,7 +690,7 @@ class RelationValidators:
 
     async def validate_target_record(
         self, record_id: UUID, target_entity_id: UUID
-    ) -> EntityData:
+    ) -> Record:
         """Validate that target record exists and belongs to target entity.
 
         Args:
@@ -698,7 +698,7 @@ class RelationValidators:
             target_entity_id: Expected entity ID
 
         Returns:
-            EntityData of target record
+            Record of target record
 
         Raises:
             TracecatNotFoundError: If record not found
