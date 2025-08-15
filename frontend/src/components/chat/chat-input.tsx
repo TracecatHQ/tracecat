@@ -8,7 +8,13 @@ import { useForm } from "react-hook-form"
 import { z } from "zod"
 import { ChatToolsDialog } from "@/components/chat/chat-tools-dialog"
 import { Button } from "@/components/ui/button"
-import { Form, FormControl, FormField, FormItem } from "@/components/ui/form"
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormMessage,
+} from "@/components/ui/form"
 import { Textarea } from "@/components/ui/textarea"
 import {
   Tooltip,
@@ -19,7 +25,6 @@ import {
 const chatMessageSchema = z.object({
   message: z
     .string()
-    .min(1, { message: "Message cannot be empty" })
     .max(2000, { message: "Message cannot be longer than 2000 characters" }),
 })
 
@@ -115,7 +120,7 @@ export function ChatInput({
             <FormField
               control={form.control}
               name="message"
-              render={({ field }) => (
+              render={({ field, fieldState }) => (
                 <FormItem className="w-full">
                   <FormControl>
                     <Textarea
@@ -128,6 +133,10 @@ export function ChatInput({
                       disabled={disabled}
                     />
                   </FormControl>
+                  {/* Only show error message when text exceeds limit, not when empty */}
+                  {fieldState.error && field.value.length > 2000 && (
+                    <FormMessage />
+                  )}
                 </FormItem>
               )}
             />
