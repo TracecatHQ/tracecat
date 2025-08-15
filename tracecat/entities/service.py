@@ -140,7 +140,7 @@ class CustomEntitiesService(BaseWorkspaceService):
         entity = result.first()
 
         if not entity:
-            raise TracecatNotFoundError(f"Entity type {entity_id} not found")
+            raise TracecatNotFoundError(f"Entity {entity_id} not found")
 
         return entity
 
@@ -165,7 +165,7 @@ class CustomEntitiesService(BaseWorkspaceService):
         entity = result.first()
 
         if not entity:
-            raise TracecatNotFoundError(f"Entity type '{name}' not found")
+            raise TracecatNotFoundError(f"Entity '{name}' not found")
 
         return entity
 
@@ -200,7 +200,7 @@ class CustomEntitiesService(BaseWorkspaceService):
             - Deletes all relation links
             - Deletes the entity metadata
         """
-        entity = await self.get_entity_type(entity_id)
+        entity = await self.get_entity(entity_id)
 
         # Delete all relation links involving this entity
         # Links where records of this entity are sources
@@ -271,7 +271,7 @@ class CustomEntitiesService(BaseWorkspaceService):
             ValueError: If field_key invalid or already exists
         """
         # Validate entity exists
-        await self.get_entity_type(entity_id)
+        await self.get_entity(entity_id)
 
         # Check field key uniqueness
         await self.field_validators.validate_field_key_unique(entity_id, field_key)
@@ -555,7 +555,7 @@ class CustomEntitiesService(BaseWorkspaceService):
             TracecatNotFoundError: If entity or target entity not found
         """
         # Validate entity exists
-        await self.get_entity_type(entity_id)
+        await self.get_entity(entity_id)
 
         # Validate relation settings match field type
         is_valid, error = validate_relation_settings(field_type, relation_settings)
@@ -564,7 +564,7 @@ class CustomEntitiesService(BaseWorkspaceService):
 
         # Validate target entity exists and belongs to same owner
         try:
-            await self.get_entity_type(relation_settings.target_entity_id)
+            await self.get_entity(relation_settings.target_entity_id)
         except TracecatNotFoundError as err:
             raise ValueError(
                 f"Target entity {relation_settings.target_entity_id} not found"
@@ -618,7 +618,7 @@ class CustomEntitiesService(BaseWorkspaceService):
             description=validated.description,
             is_active=True,
             relation_kind=relation_kind,
-            relation_target_entity_id=relation_settings.target_entity_id,
+            target_entity_id=relation_settings.target_entity_id,
         )
 
         self.session.add(field)
@@ -1161,7 +1161,7 @@ class CustomEntitiesService(BaseWorkspaceService):
             List of Record matching filters
         """
         # Validate entity exists
-        await self.get_entity_type(entity_id)
+        await self.get_entity(entity_id)
 
         # Build base query
         stmt = select(Record).where(
@@ -1197,7 +1197,7 @@ class CustomEntitiesService(BaseWorkspaceService):
             ValueError: If multiple records found (slug not unique)
         """
         # Validate entity exists
-        await self.get_entity_type(entity_id)
+        await self.get_entity(entity_id)
 
         # Build query using the slug_equals method
         slug_condition = await self.query_builder.slug_equals(
@@ -1247,7 +1247,7 @@ class CustomEntitiesService(BaseWorkspaceService):
             List of matching EntityData records
         """
         # Validate entity exists
-        await self.get_entity_type(entity_id)
+        await self.get_entity(entity_id)
 
         # Build query using the slug_matches method
         slug_condition = await self.query_builder.slug_matches(

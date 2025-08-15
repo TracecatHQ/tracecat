@@ -7,7 +7,7 @@ from pydantic import ValidationError
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from tracecat.db.schemas import EntityData, EntityMetadata, FieldMetadata
+from tracecat.db.schemas import Entity, FieldMetadata, Record
 from tracecat.entities.service import CustomEntitiesService
 from tracecat.entities.types import FieldType
 from tracecat.types.auth import AccessLevel, Role
@@ -61,9 +61,9 @@ def field_create_params() -> dict:
 
 
 @pytest.fixture
-async def test_entity(admin_entities_service: CustomEntitiesService) -> EntityMetadata:
+async def test_entity(admin_entities_service: CustomEntitiesService) -> Entity:
     """Create a test entity type."""
-    return await admin_entities_service.create_entity_type(
+    return await admin_entities_service.create_entity(
         name="test_entity",
         display_name="Test Entity",
         description="Entity for testing constraints",
@@ -87,7 +87,7 @@ class TestDefaultValues:
     """Tests for field default value functionality."""
 
     async def test_create_field_with_text_default(
-        self, admin_entities_service: CustomEntitiesService, test_entity: EntityMetadata
+        self, admin_entities_service: CustomEntitiesService, test_entity: Entity
     ) -> None:
         """Test creating a field with a text default value."""
         field = await admin_entities_service.create_field(
@@ -102,7 +102,7 @@ class TestDefaultValues:
         assert field.field_type == FieldType.TEXT.value
 
     async def test_create_field_with_integer_default(
-        self, admin_entities_service: CustomEntitiesService, test_entity: EntityMetadata
+        self, admin_entities_service: CustomEntitiesService, test_entity: Entity
     ) -> None:
         """Test creating a field with an integer default value."""
         field = await admin_entities_service.create_field(
@@ -117,7 +117,7 @@ class TestDefaultValues:
         assert field.field_type == FieldType.INTEGER.value
 
     async def test_create_field_with_bool_default(
-        self, admin_entities_service: CustomEntitiesService, test_entity: EntityMetadata
+        self, admin_entities_service: CustomEntitiesService, test_entity: Entity
     ) -> None:
         """Test creating a field with a boolean default value."""
         field = await admin_entities_service.create_field(
@@ -132,7 +132,7 @@ class TestDefaultValues:
         assert field.field_type == FieldType.BOOL.value
 
     async def test_create_field_with_multi_select_default(
-        self, admin_entities_service: CustomEntitiesService, test_entity: EntityMetadata
+        self, admin_entities_service: CustomEntitiesService, test_entity: Entity
     ) -> None:
         """Test creating a field with a multi-select default value."""
         field = await admin_entities_service.create_field(
@@ -148,7 +148,7 @@ class TestDefaultValues:
         assert field.field_type == FieldType.MULTI_SELECT.value
 
     async def test_create_field_rejects_non_primitive_default(
-        self, admin_entities_service: CustomEntitiesService, test_entity: EntityMetadata
+        self, admin_entities_service: CustomEntitiesService, test_entity: Entity
     ) -> None:
         """Test that non-primitive field types cannot have default values."""
         with pytest.raises(ValueError, match="does not support default values"):
@@ -164,7 +164,7 @@ class TestDefaultValues:
         self,
         entities_service: CustomEntitiesService,
         admin_entities_service: CustomEntitiesService,
-        test_entity: EntityMetadata,
+        test_entity: Entity,
     ) -> None:
         """Test that default values are applied when creating records."""
         # Create fields with defaults
@@ -204,7 +204,7 @@ class TestDefaultValues:
         self,
         entities_service: CustomEntitiesService,
         admin_entities_service: CustomEntitiesService,
-        test_entity: EntityMetadata,
+        test_entity: Entity,
     ) -> None:
         """Test that fields with defaults apply the default value when not provided."""
         # Create a field with a default
@@ -225,7 +225,7 @@ class TestDefaultValues:
         assert record.field_data["field_with_default"] == "Default value"
 
     async def test_update_field_default_value(
-        self, admin_entities_service: CustomEntitiesService, test_entity: EntityMetadata
+        self, admin_entities_service: CustomEntitiesService, test_entity: Entity
     ) -> None:
         """Test updating a field's default value."""
         # Create field with initial default
@@ -246,7 +246,7 @@ class TestDefaultValues:
         assert updated_field.default_value == "Updated default"
 
     async def test_select_default_validates_against_options(
-        self, admin_entities_service: CustomEntitiesService, test_entity: EntityMetadata
+        self, admin_entities_service: CustomEntitiesService, test_entity: Entity
     ) -> None:
         """Test that SELECT field default value must be one of the options."""
         with pytest.raises(ValueError, match="not in allowed options"):
@@ -260,7 +260,7 @@ class TestDefaultValues:
             )
 
     async def test_multi_select_default_validates_against_options(
-        self, admin_entities_service: CustomEntitiesService, test_entity: EntityMetadata
+        self, admin_entities_service: CustomEntitiesService, test_entity: Entity
     ) -> None:
         """Test that MULTI_SELECT field default values must be from the options."""
         with pytest.raises(ValueError, match="not in allowed options"):
@@ -327,7 +327,7 @@ class TestCustomEntitiesService:
 
         for invalid_name, expected_error in invalid_cases:
             with pytest.raises(ValueError, match=expected_error):
-                await admin_entities_service.create_entity_type(
+                await admin_entities_service.create_entity(
                     name=invalid_name,
                     display_name="Display Name",
                     description="Description",
@@ -338,7 +338,7 @@ class TestCustomEntitiesService:
     ) -> None:
         """Test creating field with invalid key format."""
         # First create an entity type
-        entity = EntityMetadata(
+        entity = Entity(
             owner_id=admin_entities_service.workspace_id,
             name="test_entity",
             display_name="Test Entity",
@@ -388,7 +388,7 @@ class TestCustomEntitiesService:
     ) -> None:
         """Test that field settings have been removed - nested structures handled differently."""
         # Create an entity type
-        entity = EntityMetadata(
+        entity = Entity(
             owner_id=admin_entities_service.workspace_id,
             name="test_entity",
             display_name="Test Entity",
@@ -414,7 +414,7 @@ class TestCustomEntitiesService:
     ) -> None:
         """Test that only display properties can be updated, not schema."""
         # Create entity and field
-        entity = EntityMetadata(
+        entity = Entity(
             owner_id=admin_entities_service.workspace_id,
             name="test_entity",
             display_name="Test Entity",
@@ -424,7 +424,7 @@ class TestCustomEntitiesService:
         await session.commit()
 
         field = FieldMetadata(
-            entity_metadata_id=entity.id,
+            entity_id=entity.id,
             field_key="test_field",
             field_type=FieldType.TEXT,
             display_name="Original Display Name",
@@ -457,7 +457,7 @@ class TestCustomEntitiesService:
     ) -> None:
         """Test deactivating an already inactive field raises error."""
         # Create entity and inactive field
-        entity = EntityMetadata(
+        entity = Entity(
             owner_id=admin_entities_service.workspace_id,
             name="test_entity",
             display_name="Test Entity",
@@ -467,7 +467,7 @@ class TestCustomEntitiesService:
         await session.commit()
 
         field = FieldMetadata(
-            entity_metadata_id=entity.id,
+            entity_id=entity.id,
             field_key="test_field",
             field_type=FieldType.TEXT,
             display_name="Test Field",
@@ -485,7 +485,7 @@ class TestCustomEntitiesService:
     ) -> None:
         """Test reactivating an already active field raises error."""
         # Create entity and active field
-        entity = EntityMetadata(
+        entity = Entity(
             owner_id=admin_entities_service.workspace_id,
             name="test_entity",
             display_name="Test Entity",
@@ -495,7 +495,7 @@ class TestCustomEntitiesService:
         await session.commit()
 
         field = FieldMetadata(
-            entity_metadata_id=entity.id,
+            entity_id=entity.id,
             field_key="test_field",
             field_type=FieldType.TEXT,
             display_name="Test Field",
@@ -513,7 +513,7 @@ class TestCustomEntitiesService:
     ) -> None:
         """Test that creating record with nested objects is rejected."""
         # Create entity and field
-        entity = EntityMetadata(
+        entity = Entity(
             owner_id=entities_service.workspace_id,
             name="test_entity",
             display_name="Test Entity",
@@ -523,7 +523,7 @@ class TestCustomEntitiesService:
         await session.commit()
 
         field = FieldMetadata(
-            entity_metadata_id=entity.id,
+            entity_id=entity.id,
             field_key="test_field",
             field_type=FieldType.TEXT,
             display_name="Test Field",
@@ -544,7 +544,7 @@ class TestCustomEntitiesService:
     ) -> None:
         """Test that inactive fields are ignored during validation."""
         # Create entity with active and inactive fields
-        entity = EntityMetadata(
+        entity = Entity(
             owner_id=entities_service.workspace_id,
             name="test_entity",
             display_name="Test Entity",
@@ -554,14 +554,14 @@ class TestCustomEntitiesService:
         await session.commit()
 
         active_field = FieldMetadata(
-            entity_metadata_id=entity.id,
+            entity_id=entity.id,
             field_key="active_field",
             field_type=FieldType.TEXT,
             display_name="Active Field",
             is_active=True,
         )
         inactive_field = FieldMetadata(
-            entity_metadata_id=entity.id,
+            entity_id=entity.id,
             field_key="inactive_field",
             field_type=FieldType.TEXT,
             display_name="Inactive Field",
@@ -593,9 +593,9 @@ class TestCustomEntitiesService:
         """Test getting non-existent entity type raises error."""
         non_existent_id = uuid.uuid4()
         with pytest.raises(
-            TracecatNotFoundError, match=f"Entity type {non_existent_id} not found"
+            TracecatNotFoundError, match=f"Entity {non_existent_id} not found"
         ):
-            await entities_service.get_entity_type(non_existent_id)
+            await entities_service.get_entity(non_existent_id)
 
     async def test_get_field_not_found(
         self, entities_service: CustomEntitiesService
@@ -622,7 +622,7 @@ class TestCustomEntitiesService:
     ) -> None:
         """Test querying records with filters uses query builder."""
         # Create entity
-        entity = EntityMetadata(
+        entity = Entity(
             owner_id=entities_service.workspace_id,
             name="test_entity",
             display_name="Test Entity",
@@ -663,7 +663,7 @@ class TestCustomEntitiesService:
         # Create test fields with different types
         fields = [
             FieldMetadata(
-                entity_metadata_id=uuid.uuid4(),
+                entity_id=uuid.uuid4(),
                 field_key="text_field",
                 field_type=FieldType.TEXT,
                 display_name="Text Field",
@@ -671,7 +671,7 @@ class TestCustomEntitiesService:
                 is_active=True,
             ),
             FieldMetadata(
-                entity_metadata_id=uuid.uuid4(),
+                entity_id=uuid.uuid4(),
                 field_key="number_field",
                 field_type=FieldType.NUMBER,
                 display_name="Number Field",
@@ -679,7 +679,7 @@ class TestCustomEntitiesService:
                 is_active=True,
             ),
             FieldMetadata(
-                entity_metadata_id=uuid.uuid4(),
+                entity_id=uuid.uuid4(),
                 field_key="inactive_field",
                 field_type=FieldType.TEXT,
                 display_name="Inactive Field",
@@ -704,7 +704,7 @@ class TestCustomEntitiesService:
         """Test that creating entity type requires admin access."""
         # entities_service has basic role, should fail
         with pytest.raises(TracecatAuthorizationError):
-            await entities_service.create_entity_type(
+            await entities_service.create_entity(
                 name="test_entity",
                 display_name="Test Entity",
                 description="Should fail",
@@ -715,7 +715,7 @@ class TestCustomEntitiesService:
     ) -> None:
         """Test that creating field requires admin access."""
         # Create entity first (bypass service for setup)
-        entity = EntityMetadata(
+        entity = Entity(
             owner_id=entities_service.workspace_id,
             name="test_entity",
             display_name="Test Entity",
@@ -738,7 +738,7 @@ class TestCustomEntitiesService:
     ) -> None:
         """Test that deactivating field requires admin access."""
         # Create entity and field (bypass service for setup)
-        entity = EntityMetadata(
+        entity = Entity(
             owner_id=entities_service.workspace_id,
             name="test_entity",
             display_name="Test Entity",
@@ -748,7 +748,7 @@ class TestCustomEntitiesService:
         await session.commit()
 
         field = FieldMetadata(
-            entity_metadata_id=entity.id,
+            entity_id=entity.id,
             field_key="test_field",
             field_type=FieldType.TEXT,
             display_name="Test Field",
@@ -771,10 +771,10 @@ class TestRelationFieldCreation:
     ) -> None:
         """Test creating a record with a belongs_to relation."""
         # Create two entity types
-        user_entity = await admin_entities_service.create_entity_type(
+        user_entity = await admin_entities_service.create_entity(
             name="user", display_name="User"
         )
-        post_entity = await admin_entities_service.create_entity_type(
+        post_entity = await admin_entities_service.create_entity(
             name="post", display_name="Post"
         )
 
@@ -828,28 +828,28 @@ class TestRelationFieldCreation:
         # Verify EntityRelationLink was created
         from sqlmodel import select
 
-        from tracecat.db.schemas import EntityRelationLink
+        from tracecat.db.schemas import RecordRelationLink
 
-        stmt = select(EntityRelationLink).where(
-            EntityRelationLink.source_record_id == post_record.id,
-            EntityRelationLink.source_field_id == author_field.id,
-            EntityRelationLink.target_record_id == user_record.id,
+        stmt = select(RecordRelationLink).where(
+            RecordRelationLink.source_record_id == post_record.id,
+            RecordRelationLink.source_field_id == author_field.id,
+            RecordRelationLink.target_record_id == user_record.id,
         )
         result = await admin_entities_service.session.exec(stmt)
         link = result.first()
         assert link is not None
-        assert link.source_entity_metadata_id == post_entity.id
-        assert link.target_entity_metadata_id == user_entity.id
+        assert link.source_entity_id == post_entity.id
+        assert link.target_entity_id == user_entity.id
 
     async def test_create_record_with_has_many_relation(
         self, admin_entities_service: CustomEntitiesService
     ) -> None:
         """Test creating a record with a has_many relation."""
         # Create two entity types
-        category_entity = await admin_entities_service.create_entity_type(
+        category_entity = await admin_entities_service.create_entity(
             name="category", display_name="Category"
         )
-        product_entity = await admin_entities_service.create_entity_type(
+        product_entity = await admin_entities_service.create_entity(
             name="product", display_name="Product"
         )
 
@@ -909,11 +909,11 @@ class TestRelationFieldCreation:
         # Verify EntityRelationLinks were created
         from sqlmodel import select
 
-        from tracecat.db.schemas import EntityRelationLink
+        from tracecat.db.schemas import RecordRelationLink
 
-        stmt = select(EntityRelationLink).where(
-            EntityRelationLink.source_record_id == category_record.id,
-            EntityRelationLink.source_field_id == products_field.id,
+        stmt = select(RecordRelationLink).where(
+            RecordRelationLink.source_record_id == category_record.id,
+            RecordRelationLink.source_field_id == products_field.id,
         )
         result = await admin_entities_service.session.exec(stmt)
         links = list(result.all())
@@ -929,10 +929,10 @@ class TestRelationFieldCreation:
     ) -> None:
         """Test that invalid UUIDs in relation fields are rejected."""
         # Create entity types
-        entity1 = await admin_entities_service.create_entity_type(
+        entity1 = await admin_entities_service.create_entity(
             name="entity1", display_name="Entity 1"
         )
-        entity2 = await admin_entities_service.create_entity_type(
+        entity2 = await admin_entities_service.create_entity(
             name="entity2", display_name="Entity 2"
         )
 
@@ -990,10 +990,10 @@ class TestRelationFieldCreation:
     ) -> None:
         """Test that relation fields don't get default values applied."""
         # Create entity types
-        entity1 = await admin_entities_service.create_entity_type(
+        entity1 = await admin_entities_service.create_entity(
             name="entity_with_relations", display_name="Entity With Relations"
         )
-        entity2 = await admin_entities_service.create_entity_type(
+        entity2 = await admin_entities_service.create_entity(
             name="target_entity", display_name="Target Entity"
         )
 
@@ -1036,10 +1036,10 @@ class TestRelationFieldCreation:
     ) -> None:
         """Test creating a record with both regular and relation fields."""
         # Create entity types
-        company_entity = await admin_entities_service.create_entity_type(
+        company_entity = await admin_entities_service.create_entity(
             name="company", display_name="Company"
         )
-        employee_entity = await admin_entities_service.create_entity_type(
+        employee_entity = await admin_entities_service.create_entity(
             name="employee", display_name="Employee"
         )
 
@@ -1117,12 +1117,12 @@ class TestRelationFieldCreation:
         # Verify relation links
         from sqlmodel import select
 
-        from tracecat.db.schemas import EntityRelationLink
+        from tracecat.db.schemas import RecordRelationLink
 
         # Check CEO link
-        stmt = select(EntityRelationLink).where(
-            EntityRelationLink.source_record_id == company_record.id,
-            EntityRelationLink.source_field_id == ceo_field.id,
+        stmt = select(RecordRelationLink).where(
+            RecordRelationLink.source_record_id == company_record.id,
+            RecordRelationLink.source_field_id == ceo_field.id,
         )
         result = await admin_entities_service.session.exec(stmt)
         ceo_link = result.first()
@@ -1130,9 +1130,9 @@ class TestRelationFieldCreation:
         assert ceo_link.target_record_id == emp1.id
 
         # Check employee links
-        stmt = select(EntityRelationLink).where(
-            EntityRelationLink.source_record_id == company_record.id,
-            EntityRelationLink.source_field_id == employees_field.id,
+        stmt = select(RecordRelationLink).where(
+            RecordRelationLink.source_record_id == company_record.id,
+            RecordRelationLink.source_field_id == employees_field.id,
         )
         result = await admin_entities_service.session.exec(stmt)
         emp_links = list(result.all())
@@ -1147,7 +1147,7 @@ class TestFieldTypeRecordCreation:
         self, admin_entities_service: CustomEntitiesService
     ) -> None:
         """Test INTEGER field type validation and storage."""
-        entity = await admin_entities_service.create_entity_type(
+        entity = await admin_entities_service.create_entity(
             name="integer_test", display_name="Integer Test"
         )
 
@@ -1205,7 +1205,7 @@ class TestFieldTypeRecordCreation:
         self, admin_entities_service: CustomEntitiesService
     ) -> None:
         """Test NUMBER field type validation and storage."""
-        entity = await admin_entities_service.create_entity_type(
+        entity = await admin_entities_service.create_entity(
             name="number_test", display_name="Number Test"
         )
 
@@ -1262,7 +1262,7 @@ class TestFieldTypeRecordCreation:
         self, admin_entities_service: CustomEntitiesService
     ) -> None:
         """Test TEXT field type validation and storage."""
-        entity = await admin_entities_service.create_entity_type(
+        entity = await admin_entities_service.create_entity(
             name="text_test", display_name="Text Test"
         )
 
@@ -1322,7 +1322,7 @@ class TestFieldTypeRecordCreation:
         self, admin_entities_service: CustomEntitiesService
     ) -> None:
         """Test BOOL field type validation and storage."""
-        entity = await admin_entities_service.create_entity_type(
+        entity = await admin_entities_service.create_entity(
             name="bool_test", display_name="Bool Test"
         )
 
@@ -1368,7 +1368,7 @@ class TestFieldTypeRecordCreation:
         self, admin_entities_service: CustomEntitiesService
     ) -> None:
         """Test DATE field type validation and storage."""
-        entity = await admin_entities_service.create_entity_type(
+        entity = await admin_entities_service.create_entity(
             name="date_test", display_name="Date Test"
         )
 
@@ -1421,7 +1421,7 @@ class TestFieldTypeRecordCreation:
         self, admin_entities_service: CustomEntitiesService
     ) -> None:
         """Test DATETIME field type validation and storage."""
-        entity = await admin_entities_service.create_entity_type(
+        entity = await admin_entities_service.create_entity(
             name="datetime_test", display_name="DateTime Test"
         )
 
@@ -1482,7 +1482,7 @@ class TestFieldTypeRecordCreation:
         self, admin_entities_service: CustomEntitiesService
     ) -> None:
         """Test ARRAY_TEXT field type validation and storage."""
-        entity = await admin_entities_service.create_entity_type(
+        entity = await admin_entities_service.create_entity(
             name="array_text_test", display_name="Array Text Test"
         )
 
@@ -1541,7 +1541,7 @@ class TestFieldTypeRecordCreation:
         self, admin_entities_service: CustomEntitiesService
     ) -> None:
         """Test ARRAY_INTEGER field type validation and storage."""
-        entity = await admin_entities_service.create_entity_type(
+        entity = await admin_entities_service.create_entity(
             name="array_int_test", display_name="Array Integer Test"
         )
 
@@ -1600,7 +1600,7 @@ class TestFieldTypeRecordCreation:
         self, admin_entities_service: CustomEntitiesService
     ) -> None:
         """Test ARRAY_NUMBER field type validation and storage."""
-        entity = await admin_entities_service.create_entity_type(
+        entity = await admin_entities_service.create_entity(
             name="array_num_test", display_name="Array Number Test"
         )
 
@@ -1658,7 +1658,7 @@ class TestFieldTypeRecordCreation:
         self, admin_entities_service: CustomEntitiesService
     ) -> None:
         """Test SELECT field type validation and storage."""
-        entity = await admin_entities_service.create_entity_type(
+        entity = await admin_entities_service.create_entity(
             name="select_test", display_name="Select Test"
         )
 
@@ -1706,7 +1706,7 @@ class TestFieldTypeRecordCreation:
         self, admin_entities_service: CustomEntitiesService
     ) -> None:
         """Test MULTI_SELECT field type validation and storage."""
-        entity = await admin_entities_service.create_entity_type(
+        entity = await admin_entities_service.create_entity(
             name="multi_select_test", display_name="Multi Select Test"
         )
 
@@ -1767,7 +1767,7 @@ class TestFieldTypeEdgeCases:
     ) -> None:
         """Test creating multiple records with ALL field types to ensure consistency."""
         # Create entity with all field types
-        entity = await admin_entities_service.create_entity_type(
+        entity = await admin_entities_service.create_entity(
             name="comprehensive_test", display_name="Comprehensive Test"
         )
 
@@ -1889,7 +1889,7 @@ class TestFieldTypeEdgeCases:
         self, admin_entities_service: CustomEntitiesService
     ) -> None:
         """Test that all field types properly handle None/null values."""
-        entity = await admin_entities_service.create_entity_type(
+        entity = await admin_entities_service.create_entity(
             name="null_test", display_name="Null Value Test"
         )
 
@@ -1952,7 +1952,7 @@ class TestFieldTypeEdgeCases:
         self, admin_entities_service: CustomEntitiesService
     ) -> None:
         """Test that empty collections are handled properly."""
-        entity = await admin_entities_service.create_entity_type(
+        entity = await admin_entities_service.create_entity(
             name="empty_test", display_name="Empty Collections Test"
         )
 
@@ -2011,7 +2011,7 @@ class TestFieldTypeEdgeCases:
         self, admin_entities_service: CustomEntitiesService
     ) -> None:
         """Test that type validation is strict and doesn't do unwanted coercion."""
-        entity = await admin_entities_service.create_entity_type(
+        entity = await admin_entities_service.create_entity(
             name="strict_test", display_name="Strict Type Test"
         )
 
@@ -2059,7 +2059,7 @@ class TestFieldTypeEdgeCases:
         self, admin_entities_service: CustomEntitiesService
     ) -> None:
         """Test field types with extreme but valid values."""
-        entity = await admin_entities_service.create_entity_type(
+        entity = await admin_entities_service.create_entity(
             name="extreme_test", display_name="Extreme Values Test"
         )
 
@@ -2111,7 +2111,7 @@ class TestFieldTypeEdgeCases:
         self, admin_entities_service: CustomEntitiesService
     ) -> None:
         """Test that nested objects are rejected for all field types."""
-        entity = await admin_entities_service.create_entity_type(
+        entity = await admin_entities_service.create_entity(
             name="nested_reject_test", display_name="Nested Rejection Test"
         )
 
@@ -2162,7 +2162,7 @@ class TestConstraintValidationMethods:
     ):
         """Test that update_record calls validation."""
         # Create entity and record
-        entity = await admin_entities_service.create_entity_type(
+        entity = await admin_entities_service.create_entity(
             name="test_entity", display_name="Test Entity"
         )
 
@@ -2195,7 +2195,7 @@ class TestConstraintValidationMethods:
     ):
         """Test that create_record calls validation."""
         # Create entity
-        entity = await admin_entities_service.create_entity_type(
+        entity = await admin_entities_service.create_entity(
             name="test_entity", display_name="Test Entity"
         )
 
@@ -2231,7 +2231,7 @@ class TestEntitiesIntegration:
     ) -> None:
         """Test complete lifecycle: create entity -> add fields -> create records -> query."""
         # Step 1: Create entity type
-        entity = await admin_entities_service.create_entity_type(
+        entity = await admin_entities_service.create_entity(
             **integration_entity_create_params
         )
         assert entity.name == integration_entity_create_params["name"]
@@ -2275,7 +2275,7 @@ class TestEntitiesIntegration:
                 "status": "active",
             },
         )
-        assert record1.entity_metadata_id == entity.id
+        assert record1.entity_id == entity.id
         assert record1.field_data["name"] == "John Doe"
         assert record1.field_data["age"] == 30
         assert record1.field_data["status"] == "active"
@@ -2317,7 +2317,7 @@ class TestEntitiesIntegration:
     ) -> None:
         """Test creating entity with all supported field types."""
         # Create entity
-        entity = await admin_entities_service.create_entity_type(
+        entity = await admin_entities_service.create_entity(
             name="test_all_types",
             display_name="Test All Field Types",
             description="Entity with all field types",
@@ -2396,7 +2396,7 @@ class TestEntitiesIntegration:
     ) -> None:
         """Test that field key and type are immutable after creation."""
         # Create entity and field
-        entity = await admin_entities_service.create_entity_type(
+        entity = await admin_entities_service.create_entity(
             name="immutable_test",
             display_name="Immutability Test",
         )
@@ -2440,7 +2440,7 @@ class TestEntitiesIntegration:
     ) -> None:
         """Test that soft-deleting fields preserves existing data."""
         # Create entity with fields
-        entity = await admin_entities_service.create_entity_type(
+        entity = await admin_entities_service.create_entity(
             name="soft_delete_test",
             display_name="Soft Delete Test",
         )
@@ -2474,7 +2474,7 @@ class TestEntitiesIntegration:
         assert deactivated.deactivated_at is not None
 
         # Verify field data is still in database
-        stmt = select(EntityData).where(EntityData.id == record.id)
+        stmt = select(Record).where(Record.id == record.id)
         result = await session.exec(stmt)
         db_record = result.one()
         assert "delete_field" in db_record.field_data
@@ -2515,7 +2515,7 @@ class TestEntitiesIntegration:
     ) -> None:
         """Test that inactive fields are excluded from validation."""
         # Create entity with active and inactive fields
-        entity = await admin_entities_service.create_entity_type(
+        entity = await admin_entities_service.create_entity(
             name="validation_test",
             display_name="Validation Test",
         )
@@ -2559,7 +2559,7 @@ class TestEntitiesIntegration:
         self, admin_entities_service: CustomEntitiesService
     ) -> None:
         """Test that nested structures are rejected."""
-        entity = await admin_entities_service.create_entity_type(
+        entity = await admin_entities_service.create_entity(
             name="flat_test",
             display_name="Flat Structure Test",
         )
@@ -2600,7 +2600,7 @@ class TestEntitiesIntegration:
         self, admin_entities_service: CustomEntitiesService
     ) -> None:
         """Test validation for all field types."""
-        entity = await admin_entities_service.create_entity_type(
+        entity = await admin_entities_service.create_entity(
             name="validation_all_types",
             display_name="Validation All Types",
         )
@@ -2709,7 +2709,7 @@ class TestEntitiesIntegration:
         self, admin_entities_service: CustomEntitiesService
     ) -> None:
         """Test that all fields are nullable in v1."""
-        entity = await admin_entities_service.create_entity_type(
+        entity = await admin_entities_service.create_entity(
             name="nullable_test",
             display_name="Nullable Test",
         )
@@ -2759,7 +2759,7 @@ class TestEntitiesIntegration:
         self, admin_entities_service: CustomEntitiesService
     ) -> None:
         """Test that field settings have been simplified - no min/max validation in v1."""
-        entity = await admin_entities_service.create_entity_type(
+        entity = await admin_entities_service.create_entity(
             name="settings_test",
             display_name="Settings Test",
         )
@@ -2796,7 +2796,7 @@ class TestEntitiesIntegration:
     ) -> None:
         """Test that deleting entity cascades to fields and records."""
         # Create entity with fields and records
-        entity = await admin_entities_service.create_entity_type(
+        entity = await admin_entities_service.create_entity(
             name="cascade_test",
             display_name="Cascade Test",
         )
@@ -2821,7 +2821,7 @@ class TestEntitiesIntegration:
         await session.commit()
 
         # Verify entity is deleted
-        stmt = select(EntityMetadata).where(EntityMetadata.id == entity_id)
+        stmt = select(Entity).where(Entity.id == entity_id)
         result = await session.exec(stmt)
         assert result.first() is None
 
@@ -2831,7 +2831,7 @@ class TestEntitiesIntegration:
         assert result.first() is None
 
         # Verify records were cascade deleted
-        stmt = select(EntityData).where(EntityData.id == record_id)
+        stmt = select(Record).where(Record.id == record_id)
         result = await session.exec(stmt)
         assert result.first() is None
 
@@ -2843,7 +2843,7 @@ class TestEntitiesIntegration:
         service1 = CustomEntitiesService(session=session, role=svc_admin_role)
 
         # Create entity in workspace 1
-        entity1 = await service1.create_entity_type(
+        entity1 = await service1.create_entity(
             name="workspace1_entity",
             display_name="Workspace 1 Entity",
         )
@@ -2861,10 +2861,10 @@ class TestEntitiesIntegration:
 
         # Try to access entity1 from workspace2 - should not find it
         with pytest.raises(TracecatNotFoundError):
-            await service2.get_entity_type(entity1.id)
+            await service2.get_entity(entity1.id)
 
         # Create entity with same name in workspace2 - should succeed
-        entity2 = await service2.create_entity_type(
+        entity2 = await service2.create_entity(
             name="workspace1_entity",  # Same name as workspace1
             display_name="Workspace 2 Entity",
         )
@@ -2872,8 +2872,8 @@ class TestEntitiesIntegration:
         assert entity2.owner_id != entity1.owner_id
 
         # Each workspace can only see its own entities
-        ws1_entities = await service1.list_entity_types()
-        ws2_entities = await service2.list_entity_types()
+        ws1_entities = await service1.list_entities()
+        ws2_entities = await service2.list_entities()
 
         ws1_ids = {e.id for e in ws1_entities}
         ws2_ids = {e.id for e in ws2_entities}
@@ -2888,14 +2888,14 @@ class TestEntitiesIntegration:
     ) -> None:
         """Test unique constraints for entity names and field keys."""
         # Create entity
-        entity = await admin_entities_service.create_entity_type(
+        entity = await admin_entities_service.create_entity(
             name="unique_test",
             display_name="Unique Test",
         )
 
         # Try to create another entity with same name - should fail
         with pytest.raises(ValueError, match="already exists"):
-            await admin_entities_service.create_entity_type(
+            await admin_entities_service.create_entity(
                 name="unique_test",  # Duplicate name
                 display_name="Another Unique Test",
             )

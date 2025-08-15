@@ -4,7 +4,7 @@ import pytest
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from tracecat.db.schemas import EntityData, EntityMetadata, FieldMetadata
+from tracecat.db.schemas import Entity, FieldMetadata, Record
 from tracecat.entities.query import EntityQueryBuilder
 from tracecat.entities.service import CustomEntitiesService
 from tracecat.entities.types import FieldType
@@ -22,12 +22,12 @@ async def query_builder(session: AsyncSession) -> EntityQueryBuilder:
 @pytest.fixture
 async def test_entity_with_fields(
     session: AsyncSession, svc_admin_role: Role
-) -> tuple[EntityMetadata, list[FieldMetadata]]:
+) -> tuple[Entity, list[FieldMetadata]]:
     """Create test entity with various field types."""
     service = CustomEntitiesService(session=session, role=svc_admin_role)
 
     # Create entity
-    entity = await service.create_entity_type(
+    entity = await service.create_entity(
         name="query_test",
         display_name="Query Test Entity",
     )
@@ -170,7 +170,7 @@ class TestEntityQueryBuilder:
         service = CustomEntitiesService(session=session, role=svc_admin_role)
 
         # Create entity and field
-        entity = await service.create_entity_type(
+        entity = await service.create_entity(
             name="inactive_test",
             display_name="Inactive Test",
         )
@@ -194,7 +194,7 @@ class TestEntityQueryBuilder:
     async def test_eq_operator(
         self,
         query_builder: EntityQueryBuilder,
-        test_entity_with_fields: tuple[EntityMetadata, list[FieldMetadata]],
+        test_entity_with_fields: tuple[Entity, list[FieldMetadata]],
         session: AsyncSession,
     ) -> None:
         """Test equality operator."""
@@ -202,9 +202,9 @@ class TestEntityQueryBuilder:
 
         # Test text equality
         expr = await query_builder.eq(entity.id, "name", "John Doe")
-        stmt = select(EntityData).where(
-            EntityData.entity_metadata_id == entity.id,
-            EntityData.owner_id == entity.owner_id,
+        stmt = select(Record).where(
+            Record.entity_id == entity.id,
+            Record.owner_id == entity.owner_id,
             expr,
         )
         result = await session.exec(stmt)
@@ -214,9 +214,9 @@ class TestEntityQueryBuilder:
 
         # Test integer equality
         expr = await query_builder.eq(entity.id, "age", 25)
-        stmt = select(EntityData).where(
-            EntityData.entity_metadata_id == entity.id,
-            EntityData.owner_id == entity.owner_id,
+        stmt = select(Record).where(
+            Record.entity_id == entity.id,
+            Record.owner_id == entity.owner_id,
             expr,
         )
         result = await session.exec(stmt)
@@ -226,9 +226,9 @@ class TestEntityQueryBuilder:
 
         # Test boolean equality
         expr = await query_builder.eq(entity.id, "active", True)
-        stmt = select(EntityData).where(
-            EntityData.entity_metadata_id == entity.id,
-            EntityData.owner_id == entity.owner_id,
+        stmt = select(Record).where(
+            Record.entity_id == entity.id,
+            Record.owner_id == entity.owner_id,
             expr,
         )
         result = await session.exec(stmt)
@@ -238,7 +238,7 @@ class TestEntityQueryBuilder:
     async def test_eq_type_validation(
         self,
         query_builder: EntityQueryBuilder,
-        test_entity_with_fields: tuple[EntityMetadata, list[FieldMetadata]],
+        test_entity_with_fields: tuple[Entity, list[FieldMetadata]],
     ) -> None:
         """Test type validation for equality operator."""
         entity, fields = test_entity_with_fields
@@ -258,7 +258,7 @@ class TestEntityQueryBuilder:
     async def test_in_operator(
         self,
         query_builder: EntityQueryBuilder,
-        test_entity_with_fields: tuple[EntityMetadata, list[FieldMetadata]],
+        test_entity_with_fields: tuple[Entity, list[FieldMetadata]],
         session: AsyncSession,
     ) -> None:
         """Test IN operator."""
@@ -266,9 +266,9 @@ class TestEntityQueryBuilder:
 
         # Test IN with multiple values
         expr = await query_builder.in_(entity.id, "status", ["approved", "pending"])
-        stmt = select(EntityData).where(
-            EntityData.entity_metadata_id == entity.id,
-            EntityData.owner_id == entity.owner_id,
+        stmt = select(Record).where(
+            Record.entity_id == entity.id,
+            Record.owner_id == entity.owner_id,
             expr,
         )
         result = await session.exec(stmt)
@@ -281,7 +281,7 @@ class TestEntityQueryBuilder:
     async def test_ilike_operator(
         self,
         query_builder: EntityQueryBuilder,
-        test_entity_with_fields: tuple[EntityMetadata, list[FieldMetadata]],
+        test_entity_with_fields: tuple[Entity, list[FieldMetadata]],
         session: AsyncSession,
     ) -> None:
         """Test case-insensitive pattern matching."""
@@ -289,9 +289,9 @@ class TestEntityQueryBuilder:
 
         # Test pattern with wildcard
         expr = await query_builder.ilike(entity.id, "name", "%doe%")
-        stmt = select(EntityData).where(
-            EntityData.entity_metadata_id == entity.id,
-            EntityData.owner_id == entity.owner_id,
+        stmt = select(Record).where(
+            Record.entity_id == entity.id,
+            Record.owner_id == entity.owner_id,
             expr,
         )
         result = await session.exec(stmt)
@@ -301,9 +301,9 @@ class TestEntityQueryBuilder:
 
         # Test case-insensitive matching
         expr = await query_builder.ilike(entity.id, "name", "%SMITH%")
-        stmt = select(EntityData).where(
-            EntityData.entity_metadata_id == entity.id,
-            EntityData.owner_id == entity.owner_id,
+        stmt = select(Record).where(
+            Record.entity_id == entity.id,
+            Record.owner_id == entity.owner_id,
             expr,
         )
         result = await session.exec(stmt)
@@ -314,7 +314,7 @@ class TestEntityQueryBuilder:
     async def test_ilike_non_text_field(
         self,
         query_builder: EntityQueryBuilder,
-        test_entity_with_fields: tuple[EntityMetadata, list[FieldMetadata]],
+        test_entity_with_fields: tuple[Entity, list[FieldMetadata]],
     ) -> None:
         """Test that ilike rejects non-text fields."""
         entity, fields = test_entity_with_fields
@@ -325,7 +325,7 @@ class TestEntityQueryBuilder:
     async def test_array_contains_operator(
         self,
         query_builder: EntityQueryBuilder,
-        test_entity_with_fields: tuple[EntityMetadata, list[FieldMetadata]],
+        test_entity_with_fields: tuple[Entity, list[FieldMetadata]],
         session: AsyncSession,
     ) -> None:
         """Test array containment operator."""
@@ -333,9 +333,9 @@ class TestEntityQueryBuilder:
 
         # Test array contains
         expr = await query_builder.array_contains(entity.id, "tags", ["tag1"])
-        stmt = select(EntityData).where(
-            EntityData.entity_metadata_id == entity.id,
-            EntityData.owner_id == entity.owner_id,
+        stmt = select(Record).where(
+            Record.entity_id == entity.id,
+            Record.owner_id == entity.owner_id,
             expr,
         )
         result = await session.exec(stmt)
@@ -344,9 +344,9 @@ class TestEntityQueryBuilder:
 
         # Test multi-select contains
         expr = await query_builder.array_contains(entity.id, "categories", ["cat2"])
-        stmt = select(EntityData).where(
-            EntityData.entity_metadata_id == entity.id,
-            EntityData.owner_id == entity.owner_id,
+        stmt = select(Record).where(
+            Record.entity_id == entity.id,
+            Record.owner_id == entity.owner_id,
             expr,
         )
         result = await session.exec(stmt)
@@ -356,7 +356,7 @@ class TestEntityQueryBuilder:
     async def test_array_contains_non_array_field(
         self,
         query_builder: EntityQueryBuilder,
-        test_entity_with_fields: tuple[EntityMetadata, list[FieldMetadata]],
+        test_entity_with_fields: tuple[Entity, list[FieldMetadata]],
     ) -> None:
         """Test that array_contains rejects non-array fields."""
         entity, fields = test_entity_with_fields
@@ -367,7 +367,7 @@ class TestEntityQueryBuilder:
     async def test_between_operator(
         self,
         query_builder: EntityQueryBuilder,
-        test_entity_with_fields: tuple[EntityMetadata, list[FieldMetadata]],
+        test_entity_with_fields: tuple[Entity, list[FieldMetadata]],
         session: AsyncSession,
     ) -> None:
         """Test range operator."""
@@ -375,9 +375,9 @@ class TestEntityQueryBuilder:
 
         # Test integer range
         expr = await query_builder.between(entity.id, "age", 25, 30)
-        stmt = select(EntityData).where(
-            EntityData.entity_metadata_id == entity.id,
-            EntityData.owner_id == entity.owner_id,
+        stmt = select(Record).where(
+            Record.entity_id == entity.id,
+            Record.owner_id == entity.owner_id,
             expr,
         )
         result = await session.exec(stmt)
@@ -386,9 +386,9 @@ class TestEntityQueryBuilder:
 
         # Test number range
         expr = await query_builder.between(entity.id, "score", 80.0, 90.0)
-        stmt = select(EntityData).where(
-            EntityData.entity_metadata_id == entity.id,
-            EntityData.owner_id == entity.owner_id,
+        stmt = select(Record).where(
+            Record.entity_id == entity.id,
+            Record.owner_id == entity.owner_id,
             expr,
         )
         result = await session.exec(stmt)
@@ -399,9 +399,9 @@ class TestEntityQueryBuilder:
         expr = await query_builder.between(
             entity.id, "birth_date", "1990-01-01", "1995-12-31"
         )
-        stmt = select(EntityData).where(
-            EntityData.entity_metadata_id == entity.id,
-            EntityData.owner_id == entity.owner_id,
+        stmt = select(Record).where(
+            Record.entity_id == entity.id,
+            Record.owner_id == entity.owner_id,
             expr,
         )
         result = await session.exec(stmt)
@@ -411,7 +411,7 @@ class TestEntityQueryBuilder:
     async def test_between_non_numeric_field(
         self,
         query_builder: EntityQueryBuilder,
-        test_entity_with_fields: tuple[EntityMetadata, list[FieldMetadata]],
+        test_entity_with_fields: tuple[Entity, list[FieldMetadata]],
     ) -> None:
         """Test that between rejects non-numeric/date fields."""
         entity, fields = test_entity_with_fields
@@ -431,7 +431,7 @@ class TestEntityQueryBuilder:
         service = CustomEntitiesService(session=session, role=svc_admin_role)
 
         # Create entity with fields
-        entity = await service.create_entity_type(
+        entity = await service.create_entity(
             name="null_test",
             display_name="Null Test",
         )
@@ -461,9 +461,9 @@ class TestEntityQueryBuilder:
 
         # Test is_null
         expr = await query_builder.is_null(entity.id, "optional_field")
-        stmt = select(EntityData).where(
-            EntityData.entity_metadata_id == entity.id,
-            EntityData.owner_id == entity.owner_id,
+        stmt = select(Record).where(
+            Record.entity_id == entity.id,
+            Record.owner_id == entity.owner_id,
             expr,
         )
         result = await session.exec(stmt)
@@ -472,9 +472,9 @@ class TestEntityQueryBuilder:
 
         # Test is_not_null
         expr = await query_builder.is_not_null(entity.id, "optional_field")
-        stmt = select(EntityData).where(
-            EntityData.entity_metadata_id == entity.id,
-            EntityData.owner_id == entity.owner_id,
+        stmt = select(Record).where(
+            Record.entity_id == entity.id,
+            Record.owner_id == entity.owner_id,
             expr,
         )
         result = await session.exec(stmt)
@@ -485,7 +485,7 @@ class TestEntityQueryBuilder:
     async def test_build_query_complex(
         self,
         query_builder: EntityQueryBuilder,
-        test_entity_with_fields: tuple[EntityMetadata, list[FieldMetadata]],
+        test_entity_with_fields: tuple[Entity, list[FieldMetadata]],
         session: AsyncSession,
     ) -> None:
         """Test building complex queries with multiple filters."""
@@ -498,9 +498,9 @@ class TestEntityQueryBuilder:
             {"field": "status", "operator": "in", "value": ["approved", "pending"]},
         ]
 
-        base_stmt = select(EntityData).where(
-            EntityData.entity_metadata_id == entity.id,
-            EntityData.owner_id == entity.owner_id,
+        base_stmt = select(Record).where(
+            Record.entity_id == entity.id,
+            Record.owner_id == entity.owner_id,
         )
 
         stmt = await query_builder.build_query(base_stmt, entity.id, filters)
@@ -514,14 +514,14 @@ class TestEntityQueryBuilder:
     async def test_build_query_invalid_operator(
         self,
         query_builder: EntityQueryBuilder,
-        test_entity_with_fields: tuple[EntityMetadata, list[FieldMetadata]],
+        test_entity_with_fields: tuple[Entity, list[FieldMetadata]],
     ) -> None:
         """Test that invalid operators are rejected."""
         entity, fields = test_entity_with_fields
 
         filters = [{"field": "age", "operator": "invalid_op", "value": 25}]
 
-        base_stmt = select(EntityData)
+        base_stmt = select(Record)
 
         with pytest.raises(ValueError, match="Unsupported operator: invalid_op"):
             await query_builder.build_query(base_stmt, entity.id, filters)
@@ -529,7 +529,7 @@ class TestEntityQueryBuilder:
     async def test_field_cache(
         self,
         query_builder: EntityQueryBuilder,
-        test_entity_with_fields: tuple[EntityMetadata, list[FieldMetadata]],
+        test_entity_with_fields: tuple[Entity, list[FieldMetadata]],
         session: AsyncSession,
     ) -> None:
         """Test that field metadata is cached."""

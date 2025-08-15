@@ -468,10 +468,10 @@ class EntityQueryBuilder:
 
         # Apply target filters if provided
         if target_filters:
-            if field.relation_target_entity_id is None:
+            if field.target_entity_id is None:
                 raise ValueError(f"Relation field {field_id} missing target entity id")
             # Convert potential UUID4 to UUID for type-narrowing
-            target_entity_uuid: UUID = UUID(str(field.relation_target_entity_id))
+            target_entity_uuid: UUID = UUID(str(field.target_entity_id))
             base_stmt = await self.build_query(
                 base_stmt, target_entity_uuid, target_filters
             )

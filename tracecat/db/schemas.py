@@ -1624,18 +1624,18 @@ class CaseRecordLink(Resource, table=True):
     case_id: UUID4 = Field(
         sa_column=Column(UUID, ForeignKey("cases.id", ondelete="CASCADE"))
     )
-    entity_metadata_id: UUID4 = Field(
-        sa_column=Column(UUID, ForeignKey("entity_metadata.id", ondelete="CASCADE"))
+    entity_id: UUID4 = Field(
+        sa_column=Column(UUID, ForeignKey("entity.id", ondelete="CASCADE"))
     )
-    entity_data_id: UUID4 = Field(
-        sa_column=Column(UUID, ForeignKey("entity_data.id", ondelete="CASCADE"))
+    record_id: UUID4 = Field(
+        sa_column=Column(UUID, ForeignKey("record.id", ondelete="CASCADE"))
     )
 
     # Relationships
     case: "Case" = Relationship(
-        back_populates="entity_links",
+        back_populates="record_links",
         sa_relationship_kwargs={
-            "foreign_keys": "[CaseEntityLink.case_id]",
+            "foreign_keys": "[CaseRecordLink.case_id]",
             **DEFAULT_SA_RELATIONSHIP_KWARGS,
         },
     )

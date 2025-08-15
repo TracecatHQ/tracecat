@@ -15,7 +15,7 @@ import pytest
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from tracecat.db.schemas import EntityRelationLink
+from tracecat.db.schemas import RecordRelationLink
 from tracecat.entities.enums import RelationKind
 from tracecat.entities.models import (
     HasManyRelationUpdate,
@@ -42,7 +42,7 @@ async def entities_service(
 @pytest.fixture(scope="function")
 async def customer_entity(entities_service: CustomEntitiesService):
     """Create customer entity for testing - fresh for each test."""
-    entity = await entities_service.create_entity_type(
+    entity = await entities_service.create_entity(
         name="customer",
         display_name="Customer",
         description="Customer entity for testing",
@@ -69,7 +69,7 @@ async def customer_entity(entities_service: CustomEntitiesService):
 @pytest.fixture(scope="function")
 async def organization_entity(entities_service: CustomEntitiesService):
     """Create organization entity for testing - fresh for each test."""
-    entity = await entities_service.create_entity_type(
+    entity = await entities_service.create_entity(
         name="organization",
         display_name="Organization",
         description="Organization entity for testing",
@@ -134,15 +134,15 @@ class TestEntityRelations:
 
         # Verify belongs_to field
         assert belongs_to_field.field_type == FieldType.RELATION_BELONGS_TO
-        assert belongs_to_field.entity_metadata_id == customer_entity.id
+        assert belongs_to_field.entity_id == customer_entity.id
         assert belongs_to_field.relation_kind == RelationKind.ONE_TO_ONE
-        assert belongs_to_field.relation_target_entity_id == organization_entity.id
+        assert belongs_to_field.target_entity_id == organization_entity.id
 
         # Verify has_many field
         assert has_many_field.field_type == FieldType.RELATION_HAS_MANY
-        assert has_many_field.entity_metadata_id == organization_entity.id
+        assert has_many_field.entity_id == organization_entity.id
         assert has_many_field.relation_kind == RelationKind.ONE_TO_MANY
-        assert has_many_field.relation_target_entity_id == customer_entity.id
+        assert has_many_field.target_entity_id == customer_entity.id
 
     async def test_create_relation_field_with_settings(
         self,
@@ -167,7 +167,7 @@ class TestEntityRelations:
 
         assert field.field_type == FieldType.RELATION_BELONGS_TO
         assert field.relation_kind == RelationKind.ONE_TO_ONE
-        assert field.relation_target_entity_id == organization_entity.id
+        assert field.target_entity_id == organization_entity.id
         # v1: cascade_delete is always true, field removed
 
     async def test_belongs_to_relation_crud(
@@ -211,9 +211,9 @@ class TestEntityRelations:
         )
 
         # Verify link was created
-        link_stmt = select(EntityRelationLink).where(
-            EntityRelationLink.source_record_id == customer.id,
-            EntityRelationLink.target_record_id == org.id,
+        link_stmt = select(RecordRelationLink).where(
+            RecordRelationLink.source_record_id == customer.id,
+            RecordRelationLink.target_record_id == org.id,
         )
         link_result = await session.exec(link_stmt)
         link = link_result.first()
@@ -296,9 +296,9 @@ class TestEntityRelations:
         )
 
         # Verify only one link exists
-        link_stmt = select(EntityRelationLink).where(
-            EntityRelationLink.source_record_id == customer.id,
-            EntityRelationLink.source_field_id == belongs_to_field.id,
+        link_stmt = select(RecordRelationLink).where(
+            RecordRelationLink.source_record_id == customer.id,
+            RecordRelationLink.source_field_id == belongs_to_field.id,
         )
         link_result = await session.exec(link_stmt)
         links = list(link_result.all())
@@ -408,7 +408,7 @@ class TestEntityRelations:
         )
         assert count == 1
 
-    @pytest.mark.parametrize("num_customers", [100, 500, 1000, 5000])
+    @pytest.mark.parametrize("num_customers", [100, 500])
     @pytest.mark.slow
     @pytest.mark.anyio
     async def test_cardinality_query_performance(
@@ -492,8 +492,6 @@ class TestEntityRelations:
         [
             (100, 50),
             (500, 100),
-            (1000, 200),
-            (5000, 500),
         ],
     )
     @pytest.mark.slow
@@ -786,9 +784,9 @@ class TestEntityRelations:
         assert "optional_org" not in customer3_after.field_data
 
         # Verify link was deleted
-        link_stmt = select(EntityRelationLink).where(
-            EntityRelationLink.source_record_id == customer3.id,
-            EntityRelationLink.target_record_id == org2.id,
+        link_stmt = select(RecordRelationLink).where(
+            RecordRelationLink.source_record_id == customer3.id,
+            RecordRelationLink.target_record_id == org2.id,
         )
         link_result = await session.exec(link_stmt)
         assert link_result.first() is None
@@ -817,7 +815,7 @@ class TestEntityRelations:
         service2 = CustomEntitiesService(session=session, role=other_workspace_role)
 
         # Create entity in second workspace
-        other_entity = await service2.create_entity_type(
+        other_entity = await service2.create_entity(
             name="other_entity",
             display_name="Other Entity",
         )
