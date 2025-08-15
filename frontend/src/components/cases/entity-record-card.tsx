@@ -119,7 +119,7 @@ export function EntityRecordCard({
 
   return (
     <div className="group">
-      <div className="rounded-lg border border-border/50 py-3 px-4 hover:bg-accent/30 transition-colors">
+      <div className="rounded-lg border border-border py-3 px-4 hover:bg-accent/30 transition-colors">
         <div className="space-y-1">
           {/* Row 1: Entity name and actions */}
           <div className="flex items-center justify-between gap-2">

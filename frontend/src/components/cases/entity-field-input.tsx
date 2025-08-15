@@ -251,11 +251,10 @@ export function EntityFieldInput({
             <FormControl>
               <Input
                 {...formField}
-                value={formField.value as string}
+                value={(formField.value as string) || ""}
                 type="datetime-local"
                 disabled={disabled}
                 className="h-8 text-xs"
-                value={formField.value || ""}
               />
             </FormControl>
             <FormMessage className="text-xs" />
@@ -418,9 +417,10 @@ export function EntityFieldInput({
                 placeholder='{"key": "value"}'
                 className="min-h-[100px] text-xs font-mono"
                 value={
-                  typeof formField.value === "object"
+                  typeof formField.value === "object" &&
+                  formField.value !== null
                     ? JSON.stringify(formField.value, null, 2)
-                    : formField.value
+                    : (formField.value as string) || ""
                 }
                 onChange={(e) => {
                   try {
@@ -484,7 +484,7 @@ function ArrayFieldInput({
 }) {
   const { fields, append, remove } = useFieldArray({
     control,
-    name,
+    name: name as never,
   })
 
   const getInputType = () => {

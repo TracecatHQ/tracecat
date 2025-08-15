@@ -1,4 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+
+// Re-export hooks from separate files
+export * from "./hooks/use-case-entities"
+export * from "./hooks/use-entities"
+
 import Cookies from "js-cookie"
 import { AlertTriangleIcon, CircleCheck } from "lucide-react"
 import { useRouter } from "next/navigation"
