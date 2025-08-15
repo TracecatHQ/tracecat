@@ -503,7 +503,7 @@ async def update_record_relation(
         record = await service.get_record(record_id)
 
         # Find the field
-        fields = await service.list_fields(record.entity_metadata_id)
+        fields = await service.list_fields(record.entity_id)
         field = next((f for f in fields if f.field_key == field_key), None)
 
         if not field:
@@ -588,7 +588,7 @@ async def list_related_records(
         record = await service.get_record(record_id)
 
         # Find the field
-        fields = await service.list_fields(record.entity_metadata_id)
+        fields = await service.list_fields(record.entity_id)
         field = next((f for f in fields if f.field_key == field_key), None)
 
         if not field:

@@ -8,9 +8,9 @@ from pydantic_core import PydanticCustomError
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat.db.schemas import (
-    EntityData,
-    EntityMetadata,
+    Entity,
     FieldMetadata,
+    Record,
     Workspace,
 )
 from tracecat.entities.enums import RelationType
@@ -58,11 +58,9 @@ async def relation_validators(
 
 
 @pytest.fixture
-async def test_entity(
-    session: AsyncSession, svc_workspace: Workspace
-) -> EntityMetadata:
+async def test_entity(session: AsyncSession, svc_workspace: Workspace) -> Entity:
     """Create a test entity."""
-    entity = EntityMetadata(
+    entity = Entity(
         name="test_entity",
         display_name="Test Entity",
         description="Test entity for validation",
@@ -77,11 +75,11 @@ async def test_entity(
 
 @pytest.fixture
 async def test_field(
-    session: AsyncSession, test_entity: EntityMetadata, svc_workspace: Workspace
+    session: AsyncSession, test_entity: Entity, svc_workspace: Workspace
 ) -> FieldMetadata:
     """Create a test field."""
     field = FieldMetadata(
-        entity_metadata_id=test_entity.id,
+        entity_id=test_entity.id,
         field_key="test_field",
         field_type=FieldType.TEXT.value,
         display_name="Test Field",
@@ -96,12 +94,12 @@ async def test_field(
 @pytest.fixture
 async def test_record(
     session: AsyncSession,
-    test_entity: EntityMetadata,
+    test_entity: Entity,
     svc_workspace: Workspace,
-) -> EntityData:
+) -> Record:
     """Create a test record."""
-    record = EntityData(
-        entity_metadata_id=test_entity.id,
+    record = Record(
+        entity_id=test_entity.id,
         field_data={"test_field": "test_value"},
         owner_id=svc_workspace.id,
     )
@@ -116,7 +114,7 @@ class TestEntityValidators:
     """Test entity-level validations."""
 
     async def test_validate_entity_exists(
-        self, entity_validators: EntityValidators, test_entity: EntityMetadata
+        self, entity_validators: EntityValidators, test_entity: Entity
     ):
         """Test validating entity existence."""
         # Should find existing entity
@@ -138,7 +136,7 @@ class TestEntityValidators:
     async def test_validate_entity_name_unique(
         self,
         entity_validators: EntityValidators,
-        test_entity: EntityMetadata,
+        test_entity: Entity,
     ):
         """Test validating entity name uniqueness."""
         # Should pass for unique name
@@ -157,7 +155,7 @@ class TestEntityValidators:
     async def test_validate_entity_active(
         self,
         entity_validators: EntityValidators,
-        test_entity: EntityMetadata,
+        test_entity: Entity,
         session: AsyncSession,
     ):
         """Test validating entity active status."""
@@ -203,7 +201,7 @@ class TestFieldValidators:
     async def test_validate_field_key_unique(
         self,
         field_validators: FieldValidators,
-        test_entity: EntityMetadata,
+        test_entity: Entity,
         test_field: FieldMetadata,
     ):
         """Test validating field key uniqueness."""
@@ -325,8 +323,8 @@ class TestRecordValidators:
     async def test_validate_record_exists(
         self,
         record_validators: RecordValidators,
-        test_record: EntityData,
-        test_entity: EntityMetadata,
+        test_record: Record,
+        test_entity: Entity,
     ):
         """Test validating record existence."""
         # Should find existing record
@@ -352,7 +350,7 @@ class TestRecordValidators:
     async def test_validate_record_data_type_checking(
         self,
         record_validators: RecordValidators,
-        test_entity: EntityMetadata,
+        test_entity: Entity,
         test_field: FieldMetadata,
         session: AsyncSession,
         svc_workspace: Workspace,
@@ -360,7 +358,7 @@ class TestRecordValidators:
         """Test record data type validation."""
         # Create number field
         number_field = FieldMetadata(
-            entity_metadata_id=test_entity.id,
+            entity_id=test_entity.id,
             field_key="number_field",
             field_type=FieldType.NUMBER.value,
             display_name="Number Field",
@@ -453,7 +451,7 @@ class TestRelationValidators:
     async def test_validate_target_entity_exists(
         self,
         relation_validators: RelationValidators,
-        test_entity: EntityMetadata,
+        test_entity: Entity,
     ):
         """Test target entity validation."""
         # Should find existing entity
@@ -468,7 +466,7 @@ class TestRelationValidators:
     async def test_validate_target_entity_active(
         self,
         relation_validators: RelationValidators,
-        test_entity: EntityMetadata,
+        test_entity: Entity,
         session: AsyncSession,
     ):
         """Test that inactive target entities are rejected."""
@@ -485,8 +483,8 @@ class TestRelationValidators:
     async def test_validate_target_record_exists_and_matches_entity(
         self,
         relation_validators: RelationValidators,
-        test_record: EntityData,
-        test_entity: EntityMetadata,
+        test_record: Record,
+        test_entity: Entity,
     ):
         """Test target record validation."""
         # Should find existing record in correct entity
