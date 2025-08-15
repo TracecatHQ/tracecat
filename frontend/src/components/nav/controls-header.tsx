@@ -7,7 +7,7 @@ import Link from "next/link"
 import { usePathname, useSearchParams } from "next/navigation"
 import { type ReactNode, useState } from "react"
 import type { OAuthGrantType } from "@/client"
-import { entitiesCreateEntityType } from "@/client"
+import { entitiesCreateEntity } from "@/client"
 import { CreateCaseDialog } from "@/components/cases/case-create-dialog"
 import { CreateWorkflowButton } from "@/components/dashboard/create-workflow-button"
 import {
@@ -154,7 +154,7 @@ function EntitiesActions() {
     icon?: string
   }) => {
     try {
-      await entitiesCreateEntityType({
+      await entitiesCreateEntity({
         workspaceId,
         requestBody: {
           name: data.name,

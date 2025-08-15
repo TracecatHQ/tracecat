@@ -49,10 +49,10 @@ import type {
   AuthVerifyRequestTokenResponse,
   AuthVerifyVerifyData,
   AuthVerifyVerifyResponse,
+  CasesAddRecordToCaseData,
+  CasesAddRecordToCaseResponse,
   CasesAddTagData,
   CasesAddTagResponse,
-  CasesAssociateEntityWithCaseData,
-  CasesAssociateEntityWithCaseResponse,
   CasesCreateAttachmentData,
   CasesCreateAttachmentResponse,
   CasesCreateCaseData,
@@ -69,18 +69,20 @@ import type {
   CasesDeleteCommentResponse,
   CasesDeleteFieldData,
   CasesDeleteFieldResponse,
+  CasesDeleteRecordFromCaseData,
+  CasesDeleteRecordFromCaseResponse,
   CasesDownloadAttachmentData,
   CasesDownloadAttachmentResponse,
   CasesGetCaseData,
+  CasesGetCaseRecordData,
+  CasesGetCaseRecordResponse,
   CasesGetCaseResponse,
   CasesGetStorageUsageData,
   CasesGetStorageUsageResponse,
   CasesListAttachmentsData,
   CasesListAttachmentsResponse,
-  CasesListAvailableEntityTypesData,
-  CasesListAvailableEntityTypesResponse,
-  CasesListCaseEntitiesData,
-  CasesListCaseEntitiesResponse,
+  CasesListCaseRecordsData,
+  CasesListCaseRecordsResponse,
   CasesListCasesData,
   CasesListCasesResponse,
   CasesListCommentsData,
@@ -91,13 +93,15 @@ import type {
   CasesListFieldsResponse,
   CasesListTagsData,
   CasesListTagsResponse,
-  CasesRemoveEntityAssociationData,
-  CasesRemoveEntityAssociationResponse,
+  CasesRemoveRecordFromCaseData,
+  CasesRemoveRecordFromCaseResponse,
   CasesRemoveTagData,
   CasesRemoveTagResponse,
   CasesSearchCasesData,
   CasesSearchCasesResponse,
   CasesUpdateCaseData,
+  CasesUpdateCaseRecordData,
+  CasesUpdateCaseRecordResponse,
   CasesUpdateCaseResponse,
   CasesUpdateCommentData,
   CasesUpdateCommentResponse,
@@ -122,51 +126,47 @@ import type {
   EditorListFunctionsResponse,
   EditorValidateExpressionData,
   EditorValidateExpressionResponse,
-  EntitiesCreateEntityTypeData,
-  EntitiesCreateEntityTypeResponse,
+  EntitiesCreateEntityData,
+  EntitiesCreateEntityResponse,
   EntitiesCreateFieldData,
   EntitiesCreateFieldResponse,
   EntitiesCreateRecordData,
   EntitiesCreateRecordResponse,
   EntitiesCreateRelationFieldData,
   EntitiesCreateRelationFieldResponse,
-  EntitiesDeactivateEntityTypeData,
-  EntitiesDeactivateEntityTypeResponse,
+  EntitiesDeactivateEntityData,
+  EntitiesDeactivateEntityResponse,
   EntitiesDeactivateFieldData,
   EntitiesDeactivateFieldResponse,
-  EntitiesDeleteEntityTypeData,
-  EntitiesDeleteEntityTypeResponse,
+  EntitiesDeleteEntityData,
+  EntitiesDeleteEntityResponse,
   EntitiesDeleteFieldData,
   EntitiesDeleteFieldResponse,
   EntitiesDeleteRecordData,
   EntitiesDeleteRecordResponse,
+  EntitiesGetEntityData,
+  EntitiesGetEntityResponse,
   EntitiesGetEntitySchemaData,
   EntitiesGetEntitySchemaResponse,
-  EntitiesGetEntityTypeData,
-  EntitiesGetEntityTypeResponse,
   EntitiesGetFieldData,
   EntitiesGetFieldResponse,
   EntitiesGetRecordData,
   EntitiesGetRecordResponse,
-  EntitiesListEntityTypesData,
-  EntitiesListEntityTypesResponse,
+  EntitiesListEntitiesData,
+  EntitiesListEntitiesResponse,
   EntitiesListFieldsData,
   EntitiesListFieldsResponse,
-  EntitiesListRelatedRecordsData,
-  EntitiesListRelatedRecordsResponse,
   EntitiesQueryRecordsData,
   EntitiesQueryRecordsResponse,
-  EntitiesReactivateEntityTypeData,
-  EntitiesReactivateEntityTypeResponse,
+  EntitiesReactivateEntityData,
+  EntitiesReactivateEntityResponse,
   EntitiesReactivateFieldData,
   EntitiesReactivateFieldResponse,
-  EntitiesUpdateEntityTypeData,
-  EntitiesUpdateEntityTypeResponse,
+  EntitiesUpdateEntityData,
+  EntitiesUpdateEntityResponse,
   EntitiesUpdateFieldData,
   EntitiesUpdateFieldResponse,
   EntitiesUpdateRecordData,
-  EntitiesUpdateRecordRelationData,
-  EntitiesUpdateRecordRelationResponse,
   EntitiesUpdateRecordResponse,
   FoldersCreateFolderData,
   FoldersCreateFolderResponse,
@@ -439,7 +439,7 @@ export const publicIncomingWebhook = (
   data: PublicIncomingWebhookData
 ): CancelablePromise<PublicIncomingWebhookResponse> => {
   return __request(OpenAPI, {
-    method: "POST",
+    method: "GET",
     url: "/webhooks/{workflow_id}/{secret}",
     path: {
       secret: data.secret,
@@ -479,7 +479,7 @@ export const publicIncomingWebhook1 = (
   data: PublicIncomingWebhook1Data
 ): CancelablePromise<PublicIncomingWebhook1Response> => {
   return __request(OpenAPI, {
-    method: "GET",
+    method: "POST",
     url: "/webhooks/{workflow_id}/{secret}",
     path: {
       secret: data.secret,
@@ -4086,28 +4086,28 @@ export const casesRemoveTag = (
 }
 
 /**
- * List Case Entities
- * List all entity records associated with a case.
+ * List Case Records
+ * List all records associated with a case.
  *
- * Optionally filter by entity type using entity_metadata_id.
+ * Optionally filter by entity using entity_id.
  * @param data The data for the request.
  * @param data.caseId
  * @param data.workspaceId
- * @param data.entityMetadataId
- * @returns CaseEntityLinkRead Successful Response
+ * @param data.entityId
+ * @returns CaseRecordLinkRead Successful Response
  * @throws ApiError
  */
-export const casesListCaseEntities = (
-  data: CasesListCaseEntitiesData
-): CancelablePromise<CasesListCaseEntitiesResponse> => {
+export const casesListCaseRecords = (
+  data: CasesListCaseRecordsData
+): CancelablePromise<CasesListCaseRecordsResponse> => {
   return __request(OpenAPI, {
     method: "GET",
-    url: "/cases/{case_id}/entities",
+    url: "/cases/{case_id}/records",
     path: {
       case_id: data.caseId,
     },
     query: {
-      entity_metadata_id: data.entityMetadataId,
+      entity_id: data.entityId,
       workspace_id: data.workspaceId,
     },
     errors: {
@@ -4117,24 +4117,24 @@ export const casesListCaseEntities = (
 }
 
 /**
- * Associate Entity With Case
- * Associate an entity record with a case.
+ * Add Record To Case
+ * Associate an record with a case.
  *
- * Either provide entity_data_id to link an existing record,
- * or provide entity_data to create a new record and link it.
+ * Either provide record_id to link an existing record,
+ * or provide record to create a new record and link it.
  * @param data The data for the request.
  * @param data.caseId
  * @param data.workspaceId
  * @param data.requestBody
- * @returns CaseEntityLinkRead Successful Response
+ * @returns CaseRecordLinkRead Successful Response
  * @throws ApiError
  */
-export const casesAssociateEntityWithCase = (
-  data: CasesAssociateEntityWithCaseData
-): CancelablePromise<CasesAssociateEntityWithCaseResponse> => {
+export const casesAddRecordToCase = (
+  data: CasesAddRecordToCaseData
+): CancelablePromise<CasesAddRecordToCaseResponse> => {
   return __request(OpenAPI, {
     method: "POST",
-    url: "/cases/{case_id}/entities",
+    url: "/cases/{case_id}/records",
     path: {
       case_id: data.caseId,
     },
@@ -4150,19 +4150,32 @@ export const casesAssociateEntityWithCase = (
 }
 
 /**
- * List Available Entity Types
- * List all available entity types in the workspace.
+ * Get Case Record
+ * Get a specific record linked to a case.
+ *
+ * Args:
+ * case_id: The case ID
+ * record_id: The record ID
+ *
+ * Returns:
+ * Entity record data
  * @param data The data for the request.
+ * @param data.caseId
+ * @param data.recordId
  * @param data.workspaceId
- * @returns EntityTypeListRead Successful Response
+ * @returns tracecat__cases__entities__models__RecordRead Successful Response
  * @throws ApiError
  */
-export const casesListAvailableEntityTypes = (
-  data: CasesListAvailableEntityTypesData
-): CancelablePromise<CasesListAvailableEntityTypesResponse> => {
+export const casesGetCaseRecord = (
+  data: CasesGetCaseRecordData
+): CancelablePromise<CasesGetCaseRecordResponse> => {
   return __request(OpenAPI, {
     method: "GET",
-    url: "/cases/entity-types",
+    url: "/cases/{case_id}/records/{record_id}",
+    path: {
+      case_id: data.caseId,
+      record_id: data.recordId,
+    },
     query: {
       workspace_id: data.workspaceId,
     },
@@ -4173,10 +4186,83 @@ export const casesListAvailableEntityTypes = (
 }
 
 /**
- * Remove Entity Association
- * Remove an entity association from a case.
+ * Update Case Record
+ * Update an record linked to a case.
  *
- * This only removes the association; the entity record itself is preserved.
+ * Args:
+ * case_id: The case ID
+ * record_id: The record ID to update
+ * updates: Field updates
+ *
+ * Returns:
+ * Updated record
+ * @param data The data for the request.
+ * @param data.caseId
+ * @param data.recordId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns tracecat__cases__entities__models__RecordRead Successful Response
+ * @throws ApiError
+ */
+export const casesUpdateCaseRecord = (
+  data: CasesUpdateCaseRecordData
+): CancelablePromise<CasesUpdateCaseRecordResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/cases/{case_id}/records/{record_id}",
+    path: {
+      case_id: data.caseId,
+      record_id: data.recordId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Record From Case
+ * Delete an record linked to a case.
+ *
+ * Args:
+ * case_id: The case ID
+ * record_id: The record ID to delete
+ * @param data The data for the request.
+ * @param data.caseId
+ * @param data.recordId
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const casesDeleteRecordFromCase = (
+  data: CasesDeleteRecordFromCaseData
+): CancelablePromise<CasesDeleteRecordFromCaseResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/cases/{case_id}/records/{record_id}",
+    path: {
+      case_id: data.caseId,
+      record_id: data.recordId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Remove Record From Case
+ * Remove an record association from a case.
+ *
+ * This only removes the association; the record itself is preserved.
  * @param data The data for the request.
  * @param data.caseId
  * @param data.linkId
@@ -4184,12 +4270,12 @@ export const casesListAvailableEntityTypes = (
  * @returns void Successful Response
  * @throws ApiError
  */
-export const casesRemoveEntityAssociation = (
-  data: CasesRemoveEntityAssociationData
-): CancelablePromise<CasesRemoveEntityAssociationResponse> => {
+export const casesRemoveRecordFromCase = (
+  data: CasesRemoveRecordFromCaseData
+): CancelablePromise<CasesRemoveRecordFromCaseResponse> => {
   return __request(OpenAPI, {
     method: "DELETE",
-    url: "/cases/{case_id}/entities/{link_id}",
+    url: "/cases/{case_id}/record-links/{link_id}",
     path: {
       case_id: data.caseId,
       link_id: data.linkId,
@@ -4204,17 +4290,17 @@ export const casesRemoveEntityAssociation = (
 }
 
 /**
- * Create Entity Type
- * Create a new entity type.
+ * Create Entity
+ * Create a new entity.
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.requestBody
- * @returns tracecat__entities__models__EntityMetadataRead Successful Response
+ * @returns tracecat__entities__models__EntityRead Successful Response
  * @throws ApiError
  */
-export const entitiesCreateEntityType = (
-  data: EntitiesCreateEntityTypeData
-): CancelablePromise<EntitiesCreateEntityTypeResponse> => {
+export const entitiesCreateEntity = (
+  data: EntitiesCreateEntityData
+): CancelablePromise<EntitiesCreateEntityResponse> => {
   return __request(OpenAPI, {
     method: "POST",
     url: "/entities/types",
@@ -4230,17 +4316,17 @@ export const entitiesCreateEntityType = (
 }
 
 /**
- * List Entity Types
- * List all entity types.
+ * List Entities
+ * List all entities.
  * @param data The data for the request.
  * @param data.workspaceId
- * @param data.includeInactive Include soft-deleted entity types
- * @returns tracecat__entities__models__EntityMetadataRead Successful Response
+ * @param data.includeInactive Include soft-deleted entities
+ * @returns tracecat__entities__models__EntityRead Successful Response
  * @throws ApiError
  */
-export const entitiesListEntityTypes = (
-  data: EntitiesListEntityTypesData
-): CancelablePromise<EntitiesListEntityTypesResponse> => {
+export const entitiesListEntities = (
+  data: EntitiesListEntitiesData
+): CancelablePromise<EntitiesListEntitiesResponse> => {
   return __request(OpenAPI, {
     method: "GET",
     url: "/entities/types",
@@ -4255,17 +4341,17 @@ export const entitiesListEntityTypes = (
 }
 
 /**
- * Get Entity Type
- * Get entity type by ID.
+ * Get Entity
+ * Get entity by ID.
  * @param data The data for the request.
  * @param data.entityId
  * @param data.workspaceId
- * @returns tracecat__entities__models__EntityMetadataRead Successful Response
+ * @returns tracecat__entities__models__EntityRead Successful Response
  * @throws ApiError
  */
-export const entitiesGetEntityType = (
-  data: EntitiesGetEntityTypeData
-): CancelablePromise<EntitiesGetEntityTypeResponse> => {
+export const entitiesGetEntity = (
+  data: EntitiesGetEntityData
+): CancelablePromise<EntitiesGetEntityResponse> => {
   return __request(OpenAPI, {
     method: "GET",
     url: "/entities/types/{entity_id}",
@@ -4282,18 +4368,18 @@ export const entitiesGetEntityType = (
 }
 
 /**
- * Update Entity Type
- * Update entity type display properties.
+ * Update Entity
+ * Update entity display properties.
  * @param data The data for the request.
  * @param data.entityId
  * @param data.workspaceId
  * @param data.requestBody
- * @returns tracecat__entities__models__EntityMetadataRead Successful Response
+ * @returns tracecat__entities__models__EntityRead Successful Response
  * @throws ApiError
  */
-export const entitiesUpdateEntityType = (
-  data: EntitiesUpdateEntityTypeData
-): CancelablePromise<EntitiesUpdateEntityTypeResponse> => {
+export const entitiesUpdateEntity = (
+  data: EntitiesUpdateEntityData
+): CancelablePromise<EntitiesUpdateEntityResponse> => {
   return __request(OpenAPI, {
     method: "PATCH",
     url: "/entities/types/{entity_id}",
@@ -4312,17 +4398,17 @@ export const entitiesUpdateEntityType = (
 }
 
 /**
- * Deactivate Entity Type
- * Soft delete entity type.
+ * Deactivate Entity
+ * Soft delete entity.
  * @param data The data for the request.
  * @param data.entityId
  * @param data.workspaceId
- * @returns tracecat__entities__models__EntityMetadataRead Successful Response
+ * @returns tracecat__entities__models__EntityRead Successful Response
  * @throws ApiError
  */
-export const entitiesDeactivateEntityType = (
-  data: EntitiesDeactivateEntityTypeData
-): CancelablePromise<EntitiesDeactivateEntityTypeResponse> => {
+export const entitiesDeactivateEntity = (
+  data: EntitiesDeactivateEntityData
+): CancelablePromise<EntitiesDeactivateEntityResponse> => {
   return __request(OpenAPI, {
     method: "DELETE",
     url: "/entities/types/{entity_id}",
@@ -4339,17 +4425,17 @@ export const entitiesDeactivateEntityType = (
 }
 
 /**
- * Reactivate Entity Type
- * Reactivate soft-deleted entity type.
+ * Reactivate Entity
+ * Reactivate soft-deleted entity.
  * @param data The data for the request.
  * @param data.entityId
  * @param data.workspaceId
- * @returns tracecat__entities__models__EntityMetadataRead Successful Response
+ * @returns tracecat__entities__models__EntityRead Successful Response
  * @throws ApiError
  */
-export const entitiesReactivateEntityType = (
-  data: EntitiesReactivateEntityTypeData
-): CancelablePromise<EntitiesReactivateEntityTypeResponse> => {
+export const entitiesReactivateEntity = (
+  data: EntitiesReactivateEntityData
+): CancelablePromise<EntitiesReactivateEntityResponse> => {
   return __request(OpenAPI, {
     method: "POST",
     url: "/entities/types/{entity_id}/reactivate",
@@ -4366,8 +4452,8 @@ export const entitiesReactivateEntityType = (
 }
 
 /**
- * Delete Entity Type
- * Permanently delete an entity type and all associated data.
+ * Delete Entity
+ * Permanently delete an entity and all associated data.
  *
  * Warning: This is a hard delete - all data will be permanently lost.
  * This includes all records, fields, and relation links.
@@ -4377,9 +4463,9 @@ export const entitiesReactivateEntityType = (
  * @returns void Successful Response
  * @throws ApiError
  */
-export const entitiesDeleteEntityType = (
-  data: EntitiesDeleteEntityTypeData
-): CancelablePromise<EntitiesDeleteEntityTypeResponse> => {
+export const entitiesDeleteEntity = (
+  data: EntitiesDeleteEntityData
+): CancelablePromise<EntitiesDeleteEntityResponse> => {
   return __request(OpenAPI, {
     method: "DELETE",
     url: "/entities/types/{entity_id}/hard",
@@ -4397,7 +4483,7 @@ export const entitiesDeleteEntityType = (
 
 /**
  * Create Field
- * Create a new field for an entity type.
+ * Create a new field for an entity.
  * @param data The data for the request.
  * @param data.entityId
  * @param data.workspaceId
@@ -4410,7 +4496,7 @@ export const entitiesCreateField = (
 ): CancelablePromise<EntitiesCreateFieldResponse> => {
   return __request(OpenAPI, {
     method: "POST",
-    url: "/entities/types/{entity_id}/fields",
+    url: "/entities/{entity_id}/fields",
     path: {
       entity_id: data.entityId,
     },
@@ -4427,7 +4513,7 @@ export const entitiesCreateField = (
 
 /**
  * List Fields
- * List fields for an entity type.
+ * List fields for an entity.
  * @param data The data for the request.
  * @param data.entityId
  * @param data.workspaceId
@@ -4440,7 +4526,7 @@ export const entitiesListFields = (
 ): CancelablePromise<EntitiesListFieldsResponse> => {
   return __request(OpenAPI, {
     method: "GET",
-    url: "/entities/types/{entity_id}/fields",
+    url: "/entities/{entity_id}/fields",
     path: {
       entity_id: data.entityId,
     },
@@ -4611,7 +4697,7 @@ export const entitiesCreateRelationField = (
 ): CancelablePromise<EntitiesCreateRelationFieldResponse> => {
   return __request(OpenAPI, {
     method: "POST",
-    url: "/entities/types/{entity_id}/fields/relation",
+    url: "/entities/{entity_id}/fields/relation",
     path: {
       entity_id: data.entityId,
     },
@@ -4628,12 +4714,12 @@ export const entitiesCreateRelationField = (
 
 /**
  * Create Record
- * Create a new entity record.
+ * Create a new record.
  * @param data The data for the request.
  * @param data.entityId
  * @param data.workspaceId
  * @param data.requestBody
- * @returns tracecat__entities__models__EntityDataRead Successful Response
+ * @returns tracecat__entities__models__RecordRead Successful Response
  * @throws ApiError
  */
 export const entitiesCreateRecord = (
@@ -4641,7 +4727,7 @@ export const entitiesCreateRecord = (
 ): CancelablePromise<EntitiesCreateRecordResponse> => {
   return __request(OpenAPI, {
     method: "POST",
-    url: "/entities/types/{entity_id}/records",
+    url: "/entities/{entity_id}/records",
     path: {
       entity_id: data.entityId,
     },
@@ -4658,11 +4744,11 @@ export const entitiesCreateRecord = (
 
 /**
  * Get Record
- * Get entity record by ID.
+ * Get record by ID.
  * @param data The data for the request.
  * @param data.recordId
  * @param data.workspaceId
- * @returns tracecat__entities__models__EntityDataRead Successful Response
+ * @returns tracecat__entities__models__RecordRead Successful Response
  * @throws ApiError
  */
 export const entitiesGetRecord = (
@@ -4685,12 +4771,12 @@ export const entitiesGetRecord = (
 
 /**
  * Update Record
- * Update entity record.
+ * Update record.
  * @param data The data for the request.
  * @param data.recordId
  * @param data.workspaceId
  * @param data.requestBody
- * @returns tracecat__entities__models__EntityDataRead Successful Response
+ * @returns tracecat__entities__models__RecordRead Successful Response
  * @throws ApiError
  */
 export const entitiesUpdateRecord = (
@@ -4715,7 +4801,7 @@ export const entitiesUpdateRecord = (
 
 /**
  * Delete Record
- * Delete entity record.
+ * Delete record.
  * @param data The data for the request.
  * @param data.recordId
  * @param data.workspaceId
@@ -4742,7 +4828,7 @@ export const entitiesDeleteRecord = (
 
 /**
  * Query Records
- * Query entity records with filters.
+ * Query records with filters.
  * @param data The data for the request.
  * @param data.entityId
  * @param data.workspaceId
@@ -4755,7 +4841,7 @@ export const entitiesQueryRecords = (
 ): CancelablePromise<EntitiesQueryRecordsResponse> => {
   return __request(OpenAPI, {
     method: "POST",
-    url: "/entities/types/{entity_id}/query",
+    url: "/entities/{entity_id}/query",
     path: {
       entity_id: data.entityId,
     },
@@ -4771,78 +4857,8 @@ export const entitiesQueryRecords = (
 }
 
 /**
- * Update Record Relation
- * Update a relation field value.
- *
- * For belongs_to: Accept BelongsToRelationUpdate
- * For has_many: Accept HasManyRelationUpdate
- * @param data The data for the request.
- * @param data.recordId
- * @param data.fieldKey
- * @param data.workspaceId
- * @param data.requestBody
- * @returns RelationUpdateResponse Successful Response
- * @throws ApiError
- */
-export const entitiesUpdateRecordRelation = (
-  data: EntitiesUpdateRecordRelationData
-): CancelablePromise<EntitiesUpdateRecordRelationResponse> => {
-  return __request(OpenAPI, {
-    method: "PUT",
-    url: "/entities/records/{record_id}/relations/{field_key}",
-    path: {
-      record_id: data.recordId,
-      field_key: data.fieldKey,
-    },
-    query: {
-      workspace_id: data.workspaceId,
-    },
-    body: data.requestBody,
-    mediaType: "application/json",
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * List Related Records
- * List related records with pagination.
- *
- * REQUIRED: Pagination parameters (page, page_size)
- * Max page_size: 100
- * @param data The data for the request.
- * @param data.recordId
- * @param data.fieldKey
- * @param data.workspaceId
- * @param data.requestBody
- * @returns RelationListResponse Successful Response
- * @throws ApiError
- */
-export const entitiesListRelatedRecords = (
-  data: EntitiesListRelatedRecordsData
-): CancelablePromise<EntitiesListRelatedRecordsResponse> => {
-  return __request(OpenAPI, {
-    method: "GET",
-    url: "/entities/records/{record_id}/relations/{field_key}",
-    path: {
-      record_id: data.recordId,
-      field_key: data.fieldKey,
-    },
-    query: {
-      workspace_id: data.workspaceId,
-    },
-    body: data.requestBody,
-    mediaType: "application/json",
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
  * Get Entity Schema
- * Get the dynamic schema for an entity type (for UI/validation).
+ * Get the dynamic schema for an entity (for UI/validation).
  * @param data The data for the request.
  * @param data.entityId
  * @param data.workspaceId
@@ -4854,7 +4870,7 @@ export const entitiesGetEntitySchema = (
 ): CancelablePromise<EntitiesGetEntitySchemaResponse> => {
   return __request(OpenAPI, {
     method: "GET",
-    url: "/entities/types/{entity_id}/schema",
+    url: "/entities/{entity_id}/schema",
     path: {
       entity_id: data.entityId,
     },

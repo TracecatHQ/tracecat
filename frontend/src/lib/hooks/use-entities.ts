@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
-  entitiesGetEntityType,
-  entitiesListEntityTypes,
+  entitiesGetEntity,
+  entitiesListEntities,
   entitiesListFields,
   entitiesUpdateField,
   type FieldMetadataUpdate,
@@ -16,7 +16,7 @@ export function useEntities(workspaceId: string, includeInactive = true) {
   } = useQuery({
     queryKey: ["entities", workspaceId, includeInactive],
     queryFn: async () => {
-      const response = await entitiesListEntityTypes({
+      const response = await entitiesListEntities({
         workspaceId,
         includeInactive,
       })
@@ -35,7 +35,7 @@ export function useEntity(workspaceId: string, entityId: string) {
   } = useQuery({
     queryKey: ["entity", workspaceId, entityId],
     queryFn: async () => {
-      const response = await entitiesGetEntityType({
+      const response = await entitiesGetEntity({
         workspaceId,
         entityId,
       })
