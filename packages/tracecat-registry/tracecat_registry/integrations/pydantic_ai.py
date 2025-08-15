@@ -154,6 +154,7 @@ PYDANTIC_AI_REGISTRY_SECRETS = [
     openai_secret,
     gemini_secret,
     bedrock_secret,
+    custom_model_provider_secret,
 ]
 
 

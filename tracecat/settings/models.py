@@ -147,7 +147,7 @@ class AppSettingsUpdate(BaseSettingsGroup):
 
 class AgentSettingsRead(BaseSettingsGroup):
     agent_default_model: str | None
-    agent_fixed_args: str
+    agent_fixed_args: str | None
 
 
 class AgentSettingsUpdate(BaseSettingsGroup):

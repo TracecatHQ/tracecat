@@ -52,7 +52,20 @@ import {
 
 const agentFormSchema = z.object({
   default_model: z.string().optional(),
-  agent_fixed_args: z.string().optional(),
+  agent_fixed_args: z
+    .string()
+    .optional()
+    .refine(
+      (val) => {
+        try {
+          JSON.parse(val ?? "{}")
+          return true
+        } catch {
+          return false
+        }
+      },
+      { message: "Must be valid JSON" }
+    ),
 })
 
 type AgentFormValues = z.infer<typeof agentFormSchema>

@@ -641,6 +641,8 @@ def create_tool_call(
         except Exception:
             logger.warning("Failed to parse tool args", tool_args=tool_args)
             args = {"args": tool_args}
+    else:
+        args = tool_args
     if fixed_args:
         args = {**fixed_args, **args}
     return ModelResponse(
