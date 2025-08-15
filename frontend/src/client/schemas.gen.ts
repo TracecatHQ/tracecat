@@ -750,7 +750,14 @@ export const $AgentSettingsRead = {
       title: "Agent Default Model",
     },
     agent_fixed_args: {
-      type: "string",
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "Agent Fixed Args",
     },
   },
