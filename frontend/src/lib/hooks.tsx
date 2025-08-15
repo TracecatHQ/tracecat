@@ -11,6 +11,7 @@ import {
   type AgentGetProvidersStatusResponse,
   type AgentListModelsResponse,
   type AgentListProvidersResponse,
+  type AgentSettingsRead,
   type ApiError,
   type AppSettingsRead,
   type AuthSettingsRead,
@@ -122,6 +123,7 @@ import {
   type SecretReadMinimal,
   type SecretUpdate,
   type SessionRead,
+  type SettingsUpdateAgentSettingsData,
   type SettingsUpdateAppSettingsData,
   type SettingsUpdateAuthSettingsData,
   type SettingsUpdateGitSettingsData,
@@ -135,11 +137,13 @@ import {
   secretsDeleteSecretById,
   secretsListSecrets,
   secretsUpdateSecretById,
+  settingsGetAgentSettings,
   settingsGetAppSettings,
   settingsGetAuthSettings,
   settingsGetGitSettings,
   settingsGetOauthSettings,
   settingsGetSamlSettings,
+  settingsUpdateAgentSettings,
   settingsUpdateAppSettings,
   settingsUpdateAuthSettings,
   settingsUpdateGitSettings,
@@ -1869,6 +1873,63 @@ export function useOrgGitSettings() {
     updateGitSettings,
     updateGitSettingsIsPending,
     updateGitSettingsError,
+  }
+}
+
+export function useOrgAgentSettings() {
+  const queryClient = useQueryClient()
+  // Get Agent settings
+  const {
+    data: agentSettings,
+    isLoading: agentSettingsIsLoading,
+    error: agentSettingsError,
+  } = useQuery<AgentSettingsRead>({
+    queryKey: ["org-agent-settings"],
+    queryFn: async () => await settingsGetAgentSettings(),
+  })
+
+  // Update Agent settings
+  const {
+    mutateAsync: updateAgentSettings,
+    isPending: updateAgentSettingsIsPending,
+    error: updateAgentSettingsError,
+  } = useMutation({
+    mutationFn: async (params: SettingsUpdateAgentSettingsData) =>
+      await settingsUpdateAgentSettings(params),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["org-agent-settings"] })
+      toast({
+        title: "Updated agent settings",
+        description: "Agent settings updated successfully.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 403:
+          toast({
+            title: "Forbidden",
+            description: "You cannot perform this action",
+          })
+          break
+        default:
+          console.error("Failed to update agent settings", error)
+          toast({
+            title: "Failed to update agent settings",
+            description: `An error occurred while updating the agent settings: ${error.body.detail}`,
+          })
+      }
+    },
+  })
+
+  return {
+    // Get
+    agentSettings,
+    agentSettingsIsLoading,
+    agentSettingsError,
+    // Update
+    updateAgentSettings,
+    updateAgentSettingsIsPending,
+    updateAgentSettingsError,
   }
 }
 

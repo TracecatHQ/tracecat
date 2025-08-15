@@ -29,6 +29,7 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.tools import Tool
 
+from tracecat.logger import logger
 from tracecat.config import TRACECAT__MAX_FILE_SIZE_BYTES
 from tracecat_registry.integrations.grep import (
     grep_search as _grep_search,
@@ -631,13 +632,22 @@ def create_tool_call(
     tool_name: str,
     tool_args: str | dict[str, Any],
     tool_call_id: str,
+    fixed_args: dict[str, Any] | None = None,
 ) -> ModelResponse:
     """Build an assistant tool-call message (ModelResponse)."""
+    if isinstance(tool_args, str):
+        try:
+            args = orjson.loads(tool_args)
+        except Exception:
+            logger.warning("Failed to parse tool args", tool_args=tool_args)
+            args = {"args": tool_args}
+    if fixed_args:
+        args = {**fixed_args, **args}
     return ModelResponse(
         parts=[
             ToolCallPart(
                 tool_name=tool_name,
-                args=tool_args,
+                args=args,
                 tool_call_id=tool_call_id,
             )
         ]

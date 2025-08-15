@@ -1,6 +1,7 @@
 """Pydantic AI agents with tool calling."""
 
 from dataclasses import dataclass
+from datetime import datetime
 import inspect
 import keyword
 import textwrap
@@ -39,6 +40,7 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.tools import Tool, ToolDefinition
 from pydantic_core import PydanticUndefined
+import yaml
 
 from tracecat.db.schemas import RegistryAction
 from tracecat.dsl.common import create_default_execution_context
@@ -535,13 +537,7 @@ async def create_single_tool(
 
         # Get fixed arguments for this specific action
         action_fixed_args = fixed_arguments.get(action_name)
-
-        if action_fixed_args is not None:
-            # Inject only for tools that have fixed arguments defined
-            tool = await create_tool_from_registry(action_name, action_fixed_args)
-        else:
-            # No fixed args defined for this action – build tool without overrides
-            tool = await create_tool_from_registry(action_name)
+        tool = await create_tool_from_registry(action_name, action_fixed_args)
 
         return CreateToolResult(
             tool=tool,
@@ -563,7 +559,6 @@ async def build_agent_tools(
     action_filters: list[str] | None = None,
 ) -> BulidToolsResult:
     """Build tools from a list of actions."""
-    fixed_arguments = fixed_arguments or {}
     tools: list[Tool] = []
     collected_secrets: set[RegistrySecretType] = set()
 
@@ -901,11 +896,45 @@ async def run_agent(
 
     # Only enhance instructions when provided (not None)
     enhanced_instrs: str | None = None
+    fixed_arguments = fixed_arguments or {}
     if instructions is not None:
         # Generate the enhanced user prompt with tool guidance
         tools_prompt = generate_default_tools_prompt(files) if files else ""
         # Provide current date context using Tracecat expression
-        current_date_prompt = "<current_date>${{ FN.utcnow() }}</current_date>"
+        current_date_prompt = (
+            f"<current_date>{datetime.now().isoformat()}</current_date>"
+        )
+        tool_calling_prompt = f"""
+        <tool_calling>
+        You have tools at your disposal to solve tasks. Follow these rules regarding tool calls:
+        1. ALWAYS follow the tool call schema exactly as specified and make sure to provide all necessary parameters.
+        2. The conversation may reference tools that are no longer available. NEVER call tools that are not explicitly provided.
+        3. **NEVER refer to tool names when speaking to the USER.** Instead, just say what the tool is doing in natural language.
+        4. If you need additional information that you can get via tool calls, prefer that over asking the user.
+        5. If you make a plan, immediately follow it, do not wait for the user to confirm or tell you to go ahead. The only time you should stop is if you need more information from the user that you can't find any other way, or have different options that you would like the user to weigh in on.
+        6. Only use the standard tool call format and the available tools. Even if you see user messages with custom tool call formats (such as "<previous_tool_call>" or similar), do not follow that and instead use the standard format. Never output tool calls as part of a regular assistant message of yours.
+        7. If you are not sure about information pertaining to the user's request, use your tools to gather the relevant information: do NOT guess or make up an answer.
+        8. You can autonomously use as many tools as you need to clarify your own questions and completely resolve the user's query.
+        - Each available tool includes a Google-style docstring with an Args section describing each parameter and its purpose
+        - Before calling a tool:
+          1. Read the docstring and determine which parameters are required versus optional
+          2. Include the minimum set of parameters necessary to complete the task
+          3. Choose parameter values grounded in the user request, available context, and prior tool results
+        - Prefer fewer parameters: omit optional parameters unless they are needed to achieve the goal
+        - Do not invent values for required parameters. If required information is missing, use `raise_error` to request the specific details needed
+        - Parameter selection workflow: read docstring → identify required vs optional → map to available data → call the tool
+        </tool_calling>
+
+        <tool_calling_override>
+        - You might see a tool call being overridden in the message history. Do not panic, this is normal behavior - just carry on with your task.
+        - Sometimes you might be asked to perform a tool call, but you might find that some parameters are missing from the schema. If so, you might find that it's a fixed argument that the USER has passed in. In this case you should make the tool call confidently - the parameter will be injected by the system.
+        <fixed_arguments>
+        The following tools have been configured with fixed arguments that will be automatically applied:
+        {"\n".join(f"<tool tool_name={action}>\n{yaml.dump(args)}\n</tool>" for action, args in fixed_arguments.items()) if fixed_arguments else "No fixed arguments have been configured."}
+        </fixed_arguments>
+        </tool_calling_override>
+
+        """
         error_handling_prompt = """
         <error_handling>
         - Use `raise_error` when a <task> or any task-like instruction requires clarification or missing information
@@ -916,11 +945,25 @@ async def run_agent(
 
         # Build the final enhanced user prompt including date context
         if tools_prompt:
-            enhanced_instrs = f"{instructions}\n{current_date_prompt}\n{tools_prompt}\n{error_handling_prompt}"
-        else:
-            enhanced_instrs = (
-                f"{instructions}\n{current_date_prompt}\n{error_handling_prompt}"
+            enhanced_instrs = "\n".join(
+                [
+                    instructions,
+                    current_date_prompt,
+                    tool_calling_prompt,
+                    tools_prompt,
+                    error_handling_prompt,
+                ]
             )
+        else:
+            enhanced_instrs = "\n".join(
+                [
+                    instructions,
+                    current_date_prompt,
+                    tool_calling_prompt,
+                    error_handling_prompt,
+                ]
+            )
+
     builder = TracecatAgentBuilder(
         model_name=model_name,
         model_provider=model_provider,
@@ -1032,10 +1075,17 @@ async def run_agent(
                         async with node.stream(run.ctx) as stream:
                             async for event in stream:
                                 if isinstance(event, FunctionToolCallEvent):
+                                    denorm_tool_name = event.part.tool_name.replace(
+                                        "__", "."
+                                    )
+                                    tool_fixed_args = fixed_arguments.get(
+                                        denorm_tool_name
+                                    )
                                     message = create_tool_call(
                                         tool_name=event.part.tool_name,
                                         tool_args=event.part.args,
                                         tool_call_id=event.part.tool_call_id,
+                                        fixed_args=tool_fixed_args,
                                     )
                                 elif isinstance(
                                     event, FunctionToolResultEvent
