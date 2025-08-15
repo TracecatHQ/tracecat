@@ -5,6 +5,7 @@ import type {
   CaseRecordRead,
   EntityRead,
   EntitySchemaResponse,
+  FieldMetadataRead,
   RecordUpdate,
 } from "@/client"
 import {
@@ -16,6 +17,7 @@ import {
   casesUpdateCaseRecord,
   entitiesGetEntitySchema,
   entitiesListEntities,
+  entitiesListFields,
 } from "@/client"
 import { toast } from "@/components/ui/use-toast"
 
@@ -319,4 +321,33 @@ export function useGetEntitySchema({
   })
 
   return { schema, isLoading, error }
+}
+
+export function useListEntityFields({
+  entityId,
+  workspaceId,
+  includeInactive = false,
+}: {
+  entityId: string
+  workspaceId: string
+  includeInactive?: boolean
+}) {
+  const {
+    data: fields,
+    isLoading,
+    error,
+  } = useQuery<FieldMetadataRead[], Error>({
+    queryKey: ["entity-fields", entityId, workspaceId, includeInactive],
+    queryFn: async () => {
+      const response = await entitiesListFields({
+        entityId,
+        workspaceId,
+        includeInactive,
+      })
+      return response
+    },
+    enabled: !!entityId && !!workspaceId,
+  })
+
+  return { fields, isLoading, error }
 }

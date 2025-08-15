@@ -541,7 +541,7 @@ export function CaseAttachmentsSection({
   return (
     <TooltipProvider>
       <div className="mx-auto w-full">
-        <div className="space-y-4 p-4">
+        <div className="space-y-5 p-4">
           <div
             onClick={handleAddAttachment}
             onDragEnter={handleDragEnter}
@@ -580,12 +580,12 @@ export function CaseAttachmentsSection({
               </p>
             </div>
           ) : (
-            <div className="space-y-1">
+            <div className="space-y-2">
               {attachments.map((attachment) => {
                 return (
                   <div
                     key={attachment.id}
-                    className="flex items-center gap-4 p-2 px-3.5 rounded-md hover:bg-muted/40 transition-colors group"
+                    className="flex items-center gap-4 p-2 rounded-md hover:bg-muted/40 transition-colors group"
                   >
                     <div
                       className={`p-1 rounded ${getFileColor(attachment.content_type)}`}

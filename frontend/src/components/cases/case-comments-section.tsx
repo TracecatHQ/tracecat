@@ -100,7 +100,7 @@ export function CommentSection({
 
             return (
               <div key={comment.id} className="group">
-                <div className="rounded-lg border border-border/50 py-3 px-4 hover:bg-accent/30 transition-colors">
+                <div className="rounded-lg border border-border py-3 px-4 hover:bg-accent/30 transition-colors">
                   {/* Two-row layout: Row 1 – avatar, name, timestamp & actions. Row 2 – comment content */}
                   <div className="space-y-1">
                     {/* Row 1 */}
