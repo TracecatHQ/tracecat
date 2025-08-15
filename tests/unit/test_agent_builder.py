@@ -481,7 +481,7 @@ class TestTracecatAgentBuilder:
             include_marked=True
         )
         mock_registry_deps["create_tool_from_registry"].assert_called_once_with(
-            "tools.slack.post_message"
+            "tools.slack.post_message", None
         )
         mock_registry_deps["build_agent"].assert_called_once()
 
@@ -531,8 +531,8 @@ class TestTracecatAgentBuilder:
 
         # Should only call create_tool_from_registry for tools.slack actions
         expected_calls = [
-            call("tools.slack.post_message"),
-            call("tools.slack.lookup_user"),
+            call("tools.slack.post_message", None),
+            call("tools.slack.lookup_user", None),
         ]
         mock_registry_deps["create_tool_from_registry"].assert_has_calls(
             expected_calls, any_order=True
@@ -1078,7 +1078,7 @@ class TestFixedArguments:
         # Verify create_tool_from_registry was called correctly
         expected_calls = [
             call("core.cases.create_case", {"priority": "high"}),  # Has fixed args
-            call("tools.slack.post_message"),  # No fixed args, no overrides injected
+            call("tools.slack.post_message", None),  # No fixed args, explicit None
         ]
         mock_create_tool.assert_has_calls(expected_calls, any_order=True)
 
