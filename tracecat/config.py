@@ -17,6 +17,7 @@ TRACECAT__PUBLIC_APP_URL = os.environ.get(
     "TRACECAT__PUBLIC_APP_URL", "http://localhost"
 )
 
+
 TRACECAT__EXECUTOR_URL = os.environ.get(
     "TRACECAT__EXECUTOR_URL", "http://executor:8000"
 )

@@ -9,6 +9,8 @@ from tracecat.config import SAML_PUBLIC_ACS_URL
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.settings.constants import AUTH_TYPE_TO_SETTING_KEY
 from tracecat.settings.models import (
+    AgentSettingsRead,
+    AgentSettingsUpdate,
     AppSettingsRead,
     AppSettingsUpdate,
     AuthSettingsRead,
@@ -195,3 +197,27 @@ async def update_app_settings(
 ) -> None:
     service = SettingsService(session, role)
     await service.update_app_settings(params)
+
+
+@router.get("/agent", response_model=AgentSettingsRead)
+async def get_agent_settings(
+    *,
+    role: OrgAdminUserRole,
+    session: AsyncDBSession,
+) -> AgentSettingsRead:
+    service = SettingsService(session, role)
+    keys = AgentSettingsRead.keys()
+    settings = await service.list_org_settings(keys=keys)
+    settings_dict = {setting.key: service.get_value(setting) for setting in settings}
+    return AgentSettingsRead(**settings_dict)
+
+
+@router.patch("/agent", status_code=status.HTTP_204_NO_CONTENT)
+async def update_agent_settings(
+    *,
+    role: OrgAdminUserRole,
+    session: AsyncDBSession,
+    params: AgentSettingsUpdate,
+) -> None:
+    service = SettingsService(session, role)
+    await service.update_agent_settings(params)

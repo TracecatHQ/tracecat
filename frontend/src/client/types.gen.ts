@@ -180,6 +180,22 @@ export type AgentOutput = {
   usage?: Usage | null
 }
 
+export type AgentSettingsRead = {
+  agent_default_model: string | null
+  agent_fixed_args: string | null
+}
+
+export type AgentSettingsUpdate = {
+  /**
+   * The default AI model to use for agent operations.
+   */
+  agent_default_model?: string | null
+  /**
+   * Fixed arguments for agent tools as a JSON string. Format: {'tool_name': {'arg': 'value'}}
+   */
+  agent_fixed_args?: string | null
+}
+
 /**
  * Settings for the app.
  */
@@ -801,6 +817,10 @@ export type ChatRequest = {
   context?: {
     [key: string]: unknown
   } | null
+  /**
+   * Optional base URL for the model provider
+   */
+  base_url?: string | null
 }
 
 /**
@@ -1816,6 +1836,10 @@ export type ProviderCredentialField = {
    * Help text describing this credential
    */
   description: string
+  /**
+   * Whether this field is required
+   */
+  required?: boolean
 }
 
 /**
@@ -2852,6 +2876,9 @@ export type TagInput = {
 export type TagRead = {
   id: string
   name: string
+  /**
+   * Slug-like identifier derived from name, used for API lookups
+   */
   ref: string
   /**
    * Hex color code
@@ -4400,6 +4427,14 @@ export type SettingsUpdateAppSettingsData = {
 
 export type SettingsUpdateAppSettingsResponse = void
 
+export type SettingsGetAgentSettingsResponse = AgentSettingsRead
+
+export type SettingsUpdateAgentSettingsData = {
+  requestBody: AgentSettingsUpdate
+}
+
+export type SettingsUpdateAgentSettingsResponse = void
+
 export type OrganizationSecretsListOrgSecretsData = {
   /**
    * Filter by secret type
@@ -4561,7 +4596,7 @@ export type CasesListCasesData = {
   /**
    * Filter by tag IDs or slugs (AND logic)
    */
-  tags?: Array<string>
+  tags?: Array<string> | null
   workspaceId: string
 }
 
@@ -4612,7 +4647,7 @@ export type CasesSearchCasesData = {
   /**
    * Filter by tag IDs or slugs (AND logic)
    */
-  tags?: Array<string>
+  tags?: Array<string> | null
   workspaceId: string
 }
 
@@ -6476,6 +6511,29 @@ export type $OpenApiTs = {
     }
     patch: {
       req: SettingsUpdateAppSettingsData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/settings/agent": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentSettingsRead
+      }
+    }
+    patch: {
+      req: SettingsUpdateAgentSettingsData
       res: {
         /**
          * Successful Response

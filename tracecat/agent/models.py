@@ -108,6 +108,7 @@ class ProviderCredentialField(BaseModel):
         min_length=1,
         max_length=500,
     )
+    required: bool = Field(default=True, description="Whether this field is required")
 
 
 class ProviderCredentialConfig(BaseModel):

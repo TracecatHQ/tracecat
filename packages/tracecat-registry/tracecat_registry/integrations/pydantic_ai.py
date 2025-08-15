@@ -130,12 +130,31 @@ bedrock_secret = RegistrySecret(
 """
 
 
+custom_model_provider_secret = RegistrySecret(
+    name="custom-model-provider",
+    optional_keys=[
+        "CUSTOM_MODEL_PROVIDER_API_KEY",
+        "CUSTOM_MODEL_PROVIDER_MODEL_NAME",
+        "CUSTOM_MODEL_PROVIDER_BASE_URL",
+    ],
+    optional=True,
+)
+"""Custom model provider credentials.
+
+- name: `custom-model-provider`
+- optional_keys:
+    - `CUSTOM_MODEL_PROVIDER_API_KEY`: Optional custom model provider API key.
+    - `CUSTOM_MODEL_PROVIDER_MODEL_NAME`: Optional custom model provider model name.
+    - `CUSTOM_MODEL_PROVIDER_BASE_URL`: Optional custom model provider base URL.
+"""
+
 PYDANTIC_AI_REGISTRY_SECRETS = [
     mcp_secret,
     anthropic_secret,
     openai_secret,
     gemini_secret,
     bedrock_secret,
+    custom_model_provider_secret,
 ]
 
 
@@ -183,6 +202,22 @@ def get_model(
         orjson.JSONDecodeError: If JSON credentials (e.g., Google service account) are malformed
     """
     match model_provider:
+        case "custom-model-provider":
+            # Expect custom models to follow the OpenAI API format
+            effective_base_url = base_url or secrets.get(
+                "CUSTOM_MODEL_PROVIDER_BASE_URL"
+            )
+            effective_model_name = secrets.get_or_default(
+                "CUSTOM_MODEL_PROVIDER_MODEL_NAME", model_name
+            )
+
+            model = OpenAIModel(
+                model_name=effective_model_name,
+                provider=OpenAIProvider(
+                    base_url=effective_base_url,
+                    api_key=secrets.get_or_default("CUSTOM_MODEL_PROVIDER_API_KEY"),
+                ),
+            )
         case "openai":
             model = OpenAIModel(
                 model_name=model_name,
@@ -230,7 +265,9 @@ def get_model(
                 provider=BedrockProvider(bedrock_client=client),
             )
         case _:
-            raise ValueError(f"Unsupported model: {model_name}")
+            raise ValueError(
+                f"Unsupported model configuration: provider={model_provider}, model={model_name}"
+            )
 
     return model
 

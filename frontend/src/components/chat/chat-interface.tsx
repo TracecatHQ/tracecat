@@ -138,7 +138,9 @@ export function ChatInterface({
         // TODO: Make this dynamic
         model_provider: "openai",
         instructions: `You are a helpful AI assistant helping with ${entityType} management.
-        The current ${entityType} ID is ${entityId}. Be concise but thorough in your responses.`,
+        The current ${entityType} ID is: ${entityId}
+        If you need to use the ${entityType} ID in a tool call you should use the above ID.
+        Be concise but thorough in your responses.`,
         context: {
           chatId: selectedChatId,
           workspaceId,

@@ -736,6 +736,70 @@ export const $AgentOutput = {
   title: "AgentOutput",
 } as const
 
+export const $AgentSettingsRead = {
+  properties: {
+    agent_default_model: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Default Model",
+    },
+    agent_fixed_args: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Fixed Args",
+    },
+  },
+  type: "object",
+  required: ["agent_default_model", "agent_fixed_args"],
+  title: "AgentSettingsRead",
+} as const
+
+export const $AgentSettingsUpdate = {
+  properties: {
+    agent_default_model: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Default Model",
+      description: "The default AI model to use for agent operations.",
+    },
+    agent_fixed_args: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 10000,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Fixed Args",
+      description:
+        "Fixed arguments for agent tools as a JSON string. Format: {'tool_name': {'arg': 'value'}}",
+    },
+  },
+  type: "object",
+  title: "AgentSettingsUpdate",
+} as const
+
 export const $AppSettingsRead = {
   properties: {
     app_registry_validation_enabled: {
@@ -2162,6 +2226,8 @@ export const $CaseTagCreate = {
           type: "string",
         },
       ],
+      maxLength: 100,
+      minLength: 1,
       title: "Tag Id",
       description: "Tag ID (UUID) or ref",
     },
@@ -2494,6 +2560,19 @@ export const $ChatRequest = {
       ],
       title: "Context",
       description: "Optional context data for the agent",
+    },
+    base_url: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 500,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Base Url",
+      description: "Optional base URL for the model provider",
     },
   },
   type: "object",
@@ -5282,6 +5361,12 @@ export const $ProviderCredentialField = {
       minLength: 1,
       title: "Description",
       description: "Help text describing this credential",
+    },
+    required: {
+      type: "boolean",
+      title: "Required",
+      description: "Whether this field is required",
+      default: true,
     },
   },
   type: "object",
@@ -8265,6 +8350,8 @@ export const $TagRead = {
     ref: {
       type: "string",
       title: "Ref",
+      description:
+        "Slug-like identifier derived from name, used for API lookups",
     },
     color: {
       anyOf: [

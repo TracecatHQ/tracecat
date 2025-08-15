@@ -25,7 +25,6 @@ import {
 const chatMessageSchema = z.object({
   message: z
     .string()
-    .min(1, { message: "Message cannot be empty" })
     .max(2000, { message: "Message cannot be longer than 2000 characters" }),
 })
 
@@ -121,7 +120,7 @@ export function ChatInput({
             <FormField
               control={form.control}
               name="message"
-              render={({ field }) => (
+              render={({ field, fieldState }) => (
                 <FormItem className="w-full">
                   <FormControl>
                     <Textarea
@@ -134,7 +133,10 @@ export function ChatInput({
                       disabled={disabled}
                     />
                   </FormControl>
-                  <FormMessage />
+                  {/* Only show error message when text exceeds limit, not when empty */}
+                  {fieldState.error && field.value.length > 2000 && (
+                    <FormMessage />
+                  )}
                 </FormItem>
               )}
             />
