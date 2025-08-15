@@ -736,6 +736,63 @@ export const $AgentOutput = {
   title: "AgentOutput",
 } as const
 
+export const $AgentSettingsRead = {
+  properties: {
+    agent_default_model: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Default Model",
+    },
+    agent_fixed_args: {
+      type: "string",
+      title: "Agent Fixed Args",
+    },
+  },
+  type: "object",
+  required: ["agent_default_model", "agent_fixed_args"],
+  title: "AgentSettingsRead",
+} as const
+
+export const $AgentSettingsUpdate = {
+  properties: {
+    agent_default_model: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Default Model",
+      description: "The default AI model to use for agent operations.",
+    },
+    agent_fixed_args: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 10000,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Fixed Args",
+      description:
+        "Fixed arguments for agent tools as a JSON string. Format: {'tool_name': {'arg': 'value'}}",
+    },
+  },
+  type: "object",
+  title: "AgentSettingsUpdate",
+} as const
+
 export const $AppSettingsRead = {
   properties: {
     app_registry_validation_enabled: {
