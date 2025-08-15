@@ -14,6 +14,7 @@ from pydantic import (
 )
 from pydantic_core import PydanticCustomError
 
+from tracecat.db.schemas import Entity, FieldMetadata
 from tracecat.entities.enums import RelationType
 from tracecat.entities.types import FieldType, validate_field_key_format
 from tracecat.entities.validation import (
@@ -443,3 +444,14 @@ class EntitySchemaResponse(BaseModel):
 
     entity: EntitySchemaInfo = Field(..., description="Entity metadata")
     fields: list[EntitySchemaField] = Field(..., description="Field definitions")
+
+
+class EntitySchemaResult(BaseModel):
+    """Response model for entity schema with full metadata."""
+
+    entity: "Entity" = Field(..., description="Full Entity object")
+    fields: list["FieldMetadata"] = Field(
+        ..., description="List of FieldMetadata objects"
+    )
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)

@@ -110,19 +110,12 @@ async def update_entity(
     """Update entity display properties."""
     service = CustomEntitiesService(session, role)
     try:
-        entity = await service.get_entity(entity_id)
-
-        # Update mutable fields
-        if params.display_name is not None:
-            entity.display_name = params.display_name
-        if params.description is not None:
-            entity.description = params.description
-        if params.icon is not None:
-            entity.icon = params.icon
-
-        await service.session.commit()
-        await service.session.refresh(entity)
-
+        entity = await service.update_entity(
+            entity_id=entity_id,
+            display_name=params.display_name,
+            description=params.description,
+            icon=params.icon,
+        )
         return EntityRead.model_validate(entity, from_attributes=True)
     except TracecatNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
@@ -138,13 +131,12 @@ async def deactivate_entity(
     """Soft delete entity."""
     service = CustomEntitiesService(session, role)
     try:
-        entity = await service.get_entity(entity_id)
-        entity.is_active = False
-        await service.session.commit()
-        await service.session.refresh(entity)
+        entity = await service.deactivate_entity(entity_id)
         return EntityRead.model_validate(entity, from_attributes=True)
     except TracecatNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 @router.post("/types/{entity_id}/reactivate", response_model=EntityRead)
@@ -157,15 +149,12 @@ async def reactivate_entity(
     """Reactivate soft-deleted entity."""
     service = CustomEntitiesService(session, role)
     try:
-        entity = await service.get_entity(entity_id)
-        if entity.is_active:
-            raise HTTPException(status_code=400, detail="Entity type is already active")
-        entity.is_active = True
-        await service.session.commit()
-        await service.session.refresh(entity)
+        entity = await service.reactivate_entity(entity_id)
         return EntityRead.model_validate(entity, from_attributes=True)
     except TracecatNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 @router.delete("/types/{entity_id}/hard", status_code=status.HTTP_204_NO_CONTENT)
@@ -502,23 +491,18 @@ async def update_record_relation(
         # Get the record and field metadata
         record = await service.get_record(record_id)
 
-        # Find the field
-        fields = await service.list_fields(record.entity_id)
-        field = next((f for f in fields if f.field_key == field_key), None)
+        # Get the field by key
+        field = await service.get_field_by_key(record.entity_id, field_key)
 
         if not field:
-            raise HTTPException(
-                status_code=404, detail=f"Field '{field_key}' not found"
-            )
+            raise TracecatNotFoundError(f"Field '{field_key}' not found")
 
         # Check if it's a relation field
         if field.field_type not in (
             FieldType.RELATION_BELONGS_TO,
             FieldType.RELATION_HAS_MANY,
         ):
-            raise HTTPException(
-                status_code=400, detail=f"Field '{field_key}' is not a relation field"
-            )
+            raise ValueError(f"Field '{field_key}' is not a relation field")
 
         # Handle based on field type
         if field.field_type == FieldType.RELATION_BELONGS_TO:
@@ -587,23 +571,18 @@ async def list_related_records(
         # Get the record and field metadata
         record = await service.get_record(record_id)
 
-        # Find the field
-        fields = await service.list_fields(record.entity_id)
-        field = next((f for f in fields if f.field_key == field_key), None)
+        # Get the field by key
+        field = await service.get_field_by_key(record.entity_id, field_key)
 
         if not field:
-            raise HTTPException(
-                status_code=404, detail=f"Field '{field_key}' not found"
-            )
+            raise TracecatNotFoundError(f"Field '{field_key}' not found")
 
         # Check if it's a relation field
         if field.field_type not in (
             FieldType.RELATION_BELONGS_TO,
             FieldType.RELATION_HAS_MANY,
         ):
-            raise HTTPException(
-                status_code=400, detail=f"Field '{field_key}' is not a relation field"
-            )
+            raise ValueError(f"Field '{field_key}' is not a relation field")
 
         # Query related records
         filters = [f.model_dump() for f in request.filters] if request.filters else None
@@ -647,17 +626,16 @@ async def get_entity_schema(
     """Get the dynamic schema for an entity (for UI/validation)."""
     service = CustomEntitiesService(session, role)
     try:
-        # Get entity and active fields
-        entity = await service.get_entity(entity_id)
-        fields = await service.list_fields(entity_id, include_inactive=False)
+        # Get entity and active fields from service
+        schema_result = await service.get_entity_schema(entity_id)
 
         # Build schema response
         return EntitySchemaResponse(
             entity=EntitySchemaInfo(
-                id=str(entity.id),
-                name=entity.name,
-                display_name=entity.display_name,
-                description=entity.description,
+                id=str(schema_result.entity.id),
+                name=schema_result.entity.name,
+                display_name=schema_result.entity.display_name,
+                description=schema_result.entity.description,
             ),
             fields=[
                 EntitySchemaField(
@@ -667,7 +645,7 @@ async def get_entity_schema(
                     description=f.description,
                     enum_options=f.enum_options,
                 )
-                for f in fields
+                for f in schema_result.fields
                 if f.is_active
             ],
         )

@@ -31,7 +31,9 @@ class EntityRead(BaseModel):
 
     id: UUID4
     name: str
+    display_name: str
     description: str | None
+    icon: str | None
     is_active: bool
 
     model_config = {"from_attributes": True}
