@@ -1,8 +1,8 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
-import { Loader2, Trash2 } from "lucide-react"
-import { useEffect, useState } from "react"
+import { Loader2 } from "lucide-react"
+import { useEffect } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import type {
@@ -11,16 +11,6 @@ import type {
   RecordUpdate,
 } from "@/client"
 import { EntityFieldInput } from "@/components/cases/entity-field-input"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -32,11 +22,7 @@ import {
 } from "@/components/ui/dialog"
 import { Form } from "@/components/ui/form"
 import { Skeleton } from "@/components/ui/skeleton"
-import {
-  useDeleteCaseRecord,
-  useGetEntitySchema,
-  useUpdateCaseRecord,
-} from "@/lib/hooks"
+import { useGetEntitySchema, useUpdateCaseRecord } from "@/lib/hooks"
 
 interface EditEntityRecordDialogProps {
   open: boolean
@@ -121,7 +107,6 @@ export function EditEntityRecordDialog({
   workspaceId,
   onSuccess,
 }: EditEntityRecordDialogProps) {
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const entityId = recordLink.record?.entity_id || recordLink.entity_id
 
   const { schema, isLoading: isLoadingSchema } = useGetEntitySchema({
@@ -132,11 +117,6 @@ export function EditEntityRecordDialog({
   const { updateRecord, isUpdating } = useUpdateCaseRecord({
     caseId,
     recordId: recordLink.record?.id || recordLink.record_id,
-    workspaceId,
-  })
-
-  const { deleteRecord, isDeleting } = useDeleteCaseRecord({
-    caseId,
     workspaceId,
   })
 
@@ -189,17 +169,6 @@ export function EditEntityRecordDialog({
     }
   }
 
-  const handleDelete = async () => {
-    try {
-      await deleteRecord(recordLink.record?.id || recordLink.record_id)
-      setShowDeleteConfirm(false)
-      onOpenChange(false)
-      onSuccess?.()
-    } catch (error) {
-      console.error("Failed to delete entity record:", error)
-    }
-  }
-
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
@@ -234,16 +203,6 @@ export function EditEntityRecordDialog({
                 ))}
 
                 <DialogFooter className="flex items-center justify-between">
-                  <Button
-                    type="button"
-                    variant="destructive"
-                    size="sm"
-                    onClick={() => setShowDeleteConfirm(true)}
-                    disabled={isUpdating || isDeleting}
-                  >
-                    <Trash2 className="mr-1.5 h-3.5 w-3.5" />
-                    Delete
-                  </Button>
                   <div className="flex gap-2">
                     <Button
                       type="button"
@@ -274,35 +233,6 @@ export function EditEntityRecordDialog({
           )}
         </DialogContent>
       </Dialog>
-
-      <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete entity record?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will permanently delete this entity record. This action
-              cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleDelete}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              disabled={isDeleting}
-            >
-              {isDeleting ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Deleting...
-                </>
-              ) : (
-                "Delete"
-              )}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </>
   )
 }
