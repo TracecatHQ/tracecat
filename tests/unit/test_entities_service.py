@@ -78,7 +78,6 @@ def integration_entity_create_params() -> dict:
         "display_name": "Customer",
         "description": "Customer entity for integration testing",
         "icon": "user-icon",
-        "settings": {"default_view": "table"},
     }
 
 
@@ -819,11 +818,8 @@ class TestRelationFieldCreation:
 
         # Verify the record was created with proper data
         assert post_record.field_data["title"] == "My First Post"
-        # Relation fields should be cached in field_data
-        assert "author" in post_record.field_data
-        # The belongs_to field is cached as a dict with 'id' and 'display'
-        assert post_record.field_data["author"]["id"] == str(user_record.id)
-        assert post_record.field_data["author"]["display"] == "John Doe"
+        # Relation fields are no longer cached in field_data (stored only in RecordRelationLink)
+        assert "author" not in post_record.field_data
 
         # Verify EntityRelationLink was created
         from sqlmodel import select
@@ -1111,8 +1107,9 @@ class TestRelationFieldCreation:
         assert company_record.field_data["name"] == "Tech Corp"
         assert company_record.field_data["founded_year"] == 2020
 
-        # Verify CEO relation (belongs_to is cached)
-        assert "ceo" in company_record.field_data
+        # Relations are no longer cached in field_data (stored only in RecordRelationLink)
+        assert "ceo" not in company_record.field_data
+        assert "employees" not in company_record.field_data
 
         # Verify relation links
         from sqlmodel import select

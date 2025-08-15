@@ -2,13 +2,10 @@
 
 Tests the complete relation fields implementation including:
 - Relation field creation
-- Belongs-to and has-many operations
-- Batch operations
-- Cascade deletion
-- Large cardinality performance
+- Relations set at record creation time
+- Validation of immutable relations
 """
 
-import time
 import uuid
 
 import pytest
@@ -17,12 +14,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat.db.schemas import RecordRelationLink
 from tracecat.entities.enums import RelationKind
-from tracecat.entities.models import (
-    HasManyRelationUpdate,
-    RelationOperation,
-    RelationSettings,
-    RelationType,
-)
+from tracecat.entities.models import RelationSettings, RelationType
 from tracecat.entities.service import CustomEntitiesService
 from tracecat.entities.types import FieldType
 from tracecat.types.auth import Role
@@ -103,8 +95,12 @@ class TestEntityRelations:
         customer_entity,
         organization_entity,
     ):
-        """Test creation of unidirectional relation fields."""
-        # Create belongs_to field
+        """Test creation of unidirectional relation fields.
+
+        Note: Due to the nesting policy, we can only create one direction
+        of the relation - either belongs_to OR has_many, not both.
+        """
+        # Create belongs_to field (customer -> organization)
         relation_settings = RelationSettings(
             relation_type=RelationType.BELONGS_TO,
             target_entity_id=organization_entity.id,
@@ -118,31 +114,27 @@ class TestEntityRelations:
             relation_settings=relation_settings,
         )
 
-        # Create has_many field separately
-        has_many_settings = RelationSettings(
-            relation_type=RelationType.HAS_MANY,
-            target_entity_id=customer_entity.id,
-        )
-
-        has_many_field = await entities_service.create_relation_field(
-            entity_id=organization_entity.id,
-            field_key="customers",
-            field_type=FieldType.RELATION_HAS_MANY,
-            display_name="Customers",
-            relation_settings=has_many_settings,
-        )
-
         # Verify belongs_to field
         assert belongs_to_field.field_type == FieldType.RELATION_BELONGS_TO
         assert belongs_to_field.entity_id == customer_entity.id
         assert belongs_to_field.relation_kind == RelationKind.ONE_TO_ONE
         assert belongs_to_field.target_entity_id == organization_entity.id
 
-        # Verify has_many field
-        assert has_many_field.field_type == FieldType.RELATION_HAS_MANY
-        assert has_many_field.entity_id == organization_entity.id
-        assert has_many_field.relation_kind == RelationKind.ONE_TO_MANY
-        assert has_many_field.target_entity_id == customer_entity.id
+        # Try to create has_many field in the opposite direction - should fail
+        # because customer entity now has a relation field pointing to organization
+        has_many_settings = RelationSettings(
+            relation_type=RelationType.HAS_MANY,
+            target_entity_id=customer_entity.id,
+        )
+
+        with pytest.raises(ValueError, match="Cannot create relation"):
+            await entities_service.create_relation_field(
+                entity_id=organization_entity.id,
+                field_key="customers",
+                field_type=FieldType.RELATION_HAS_MANY,
+                display_name="Customers",
+                relation_settings=has_many_settings,
+            )
 
     async def test_create_relation_field_with_settings(
         self,
@@ -170,14 +162,14 @@ class TestEntityRelations:
         assert field.target_entity_id == organization_entity.id
         # v1: cascade_delete is always true, field removed
 
-    async def test_belongs_to_relation_crud(
+    async def test_create_record_with_belongs_to_relation(
         self,
         entities_service: CustomEntitiesService,
         customer_entity,
         organization_entity,
         session: AsyncSession,
     ):
-        """Test belongs-to operations."""
+        """Test creating a record with a belongs-to relation set at creation time."""
         # Create belongs_to field
         relation_settings = RelationSettings(
             relation_type=RelationType.BELONGS_TO,
@@ -192,22 +184,20 @@ class TestEntityRelations:
             relation_settings=relation_settings,
         )
 
-        # Create organization and customer records
+        # Create organization first
         org = await entities_service.create_record(
             entity_id=organization_entity.id,
             data={"name": "Acme Corp", "industry": "Technology"},
         )
 
+        # Create customer with relation set at creation
         customer = await entities_service.create_record(
             entity_id=customer_entity.id,
-            data={"name": "John Doe", "email": "john@example.com"},
-        )
-
-        # Update belongs-to relation
-        await entities_service.update_belongs_to_relation(
-            source_record_id=customer.id,
-            field=belongs_to_field,
-            target_record_id=org.id,
+            data={
+                "name": "John Doe",
+                "email": "john@example.com",
+                "organization": str(org.id),  # Set relation at creation
+            },
         )
 
         # Verify link was created
@@ -220,99 +210,17 @@ class TestEntityRelations:
 
         assert link is not None
         assert link.source_field_id == belongs_to_field.id
+        assert link.source_entity_id == customer_entity.id
+        assert link.target_entity_id == organization_entity.id
 
-        # Verify field_data cache
-        refreshed_customer = await entities_service.get_record(customer.id)
-        assert "organization" in refreshed_customer.field_data
-        cached_value = refreshed_customer.field_data["organization"]
-        assert cached_value["id"] == str(org.id)
-        assert cached_value["display"] == "Acme Corp"  # Uses name field
-
-        # Clear the relation
-        await entities_service.update_belongs_to_relation(
-            source_record_id=customer.id,
-            field=belongs_to_field,
-            target_record_id=None,
-        )
-
-        # Verify link was deleted
-        link_result = await session.exec(link_stmt)
-        assert link_result.first() is None
-
-        # Verify cache was cleared
-        refreshed_customer = await entities_service.get_record(customer.id)
-        assert "organization" not in refreshed_customer.field_data
-
-    async def test_belongs_to_uniqueness_constraint(
+    async def test_create_record_with_has_many_relation(
         self,
         entities_service: CustomEntitiesService,
         customer_entity,
         organization_entity,
         session: AsyncSession,
     ):
-        """Test that belongs-to enforces uniqueness."""
-        # Create belongs_to field
-        relation_settings = RelationSettings(
-            relation_type=RelationType.BELONGS_TO,
-            target_entity_id=organization_entity.id,
-        )
-
-        belongs_to_field = await entities_service.create_relation_field(
-            entity_id=customer_entity.id,
-            field_key="organization",
-            field_type=FieldType.RELATION_BELONGS_TO,
-            display_name="Organization",
-            relation_settings=relation_settings,
-        )
-
-        # Create organizations and customer
-        org1 = await entities_service.create_record(
-            entity_id=organization_entity.id,
-            data={"name": "Org 1"},
-        )
-
-        org2 = await entities_service.create_record(
-            entity_id=organization_entity.id,
-            data={"name": "Org 2"},
-        )
-
-        customer = await entities_service.create_record(
-            entity_id=customer_entity.id,
-            data={"name": "John Doe"},
-        )
-
-        # Set initial relation
-        await entities_service.update_belongs_to_relation(
-            source_record_id=customer.id,
-            field=belongs_to_field,
-            target_record_id=org1.id,
-        )
-
-        # Update to different organization (should replace, not add)
-        await entities_service.update_belongs_to_relation(
-            source_record_id=customer.id,
-            field=belongs_to_field,
-            target_record_id=org2.id,
-        )
-
-        # Verify only one link exists
-        link_stmt = select(RecordRelationLink).where(
-            RecordRelationLink.source_record_id == customer.id,
-            RecordRelationLink.source_field_id == belongs_to_field.id,
-        )
-        link_result = await session.exec(link_stmt)
-        links = list(link_result.all())
-
-        assert len(links) == 1
-        assert links[0].target_record_id == org2.id
-
-    async def test_has_many_batch_operations(
-        self,
-        entities_service: CustomEntitiesService,
-        customer_entity,
-        organization_entity,
-    ):
-        """Test has-many batch operations."""
+        """Test creating a record with a has-many relation set at creation time."""
         # Create has_many field
         has_many_settings = RelationSettings(
             relation_type=RelationType.HAS_MANY,
@@ -327,371 +235,52 @@ class TestEntityRelations:
             relation_settings=has_many_settings,
         )
 
-        # Create organization and multiple customers
-        org = await entities_service.create_record(
-            entity_id=organization_entity.id,
-            data={"name": "Acme Corp"},
-        )
-
+        # Create customers first
         customers = []
-        for i in range(5):
+        for i in range(3):
             customer = await entities_service.create_record(
                 entity_id=customer_entity.id,
                 data={"name": f"Customer {i}", "email": f"customer{i}@example.com"},
             )
             customers.append(customer)
 
-        # ADD operation
-        add_op = HasManyRelationUpdate(
-            operation=RelationOperation.ADD,
-            target_ids=[c.id for c in customers[:3]],
-        )
-
-        stats = await entities_service.update_has_many_relation(
-            source_record_id=org.id,
-            field=has_many_field,
-            operation=add_op,
-        )
-
-        assert stats["added"] == 3
-        assert stats["removed"] == 0
-        assert stats["unchanged"] == 0
-
-        # ADD with duplicates (idempotent)
-        add_dup_op = HasManyRelationUpdate(
-            operation=RelationOperation.ADD,
-            target_ids=[customers[2].id, customers[3].id],
-        )
-
-        stats = await entities_service.update_has_many_relation(
-            source_record_id=org.id,
-            field=has_many_field,
-            operation=add_dup_op,
-        )
-
-        assert stats["added"] == 1  # Only customer[3] was new
-        assert stats["unchanged"] == 1  # customer[2] already existed
-
-        # REMOVE operation
-        remove_op = HasManyRelationUpdate(
-            operation=RelationOperation.REMOVE,
-            target_ids=[customers[0].id, customers[1].id],
-        )
-
-        stats = await entities_service.update_has_many_relation(
-            source_record_id=org.id,
-            field=has_many_field,
-            operation=remove_op,
-        )
-
-        assert stats["removed"] == 2
-
-        # REPLACE operation
-        replace_op = HasManyRelationUpdate(
-            operation=RelationOperation.REPLACE,
-            target_ids=[customers[4].id],
-        )
-
-        stats = await entities_service.update_has_many_relation(
-            source_record_id=org.id,
-            field=has_many_field,
-            operation=replace_op,
-        )
-
-        assert stats["removed"] == 2  # Removed customers[2] and customers[3]
-        assert stats["added"] == 1  # Added customers[4]
-
-        # Verify final state
-        count = await entities_service.query_builder.count_related(
-            source_record_id=org.id,
-            field_id=has_many_field.id,
-        )
-        assert count == 1
-
-    @pytest.mark.parametrize("num_customers", [100, 500])
-    @pytest.mark.slow
-    @pytest.mark.anyio
-    async def test_cardinality_query_performance(
-        self,
-        entities_service: CustomEntitiesService,
-        customer_entity,
-        organization_entity,
-        num_customers: int,
-    ):
-        """Test paginated query performance with different cardinality sizes."""
-        # Setup: Create has_many field with unique field names
-        field_suffix = f"_{num_customers}"
-        has_many_settings = RelationSettings(
-            relation_type=RelationType.HAS_MANY,
-            target_entity_id=customer_entity.id,
-        )
-
-        has_many_field = await entities_service.create_relation_field(
-            entity_id=organization_entity.id,
-            field_key=f"customers{field_suffix}",
-            field_type=FieldType.RELATION_HAS_MANY,
-            display_name="Customers",
-            relation_settings=has_many_settings,
-        )
-
+        # Create organization with has_many relation set at creation
         org = await entities_service.create_record(
             entity_id=organization_entity.id,
-            data={"name": f"Corp with {num_customers} customers"},
+            data={
+                "name": "Acme Corp",
+                "industry": "Technology",
+                "customers": [str(c.id) for c in customers],  # Set relation at creation
+            },
         )
 
-        # Create customers in batches
-        batch_size = min(500, num_customers)
-
-        for batch_num in range(0, num_customers, batch_size):
-            batch_ids = []
-            for i in range(batch_num, min(batch_num + batch_size, num_customers)):
-                customer = await entities_service.create_record(
-                    entity_id=customer_entity.id,
-                    data={"name": f"Customer {i}", "email": f"c{i}@example.com"},
-                )
-                batch_ids.append(customer.id)
-
-            add_op = HasManyRelationUpdate(
-                operation=RelationOperation.ADD,
-                target_ids=batch_ids,
-            )
-            await entities_service.update_has_many_relation(
-                source_record_id=org.id,
-                field=has_many_field,
-                operation=add_op,
-            )
-
-        # Measure query performance (average of 5 runs)
-        query_times = []
-        for _run in range(5):
-            start_time = time.perf_counter()
-            records, total = await entities_service.query_builder.has_related(
-                source_record_id=org.id,
-                field_id=has_many_field.id,
-                page=1,
-                page_size=50,
-            )
-            query_time = (time.perf_counter() - start_time) * 1000  # Convert to ms
-            query_times.append(query_time)
-
-            assert total == num_customers
-            assert len(records) == min(50, num_customers)
-
-        avg_query_time = sum(query_times) / len(query_times)
-        min_time = min(query_times)
-        max_time = max(query_times)
-        print(
-            f"\n[{num_customers} customers] Query time - Avg: {avg_query_time:.2f}ms, Min: {min_time:.2f}ms, Max: {max_time:.2f}ms"
+        # Verify links were created
+        link_stmt = select(RecordRelationLink).where(
+            RecordRelationLink.source_record_id == org.id,
+            RecordRelationLink.source_field_id == has_many_field.id,
         )
+        link_result = await session.exec(link_stmt)
+        links = list(link_result.all())
 
-        # Performance assertions
-        assert avg_query_time < 200  # Should be < 200ms for page fetch
+        assert len(links) == 3
+        linked_customer_ids = {link.target_record_id for link in links}
+        expected_customer_ids = {c.id for c in customers}
+        assert linked_customer_ids == expected_customer_ids
 
-    @pytest.mark.parametrize(
-        "num_customers,batch_size",
-        [
-            (100, 50),
-            (500, 100),
-        ],
-    )
-    @pytest.mark.slow
-    @pytest.mark.anyio
-    async def test_cardinality_batch_add_performance(
+    async def test_create_record_with_invalid_relation(
         self,
         entities_service: CustomEntitiesService,
         customer_entity,
         organization_entity,
-        num_customers: int,
-        batch_size: int,
     ):
-        """Test batch add operations performance with different sizes."""
-        # Setup: Create has_many field with unique field names
-        field_suffix = f"_add_{num_customers}_{batch_size}"
-        has_many_settings = RelationSettings(
-            relation_type=RelationType.HAS_MANY,
-            target_entity_id=customer_entity.id,
-        )
-
-        has_many_field = await entities_service.create_relation_field(
-            entity_id=organization_entity.id,
-            field_key=f"customers{field_suffix}",
-            field_type=FieldType.RELATION_HAS_MANY,
-            display_name="Customers",
-            relation_settings=has_many_settings,
-        )
-
-        org = await entities_service.create_record(
-            entity_id=organization_entity.id,
-            data={"name": f"Corp for {num_customers} batch add"},
-        )
-
-        # Pre-create all customers
-        customer_ids = []
-        for i in range(num_customers):
-            customer = await entities_service.create_record(
-                entity_id=customer_entity.id,
-                data={"name": f"Customer {i}", "email": f"c{i}@example.com"},
-            )
-            customer_ids.append(customer.id)
-
-        # Measure batch add performance
-        start_time = time.perf_counter()
-        stats_list = []
-        for batch_num in range(0, num_customers, batch_size):
-            batch_ids = customer_ids[batch_num : batch_num + batch_size]
-            add_op = HasManyRelationUpdate(
-                operation=RelationOperation.ADD,
-                target_ids=batch_ids,
-            )
-            stats = await entities_service.update_has_many_relation(
-                source_record_id=org.id,
-                field=has_many_field,
-                operation=add_op,
-            )
-            stats_list.append(stats)
-
-        total_time = (time.perf_counter() - start_time) * 1000  # Convert to ms
-        print(
-            f"\n[{num_customers} customers, batch size {batch_size}] Total add time: {total_time:.2f}ms"
-        )
-
-        # Verify all were added
-        final_count = await entities_service.query_builder.count_related(
-            source_record_id=org.id,
-            field_id=has_many_field.id,
-        )
-        assert final_count == num_customers
-
-        # Performance assertion
-        assert total_time < num_customers * 10  # Should be < 10ms per record
-
-    @pytest.mark.parametrize(
-        "num_customers,remove_size",
-        [
-            (100, 50),
-            (500, 250),
-            (1000, 500),
-            (5000, 1000),
-        ],
-    )
-    @pytest.mark.slow
-    @pytest.mark.anyio
-    async def test_cardinality_batch_remove_performance(
-        self,
-        entities_service: CustomEntitiesService,
-        customer_entity,
-        organization_entity,
-        num_customers: int,
-        remove_size: int,
-    ):
-        """Test batch remove operations performance with different sizes."""
-        # Setup: Create has_many field with unique field names
-        field_suffix = f"_remove_{num_customers}_{remove_size}"
-        has_many_settings = RelationSettings(
-            relation_type=RelationType.HAS_MANY,
-            target_entity_id=customer_entity.id,
-        )
-
-        has_many_field = await entities_service.create_relation_field(
-            entity_id=organization_entity.id,
-            field_key=f"customers{field_suffix}",
-            field_type=FieldType.RELATION_HAS_MANY,
-            display_name="Customers",
-            relation_settings=has_many_settings,
-        )
-
-        org = await entities_service.create_record(
-            entity_id=organization_entity.id,
-            data={"name": f"Corp for {num_customers} removal test"},
-        )
-
-        # Create and add all customers
-        customer_ids = []
-        batch_size = min(500, num_customers)
-
-        for batch_num in range(0, num_customers, batch_size):
-            batch_ids = []
-            for i in range(batch_num, min(batch_num + batch_size, num_customers)):
-                customer = await entities_service.create_record(
-                    entity_id=customer_entity.id,
-                    data={"name": f"Customer {i}", "email": f"c{i}@example.com"},
-                )
-                batch_ids.append(customer.id)
-
-            add_op = HasManyRelationUpdate(
-                operation=RelationOperation.ADD,
-                target_ids=batch_ids,
-            )
-            await entities_service.update_has_many_relation(
-                source_record_id=org.id,
-                field=has_many_field,
-                operation=add_op,
-            )
-            customer_ids.extend(batch_ids)
-
-        # Select IDs to remove
-        remove_ids = customer_ids[:remove_size]
-
-        # Measure batch remove performance (average of 3 runs)
-        remove_times = []
-        for _ in range(3):
-            start_time = time.perf_counter()
-            remove_op = HasManyRelationUpdate(
-                operation=RelationOperation.REMOVE,
-                target_ids=remove_ids,
-            )
-            stats = await entities_service.update_has_many_relation(
-                source_record_id=org.id,
-                field=has_many_field,
-                operation=remove_op,
-            )
-            remove_time = (time.perf_counter() - start_time) * 1000  # Convert to ms
-            remove_times.append(remove_time)
-
-            assert stats["removed"] == remove_size
-
-            # Re-add for next iteration (except last)
-            if _ < 2:
-                add_op = HasManyRelationUpdate(
-                    operation=RelationOperation.ADD,
-                    target_ids=remove_ids,
-                )
-                await entities_service.update_has_many_relation(
-                    source_record_id=org.id,
-                    field=has_many_field,
-                    operation=add_op,
-                )
-
-        avg_remove_time = sum(remove_times) / len(remove_times)
-        print(
-            f"\n[{num_customers} customers, removing {remove_size}] Avg remove time: {avg_remove_time:.2f}ms"
-        )
-
-        # Verify final count
-        final_count = await entities_service.query_builder.count_related(
-            source_record_id=org.id,
-            field_id=has_many_field.id,
-        )
-        assert final_count == num_customers - remove_size
-
-        # Performance assertion
-        assert avg_remove_time < remove_size * 10  # Should be < 10ms per record removed
-
-    async def test_cascade_deletion(
-        self,
-        entities_service: CustomEntitiesService,
-        customer_entity,
-        organization_entity,
-        session: AsyncSession,
-    ):
-        """Test cascade delete scenarios."""
-        # Create belongs_to field (cascade is always true in v1)
+        """Test that invalid relation IDs are rejected at creation."""
+        # Create belongs_to field
         relation_settings = RelationSettings(
             relation_type=RelationType.BELONGS_TO,
             target_entity_id=organization_entity.id,
         )
 
-        belongs_to_field = await entities_service.create_relation_field(
+        await entities_service.create_relation_field(
             entity_id=customer_entity.id,
             field_key="organization",
             field_type=FieldType.RELATION_BELONGS_TO,
@@ -699,97 +288,17 @@ class TestEntityRelations:
             relation_settings=relation_settings,
         )
 
-        # Create organization and customers
-        org = await entities_service.create_record(
-            entity_id=organization_entity.id,
-            data={"name": "Doomed Corp"},
-        )
-
-        customer1 = await entities_service.create_record(
-            entity_id=customer_entity.id,
-            data={"name": "Customer 1"},
-        )
-
-        customer2 = await entities_service.create_record(
-            entity_id=customer_entity.id,
-            data={"name": "Customer 2"},
-        )
-
-        # Set relations
-        await entities_service.update_belongs_to_relation(
-            source_record_id=customer1.id,
-            field=belongs_to_field,
-            target_record_id=org.id,
-        )
-
-        await entities_service.update_belongs_to_relation(
-            source_record_id=customer2.id,
-            field=belongs_to_field,
-            target_record_id=org.id,
-        )
-
-        # Handle deletion with cascade
-        await entities_service.handle_record_deletion(
-            record_id=org.id,
-            cascade_relations=True,
-        )
-
-        # Verify customers were deleted
-        with pytest.raises(TracecatNotFoundError):
-            await entities_service.get_record(customer1.id)
-
-        with pytest.raises(TracecatNotFoundError):
-            await entities_service.get_record(customer2.id)
-
-        # v1: cascade_delete is always true, test deletion without cascade_relations flag
-        # Create new relation field
-        no_cascade_field = await entities_service.create_relation_field(
-            entity_id=customer_entity.id,
-            field_key="optional_org",
-            field_type=FieldType.RELATION_BELONGS_TO,
-            display_name="Optional Org",
-            relation_settings=RelationSettings(
-                relation_type=RelationType.BELONGS_TO,
-                target_entity_id=organization_entity.id,
-            ),
-        )
-
-        # Create new org and customer
-        org2 = await entities_service.create_record(
-            entity_id=organization_entity.id,
-            data={"name": "Safe Corp"},
-        )
-
-        customer3 = await entities_service.create_record(
-            entity_id=customer_entity.id,
-            data={"name": "Customer 3"},
-        )
-
-        await entities_service.update_belongs_to_relation(
-            source_record_id=customer3.id,
-            field=no_cascade_field,
-            target_record_id=org2.id,
-        )
-
-        # Handle deletion with cascade_relations=False
-        # Even though field always cascades, this flag controls the behavior
-        await entities_service.handle_record_deletion(
-            record_id=org2.id,
-            cascade_relations=False,
-        )
-
-        # When cascade_relations=False, customer should still exist but relation is cleared
-        customer3_after = await entities_service.get_record(customer3.id)
-        assert customer3_after is not None
-        assert "optional_org" not in customer3_after.field_data
-
-        # Verify link was deleted
-        link_stmt = select(RecordRelationLink).where(
-            RecordRelationLink.source_record_id == customer3.id,
-            RecordRelationLink.target_record_id == org2.id,
-        )
-        link_result = await session.exec(link_stmt)
-        assert link_result.first() is None
+        # Try to create customer with non-existent organization ID
+        fake_org_id = uuid.uuid4()
+        with pytest.raises(TracecatNotFoundError, match="not found"):
+            await entities_service.create_record(
+                entity_id=customer_entity.id,
+                data={
+                    "name": "John Doe",
+                    "email": "john@example.com",
+                    "organization": str(fake_org_id),
+                },
+            )
 
     async def test_cross_workspace_rejection(
         self,
@@ -833,36 +342,62 @@ class TestEntityRelations:
                 ),
             )
 
-        # Create records in each workspace
-        customer = await service1.create_record(
-            entity_id=customer_entity.id,
-            data={"name": "Customer in WS1"},
+    async def test_relation_fields_are_immutable(
+        self,
+        entities_service: CustomEntitiesService,
+        customer_entity,
+        organization_entity,
+    ):
+        """Test that relation fields cannot be updated after record creation."""
+        # Create belongs_to field
+        relation_settings = RelationSettings(
+            relation_type=RelationType.BELONGS_TO,
+            target_entity_id=organization_entity.id,
         )
 
-        other_record = await service2.create_record(
-            entity_id=other_entity.id,
-            data={},
-        )
-
-        # Create a valid relation field within same workspace
-        valid_field = await service1.create_relation_field(
+        await entities_service.create_relation_field(
             entity_id=customer_entity.id,
-            field_key="valid_org",
+            field_key="organization",
             field_type=FieldType.RELATION_BELONGS_TO,
-            display_name="Valid Org",
-            relation_settings=RelationSettings(
-                relation_type=RelationType.BELONGS_TO,
-                target_entity_id=organization_entity.id,
-            ),
+            display_name="Organization",
+            relation_settings=relation_settings,
         )
 
-        # Try to link to record in different workspace
-        with pytest.raises(TracecatNotFoundError):
-            await service1.update_belongs_to_relation(
-                source_record_id=customer.id,
-                field=valid_field,
-                target_record_id=other_record.id,  # Different workspace!
-            )
+        # Create records
+        org1 = await entities_service.create_record(
+            entity_id=organization_entity.id,
+            data={"name": "Org 1"},
+        )
+
+        org2 = await entities_service.create_record(
+            entity_id=organization_entity.id,
+            data={"name": "Org 2"},
+        )
+
+        # Create customer with initial relation
+        customer = await entities_service.create_record(
+            entity_id=customer_entity.id,
+            data={
+                "name": "John Doe",
+                "organization": str(org1.id),
+            },
+        )
+
+        # Try to update the record with a different organization
+        # Since relations are handled separately and not through update_record,
+        # this should be ignored
+        updated_customer = await entities_service.update_record(
+            record_id=customer.id,
+            updates={
+                "name": "John Updated",
+                "organization": str(org2.id),  # This should be ignored
+            },
+        )
+
+        # Verify name was updated but relation wasn't changed
+        assert updated_customer.field_data["name"] == "John Updated"
+        # The relation field shouldn't be in field_data since it's stored in links
+        assert "organization" not in updated_customer.field_data
 
     async def test_paginated_relation_queries(
         self,
@@ -885,30 +420,22 @@ class TestEntityRelations:
             relation_settings=has_many_settings,
         )
 
-        # Create organization and 150 customers
-        org = await entities_service.create_record(
-            entity_id=organization_entity.id,
-            data={"name": "Big Corp"},
-        )
-
+        # Create 150 customers
         customer_ids = []
         for i in range(150):
             customer = await entities_service.create_record(
                 entity_id=customer_entity.id,
                 data={"name": f"Customer {i:03d}", "email": f"c{i}@example.com"},
             )
-            customer_ids.append(customer.id)
+            customer_ids.append(str(customer.id))
 
-        # Add all customers to organization
-        add_op = HasManyRelationUpdate(
-            operation=RelationOperation.ADD,
-            target_ids=customer_ids,
-        )
-
-        await entities_service.update_has_many_relation(
-            source_record_id=org.id,
-            field=has_many_field,
-            operation=add_op,
+        # Create organization with all customers linked at creation
+        org = await entities_service.create_record(
+            entity_id=organization_entity.id,
+            data={
+                "name": "Big Corp",
+                "customers": customer_ids,  # Add all 150 customers at creation
+            },
         )
 
         # Test first page

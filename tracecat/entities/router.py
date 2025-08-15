@@ -8,7 +8,6 @@ from fastapi import APIRouter, HTTPException, Query, status
 from tracecat.auth.credentials import RoleACL
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.entities.models import (
-    BelongsToRelationUpdate,
     EntityCreate,
     EntityRead,
     EntitySchemaField,
@@ -18,18 +17,13 @@ from tracecat.entities.models import (
     FieldMetadataCreate,
     FieldMetadataRead,
     FieldMetadataUpdate,
-    HasManyRelationUpdate,
     QueryRequest,
     QueryResponse,
     RecordCreate,
     RecordRead,
     RecordUpdate,
-    RelationListRequest,
-    RelationListResponse,
-    RelationUpdateResponse,
 )
 from tracecat.entities.service import CustomEntitiesService
-from tracecat.entities.types import FieldType
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatNotFoundError
 
@@ -463,154 +457,6 @@ async def query_records(
         raise HTTPException(status_code=400, detail=str(e)) from e
     except TracecatNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
-
-
-# Record Relation Endpoints
-
-
-@router.put(
-    "/records/{record_id}/relations/{field_key}",
-    response_model=RelationUpdateResponse,
-)
-async def update_record_relation(
-    *,
-    role: WorkspaceUser,
-    session: AsyncDBSession,
-    record_id: UUID,
-    field_key: str,
-    value: BelongsToRelationUpdate | HasManyRelationUpdate,
-) -> RelationUpdateResponse:
-    """Update a relation field value.
-
-    For belongs_to: Accept BelongsToRelationUpdate
-    For has_many: Accept HasManyRelationUpdate
-    """
-    service = CustomEntitiesService(session, role)
-
-    try:
-        # Get the record and field metadata
-        record = await service.get_record(record_id)
-
-        # Get the field by key
-        field = await service.get_field_by_key(record.entity_id, field_key)
-
-        if not field:
-            raise TracecatNotFoundError(f"Field '{field_key}' not found")
-
-        # Check if it's a relation field
-        if field.field_type not in (
-            FieldType.RELATION_BELONGS_TO,
-            FieldType.RELATION_HAS_MANY,
-        ):
-            raise ValueError(f"Field '{field_key}' is not a relation field")
-
-        # Handle based on field type
-        if field.field_type == FieldType.RELATION_BELONGS_TO:
-            # Validate value is BelongsToRelationUpdate
-            if not isinstance(value, BelongsToRelationUpdate):
-                raise HTTPException(
-                    status_code=400,
-                    detail="Belongs-to relation expects BelongsToRelationUpdate",
-                )
-
-            await service.update_belongs_to_relation(
-                source_record_id=record_id,
-                field=field,
-                target_record_id=value.target_id,
-            )
-
-            return RelationUpdateResponse(
-                message="Relation updated",
-                target_id=str(value.target_id) if value.target_id else None,
-            )
-
-        else:  # RELATION_HAS_MANY
-            # Validate value is HasManyRelationUpdate
-            if not isinstance(value, HasManyRelationUpdate):
-                raise HTTPException(
-                    status_code=400,
-                    detail="Has-many relation expects HasManyRelationUpdate",
-                )
-
-            stats = await service.update_has_many_relation(
-                source_record_id=record_id,
-                field=field,
-                operation=value,
-            )
-
-            return RelationUpdateResponse(
-                message="Relation updated",
-                stats=stats,
-            )
-
-    except TracecatNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
-
-
-@router.get(
-    "/records/{record_id}/relations/{field_key}", response_model=RelationListResponse
-)
-async def list_related_records(
-    *,
-    role: WorkspaceUser,
-    session: AsyncDBSession,
-    record_id: UUID,
-    field_key: str,
-    request: RelationListRequest = RelationListRequest(),
-) -> RelationListResponse:
-    """List related records with pagination.
-
-    REQUIRED: Pagination parameters (page, page_size)
-    Max page_size: 100
-    """
-    service = CustomEntitiesService(session, role)
-
-    try:
-        # Get the record and field metadata
-        record = await service.get_record(record_id)
-
-        # Get the field by key
-        field = await service.get_field_by_key(record.entity_id, field_key)
-
-        if not field:
-            raise TracecatNotFoundError(f"Field '{field_key}' not found")
-
-        # Check if it's a relation field
-        if field.field_type not in (
-            FieldType.RELATION_BELONGS_TO,
-            FieldType.RELATION_HAS_MANY,
-        ):
-            raise ValueError(f"Field '{field_key}' is not a relation field")
-
-        # Query related records
-        filters = [f.model_dump() for f in request.filters] if request.filters else None
-
-        records, total = await service.query_builder.has_related(
-            source_record_id=record_id,
-            field_id=field.id,
-            target_filters=filters,
-            page=request.page,
-            page_size=request.page_size,
-        )
-
-        has_next = (request.page * request.page_size) < total
-
-        return RelationListResponse(
-            records=[
-                RecordRead.model_validate(r, from_attributes=True) for r in records
-            ],
-            total=total,
-            page=request.page,
-            page_size=request.page_size,
-            has_next=has_next,
-        )
-
-    except TracecatNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 # Schema Inspection

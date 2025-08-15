@@ -1,7 +1,6 @@
 """Pydantic models for custom entities API."""
 
 from datetime import datetime
-from enum import StrEnum
 from typing import Any, Self
 from uuid import UUID
 
@@ -20,7 +19,6 @@ from tracecat.entities.types import FieldType, validate_field_key_format
 from tracecat.entities.validation import (
     validate_default_value_type,
     validate_enum_options,
-    validate_relation_uuid,
 )
 
 # Entity Models
@@ -320,102 +318,7 @@ class BulkCreateResponse(BaseModel):
     )
 
 
-# Relation Operation Models
-
-
-class RelationOperation(StrEnum):
-    """Types of operations on relation fields."""
-
-    ADD = "add"
-    REMOVE = "remove"
-    REPLACE = "replace"
-
-
-class BelongsToRelationUpdate(BaseModel):
-    """Update payload for belongs_to relation fields."""
-
-    target_id: UUID | None = Field(
-        ...,
-        description="UUID of target record or None to clear relation",
-    )
-
-    @field_validator("target_id", mode="before")
-    @classmethod
-    def validate_target_id(cls, v: Any) -> UUID | None:
-        """Validate and convert target ID to UUID."""
-        # Use shared validator
-        return validate_relation_uuid(v, allow_none=True, context="target_id")
-
-
-class HasManyRelationUpdate(BaseModel):
-    """Update payload for has_many relation fields."""
-
-    operation: RelationOperation
-    target_ids: list[UUID] = Field(
-        ...,
-        description="UUIDs of target records to add/remove/replace",
-        min_length=0,
-        max_length=1000,  # Batch size limit
-    )
-
-    @field_validator("target_ids", mode="before")
-    @classmethod
-    def validate_target_ids(cls, v: list[Any]) -> list[UUID]:
-        """Validate and convert target IDs to UUIDs."""
-        validated_ids = []
-        for idx, tid in enumerate(v):
-            try:
-                validated_id = validate_relation_uuid(
-                    tid, allow_none=False, context=f"target_id at index {idx}"
-                )
-                if (
-                    validated_id is not None
-                ):  # Should never be None with allow_none=False
-                    validated_ids.append(validated_id)
-            except PydanticCustomError as e:
-                # Re-raise with index context
-                raise PydanticCustomError(
-                    "invalid_target_id",
-                    "Invalid UUID at index {idx}: {message}",
-                    {"idx": idx, "message": e.message()},
-                ) from e
-        return validated_ids
-
-
-class RelationListRequest(BaseModel):
-    """Request for listing related records."""
-
-    page: int = Field(default=1, ge=1)
-    page_size: int = Field(default=50, ge=1, le=100)
-    filters: list["QueryFilter"] | None = Field(
-        default=None,
-        description="Optional filters on target records",
-    )
-
-
-class RelationListResponse(BaseModel):
-    """Response for related records listing."""
-
-    records: list[RecordRead]
-    total: int
-    page: int
-    page_size: int
-    has_next: bool
-
-
 # Additional Response Models
-
-
-class RelationUpdateResponse(BaseModel):
-    """Response for relation field updates."""
-
-    message: str
-    target_id: str | None = Field(
-        default=None, description="Target record ID for belongs_to updates"
-    )
-    stats: dict[str, Any] | None = Field(
-        default=None, description="Statistics for has_many updates"
-    )
 
 
 class EntitySchemaField(BaseModel):

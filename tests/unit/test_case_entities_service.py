@@ -662,9 +662,9 @@ class TestCaseEntitiesService:
         assert found_entity.display_name is not None
 
         # Verify keys from input exist in field_data
-        # Note: Some fields like "projects" (has_many) are stored via relation links
+        # Note: Relation fields are stored via relation links and not in field_data
         for key in record_data.keys():
-            if key not in {"projects"}:  # has_many relations stored separately
+            if key not in {"projects", "department"}:  # relations stored separately
                 assert key in found_record.field_data
 
         # Update record via case service
@@ -1037,11 +1037,8 @@ class TestCaseEntitiesServiceAdditional:
         assert isinstance(field_data["multi_select"], list)
         assert set(field_data["multi_select"]) == {"x", "z"}
 
-        # Relation fields - belongs_to is cached in field_data
-        assert "department" in field_data
-        assert isinstance(field_data["department"], dict)
-        assert "id" in field_data["department"]
-        assert "display" in field_data["department"]
+        # Relation fields are NOT in field_data (stored as links)
+        assert "department" not in field_data
 
         # Has_many relations are NOT in field_data (stored as links)
         assert "projects" not in field_data
