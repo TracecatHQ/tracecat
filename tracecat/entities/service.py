@@ -26,6 +26,7 @@ from tracecat.entities.common import (
 from tracecat.entities.enums import RelationKind
 from tracecat.entities.models import (
     EntityCreate,
+    EntitySchemaResult,
     FieldMetadataCreate,
     HasManyRelationUpdate,
     RelationOperation,
@@ -187,6 +188,93 @@ class CustomEntitiesService(BaseWorkspaceService):
         return list(result.all())
 
     @require_access_level(AccessLevel.ADMIN)
+    async def update_entity(
+        self,
+        entity_id: UUID,
+        display_name: str | None = None,
+        description: str | None = None,
+        icon: str | None = None,
+    ) -> Entity:
+        """Update entity display properties.
+
+        Args:
+            entity_id: Entity to update
+            display_name: New display name
+            description: New description
+            icon: New icon
+
+        Returns:
+            Updated Entity
+
+        Raises:
+            TracecatNotFoundError: If entity not found
+        """
+        entity = await self.get_entity(entity_id)
+
+        if display_name is not None:
+            entity.display_name = display_name
+        if description is not None:
+            entity.description = description
+        if icon is not None:
+            entity.icon = icon
+
+        await self.session.commit()
+        await self.session.refresh(entity)
+        return entity
+
+    @require_access_level(AccessLevel.ADMIN)
+    async def deactivate_entity(self, entity_id: UUID) -> Entity:
+        """Soft delete entity.
+
+        Args:
+            entity_id: Entity to deactivate
+
+        Returns:
+            Deactivated Entity
+
+        Raises:
+            TracecatNotFoundError: If entity not found
+            ValueError: If entity already inactive
+        """
+        entity = await self.get_entity(entity_id)
+
+        if not entity.is_active:
+            raise ValueError("Entity is already inactive")
+
+        entity.is_active = False
+        await self.session.commit()
+        await self.session.refresh(entity)
+
+        logger.info(f"Deactivated entity {entity.name}")
+        return entity
+
+    @require_access_level(AccessLevel.ADMIN)
+    async def reactivate_entity(self, entity_id: UUID) -> Entity:
+        """Reactivate soft-deleted entity.
+
+        Args:
+            entity_id: Entity to reactivate
+
+        Returns:
+            Reactivated Entity
+
+        Raises:
+            TracecatNotFoundError: If entity not found
+            ValueError: If entity already active
+        """
+        entity = await self.get_entity(entity_id)
+
+        if entity.is_active:
+            raise ValueError("Entity is already active")
+
+        entity.is_active = True
+        await self.session.commit()
+        await self.session.refresh(entity)
+
+        logger.info(f"Reactivated entity {entity.name}")
+        return entity
+
+    @require_access_level(AccessLevel.ADMIN)
     async def delete_entity(self, entity_id: UUID) -> None:
         """Permanently delete an entity and all associated data.
 
@@ -339,6 +427,26 @@ class CustomEntitiesService(BaseWorkspaceService):
             raise TracecatNotFoundError(f"Field {field_id} not found")
 
         return field
+
+    async def get_field_by_key(
+        self, entity_id: UUID, field_key: str
+    ) -> FieldMetadata | None:
+        """Get field by entity ID and field key.
+
+        Args:
+            entity_id: Entity metadata ID
+            field_key: Field key
+
+        Returns:
+            FieldMetadata or None if not found
+        """
+        stmt = select(FieldMetadata).where(
+            FieldMetadata.entity_id == entity_id,
+            FieldMetadata.field_key == field_key,
+            FieldMetadata.is_active,
+        )
+        result = await self.session.exec(stmt)
+        return result.first()
 
     async def list_fields(
         self, entity_id: UUID, include_inactive: bool = False
@@ -731,16 +839,13 @@ class CustomEntitiesService(BaseWorkspaceService):
         source_record_id: UUID,
         field: FieldMetadata,
         operation: HasManyRelationUpdate,
-    ) -> dict[str, int]:
+    ) -> None:
         """Process has-many relation updates in batches.
 
         Args:
             source_record_id: The record that owns the has_many relation
             field: The has_many field metadata
             operation: The batch operation to perform
-
-        Returns:
-            Statistics dict with keys: added, removed, unchanged
 
         Raises:
             TracecatNotFoundError: If records not found
@@ -751,8 +856,6 @@ class CustomEntitiesService(BaseWorkspaceService):
 
         if source_record.entity_id != field.entity_id:
             raise ValueError("Field doesn't belong to the record's entity")
-
-        stats = {"added": 0, "removed": 0, "unchanged": 0}
 
         # Validate all target records exist and have same owner
         target_entity_id = field.target_entity_id
@@ -792,7 +895,6 @@ class CustomEntitiesService(BaseWorkspaceService):
 
             for link in existing_links:
                 await self.session.delete(link)
-            stats["removed"] = len(existing_links)
 
             # Add new links
             for batch_ids in self._batch_ids(operation.target_ids, batch_size=500):
@@ -806,7 +908,6 @@ class CustomEntitiesService(BaseWorkspaceService):
                         target_record_id=target_id,
                     )
                     self.session.add(new_link)
-                    stats["added"] += 1
 
         elif operation.operation == RelationOperation.ADD:
             # Get existing links to check for duplicates
@@ -833,9 +934,6 @@ class CustomEntitiesService(BaseWorkspaceService):
                             target_record_id=target_id,
                         )
                         self.session.add(new_link)
-                        stats["added"] += 1
-                    else:
-                        stats["unchanged"] += 1
 
         elif operation.operation == RelationOperation.REMOVE:
             # Delete specified links
@@ -851,10 +949,8 @@ class CustomEntitiesService(BaseWorkspaceService):
 
                     for link in links_to_delete:
                         await self.session.delete(link)
-                        stats["removed"] += 1
 
         await self.session.commit()
-        return stats
 
     def _batch_ids(self, ids: list[UUID], batch_size: int = 500):
         """Split IDs into batches for processing.
@@ -1300,3 +1396,23 @@ class CustomEntitiesService(BaseWorkspaceService):
             __config__=ConfigDict(extra="forbid"),
             **field_definitions,
         )
+
+    async def get_entity_schema(self, entity_id: UUID) -> EntitySchemaResult:
+        """Get entity schema information for UI/validation.
+
+        Args:
+            entity_id: Entity metadata ID
+
+        Returns:
+            Tuple of (Entity, list of active FieldMetadata)
+
+        Raises:
+            TracecatNotFoundError: If entity not found
+        """
+        # Get entity
+        entity = await self.get_entity(entity_id)
+
+        # Get active fields
+        fields = await self.list_fields(entity_id, include_inactive=False)
+
+        return EntitySchemaResult(entity=entity, fields=fields)
