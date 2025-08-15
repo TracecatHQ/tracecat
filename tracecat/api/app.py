@@ -286,11 +286,11 @@ def create_app(**kwargs) -> FastAPI:
 
     # Exception handlers
     app.add_exception_handler(Exception, generic_exception_handler)
-    app.add_exception_handler(TracecatException, tracecat_exception_handler)  # type: ignore  # type: ignore
-    app.add_exception_handler(RequestValidationError, validation_exception_handler)  # type: ignore
+    app.add_exception_handler(TracecatException, tracecat_exception_handler)
+    app.add_exception_handler(RequestValidationError, validation_exception_handler)
     app.add_exception_handler(
         FastAPIUsersException,
-        fastapi_users_auth_exception_handler,  # type: ignore
+        fastapi_users_auth_exception_handler,
     )
 
     # Middleware

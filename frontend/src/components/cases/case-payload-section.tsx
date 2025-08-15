@@ -23,7 +23,7 @@ function NoPaylod() {
   return (
     <div className="flex flex-col items-center justify-center py-4">
       <div className="p-2 rounded-full bg-muted/50 mb-3">
-        <Braces className="h-6 w-6 text-muted-foreground" />
+        <Braces className="h-5 w-5 text-muted-foreground" />
       </div>
       <h3 className="text-sm font-medium text-muted-foreground mb-1">
         No payload available
