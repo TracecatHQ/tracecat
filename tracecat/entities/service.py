@@ -4,12 +4,11 @@ from datetime import UTC, datetime
 from typing import Any, cast
 from uuid import UUID
 
-from pydantic import UUID4, BaseModel, ConfigDict, ValidationError, create_model
+from pydantic import BaseModel, ConfigDict, ValidationError, create_model
 from pydantic import Field as PydanticField
 from sqlalchemy.orm.attributes import flag_modified
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
-from sqlmodel.sql.expression import SelectOfScalar
 
 from tracecat.authz.controls import require_access_level
 from tracecat.db.schemas import (
@@ -19,7 +18,6 @@ from tracecat.db.schemas import (
     RecordRelationLink,
 )
 from tracecat.entities.common import (
-    format_belongs_to_cache,
     serialize_value,
     validate_relation_settings,
 )
@@ -28,8 +26,6 @@ from tracecat.entities.models import (
     EntityCreate,
     EntitySchemaResult,
     FieldMetadataCreate,
-    HasManyRelationUpdate,
-    RelationOperation,
     RelationSettings,
 )
 from tracecat.entities.query import EntityQueryBuilder
@@ -42,10 +38,11 @@ from tracecat.entities.validation import (
     FieldValidators,
     RecordValidators,
     RelationValidators,
+    validate_default_value_type,
 )
 from tracecat.logger import logger
 from tracecat.service import BaseWorkspaceService
-from tracecat.types.auth import AccessLevel
+from tracecat.types.auth import AccessLevel, Role
 from tracecat.types.exceptions import TracecatNotFoundError
 
 
@@ -61,7 +58,7 @@ class CustomEntitiesService(BaseWorkspaceService):
 
     service_name = "custom_entities"
 
-    def __init__(self, session: AsyncSession, role=None):
+    def __init__(self, session: AsyncSession, role: Role | None = None):
         """Initialize service with session and role."""
         super().__init__(session, role)
         self.query_builder = EntityQueryBuilder(session)
@@ -734,280 +731,7 @@ class CustomEntitiesService(BaseWorkspaceService):
         await self.session.refresh(field)
         return field
 
-    # Relation Record Operations
-
-    async def update_belongs_to_relation(
-        self,
-        source_record_id: UUID,
-        field: FieldMetadata,
-        target_record_id: UUID | None,
-    ) -> None:
-        """Update or clear a belongs-to relation.
-
-        Args:
-            source_record_id: The record that owns the relation
-            field: The belongs_to field metadata
-            target_record_id: The target record ID or None to clear
-
-        Raises:
-            TracecatNotFoundError: If records not found
-            ValueError: If validation fails
-        """
-        # Validate source record exists
-        source_record = await self.get_record(source_record_id)
-
-        # If clearing the relation
-        if target_record_id is None:
-            # Delete existing link if any
-            existing_link_stmt = select(RecordRelationLink).where(
-                RecordRelationLink.source_record_id == source_record_id,
-                RecordRelationLink.source_field_id == field.id,
-            )
-            existing_result = await self.session.exec(existing_link_stmt)
-            existing_link = existing_result.first()
-
-            if existing_link:
-                await self.session.delete(existing_link)
-
-            # Clear from field_data cache if present
-            if field.field_key in source_record.field_data:
-                del source_record.field_data[field.field_key]
-                flag_modified(source_record, "field_data")
-
-            await self.session.commit()
-            return
-
-        # Validate target record exists and has same owner
-        # Ensure target entity id is present for relation fields
-        target_entity_id = field.target_entity_id
-        if target_entity_id is None:
-            raise ValueError("Relation field is missing target entity id")
-
-        target_record_stmt = select(Record).where(
-            Record.id == target_record_id,
-            Record.owner_id == self.workspace_id,
-            Record.entity_id == target_entity_id,
-        )
-        target_result = await self.session.exec(target_record_stmt)
-        target_record = target_result.first()
-
-        if not target_record:
-            raise TracecatNotFoundError(
-                f"Target record {target_record_id} not found or doesn't match target entity"
-            )
-
-        # Delete existing link if any (for idempotency)
-        existing_link_stmt = select(RecordRelationLink).where(
-            RecordRelationLink.source_record_id == source_record_id,
-            RecordRelationLink.source_field_id == field.id,
-        )
-        existing_result = await self.session.exec(existing_link_stmt)
-        existing_link = existing_result.first()
-
-        if existing_link:
-            await self.session.delete(existing_link)
-
-        # Create new link
-        new_link = RecordRelationLink(
-            owner_id=self.workspace_id,
-            source_entity_id=source_record.entity_id,
-            source_field_id=field.id,
-            source_record_id=source_record_id,
-            target_entity_id=cast(UUID4, target_entity_id),
-            target_record_id=target_record_id,
-        )
-
-        self.session.add(new_link)
-
-        # Optionally cache in field_data for faster reads
-        # Get a display value if possible (e.g., name field)
-        display_value = None
-        if "name" in target_record.field_data:
-            display_value = target_record.field_data["name"]
-        elif "title" in target_record.field_data:
-            display_value = target_record.field_data["title"]
-
-        source_record.field_data[field.field_key] = format_belongs_to_cache(
-            target_record_id, display_value
-        )
-        flag_modified(source_record, "field_data")
-
-        await self.session.commit()
-
-    async def update_has_many_relation(
-        self,
-        source_record_id: UUID,
-        field: FieldMetadata,
-        operation: HasManyRelationUpdate,
-    ) -> None:
-        """Process has-many relation updates in batches.
-
-        Args:
-            source_record_id: The record that owns the has_many relation
-            field: The has_many field metadata
-            operation: The batch operation to perform
-
-        Raises:
-            TracecatNotFoundError: If records not found
-            ValueError: If validation fails
-        """
-        # Validate source record exists
-        source_record = await self.get_record(source_record_id)
-
-        if source_record.entity_id != field.entity_id:
-            raise ValueError("Field doesn't belong to the record's entity")
-
-        # Validate all target records exist and have same owner
-        target_entity_id = field.target_entity_id
-        if target_entity_id is None:
-            raise ValueError("Relation field is missing target entity id")
-        if operation.target_ids:
-            # Check in batches for performance
-            for batch_ids in self._batch_ids(operation.target_ids, batch_size=500):
-                # Cast to Any to satisfy type checker for SQLAlchemy expression API
-                target_stmt = select(Record).where(
-                    cast(Any, Record.id).in_(batch_ids),
-                    Record.owner_id == self.workspace_id,
-                    Record.entity_id == target_entity_id,
-                )
-                target_result = await self.session.exec(target_stmt)
-                found_ids = {str(record.id) for record in target_result.all()}
-
-                # Convert UUIDs to strings for comparison
-                batch_ids_str = {
-                    str(id) if isinstance(id, UUID) else id for id in batch_ids
-                }
-                missing_ids = batch_ids_str - found_ids
-
-                if missing_ids:
-                    raise TracecatNotFoundError(
-                        f"Target records not found or don't match target entity: {missing_ids}"
-                    )
-
-        if operation.operation == RelationOperation.REPLACE:
-            # Delete all existing links
-            delete_stmt = select(RecordRelationLink).where(
-                RecordRelationLink.source_record_id == source_record_id,
-                RecordRelationLink.source_field_id == field.id,
-            )
-            existing_result = await self.session.exec(delete_stmt)
-            existing_links = list(existing_result.all())
-
-            for link in existing_links:
-                await self.session.delete(link)
-
-            # Add new links
-            for batch_ids in self._batch_ids(operation.target_ids, batch_size=500):
-                for target_id in batch_ids:
-                    new_link = RecordRelationLink(
-                        owner_id=self.workspace_id,
-                        source_entity_id=field.entity_id,
-                        source_field_id=field.id,
-                        source_record_id=source_record_id,
-                        target_entity_id=cast(UUID4, target_entity_id),
-                        target_record_id=target_id,
-                    )
-                    self.session.add(new_link)
-
-        elif operation.operation == RelationOperation.ADD:
-            # Get existing links to check for duplicates
-            existing_stmt = select(RecordRelationLink.target_record_id).where(
-                RecordRelationLink.source_record_id == source_record_id,
-                RecordRelationLink.source_field_id == field.id,
-            )
-            existing_result = await self.session.exec(existing_stmt)
-            existing_target_ids = {str(id) for id in existing_result.all()}
-
-            # Add only new links
-            for batch_ids in self._batch_ids(operation.target_ids, batch_size=500):
-                for target_id in batch_ids:
-                    target_id_str = (
-                        str(target_id) if isinstance(target_id, UUID) else target_id
-                    )
-                    if target_id_str not in existing_target_ids:
-                        new_link = RecordRelationLink(
-                            owner_id=self.workspace_id,
-                            source_entity_id=field.entity_id,
-                            source_field_id=field.id,
-                            source_record_id=source_record_id,
-                            target_entity_id=cast(UUID4, target_entity_id),
-                            target_record_id=target_id,
-                        )
-                        self.session.add(new_link)
-
-        elif operation.operation == RelationOperation.REMOVE:
-            # Delete specified links
-            if operation.target_ids:
-                for batch_ids in self._batch_ids(operation.target_ids, batch_size=500):
-                    delete_stmt = select(RecordRelationLink).where(
-                        RecordRelationLink.source_record_id == source_record_id,
-                        RecordRelationLink.source_field_id == field.id,
-                        cast(Any, RecordRelationLink.target_record_id).in_(batch_ids),
-                    )
-                    delete_result = await self.session.exec(delete_stmt)
-                    links_to_delete = list(delete_result.all())
-
-                    for link in links_to_delete:
-                        await self.session.delete(link)
-
-        await self.session.commit()
-
-    def _batch_ids(self, ids: list[UUID], batch_size: int = 500):
-        """Split IDs into batches for processing.
-
-        Args:
-            ids: List of UUIDs to batch
-            batch_size: Size of each batch
-
-        Yields:
-            Batches of IDs
-        """
-        for i in range(0, len(ids), batch_size):
-            yield ids[i : i + batch_size]
-
-    async def _process_relation_fields_on_create(
-        self,
-        record: Record,
-        relation_fields: dict[str, FieldMetadata],
-        relation_data: dict[str, Any],
-    ) -> None:
-        """Process relation fields when creating a record.
-
-        Args:
-            record: The newly created record
-            relation_fields: Dictionary of relation field metadata
-            relation_data: Dictionary of relation values to process
-        """
-        for field_key, value in relation_data.items():
-            if value is None:
-                continue
-
-            field = relation_fields[field_key]
-
-            if field.relation_kind == RelationKind.ONE_TO_ONE:
-                # Handle belongs_to relation
-                target_id = UUID(value) if isinstance(value, str) else value
-                await self.update_belongs_to_relation(
-                    source_record_id=record.id,
-                    field=field,
-                    target_record_id=target_id,
-                )
-            elif field.relation_kind == RelationKind.ONE_TO_MANY:
-                # Handle has_many relation - use REPLACE operation for initial creation
-                target_ids = []
-                for item in value:
-                    target_id = UUID(item) if isinstance(item, str) else item
-                    target_ids.append(target_id)
-
-                operation = HasManyRelationUpdate(
-                    operation=RelationOperation.REPLACE,
-                    target_ids=target_ids,
-                )
-                await self.update_has_many_relation(
-                    source_record_id=record.id,
-                    field=field,
-                    operation=operation,
-                )
+    # Relation handling helpers
 
     async def handle_record_deletion(
         self,
@@ -1079,76 +803,28 @@ class CustomEntitiesService(BaseWorkspaceService):
     # Data Operations
 
     async def create_record(self, entity_id: UUID, data: dict[str, Any]) -> Record:
-        """Create a new entity record.
-
-        Args:
-            entity_id: Entity metadata ID
-            data: Field data (validated against active fields)
-
-        Returns:
-            Created Record
-
-        Raises:
-            ValidationError: If data invalid
-            ValueError: If contains nested objects
-        """
-        # Get active fields
+        """Create a new entity record."""
         active_fields = await self.list_fields(entity_id, include_inactive=False)
 
-        # Separate relation fields from regular fields
-        relation_fields = {f.field_key: f for f in active_fields if f.relation_kind}
-        regular_fields = [f for f in active_fields if not f.relation_kind]
+        relation_fields, regular_fields, field_map = (
+            self._split_relation_and_regular_fields(active_fields)
+        )
 
-        # Extract relation data before processing
-        relation_data = {}
-        data_without_relations = dict(data)  # Create a copy
-        for field_key in list(data_without_relations.keys()):
-            if field_key in relation_fields:
-                relation_data[field_key] = data_without_relations.pop(field_key)
+        relation_data, data_without_relations = self._extract_relation_data(
+            data, relation_fields
+        )
 
-        # Apply default values for missing regular fields only
-        data_with_defaults = dict(data_without_relations)
-        for field in regular_fields:
-            if (
-                field.field_key not in data_with_defaults
-                and field.default_value is not None
-            ):
-                # Validate that the stored default is still valid
-                # This protects against corrupted or manually edited defaults
-                try:
-                    from tracecat.entities.validation import validate_default_value_type
+        data_with_defaults = self._apply_default_values(
+            data_without_relations, regular_fields
+        )
 
-                    validate_default_value_type(
-                        field.default_value,
-                        FieldType(field.field_type),
-                        field.enum_options,
-                    )
-                    # Default value is already serialized in the database
-                    data_with_defaults[field.field_key] = field.default_value
-                except Exception as e:
-                    # Log warning but don't fail record creation
-                    logger.warning(
-                        f"Invalid default value for field '{field.field_key}' "
-                        f"(type: {field.field_type}): {e}. Skipping default."
-                    )
-                    # Skip this default value rather than fail the entire record creation
-
-        # Validate all data (regular + relation fields)
         all_data_to_validate = {**data_with_defaults, **relation_data}
         validated_data = await self.record_validators.validate_record_data(
             all_data_to_validate, active_fields
         )
 
-        # Serialize only non-relation values
-        serialized_data = {}
-        field_map = {f.field_key: f for f in active_fields}
-        for key, value in validated_data.items():
-            if key in field_map and not field_map[key].relation_kind:
-                serialized_data[key] = serialize_value(
-                    value, FieldType(field_map[key].field_type)
-                )
+        serialized_data = self._serialize_non_relation_values(validated_data, field_map)
 
-        # Create record
         record = Record(
             entity_id=entity_id,
             owner_id=self.workspace_id,
@@ -1159,13 +835,140 @@ class CustomEntitiesService(BaseWorkspaceService):
         await self.session.commit()
         await self.session.refresh(record)
 
-        # Now handle relation fields if any were provided
         if relation_data:
-            await self._process_relation_fields_on_create(
-                record, relation_fields, relation_data
+            await self._create_relation_links(
+                entity_id=entity_id,
+                record=record,
+                relation_data=relation_data,
+                relation_fields=relation_fields,
             )
+            await self.session.commit()
 
         return record
+
+    # Internal helpers for record creation
+    def _split_relation_and_regular_fields(
+        self, fields: list[FieldMetadata]
+    ) -> tuple[dict[str, FieldMetadata], list[FieldMetadata], dict[str, FieldMetadata]]:
+        relation_fields = {f.field_key: f for f in fields if f.relation_kind}
+        regular_fields = [f for f in fields if not f.relation_kind]
+        field_map = {f.field_key: f for f in fields}
+        return relation_fields, regular_fields, field_map
+
+    def _extract_relation_data(
+        self, data: dict[str, Any], relation_fields: dict[str, FieldMetadata]
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        relation_data: dict[str, Any] = {}
+        data_without_relations = dict(data)
+        for field_key in list(data_without_relations.keys()):
+            if field_key in relation_fields:
+                relation_data[field_key] = data_without_relations.pop(field_key)
+        return relation_data, data_without_relations
+
+    def _apply_default_values(
+        self, data: dict[str, Any], regular_fields: list[FieldMetadata]
+    ) -> dict[str, Any]:
+        data_with_defaults = dict(data)
+        for field in regular_fields:
+            if field.field_key in data_with_defaults or field.default_value is None:
+                continue
+            try:
+                validate_default_value_type(
+                    field.default_value,
+                    FieldType(field.field_type),
+                    field.enum_options,
+                )
+                data_with_defaults[field.field_key] = field.default_value
+            except Exception as e:  # Validation failure shouldn't block record creation
+                logger.warning(
+                    f"Invalid default value for field '{field.field_key}' "
+                    f"(type: {field.field_type}): {e}. Skipping default."
+                )
+        return data_with_defaults
+
+    def _serialize_non_relation_values(
+        self, validated_data: dict[str, Any], field_map: dict[str, FieldMetadata]
+    ) -> dict[str, Any]:
+        serialized_data: dict[str, Any] = {}
+        for key, value in validated_data.items():
+            field = field_map.get(key)
+            if field is None or field.relation_kind:
+                continue
+            serialized_data[key] = serialize_value(value, FieldType(field.field_type))
+        return serialized_data
+
+    async def _create_relation_links(
+        self,
+        *,
+        entity_id: UUID,
+        record: Record,
+        relation_data: dict[str, Any],
+        relation_fields: dict[str, FieldMetadata],
+    ) -> None:
+        for field_key, value in relation_data.items():
+            if value is None:
+                continue
+
+            field = relation_fields[field_key]
+            target_entity_id = field.target_entity_id
+
+            if target_entity_id is None:
+                raise ValueError(
+                    f"Relation field {field_key} is missing target entity id"
+                )
+
+            target_ids = self._normalize_target_ids(field, value)
+            if not target_ids:
+                continue
+
+            await self._validate_target_records_exist(target_ids, target_entity_id)
+
+            # v1: Do not cache relation data in field_data; only manage links
+
+            for target_id in target_ids:
+                link = RecordRelationLink(
+                    owner_id=self.workspace_id,
+                    source_entity_id=entity_id,
+                    source_field_id=field.id,
+                    source_record_id=record.id,
+                    target_entity_id=target_entity_id,  # Already a UUID
+                    target_record_id=target_id,
+                )
+                self.session.add(link)
+
+    def _normalize_target_ids(self, field: FieldMetadata, value: Any) -> list[UUID]:
+        if field.relation_kind == RelationKind.ONE_TO_ONE:
+            if value is None:
+                return []
+            return [UUID(value) if isinstance(value, str) else value]
+        # ONE_TO_MANY
+        ids: list[UUID] = []
+        for item in value:
+            ids.append(UUID(item) if isinstance(item, str) else item)
+        return ids
+
+    async def _validate_target_records_exist(
+        self, target_ids: list[UUID], target_entity_id: UUID
+    ) -> None:
+        if not target_ids:
+            return
+        # pyright cannot infer SQLAlchemy column methods on SQLModel fields
+        id_column = cast(Any, Record.id)
+        stmt = select(Record.id).where(
+            id_column.in_(target_ids),
+            Record.owner_id == self.workspace_id,
+            Record.entity_id == target_entity_id,
+        )
+        result = await self.session.exec(stmt)
+        found_ids = set(result.all())
+        missing = set(target_ids) - found_ids
+        if missing:
+            # Show only a small sample to avoid huge error messages
+            sample = list(missing)[:3]
+            raise TracecatNotFoundError(
+                f"Target record(s) {sample}{' and more' if len(missing) > 3 else ''} "
+                "not found or don't match target entity"
+            )
 
     async def get_record(self, record_id: UUID) -> Record:
         """Get entity record by ID.
@@ -1213,13 +1016,15 @@ class CustomEntitiesService(BaseWorkspaceService):
             updates, active_fields
         )
 
-        # Serialize and merge updates
+        # Serialize and merge updates, but skip relation fields
+        # Relations are immutable after creation and stored as links only
         field_map = {f.field_key: f for f in active_fields}
         for key, value in validated_updates.items():
-            if key in field_map:
-                record.field_data[key] = serialize_value(
-                    value, FieldType(field_map[key].field_type)
-                )
+            field = field_map.get(key)
+            if field is None or field.relation_kind:
+                # Skip relation fields
+                continue
+            record.field_data[key] = serialize_value(value, FieldType(field.field_type))
 
         # Mark the field_data as modified for SQLAlchemy to detect the change
         flag_modified(record, "field_data")
@@ -1272,7 +1077,7 @@ class CustomEntitiesService(BaseWorkspaceService):
         # Apply pagination
         stmt = stmt.limit(limit).offset(offset)
 
-        result = await self.session.exec(cast(SelectOfScalar[Record], stmt))
+        result = await self.session.exec(stmt)
         return list(result.all())
 
     async def get_record_by_slug(
@@ -1375,7 +1180,7 @@ class CustomEntitiesService(BaseWorkspaceService):
         Returns:
             Dynamically created Pydantic model class
         """
-        field_definitions = {}
+        field_definitions: dict[str, Any] = {}
 
         for field in fields:
             if not field.is_active:
