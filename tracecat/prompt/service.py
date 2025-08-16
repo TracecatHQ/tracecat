@@ -152,7 +152,8 @@ Sticking to the above will help you successfully run the <Steps> over the new us
         first_user_msg = ""
         for msg in messages[:3]:  # Check first 3 messages only
             if isinstance(msg.message, ModelRequest):
-                for part in msg.message.parts:
+                message = msg.message  # Store in local variable for type narrowing
+                for part in message.parts:
                     if isinstance(part, UserPromptPart) and part.content:
                         first_user_msg = str(part.content)[:300]
                         break

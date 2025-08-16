@@ -32,7 +32,7 @@ export function RunbookTitleEditor({
 }: RunbookTitleEditorProps) {
   const form = useForm<TitleFormSchema>({
     resolver: zodResolver(titleFormSchema),
-    values: {
+    defaultValues: {
       title: promptData?.title || "",
     },
   })
