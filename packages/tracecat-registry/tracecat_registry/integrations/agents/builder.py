@@ -944,25 +944,19 @@ async def run_agent(
         """
 
         # Build the final enhanced user prompt including date context
+        extra_instrs: list[str] = []
         if tools_prompt:
-            enhanced_instrs = "\n".join(
-                [
-                    instructions,
-                    current_date_prompt,
-                    tool_calling_prompt,
-                    tools_prompt,
-                    error_handling_prompt,
-                ]
-            )
-        else:
-            enhanced_instrs = "\n".join(
-                [
-                    instructions,
-                    current_date_prompt,
-                    tool_calling_prompt,
-                    error_handling_prompt,
-                ]
-            )
+            extra_instrs.append(tools_prompt)
+
+        enhanced_instrs = "\n".join(
+            [
+                instructions,
+                current_date_prompt,
+                tool_calling_prompt,
+                *extra_instrs,
+                error_handling_prompt,
+            ]
+        )
 
     builder = TracecatAgentBuilder(
         model_name=model_name,
