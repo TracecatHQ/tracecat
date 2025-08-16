@@ -2,7 +2,6 @@
 
 import type { ColumnDef, Row } from "@tanstack/react-table"
 import { format, formatDistanceToNow } from "date-fns"
-import { ListTodoIcon } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useCallback, useMemo, useState } from "react"
 import type { PromptRead } from "@/client"
@@ -114,26 +113,21 @@ export function RunbooksDashboard() {
         cell: ({ row }) => {
           const title = row.getValue<string>("title")
           return (
-            <div className="flex items-center space-x-2">
-              <ListTodoIcon className="h-4 w-4 text-muted-foreground" />
-              <span className="max-w-[300px] truncate font-medium">
-                {title}
-              </span>
-            </div>
+            <span className="max-w-[300px] truncate font-medium">{title}</span>
           )
         },
         enableSorting: true,
       },
       {
-        accessorKey: "content",
+        accessorKey: "summary",
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Content" />
+          <DataTableColumnHeader column={column} title="Summary" />
         ),
         cell: ({ row }) => {
-          const content = row.getValue<string>("content")
+          const summary = row.getValue<string | null>("summary")
           return (
             <div className="max-w-[400px] truncate text-sm text-muted-foreground">
-              {content}
+              {summary || "No summary available"}
             </div>
           )
         },

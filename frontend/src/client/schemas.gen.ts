@@ -5115,6 +5115,19 @@ export const $PromptCreate = {
       title: "Chat Id",
       description: "ID of the chat to freeze into a prompt",
     },
+    meta: {
+      anyOf: [
+        {
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Meta",
+      description:
+        "Optional metadata to include with the prompt (e.g., case information)",
+    },
   },
   type: "object",
   required: ["chat_id"],

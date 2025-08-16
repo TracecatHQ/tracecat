@@ -5,6 +5,7 @@ import json
 import textwrap
 import uuid
 from collections.abc import Sequence
+from typing import Any
 
 from pydantic_ai.messages import (
     ModelRequest,
@@ -43,11 +44,11 @@ class PromptService(BaseWorkspaceService):
         self,
         *,
         chat: Chat,
+        meta: dict[str, Any] | None = None,
     ) -> Prompt:
         """Turn a chat into a reusable prompt."""
 
         messages = await self.chats.get_chat_messages(chat)
-
         steps = self._reduce_messages_to_steps(messages)
 
         try:
@@ -63,10 +64,7 @@ class PromptService(BaseWorkspaceService):
 
         tool_sha = self._calculate_tool_sha(chat.tools)
         token_count = self._estimate_token_count(steps)
-
-        # Create prompt with default title
-        content = textwrap.dedent(f"""
-# Task
+        content = textwrap.dedent(f"""# Task
 You are an expert automation agent.
 
 You will be given a JSON <Alert> by the user.
@@ -96,19 +94,23 @@ Sticking to the above will help you successfully run the <Steps> over the new us
 4. Do NOT add conversational chatter
 5. When using Splunk tools, use `verify_ssl=false`
 6. Do your best to interpret the user's instructions, but if you are unsure, ask the user for clarification. For example, you shouldn't write all your thoughts to the case comments if not asked to do so.
-</Rules>
+</Rules>""")
 
-        """)
+        # Merge provided meta with generated meta
+        prompt_meta = {
+            "schema": "v1",
+            "tool_sha": tool_sha,
+            "token_count": token_count,
+        }
+        if meta:
+            prompt_meta.update(meta)
+
         prompt = Prompt(
             chat_id=chat.id,
             title=f"{chat.title} - Runbook",
             content=content,
             owner_id=self.workspace_id,
-            meta={
-                "schema": "v1",
-                "tool_sha": tool_sha,
-                "token_count": token_count,
-            },
+            meta=prompt_meta,
             tools=chat.tools,
             summary=summary,
         )
@@ -160,6 +162,7 @@ Sticking to the above will help you successfully run the <Steps> over the new us
         title: str | None = None,
         content: str | None = None,
         tools: list[str] | None = None,
+        summary: str | None = None,
     ) -> Prompt:
         """Update prompt properties."""
         if title is not None:
@@ -170,6 +173,9 @@ Sticking to the above will help you successfully run the <Steps> over the new us
 
         if tools is not None:
             prompt.tools = tools
+
+        if summary is not None:
+            prompt.summary = summary
 
         self.session.add(prompt)
         await self.session.commit()
@@ -294,6 +300,9 @@ Sticking to the above will help you successfully run the <Steps> over the new us
 
         <Requirements>
         - Return ONLY the runbook as a formatted markdown string, nothing else
+        - Do NOT wrap the entire runbook in code blocks (```)
+        - Use standard markdown formatting: headers (#, ##), lists (-, *), bold (**), italic (*)
+        - Only use code blocks (```) when showing actual code snippets or commands that should be executed
         - Include a section `Objective` on the user's objective. You must infer the objective from the <Steps>.
         - Include a section `Tools` on the tools that are required for the runbook. This will be provided by the user as <Tools>.
         </Requirements>
@@ -313,4 +322,19 @@ Sticking to the above will help you successfully run the <Steps> over the new us
             </Tools>
             """
             response = await agent.run(user_prompt)
-        return response.output
+
+        # Post-process to remove wrapping code blocks if present
+        output = response.output.strip()
+
+        # Remove markdown code block wrapper if the entire content is wrapped
+        if output.startswith("```") and output.endswith("```"):
+            # Find the first newline after opening ```
+            first_newline = output.find("\n")
+            if first_newline != -1:
+                # Remove opening ``` and language identifier
+                output = output[first_newline + 1 :]
+                # Remove closing ```
+                if output.endswith("```"):
+                    output = output[:-3].rstrip()
+
+        return output

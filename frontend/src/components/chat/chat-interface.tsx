@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/tooltip"
 import { useChat, useCreateChat, useListChats } from "@/hooks/use-chat"
 import { useCreatePrompt } from "@/hooks/use-prompt"
-import { useChatReadiness } from "@/lib/hooks"
+import { useChatReadiness, useGetCase } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import { useWorkspace } from "@/providers/workspace"
 
@@ -57,6 +57,12 @@ export function ChatInterface({
 
   // Create prompt mutation
   const { createPrompt, createPromptPending } = useCreatePrompt(workspaceId)
+
+  // Fetch case data if entityType is "case"
+  const { caseData } = useGetCase({
+    caseId: entityType === "case" ? entityId : "",
+    workspaceId,
+  })
 
   const { sendMessage, isResponding, messages } = useChat({
     chatId: selectedChatId,
@@ -119,8 +125,18 @@ export function ChatInterface({
     }
 
     try {
+      // Build meta object with case information if this is a case chat
+      let meta = undefined
+      if (entityType === "case" && caseData) {
+        meta = {
+          case_id: caseData.id,
+          case_slug: caseData.short_id,
+        }
+      }
+
       const prompt = await createPrompt({
         chat_id: selectedChatId,
+        meta,
       })
 
       console.log(`Chat saved as prompt: "${prompt.title}"`)
