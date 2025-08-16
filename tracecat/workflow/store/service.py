@@ -4,7 +4,7 @@ from tracecat.git import parse_git_url
 from tracecat.logger import logger
 from tracecat.service import BaseWorkspaceService
 from tracecat.sync import Author, PushOptions
-from tracecat.types.exceptions import TracecatValidationError
+from tracecat.types.exceptions import TracecatSettingsError, TracecatValidationError
 from tracecat.workflow.store.models import WorkflowDslPublish
 from tracecat.workflow.store.sync import WorkflowSyncService
 from tracecat.workspaces.service import WorkspaceService
@@ -30,7 +30,7 @@ class WorkflowStoreService(BaseWorkspaceService):
         # Extract git configuration from workspace settings
         git_repo_url = workspace.settings.get("git_repo_url")
         if not git_repo_url:
-            raise TracecatValidationError(
+            raise TracecatSettingsError(
                 "Git repository URL not configured for this workspace. "
                 "Please configure it in the workspace settings."
             )

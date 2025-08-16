@@ -4,7 +4,10 @@ from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.dsl.common import DSLInput
 from tracecat.identifiers.workflow import AnyWorkflowIDPath
-from tracecat.types.exceptions import TracecatCredentialsNotFoundError
+from tracecat.types.exceptions import (
+    TracecatCredentialsNotFoundError,
+    TracecatSettingsError,
+)
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.store.models import WorkflowDslPublish
 from tracecat.workflow.store.service import WorkflowStoreService
@@ -34,6 +37,11 @@ async def publish_workflow(
     store_svc = WorkflowStoreService(session=session)
     try:
         await store_svc.publish_workflow_dsl(dsl, params)
+    except TracecatSettingsError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
     except TracecatCredentialsNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
