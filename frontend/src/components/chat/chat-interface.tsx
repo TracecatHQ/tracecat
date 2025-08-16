@@ -5,6 +5,7 @@ import { ChevronDown, ListTodo, MessageSquare, Plus } from "lucide-react"
 import Link from "next/link"
 import { useEffect, useState } from "react"
 import type { ChatEntity, ChatRead } from "@/client"
+import { RunbookDropdown } from "@/components/cases/runbook-dropdown"
 import { ChatInput } from "@/components/chat/chat-input"
 import { Messages } from "@/components/chat/messages"
 import { CenteredSpinner } from "@/components/loading/spinner"
@@ -290,6 +291,13 @@ export function ChatInterface({
                 <TooltipContent side="bottom">Generate runbook</TooltipContent>
               </Tooltip>
             </TooltipProvider>
+            {entityType === "case" && (
+              <RunbookDropdown
+                workspaceId={workspaceId}
+                entityType={entityType}
+                entityId={entityId}
+              />
+            )}
           </div>
         </div>
       </div>

@@ -1,7 +1,6 @@
 "use client"
 
 import type { Row } from "@tanstack/react-table"
-import { CirclePlayIcon } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useCallback, useMemo, useState } from "react"
 import type { CaseReadMinimal } from "@/client"
@@ -13,9 +12,7 @@ import {
 import { UNASSIGNED } from "@/components/cases/case-panel-selectors"
 import { createColumns } from "@/components/cases/case-table-columns"
 import { DeleteCaseAlertDialog } from "@/components/cases/delete-case-dialog"
-import { PromptSelectionDialog } from "@/components/cases/runbook-selection-dialog"
 import { DataTable, type DataTableToolbarProps } from "@/components/data-table"
-import { Button } from "@/components/ui/button"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { useToast } from "@/components/ui/use-toast"
 import { useCasesPagination } from "@/hooks"
@@ -28,11 +25,6 @@ export default function CaseTable() {
   const { user } = useAuth()
   const { workspaceId, workspace } = useWorkspace()
   const [pageSize, setPageSize] = useState(20)
-  const [promptDialogOpen, setPromptDialogOpen] = useState(false)
-  const [selectedCasesForPrompt, setSelectedCasesForPrompt] = useState<
-    CaseReadMinimal[]
-  >([])
-  const [selectedRows, setSelectedRows] = useState<Row<CaseReadMinimal>[]>([])
   const [selectedCase, setSelectedCase] = useState<CaseReadMinimal | null>(null)
   const router = useRouter()
 
@@ -93,28 +85,6 @@ export default function CaseTable() {
     },
     [deleteCase, toast]
   )
-
-  const handleSelectionChange = useCallback((rows: Row<CaseReadMinimal>[]) => {
-    setSelectedRows(rows)
-  }, [])
-
-  const handleRunPrompt = useCallback(() => {
-    if (selectedRows.length === 0) return
-
-    const selectedCases = selectedRows.map((row) => row.original)
-    setSelectedCasesForPrompt(selectedCases)
-    setPromptDialogOpen(true)
-  }, [selectedRows])
-
-  const handlePromptSuccess = useCallback(() => {
-    setSelectedCasesForPrompt([])
-    setSelectedRows([])
-
-    toast({
-      title: "Runbook execution started",
-      description: `Executing runbook on ${selectedCasesForPrompt.length} case(s). Check individual cases for progress.`,
-    })
-  }, [selectedCasesForPrompt.length, toast])
 
   const defaultToolbarProps = useMemo(() => {
     const workspaceMembers =
@@ -184,7 +154,6 @@ export default function CaseTable() {
               `/workspaces/${workspaceId}/cases/${row.original.id}`
             }
             onDeleteRows={handleDeleteRows}
-            onSelectionChange={handleSelectionChange}
             toolbarProps={defaultToolbarProps}
             tableId={`${user?.id}-${workspaceId}-cases`}
             serverSidePagination={{
@@ -202,28 +171,7 @@ export default function CaseTable() {
               isLoading: casesIsLoading || isDeleting,
             }}
           />
-
-          {selectedRows.length > 0 && (
-            <div className="flex justify-start">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleRunPrompt}
-                className="h-8"
-              >
-                <CirclePlayIcon className="size-3.5 mr-2 text-accent-foreground" />
-                Execute runbook on {selectedRows.length} case(s)
-              </Button>
-            </div>
-          )}
         </div>
-
-        <PromptSelectionDialog
-          open={promptDialogOpen}
-          onOpenChange={setPromptDialogOpen}
-          selectedCases={selectedCasesForPrompt}
-          onSuccess={handlePromptSuccess}
-        />
       </TooltipProvider>
     </DeleteCaseAlertDialog>
   )
