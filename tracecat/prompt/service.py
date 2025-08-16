@@ -1,5 +1,6 @@
 """Prompt service for freezing and replaying chats."""
 
+import asyncio
 import hashlib
 import json
 import textwrap
@@ -51,16 +52,37 @@ class PromptService(BaseWorkspaceService):
         messages = await self.chats.get_chat_messages(chat)
         steps = self._reduce_messages_to_steps(messages)
 
-        try:
-            summary = await self._prompt_summary(steps, tools=chat.tools)
-        except Exception as e:
+        # Run both AI generation tasks in parallel
+        results = await asyncio.gather(
+            self._prompt_summary(steps, tools=chat.tools),
+            self._chat_to_prompt_title(chat, meta, messages),
+            return_exceptions=True,
+        )
+
+        # Process summary result
+        summary: str | None
+        if isinstance(results[0], Exception):
             logger.error(
                 "Failed to create prompt summary",
-                error=e,
+                error=results[0],
                 steps=steps,
                 tools=chat.tools,
             )
             summary = None
+        else:
+            summary = str(results[0]) if results[0] is not None else None
+
+        # Process title result
+        title: str
+        if isinstance(results[1], Exception):
+            logger.warning(
+                "Failed to generate title, falling back to chat title",
+                error=results[1],
+                chat_id=chat.id,
+            )
+            title = f"{chat.title}"
+        else:
+            title = str(results[1])
 
         tool_sha = self._calculate_tool_sha(chat.tools)
         token_count = self._estimate_token_count(steps)
@@ -96,17 +118,6 @@ Here are the <Steps> to execute:
         }
         if meta:
             prompt_meta.update(meta)
-
-        # Generate title using AI
-        try:
-            title = await self._chat_to_prompt_title(chat, meta, messages)
-        except Exception as e:
-            logger.warning(
-                "Failed to generate title, falling back to chat title",
-                error=e,
-                chat_id=chat.id,
-            )
-            title = f"{chat.title}"
 
         prompt = Prompt(
             chat_id=chat.id,
