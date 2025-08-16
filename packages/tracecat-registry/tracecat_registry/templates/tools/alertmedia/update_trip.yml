@@ -1,0 +1,118 @@
+type: action
+definition:
+  title: Update trip
+  description: Update a trip in AlertMedia.
+  display_group: AlertMedia
+  doc_url: https://docs.alertmedia.com/reference/steps-create-a-trip-and-itinerary
+  namespace: tools.alertmedia
+  name: update_trip
+  secrets:
+    - name: alertmedia
+      keys: ["ALERTMEDIA_API_KEY"]
+  expects:
+    base_url:
+      type: str
+      description: AlertMedia base URL (e.g. https://tracecat.alertmedia.com)
+    user_id:
+      type: str
+      description: User ID of the user to create the trip for.
+    trip_id:
+      type: str
+      description: Trip ID of the trip to update.
+    name:
+      type: str | None
+      description: Name of the trip.
+      default: null
+    start_date:
+      type: datetime | None
+      description: Start date of the trip. Example 2025-06-26 00:00:00
+      default: null
+    start_time_zone:
+      type: str | None
+      description: Time zone of the trip.
+      default: null
+    end_date:
+      type: datetime | None
+      description: End date of the trip. Example 2025-06-26 23:59:59
+      default: null
+    end_time_zone:
+      type: str | None
+      description: Time zone of the trip.
+      default: null
+    city:
+      type: str | None
+      description: City of the trip.
+      default: null
+    country_code:
+      type: str | None
+      description: Country code of the trip. For example, US, CA, GB, etc.
+      default: null
+    latitude:
+      type: str | None
+      description: Latitude of the trip.
+      default: null
+    longitude:
+      type: str | None
+      description: Longitude of the trip.
+      default: null
+  steps:
+    - ref: build_payload
+      action: core.script.run_python
+      args:
+        inputs:
+          name: ${{ inputs.name }}
+          start_date: ${{ inputs.start_date }}
+          start_time_zone: ${{ inputs.start_time_zone }}
+          end_date: ${{ inputs.end_date }}
+          end_time_zone: ${{ inputs.end_time_zone }}
+          city: ${{ inputs.city }}
+          country_code: ${{ inputs.country_code }}
+          latitude: ${{ inputs.latitude }}
+          longitude: ${{ inputs.longitude }}
+        script: |
+          def main(
+              name=None,
+              start_date=None,
+              start_time_zone=None,
+              end_date=None,
+              end_time_zone=None,
+              city=None,
+              country_code=None,
+              latitude=None,
+              longitude=None,
+          ):
+              payload = {}
+
+              if name:
+                  payload["name"] = name
+              if start_date:
+                  payload["start_date"] = start_date
+              if start_time_zone:
+                  payload["start_time_zone"] = start_time_zone
+              if end_date:
+                  payload["end_date"] = end_date
+              if end_time_zone:
+                  payload["end_time_zone"] = end_time_zone
+
+              destination_address = {}
+              if city:
+                  destination_address["city"] = city
+              if country_code:
+                  destination_address["country"] = country_code
+              if latitude:
+                  destination_address["latitude"] = latitude
+              if longitude:
+                  destination_address["longitude"] = longitude
+              if destination_address:
+                  payload["destination_address"] = destination_address
+
+              return payload
+    - ref: update_trip
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/api/users/${{ inputs.user_id }}/trips/${{ inputs.trip_id }}
+        method: PATCH
+        headers:
+          Authorization: Bearer ${{ SECRETS.alertmedia.ALERTMEDIA_API_KEY }}
+        payload: ${{ steps.build_payload.result }}
+  returns: ${{ steps.update_trip.result.data }}
