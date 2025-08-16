@@ -91,7 +91,11 @@ class WorkspaceService(BaseService):
         """Retrieve a workspace by ID."""
         statement = select(Workspace).where(Workspace.id == workspace_id)
         result = await self.session.exec(statement)
-        return result.one_or_none()
+        if workspace := result.one_or_none():
+            # Need this to invoke pydantic validation as loading from db doesn't do it
+            # See: https://github.com/fastapi/sqlmodel/issues/453
+            return Workspace.model_validate(workspace, from_attributes=True)
+        return None
 
     @require_access_level(AccessLevel.ADMIN)
     async def update_workspace(
