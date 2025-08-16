@@ -67,33 +67,25 @@ class PromptService(BaseWorkspaceService):
         content = textwrap.dedent(f"""# Task
 You are an expert automation agent.
 
-You will be given a JSON <Alert> by the user.
-Execute each <Step> in the list of <Steps> EXACTLY as they appear, on the user-provided <Alert>.
+You will be given a JSON <Alert>. Execute the <Steps> EXACTLY as written on that <Alert>.
 
-Here are the steps that you need to execute:
+Here are the <Steps> to execute:
 {steps}
 
-It is important you note that these steps contain example tool call inputs and outputs that you should not reuse on the user-provided <Alert>.
-You must determine yourself the inputs to each tool call, and observe the responses.
-
-## Handling steps
-If a <Step> is ...
-
-... a user-prompt: follow the user's instructions
-
-... a tool-call: pay attention to the tool name, understand where the arguments came from
-
-... a tool-return: pay attention to the tool name and what *kind* of data is returned, but not the actual _value_ of the data.
-
-Sticking to the above will help you successfully run the <Steps> over the new user-provided <Alert>
+<StepHandling>
+- user-prompt: follow the instruction
+- tool-call: use the named tool; infer inputs from <Alert> and prior returns; do not reuse example values
+- tool-return: note the type/shape, not literal example values
+</StepHandling>
 
 <Rules>
-1. Do NOT call tools outside of <Steps>
-2. Preserve the order of <Steps>
-3. Do NOT use any data from the example <Steps> in the task, as this is only an example of a successful run. Instead you must use data only from the user-provided <Alert>
-4. Do NOT add conversational chatter
-5. When using Splunk tools, use `verify_ssl=false`
-6. Do your best to interpret the user's instructions, but if you are unsure, ask the user for clarification. For example, you shouldn't write all your thoughts to the case comments if not asked to do so.
+1. Call tools only when a <Step> says so
+2. Preserve the original <Step> order
+3. Never reuse example inputs/outputs; derive fresh values from <Alert>
+4. No conversational chatter, rationale, or chain-of-thought; keep outputs minimal and task-focused
+5. If the case is clearly unrelated to these <Steps>, stop and output INAPPLICABLE
+6. Do not restate or summarize <Alert> or <Steps>
+7. Keep each message under ~150 tokens; do not dump large payloads; reference them instead
 </Rules>""")
 
         # Merge provided meta with generated meta
@@ -164,7 +156,7 @@ Sticking to the above will help you successfully run the <Steps> over the new us
         case_title = meta.get("case_title", "") if meta else ""
         instructions = textwrap.dedent("""
         You are an expert ITSM runbook title specialist.
-        Generate a precise 6-8 word title for this automation runbook.
+        Generate a precise 4-7 word title for this automation runbook.
         Focus on the action/resolution being automated.
         Use standard ITSM terminology (e.g., Investigate, Remediate, Configure, Deploy).
         """)
@@ -363,24 +355,35 @@ Sticking to the above will help you successfully run the <Steps> over the new us
         Each <Step> in the list of <Steps> is extracted from messages between the user and an AI agent.
 
         <Task>
-        Your task is to post-process the <Steps> into a generalized runbook.
+        Produce a concise, generalized runbook suitable for similar future cases.
         </Task>
 
         <PostProcessingRules>
-        - Remove steps that are not relevant to achieving the user's objective
-        - Remove duplicate steps
-        - Remove failed steps (e.g. malformed tool calls)
-        - Combine steps that are related or part of a "loop" (e.g. multiple tool calls for a list of items)
-        - Generalize and summarize each <Step> into a concise task description that a human or agent can follow
+        - Remove irrelevant, duplicate, or failed steps
+        - Merge repeated patterns (loops over items) into one generalized step
+        - Summarize each remaining step into a short, actionable instruction
         </PostProcessingRules>
 
+        <GeneralizationRules>
+        - Do NOT hardcode case-specific identifiers or values (e.g., case IDs, alert IDs, timestamps, file paths). Use placeholders (e.g., <case_id>) or JSONPath to the incoming <Alert> (e.g., $.alert.payload.host).
+        - IoCs (emails, IPs, hostnames, domains, URLs, hashes, usernames) MAY appear ONLY as "example" values in the Trigger or Steps section.
+        - Do not copy example tool inputs/outputs verbatim; infer parameters from intent and structure.
+        - Prefer criteria/patterns/field references over literal values.
+        </GeneralizationRules>
+
         <Requirements>
-        - Return ONLY the runbook as a formatted markdown string, nothing else
-        - Do NOT wrap the entire runbook in code blocks (```)
-        - Use standard markdown formatting: headers (#, ##), lists (-, *), bold (**), italic (*)
-        - Only use code blocks (```) when showing actual code snippets or commands that should be executed
-        - Include a section `Objective` on the user's objective. You must infer the objective from the <Steps>.
-        - Include a section `Tools` on the tools that are required for the runbook. This will be provided by the user as <Tools>.
+        - Output ONLY the runbook as Markdown; no prose before/after
+        - Do NOT wrap the entire runbook in a single code block
+        - Use Markdown: headers (#, ##), lists (-), bold (**)
+        - Use fenced blocks only for actual code/commands
+        - Include sections: Objective, Tools, Trigger, Steps
+        - Objective must be generalized (no specific IDs/private values)
+        - Tools are provided as <Tools>
+        - Trigger section (Markdown):
+          - Start with a single line: **Execute when**:
+          - Then list 1 to 3 concise, human-readable conditions as bullets, each referencing Alert fields via JSONPath or placeholders
+          - Add a **Do not execute when** subsection (optional, 0–3 bullets) listing clear exclusions
+          - Keep the language human-readable; avoid raw code where possible. Use JSONPath only to point to specific fields
         </Requirements>
         """)
         svc = AgentManagementService(self.session, self.role)
