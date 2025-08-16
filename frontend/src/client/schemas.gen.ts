@@ -764,12 +764,17 @@ export const $AgentSettingsRead = {
       type: "string",
       title: "Agent Case Chat Prompt",
     },
+    agent_case_chat_inject_content: {
+      type: "boolean",
+      title: "Agent Case Chat Inject Content",
+    },
   },
   type: "object",
   required: [
     "agent_default_model",
     "agent_fixed_args",
     "agent_case_chat_prompt",
+    "agent_case_chat_inject_content",
   ],
   title: "AgentSettingsRead",
 } as const
@@ -809,6 +814,13 @@ export const $AgentSettingsUpdate = {
       description:
         "Additional instructions for case chat agent; prepended to UI-provided instructions.",
       default: "",
+    },
+    agent_case_chat_inject_content: {
+      type: "boolean",
+      title: "Agent Case Chat Inject Content",
+      description:
+        "Whether to automatically inject case content into agent prompts when a case_id is available.",
+      default: false,
     },
   },
   type: "object",

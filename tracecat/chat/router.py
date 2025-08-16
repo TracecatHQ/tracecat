@@ -17,6 +17,7 @@ from tracecat_registry.integrations.agents.tokens import (
 from tracecat.agent.executor.base import BaseAgentExecutor
 from tracecat.agent.executor.deps import WorkspaceUser, get_executor
 from tracecat.agent.models import ModelInfo, RunAgentArgs, ToolFilters
+from tracecat.chat.enums import ChatEntity
 from tracecat.chat.models import (
     ChatCreate,
     ChatMessage,
@@ -26,7 +27,7 @@ from tracecat.chat.models import (
     ChatUpdate,
     ChatWithMessages,
 )
-from tracecat.chat.service import ChatService
+from tracecat.chat.service import ChatService, inject_case_content
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.logger import logger
 from tracecat.redis.client import get_redis_client
@@ -166,6 +167,14 @@ async def start_chat_turn(
         instructions: list[str] = []
         if org_prompt.strip():
             instructions.append(org_prompt)
+
+        # Check if case content injection is enabled and this is a case chat
+
+        if chat.entity_type == ChatEntity.CASE:
+            if case_instructions := await inject_case_content(
+                session=session, role=role, case_id=chat.entity_id
+            ):
+                instructions.append(case_instructions)
         if request.instructions:
             instructions.append(request.instructions)
         merged_instructions = "\n".join(instructions) if instructions else None
