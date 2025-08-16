@@ -32,7 +32,7 @@ class WorkflowStoreService(BaseWorkspaceService):
         if not git_repo_url:
             raise TracecatSettingsError(
                 "Git repository URL not configured for this workspace. "
-                "Please configure it in the workspace settings."
+                "Please contact your administrator to configure it."
             )
 
         # Parse git allowed domains from workspace settings
