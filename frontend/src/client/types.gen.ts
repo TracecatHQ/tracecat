@@ -184,6 +184,7 @@ export type AgentSettingsRead = {
   agent_default_model: string | null
   agent_fixed_args: string | null
   agent_case_chat_prompt: string
+  agent_case_chat_inject_content: boolean
 }
 
 export type AgentSettingsUpdate = {
@@ -199,6 +200,10 @@ export type AgentSettingsUpdate = {
    * Additional instructions for case chat agent; prepended to UI-provided instructions.
    */
   agent_case_chat_prompt?: string
+  /**
+   * Whether to automatically inject case content into agent prompts when a case_id is available.
+   */
+  agent_case_chat_inject_content?: boolean
 }
 
 /**
@@ -5165,7 +5170,7 @@ export type PublicCheckHealthResponse = {
 
 export type $OpenApiTs = {
   "/webhooks/{workflow_id}/{secret}": {
-    get: {
+    post: {
       req: PublicIncomingWebhookData
       res: {
         /**
@@ -5178,7 +5183,7 @@ export type $OpenApiTs = {
         422: HTTPValidationError
       }
     }
-    post: {
+    get: {
       req: PublicIncomingWebhook1Data
       res: {
         /**

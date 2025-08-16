@@ -149,6 +149,7 @@ class AgentSettingsRead(BaseSettingsGroup):
     agent_default_model: str | None
     agent_fixed_args: str | None
     agent_case_chat_prompt: str
+    agent_case_chat_inject_content: bool
 
 
 class AgentSettingsUpdate(BaseSettingsGroup):
@@ -165,6 +166,10 @@ class AgentSettingsUpdate(BaseSettingsGroup):
     agent_case_chat_prompt: str = Field(
         default="",
         description="Additional instructions for case chat agent; prepended to UI-provided instructions.",
+    )
+    agent_case_chat_inject_content: bool = Field(
+        default=False,
+        description="Whether to automatically inject case content into agent prompts when a case_id is available.",
     )
 
 
