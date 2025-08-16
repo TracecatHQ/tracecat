@@ -107,7 +107,7 @@ Sticking to the above will help you successfully run the <Steps> over the new us
 
         # Generate title using AI
         try:
-            title = await self._chat_to_prompt_title(meta, messages)
+            title = await self._chat_to_prompt_title(chat, meta, messages)
         except Exception as e:
             logger.warning(
                 "Failed to generate title, falling back to chat title",
@@ -141,7 +141,7 @@ Sticking to the above will help you successfully run the <Steps> over the new us
         return prompt
 
     async def _chat_to_prompt_title(
-        self, meta: dict[str, Any] | None, messages: list[ChatMessage]
+        self, chat: Chat, meta: dict[str, Any] | None, messages: list[ChatMessage]
     ) -> str:
         """Generate an ITSM-focused runbook title.
 
@@ -180,6 +180,12 @@ Sticking to the above will help you successfully run the <Steps> over the new us
             )
             response = await agent.run(user_prompt)
             title = response.output.strip()
+            # Post-process: ensure only first letter is capitalized
+            if title:
+                title = title.lower().capitalize()
+            else:
+                # Fall back to chat title
+                title = f"{chat.title}"
             return title
 
     async def get_prompt(self, prompt_id: uuid.UUID) -> Prompt | None:
