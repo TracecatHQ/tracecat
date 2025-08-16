@@ -148,6 +148,7 @@ class AppSettingsUpdate(BaseSettingsGroup):
 class AgentSettingsRead(BaseSettingsGroup):
     agent_default_model: str | None
     agent_fixed_args: str | None
+    agent_case_chat_prompt: str
 
 
 class AgentSettingsUpdate(BaseSettingsGroup):
@@ -160,6 +161,10 @@ class AgentSettingsUpdate(BaseSettingsGroup):
         min_length=1,
         max_length=10000,
         description="Fixed arguments for agent tools as a JSON string. Format: {'tool_name': {'arg': 'value'}}",
+    )
+    agent_case_chat_prompt: str = Field(
+        default="",
+        description="Additional instructions for case chat agent; prepended to UI-provided instructions.",
     )
 
 
