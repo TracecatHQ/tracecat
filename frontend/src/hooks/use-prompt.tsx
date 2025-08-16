@@ -144,15 +144,17 @@ export function useRunPrompt(workspaceId: string) {
       // Invalidate chats to force refresh when a runbook is executed
       // This ensures the new chat appears in the chat list
       if (variables.request.entities && variables.request.entities.length > 0) {
-        const entity = variables.request.entities[0]
-        queryClient.invalidateQueries({
-          queryKey: [
-            "chats",
-            workspaceId,
-            entity.entity_type,
-            entity.entity_id,
-          ],
-        })
+        // Invalidate cache for all entities, not just the first one
+        for (const entity of variables.request.entities) {
+          queryClient.invalidateQueries({
+            queryKey: [
+              "chats",
+              workspaceId,
+              entity.entity_type,
+              entity.entity_id,
+            ],
+          })
+        }
       }
 
       toast({
