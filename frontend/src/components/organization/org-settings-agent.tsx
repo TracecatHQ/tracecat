@@ -449,9 +449,7 @@ function CaseChatPromptSection() {
     <div className="space-y-4">
       <h3 className="text-lg font-semibold">Case chat agent prompt</h3>
       <p className="text-sm text-muted-foreground">
-        Configure default instructions that will be prepended to all case chat
-        conversations. These instructions help guide the AI agent's behavior
-        across your organization.
+        Configure default instructions to guide AI agent behavior in case chat.
       </p>
 
       <Form {...form}>
@@ -471,9 +469,8 @@ function CaseChatPromptSection() {
                   />
                 </FormControl>
                 <FormDescription>
-                  These instructions will be automatically prepended to any
-                  instructions provided by users when starting case chat
-                  conversations.
+                  These instructions are prepended to the instructions provided
+                  by users when starting case chat.
                 </FormDescription>
                 <FormMessage />
               </FormItem>

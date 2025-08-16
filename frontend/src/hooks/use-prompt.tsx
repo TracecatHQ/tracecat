@@ -127,6 +127,8 @@ export function useDeletePrompt(workspaceId: string) {
 
 // Hook for running a prompt on cases
 export function useRunPrompt(workspaceId: string) {
+  const queryClient = useQueryClient()
+
   const { mutateAsync: runPrompt, isPending: runPromptPending } = useMutation<
     PromptRunResponse,
     ApiError,
@@ -138,7 +140,23 @@ export function useRunPrompt(workspaceId: string) {
         workspaceId,
         requestBody: request,
       }),
-    onSuccess: () => {
+    onSuccess: (data, variables) => {
+      // Invalidate chats to force refresh when a runbook is executed
+      // This ensures the new chat appears in the chat list
+      if (variables.request.entities && variables.request.entities.length > 0) {
+        // Invalidate cache for all entities, not just the first one
+        for (const entity of variables.request.entities) {
+          queryClient.invalidateQueries({
+            queryKey: [
+              "chats",
+              workspaceId,
+              entity.entity_type,
+              entity.entity_id,
+            ],
+          })
+        }
+      }
+
       toast({
         title: "Prompt executed successfully",
       })
