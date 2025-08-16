@@ -131,6 +131,7 @@ export function ChatInterface({
         meta = {
           case_id: caseData.id,
           case_slug: caseData.short_id,
+          case_title: caseData.summary,
         }
       }
 
