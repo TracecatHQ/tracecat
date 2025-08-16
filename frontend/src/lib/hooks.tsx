@@ -216,6 +216,7 @@ import {
   workspacesListWorkspaces,
 } from "@/client"
 import { toast } from "@/components/ui/use-toast"
+import { useGetPrompt } from "@/hooks/use-prompt"
 
 import { getBaseUrl } from "@/lib/api"
 import { retryHandler, type TracecatApiError } from "@/lib/errors"
@@ -2683,6 +2684,8 @@ export function useGetCase({ caseId, workspaceId }: CasesGetCaseData) {
     caseDataError,
   }
 }
+
+export { useGetPrompt }
 
 export function useCreateCase(workspaceId: string) {
   const queryClient = useQueryClient()

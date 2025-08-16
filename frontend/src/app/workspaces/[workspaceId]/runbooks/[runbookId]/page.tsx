@@ -16,14 +16,6 @@ import { JsonViewWithControls } from "@/components/json-viewer"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { RunbookSummaryEditor } from "@/components/runbooks/runbook-summary-editor"
 import { RunbookTitleEditor } from "@/components/runbooks/runbook-title-editor"
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useGetPrompt, useUpdatePrompt } from "@/hooks/use-prompt"
@@ -106,30 +98,12 @@ function RunbookDetailContent({ prompt }: { prompt: PromptRead }) {
 
   return (
     <div className="container mx-auto max-w-4xl p-6 min-h-screen">
-      {/* Breadcrumb */}
-      <Breadcrumb className="mb-6">
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink asChild>
-              <Link href={`/workspaces/${workspaceId}/runbooks`}>Runbooks</Link>
-            </BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbPage>{prompt.title}</BreadcrumbPage>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
-
       {/* Header */}
-      <div className="mb-8 flex items-start justify-between">
-        <div className="flex items-start gap-4">
+      <div className="mb-8">
+        <RunbookTitleEditor promptData={prompt} updatePrompt={updatePrompt} />
+        <div className="mt-3 flex items-start gap-4">
           <FileTextIcon className="size-10 p-2 bg-muted rounded-md" />
           <div className="flex-1">
-            <RunbookTitleEditor
-              promptData={prompt}
-              updatePrompt={updatePrompt}
-            />
             <p className="mt-1 text-muted-foreground">
               {prompt.meta?.case_slug
                 ? `Created from ${prompt.meta.case_slug}`

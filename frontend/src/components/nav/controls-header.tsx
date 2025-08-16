@@ -32,6 +32,7 @@ import {
 } from "@/components/workspaces/add-workspace-secret"
 import {
   useGetCase,
+  useGetPrompt,
   useGetTable,
   useIntegrationProvider,
   useLocalStorage,
@@ -268,6 +269,36 @@ function IntegrationBreadcrumb({
   )
 }
 
+function RunbookBreadcrumb({
+  runbookId,
+  workspaceId,
+}: {
+  runbookId: string
+  workspaceId: string
+}) {
+  const { data: prompt } = useGetPrompt({ workspaceId, promptId: runbookId })
+
+  return (
+    <Breadcrumb>
+      <BreadcrumbList className="relative z-10 flex items-center gap-2 text-sm flex-nowrap overflow-hidden whitespace-nowrap min-w-0 bg-white pr-1">
+        <BreadcrumbItem>
+          <BreadcrumbLink asChild className="font-semibold hover:no-underline">
+            <Link href={`/workspaces/${workspaceId}/runbooks`}>Runbooks</Link>
+          </BreadcrumbLink>
+        </BreadcrumbItem>
+        <BreadcrumbSeparator className="shrink-0">
+          <span className="text-muted-foreground">/</span>
+        </BreadcrumbSeparator>
+        <BreadcrumbItem>
+          <BreadcrumbPage className="font-semibold">
+            {prompt?.title || runbookId}
+          </BreadcrumbPage>
+        </BreadcrumbItem>
+      </BreadcrumbList>
+    </Breadcrumb>
+  )
+}
+
 function getPageConfig(
   pathname: string,
   workspaceId: string,
@@ -366,6 +397,18 @@ function getPageConfig(
   }
 
   if (pagePath.startsWith("/runbooks")) {
+    // Check if this is a runbook detail page
+    const runbookMatch = pagePath.match(/^\/runbooks\/([^/]+)$/)
+    if (runbookMatch) {
+      const runbookId = runbookMatch[1]
+      return {
+        title: (
+          <RunbookBreadcrumb runbookId={runbookId} workspaceId={workspaceId} />
+        ),
+        // No actions for runbook detail pages
+      }
+    }
+
     return {
       title: "Runbooks",
     }
