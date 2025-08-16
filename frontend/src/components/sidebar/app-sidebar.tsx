@@ -2,6 +2,7 @@
 
 import {
   BracesIcon,
+  DatabaseIcon,
   KeyRoundIcon,
   ListTodoIcon,
   ShieldAlertIcon,
@@ -90,6 +91,12 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       url: `${basePath}/custom-fields`,
       icon: BracesIcon,
       isActive: pathname?.startsWith(`${basePath}/custom-fields`),
+    },
+    {
+      title: "Entities",
+      url: `${basePath}/entities`,
+      icon: DatabaseIcon,
+      isActive: pathname?.startsWith(`${basePath}/entities`),
     },
   ]
 

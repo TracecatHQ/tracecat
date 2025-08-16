@@ -514,6 +514,18 @@ export type CaseCustomFieldRead = {
 }
 
 /**
+ * Entity metadata.
+ */
+export type CaseEntityRead = {
+  id: string
+  name: string
+  display_name: string
+  description: string | null
+  icon: string | null
+  is_active: boolean
+}
+
+/**
  * Base read model for all event types.
  */
 export type CaseEventRead =
@@ -643,6 +655,49 @@ export type CaseReadMinimal = {
   severity: CaseSeverity
   assignee?: UserRead | null
   tags?: Array<TagRead>
+}
+
+/**
+ * Create a link between a case and a record.
+ */
+export type CaseRecordLinkCreate = {
+  /**
+   * Entity ID
+   */
+  entity_id: string
+  /**
+   * Existing record ID to link
+   */
+  record_id?: string | null
+  /**
+   * Data for creating a new record
+   */
+  record_data?: {
+    [key: string]: unknown
+  } | null
+}
+
+/**
+ * Case record link with entity and record details.
+ */
+export type CaseRecordLinkRead = {
+  id: string
+  case_id: string
+  entity_id: string
+  record_id: string
+  entity?: CaseEntityRead | null
+  record?: CaseRecordRead | null
+}
+
+/**
+ * Record data.
+ */
+export type CaseRecordRead = {
+  id: string
+  entity_id: string
+  field_data: {
+    [key: string]: unknown
+  }
 }
 
 /**
@@ -1167,6 +1222,102 @@ export type EditorParamRead = {
   optional: boolean
 }
 
+/**
+ * Request model for creating entity.
+ */
+export type EntityCreate = {
+  name: string
+  display_name: string
+  description?: string | null
+  icon?: string | null
+}
+
+/**
+ * Response model for entity.
+ */
+export type EntityRead = {
+  id: string
+  name: string
+  display_name: string
+  description: string | null
+  icon: string | null
+  is_active: boolean
+  created_at: string
+  updated_at: string
+  owner_id: string
+}
+
+/**
+ * Schema field description for API responses.
+ */
+export type EntitySchemaField = {
+  /**
+   * Field key
+   */
+  key: string
+  /**
+   * Field type
+   */
+  type: string
+  /**
+   * Display name
+   */
+  display_name: string
+  /**
+   * Field description
+   */
+  description?: string | null
+  /**
+   * Options for SELECT/MULTI_SELECT fields
+   */
+  enum_options?: Array<string> | null
+}
+
+/**
+ * Entity metadata in schema response.
+ */
+export type EntitySchemaInfo = {
+  /**
+   * Entity ID
+   */
+  id: string
+  /**
+   * Entity name
+   */
+  name: string
+  /**
+   * Display name
+   */
+  display_name: string
+  /**
+   * Entity description
+   */
+  description?: string | null
+}
+
+/**
+ * Response for entity schema endpoint.
+ */
+export type EntitySchemaResponse = {
+  /**
+   * Entity metadata
+   */
+  entity: EntitySchemaInfo
+  /**
+   * Field definitions
+   */
+  fields: Array<EntitySchemaField>
+}
+
+/**
+ * Request model for updating entity.
+ */
+export type EntityUpdate = {
+  display_name?: string | null
+  description?: string | null
+  icon?: string | null
+}
+
 export type ErrorDetails = {
   type: string
   loc: Array<number | string>
@@ -1299,6 +1450,81 @@ export type FieldDiff = {
   old: unknown
   new: unknown
 }
+
+/**
+ * Request model for creating field.
+ */
+export type FieldMetadataCreate = {
+  field_key: string
+  field_type: FieldType
+  display_name: string
+  description?: string | null
+  /**
+   * Options for SELECT/MULTI_SELECT fields
+   */
+  enum_options?: Array<string> | null
+  /**
+   * Settings for relation fields (required when field_type is RELATION_*)
+   */
+  relation_settings?: RelationSettings | null
+  /**
+   * Default value for the field (only for primitive types)
+   */
+  default_value?: unknown | null
+}
+
+/**
+ * Response model for field.
+ */
+export type FieldMetadataRead = {
+  id: string
+  entity_id: string
+  field_key: string
+  field_type: string
+  display_name: string
+  description: string | null
+  is_active: boolean
+  deactivated_at: string | null
+  created_at: string
+  updated_at: string
+  relation_kind?: string | null
+  target_entity_id?: string | null
+  enum_options?: Array<string> | null
+  default_value?: unknown | null
+}
+
+/**
+ * Request model for updating field display properties.
+ */
+export type FieldMetadataUpdate = {
+  display_name?: string | null
+  description?: string | null
+  /**
+   * Options for SELECT/MULTI_SELECT fields
+   */
+  enum_options?: Array<string> | null
+  default_value?: unknown | null
+}
+
+/**
+ * Supported field types for custom entities.
+ *
+ * v1: Basic types only, no complex nested structures.
+ */
+export type FieldType =
+  | "INTEGER"
+  | "NUMBER"
+  | "TEXT"
+  | "BOOL"
+  | "DATETIME"
+  | "DATE"
+  | "ARRAY_TEXT"
+  | "ARRAY_INTEGER"
+  | "ARRAY_NUMBER"
+  | "SELECT"
+  | "MULTI_SELECT"
+  | "RELATION_BELONGS_TO"
+  | "RELATION_HAS_MANY"
 
 export type Float = {
   component_id?: "float"
@@ -1935,8 +2161,81 @@ export type ProviderScopes = {
   default: Array<string>
 }
 
+/**
+ * Single filter specification.
+ */
+export type QueryFilter = {
+  /**
+   * Field key to filter on
+   */
+  field: string
+  /**
+   * Filter operator
+   */
+  operator: string
+  /**
+   * Filter value(s)
+   */
+  value?: unknown
+}
+
+/**
+ * Request model for querying entity records.
+ */
+export type QueryRequest = {
+  filters?: Array<QueryFilter>
+  limit?: number
+  offset?: number
+}
+
+/**
+ * Response model for query results.
+ */
+export type QueryResponse = {
+  records: Array<RecordRead>
+  /**
+   * Total count if available
+   */
+  total?: number | null
+  limit: number
+  offset: number
+}
+
 export type ReceiveInteractionResponse = {
   message: string
+}
+
+/**
+ * Request model for creating record.
+ *
+ * Note: The actual fields are dynamic based on entity type.
+ * This is a base model - actual validation happens in service.
+ */
+export type RecordCreate = {
+  [key: string]: unknown
+}
+
+/**
+ * Response model for record.
+ */
+export type RecordRead = {
+  id: string
+  entity_id: string
+  field_data: {
+    [key: string]: unknown
+  }
+  created_at: string
+  updated_at: string
+  owner_id: string
+}
+
+/**
+ * Request model for updating record.
+ *
+ * Note: The actual fields are dynamic based on entity type.
+ */
+export type RecordUpdate = {
+  [key: string]: unknown
 }
 
 /**
@@ -2304,6 +2603,22 @@ export type RegistrySecretType_Input =
 export type RegistrySecretType_Output =
   | RegistrySecret
   | RegistryOAuthSecret_Output
+
+/**
+ * Settings for relation fields.
+ */
+export type RelationSettings = {
+  relation_type: RelationType
+  target_entity_id: string
+}
+
+/**
+ * Types of relations between entities (for API/models).
+ *
+ * These values are used in the API and models layer to represent
+ * the type of relationship from the perspective of the source entity.
+ */
+export type RelationType = "belongs_to" | "has_many"
 
 /**
  * Event for when a case is reopened.
@@ -4809,6 +5124,216 @@ export type CasesRemoveTagData = {
 
 export type CasesRemoveTagResponse = void
 
+export type CasesListCaseRecordsData = {
+  caseId: string
+  entityId?: string | null
+  workspaceId: string
+}
+
+export type CasesListCaseRecordsResponse = Array<CaseRecordLinkRead>
+
+export type CasesAddRecordToCaseData = {
+  caseId: string
+  requestBody: CaseRecordLinkCreate
+  workspaceId: string
+}
+
+export type CasesAddRecordToCaseResponse = CaseRecordLinkRead
+
+export type CasesGetCaseRecordData = {
+  caseId: string
+  recordId: string
+  workspaceId: string
+}
+
+export type CasesGetCaseRecordResponse = CaseRecordRead
+
+export type CasesUpdateCaseRecordData = {
+  caseId: string
+  recordId: string
+  requestBody: RecordUpdate
+  workspaceId: string
+}
+
+export type CasesUpdateCaseRecordResponse = CaseRecordRead
+
+export type CasesDeleteRecordFromCaseData = {
+  caseId: string
+  recordId: string
+  workspaceId: string
+}
+
+export type CasesDeleteRecordFromCaseResponse = void
+
+export type CasesRemoveRecordFromCaseData = {
+  caseId: string
+  linkId: string
+  workspaceId: string
+}
+
+export type CasesRemoveRecordFromCaseResponse = void
+
+export type EntitiesCreateEntityData = {
+  requestBody: EntityCreate
+  workspaceId: string
+}
+
+export type EntitiesCreateEntityResponse = EntityRead
+
+export type EntitiesListEntitiesData = {
+  /**
+   * Include soft-deleted entities
+   */
+  includeInactive?: boolean
+  workspaceId: string
+}
+
+export type EntitiesListEntitiesResponse = Array<EntityRead>
+
+export type EntitiesGetEntityData = {
+  entityId: string
+  workspaceId: string
+}
+
+export type EntitiesGetEntityResponse = EntityRead
+
+export type EntitiesUpdateEntityData = {
+  entityId: string
+  requestBody: EntityUpdate
+  workspaceId: string
+}
+
+export type EntitiesUpdateEntityResponse = EntityRead
+
+export type EntitiesDeactivateEntityData = {
+  entityId: string
+  workspaceId: string
+}
+
+export type EntitiesDeactivateEntityResponse = EntityRead
+
+export type EntitiesReactivateEntityData = {
+  entityId: string
+  workspaceId: string
+}
+
+export type EntitiesReactivateEntityResponse = EntityRead
+
+export type EntitiesDeleteEntityData = {
+  entityId: string
+  workspaceId: string
+}
+
+export type EntitiesDeleteEntityResponse = void
+
+export type EntitiesCreateFieldData = {
+  entityId: string
+  requestBody: FieldMetadataCreate
+  workspaceId: string
+}
+
+export type EntitiesCreateFieldResponse = FieldMetadataRead
+
+export type EntitiesListFieldsData = {
+  entityId: string
+  /**
+   * Include soft-deleted fields
+   */
+  includeInactive?: boolean
+  workspaceId: string
+}
+
+export type EntitiesListFieldsResponse = Array<FieldMetadataRead>
+
+export type EntitiesGetFieldData = {
+  fieldId: string
+  workspaceId: string
+}
+
+export type EntitiesGetFieldResponse = FieldMetadataRead
+
+export type EntitiesUpdateFieldData = {
+  fieldId: string
+  requestBody: FieldMetadataUpdate
+  workspaceId: string
+}
+
+export type EntitiesUpdateFieldResponse = FieldMetadataRead
+
+export type EntitiesDeactivateFieldData = {
+  fieldId: string
+  workspaceId: string
+}
+
+export type EntitiesDeactivateFieldResponse = FieldMetadataRead
+
+export type EntitiesReactivateFieldData = {
+  fieldId: string
+  workspaceId: string
+}
+
+export type EntitiesReactivateFieldResponse = FieldMetadataRead
+
+export type EntitiesDeleteFieldData = {
+  fieldId: string
+  workspaceId: string
+}
+
+export type EntitiesDeleteFieldResponse = void
+
+export type EntitiesCreateRelationFieldData = {
+  entityId: string
+  requestBody: FieldMetadataCreate
+  workspaceId: string
+}
+
+export type EntitiesCreateRelationFieldResponse = FieldMetadataRead
+
+export type EntitiesCreateRecordData = {
+  entityId: string
+  requestBody: RecordCreate
+  workspaceId: string
+}
+
+export type EntitiesCreateRecordResponse = RecordRead
+
+export type EntitiesGetRecordData = {
+  recordId: string
+  workspaceId: string
+}
+
+export type EntitiesGetRecordResponse = RecordRead
+
+export type EntitiesUpdateRecordData = {
+  recordId: string
+  requestBody: RecordUpdate
+  workspaceId: string
+}
+
+export type EntitiesUpdateRecordResponse = RecordRead
+
+export type EntitiesDeleteRecordData = {
+  recordId: string
+  workspaceId: string
+}
+
+export type EntitiesDeleteRecordResponse = void
+
+export type EntitiesQueryRecordsData = {
+  entityId: string
+  requestBody: QueryRequest
+  workspaceId: string
+}
+
+export type EntitiesQueryRecordsResponse = QueryResponse
+
+export type EntitiesGetEntitySchemaData = {
+  entityId: string
+  workspaceId: string
+}
+
+export type EntitiesGetEntitySchemaResponse = EntitySchemaResponse
+
 export type ChatCreateChatData = {
   requestBody: ChatCreate
   workspaceId: string
@@ -7135,6 +7660,391 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases/{case_id}/records": {
+    get: {
+      req: CasesListCaseRecordsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<CaseRecordLinkRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: CasesAddRecordToCaseData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: CaseRecordLinkRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases/{case_id}/records/{record_id}": {
+    get: {
+      req: CasesGetCaseRecordData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseRecordRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: CasesUpdateCaseRecordData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseRecordRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: CasesDeleteRecordFromCaseData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases/{case_id}/record-links/{link_id}": {
+    delete: {
+      req: CasesRemoveRecordFromCaseData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/entities/types": {
+    post: {
+      req: EntitiesCreateEntityData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: EntityRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    get: {
+      req: EntitiesListEntitiesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<EntityRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/entities/types/{entity_id}": {
+    get: {
+      req: EntitiesGetEntityData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: EntityRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: EntitiesUpdateEntityData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: EntityRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: EntitiesDeactivateEntityData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: EntityRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/entities/types/{entity_id}/reactivate": {
+    post: {
+      req: EntitiesReactivateEntityData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: EntityRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/entities/types/{entity_id}/hard": {
+    delete: {
+      req: EntitiesDeleteEntityData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/entities/{entity_id}/fields": {
+    post: {
+      req: EntitiesCreateFieldData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: FieldMetadataRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    get: {
+      req: EntitiesListFieldsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<FieldMetadataRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/entities/fields/{field_id}": {
+    get: {
+      req: EntitiesGetFieldData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: FieldMetadataRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: EntitiesUpdateFieldData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: FieldMetadataRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/entities/fields/{field_id}/deactivate": {
+    post: {
+      req: EntitiesDeactivateFieldData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: FieldMetadataRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/entities/fields/{field_id}/reactivate": {
+    post: {
+      req: EntitiesReactivateFieldData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: FieldMetadataRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/entities/fields/{field_id}/hard": {
+    delete: {
+      req: EntitiesDeleteFieldData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/entities/{entity_id}/fields/relation": {
+    post: {
+      req: EntitiesCreateRelationFieldData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: FieldMetadataRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/entities/{entity_id}/records": {
+    post: {
+      req: EntitiesCreateRecordData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: RecordRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/entities/records/{record_id}": {
+    get: {
+      req: EntitiesGetRecordData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: RecordRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: EntitiesUpdateRecordData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: RecordRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: EntitiesDeleteRecordData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/entities/{entity_id}/query": {
+    post: {
+      req: EntitiesQueryRecordsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: QueryResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/entities/{entity_id}/schema": {
+    get: {
+      req: EntitiesGetEntitySchemaData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: EntitySchemaResponse
         /**
          * Validation Error
          */
