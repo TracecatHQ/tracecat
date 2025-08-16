@@ -183,6 +183,7 @@ export type AgentOutput = {
 export type AgentSettingsRead = {
   agent_default_model: string | null
   agent_fixed_args: string | null
+  agent_case_chat_prompt: string
 }
 
 export type AgentSettingsUpdate = {
@@ -194,6 +195,10 @@ export type AgentSettingsUpdate = {
    * Fixed arguments for agent tools as a JSON string. Format: {'tool_name': {'arg': 'value'}}
    */
   agent_fixed_args?: string | null
+  /**
+   * Additional instructions for case chat agent; prepended to UI-provided instructions.
+   */
+  agent_case_chat_prompt?: string
 }
 
 /**

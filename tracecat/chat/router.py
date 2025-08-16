@@ -169,6 +169,12 @@ async def start_chat_turn(
         if request.instructions:
             instructions.append(request.instructions)
         merged_instructions = "\n".join(instructions) if instructions else None
+        logger.debug(
+            "Merged instructions",
+            merged_instructions=merged_instructions,
+            org_prompt=org_prompt,
+            request_instructions=request.instructions,
+        )
 
         model_info = ModelInfo(
             name=request.model_name,
