@@ -208,7 +208,9 @@ export function createColumns(
         const dt = new Date(
           row.getValue<CaseReadMinimal["updated_at"]>("updated_at")
         )
-        const timeAgo = formatDistanceToNow(dt, { addSuffix: true })
+        const timeAgo = capitalizeFirst(
+          formatDistanceToNow(dt, { addSuffix: true })
+        )
         const fullDateTime = format(dt, "PPpp") // e.g. "Apr 13, 2024, 2:30 PM EDT"
 
         return (

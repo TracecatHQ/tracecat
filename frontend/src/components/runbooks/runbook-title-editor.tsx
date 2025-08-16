@@ -50,7 +50,7 @@ export function RunbookTitleEditor({
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {
       e.preventDefault()
-      handleTitleSubmit(form.getValues())
+      form.handleSubmit(handleTitleSubmit)()
       e.currentTarget.blur()
     }
   }
@@ -72,7 +72,7 @@ export function RunbookTitleEditor({
                   value={field.value || ""}
                   variant="flat"
                   className="-mx-1 w-full px-1 text-xl font-semibold"
-                  onBlur={() => handleTitleSubmit(form.getValues())}
+                  onBlur={() => form.handleSubmit(handleTitleSubmit)()}
                   onKeyDown={handleKeyDown}
                 />
               </FormControl>

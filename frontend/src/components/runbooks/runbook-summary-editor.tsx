@@ -80,8 +80,6 @@ export function RunbookSummaryEditor({
       } catch (error) {
         console.error("Failed to save summary", error)
         setSaveState(SaveState.ERROR)
-      } finally {
-        setSaveState(SaveState.IDLE)
       }
     },
     [updatePrompt, promptData, form]
