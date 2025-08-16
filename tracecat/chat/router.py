@@ -30,6 +30,7 @@ from tracecat.chat.service import ChatService
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.logger import logger
 from tracecat.redis.client import get_redis_client
+from tracecat.settings.service import get_setting_cached
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -155,6 +156,26 @@ async def start_chat_turn(
         )
 
     try:
+        # Fetch org-level case chat prompt and merge with UI instructions
+        org_prompt = await get_setting_cached(
+            "agent_case_chat_prompt", session=session, default=""
+        )
+        if not isinstance(org_prompt, str):
+            # This should never happen, but just in case
+            raise ValueError("Agent case chat prompt is not a string")
+        instructions: list[str] = []
+        if org_prompt.strip():
+            instructions.append(org_prompt)
+        if request.instructions:
+            instructions.append(request.instructions)
+        merged_instructions = "\n".join(instructions) if instructions else None
+        logger.debug(
+            "Merged instructions",
+            merged_instructions=merged_instructions,
+            org_prompt=org_prompt,
+            request_instructions=request.instructions,
+        )
+
         model_info = ModelInfo(
             name=request.model_name,
             provider=request.model_provider,
@@ -166,7 +187,7 @@ async def start_chat_turn(
             user_prompt=request.message,
             tool_filters=ToolFilters(actions=chat.tools),
             session_id=str(chat_id),
-            instructions=request.instructions,
+            instructions=merged_instructions,
             model_info=model_info,
         )
         await executor.start(args)

@@ -760,9 +760,17 @@ export const $AgentSettingsRead = {
       ],
       title: "Agent Fixed Args",
     },
+    agent_case_chat_prompt: {
+      type: "string",
+      title: "Agent Case Chat Prompt",
+    },
   },
   type: "object",
-  required: ["agent_default_model", "agent_fixed_args"],
+  required: [
+    "agent_default_model",
+    "agent_fixed_args",
+    "agent_case_chat_prompt",
+  ],
   title: "AgentSettingsRead",
 } as const
 
@@ -794,6 +802,13 @@ export const $AgentSettingsUpdate = {
       title: "Agent Fixed Args",
       description:
         "Fixed arguments for agent tools as a JSON string. Format: {'tool_name': {'arg': 'value'}}",
+    },
+    agent_case_chat_prompt: {
+      type: "string",
+      title: "Agent Case Chat Prompt",
+      description:
+        "Additional instructions for case chat agent; prepended to UI-provided instructions.",
+      default: "",
     },
   },
   type: "object",

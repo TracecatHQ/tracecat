@@ -43,7 +43,11 @@ class AioAgentExecutor(BaseAgentExecutor):
             str, await get_setting_cached("agent_fixed_args", session=self.session)
         )
         try:
-            fixed_args = cast(dict[str, Any], orjson.loads(fixed_args_str))
+            fixed_args = (
+                cast(dict[str, Any], orjson.loads(fixed_args_str))
+                if fixed_args_str
+                else {}
+            )
         except Exception:
             logger.warning("Failed to parse fixed args", fixed_args_str=fixed_args_str)
             fixed_args = {}
