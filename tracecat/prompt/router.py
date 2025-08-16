@@ -54,7 +54,7 @@ async def create_prompt(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Chat not found",
         )
-    prompt = await prompt_service.create_prompt(chat=chat)
+    prompt = await prompt_service.create_prompt(chat=chat, meta=request.meta)
     return PromptRead.model_validate(prompt, from_attributes=True)
 
 
@@ -112,6 +112,7 @@ async def update_prompt(
         title=params.title,
         content=params.content,
         tools=params.tools,
+        summary=params.summary,
     )
     return PromptRead.model_validate(prompt, from_attributes=True)
 

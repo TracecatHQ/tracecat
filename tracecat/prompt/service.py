@@ -5,6 +5,7 @@ import json
 import textwrap
 import uuid
 from collections.abc import Sequence
+from typing import Any
 
 from pydantic_ai.messages import (
     ModelRequest,
@@ -43,11 +44,11 @@ class PromptService(BaseWorkspaceService):
         self,
         *,
         chat: Chat,
+        meta: dict[str, Any] | None = None,
     ) -> Prompt:
         """Turn a chat into a reusable prompt."""
 
         messages = await self.chats.get_chat_messages(chat)
-
         steps = self._reduce_messages_to_steps(messages)
 
         try:
@@ -63,10 +64,7 @@ class PromptService(BaseWorkspaceService):
 
         tool_sha = self._calculate_tool_sha(chat.tools)
         token_count = self._estimate_token_count(steps)
-
-        # Create prompt with default title
-        content = textwrap.dedent(f"""
-# Task
+        content = textwrap.dedent(f"""# Task
 You are an expert automation agent.
 
 You will be given a JSON <Alert> by the user.
@@ -96,19 +94,34 @@ Sticking to the above will help you successfully run the <Steps> over the new us
 4. Do NOT add conversational chatter
 5. When using Splunk tools, use `verify_ssl=false`
 6. Do your best to interpret the user's instructions, but if you are unsure, ask the user for clarification. For example, you shouldn't write all your thoughts to the case comments if not asked to do so.
-</Rules>
+</Rules>""")
 
-        """)
+        # Merge provided meta with generated meta
+        prompt_meta = {
+            "schema": "v1",
+            "tool_sha": tool_sha,
+            "token_count": token_count,
+        }
+        if meta:
+            prompt_meta.update(meta)
+
+        # Generate title using AI
+        try:
+            title = await self._chat_to_prompt_title(chat, meta, messages)
+        except Exception as e:
+            logger.warning(
+                "Failed to generate title, falling back to chat title",
+                error=e,
+                chat_id=chat.id,
+            )
+            title = f"{chat.title}"
+
         prompt = Prompt(
             chat_id=chat.id,
-            title=f"{chat.title} - Runbook",
-            content=content,
+            title=title,
+            content=content.strip(),  # Defensive
             owner_id=self.workspace_id,
-            meta={
-                "schema": "v1",
-                "tool_sha": tool_sha,
-                "token_count": token_count,
-            },
+            meta=prompt_meta,
             tools=chat.tools,
             summary=summary,
         )
@@ -126,6 +139,55 @@ Sticking to the above will help you successfully run the <Steps> over the new us
         )
 
         return prompt
+
+    async def _chat_to_prompt_title(
+        self, chat: Chat, meta: dict[str, Any] | None, messages: list[ChatMessage]
+    ) -> str:
+        """Generate an ITSM-focused runbook title.
+
+        Note: to reduce token usage, only use the first user prompt message.
+        We assume the initial user prompt message and the case metadata is the most relevant.
+        """
+        # Extract first user message content (limited to 300 chars for efficiency)
+        first_user_msg = ""
+        for msg in messages[:3]:  # Check first 3 messages only
+            if isinstance(msg.message, ModelRequest):
+                message = msg.message  # Store in local variable for type narrowing
+                for part in message.parts:
+                    if isinstance(part, UserPromptPart) and part.content:
+                        first_user_msg = str(part.content)[:300]
+                        break
+                if first_user_msg:
+                    break
+
+        # Build ITSM-focused prompt
+        case_title = meta.get("case_title", "") if meta else ""
+        instructions = textwrap.dedent("""
+        You are an expert ITSM runbook title specialist.
+        Generate a precise 6-8 word title for this automation runbook.
+        Focus on the action/resolution being automated.
+        Use standard ITSM terminology (e.g., Investigate, Remediate, Configure, Deploy).
+        """)
+
+        user_prompt = f"Case: {case_title}\nUser request: {first_user_msg}\nTitle:"
+
+        # Generate title
+        svc = AgentManagementService(self.session, self.role)
+        async with svc.with_model_config() as model_config:
+            model = get_model(model_config.name, model_config.provider)
+            agent = build_agent(
+                model=model,
+                instructions=instructions,
+            )
+            response = await agent.run(user_prompt)
+            title = response.output.strip()
+            # Post-process: ensure only first letter is capitalized
+            if title:
+                title = title.lower().capitalize()
+            else:
+                # Fall back to chat title
+                title = f"{chat.title}"
+            return title
 
     async def get_prompt(self, prompt_id: uuid.UUID) -> Prompt | None:
         """Get a prompt by ID."""
@@ -160,6 +222,7 @@ Sticking to the above will help you successfully run the <Steps> over the new us
         title: str | None = None,
         content: str | None = None,
         tools: list[str] | None = None,
+        summary: str | None = None,
     ) -> Prompt:
         """Update prompt properties."""
         if title is not None:
@@ -170,6 +233,9 @@ Sticking to the above will help you successfully run the <Steps> over the new us
 
         if tools is not None:
             prompt.tools = tools
+
+        if summary is not None:
+            prompt.summary = summary
 
         self.session.add(prompt)
         await self.session.commit()
@@ -272,6 +338,22 @@ Sticking to the above will help you successfully run the <Steps> over the new us
         """Rough estimation of token count (1 token ≈ 4 characters)."""
         return len(text) // 4
 
+    def _clean_prompt_output(self, output: str) -> str:
+        """Clean and normalize prompt output by removing code block wrappers."""
+        output = output.strip()
+
+        # Remove markdown code block wrapper if the entire content is wrapped
+        if output.startswith("```") and output.endswith("```"):
+            # Find the first newline after opening ```
+            first_newline = output.find("\n")
+            if first_newline != -1:
+                # Remove opening ``` and language identifier
+                output = output[first_newline + 1 :]
+                # Remove closing ```
+                if output.endswith("```"):
+                    output = output[:-3].rstrip()
+        return output
+
     async def _prompt_summary(self, steps: str, tools: list[str]) -> str:
         """Convert a prompt to a runbook."""
         instructions = textwrap.dedent("""
@@ -294,6 +376,9 @@ Sticking to the above will help you successfully run the <Steps> over the new us
 
         <Requirements>
         - Return ONLY the runbook as a formatted markdown string, nothing else
+        - Do NOT wrap the entire runbook in code blocks (```)
+        - Use standard markdown formatting: headers (#, ##), lists (-, *), bold (**), italic (*)
+        - Only use code blocks (```) when showing actual code snippets or commands that should be executed
         - Include a section `Objective` on the user's objective. You must infer the objective from the <Steps>.
         - Include a section `Tools` on the tools that are required for the runbook. This will be provided by the user as <Tools>.
         </Requirements>
@@ -313,4 +398,6 @@ Sticking to the above will help you successfully run the <Steps> over the new us
             </Tools>
             """
             response = await agent.run(user_prompt)
-        return response.output
+            output = self._clean_prompt_output(response.output)
+
+        return output

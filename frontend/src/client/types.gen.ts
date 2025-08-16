@@ -1703,6 +1703,12 @@ export type PromptCreate = {
    * ID of the chat to freeze into a prompt
    */
   chat_id: string
+  /**
+   * Optional metadata to include with the prompt (e.g., case information)
+   */
+  meta?: {
+    [key: string]: unknown
+  } | null
 }
 
 /**
@@ -5159,7 +5165,7 @@ export type PublicCheckHealthResponse = {
 
 export type $OpenApiTs = {
   "/webhooks/{workflow_id}/{secret}": {
-    post: {
+    get: {
       req: PublicIncomingWebhookData
       res: {
         /**
@@ -5172,7 +5178,7 @@ export type $OpenApiTs = {
         422: HTTPValidationError
       }
     }
-    get: {
+    post: {
       req: PublicIncomingWebhook1Data
       res: {
         /**

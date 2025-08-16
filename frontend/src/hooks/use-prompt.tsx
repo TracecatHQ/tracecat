@@ -99,9 +99,6 @@ export function useUpdatePrompt(workspaceId: string) {
         queryClient.invalidateQueries({
           queryKey: ["prompts", workspaceId, data.id],
         })
-        toast({
-          title: "Prompt updated successfully",
-        })
       },
     })
 
