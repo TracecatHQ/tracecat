@@ -4049,6 +4049,399 @@ export const $GetWorkflowDefinitionActivityInputs = {
   title: "GetWorkflowDefinitionActivityInputs",
 } as const
 
+export const $GitHubAppConfig = {
+  properties: {
+    installation_id: {
+      type: "integer",
+      title: "Installation Id",
+    },
+    installation: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/GitHubInstallation",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    app_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "App Id",
+    },
+    private_key_encrypted: {
+      anyOf: [
+        {
+          type: "string",
+          format: "binary",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Private Key Encrypted",
+    },
+    client_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Client Id",
+    },
+    webhook_secret: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Webhook Secret",
+    },
+    accessible_repositories: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Accessible Repositories",
+    },
+    last_token_refresh: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Token Refresh",
+    },
+  },
+  type: "object",
+  required: ["installation_id"],
+  title: "GitHubAppConfig",
+  description: "GitHub App configuration for workspace.",
+} as const
+
+export const $GitHubAppCredentialsRequest = {
+  properties: {
+    app_id: {
+      type: "string",
+      title: "App Id",
+      description: "GitHub App ID",
+    },
+    private_key: {
+      type: "string",
+      format: "password",
+      title: "Private Key",
+      description: "GitHub App private key in PEM format",
+      writeOnly: true,
+    },
+    webhook_secret: {
+      anyOf: [
+        {
+          type: "string",
+          format: "password",
+          writeOnly: true,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Webhook Secret",
+      description: "GitHub App webhook secret",
+    },
+    client_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Client Id",
+      description: "GitHub App client ID",
+    },
+  },
+  type: "object",
+  required: ["app_id", "private_key"],
+  title: "GitHubAppCredentialsRequest",
+  description: "Request to register or update GitHub App credentials.",
+} as const
+
+export const $GitHubAppCredentialsStatus = {
+  properties: {
+    exists: {
+      type: "boolean",
+      title: "Exists",
+    },
+    app_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "App Id",
+    },
+    has_webhook_secret: {
+      type: "boolean",
+      title: "Has Webhook Secret",
+      default: false,
+    },
+    has_client_id: {
+      type: "boolean",
+      title: "Has Client Id",
+      default: false,
+    },
+    created_at: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Created At",
+    },
+  },
+  type: "object",
+  required: ["exists"],
+  title: "GitHubAppCredentialsStatus",
+  description: "Status of GitHub App credentials.",
+} as const
+
+export const $GitHubAppManifest = {
+  properties: {
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    url: {
+      type: "string",
+      title: "Url",
+    },
+    hook_attributes: {
+      $ref: "#/components/schemas/GitHubWebhookAttributes",
+    },
+    redirect_url: {
+      type: "string",
+      title: "Redirect Url",
+    },
+    callback_urls: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Callback Urls",
+    },
+    setup_url: {
+      type: "string",
+      title: "Setup Url",
+    },
+    description: {
+      type: "string",
+      title: "Description",
+    },
+    public: {
+      type: "boolean",
+      title: "Public",
+    },
+    default_permissions: {
+      $ref: "#/components/schemas/GitHubAppPermissions",
+    },
+    default_events: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Default Events",
+    },
+  },
+  type: "object",
+  required: [
+    "name",
+    "url",
+    "hook_attributes",
+    "redirect_url",
+    "callback_urls",
+    "setup_url",
+    "description",
+    "public",
+    "default_permissions",
+    "default_events",
+  ],
+  title: "GitHubAppManifest",
+  description: "GitHub App manifest for creating enterprise apps.",
+} as const
+
+export const $GitHubAppManifestResponse = {
+  properties: {
+    manifest: {
+      $ref: "#/components/schemas/GitHubAppManifest",
+    },
+    instructions: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Instructions",
+    },
+  },
+  type: "object",
+  required: ["manifest", "instructions"],
+  title: "GitHubAppManifestResponse",
+  description: "GitHub App manifest response.",
+} as const
+
+export const $GitHubAppPermissions = {
+  properties: {
+    contents: {
+      type: "string",
+      title: "Contents",
+    },
+    metadata: {
+      type: "string",
+      title: "Metadata",
+    },
+    pull_requests: {
+      type: "string",
+      title: "Pull Requests",
+    },
+  },
+  type: "object",
+  required: ["contents", "metadata", "pull_requests"],
+  title: "GitHubAppPermissions",
+  description: "Type definition for GitHub App default permissions.",
+} as const
+
+export const $GitHubInstallation = {
+  properties: {
+    id: {
+      type: "integer",
+      title: "Id",
+    },
+    account_login: {
+      type: "string",
+      title: "Account Login",
+    },
+    account_type: {
+      type: "string",
+      title: "Account Type",
+    },
+    target_type: {
+      type: "string",
+      title: "Target Type",
+    },
+    permissions: {
+      additionalProperties: {
+        type: "string",
+      },
+      type: "object",
+      title: "Permissions",
+    },
+    repositories: {
+      items: {
+        $ref: "#/components/schemas/GitHubRepository",
+      },
+      type: "array",
+      title: "Repositories",
+    },
+    created_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Created At",
+    },
+    updated_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: ["id", "account_login", "account_type", "target_type"],
+  title: "GitHubInstallation",
+  description: "GitHub App installation details.",
+} as const
+
+export const $GitHubRepository = {
+  properties: {
+    id: {
+      type: "integer",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    full_name: {
+      type: "string",
+      title: "Full Name",
+    },
+    private: {
+      type: "boolean",
+      title: "Private",
+    },
+    default_branch: {
+      type: "string",
+      title: "Default Branch",
+      default: "main",
+    },
+  },
+  type: "object",
+  required: ["id", "name", "full_name", "private"],
+  title: "GitHubRepository",
+  description: "GitHub repository information.",
+} as const
+
+export const $GitHubWebhookAttributes = {
+  properties: {
+    url: {
+      type: "string",
+      title: "Url",
+    },
+    active: {
+      type: "boolean",
+      title: "Active",
+    },
+  },
+  type: "object",
+  required: ["url", "active"],
+  title: "GitHubWebhookAttributes",
+  description: "Type definition for GitHub webhook attributes.",
+} as const
+
 export const $GitSettingsRead = {
   properties: {
     git_allowed_domains: {
@@ -7590,7 +7983,7 @@ export const $SecretReadMinimal = {
 
 export const $SecretType = {
   type: "string",
-  enum: ["custom", "ssh-key"],
+  enum: ["custom", "ssh-key", "github-app"],
   title: "SecretType",
   description: "The type of a secret.",
 } as const
@@ -11404,16 +11797,12 @@ export const $WorkspaceRead = {
     settings: {
       anyOf: [
         {
-          additionalProperties: {
-            type: "string",
-          },
-          type: "object",
+          $ref: "#/components/schemas/WorkspaceSettings",
         },
         {
           type: "null",
         },
       ],
-      title: "Settings",
     },
     owner_id: {
       type: "string",
@@ -11464,6 +11853,34 @@ export const $WorkspaceRole = {
   title: "WorkspaceRole",
 } as const
 
+export const $WorkspaceSettings = {
+  properties: {
+    vcs: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/WorkspaceVCSConfig",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    git_repo_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Git Repo Url",
+    },
+  },
+  type: "object",
+  title: "WorkspaceSettings",
+} as const
+
 export const $WorkspaceUpdate = {
   properties: {
     name: {
@@ -11496,6 +11913,46 @@ export const $WorkspaceUpdate = {
   },
   type: "object",
   title: "WorkspaceUpdate",
+} as const
+
+export const $WorkspaceVCSConfig = {
+  properties: {
+    provider: {
+      type: "string",
+      maxLength: 100,
+      minLength: 1,
+      title: "Provider",
+      description: "VCS provider name",
+    },
+    github_app: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/GitHubAppConfig",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    git_repo_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Git Repo Url",
+    },
+  },
+  type: "object",
+  required: ["provider"],
+  title: "WorkspaceVCSConfig",
+  description: `Workspace VCS configuration.
+
+In the org level we create the github app.
+At the workspace level we install the github app in specific git repos.`,
 } as const
 
 export const $Yaml = {

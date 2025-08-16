@@ -284,3 +284,6 @@ When writing templates, ensure that any FN. function you use exists in the `_FUN
         def main(base, updates):
             return {**base, **updates}
   ```
+
+- when using typescript you must *never* use `any` to type a variable
+- When adding any pages that require redirection/callbacks to the UI we need to create a NextJS route handler for that path

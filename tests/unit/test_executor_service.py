@@ -12,7 +12,7 @@ from tracecat.executor.service import (
     run_action_from_input,
 )
 from tracecat.expressions.common import ExprContext
-from tracecat.git import GitUrl
+from tracecat.git.models import GitUrl
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.types.auth import Role

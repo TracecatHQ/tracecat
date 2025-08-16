@@ -6,3 +6,4 @@ class SecretType(StrEnum):
 
     CUSTOM = "custom"
     SSH_KEY = "ssh-key"
+    GITHUB_APP = "github-app"

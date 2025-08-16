@@ -11,13 +11,14 @@ import yaml
 from tracecat_ee.workflow.store import GitWorkflowStore
 
 from tracecat.dsl.common import DSLInput
-from tracecat.git import GitUrl, resolve_git_ref, run_git
+from tracecat.git.utils import GitUrl, resolve_git_ref, run_git
 from tracecat.identifiers import WorkspaceID
 from tracecat.logger import logger
 from tracecat.service import BaseWorkspaceService
 from tracecat.ssh import git_env_context
 from tracecat.sync import CommitInfo, PullOptions, PushOptions
 from tracecat.types.auth import Role
+from tracecat.vcs.github.app import GitHubAppError, GitHubAppService
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.store.models import WorkflowSource
 
@@ -384,32 +385,53 @@ class WorkflowSyncService(BaseWorkspaceService):
     async def _create_pull_request(
         self, url: GitUrl, branch: str, title: str, work_dir: Path, env: dict[str, str]
     ) -> str | None:
-        """Create pull request using GitHub CLI."""
+        """Create pull request using GitHub App API or fallback to GitHub CLI."""
         try:
-            returncode, stdout, stderr = await run_git(
-                [
-                    "gh",
-                    "pr",
-                    "new",
-                    "--title",
-                    title,
-                    "--body",
-                    f"Automated workflow sync from Tracecat workspace {self.workspace_id}",
-                    "--base",
-                    url.ref or "main",
-                    "--head",
-                    branch,
-                ],
-                env=env,
-                cwd=str(work_dir),
-            )
-            if returncode != 0:
-                logger.error(f"Failed to create PR: {stderr}")
-                raise RuntimeError(f"Failed to create PR: {stderr}")
-            # Extract PR URL from output
-            if returncode == 0:
-                return stdout.strip()
-        except Exception as e:
-            logger.warning(f"Could not create PR automatically: {e}")
+            # Check if workspace has GitHub App configured
+            # workspace_service = WorkspaceService(session=self.session, role=self.role)
+            # workspace = await workspace_service.get_workspace(self.workspace_id)
 
-        return None
+            # if not workspace:
+            #     return None
+
+            # vcs_config = workspace.settings.vcs or VCSConfig(provider="github")
+            # if vcs_config.provider != "github" or vcs_config.github_app is None:
+            #     return None
+
+            logger.info(
+                "Using GitHub App for PR creation",
+                workspace_id=self.workspace_id,
+                repo=url.to_url(),
+            )
+
+            # Use GitHub App service to create PR
+            github_service = GitHubAppService(session=self.session, role=self.role)
+            pr = await github_service.create_pull_request(
+                title=title,
+                body=f"Automated workflow sync from Tracecat workspace {self.workspace_id}",
+                head_branch=branch,
+                base_branch=url.ref or "main",
+                repo_url=url,
+                workspace_id=self.workspace_id,
+            )
+
+            logger.info(
+                "Created PR using GitHub App",
+                pr_number=pr.number,
+                pr_url=pr.html_url,
+            )
+
+            return pr.html_url
+
+        except GitHubAppError as e:
+            logger.warning(
+                "GitHub App PR creation failed, will fallback to CLI",
+                error=str(e),
+            )
+            return None
+        except Exception as e:
+            logger.warning(
+                "Unexpected error with GitHub App PR creation, will fallback to CLI",
+                error=str(e),
+            )
+            return None

@@ -1330,6 +1330,121 @@ export type GetWorkflowDefinitionActivityInputs = {
   task?: ActionStatement | null
 }
 
+/**
+ * GitHub App configuration for workspace.
+ */
+export type GitHubAppConfig = {
+  installation_id: number
+  installation?: GitHubInstallation | null
+  app_id?: string | null
+  private_key_encrypted?: (Blob | File) | null
+  client_id?: string | null
+  webhook_secret?: string | null
+  accessible_repositories?: Array<string>
+  last_token_refresh?: string | null
+}
+
+/**
+ * Request to register or update GitHub App credentials.
+ */
+export type GitHubAppCredentialsRequest = {
+  /**
+   * GitHub App ID
+   */
+  app_id: string
+  /**
+   * GitHub App private key in PEM format
+   */
+  private_key: string
+  /**
+   * GitHub App webhook secret
+   */
+  webhook_secret?: string | null
+  /**
+   * GitHub App client ID
+   */
+  client_id?: string | null
+}
+
+/**
+ * Status of GitHub App credentials.
+ */
+export type GitHubAppCredentialsStatus = {
+  exists: boolean
+  app_id?: string | null
+  has_webhook_secret?: boolean
+  has_client_id?: boolean
+  created_at?: string | null
+}
+
+/**
+ * GitHub App manifest for creating enterprise apps.
+ */
+export type GitHubAppManifest = {
+  name: string
+  url: string
+  hook_attributes: GitHubWebhookAttributes
+  redirect_url: string
+  callback_urls: Array<string>
+  setup_url: string
+  description: string
+  public: boolean
+  default_permissions: GitHubAppPermissions
+  default_events: Array<string>
+}
+
+/**
+ * GitHub App manifest response.
+ */
+export type GitHubAppManifestResponse = {
+  manifest: GitHubAppManifest
+  instructions: Array<string>
+}
+
+/**
+ * Type definition for GitHub App default permissions.
+ */
+export type GitHubAppPermissions = {
+  contents: string
+  metadata: string
+  pull_requests: string
+}
+
+/**
+ * GitHub App installation details.
+ */
+export type GitHubInstallation = {
+  id: number
+  account_login: string
+  account_type: string
+  target_type: string
+  permissions?: {
+    [key: string]: string
+  }
+  repositories?: Array<GitHubRepository>
+  created_at?: string | null
+  updated_at?: string | null
+}
+
+/**
+ * GitHub repository information.
+ */
+export type GitHubRepository = {
+  id: number
+  name: string
+  full_name: string
+  private: boolean
+  default_branch?: string
+}
+
+/**
+ * Type definition for GitHub webhook attributes.
+ */
+export type GitHubWebhookAttributes = {
+  url: string
+  active: boolean
+}
+
 export type GitSettingsRead = {
   git_allowed_domains: Array<string>
   git_repo_url?: string | null
@@ -2600,7 +2715,7 @@ export type SecretReadMinimal = {
 /**
  * The type of a secret.
  */
-export type SecretType = "custom" | "ssh-key"
+export type SecretType = "custom" | "ssh-key" | "github-app"
 
 /**
  * Update a secret.
@@ -3720,9 +3835,7 @@ export type WorkspaceMembershipUpdate = {
 export type WorkspaceRead = {
   id: string
   name: string
-  settings?: {
-    [key: string]: string
-  } | null
+  settings?: WorkspaceSettings | null
   owner_id: string
   n_members: number
   members: Array<WorkspaceMember>
@@ -3736,11 +3849,31 @@ export type WorkspaceReadMinimal = {
 
 export type WorkspaceRole = "editor" | "admin"
 
+export type WorkspaceSettings = {
+  vcs?: WorkspaceVCSConfig | null
+  git_repo_url?: string | null
+}
+
 export type WorkspaceUpdate = {
   name?: string | null
   settings?: {
     [key: string]: string
   } | null
+}
+
+/**
+ * Workspace VCS configuration.
+ *
+ * In the org level we create the github app.
+ * At the workspace level we install the github app in specific git repos.
+ */
+export type WorkspaceVCSConfig = {
+  /**
+   * VCS provider name
+   */
+  provider: string
+  github_app?: GitHubAppConfig | null
+  git_repo_url?: string | null
 }
 
 export type Yaml = {
@@ -5093,6 +5226,46 @@ export type ProvidersGetProviderData = {
 
 export type ProvidersGetProviderResponse = ProviderRead
 
+export type VcsGetGithubAppManifestResponse = GitHubAppManifestResponse
+
+export type VcsGithubAppInstallCallbackData = {
+  /**
+   * Temporary code from GitHub manifest flow
+   */
+  code?: string | null
+  /**
+   * Installation ID from GitHub callback
+   */
+  installationId?: number | null
+  /**
+   * CSRF protection state parameter
+   */
+  state?: string | null
+}
+
+export type VcsGithubAppInstallCallbackResponse = unknown
+
+export type VcsGithubWebhookData = {
+  requestBody: {
+    [key: string]: unknown
+  }
+}
+
+export type VcsGithubWebhookResponse = {
+  [key: string]: string
+}
+
+export type VcsSaveGithubAppCredentialsData = {
+  requestBody: GitHubAppCredentialsRequest
+}
+
+export type VcsSaveGithubAppCredentialsResponse = {
+  [key: string]: string
+}
+
+export type VcsGetGithubAppCredentialsStatusResponse =
+  GitHubAppCredentialsStatus
+
 export type UsersUsersCurrentUserResponse = UserRead
 
 export type UsersUsersPatchCurrentUserData = {
@@ -5187,7 +5360,7 @@ export type PublicCheckHealthResponse = {
 
 export type $OpenApiTs = {
   "/webhooks/{workflow_id}/{secret}": {
-    post: {
+    get: {
       req: PublicIncomingWebhookData
       res: {
         /**
@@ -5200,7 +5373,7 @@ export type $OpenApiTs = {
         422: HTTPValidationError
       }
     }
-    get: {
+    post: {
       req: PublicIncomingWebhook1Data
       res: {
         /**
@@ -7615,6 +7788,75 @@ export type $OpenApiTs = {
          * Validation Error
          */
         422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/vcs/github/manifest": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: GitHubAppManifestResponse
+      }
+    }
+  }
+  "/organization/vcs/github/install": {
+    get: {
+      req: VcsGithubAppInstallCallbackData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/vcs/github/webhook": {
+    post: {
+      req: VcsGithubWebhookData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: {
+          [key: string]: string
+        }
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/vcs/github/credentials": {
+    post: {
+      req: VcsSaveGithubAppCredentialsData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: {
+          [key: string]: string
+        }
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/vcs/github/credentials/status": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: GitHubAppCredentialsStatus
       }
     }
   }

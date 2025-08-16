@@ -1,11 +1,33 @@
+from __future__ import annotations
+
 from pydantic import BaseModel, EmailStr, Field
 
 from tracecat import config
 from tracecat.auth.models import UserRole
 from tracecat.authz.models import WorkspaceRole
 from tracecat.identifiers import OwnerID, UserID, WorkspaceID
+from tracecat.vcs.github.models import GitHubAppConfig
 
 # === Workspace === #
+
+
+class WorkspaceVCSConfig(BaseModel):
+    """Workspace VCS configuration.
+
+    In the org level we create the github app.
+    At the workspace level we install the github app in specific git repos.
+    """
+
+    provider: str = Field(
+        ..., min_length=1, max_length=100, description="VCS provider name"
+    )
+    github_app: GitHubAppConfig | None = None
+    git_repo_url: str | None = None
+
+
+class WorkspaceSettings(BaseModel):
+    vcs: WorkspaceVCSConfig | None = None
+    git_repo_url: str | None = None
 
 
 # Params
@@ -43,7 +65,7 @@ class WorkspaceMember(BaseModel):
 class WorkspaceRead(BaseModel):
     id: WorkspaceID
     name: str
-    settings: dict[str, str] | None = None
+    settings: WorkspaceSettings | None = None
     owner_id: OwnerID
     n_members: int
     members: list[WorkspaceMember]

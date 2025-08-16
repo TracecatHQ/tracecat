@@ -6,17 +6,18 @@ import tempfile
 from collections.abc import Sequence
 from pathlib import Path
 
-from tracecat.git import run_git
+from tracecat.git.utils import run_git
 from tracecat.identifiers.workflow import (
     LEGACY_WF_ID_PATTERN,
     WF_ID_SHORT_PATTERN,
     WorkflowUUID,
 )
 from tracecat.logger import logger
-from tracecat.workflow.store.core import WorkflowSource, WorkflowStore
+from tracecat.store import ExternalStore
+from tracecat.workflow.store.models import WorkflowSource
 
 
-class GitWorkflowStore(WorkflowStore):
+class GitWorkflowStore(ExternalStore[WorkflowSource]):
     """Git-based external workflow storage implementation.
 
     Provides access to workflow YAML files stored in a Git repository by

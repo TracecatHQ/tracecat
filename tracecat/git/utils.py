@@ -1,12 +1,10 @@
-"""Git functionality for Tracecat."""
-
 import asyncio
 import re
-from dataclasses import dataclass
 from typing import cast
 
 from tracecat import config
 from tracecat.contexts import ctx_role
+from tracecat.git.models import GitUrl
 from tracecat.logger import logger
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.settings.service import get_setting_cached
@@ -14,35 +12,10 @@ from tracecat.ssh import SshEnv
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatSettingsError
 
-# Export list for backward compatibility
-__all__ = [
-    "GitUrl",
-    "parse_git_url",
-    "resolve_git_ref",
-    "run_git",
-    "get_git_repository_sha",
-    "prepare_git_url",
-]
-
 GIT_SSH_URL_REGEX = re.compile(
     r"^git\+ssh://git@(?P<host>[^/]+)/(?P<org>[^/]+)/(?P<repo>[^/@]+?)(?:\.git)?(?:@(?P<ref>[^/]+))?$"
 )
 """Git SSH URL with git user and optional ref."""
-
-
-@dataclass(frozen=True)
-class GitUrl:
-    """Immutable Git URL representation."""
-
-    host: str
-    org: str
-    repo: str
-    ref: str | None = None
-
-    def to_url(self) -> str:
-        """Convert GitUrl to string representation."""
-        base = f"git+ssh://git@{self.host}/{self.org}/{self.repo}.git"
-        return f"{base}@{self.ref}" if self.ref else base
 
 
 def parse_git_url(url: str, *, allowed_domains: set[str] | None = None) -> GitUrl:

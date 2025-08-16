@@ -188,6 +188,13 @@ import {
   triggersUpdateWebhook,
   type UserUpdate,
   usersUsersPatchCurrentUser,
+  type VcsGetGithubAppCredentialsStatusResponse,
+  type VcsGetGithubAppManifestResponse,
+  type VcsSaveGithubAppCredentialsData,
+  type VcsSaveGithubAppCredentialsResponse,
+  vcsGetGithubAppCredentialsStatus,
+  vcsGetGithubAppManifest,
+  vcsSaveGithubAppCredentials,
   type WebhookUpdate,
   type WorkflowDirectoryItem,
   type WorkflowExecutionCreate,
@@ -1879,6 +1886,69 @@ export function useOrgGitSettings() {
     updateGitSettings,
     updateGitSettingsIsPending,
     updateGitSettingsError,
+  }
+}
+
+export function useGitHubAppManifest() {
+  // Get GitHub App manifest
+  const {
+    data: manifest,
+    isLoading: manifestIsLoading,
+    error: manifestError,
+  } = useQuery<VcsGetGithubAppManifestResponse>({
+    queryKey: ["github-app-manifest"],
+    queryFn: async () => await vcsGetGithubAppManifest(),
+  })
+
+  return {
+    manifest,
+    manifestIsLoading,
+    manifestError,
+  }
+}
+
+export function useGitHubAppCredentialsStatus() {
+  // Get GitHub App credentials status
+  const {
+    data: credentialsStatus,
+    isLoading: credentialsStatusIsLoading,
+    error: credentialsStatusError,
+    refetch: refetchCredentialsStatus,
+  } = useQuery<VcsGetGithubAppCredentialsStatusResponse>({
+    queryKey: ["github-app-credentials-status"],
+    queryFn: async () => await vcsGetGithubAppCredentialsStatus(),
+  })
+
+  return {
+    credentialsStatus,
+    credentialsStatusIsLoading,
+    credentialsStatusError,
+    refetchCredentialsStatus,
+  }
+}
+
+export function useGitHubAppCredentials() {
+  const queryClient = useQueryClient()
+
+  // Save GitHub App credentials mutation
+  const saveCredentials = useMutation<
+    VcsSaveGithubAppCredentialsResponse,
+    ApiError,
+    VcsSaveGithubAppCredentialsData["requestBody"]
+  >({
+    mutationFn: async (data) => {
+      return await vcsSaveGithubAppCredentials({ requestBody: data })
+    },
+    onSuccess: () => {
+      // Invalidate and refetch credentials status
+      queryClient.invalidateQueries({
+        queryKey: ["github-app-credentials-status"],
+      })
+    },
+  })
+
+  return {
+    saveCredentials,
   }
 }
 
