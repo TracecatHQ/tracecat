@@ -243,6 +243,7 @@ async def create_saml_client() -> Saml2Client:
         "entityid": TRACECAT__PUBLIC_API_URL,
         "xmlsec_binary": XMLSEC_BINARY_PATH,
         "verify_ssl_cert": SAML_VERIFY_SSL_ENTITY,
+        "disable_ssl_certificate_validation": not SAML_VERIFY_SSL_METADATA,
         "service": {
             "sp": {
                 "name": "tracecat_saml_sp",
@@ -267,7 +268,6 @@ async def create_saml_client() -> Saml2Client:
             "remote": [
                 {
                     "url": saml_idp_metadata_url,
-                    "disable_ssl_certificate_validation": not SAML_VERIFY_SSL_METADATA,
                 }
             ]
         },
