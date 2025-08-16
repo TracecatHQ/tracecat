@@ -533,7 +533,7 @@ function CaseContentInjectionSection() {
     return (
       <AlertNotification
         level="error"
-        message={`Error loading agent settings: ${agentSettingsError instanceof Error ? agentSettingsError.message : "Unknown error"}`}
+        message="Failed to load agent settings."
       />
     )
   }
