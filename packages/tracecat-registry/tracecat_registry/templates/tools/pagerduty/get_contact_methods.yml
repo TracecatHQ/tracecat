@@ -1,0 +1,25 @@
+type: action
+definition:
+  title: Get contact methods
+  description: Get contact methods in PagerDuty.
+  display_group: PagerDuty
+  doc_url: https://developer.pagerduty.com/api-reference
+  namespace: tools.pagerduty
+  name: get_contact_methods
+  secrets:
+    - name: pagerduty
+      keys: ["PAGERDUTY_API_KEY"]
+  expects:
+    user_id:
+      type: str
+      description: The ID of the user.
+  steps:
+    - ref: get_contact_methods
+      action: core.http_request
+      args:
+        url: https://api.pagerduty.com/users/${{ inputs.user_id }}/contact_methods
+        method: GET
+        headers:
+          Authorization: Token token=${{ SECRETS.pagerduty.PAGERDUTY_API_KEY }}
+          Content-Type: application/json
+  returns: ${{ steps.get_contact_methods.result.data }}

@@ -1,0 +1,25 @@
+type: action
+definition:
+  title: Get user notification rules
+  description: Get the notification rules of a PagerDuty user.
+  display_group: PagerDuty
+  doc_url: https://developer.pagerduty.com/api-reference
+  namespace: tools.pagerduty
+  name: get_user_notification_rules
+  secrets:
+    - name: pagerduty
+      keys: ["PAGERDUTY_API_KEY"]
+  expects:
+    user_id:
+      type: str
+      description: The ID of the user.
+  steps:
+    - ref: get_user_notification_rules
+      action: core.http_request
+      args:
+        url: https://api.pagerduty.com/users/${{ inputs.user_id }}/notification_rules
+        method: GET
+        headers:
+          Authorization: Token token=${{ SECRETS.pagerduty.PAGERDUTY_API_KEY }}
+          Content-Type: application/json
+  returns: ${{ steps.get_user_notification_rules.result.data }}

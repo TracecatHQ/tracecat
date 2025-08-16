@@ -1,0 +1,34 @@
+type: action
+definition:
+  title: Get incidents
+  description: List existing incidents.
+  display_group: PagerDuty
+  doc_url: https://developer.pagerduty.com/api-reference
+  namespace: tools.pagerduty
+  name: get_incidents
+  secrets:
+    - name: pagerduty
+      keys: ["PAGERDUTY_API_KEY"]
+  expects:
+    incident_key:
+      type: str | None
+      description: Incident de-duplication key.
+      default: null
+    status:
+      type: str | None
+      description: Filter incidents by status.
+      enum: ["triggered", "acknowledged", "resolved"]
+      default: null
+  steps:
+    - ref: get_incidents
+      action: core.http_request
+      args:
+        url: https://api.pagerduty.com/incidents
+        method: GET
+        headers:
+          Authorization: Token token=${{ SECRETS.pagerduty.PAGERDUTY_API_KEY }}
+          Content-Type: application/json
+        params:
+          incident_key: ${{ inputs.incident_key }}
+          statuses[]: ${{ inputs.status }}
+  returns: ${{ steps.get_incidents.result.data }}
