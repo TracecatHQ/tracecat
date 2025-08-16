@@ -46,6 +46,12 @@ export function OrganizationSidebar({
 
   const navSettings = [
     {
+      title: "Version control",
+      url: "/organization/vcs",
+      icon: GitBranchIcon,
+      isActive: pathname?.includes("/organization/vcs"),
+    },
+    {
       title: "Git repository",
       url: "/organization/settings/git",
       icon: GitBranchIcon,

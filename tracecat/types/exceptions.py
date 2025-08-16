@@ -43,6 +43,10 @@ class TracecatCredentialsError(TracecatException):
     """Tracecat user-facing credentials error"""
 
 
+class TracecatCredentialsNotFoundError(TracecatCredentialsError):
+    """Tracecat user-facing credentials not found error"""
+
+
 class TracecatAuthorizationError(TracecatException):
     """Tracecat user-facing authorization error"""
 

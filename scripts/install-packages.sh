@@ -38,7 +38,8 @@ apt-get install -y \
   ca-certificates \
   gnupg \
   unzip \
-  ripgrep
+  ripgrep \
+  gh
 
 # Verify curl is installed and in PATH
 which curl || { echo "ERROR: curl not found after installation"; exit 1; }

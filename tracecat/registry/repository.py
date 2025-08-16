@@ -31,7 +31,7 @@ from tracecat.contexts import ctx_role
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.expressions.expectations import create_expectation_model
 from tracecat.expressions.validation import TemplateValidator
-from tracecat.git import GitUrl, get_git_repository_sha, parse_git_url
+from tracecat.git.utils import GitUrl, get_git_repository_sha, parse_git_url
 from tracecat.logger import logger
 from tracecat.parse import safe_url
 from tracecat.registry.actions.models import BoundRegistryAction, TemplateAction

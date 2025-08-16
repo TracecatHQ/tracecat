@@ -188,6 +188,13 @@ import {
   triggersUpdateWebhook,
   type UserUpdate,
   usersUsersPatchCurrentUser,
+  type VcsGetGithubAppCredentialsStatusResponse,
+  type VcsGetGithubAppManifestResponse,
+  type VcsSaveGithubAppCredentialsData,
+  type VcsSaveGithubAppCredentialsResponse,
+  vcsGetGithubAppCredentialsStatus,
+  vcsGetGithubAppManifest,
+  vcsSaveGithubAppCredentials,
   type WebhookUpdate,
   type WorkflowDirectoryItem,
   type WorkflowExecutionCreate,
@@ -963,20 +970,20 @@ export function useSchedules(workflowId: string) {
   }
 }
 
-export function useWorkspaceSecrets() {
+export function useWorkspaceSecrets(workspaceId: string) {
   const queryClient = useQueryClient()
-  const { workspaceId } = useWorkspace()
   const {
     data: secrets,
     isLoading: secretsIsLoading,
     error: secretsError,
   } = useQuery<SecretReadMinimal[], ApiError>({
-    queryKey: ["workspace-secrets"],
+    queryKey: ["workspace-secrets", workspaceId],
     queryFn: async () =>
       await secretsListSecrets({
         workspaceId,
         type: ["custom"],
       }),
+    enabled: !!workspaceId,
   })
 
   // Create secret
@@ -991,7 +998,9 @@ export function useWorkspaceSecrets() {
         title: "Added new secret",
         description: "New secret added successfully.",
       })
-      queryClient.invalidateQueries({ queryKey: ["workspace-secrets"] })
+      queryClient.invalidateQueries({
+        queryKey: ["workspace-secrets", workspaceId],
+      })
     },
     onError: (error: TracecatApiError) => {
       switch (error.status) {
@@ -1035,7 +1044,9 @@ export function useWorkspaceSecrets() {
         title: "Updated secret",
         description: "Secret updated successfully.",
       })
-      queryClient.invalidateQueries({ queryKey: ["workspace-secrets"] })
+      queryClient.invalidateQueries({
+        queryKey: ["workspace-secrets", workspaceId],
+      })
     },
     onError: (error: TracecatApiError) => {
       switch (error.status) {
@@ -1059,7 +1070,9 @@ export function useWorkspaceSecrets() {
     mutationFn: async (secret: SecretReadMinimal) =>
       await secretsDeleteSecretById({ workspaceId, secretId: secret.id }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["workspace-secrets"] })
+      queryClient.invalidateQueries({
+        queryKey: ["workspace-secrets", workspaceId],
+      })
       toast({
         title: "Deleted secret",
         description: "Secret deleted successfully.",
@@ -1874,6 +1887,69 @@ export function useOrgGitSettings() {
     updateGitSettings,
     updateGitSettingsIsPending,
     updateGitSettingsError,
+  }
+}
+
+export function useGitHubAppManifest() {
+  // Get GitHub App manifest
+  const {
+    data: manifest,
+    isLoading: manifestIsLoading,
+    error: manifestError,
+  } = useQuery<VcsGetGithubAppManifestResponse>({
+    queryKey: ["github-app-manifest"],
+    queryFn: async () => await vcsGetGithubAppManifest(),
+  })
+
+  return {
+    manifest,
+    manifestIsLoading,
+    manifestError,
+  }
+}
+
+export function useGitHubAppCredentialsStatus() {
+  // Get GitHub App credentials status
+  const {
+    data: credentialsStatus,
+    isLoading: credentialsStatusIsLoading,
+    error: credentialsStatusError,
+    refetch: refetchCredentialsStatus,
+  } = useQuery<VcsGetGithubAppCredentialsStatusResponse>({
+    queryKey: ["github-app-credentials-status"],
+    queryFn: async () => await vcsGetGithubAppCredentialsStatus(),
+  })
+
+  return {
+    credentialsStatus,
+    credentialsStatusIsLoading,
+    credentialsStatusError,
+    refetchCredentialsStatus,
+  }
+}
+
+export function useGitHubAppCredentials() {
+  const queryClient = useQueryClient()
+
+  // Save GitHub App credentials mutation
+  const saveCredentials = useMutation<
+    VcsSaveGithubAppCredentialsResponse,
+    ApiError,
+    VcsSaveGithubAppCredentialsData["requestBody"]
+  >({
+    mutationFn: async (data) => {
+      return await vcsSaveGithubAppCredentials({ requestBody: data })
+    },
+    onSuccess: () => {
+      // Invalidate and refetch credentials status
+      queryClient.invalidateQueries({
+        queryKey: ["github-app-credentials-status"],
+      })
+    },
+  })
+
+  return {
+    saveCredentials,
   }
 }
 
