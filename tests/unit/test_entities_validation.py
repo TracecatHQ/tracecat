@@ -383,17 +383,45 @@ class TestRecordValidators:
             )
         assert "number_field" in str(exc_info.value)
 
-    async def test_validate_record_data_flat_structure(
-        self, record_validators: RecordValidators, test_field: FieldMetadata
+    async def test_validate_record_data_structure_limits(
+        self,
+        record_validators: RecordValidators,
+        test_field: FieldMetadata,
+        session: AsyncSession,
     ):
-        """Test that nested structures are rejected."""
-        # Should raise for nested structure
+        """Test that nested structures have appropriate limits."""
+        # TEXT fields still expect strings only
+        validated = await record_validators.validate_record_data(
+            {"test_field": "plain text value"},
+            [test_field],
+        )
+        assert validated["test_field"] == "plain text value"
+
+        # TEXT fields reject objects
         with pytest.raises(TracecatValidationError) as exc_info:
             await record_validators.validate_record_data(
                 {"test_field": {"nested": "object"}},
                 [test_field],
             )
-        assert "nested objects not allowed" in str(exc_info.value).lower()
+        assert "Expected string" in str(exc_info.value)
+
+        # For testing nested structure validation, we check at data level
+        # Arrays with nested arrays should be rejected
+        from tracecat.entities.types import validate_flat_structure
+
+        # Simple nested object - should pass
+        assert validate_flat_structure({"level1": {"level2": "value"}}) is True
+
+        # 3 levels of nesting - should pass
+        assert validate_flat_structure({"l1": {"l2": {"l3": "value"}}}) is True
+
+        # >3 levels of nesting - should fail
+        assert (
+            validate_flat_structure({"l1": {"l2": {"l3": {"l4": "too deep"}}}}) is False
+        )
+
+        # Nested arrays - should fail
+        assert validate_flat_structure([["nested", "array"]]) is False
 
 
 @pytest.mark.anyio

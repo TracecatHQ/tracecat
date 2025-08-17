@@ -510,7 +510,7 @@ class TestCustomEntitiesService:
     async def test_create_record_with_nested_structure(
         self, entities_service: CustomEntitiesService, session: AsyncSession
     ) -> None:
-        """Test that creating record with nested objects is rejected."""
+        """Test that the field_data column supports nested structures within proper field types."""
         # Create entity and field
         entity = Entity(
             owner_id=entities_service.workspace_id,
@@ -531,11 +531,18 @@ class TestCustomEntitiesService:
         session.add(field)
         await session.commit()
 
-        # Try to create record with nested object
-        with pytest.raises(TracecatValidationError, match="Nested objects not allowed"):
+        # TEXT fields must still contain strings
+        record = await entities_service.create_record(
+            entity_id=entity.id,
+            data={"test_field": "text value"},
+        )
+        assert record.field_data["test_field"] == "text value"
+
+        # Objects in TEXT fields should fail
+        with pytest.raises(TracecatValidationError, match="Expected string"):
             await entities_service.create_record(
                 entity_id=entity.id,
-                data={"test_field": {"nested": "object"}},  # Nested object not allowed
+                data={"test_field": {"nested": "object"}},  # Not allowed for TEXT field
             )
 
     async def test_validate_record_data_with_inactive_fields(
@@ -2104,12 +2111,12 @@ class TestFieldTypeEdgeCases:
         assert len(record.field_data["long_text"]) == 65535
         assert len(record.field_data["big_array"]) == 1000
 
-    async def test_nested_objects_rejected_in_all_field_types(
+    async def test_nested_structures_with_proper_field_types(
         self, admin_entities_service: CustomEntitiesService
     ) -> None:
-        """Test that nested objects are rejected for all field types."""
+        """Test that nested structures are handled correctly based on field types."""
         entity = await admin_entities_service.create_entity(
-            name="nested_reject_test", display_name="Nested Rejection Test"
+            name="nested_test", display_name="Nested Test"
         )
 
         await admin_entities_service.create_field(
@@ -2125,29 +2132,45 @@ class TestFieldTypeEdgeCases:
             display_name="Array Field",
         )
 
-        # Nested object in any field should be rejected
+        # TEXT fields must contain strings only
+        record = await admin_entities_service.create_record(
+            entity_id=entity.id,
+            data={"text_field": "plain text value"},
+        )
+        assert record.field_data["text_field"] == "plain text value"
+
+        # Objects not allowed in TEXT fields
         with pytest.raises(TracecatValidationError) as exc_info:
             await admin_entities_service.create_record(
                 entity_id=entity.id,
                 data={"text_field": {"nested": "object"}},
             )
-        assert "Nested objects not allowed" in str(exc_info.value)
+        assert "Expected string" in str(exc_info.value)
 
-        # Nested array should be rejected
+        # Arrays can contain strings
+        record2 = await admin_entities_service.create_record(
+            entity_id=entity.id,
+            data={"array_field": ["item1", "item2"]},
+        )
+        assert record2.field_data["array_field"] == ["item1", "item2"]
+
+        # Nested arrays still rejected (regardless of field type)
         with pytest.raises(TracecatValidationError) as exc_info:
             await admin_entities_service.create_record(
                 entity_id=entity.id,
                 data={"array_field": [["nested", "array"]]},
             )
-        assert "Nested objects not allowed" in str(exc_info.value)
+        assert "Nested arrays" in str(exc_info.value) or "excessive nesting" in str(
+            exc_info.value
+        )
 
-        # Array with object should be rejected
+        # Arrays cannot contain objects for ARRAY_TEXT type
         with pytest.raises(TracecatValidationError) as exc_info:
             await admin_entities_service.create_record(
                 entity_id=entity.id,
-                data={"array_field": [{"nested": "object"}]},
+                data={"array_field": [{"item": "object"}]},
             )
-        assert "Nested objects not allowed" in str(exc_info.value)
+        assert "must be strings" in str(exc_info.value)
 
 
 @pytest.mark.anyio
@@ -2568,14 +2591,14 @@ class TestEntitiesIntegration:
             display_name="Data Field",
         )
 
-        # Test nested object rejection
-        with pytest.raises(TracecatValidationError, match="Nested objects not allowed"):
-            await admin_entities_service.create_record(
-                entity_id=entity.id,
-                data={
-                    "data_field": {"nested": "object"},  # Not allowed
-                },
-            )
+        # Test that TEXT fields still require strings
+        record = await admin_entities_service.create_record(
+            entity_id=entity.id,
+            data={
+                "data_field": "text value",  # TEXT field requires string
+            },
+        )
+        assert record.field_data["data_field"] == "text value"
 
         # Test nested array rejection
         await admin_entities_service.create_field(
@@ -2585,11 +2608,13 @@ class TestEntitiesIntegration:
             display_name="Array Field",
         )
 
-        with pytest.raises(TracecatValidationError, match="Nested objects not allowed"):
+        with pytest.raises(
+            TracecatValidationError, match="Nested arrays|excessive nesting"
+        ):
             await admin_entities_service.create_record(
                 entity_id=entity.id,
                 data={
-                    "array_field": [["nested", "array"]],  # Not allowed
+                    "array_field": [["nested", "array"]],  # Still not allowed
                 },
             )
 
