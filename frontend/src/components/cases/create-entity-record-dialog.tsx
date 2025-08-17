@@ -457,8 +457,8 @@ export function CreateEntityRecordDialog({
                         No fields found
                       </h3>
                       <p className="text-xs text-muted-foreground/75 text-center max-w-[250px]">
-                        The selected entity requires at least one non-relation
-                        field to be filled in.
+                        The selected entity requires at least one field to be
+                        filled in.
                       </p>
                     </div>
                   ) : (
