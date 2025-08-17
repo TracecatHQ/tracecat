@@ -155,7 +155,7 @@ jobs:
         test_group:
           - unit
           - registry
-          - ee
+          # - ee # TODO: re-enable this when we have tests
     steps:
       - uses: actions/checkout@v4
         with:
