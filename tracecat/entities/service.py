@@ -53,7 +53,7 @@ class CustomEntitiesService(BaseWorkspaceService):
     - Fields are immutable after creation (key and type cannot change)
     - All fields are nullable (no required fields)
     - Soft delete only (data preserved)
-    - Flat JSONB structure (no nested objects)
+    - JSON field type supports nested objects (up to 3 levels deep)
     """
 
     service_name = "custom_entities"
@@ -917,11 +917,12 @@ class CustomEntitiesService(BaseWorkspaceService):
                     f"Relation field {field_key} is missing target entity id"
                 )
 
-            target_ids = self._normalize_target_ids(field, value)
+            # Handle inline record creation for dicts
+            target_ids = await self._process_relation_value(
+                field, value, target_entity_id
+            )
             if not target_ids:
                 continue
-
-            await self._validate_target_records_exist(target_ids, target_entity_id)
 
             # v1: Do not cache relation data in field_data; only manage links
 
@@ -935,6 +936,57 @@ class CustomEntitiesService(BaseWorkspaceService):
                     target_record_id=target_id,
                 )
                 self.session.add(link)
+
+    async def _process_relation_value(
+        self, field: FieldMetadata, value: Any, target_entity_id: UUID
+    ) -> list[UUID]:
+        """Process relation value, creating records for dicts or validating UUIDs.
+
+        Args:
+            field: Field metadata with relation info
+            value: Value to process (UUID, string, dict, or list)
+            target_entity_id: Target entity ID for the relation
+
+        Returns:
+            List of target record IDs
+        """
+        if field.relation_kind == RelationKind.ONE_TO_ONE:
+            if value is None:
+                return []
+
+            # Handle dict for inline creation
+            if isinstance(value, dict):
+                # Create new record for the target entity
+                created_record = await self.create_record(target_entity_id, value)
+                return [created_record.id]
+
+            # Handle UUID or string
+            target_id = UUID(value) if isinstance(value, str) else value
+            await self._validate_target_records_exist([target_id], target_entity_id)
+            return [target_id]
+
+        # ONE_TO_MANY
+        ids: list[UUID] = []
+        for item in value:
+            if isinstance(item, dict):
+                # Create new record for the target entity
+                created_record = await self.create_record(target_entity_id, item)
+                ids.append(created_record.id)
+            else:
+                # Handle UUID or string
+                target_id = UUID(item) if isinstance(item, str) else item
+                ids.append(target_id)
+
+        # Validate all non-dict UUIDs exist
+        non_created_ids = [
+            UUID(item) if isinstance(item, str) else item
+            for item in value
+            if not isinstance(item, dict)
+        ]
+        if non_created_ids:
+            await self._validate_target_records_exist(non_created_ids, target_entity_id)
+
+        return ids
 
     def _normalize_target_ids(self, field: FieldMetadata, value: Any) -> list[UUID]:
         if field.relation_kind == RelationKind.ONE_TO_ONE:
