@@ -50,7 +50,7 @@ class TestWorkflowSource:
 
         # Test that workflow_id is required
         with pytest.raises((TypeError, ValueError)):
-            WorkflowSource(path="test.yml", sha="abc123", id=WorkflowID.new_uuid4())  # type: ignore
+            WorkflowSource(path="test.yml", sha="abc123")  # type: ignore
 
     def test_workflow_source_serialization(self):
         """Test WorkflowSource can be serialized/deserialized."""
@@ -67,7 +67,7 @@ class TestWorkflowSource:
         assert data == {
             "path": "workflows/example.yml",
             "sha": "abc123",
-            "id": str(workflow_id),
+            "id": workflow_id,
             "version": 1,
         }
 

@@ -110,7 +110,7 @@ class TestResolveGitRef:
         """Test resolving HEAD ref."""
         mock_run_git = AsyncMock(return_value=(0, "abc123\tHEAD\n", ""))
 
-        with patch("tracecat.git.run_git", mock_run_git):
+        with patch("tracecat.git.utils.run_git", mock_run_git):
             sha = await resolve_git_ref(
                 "git+ssh://git@github.com/myorg/myrepo.git",
                 ref=None,
@@ -129,7 +129,7 @@ class TestResolveGitRef:
         """Test resolving a branch ref."""
         mock_run_git = AsyncMock(return_value=(0, "def456\trefs/heads/main\n", ""))
 
-        with patch("tracecat.git.run_git", mock_run_git):
+        with patch("tracecat.git.utils.run_git", mock_run_git):
             sha = await resolve_git_ref(
                 "git+ssh://git@github.com/myorg/myrepo.git",
                 ref="main",
@@ -159,7 +159,7 @@ class TestResolveGitRef:
             ]
         )
 
-        with patch("tracecat.git.run_git", mock_run_git):
+        with patch("tracecat.git.utils.run_git", mock_run_git):
             sha = await resolve_git_ref(
                 "git+ssh://git@github.com/myorg/myrepo.git",
                 ref="v1.0",
@@ -179,7 +179,7 @@ class TestResolveGitRef:
             ]
         )
 
-        with patch("tracecat.git.run_git", mock_run_git):
+        with patch("tracecat.git.utils.run_git", mock_run_git):
             with pytest.raises(
                 RuntimeError, match="Failed to resolve git ref 'nonexistent'"
             ):
@@ -194,7 +194,7 @@ class TestResolveGitRef:
         """Test resolving HEAD that fails."""
         mock_run_git = AsyncMock(return_value=(1, "", "repository not found"))
 
-        with patch("tracecat.git.run_git", mock_run_git):
+        with patch("tracecat.git.utils.run_git", mock_run_git):
             with pytest.raises(RuntimeError, match="Failed to resolve git HEAD"):
                 await resolve_git_ref(
                     "git+ssh://git@github.com/myorg/nonexistent.git",
@@ -207,7 +207,7 @@ class TestResolveGitRef:
         """Test resolving ref with empty output."""
         mock_run_git = AsyncMock(return_value=(0, "", ""))
 
-        with patch("tracecat.git.run_git", mock_run_git):
+        with patch("tracecat.git.utils.run_git", mock_run_git):
             with pytest.raises(RuntimeError, match="No output from git ls-remote"):
                 await resolve_git_ref(
                     "git+ssh://git@github.com/myorg/myrepo.git",
