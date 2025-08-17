@@ -1,25 +1,15 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { KeyRoundIcon, TrashIcon } from "lucide-react"
 import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
-import {
-  type SecretCreate,
-  type SecretReadMinimal,
-  secretsListSecrets,
-  type WorkspaceRead,
-  type WorkspaceUpdate,
-  workspacesDeleteWorkspace,
-  workspacesUpdateWorkspace,
-} from "@/client"
+import type { SecretReadMinimal, WorkspaceRead } from "@/client"
 import {
   CreateSSHKeyDialog,
   CreateSSHKeyDialogTrigger,
 } from "@/components/ssh-keys/ssh-key-create-dialog"
-import { CustomTagInput } from "@/components/tags-input"
 import { Button } from "@/components/ui/button"
 import {
   Form,
@@ -32,8 +22,7 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
-import { toast } from "@/components/ui/use-toast"
-import { useWorkspaceSecrets } from "@/lib/hooks"
+import { useWorkspaceSettings } from "@/lib/hooks"
 import { OrgWorkspaceDeleteDialog } from "./org-workspace-delete-dialog"
 import { OrgWorkspaceSSHKeyDeleteDialog } from "./org-workspace-ssh-key-delete-dialog"
 
@@ -46,12 +35,6 @@ const workspaceSettingsSchema = z.object({
       (url) => !url || /^git\+ssh:\/\/git@[^/]+\/[^/]+\/[^/@]+\.git$/.test(url),
       "Must be a valid Git SSH URL in format: git+ssh://git@host/org/repo.git"
     ),
-  git_allowed_domains: z.array(
-    z.object({
-      id: z.string(),
-      text: z.string().min(1, "Cannot be empty"),
-    })
-  ),
 })
 
 type WorkspaceSettingsForm = z.infer<typeof workspaceSettingsSchema>
@@ -65,105 +48,34 @@ export function OrgWorkspaceSettings({
   workspace,
   onWorkspaceDeleted,
 }: OrgWorkspaceSettingsProps) {
-  const queryClient = useQueryClient()
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [sshKeyToDelete, setSSHKeyToDelete] =
     useState<SecretReadMinimal | null>(null)
-  const { createSecret, deleteSecretById } = useWorkspaceSecrets(workspace.id)
-
-  // Fetch SSH keys for this workspace
-  const { data: sshKeys, isLoading: sshKeysLoading } = useQuery<
-    SecretReadMinimal[]
-  >({
-    queryKey: ["workspace-ssh-keys", workspace.id],
-    queryFn: async () =>
-      await secretsListSecrets({
-        workspaceId: workspace.id,
-        type: ["ssh-key"],
-      }),
-  })
+  const {
+    sshKeys,
+    sshKeysLoading,
+    updateWorkspace,
+    isUpdating,
+    deleteWorkspace,
+    isDeleting,
+    handleCreateWorkspaceSSHKey,
+    handleDeleteSSHKey,
+  } = useWorkspaceSettings(workspace.id, onWorkspaceDeleted)
 
   const form = useForm<WorkspaceSettingsForm>({
     resolver: zodResolver(workspaceSettingsSchema),
     defaultValues: {
       name: workspace.name,
       git_repo_url: workspace.settings?.git_repo_url || "",
-      git_allowed_domains: workspace.settings?.git_allowed_domains
-        ? workspace.settings.git_allowed_domains
-            .split(",")
-            .map((domain, index) => ({
-              id: index.toString(),
-              text: domain.trim(),
-            }))
-        : [{ id: "0", text: "github.com" }],
-    },
-  })
-
-  const { mutateAsync: updateWorkspace, isPending: isUpdating } = useMutation({
-    mutationFn: async (params: WorkspaceUpdate) => {
-      return await workspacesUpdateWorkspace({
-        workspaceId: workspace.id,
-        requestBody: params,
-      })
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["workspace", workspace.id] })
-      queryClient.invalidateQueries({ queryKey: ["workspaces"] })
-      toast({
-        title: "Workspace updated",
-        description: "The workspace name has been updated successfully.",
-      })
-    },
-    onError: (error) => {
-      console.error("Failed to update workspace", error)
-      toast({
-        title: "Error updating workspace",
-        description: "Failed to update the workspace. Please try again.",
-        variant: "destructive",
-      })
-    },
-  })
-
-  const { mutateAsync: deleteWorkspace, isPending: isDeleting } = useMutation({
-    mutationFn: async () => {
-      return await workspacesDeleteWorkspace({
-        workspaceId: workspace.id,
-      })
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["workspaces"] })
-      toast({
-        title: "Workspace deleted",
-        description: "The workspace has been deleted successfully.",
-      })
-      onWorkspaceDeleted?.()
-    },
-    onError: (error) => {
-      console.error("Failed to delete workspace", error)
-      toast({
-        title: "Error deleting workspace",
-        description: "Failed to delete the workspace. Please try again.",
-        variant: "destructive",
-      })
     },
   })
 
   const onSubmit = async (values: WorkspaceSettingsForm) => {
-    const settings: Record<string, string> = {
-      ...workspace.settings,
-      git_allowed_domains: values.git_allowed_domains
-        .map((domain) => domain.text)
-        .join(","),
-    }
-
-    // Only add git_repo_url if it has a value
-    if (values.git_repo_url) {
-      settings.git_repo_url = values.git_repo_url
-    }
-
     await updateWorkspace({
       name: values.name,
-      settings,
+      settings: {
+        git_repo_url: values.git_repo_url,
+      },
     })
   }
 
@@ -172,22 +84,10 @@ export function OrgWorkspaceSettings({
     setDeleteDialogOpen(false)
   }
 
-  const handleCreateWorkspaceSSHKey = async (secret: SecretCreate) => {
-    await createSecret(secret)
-    // Invalidate SSH keys query to refresh the list
-    queryClient.invalidateQueries({
-      queryKey: ["workspace-ssh-keys", workspace.id],
-    })
-  }
-
-  const handleDeleteSSHKey = async () => {
+  const handleDeleteSSHKeyWrapper = async () => {
     if (!sshKeyToDelete) return
     try {
-      await deleteSecretById(sshKeyToDelete)
-      // Invalidate SSH keys query to refresh the list
-      queryClient.invalidateQueries({
-        queryKey: ["workspace-ssh-keys", workspace.id],
-      })
+      await handleDeleteSSHKey(sshKeyToDelete)
       setSSHKeyToDelete(null)
     } catch (error) {
       console.error("Failed to delete SSH key:", error)
@@ -251,28 +151,6 @@ export function OrgWorkspaceSettings({
                           git+ssh
                         </span>{" "}
                         scheme.
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="git_allowed_domains"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Allowed Git domains</FormLabel>
-                      <FormControl>
-                        <CustomTagInput
-                          {...field}
-                          placeholder="Enter a domain..."
-                          tags={field.value}
-                          setTags={field.onChange}
-                        />
-                      </FormControl>
-                      <FormDescription>
-                        Add domains that are allowed for Git operations (e.g.,
-                        github.com)
                       </FormDescription>
                       <FormMessage />
                     </FormItem>
@@ -404,7 +282,7 @@ export function OrgWorkspaceSettings({
         open={!!sshKeyToDelete}
         onOpenChange={(open) => !open && setSSHKeyToDelete(null)}
         sshKey={sshKeyToDelete}
-        onConfirm={handleDeleteSSHKey}
+        onConfirm={handleDeleteSSHKeyWrapper}
       />
     </div>
   )

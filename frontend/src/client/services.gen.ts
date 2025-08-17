@@ -307,6 +307,14 @@ import type {
   UsersUsersPatchUserResponse,
   UsersUsersUserData,
   UsersUsersUserResponse,
+  VcsGetGithubAppCredentialsStatusResponse,
+  VcsGetGithubAppManifestResponse,
+  VcsGithubAppInstallCallbackData,
+  VcsGithubAppInstallCallbackResponse,
+  VcsGithubWebhookData,
+  VcsGithubWebhookResponse,
+  VcsSaveGithubAppCredentialsData,
+  VcsSaveGithubAppCredentialsResponse,
   WorkflowExecutionsCancelWorkflowExecutionData,
   WorkflowExecutionsCancelWorkflowExecutionResponse,
   WorkflowExecutionsCreateWorkflowExecutionData,
@@ -4948,6 +4956,109 @@ export const providersGetProvider = (
     },
   })
 }
+
+/**
+ * Get Github App Manifest
+ * Generate GitHub App manifest for enterprise installation.
+ * @returns GitHubAppManifestResponse Successful Response
+ * @throws ApiError
+ */
+export const vcsGetGithubAppManifest =
+  (): CancelablePromise<VcsGetGithubAppManifestResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/organization/vcs/github/manifest",
+    })
+  }
+
+/**
+ * Github App Install Callback
+ * Handle GitHub App installation flow.
+ *
+ * This endpoint handles two different flows:
+ * 1. Code exchange: When GitHub redirects with a temporary code after manifest submission
+ * 2. Installation callback: When GitHub redirects after app installation
+ * @param data The data for the request.
+ * @param data.code Temporary code from GitHub manifest flow
+ * @param data.installationId Installation ID from GitHub callback
+ * @param data.state CSRF protection state parameter
+ * @returns unknown Successful Response
+ * @throws ApiError
+ */
+export const vcsGithubAppInstallCallback = (
+  data: VcsGithubAppInstallCallbackData = {}
+): CancelablePromise<VcsGithubAppInstallCallbackResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/organization/vcs/github/install",
+    query: {
+      code: data.code,
+      installation_id: data.installationId,
+      state: data.state,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Github Webhook
+ * Handle GitHub webhook events.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns string Successful Response
+ * @throws ApiError
+ */
+export const vcsGithubWebhook = (
+  data: VcsGithubWebhookData
+): CancelablePromise<VcsGithubWebhookResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/organization/vcs/github/webhook",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Save Github App Credentials
+ * Save GitHub App credentials (register new or update existing).
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns string Successful Response
+ * @throws ApiError
+ */
+export const vcsSaveGithubAppCredentials = (
+  data: VcsSaveGithubAppCredentialsData
+): CancelablePromise<VcsSaveGithubAppCredentialsResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/organization/vcs/github/credentials",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Github App Credentials Status
+ * Get the status of GitHub App credentials.
+ * @returns GitHubAppCredentialsStatus Successful Response
+ * @throws ApiError
+ */
+export const vcsGetGithubAppCredentialsStatus =
+  (): CancelablePromise<VcsGetGithubAppCredentialsStatusResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/organization/vcs/github/credentials/status",
+    })
+  }
 
 /**
  * Users:Current User
