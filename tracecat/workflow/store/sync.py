@@ -2,22 +2,24 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Awaitable, Callable, Sequence
 from datetime import datetime
-from pathlib import Path
 
-import aiofiles
 import yaml
+from github.GithubException import GithubException
+from github.InputGitAuthor import InputGitAuthor
 from tracecat_ee.workflow.store import GitWorkflowStore
 
 from tracecat.dsl.common import DSLInput
-from tracecat.git import GitUrl, resolve_git_ref, run_git
+from tracecat.git.utils import GitUrl, resolve_git_ref
 from tracecat.identifiers import WorkspaceID
 from tracecat.logger import logger
 from tracecat.service import BaseWorkspaceService
 from tracecat.ssh import git_env_context
 from tracecat.sync import CommitInfo, PullOptions, PushOptions
 from tracecat.types.auth import Role
+from tracecat.vcs.github.app import GitHubAppError, GitHubAppService
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.store.models import WorkflowSource
 
@@ -207,9 +209,7 @@ class WorkflowSyncService(BaseWorkspaceService):
         url: GitUrl,
         options: PushOptions,
     ) -> CommitInfo:
-        """Push workflow definitions to a Git repository.
-
-        Creates a feature branch and optionally a pull request.
+        """Push workflow definitions using GitHub App API operations.
 
         Args:
             objects: DSLInput workflow definitions to push
@@ -219,31 +219,39 @@ class WorkflowSyncService(BaseWorkspaceService):
         Returns:
             CommitInfo with commit SHA and branch/PR details
         """
-        # Validate inputs
-        if not options.message:
-            raise ValueError("Commit message is required")
-
-        if not objects:
+        if len(objects) == 0:
             raise ValueError("No workflow objects to push")
 
-        # 1. Clone repository to temp directory
-        async with (
-            aiofiles.tempfile.TemporaryDirectory() as tmp_dir,
-            git_env_context(git_url=url, session=self.session, role=self.role) as env,
-        ):
-            work_dir = Path(tmp_dir)
-            # Clone the repository
-            await self._clone_repo(url, work_dir, env)
+        gh_svc = GitHubAppService(session=self.session, role=self.role)
 
-            # 2. Create feature branch
+        # Use new PyGithub-based method that handles installation resolution automatically
+        gh = await gh_svc.get_github_client_for_repo(url)
+
+        try:
+            repo = await asyncio.to_thread(gh.get_repo, f"{url.org}/{url.repo}")
+
+            # Get base branch
+            base_branch_name = url.ref or repo.default_branch
+            base_branch = await asyncio.to_thread(repo.get_branch, base_branch_name)
+
+            # Create feature branch
             timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
             branch_name = f"tracecat-sync-{timestamp}"
-            await self._create_branch(branch_name, work_dir, env)
 
-            # 3. Write workflow YAML files
-            workflows_dir = work_dir / "workflows"
-            workflows_dir.mkdir(exist_ok=True)
+            logger.info(
+                "Creating branch via GitHub API",
+                branch=branch_name,
+                base_branch=base_branch_name,
+                repo=f"{url.org}/{url.repo}",
+            )
 
+            await asyncio.to_thread(
+                repo.create_git_ref,
+                ref=f"refs/heads/{branch_name}",
+                sha=base_branch.commit.sha,
+            )
+
+            # Create/update workflow files via API
             for dsl in objects:
                 # Generate filename from workflow title (sanitized)
                 title_slug = dsl.title.lower().replace(" ", "-")
@@ -252,33 +260,96 @@ class WorkflowSyncService(BaseWorkspaceService):
                     :50
                 ]
                 filename = f"{title_slug}.yaml"
-                filepath = workflows_dir / filename
+                file_path = f"workflows/{filename}"
 
                 # Serialize to YAML
                 yaml_content = yaml.dump(
                     dsl.model_dump(exclude_none=True, exclude_unset=True)
                 )
-                async with aiofiles.open(filepath, "w", encoding="utf-8") as f:
-                    await f.write(yaml_content)
 
-            # 4. Commit changes
-            await self._commit_changes(work_dir, options, env)
+                # Set author info
+                author_name = options.author.name if options.author else "Tracecat"
+                author_email = (
+                    options.author.email if options.author else "noreply@tracecat.com"
+                )
+                git_author = InputGitAuthor(name=author_name, email=author_email)
 
-            # 5. Push to remote
-            await self._push_branch(branch_name, work_dir, env)
+                try:
+                    # Try to get existing file to update it
+                    contents = await asyncio.to_thread(
+                        repo.get_contents, file_path, ref=branch_name
+                    )
+                    # get_contents returns ContentFile for files, or list for directories
+                    if isinstance(contents, list):
+                        raise GithubException(404, {"message": "Not a file"}, {})
 
-            # 6. Get commit SHA
-            commit_sha = await self._get_commit_sha(work_dir, env)
+                    await asyncio.to_thread(
+                        repo.update_file,
+                        path=contents.path,
+                        message=options.message,
+                        content=yaml_content,
+                        sha=contents.sha,
+                        branch=branch_name,
+                        author=git_author,
+                        committer=git_author,
+                    )
+                    logger.debug(
+                        "Updated workflow file via API",
+                        path=file_path,
+                        branch=branch_name,
+                    )
+                except GithubException as e:
+                    if e.status == 404:
+                        # File doesn't exist, create it
+                        await asyncio.to_thread(
+                            repo.create_file,
+                            path=file_path,
+                            message=options.message,
+                            content=yaml_content,
+                            branch=branch_name,
+                            author=git_author,
+                            committer=git_author,
+                        )
+                        logger.debug(
+                            "Created workflow file via API",
+                            path=file_path,
+                            branch=branch_name,
+                        )
+                    else:
+                        raise
 
-            # 7. Create PR if requested
+            # Get the latest commit SHA from the branch
+            branch = await asyncio.to_thread(repo.get_branch, branch_name)
+            commit_sha = branch.commit.sha
+
+            # Create PR if requested
             pr_url = None
             if options.create_pr:
-                pr_url = await self._create_pull_request(
-                    url, branch_name, options.message, work_dir, env
-                )
+                try:
+                    pr = await asyncio.to_thread(
+                        repo.create_pull,
+                        title=options.message,
+                        body=f"Automated workflow sync from Tracecat workspace {self.workspace_id}",
+                        head=branch_name,
+                        base=base_branch_name,
+                    )
+                    pr_url = pr.html_url
+
+                    logger.info(
+                        "Created PR via GitHub API",
+                        pr_number=pr.number,
+                        pr_url=pr_url,
+                    )
+                except GithubException as e:
+                    logger.error(
+                        "Failed to create PR via GitHub API",
+                        error=str(e),
+                        branch=branch_name,
+                    )
+                    # Don't fail the entire operation if PR creation fails
 
             logger.info(
-                "Successfully pushed workflows",
+                "Successfully pushed workflows via GitHub API",
                 count=len(objects),
                 branch=branch_name,
                 commit_sha=commit_sha,
@@ -290,126 +361,13 @@ class WorkflowSyncService(BaseWorkspaceService):
                 ref=branch_name,
             )
 
-    async def _clone_repo(
-        self, url: GitUrl, work_dir: Path, env: dict[str, str]
-    ) -> None:
-        """Clone repository to working directory."""
-        returncode, _, stderr = await run_git(
-            ["git", "clone", "--depth", "1", url.to_url(), str(work_dir)],
-            env=env,
-            timeout=60.0,
-        )
-        if returncode != 0:
-            raise RuntimeError(f"Failed to clone repository: {stderr}")
-
-    async def _create_branch(
-        self, branch: str, work_dir: Path, env: dict[str, str]
-    ) -> None:
-        """Create and checkout new branch."""
-        returncode, _, stderr = await run_git(
-            ["git", "checkout", "-b", branch],
-            env=env,
-            cwd=str(work_dir),
-        )
-        if returncode != 0:
-            raise RuntimeError(f"Failed to create branch {branch}: {stderr}")
-
-    async def _commit_changes(
-        self, work_dir: Path, options: PushOptions, env: dict[str, str]
-    ) -> None:
-        """Stage and commit all changes."""
-        # Add all changes
-        returncode, _, stderr = await run_git(
-            ["git", "add", "-A"], env=env, cwd=str(work_dir)
-        )
-        if returncode != 0:
-            raise RuntimeError(f"Failed to stage changes: {stderr}")
-
-        # Set author from options or defaults
-        author_name = options.author.name if options.author else "Tracecat"
-        author_email = (
-            options.author.email if options.author else "noreply@tracecat.com"
-        )
-
-        # Create env with Git identity
-        commit_env = dict(env)
-        commit_env["GIT_AUTHOR_NAME"] = author_name
-        commit_env["GIT_AUTHOR_EMAIL"] = author_email
-        commit_env["GIT_COMMITTER_NAME"] = author_name
-        commit_env["GIT_COMMITTER_EMAIL"] = author_email
-
-        # Build commit args with -c flags
-        commit_args = [
-            "git",
-            "-c",
-            f"user.name={author_name}",
-            "-c",
-            f"user.email={author_email}",
-            "commit",
-            "-m",
-            options.message,
-        ]
-        if options.author:
-            commit_args.extend(["--author", f"{author_name} <{author_email}>"])
-
-        returncode, _, stderr = await run_git(
-            commit_args, env=commit_env, cwd=str(work_dir)
-        )
-        if returncode != 0:
-            raise RuntimeError(f"Failed to commit changes: {stderr}")
-
-    async def _push_branch(
-        self, branch: str, work_dir: Path, env: dict[str, str]
-    ) -> None:
-        """Push branch to remote."""
-        returncode, _, stderr = await run_git(
-            ["git", "push", "origin", branch],
-            env=env,
-            cwd=str(work_dir),
-        )
-        if returncode != 0:
-            raise RuntimeError(f"Failed to push branch {branch}: {stderr}")
-
-    async def _get_commit_sha(self, work_dir: Path, env: dict[str, str]) -> str:
-        """Get current commit SHA."""
-        returncode, stdout, stderr = await run_git(
-            ["git", "rev-parse", "HEAD"],
-            env=env,
-            cwd=str(work_dir),
-        )
-        if returncode != 0:
-            raise RuntimeError(f"Failed to get commit SHA: {stderr}")
-        return stdout.strip()
-
-    async def _create_pull_request(
-        self, url: GitUrl, branch: str, title: str, work_dir: Path, env: dict[str, str]
-    ) -> str | None:
-        """Create pull request using GitHub CLI."""
-        try:
-            returncode, stdout, stderr = await run_git(
-                [
-                    "gh",
-                    "pr",
-                    "new",
-                    "--title",
-                    title,
-                    "--body",
-                    f"Automated workflow sync from Tracecat workspace {self.workspace_id}",
-                    "--base",
-                    url.ref or "main",
-                    "--head",
-                    branch,
-                ],
-                env=env,
-                cwd=str(work_dir),
+        except GithubException as e:
+            logger.error(
+                "GitHub API error during push",
+                status=e.status,
+                data=e.data,
+                repo=f"{url.org}/{url.repo}",
             )
-            if returncode != 0:
-                logger.error(f"Failed to create PR: {stderr}")
-                raise RuntimeError(f"Failed to create PR: {stderr}")
-            # Extract PR URL from output
-            if returncode == 0:
-                return stdout.strip()
-        except Exception as e:
-            logger.warning(f"Could not create PR automatically: {e}")
-
-        return None
+            raise GitHubAppError(f"GitHub API error: {e.status} - {e.data}") from e
+        finally:
+            gh.close()

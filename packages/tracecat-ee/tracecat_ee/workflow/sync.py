@@ -10,7 +10,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat.db.locks import derive_lock_key, pg_advisory_lock
 from tracecat.db.schemas import WorkflowDefinition, WorkflowRepoState
-from tracecat.git import parse_git_url, resolve_git_ref
+from tracecat.git.utils import parse_git_url, resolve_git_ref
 from tracecat.identifiers import WorkspaceID
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
@@ -18,7 +18,7 @@ from tracecat.settings.service import get_setting_cached
 from tracecat.ssh import git_env_context
 from tracecat.types.auth import Role
 from tracecat.workflow.management.management import WorkflowsManagementService
-from tracecat.workflow.store.core import WorkflowSource
+from tracecat.workflow.store.models import WorkflowSource
 from tracecat.workflow.store.sync import upsert_workflow_definitions
 from tracecat_ee.workflow.store import GitWorkflowStore
 

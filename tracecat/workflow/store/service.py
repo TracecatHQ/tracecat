@@ -1,6 +1,6 @@
 from tracecat.db.schemas import User
 from tracecat.dsl.common import DSLInput
-from tracecat.git import parse_git_url
+from tracecat.git.utils import parse_git_url
 from tracecat.logger import logger
 from tracecat.service import BaseWorkspaceService
 from tracecat.sync import Author, PushOptions
@@ -35,14 +35,6 @@ class WorkflowStoreService(BaseWorkspaceService):
                 "Please contact your administrator to configure it."
             )
 
-        # Parse git allowed domains from workspace settings
-        git_allowed_domains_str = workspace.settings.get(
-            "git_allowed_domains", "github.com"
-        )
-        allowed_domains = {
-            domain.strip() for domain in git_allowed_domains_str.split(",")
-        }
-
         logger.info(
             "Publishing workflow to store",
             workflow_title=dsl.title,
@@ -51,7 +43,7 @@ class WorkflowStoreService(BaseWorkspaceService):
         )
 
         # Parse the Git URL using workspace settings
-        git_url = parse_git_url(git_repo_url, allowed_domains=allowed_domains)
+        git_url = parse_git_url(git_repo_url, allowed_domains={"github.com"})
         # Note: We could add ref support later if needed via params or workspace settings
 
         # Build base message

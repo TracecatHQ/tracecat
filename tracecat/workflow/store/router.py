@@ -33,7 +33,7 @@ async def publish_workflow(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Workflow definition not found",
         )
-    dsl = DSLInput(**defn.content)
+    dsl = DSLInput.model_validate(defn.content)
     store_svc = WorkflowStoreService(session=session)
     try:
         await store_svc.publish_workflow_dsl(dsl, params)
