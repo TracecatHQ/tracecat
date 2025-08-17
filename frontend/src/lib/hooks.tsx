@@ -188,6 +188,13 @@ import {
   triggersUpdateWebhook,
   type UserUpdate,
   usersUsersPatchCurrentUser,
+  type VcsGetGithubAppCredentialsStatusResponse,
+  type VcsGetGithubAppManifestResponse,
+  type VcsSaveGithubAppCredentialsData,
+  type VcsSaveGithubAppCredentialsResponse,
+  vcsGetGithubAppCredentialsStatus,
+  vcsGetGithubAppManifest,
+  vcsSaveGithubAppCredentials,
   type WebhookUpdate,
   type WorkflowDirectoryItem,
   type WorkflowExecutionCreate,
@@ -201,6 +208,7 @@ import {
   type WorkflowsMoveWorkflowToFolderData,
   type WorkflowsRemoveTagData,
   type WorkspaceCreate,
+  type WorkspaceUpdate,
   workflowExecutionsCreateWorkflowExecution,
   workflowExecutionsGetWorkflowExecution,
   workflowExecutionsGetWorkflowExecutionCompact,
@@ -214,6 +222,7 @@ import {
   workspacesCreateWorkspace,
   workspacesDeleteWorkspace,
   workspacesListWorkspaces,
+  workspacesUpdateWorkspace,
 } from "@/client"
 import { toast } from "@/components/ui/use-toast"
 import { useGetPrompt } from "@/hooks/use-prompt"
@@ -1880,6 +1889,69 @@ export function useOrgGitSettings() {
     updateGitSettings,
     updateGitSettingsIsPending,
     updateGitSettingsError,
+  }
+}
+
+export function useGitHubAppManifest() {
+  // Get GitHub App manifest
+  const {
+    data: manifest,
+    isLoading: manifestIsLoading,
+    error: manifestError,
+  } = useQuery<VcsGetGithubAppManifestResponse>({
+    queryKey: ["github-app-manifest"],
+    queryFn: async () => await vcsGetGithubAppManifest(),
+  })
+
+  return {
+    manifest,
+    manifestIsLoading,
+    manifestError,
+  }
+}
+
+export function useGitHubAppCredentialsStatus() {
+  // Get GitHub App credentials status
+  const {
+    data: credentialsStatus,
+    isLoading: credentialsStatusIsLoading,
+    error: credentialsStatusError,
+    refetch: refetchCredentialsStatus,
+  } = useQuery<VcsGetGithubAppCredentialsStatusResponse>({
+    queryKey: ["github-app-credentials-status"],
+    queryFn: async () => await vcsGetGithubAppCredentialsStatus(),
+  })
+
+  return {
+    credentialsStatus,
+    credentialsStatusIsLoading,
+    credentialsStatusError,
+    refetchCredentialsStatus,
+  }
+}
+
+export function useGitHubAppCredentials() {
+  const queryClient = useQueryClient()
+
+  // Save GitHub App credentials mutation
+  const saveCredentials = useMutation<
+    VcsSaveGithubAppCredentialsResponse,
+    ApiError,
+    VcsSaveGithubAppCredentialsData["requestBody"]
+  >({
+    mutationFn: async (data) => {
+      return await vcsSaveGithubAppCredentials({ requestBody: data })
+    },
+    onSuccess: () => {
+      // Invalidate and refetch credentials status
+      queryClient.invalidateQueries({
+        queryKey: ["github-app-credentials-status"],
+      })
+    },
+  })
+
+  return {
+    saveCredentials,
   }
 }
 
@@ -3925,5 +3997,114 @@ export function useDragDivider({
         cursor: orientation === "vertical" ? "col-resize" : "row-resize",
       },
     },
+  }
+}
+
+export function useWorkspaceSettings(
+  workspaceId: string,
+  onWorkspaceDeleted?: () => void
+) {
+  const queryClient = useQueryClient()
+
+  // Fetch SSH keys for this workspace
+  const { data: sshKeys, isLoading: sshKeysLoading } = useQuery<
+    SecretReadMinimal[]
+  >({
+    queryKey: ["workspace-ssh-keys", workspaceId],
+    queryFn: async () =>
+      await secretsListSecrets({
+        workspaceId,
+        type: ["ssh-key"],
+      }),
+  })
+
+  // SSH key operations
+  const handleCreateWorkspaceSSHKey = async (secret: SecretCreate) => {
+    await secretsCreateSecret({
+      workspaceId,
+      requestBody: secret,
+    })
+    // Invalidate SSH keys query to refresh the list
+    queryClient.invalidateQueries({
+      queryKey: ["workspace-ssh-keys", workspaceId],
+    })
+  }
+
+  const handleDeleteSSHKey = async (sshKey: SecretReadMinimal) => {
+    try {
+      await secretsDeleteSecretById({
+        workspaceId,
+        secretId: sshKey.id,
+      })
+      // Invalidate SSH keys query to refresh the list
+      queryClient.invalidateQueries({
+        queryKey: ["workspace-ssh-keys", workspaceId],
+      })
+    } catch (error) {
+      console.error("Failed to delete SSH key:", error)
+      throw error
+    }
+  }
+
+  // Update workspace
+  const { mutateAsync: updateWorkspace, isPending: isUpdating } = useMutation({
+    mutationFn: async (params: WorkspaceUpdate) => {
+      return await workspacesUpdateWorkspace({
+        workspaceId,
+        requestBody: params,
+      })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["workspace", workspaceId] })
+      queryClient.invalidateQueries({ queryKey: ["workspaces"] })
+      toast({
+        title: "Workspace updated",
+        description: "The workspace name has been updated successfully.",
+      })
+    },
+    onError: (error) => {
+      console.error("Failed to update workspace", error)
+      toast({
+        title: "Error updating workspace",
+        description: "Failed to update the workspace. Please try again.",
+        variant: "destructive",
+      })
+    },
+  })
+
+  // Delete workspace
+  const { mutateAsync: deleteWorkspace, isPending: isDeleting } = useMutation({
+    mutationFn: async () => {
+      return await workspacesDeleteWorkspace({
+        workspaceId,
+      })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["workspaces"] })
+      toast({
+        title: "Workspace deleted",
+        description: "The workspace has been deleted successfully.",
+      })
+      onWorkspaceDeleted?.()
+    },
+    onError: (error) => {
+      console.error("Failed to delete workspace", error)
+      toast({
+        title: "Error deleting workspace",
+        description: "Failed to delete the workspace. Please try again.",
+        variant: "destructive",
+      })
+    },
+  })
+
+  return {
+    sshKeys,
+    sshKeysLoading,
+    updateWorkspace,
+    isUpdating,
+    deleteWorkspace,
+    isDeleting,
+    handleCreateWorkspaceSSHKey,
+    handleDeleteSSHKey,
   }
 }
