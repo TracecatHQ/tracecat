@@ -1526,7 +1526,7 @@ class Record(Resource, table=True):
         sa_column=Column(UUID, ForeignKey("entity.id", ondelete="CASCADE"))
     )
 
-    # FLAT structure only - no nested objects allowed
+    # Supports nested objects (up to 3 levels deep), but no nested arrays
     field_data: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
 
     # Relationships

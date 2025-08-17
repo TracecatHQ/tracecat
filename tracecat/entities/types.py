@@ -1,6 +1,6 @@
 """Field types and validation for custom entities.
 
-v1: Basic types only with flat JSONB structure (no nested objects).
+v1: Basic types plus JSON type for structured data (nested objects supported).
 """
 
 from datetime import date, datetime
@@ -15,7 +15,7 @@ from pydantic_core import PydanticCustomError
 class FieldType(StrEnum):
     """Supported field types for custom entities.
 
-    v1: Basic types only, no complex nested structures.
+    v1: Basic types plus JSON for structured data with controlled nesting.
     """
 
     # Primitive types
@@ -23,6 +23,7 @@ class FieldType(StrEnum):
     NUMBER = "NUMBER"
     TEXT = "TEXT"
     BOOL = "BOOL"
+    JSON = "JSON"  # Structured data (dict/list with depth limits)
 
     # Date/Time (stored as ISO strings)
     DATETIME = "DATETIME"
@@ -75,23 +76,41 @@ class FieldValidator(Protocol):
 
 
 def validate_flat_structure(value: Any) -> bool:
-    """Check if a value has flat structure (no nested objects).
+    """Check if a value has acceptable structure.
+
+    Nested objects are now allowed, but we still prevent:
+    - Nested arrays (arrays within arrays)
+    - Excessive nesting depth (more than 3 levels)
 
     Args:
         value: The value to check
 
     Returns:
-        True if value is flat, False if nested
+        True if value has acceptable structure, False otherwise
     """
-    if isinstance(value, dict):
-        # No nested objects allowed in v1
-        return False
 
-    if isinstance(value, list):
-        # Arrays allowed but elements must be primitives
-        return all(not isinstance(item, dict | list) for item in value)
+    def check_depth(obj: Any, current_depth: int = 0, max_depth: int = 3) -> bool:
+        """Check nesting depth doesn't exceed max_depth."""
+        if current_depth > max_depth:
+            return False
 
-    return True
+        if isinstance(obj, dict):
+            return all(
+                check_depth(v, current_depth + 1, max_depth) for v in obj.values()
+            )
+        elif isinstance(obj, list):
+            # Arrays are allowed, but elements cannot be arrays (no nested arrays)
+            for item in obj:
+                if isinstance(item, list):
+                    return False  # No nested arrays
+                if isinstance(item, dict):
+                    if not check_depth(item, current_depth + 1, max_depth):
+                        return False
+            return True
+
+        return True  # Primitives are always OK
+
+    return check_depth(value)
 
 
 def get_python_type(field_type: FieldType) -> type | UnionType | None:
@@ -103,11 +122,12 @@ def get_python_type(field_type: FieldType) -> type | UnionType | None:
     Returns:
         Python type for Pydantic model generation (always Optional in v1), or None for has_many relations
     """
-    type_map: dict[FieldType, type | None] = {
+    type_map: dict[FieldType, type | UnionType | None] = {
         FieldType.INTEGER: int,
         FieldType.NUMBER: float,
         FieldType.TEXT: str,
         FieldType.BOOL: bool,
+        FieldType.JSON: dict | list,  # Can be either dict or list
         FieldType.DATETIME: datetime,
         FieldType.DATE: date,
         FieldType.ARRAY_TEXT: list[str],
@@ -186,6 +206,21 @@ def validate_field_value_type(
                 "invalid_type",
                 "Expected boolean, got {type_name}",
                 {"type_name": type(value).__name__},
+            )
+
+    elif field_type == FieldType.JSON:
+        # JSON field accepts dict or list as top-level structure
+        if not isinstance(value, dict | list):
+            raise PydanticCustomError(
+                "invalid_type",
+                "Expected dict or list for JSON field, got {type_name}",
+                {"type_name": type(value).__name__},
+            )
+        # Validate structure depth and no nested arrays
+        if not validate_flat_structure(value):
+            raise PydanticCustomError(
+                "invalid_json_structure",
+                "JSON field cannot contain nested arrays or exceed 3 levels of nesting",
             )
 
     elif field_type == FieldType.DATE:

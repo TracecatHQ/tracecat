@@ -124,11 +124,11 @@ def validate_default_value_type(
             {"field_type": field_type.value},
         )
 
-    # Check for flat structure
+    # Check for acceptable structure (now allows nested objects with depth limit)
     if not validate_flat_structure(value):
         raise PydanticCustomError(
-            "nested_structure",
-            "Default values cannot contain nested objects or arrays",
+            "invalid_structure",
+            "Default values cannot contain nested arrays or exceed 3 levels of nesting",
         )
 
     # Validate the value against the field type
@@ -449,10 +449,12 @@ class RecordValidators:
 
         active_fields = {f.field_key: f for f in fields if f.is_active}
 
-        # Check for flat structure (no nested objects) - only for active fields
+        # Check for acceptable structure - only for active fields
         for key, value in data.items():
             if key in active_fields and not validate_flat_structure(value):
-                errors.append(f"Field '{key}': Nested objects not allowed")
+                errors.append(
+                    f"Field '{key}': Nested arrays or excessive nesting (>3 levels) not allowed"
+                )
 
         if errors:
             raise TracecatValidationError("; ".join(errors))
@@ -507,7 +509,13 @@ class RecordValidators:
         """
 
         if field.relation_kind == RelationKind.ONE_TO_ONE:
-            # BELONGS_TO expects a single UUID or string UUID
+            # BELONGS_TO expects a single UUID, string UUID, or dict for inline creation
+            if isinstance(value, dict):
+                # Allow dict for inline record creation
+                # Basic validation - ensure it's not empty
+                if not value:
+                    return False, "Empty dict not allowed for relation field"
+                return True, None
             try:
                 validate_relation_uuid(
                     value, allow_none=False, context="belongs_to relation"
@@ -517,7 +525,7 @@ class RecordValidators:
                 return False, e.message()
 
         elif field.relation_kind == RelationKind.ONE_TO_MANY:
-            # HAS_MANY expects a list of UUIDs
+            # HAS_MANY expects a list of UUIDs or dicts
             if not isinstance(value, list):
                 return (
                     False,
@@ -525,6 +533,11 @@ class RecordValidators:
                 )
 
             for idx, item in enumerate(value):
+                if isinstance(item, dict):
+                    # Allow dict for inline record creation
+                    if not item:
+                        return False, f"Item at index {idx}: Empty dict not allowed"
+                    continue
                 try:
                     validate_relation_uuid(
                         item, allow_none=False, context=f"item at index {idx}"

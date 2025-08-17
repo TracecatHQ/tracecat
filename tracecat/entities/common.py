@@ -68,6 +68,10 @@ def serialize_value(value: Any, field_type: FieldType) -> Any:
         # Has-many relations are not stored in field_data
         return None
 
+    elif field_type == FieldType.JSON:
+        # JSON values are already serializable
+        return value
+
     # Most types are already JSON-serializable
     return value
 
@@ -164,6 +168,10 @@ def deserialize_value(value: Any, field_type: FieldType) -> Any:
     elif field_type == FieldType.RELATION_HAS_MANY:
         # Has-many relations are not stored in field_data
         return None
+
+    elif field_type == FieldType.JSON:
+        # JSON values don't need deserialization
+        return value
 
     # Most types don't need deserialization
     return value
