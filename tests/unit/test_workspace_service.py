@@ -3,6 +3,7 @@
 import uuid
 
 import pytest
+from pydantic import TypeAdapter
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import config
@@ -72,7 +73,8 @@ class TestWorkspaceService:
         assert hasattr(workspace, "name")
         assert hasattr(workspace, "settings")
         # Verify that settings is properly validated as WorkspaceSettings instance
-        assert isinstance(workspace.settings, WorkspaceSettings)
+        ta = TypeAdapter(WorkspaceSettings)
+        assert ta.validate_python(workspace.settings) is not None
 
     async def test_get_workspace_model_validation_preserves_data(
         self, service: WorkspaceService, svc_workspace: Workspace
