@@ -1,8 +1,8 @@
 "use client"
 
 import { Database, Loader2, Plus } from "lucide-react"
-import { useState } from "react"
-import type { CaseRecordLinkRead } from "@/client"
+import { useMemo, useState } from "react"
+import type { CaseEntityRead, CaseRecordLinkRead } from "@/client"
 import { CreateEntityRecordDialog } from "@/components/cases/create-entity-record-dialog"
 import { EditEntityRecordDialog } from "@/components/cases/edit-entity-record-dialog"
 import { EntityRecordCard } from "@/components/cases/entity-record-card"
@@ -20,7 +20,6 @@ import { Skeleton } from "@/components/ui/skeleton"
 import {
   useDeleteCaseRecord,
   useListCaseRecords,
-  useListEntities,
   useRemoveCaseRecordLink,
 } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
@@ -49,9 +48,17 @@ export function CaseEntitiesSection({
     workspaceId,
   })
 
-  const { entities } = useListEntities({
-    workspaceId,
-  })
+  // Build unique entities list from recordLinks for relation tooltips
+  const uniqueEntities = useMemo(() => {
+    if (!records) return []
+    const entitiesMap = new Map<string, CaseEntityRead>()
+    records.forEach((link) => {
+      if (link.entity) {
+        entitiesMap.set(link.entity.id, link.entity)
+      }
+    })
+    return Array.from(entitiesMap.values())
+  }, [records])
 
   const { deleteRecord, isDeleting } = useDeleteCaseRecord({
     caseId,
@@ -96,11 +103,6 @@ export function CaseEntitiesSection({
     {} as Record<string, CaseRecordLinkRead[]>
   )
 
-  // Find entity metadata for each record
-  const getEntityForRecord = (entityId: string) => {
-    return entities?.find((e) => e.id === entityId)
-  }
-
   return (
     <div className="space-y-4 p-4">
       {/* Add entity record button */}
@@ -142,7 +144,8 @@ export function CaseEntitiesSection({
         <div className="space-y-3">
           {recordsByEntity &&
             Object.entries(recordsByEntity).map(([entityId, entityRecords]) => {
-              const entity = getEntityForRecord(entityId)
+              // Use the entity from the first record link (they all have the same entity)
+              const entity = entityRecords[0]?.entity
               return (
                 <div key={entityId} className="space-y-3">
                   {entity && entityRecords.length > 1 && (
@@ -154,7 +157,9 @@ export function CaseEntitiesSection({
                     <EntityRecordCard
                       key={recordLink.id}
                       recordLink={recordLink}
-                      entity={entity}
+                      entity={recordLink.entity}
+                      entities={uniqueEntities}
+                      workspaceId={workspaceId}
                       onEdit={() => setEditingRecord(recordLink)}
                       onDelete={() => setDeletingRecord(recordLink)}
                       onRemoveLink={() => setRemovingLink(recordLink)}

@@ -1,4 +1,5 @@
 import { type ClassValue, clsx } from "clsx"
+import React from "react"
 import { twMerge } from "tailwind-merge"
 import YAML from "yaml"
 import type { IntegrationOAuthCallback } from "@/client"
@@ -134,4 +135,67 @@ export function isIntegrationOAuthCallback(
     "provider_id" in obj &&
     "redirect_url" in obj
   )
+}
+
+/**
+ * Formats JSON data with syntax highlighting for keys.
+ * Keys are highlighted with primary color for better readability.
+ *
+ * @param data The JSON data to format
+ * @returns JSX elements with highlighted keys
+ */
+export function formatJsonWithHighlight(data: unknown): React.ReactNode {
+  if (data === null) return "null"
+  if (data === undefined) return "undefined"
+
+  if (Array.isArray(data)) {
+    // Format array: [{key: value}, {key: value}]
+    if (data.length === 0) return "[]"
+    return React.createElement(
+      React.Fragment,
+      null,
+      "[",
+      data.map((item, idx) =>
+        React.createElement(
+          "span",
+          { key: idx },
+          idx > 0 && ", ",
+          formatJsonWithHighlight(item)
+        )
+      ),
+      "]"
+    )
+  }
+
+  if (typeof data === "object" && data !== null) {
+    // Format object: {key: value, key: value}
+    const entries = Object.entries(data)
+    if (entries.length === 0) return "{}"
+
+    return React.createElement(
+      React.Fragment,
+      null,
+      "{",
+      entries.map(([key, val], idx) =>
+        React.createElement(
+          "span",
+          { key },
+          idx > 0 && ", ",
+          React.createElement(
+            "span",
+            { className: "text-[hsl(var(--json-key))]" },
+            JSON.stringify(key)
+          ),
+          ": ",
+          typeof val === "object" && val !== null
+            ? formatJsonWithHighlight(val)
+            : JSON.stringify(val)
+        )
+      ),
+      "}"
+    )
+  }
+
+  // Primitive values
+  return JSON.stringify(data)
 }

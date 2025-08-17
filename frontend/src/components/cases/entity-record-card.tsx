@@ -1,8 +1,19 @@
 "use client"
 
 import { format } from "date-fns"
-import { Edit, MoreHorizontal, Trash2, Unlink } from "lucide-react"
-import type { CaseEntityRead, CaseRecordLinkRead } from "@/client"
+import {
+  Edit,
+  Link,
+  MoreHorizontal,
+  Network,
+  Trash2,
+  Unlink,
+} from "lucide-react"
+import type {
+  CaseEntityRead,
+  CaseRecordLinkRead,
+  FieldMetadataRead,
+} from "@/client"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -10,10 +21,23 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
+import { useListEntityFields } from "@/lib/hooks"
+import { getIconByName } from "@/lib/icon-data"
+import { formatJsonWithHighlight } from "@/lib/utils"
+
+type EntityRef = Pick<CaseEntityRead, "id" | "name">
 
 interface EntityRecordCardProps {
   recordLink: CaseRecordLinkRead
   entity?: CaseEntityRead | null
+  entities?: EntityRef[]
+  workspaceId?: string
   onEdit?: () => void
   onDelete?: () => void
   onRemoveLink?: () => void
@@ -38,34 +62,12 @@ function renderFieldValue(
           </span>
         )
       }
-
-      // Show count and preview of first few items
-      const items = value.slice(0, 3).map((item, idx) => {
-        // Try to get a display name from common fields
-        const displayName = item.name || item.title || item.id || "Record"
-        return displayName
-      })
-
-      return (
-        <span className="text-xs">
-          {items.join(", ")}
-          {value.length > 3 && ` +${value.length - 3} more`}
-        </span>
-      )
+      // Format with highlighted keys
+      return <span className="text-xs">{formatJsonWithHighlight(value)}</span>
     } else if (typeof value === "object" && value !== null) {
       // RELATION_BELONGS_TO
-      const obj = value as Record<string, unknown>
-      // Try to get a display name from common fields
-      const displayName = obj.name || obj.title || obj.email || obj.id
-      if (displayName) {
-        return <span className="text-xs">{String(displayName)}</span>
-      }
-      // Show field count if no obvious display field
-      return (
-        <span className="text-xs text-muted-foreground">
-          Related ({Object.keys(obj).length} fields)
-        </span>
-      )
+      // Format with highlighted keys
+      return <span className="text-xs">{formatJsonWithHighlight(value)}</span>
     }
   }
 
@@ -147,11 +149,21 @@ function renderFieldValue(
 export function EntityRecordCard({
   recordLink,
   entity,
+  entities,
+  workspaceId,
   onEdit,
   onDelete,
   onRemoveLink,
 }: EntityRecordCardProps) {
   const record = recordLink.record
+
+  // Fetch field metadata if we have entity_id and workspaceId
+  const entityId = record?.entity_id || recordLink.entity_id
+  const { fields: fieldMetadata } = useListEntityFields({
+    entityId,
+    workspaceId: workspaceId || "",
+    includeInactive: false,
+  })
 
   if (!record) {
     return null
@@ -163,92 +175,182 @@ export function EntityRecordCard({
   const displayFields = fieldEntries.slice(0, 3)
   const hasMoreFields = fieldEntries.length > 3
 
-  return (
-    <div className="group">
-      <div className="rounded-lg border border-border py-3 px-4 hover:bg-accent/30 transition-colors">
-        <div className="space-y-1">
-          {/* Row 1: Entity name and actions */}
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-medium text-foreground">
-                {entity?.display_name || entity?.name || "Entity Record"}
-              </span>
-              {fieldEntries.length > 0 && (
-                <span className="text-xs text-muted-foreground">
-                  {fieldEntries.length} field
-                  {fieldEntries.length !== 1 ? "s" : ""}
-                </span>
-              )}
-            </div>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="size-6 rounded-md opacity-0 group-hover:opacity-100 data-[state=open]:bg-accent data-[state=open]:text-accent-foreground data-[state=open]:opacity-100"
-                >
-                  <MoreHorizontal className="size-4" />
-                  <span className="sr-only">More options</span>
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                {onEdit && (
-                  <DropdownMenuItem
-                    className="flex cursor-pointer items-center gap-2 text-xs"
-                    onClick={onEdit}
-                  >
-                    <Edit className="size-3" />
-                    Edit
-                  </DropdownMenuItem>
-                )}
-                {onRemoveLink && (
-                  <DropdownMenuItem
-                    className="flex cursor-pointer items-center gap-2 text-xs"
-                    onClick={onRemoveLink}
-                  >
-                    <Unlink className="size-3" />
-                    Unlink from case
-                  </DropdownMenuItem>
-                )}
-                {onDelete && (
-                  <DropdownMenuItem
-                    className="flex cursor-pointer items-center gap-2 text-xs text-destructive focus:text-destructive"
-                    onClick={onDelete}
-                  >
-                    <Trash2 className="size-3" />
-                    Delete
-                  </DropdownMenuItem>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
+  // Helper function to get field metadata by key
+  const getFieldMetadata = (
+    fieldKey: string
+  ): FieldMetadataRead | undefined => {
+    return fieldMetadata?.find((f) => f.field_key === fieldKey)
+  }
 
-          {/* Row 2+: Field data */}
-          {fieldEntries.length === 0 ? (
-            <p className="text-xs text-muted-foreground">No field data</p>
-          ) : (
-            <div className="space-y-0.5 mt-2">
-              {displayFields.map(([key, value]) => {
-                const isRelation = relationFields.includes(key)
-                return (
-                  <div key={key} className="flex gap-2 text-xs">
-                    <span className="text-muted-foreground min-w-[80px]">
-                      {key}:
-                    </span>
-                    {renderFieldValue(value, isRelation)}
-                  </div>
-                )
-              })}
-              {hasMoreFields && (
-                <span className="text-xs text-muted-foreground italic">
-                  +{fieldEntries.length - 3} more field
-                  {fieldEntries.length - 3 !== 1 ? "s" : ""}
-                </span>
-              )}
+  return (
+    <TooltipProvider>
+      <div className="group">
+        <div className="rounded-lg border border-border py-3 px-4 hover:bg-accent/30 transition-colors">
+          <div className="space-y-2">
+            {/* Row 1: Entity name and actions */}
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                {entity?.icon &&
+                  (() => {
+                    const Icon = getIconByName(entity.icon)
+                    return Icon ? (
+                      <Icon className="h-4 w-4 text-muted-foreground" />
+                    ) : null
+                  })()}
+                {entity?.name ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span className="text-sm font-medium text-foreground cursor-default">
+                        {entity.display_name || entity.name}
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <span className="text-xs">{entity.name}</span>
+                    </TooltipContent>
+                  </Tooltip>
+                ) : (
+                  <span className="text-sm font-medium text-foreground">
+                    {entity?.display_name || "Entity Record"}
+                  </span>
+                )}
+                {fieldEntries.length > 0 && (
+                  <span className="text-xs text-muted-foreground">
+                    {fieldEntries.length} field
+                    {fieldEntries.length !== 1 ? "s" : ""}
+                  </span>
+                )}
+              </div>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-6 rounded-md opacity-0 group-hover:opacity-100 data-[state=open]:bg-accent data-[state=open]:text-accent-foreground data-[state=open]:opacity-100"
+                  >
+                    <MoreHorizontal className="size-4" />
+                    <span className="sr-only">More options</span>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  {onEdit && (
+                    <DropdownMenuItem
+                      className="flex cursor-pointer items-center gap-2 text-xs"
+                      onClick={onEdit}
+                    >
+                      <Edit className="size-3" />
+                      Edit
+                    </DropdownMenuItem>
+                  )}
+                  {onRemoveLink && (
+                    <DropdownMenuItem
+                      className="flex cursor-pointer items-center gap-2 text-xs"
+                      onClick={onRemoveLink}
+                    >
+                      <Unlink className="size-3" />
+                      Unlink from case
+                    </DropdownMenuItem>
+                  )}
+                  {onDelete && (
+                    <DropdownMenuItem
+                      className="flex cursor-pointer items-center gap-2 text-xs text-destructive focus:text-destructive"
+                      onClick={onDelete}
+                    >
+                      <Trash2 className="size-3" />
+                      Delete
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
-          )}
+
+            {/* Row 2+: Field data */}
+            {fieldEntries.length === 0 ? (
+              <p className="text-xs text-muted-foreground">No field data</p>
+            ) : (
+              <div className="space-y-1">
+                {displayFields.map(([key, value]) => {
+                  const isRelation = relationFields.includes(key)
+                  const fieldMeta = getFieldMetadata(key)
+                  const fieldType = fieldMeta?.field_type
+                  const isBelongsTo = fieldType === "RELATION_BELONGS_TO"
+                  const isHasMany = fieldType === "RELATION_HAS_MANY"
+                  const isRelationField = isBelongsTo || isHasMany
+
+                  // Build tooltip content for relation fields
+                  let tooltipContent = ""
+                  if (isRelationField) {
+                    const currentEntityName = entity?.name || "record"
+                    let targetEntityName = "related"
+
+                    if (fieldMeta?.target_entity_id && entities) {
+                      const targetEntity = entities.find(
+                        (e) => e.id === fieldMeta.target_entity_id
+                      )
+                      if (targetEntity) {
+                        targetEntityName = targetEntity.name
+                      }
+                    }
+
+                    tooltipContent = isBelongsTo
+                      ? `One ${currentEntityName} to one ${targetEntityName}`
+                      : `One ${currentEntityName} to many ${targetEntityName}`
+                  }
+
+                  const Icon = isBelongsTo ? Link : isHasMany ? Network : null
+
+                  return (
+                    <div key={key} className="flex gap-2 text-xs">
+                      <span className="text-[hsl(var(--field-key))] w-32 flex items-center">
+                        {Icon && (
+                          <Icon className="mr-1 h-3 w-3 flex-shrink-0" />
+                        )}
+                        {isRelationField ? (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className="cursor-default truncate">
+                                {key.length > 24
+                                  ? `${key.substring(0, 24)}...`
+                                  : key}
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <div className="space-y-1">
+                                {key.length > 24 && (
+                                  <div className="font-medium">{key}</div>
+                                )}
+                                <div>{tooltipContent}</div>
+                              </div>
+                            </TooltipContent>
+                          </Tooltip>
+                        ) : key.length > 24 ? (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className="cursor-default truncate">
+                                {key.substring(0, 24)}...
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent>{key}</TooltipContent>
+                          </Tooltip>
+                        ) : (
+                          <span className="truncate">{key}</span>
+                        )}
+                        <span className="ml-auto">:</span>
+                      </span>
+                      {renderFieldValue(value, isRelation)}
+                    </div>
+                  )
+                })}
+                {hasMoreFields && (
+                  <span className="text-xs text-muted-foreground italic">
+                    +{fieldEntries.length - 3} more field
+                    {fieldEntries.length - 3 !== 1 ? "s" : ""}
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
-    </div>
+    </TooltipProvider>
   )
 }
