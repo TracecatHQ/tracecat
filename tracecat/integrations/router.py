@@ -500,7 +500,7 @@ async def get_provider(
         grant_type=provider_info.key.grant_type,
         metadata=provider_info.impl.metadata,
         scopes=provider_info.impl.scopes,
-        schema=ProviderSchema(json_schema=provider_info.impl.schema() or {}),
+        config_schema=ProviderSchema(json_schema=provider_info.impl.schema() or {}),
         integration_status=integration.status
         if integration
         else IntegrationStatus.NOT_CONFIGURED,

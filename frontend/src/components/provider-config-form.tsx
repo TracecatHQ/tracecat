@@ -91,7 +91,7 @@ export function ProviderConfigForm({
   onSuccess,
   additionalButtons,
 }: ProviderConfigFormProps) {
-  const schema = provider.schema?.json_schema || {}
+  const schema = provider.config_schema?.json_schema || {}
   const {
     metadata: { id },
     scopes: { default: defaultScopes },

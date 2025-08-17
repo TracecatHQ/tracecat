@@ -1917,7 +1917,7 @@ export type ProviderRead = {
   grant_type: OAuthGrantType
   metadata: ProviderMetadata
   scopes: ProviderScopes
-  schema?: ProviderSchema
+  config_schema: ProviderSchema
   integration_status: IntegrationStatus
   redirect_uri?: string | null
 }
@@ -5170,7 +5170,7 @@ export type PublicCheckHealthResponse = {
 
 export type $OpenApiTs = {
   "/webhooks/{workflow_id}/{secret}": {
-    post: {
+    get: {
       req: PublicIncomingWebhookData
       res: {
         /**
@@ -5183,7 +5183,7 @@ export type $OpenApiTs = {
         422: HTTPValidationError
       }
     }
-    get: {
+    post: {
       req: PublicIncomingWebhook1Data
       res: {
         /**

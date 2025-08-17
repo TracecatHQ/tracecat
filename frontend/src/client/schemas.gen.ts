@@ -5530,7 +5530,7 @@ export const $ProviderRead = {
     scopes: {
       $ref: "#/components/schemas/ProviderScopes",
     },
-    schema: {
+    config_schema: {
       $ref: "#/components/schemas/ProviderSchema",
     },
     integration_status: {
@@ -5549,7 +5549,13 @@ export const $ProviderRead = {
     },
   },
   type: "object",
-  required: ["grant_type", "metadata", "scopes", "integration_status"],
+  required: [
+    "grant_type",
+    "metadata",
+    "scopes",
+    "config_schema",
+    "integration_status",
+  ],
   title: "ProviderRead",
 } as const
 
