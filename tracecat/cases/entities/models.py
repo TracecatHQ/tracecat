@@ -45,6 +45,10 @@ class CaseRecordRead(BaseModel):
     id: UUID4
     entity_id: UUID4
     field_data: dict[str, Any]
+    relation_fields: list[str] = Field(
+        default_factory=list,
+        description="List of field keys that are relations (BELONGS_TO or HAS_MANY)",
+    )
 
     model_config = {"from_attributes": True}
 

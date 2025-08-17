@@ -708,6 +708,10 @@ export type CaseRecordRead = {
   field_data: {
     [key: string]: unknown
   }
+  /**
+   * List of field keys that are relations (BELONGS_TO or HAS_MANY)
+   */
+  relation_fields?: Array<string>
 }
 
 /**

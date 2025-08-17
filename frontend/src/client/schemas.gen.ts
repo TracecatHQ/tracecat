@@ -2353,6 +2353,15 @@ export const $CaseRecordRead = {
       type: "object",
       title: "Field Data",
     },
+    relation_fields: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Relation Fields",
+      description:
+        "List of field keys that are relations (BELONGS_TO or HAS_MANY)",
+    },
   },
   type: "object",
   required: ["id", "entity_id", "field_data"],

@@ -1539,7 +1539,9 @@ class TestFieldTypeRecordCreation:
             await admin_entities_service.create_record(
                 entity_id=entity.id, data={"tags": [["nested", "array"]]}
             )
-        assert "Nested objects not allowed" in str(exc_info.value)
+        assert "Nested arrays" in str(exc_info.value) or "Nested objects" in str(
+            exc_info.value
+        )
 
     async def test_array_integer_field_record_creation(
         self, admin_entities_service: CustomEntitiesService

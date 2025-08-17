@@ -9,8 +9,15 @@ from tracecat.cases.entities.models import (
     CaseRecordRead,
 )
 from tracecat.cases.service import CasesService
-from tracecat.db.schemas import Case, CaseRecordLink, Record
+from tracecat.db.schemas import (
+    Case,
+    CaseRecordLink,
+    FieldMetadata,
+    Record,
+    RecordRelationLink,
+)
 from tracecat.entities.service import CustomEntitiesService
+from tracecat.entities.types import FieldType
 from tracecat.service import BaseWorkspaceService
 from tracecat.types.exceptions import TracecatNotFoundError
 
@@ -35,6 +42,81 @@ class CaseEntitiesService(BaseWorkspaceService):
         if not case:
             raise TracecatNotFoundError(f"Case {case_id} not found")
         return case
+
+    async def _resolve_relation_fields(
+        self,
+        record: Record,
+        fields: list[FieldMetadata],
+        entity_service: CustomEntitiesService,
+    ) -> tuple[dict[str, Any], list[str]]:
+        """Resolve relation fields for a record.
+
+        Args:
+            record: The record to resolve relations for
+            fields: Field metadata for the entity
+            entity_service: Service to fetch related records
+
+        Returns:
+            Tuple of (field_data with resolved relations, list of relation field keys)
+        """
+        field_data = dict(record.field_data)
+        relation_fields = []
+
+        for field in fields:
+            if not field.relation_kind:
+                continue
+
+            relation_fields.append(field.field_key)
+
+            # Get related records for this field
+            if field.field_type == FieldType.RELATION_BELONGS_TO.value:
+                # For BELONGS_TO, fetch the single related record
+                link_stmt = select(RecordRelationLink).where(
+                    RecordRelationLink.source_record_id == record.id,
+                    RecordRelationLink.source_field_id == field.id,
+                )
+                link_result = await self.session.exec(link_stmt)
+                link = link_result.first()
+
+                if link:
+                    try:
+                        target_record = await entity_service.get_record(
+                            link.target_record_id
+                        )
+                        # Include the target record's field_data directly
+                        field_data[field.field_key] = target_record.field_data
+                    except TracecatNotFoundError:
+                        field_data[field.field_key] = None
+                else:
+                    field_data[field.field_key] = None
+
+            elif field.field_type == FieldType.RELATION_HAS_MANY.value:
+                # For HAS_MANY, fetch multiple related records (limited)
+                links_stmt = (
+                    select(RecordRelationLink)
+                    .where(
+                        RecordRelationLink.source_record_id == record.id,
+                        RecordRelationLink.source_field_id == field.id,
+                    )
+                    .limit(10)
+                )  # Limit to prevent performance issues
+
+                links_result = await self.session.exec(links_stmt)
+                links = links_result.all()
+
+                related_records = []
+                for link in links:
+                    try:
+                        target_record = await entity_service.get_record(
+                            link.target_record_id
+                        )
+                        related_records.append(target_record.field_data)
+                    except TracecatNotFoundError:
+                        continue
+
+                field_data[field.field_key] = related_records
+
+        return field_data, relation_fields
 
     async def list_records(
         self, case_id: uuid.UUID, entity_id: uuid.UUID | None = None
@@ -78,8 +160,24 @@ class CaseEntitiesService(BaseWorkspaceService):
             # Get record data
             try:
                 record = await entity_service.get_record(link.record_id)
-                record_read = CaseRecordRead.model_validate(
-                    record, from_attributes=True
+
+                # Get all fields for this entity (including relation fields)
+                fields = await entity_service.list_fields(
+                    link.entity_id, include_inactive=False
+                )
+
+                # Resolve relation fields
+                (
+                    resolved_field_data,
+                    relation_fields,
+                ) = await self._resolve_relation_fields(record, fields, entity_service)
+
+                # Create the record read model with resolved relations
+                record_read = CaseRecordRead(
+                    id=record.id,
+                    entity_id=record.entity_id,
+                    field_data=resolved_field_data,
+                    relation_fields=relation_fields,
                 )
             except TracecatNotFoundError:
                 record_read = None
@@ -131,7 +229,23 @@ class CaseEntitiesService(BaseWorkspaceService):
         # Get the actual record using entities service
         entity_service = CustomEntitiesService(session=self.session, role=self.role)
         record = await entity_service.get_record(record_id)
-        return CaseRecordRead.model_validate(record, from_attributes=True)
+
+        # Get all fields for this entity (including relation fields)
+        fields = await entity_service.list_fields(
+            record.entity_id, include_inactive=False
+        )
+
+        # Resolve relation fields
+        resolved_field_data, relation_fields = await self._resolve_relation_fields(
+            record, fields, entity_service
+        )
+
+        return CaseRecordRead(
+            id=record.id,
+            entity_id=record.entity_id,
+            field_data=resolved_field_data,
+            relation_fields=relation_fields,
+        )
 
     async def get_record_by_slug(
         self,
@@ -299,6 +413,17 @@ class CaseEntitiesService(BaseWorkspaceService):
             entity_id=entity_id,
         )
 
+        # Get all fields for this entity (including relation fields)
+        entity_service = CustomEntitiesService(session=self.session, role=self.role)
+        fields = await entity_service.list_fields(
+            entity_record.entity_id, include_inactive=False
+        )
+
+        # Resolve relation fields
+        resolved_field_data, relation_fields = await self._resolve_relation_fields(
+            entity_record, fields, entity_service
+        )
+
         # Ensure record is included (avoid refetch; override with freshly created)
         return CaseRecordLinkRead(
             id=link_read.id,
@@ -306,7 +431,12 @@ class CaseEntitiesService(BaseWorkspaceService):
             entity_id=link_read.entity_id,
             record_id=link_read.record_id,
             entity=link_read.entity,
-            record=CaseRecordRead.model_validate(entity_record, from_attributes=True),
+            record=CaseRecordRead(
+                id=entity_record.id,
+                entity_id=entity_record.entity_id,
+                field_data=resolved_field_data,
+                relation_fields=relation_fields,
+            ),
         )
 
     async def update_record(
@@ -345,7 +475,23 @@ class CaseEntitiesService(BaseWorkspaceService):
         # Update the record using entities service
         entity_service = CustomEntitiesService(session=self.session, role=self.role)
         updated = await entity_service.update_record(record_id, updates)
-        return CaseRecordRead.model_validate(updated, from_attributes=True)
+
+        # Get all fields for this entity (including relation fields)
+        fields = await entity_service.list_fields(
+            updated.entity_id, include_inactive=False
+        )
+
+        # Resolve relation fields
+        resolved_field_data, relation_fields = await self._resolve_relation_fields(
+            updated, fields, entity_service
+        )
+
+        return CaseRecordRead(
+            id=updated.id,
+            entity_id=updated.entity_id,
+            field_data=resolved_field_data,
+            relation_fields=relation_fields,
+        )
 
     async def remove_record(self, case_id: uuid.UUID, link_id: uuid.UUID) -> None:
         """Remove an entity record association from a case.

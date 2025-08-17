@@ -4,6 +4,7 @@ This module provides both pure validation functions and database-dependent valid
 Pure functions are at module level, database-dependent validators are in classes.
 """
 
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 from uuid import UUID
@@ -16,6 +17,7 @@ from tracecat.db.schemas import (
     Entity,
     FieldMetadata,
     Record,
+    RecordRelationLink,
 )
 from tracecat.entities.enums import RelationKind
 from tracecat.entities.query import EntityQueryBuilder
@@ -25,6 +27,7 @@ from tracecat.entities.types import (
     validate_flat_structure,
 )
 from tracecat.identifiers import WorkspaceID
+from tracecat.logger import logger
 from tracecat.types.exceptions import TracecatNotFoundError, TracecatValidationError
 
 
@@ -649,6 +652,253 @@ class RelationNestingValidator:
         )
         result = await self.session.exec(stmt)
         return result.first() is not None
+
+
+@dataclass
+class UpdateStep:
+    """Single update operation in the update plan."""
+
+    record_id: UUID
+    entity_id: UUID
+    field_updates: dict[str, Any]  # Regular field updates
+    depth: int  # Nesting depth for this update
+
+
+@dataclass
+class UpdatePlan:
+    """Execution plan for nested updates."""
+
+    steps: list[UpdateStep] = field(default_factory=list)
+    visited_records: set[UUID] = field(default_factory=set)
+    relation_links: dict[tuple[UUID, UUID], UUID] = field(
+        default_factory=dict
+    )  # (record_id, field_id) -> target_record_id
+
+
+class NestedUpdateValidator:
+    """Validator for nested relation updates during record updates."""
+
+    # Configuration limits
+    MAX_RELATION_DEPTH = 2  # Maximum depth for nested relation updates
+    MAX_JSON_DEPTH = 5  # Maximum depth for JSON structure in fields
+    MAX_UPDATE_SIZE = 100  # Maximum number of fields in single update
+
+    def __init__(
+        self,
+        session: AsyncSession,
+        workspace_id: str | UUID | WorkspaceID | None,
+        query_builder: EntityQueryBuilder | None = None,
+    ):
+        """Initialize nested update validator.
+
+        Args:
+            session: Database session
+            workspace_id: Workspace ID for scoping queries
+            query_builder: Optional query builder for efficient queries
+        """
+        self.session = session
+        self.workspace_id = workspace_id
+        self.query_builder = query_builder or EntityQueryBuilder(session)
+        self.field_validators = FieldValidators(session, workspace_id)
+        self.record_validators = RecordValidators(session, workspace_id)
+
+    async def validate_and_plan_updates(
+        self,
+        record_id: UUID,
+        updates: dict[str, Any],
+        depth: int = 0,
+    ) -> UpdatePlan:
+        """Validate nested updates and build execution plan.
+
+        This method:
+        1. Validates all updates before execution
+        2. Builds a complete update plan
+        3. Detects circular references
+        4. Validates JSON depth limits
+        5. Ensures all target entities exist and are accessible
+
+        Args:
+            record_id: Record to update
+            updates: Updates including nested relation updates
+            depth: Current nesting depth
+
+        Returns:
+            UpdatePlan with all update steps
+
+        Raises:
+            TracecatValidationError: If validation fails
+        """
+        plan = UpdatePlan()
+        await self._build_update_plan(plan, record_id, updates, depth)
+
+        # Validate the complete plan
+        if len(plan.steps) > self.MAX_UPDATE_SIZE:
+            raise TracecatValidationError(
+                f"Update plan exceeds maximum size of {self.MAX_UPDATE_SIZE} operations"
+            )
+
+        return plan
+
+    async def _build_update_plan(
+        self,
+        plan: UpdatePlan,
+        record_id: UUID,
+        updates: dict[str, Any],
+        depth: int,
+    ) -> None:
+        """Recursively build the update plan.
+
+        Args:
+            plan: Update plan being built
+            record_id: Current record ID
+            updates: Updates for this record
+            depth: Current depth
+
+        Raises:
+            TracecatValidationError: On validation errors
+        """
+        # Check depth limit
+        if depth > self.MAX_RELATION_DEPTH:
+            raise TracecatValidationError(
+                f"Maximum relation depth {self.MAX_RELATION_DEPTH} exceeded"
+            )
+
+        # Check for circular reference
+        if record_id in plan.visited_records:
+            logger.warning(f"Circular reference detected for record {record_id}")
+            return  # Skip this update to avoid infinite loop
+
+        plan.visited_records.add(record_id)
+
+        # Load record and fields
+        record = await self.record_validators.validate_record_exists(record_id)
+        if not record:
+            raise TracecatNotFoundError(f"Record {record_id} not found")
+
+        # Load entity fields
+        stmt = select(FieldMetadata).where(
+            FieldMetadata.entity_id == record.entity_id,
+            FieldMetadata.is_active,
+        )
+        result = await self.session.exec(stmt)
+        fields = list(result.all())
+
+        # Separate regular and relation updates
+        regular_updates = {}
+        relation_updates = {}
+
+        for key, value in updates.items():
+            field = next((f for f in fields if f.field_key == key), None)
+            if not field:
+                logger.debug(f"Skipping unknown field {key}")
+                continue
+
+            # Check if it's a relation field with nested updates
+            if (
+                field.relation_kind == RelationKind.ONE_TO_ONE
+                and isinstance(value, dict)
+                and value  # Non-empty dict
+            ):
+                # This is a nested relation update
+                relation_updates[key] = (field, value)
+            elif field.relation_kind and isinstance(value, dict) and not value:
+                # Empty dict for relation field - skip it entirely
+                continue
+            else:
+                # Regular field update - validate JSON depth
+                if not self._validate_json_depth(value):
+                    raise TracecatValidationError(
+                        f"Field {key} exceeds maximum JSON depth of {self.MAX_JSON_DEPTH}"
+                    )
+                regular_updates[key] = value
+
+        # Add this update step to the plan
+        if regular_updates or depth == 0:  # Always add root update
+            step = UpdateStep(
+                record_id=record_id,
+                entity_id=record.entity_id,
+                field_updates=regular_updates,
+                depth=depth,
+            )
+            plan.steps.append(step)
+
+        # Process nested relation updates
+        for _key, (field, nested_value) in relation_updates.items():
+            # Find the linked record
+            link = await self._get_relation_link(record_id, field.id)
+            if link:
+                # Store the link for reference
+                plan.relation_links[(record_id, field.id)] = link.target_record_id
+                # Recursively build plan for nested update
+                await self._build_update_plan(
+                    plan, link.target_record_id, nested_value, depth + 1
+                )
+
+    async def _get_relation_link(
+        self, source_record_id: UUID, source_field_id: UUID
+    ) -> RecordRelationLink | None:
+        """Get relation link for a record and field.
+
+        Args:
+            source_record_id: Source record ID
+            source_field_id: Source field ID
+
+        Returns:
+            RecordRelationLink if found, None otherwise
+        """
+        stmt = select(RecordRelationLink).where(
+            RecordRelationLink.source_record_id == source_record_id,
+            RecordRelationLink.source_field_id == source_field_id,
+        )
+        result = await self.session.exec(stmt)
+        return result.first()
+
+    def _validate_json_depth(self, obj: Any, depth: int = 0) -> bool:
+        """Validate JSON structure depth doesn't exceed limit.
+
+        Args:
+            obj: Object to validate
+            depth: Current depth
+
+        Returns:
+            True if within depth limit, False otherwise
+        """
+        if depth > self.MAX_JSON_DEPTH:
+            return False
+
+        if isinstance(obj, dict):
+            return all(self._validate_json_depth(v, depth + 1) for v in obj.values())
+        elif isinstance(obj, list):
+            return all(self._validate_json_depth(item, depth + 1) for item in obj)
+
+        return True
+
+    async def batch_load_relation_links(
+        self, record_ids: list[UUID]
+    ) -> dict[UUID, list[RecordRelationLink]]:
+        """Batch load relation links for multiple records.
+
+        Performance optimization to avoid N+1 queries.
+
+        Args:
+            record_ids: List of record IDs
+
+        Returns:
+            Dict mapping record ID to list of relation links
+        """
+        from collections import defaultdict
+
+        stmt = select(RecordRelationLink).where(
+            RecordRelationLink.source_record_id.in_(record_ids),
+            RecordRelationLink.owner_id == self.workspace_id,
+        )
+        result = await self.session.exec(stmt)
+
+        links_by_record: dict[UUID, list[RecordRelationLink]] = defaultdict(list)
+        for link in result:
+            links_by_record[link.source_record_id].append(link)
+
+        return dict(links_by_record)
 
 
 class RelationValidators:

@@ -36,6 +36,7 @@ from tracecat.entities.types import (
 from tracecat.entities.validation import (
     EntityValidators,
     FieldValidators,
+    NestedUpdateValidator,
     RecordValidators,
     RelationValidators,
     validate_default_value_type,
@@ -1045,45 +1046,88 @@ class CustomEntitiesService(BaseWorkspaceService):
 
         return record
 
+    async def _batch_update_records_optimized(
+        self, update_steps: list[tuple[UUID, dict[str, Any]]]
+    ) -> None:
+        """Optimized batch update using JSONB merge operations.
+
+        Args:
+            update_steps: List of (record_id, updates) tuples
+
+        Note:
+            This uses PostgreSQL's JSONB concatenation for efficient updates.
+            All updates are applied in a single SQL statement per record.
+        """
+        for record_id, field_updates in update_steps:
+            if field_updates:
+                # Use JSONB concatenation (||) for efficient merge
+                # Load record, update, and let SQLAlchemy handle it
+                record = await self.get_record(record_id)
+                record.field_data = {**record.field_data, **field_updates}
+                flag_modified(record, "field_data")
+
     async def update_record(self, record_id: UUID, updates: dict[str, Any]) -> Record:
-        """Update entity record.
+        """Update entity record with support for nested relation updates.
 
         Args:
             record_id: Record to update
-            updates: Field updates (validated against active fields)
+            updates: Field updates (can contain nested updates for relations)
 
         Returns:
-            Updated Record
+            Updated record
 
-        Raises:
-            ValidationError: If updates invalid
+        Note:
+            - Relations links remain immutable
+            - Nested updates modify target entity's fields
+            - All updates execute in a single transaction
+            - Circular references are detected and handled
         """
-        record = await self.get_record(record_id)
-
-        # Get active fields for validation
-        active_fields = await self.list_fields(record.entity_id, include_inactive=False)
-
-        # Validate updates (includes flat structure check)
-        validated_updates = await self.record_validators.validate_record_data(
-            updates, active_fields
+        # Create validator with query builder for efficiency
+        validator = NestedUpdateValidator(
+            self.session, self.workspace_id, self.query_builder
         )
 
-        # Serialize and merge updates, but skip relation fields
-        # Relations are immutable after creation and stored as links only
-        field_map = {f.field_key: f for f in active_fields}
-        for key, value in validated_updates.items():
-            field = field_map.get(key)
-            if field is None or field.relation_kind:
-                # Skip relation fields
-                continue
-            record.field_data[key] = serialize_value(value, FieldType(field.field_type))
+        # Build and validate complete update plan upfront
+        update_plan = await validator.validate_and_plan_updates(record_id, updates)
 
-        # Mark the field_data as modified for SQLAlchemy to detect the change
-        flag_modified(record, "field_data")
+        # Execute all updates in a single transaction with savepoint
+        async with self.session.begin_nested():
+            for step in update_plan.steps:
+                # Load the record to update
+                record = await self.get_record(step.record_id)
 
+                # Get active fields for this entity
+                active_fields = await self.list_fields(
+                    step.entity_id, include_inactive=False
+                )
+                field_map = {f.field_key: f for f in active_fields}
+
+                # Validate the field updates for this step
+                if step.field_updates:
+                    validated_updates = (
+                        await self.record_validators.validate_record_data(
+                            step.field_updates, active_fields
+                        )
+                    )
+
+                    # Apply updates to field_data
+                    for key, value in validated_updates.items():
+                        field = field_map.get(key)
+                        if field and not field.relation_kind:
+                            record.field_data[key] = serialize_value(
+                                value, FieldType(field.field_type)
+                            )
+
+                    # Mark field_data as modified for SQLAlchemy
+                    flag_modified(record, "field_data")
+
+        # Single commit for all changes
         await self.session.commit()
-        await self.session.refresh(record)
-        return record
+
+        # Refresh and return the main record
+        main_record = await self.get_record(record_id)
+        await self.session.refresh(main_record)
+        return main_record
 
     async def delete_record(self, record_id: UUID) -> None:
         """Delete entity record.

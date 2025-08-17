@@ -1509,7 +1509,7 @@ class FieldMetadata(SQLModel, TimestampMixin, table=True):
 
 
 class Record(Resource, table=True):
-    """Data storage with FLAT JSONB structure only."""
+    """Data storage with JSONB structure."""
 
     __tablename__: str = "record"
     __table_args__ = (

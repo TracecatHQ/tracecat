@@ -19,9 +19,54 @@ interface EntityRecordCardProps {
   onRemoveLink?: () => void
 }
 
-function renderFieldValue(value: unknown): React.ReactNode {
+function renderFieldValue(
+  value: unknown,
+  isRelation: boolean = false
+): React.ReactNode {
   if (value === null || value === undefined) {
     return <span className="text-muted-foreground">-</span>
+  }
+
+  // Handle relation fields (they contain resolved field_data)
+  if (isRelation) {
+    if (Array.isArray(value)) {
+      // RELATION_HAS_MANY
+      if (value.length === 0) {
+        return (
+          <span className="text-xs text-muted-foreground">
+            No related records
+          </span>
+        )
+      }
+
+      // Show count and preview of first few items
+      const items = value.slice(0, 3).map((item, idx) => {
+        // Try to get a display name from common fields
+        const displayName = item.name || item.title || item.id || "Record"
+        return displayName
+      })
+
+      return (
+        <span className="text-xs">
+          {items.join(", ")}
+          {value.length > 3 && ` +${value.length - 3} more`}
+        </span>
+      )
+    } else if (typeof value === "object" && value !== null) {
+      // RELATION_BELONGS_TO
+      const obj = value as Record<string, unknown>
+      // Try to get a display name from common fields
+      const displayName = obj.name || obj.title || obj.email || obj.id
+      if (displayName) {
+        return <span className="text-xs">{String(displayName)}</span>
+      }
+      // Show field count if no obvious display field
+      return (
+        <span className="text-xs text-muted-foreground">
+          Related ({Object.keys(obj).length} fields)
+        </span>
+      )
+    }
   }
 
   // Handle different field types based on value
@@ -113,6 +158,7 @@ export function EntityRecordCard({
   }
 
   const fieldEntries = Object.entries(record.field_data || {})
+  const relationFields = record.relation_fields || []
   // Show max 3 fields in collapsed view
   const displayFields = fieldEntries.slice(0, 3)
   const hasMoreFields = fieldEntries.length > 3
@@ -182,14 +228,17 @@ export function EntityRecordCard({
             <p className="text-xs text-muted-foreground">No field data</p>
           ) : (
             <div className="space-y-0.5 mt-2">
-              {displayFields.map(([key, value]) => (
-                <div key={key} className="flex gap-2 text-xs">
-                  <span className="text-muted-foreground min-w-[80px]">
-                    {key}:
-                  </span>
-                  {renderFieldValue(value)}
-                </div>
-              ))}
+              {displayFields.map(([key, value]) => {
+                const isRelation = relationFields.includes(key)
+                return (
+                  <div key={key} className="flex gap-2 text-xs">
+                    <span className="text-muted-foreground min-w-[80px]">
+                      {key}:
+                    </span>
+                    {renderFieldValue(value, isRelation)}
+                  </div>
+                )
+              })}
               {hasMoreFields && (
                 <span className="text-xs text-muted-foreground italic">
                   +{fieldEntries.length - 3} more field
