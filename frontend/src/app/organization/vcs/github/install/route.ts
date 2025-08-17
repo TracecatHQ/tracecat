@@ -3,7 +3,7 @@ import { type NextRequest, NextResponse } from "next/server"
 import { buildUrl } from "@/lib/ss-utils"
 
 export const GET = async (request: NextRequest) => {
-  console.log("RECEIVED GET /organization/vcs/github/install", request)
+  console.log("GET /organization/vcs/github/install")
 
   const url = new URL(buildUrl("/organization/vcs/github/install"))
   url.search = request.nextUrl.search
