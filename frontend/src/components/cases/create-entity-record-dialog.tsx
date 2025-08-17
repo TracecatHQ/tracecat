@@ -1,7 +1,7 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
-import { Loader2 } from "lucide-react"
+import { Database, Loader2 } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
@@ -325,8 +325,8 @@ export function CreateEntityRecordDialog({
         } else if (fieldType.includes("ARRAY") || fieldType.includes("MULTI")) {
           defaultValues[field.key] = []
         } else if (fieldType === "RELATION_BELONGS_TO") {
-          // Initialize relation fields as empty objects
-          defaultValues[field.key] = {}
+          // Initialize relation fields as null (not empty objects)
+          defaultValues[field.key] = null
         } else {
           defaultValues[field.key] = null
         }
@@ -340,9 +340,25 @@ export function CreateEntityRecordDialog({
     if (!selectedEntityId) return
 
     try {
+      // Filter out empty relation objects and null values
+      const filteredValues = Object.entries(values).reduce(
+        (acc, [key, value]) => {
+          // Skip null values and empty objects
+          if (
+            value !== null &&
+            value !== undefined &&
+            !(typeof value === "object" && Object.keys(value).length === 0)
+          ) {
+            acc[key] = value
+          }
+          return acc
+        },
+        {} as Record<string, unknown>
+      )
+
       const recordData: CaseRecordLinkCreate = {
         entity_id: selectedEntityId,
-        record_data: values,
+        record_data: filteredValues,
       }
 
       await createRecord(recordData)
@@ -359,6 +375,21 @@ export function CreateEntityRecordDialog({
     schemaLoading ||
     fieldsLoading ||
     (relationFields.length > 0 && relationSchemas.size < relationFields.length)
+
+  // Check if there are any fillable fields (regular fields or relations with fields)
+  const hasFillableFields = useMemo(() => {
+    if (regularFields.length > 0) return true
+
+    // Check if any relation has fillable fields
+    for (const field of relationFields) {
+      const relatedSchema = relationSchemas.get(field.key)
+      if (relatedSchema && relatedSchema.length > 0) {
+        return true
+      }
+    }
+
+    return false
+  }, [regularFields, relationFields, relationSchemas])
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -416,69 +447,85 @@ export function CreateEntityRecordDialog({
                     <Skeleton className="h-8 w-full" />
                   </div>
                 ) : schema ? (
-                  <Form {...form}>
-                    <form
-                      onSubmit={form.handleSubmit(handleSubmit)}
-                      className="space-y-6"
-                    >
-                      {/* Main Entity Fields */}
-                      {regularFields.length > 0 && (
-                        <div className="space-y-4">
-                          {regularFields.length > 0 &&
-                            relationFields.length > 0 && (
-                              <h3 className="text-sm font-medium text-muted-foreground">
-                                {schema.entity.display_name} fields
-                              </h3>
-                            )}
-                          {regularFields.map((field) => (
-                            <EntityFieldInput
-                              key={field.key}
-                              field={field}
-                              control={form.control}
-                              name={field.key}
-                              disabled={isCreating}
-                            />
-                          ))}
-                        </div>
-                      )}
-
-                      {/* Relation Fields */}
-                      {relationFields.map((field) => {
-                        const relatedSchema = relationSchemas.get(field.key)
-                        const entityName = relationEntityNames.get(field.key)
-
-                        if (!relatedSchema || relatedSchema.length === 0)
-                          return null
-
-                        return (
-                          <div key={field.key} className="space-y-4">
-                            <Separator />
-                            <div className="space-y-4">
-                              <div>
-                                <h3 className="text-sm font-medium">
-                                  {field.display_name}
+                  // Check if entity has any fillable fields
+                  !hasFillableFields ? (
+                    <div className="flex flex-col items-center justify-center py-8">
+                      <div className="p-2 rounded-full bg-muted/50 mb-3">
+                        <Database className="h-5 w-5 text-muted-foreground" />
+                      </div>
+                      <h3 className="text-sm font-medium text-muted-foreground mb-1">
+                        No fields found
+                      </h3>
+                      <p className="text-xs text-muted-foreground/75 text-center max-w-[250px]">
+                        The selected entity requires at least one non-relation
+                        field to be filled in.
+                      </p>
+                    </div>
+                  ) : (
+                    <Form {...form}>
+                      <form
+                        onSubmit={form.handleSubmit(handleSubmit)}
+                        className="space-y-6"
+                      >
+                        {/* Main Entity Fields */}
+                        {regularFields.length > 0 && (
+                          <div className="space-y-4">
+                            {regularFields.length > 0 &&
+                              relationFields.length > 0 && (
+                                <h3 className="text-sm font-medium text-muted-foreground">
+                                  {schema.entity.display_name} fields
                                 </h3>
-                                {entityName && (
-                                  <p className="text-xs text-muted-foreground mt-1">
-                                    Create new {entityName}
-                                  </p>
-                                )}
-                              </div>
-                              {relatedSchema.map((relField) => (
-                                <EntityFieldInput
-                                  key={`${field.key}.${relField.key}`}
-                                  field={relField}
-                                  control={form.control}
-                                  name={`${field.key}.${relField.key}`}
-                                  disabled={isCreating}
-                                />
-                              ))}
-                            </div>
+                              )}
+                            {regularFields.map((field) => (
+                              <EntityFieldInput
+                                key={field.key}
+                                field={field}
+                                control={form.control}
+                                name={field.key}
+                                disabled={isCreating}
+                              />
+                            ))}
                           </div>
-                        )
-                      })}
-                    </form>
-                  </Form>
+                        )}
+
+                        {/* Relation Fields */}
+                        {relationFields.map((field) => {
+                          const relatedSchema = relationSchemas.get(field.key)
+                          const entityName = relationEntityNames.get(field.key)
+
+                          if (!relatedSchema || relatedSchema.length === 0)
+                            return null
+
+                          return (
+                            <div key={field.key} className="space-y-4">
+                              <Separator />
+                              <div className="space-y-4">
+                                <div>
+                                  <h3 className="text-sm font-medium">
+                                    {field.display_name}
+                                  </h3>
+                                  {entityName && (
+                                    <p className="text-xs text-muted-foreground mt-1">
+                                      Create new {entityName}
+                                    </p>
+                                  )}
+                                </div>
+                                {relatedSchema.map((relField) => (
+                                  <EntityFieldInput
+                                    key={`${field.key}.${relField.key}`}
+                                    field={relField}
+                                    control={form.control}
+                                    name={`${field.key}.${relField.key}`}
+                                    disabled={isCreating}
+                                  />
+                                ))}
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </form>
+                    </Form>
+                  )
                 ) : null}
               </>
             )}
@@ -496,7 +543,12 @@ export function CreateEntityRecordDialog({
           </Button>
           <Button
             onClick={form.handleSubmit(handleSubmit)}
-            disabled={!selectedEntityId || isCreating || isLoadingData}
+            disabled={
+              !selectedEntityId ||
+              isCreating ||
+              isLoadingData ||
+              (schema && !hasFillableFields)
+            }
           >
             {isCreating && <Loader2 className="mr-2 h-3 w-3 animate-spin" />}
             Create
