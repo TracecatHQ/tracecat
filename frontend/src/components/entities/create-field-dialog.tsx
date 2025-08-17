@@ -67,6 +67,7 @@ const fieldTypes: {
   { value: "INTEGER", label: "Integer", icon: Hash },
   { value: "NUMBER", label: "Number", icon: DecimalsArrowRight },
   { value: "BOOL", label: "Boolean", icon: ToggleLeft },
+  { value: "JSON", label: "JSON", icon: Brackets },
   { value: "DATE", label: "Date", icon: Calendar },
   { value: "DATETIME", label: "Date and time", icon: CalendarClock },
   { value: "SELECT", label: "Select", icon: SquareCheck },
@@ -91,6 +92,7 @@ const createFieldSchema = z.object({
     "INTEGER",
     "NUMBER",
     "BOOL",
+    "JSON",
     "DATE",
     "DATETIME",
     "SELECT",
@@ -122,6 +124,7 @@ const PRIMITIVE_FIELD_TYPES: FieldType[] = [
   "INTEGER",
   "NUMBER",
   "BOOL",
+  "JSON",
   "SELECT",
   "MULTI_SELECT",
 ]
@@ -207,6 +210,16 @@ export function CreateFieldDialog({
             .split(",")
             .map((s) => s.trim())
             .filter(Boolean)
+        } else if (data.field_type === "JSON") {
+          // Parse JSON string to object/array
+          try {
+            processedData.default_value = JSON.parse(
+              data.default_value as string
+            )
+          } catch {
+            // If invalid JSON, keep as-is and let backend validate
+            processedData.default_value = data.default_value
+          }
         }
         // Keep the default_value for TEXT and SELECT types as-is
       } else {
@@ -481,7 +494,9 @@ export function CreateFieldDialog({
                                   ? "Enter number default"
                                   : fieldType === "MULTI_SELECT"
                                     ? "Comma-separated values"
-                                    : "Enter default value"
+                                    : fieldType === "JSON"
+                                      ? '{"key": "value"} or []'
+                                      : "Enter default value"
                             }
                             {...field}
                           />

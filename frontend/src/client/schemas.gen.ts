@@ -4649,6 +4649,7 @@ export const $FieldType = {
     "NUMBER",
     "TEXT",
     "BOOL",
+    "JSON",
     "DATETIME",
     "DATE",
     "ARRAY_TEXT",
@@ -4662,7 +4663,7 @@ export const $FieldType = {
   title: "FieldType",
   description: `Supported field types for custom entities.
 
-v1: Basic types only, no complex nested structures.`,
+v1: Basic types plus JSON for structured data with controlled nesting.`,
 } as const
 
 export const $Float = {

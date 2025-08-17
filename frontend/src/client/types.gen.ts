@@ -1531,13 +1531,14 @@ export type FieldMetadataUpdate = {
 /**
  * Supported field types for custom entities.
  *
- * v1: Basic types only, no complex nested structures.
+ * v1: Basic types plus JSON for structured data with controlled nesting.
  */
 export type FieldType =
   | "INTEGER"
   | "NUMBER"
   | "TEXT"
   | "BOOL"
+  | "JSON"
   | "DATETIME"
   | "DATE"
   | "ARRAY_TEXT"
