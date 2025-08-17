@@ -46,6 +46,29 @@ const gitHubAppFormSchema = z.object({
   githubHost: z
     .string()
     .url("Please enter a valid URL")
+    .refine(
+      (url) => {
+        try {
+          const urlObj = new URL(url)
+          // Enforce HTTPS and validate against known GitHub hosts
+          if (urlObj.protocol !== "https:") {
+            return false
+          }
+          // Allow github.com and GitHub Enterprise patterns
+          const allowedHosts = ["github.com", "www.github.com"]
+          const isGitHubEnterprise =
+            urlObj.hostname.endsWith(".github.com") ||
+            urlObj.hostname.match(/^github\.[a-zA-Z0-9.-]+$/)
+          return allowedHosts.includes(urlObj.hostname) || isGitHubEnterprise
+        } catch {
+          return false
+        }
+      },
+      {
+        message:
+          "Must be a valid HTTPS GitHub URL (github.com or GitHub Enterprise)",
+      }
+    )
     .default("https://github.com"),
 })
 
@@ -84,6 +107,13 @@ export function GitHubAppSetup() {
     }
   }, [])
 
+  // Auto-switch to manual tab if credentials already exist
+  useEffect(() => {
+    if (credentialsStatus?.exists && activeTab === "manifest") {
+      setActiveTab("manual")
+    }
+  }, [credentialsStatus?.exists, activeTab])
+
   const copyManifest = () => {
     if (manifest?.manifest) {
       navigator.clipboard.writeText(JSON.stringify(manifest.manifest, null, 2))
@@ -104,18 +134,39 @@ export function GitHubAppSetup() {
       return
     }
 
-    // Create form and submit to GitHub
+    // Additional security validation (redundant with schema but defense in depth)
+    try {
+      const urlObj = new URL(data.githubHost)
+      if (urlObj.protocol !== "https:") {
+        throw new Error("HTTPS required")
+      }
+    } catch {
+      toast({
+        title: "Invalid GitHub host",
+        description: "Please use a valid HTTPS GitHub URL",
+        variant: "destructive",
+      })
+      return
+    }
+
+    // Safely create form with proper escaping
     const form = document.createElement("form")
     form.method = "POST"
-    // Target organization settings instead of user settings
-    form.action = `${data.githubHost}/organizations/${data.organizationName}/settings/apps/new`
     form.target = "_blank"
 
-    // Add manifest as hidden field
+    // Use URL constructor for safe URL building
+    const targetUrl = new URL(
+      `/organizations/${encodeURIComponent(data.organizationName)}/settings/apps/new`,
+      data.githubHost
+    )
+    form.action = targetUrl.toString()
+
+    // Safely add manifest as hidden field with proper escaping
     const manifestInput = document.createElement("input")
     manifestInput.type = "hidden"
     manifestInput.name = "manifest"
-    manifestInput.value = JSON.stringify(manifest.manifest)
+    // Use setAttribute to safely set the value, which handles escaping
+    manifestInput.setAttribute("value", JSON.stringify(manifest.manifest))
     form.appendChild(manifestInput)
 
     // Add organization parameter if not default GitHub host
@@ -123,7 +174,8 @@ export function GitHubAppSetup() {
       const orgInput = document.createElement("input")
       orgInput.type = "hidden"
       orgInput.name = "organization"
-      orgInput.value = data.organizationName
+      // Use setAttribute for safe value setting
+      orgInput.setAttribute("value", data.organizationName)
       form.appendChild(orgInput)
     }
 
@@ -144,11 +196,6 @@ export function GitHubAppSetup() {
       title: "GitHub App configured successfully!",
       description: "Your GitHub App credentials have been saved.",
     })
-  }
-
-  // Auto-switch to manual tab if credentials already exist
-  if (credentialsStatus?.exists && activeTab === "manifest") {
-    setActiveTab("manual")
   }
 
   if (manifestIsLoading || credentialsStatusIsLoading) {

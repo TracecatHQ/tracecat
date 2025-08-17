@@ -366,7 +366,7 @@ class GitHubAppService(BaseService):
             return credentials
 
         except Exception as e:
-            self.logger.error("Failed to retrieve GitHub App credentials", error=str(e))
+            self.logger.debug("Failed to retrieve GitHub App credentials", error=str(e))
             raise GitHubAppError(
                 f"Failed to retrieve GitHub App credentials: {e}"
             ) from e
