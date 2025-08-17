@@ -138,6 +138,8 @@ just gen-functions
 - Prefer `function foo()` over `const foo = () =>`
 - Use named exports over default exports
 - Use "Title case example" over "Title Case Example" for UI text
+- Always use proper TypeScript type hints and avoid using `any` - use `unknown` if necessary
+- Avoid nested ternary statements - use `if/else` or `switch/case` instead
 
 ### UI Component Best Practices
 - **Avoid background colors on child elements within bordered containers**: When using shadcn components like SidebarInset that have rounded borders, don't add background colors (e.g., `bg-card`, `bg-background`) to immediate child elements. These backgrounds can paint over the parent's rounded border corners, making them appear cut off or missing. Instead, let the parent container handle the background styling.
@@ -189,9 +191,6 @@ just gen-functions
 
 ## Code Typing Guidelines
 - When writing typescript code, always do your best to use proper type hints and avoid using `any`. If you really have to you can use `unknown`.
-
-## Code Style Guidelines
-- When writing typescript code, always avoid using nested ternary statements. You probably want to use `if/else` or `switch/case`.
 
 ## Frontend Type Generation
 - If you need to add frontend types, you should first try to generate them from the backend using `just gen-client`
@@ -285,3 +284,6 @@ When writing templates, ensure that any FN. function you use exists in the `_FUN
         def main(base, updates):
             return {**base, **updates}
   ```
+
+- when using typescript you must *never* use `any` to type a variable
+- When adding any pages that require redirection/callbacks to the UI we need to create a NextJS route handler for that path
