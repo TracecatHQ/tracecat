@@ -2686,6 +2686,22 @@ wheels = [
 ]
 
 [[package]]
+name = "pygithub"
+version = "2.7.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pyjwt", extra = ["crypto"] },
+    { name = "pynacl" },
+    { name = "requests" },
+    { name = "typing-extensions" },
+    { name = "urllib3" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/6a/a7/403e04aa96e2d94e1518d518d69718c2ba978c8d3ffa4ab3b101b94dbafa/pygithub-2.7.0.tar.gz", hash = "sha256:7cd6eafabb09b5369afba3586d86b1f1ad6f1326d2ff01bc47bb26615dce4cbb", size = 3707928, upload-time = "2025-07-31T11:52:53.714Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/57/76/d768dd31322173b3956692b75471ac37bf3759c7abb603152f6a9b6594a8/pygithub-2.7.0-py3-none-any.whl", hash = "sha256:40ecbfe26dc55cc34ab4b0ffa1d455e6f816ef9a2bc8d6f5ad18ce572f163700", size = 416514, upload-time = "2025-07-31T11:52:51.909Z" },
+]
+
+[[package]]
 name = "pygments"
 version = "2.19.2"
 source = { registry = "https://pypi.org/simple" }
@@ -3623,6 +3639,7 @@ dependencies = [
     { name = "pyarrow" },
     { name = "pydantic" },
     { name = "pydantic-extra-types" },
+    { name = "pygithub" },
     { name = "pysaml2" },
     { name = "python-slugify" },
     { name = "ray", extra = ["default"] },
@@ -3686,6 +3703,7 @@ requires-dist = [
     { name = "pyarrow", specifier = "==16.1.0" },
     { name = "pydantic", specifier = "==2.10.6" },
     { name = "pydantic-extra-types", specifier = "==2.10.2" },
+    { name = "pygithub", specifier = ">=2.7.0" },
     { name = "pysaml2", specifier = "==7.5.0" },
     { name = "python-slugify", specifier = "==8.0.4" },
     { name = "ray", extras = ["default"], specifier = "==2.40.0" },
