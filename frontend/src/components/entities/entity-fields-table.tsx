@@ -3,6 +3,7 @@
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import {
   BookA,
+  Braces,
   Brackets,
   Calendar,
   CalendarClock,
@@ -62,6 +63,7 @@ const fieldTypeConfig: Partial<
   INTEGER: { label: "Integer", icon: Hash },
   NUMBER: { label: "Number", icon: DecimalsArrowRight },
   BOOL: { label: "Boolean", icon: ToggleLeft },
+  JSON: { label: "JSON", icon: Braces },
   DATE: { label: "Date", icon: Calendar },
   DATETIME: { label: "Date and time", icon: CalendarClock },
   SELECT: { label: "Select", icon: SquareCheck },
