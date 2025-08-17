@@ -14,6 +14,7 @@ import type {
   CaseRecordLinkRead,
   FieldMetadataRead,
 } from "@/client"
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -190,13 +191,28 @@ export function EntityRecordCard({
             {/* Row 1: Entity name and actions */}
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
-                {entity?.icon &&
-                  (() => {
-                    const Icon = getIconByName(entity.icon)
-                    return Icon ? (
-                      <Icon className="h-4 w-4 text-muted-foreground" />
-                    ) : null
-                  })()}
+                <Avatar className="size-5">
+                  <AvatarFallback className="text-xs">
+                    {entity?.icon
+                      ? (() => {
+                          const Icon = getIconByName(entity.icon)
+                          return Icon ? (
+                            <Icon className="size-3" />
+                          ) : (
+                            (
+                              entity?.display_name?.[0] ||
+                              entity?.name?.[0] ||
+                              "?"
+                            ).toUpperCase()
+                          )
+                        })()
+                      : (
+                          entity?.display_name?.[0] ||
+                          entity?.name?.[0] ||
+                          "?"
+                        ).toUpperCase()}
+                  </AvatarFallback>
+                </Avatar>
                 {entity?.name ? (
                   <Tooltip>
                     <TooltipTrigger asChild>
