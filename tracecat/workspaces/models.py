@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 
 from pydantic import BaseModel, EmailStr, Field
 
@@ -14,7 +14,7 @@ from tracecat.identifiers import OwnerID, UserID, WorkspaceID
 
 # DTO
 class WorkspaceSettings(TypedDict):
-    git_repo_url: str | None
+    git_repo_url: NotRequired[str | None]
 
 
 # Schema
