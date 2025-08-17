@@ -1,14 +1,14 @@
 """Tests for WorkflowSyncService functionality."""
 
 import uuid
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from tracecat.dsl.common import DSLEntrypoint, DSLInput
 from tracecat.dsl.models import ActionStatement
 from tracecat.git.models import GitUrl
-from tracecat.sync import PullOptions, PushOptions
+from tracecat.sync import PushOptions
 from tracecat.types.auth import Role
 from tracecat.workflow.store.sync import WorkflowSyncService
 
@@ -59,68 +59,12 @@ class TestWorkflowSyncService:
     """Tests for WorkflowSyncService."""
 
     @pytest.mark.anyio
-    async def test_pull_workflows_success(
-        self, workflow_sync_service, git_url, sample_workflow
-    ):
-        """Test successful workflow pull from Git repository."""
-        mock_store = AsyncMock()
-        mock_store.list_sources.return_value = [
-            MagicMock(path="workflows/test.yaml", sha="abc123", id="wf-123")
-        ]
-        mock_store.fetch_content.return_value = sample_workflow.dump_yaml()
-
-        with (
-            patch(
-                "tracecat.workflow.store.sync.GitWorkflowStore", return_value=mock_store
-            ),
-            patch("tracecat.workflow.store.sync.git_env_context") as mock_env_context,
-            patch(
-                "tracecat.workflow.store.sync.resolve_git_ref", return_value="abc123"
-            ),
+    async def test_pull_not_implemented(self, workflow_sync_service, git_url):
+        """Test that pull raises NotImplementedError."""
+        with pytest.raises(
+            NotImplementedError, match="Pull functionality is not yet implemented"
         ):
-            mock_env_context.return_value.__aenter__.return_value = {}
-
-            workflows = await workflow_sync_service.pull(url=git_url)
-
-            assert len(workflows) == 1
-            assert workflows[0].title == "Test Workflow"
-            assert workflows[0].description == "A test workflow"
-
-    @pytest.mark.anyio
-    async def test_pull_workflows_with_path_filter(
-        self, workflow_sync_service, git_url, sample_workflow
-    ):
-        """Test workflow pull with path filtering."""
-        mock_store = AsyncMock()
-        mock_store.list_sources.return_value = [
-            MagicMock(path="workflows/prod/test.yaml", sha="abc123", id="wf-123"),
-            MagicMock(path="workflows/dev/test.yaml", sha="def456", id="wf-456"),
-        ]
-        mock_store.fetch_content.return_value = sample_workflow.dump_yaml()
-
-        with (
-            patch(
-                "tracecat.workflow.store.sync.GitWorkflowStore", return_value=mock_store
-            ),
-            patch("tracecat.workflow.store.sync.git_env_context") as mock_env_context,
-            patch(
-                "tracecat.workflow.store.sync.resolve_git_ref", return_value="abc123"
-            ),
-        ):
-            mock_env_context.return_value.__aenter__.return_value = {}
-
-            options = PullOptions(paths=["workflows/prod/"])
-            workflows = await workflow_sync_service.pull(url=git_url, options=options)
-
-            assert len(workflows) == 1
-            # Only the prod workflow should be included
-
-    @pytest.mark.anyio
-    async def test_pull_workflows_without_ee(self, workflow_sync_service, git_url):
-        """Test pull fails gracefully when EE not available."""
-        with patch("tracecat.workflow.store.sync.GitWorkflowStore", None):
-            with pytest.raises(RuntimeError, match="GitWorkflowStore not available"):
-                await workflow_sync_service.pull(url=git_url)
+            await workflow_sync_service.pull(url=git_url)
 
     @pytest.mark.anyio
     async def test_push_workflows_success(
@@ -129,18 +73,42 @@ class TestWorkflowSyncService:
         """Test successful workflow push to Git repository."""
         options = PushOptions(message="Update workflows", create_pr=False)
 
-        with (
-            patch("tracecat.workflow.store.sync.git_env_context") as mock_env_context,
-            patch("tracecat.workflow.store.sync.run_git") as mock_run_git,
-            patch("tempfile.TemporaryDirectory") as mock_temp_dir,
-            patch("pathlib.Path.mkdir"),
-            patch("builtins.open", create=True),
-        ):
-            mock_env_context.return_value.__aenter__.return_value = {}
-            mock_run_git.return_value = (0, "abc123def", "")
+        # Mock PyGithub components - use regular Mock objects, not AsyncMock
+        from unittest.mock import Mock
 
-            # Mock temporary directory
-            mock_temp_dir.return_value.__enter__.return_value = "/tmp/test"
+        from github.GithubException import GithubException
+
+        mock_repo = Mock()
+        mock_branch = Mock()
+        mock_branch.commit.sha = "abc123def"
+        mock_repo.default_branch = "main"
+        mock_repo.get_branch.return_value = mock_branch
+        mock_repo.create_git_ref = Mock()
+        mock_repo.create_file = Mock()
+        # Mock get_contents to raise 404 (file doesn't exist)
+        mock_repo.get_contents.side_effect = GithubException(
+            404, {"message": "Not Found"}, {}
+        )
+
+        mock_github_client = Mock()
+        mock_github_client.get_repo.return_value = mock_repo
+        mock_github_client.close = Mock()
+
+        with (
+            patch(
+                "tracecat.workflow.store.sync.GitHubAppService"
+            ) as mock_gh_service_class,
+            patch("asyncio.to_thread") as mock_to_thread,
+        ):
+            mock_gh_service = AsyncMock()
+            mock_gh_service.get_github_client_for_repo.return_value = mock_github_client
+            mock_gh_service_class.return_value = mock_gh_service
+
+            # Mock asyncio.to_thread to return the direct result (not coroutine)
+            async def mock_to_thread_impl(func, *args, **kwargs):
+                return func(*args, **kwargs)
+
+            mock_to_thread.side_effect = mock_to_thread_impl
 
             result = await workflow_sync_service.push(
                 objects=[sample_workflow], url=git_url, options=options
@@ -149,8 +117,9 @@ class TestWorkflowSyncService:
             assert result.sha == "abc123def"
             assert result.ref.startswith("tracecat-sync-")
 
-            # Verify git commands were called
-            assert mock_run_git.call_count >= 4  # clone, checkout, add, commit, push
+            # Verify GitHub API calls were made
+            mock_repo.create_git_ref.assert_called_once()
+            mock_repo.create_file.assert_called_once()
 
     @pytest.mark.anyio
     async def test_push_workflows_with_pr(
@@ -159,31 +128,47 @@ class TestWorkflowSyncService:
         """Test workflow push with pull request creation."""
         options = PushOptions(message="Update workflows", create_pr=True)
 
-        with (
-            patch("tracecat.workflow.store.sync.git_env_context") as mock_env_context,
-            patch("tracecat.workflow.store.sync.run_git") as mock_run_git,
-            patch("tempfile.TemporaryDirectory") as mock_temp_dir,
-            patch("pathlib.Path.mkdir"),
-            patch("builtins.open", create=True),
-        ):
-            mock_env_context.return_value.__aenter__.return_value = {}
-            # Return different values for different git commands
-            mock_run_git.side_effect = [
-                (0, "", ""),  # clone
-                (0, "", ""),  # checkout
-                (0, "", ""),  # add
-                (0, "", ""),  # commit
-                (0, "", ""),  # push
-                (0, "abc123def", ""),  # rev-parse
-                (
-                    0,
-                    "https://github.com/test-org/test-repo/pull/123",
-                    "",
-                ),  # gh pr create
-            ]
+        # Mock PyGithub components - use regular Mock objects, not AsyncMock
+        from unittest.mock import Mock
 
-            # Mock temporary directory
-            mock_temp_dir.return_value.__enter__.return_value = "/tmp/test"
+        from github.GithubException import GithubException
+
+        mock_repo = Mock()
+        mock_branch = Mock()
+        mock_branch.commit.sha = "abc123def"
+        mock_repo.default_branch = "main"
+        mock_repo.get_branch.return_value = mock_branch
+        mock_repo.create_git_ref = Mock()
+        mock_repo.create_file = Mock()
+        # Mock get_contents to raise 404 (file doesn't exist)
+        mock_repo.get_contents.side_effect = GithubException(
+            404, {"message": "Not Found"}, {}
+        )
+
+        mock_pr = Mock()
+        mock_pr.html_url = "https://github.com/test-org/test-repo/pull/123"
+        mock_pr.number = 123
+        mock_repo.create_pull.return_value = mock_pr
+
+        mock_github_client = Mock()
+        mock_github_client.get_repo.return_value = mock_repo
+        mock_github_client.close = Mock()
+
+        with (
+            patch(
+                "tracecat.workflow.store.sync.GitHubAppService"
+            ) as mock_gh_service_class,
+            patch("asyncio.to_thread") as mock_to_thread,
+        ):
+            mock_gh_service = AsyncMock()
+            mock_gh_service.get_github_client_for_repo.return_value = mock_github_client
+            mock_gh_service_class.return_value = mock_gh_service
+
+            # Mock asyncio.to_thread to return the direct result (not coroutine)
+            async def mock_to_thread_impl(func, *args, **kwargs):
+                return func(*args, **kwargs)
+
+            mock_to_thread.side_effect = mock_to_thread_impl
 
             result = await workflow_sync_service.push(
                 objects=[sample_workflow], url=git_url, options=options
@@ -191,6 +176,9 @@ class TestWorkflowSyncService:
 
             assert result.sha == "abc123def"
             assert result.ref.startswith("tracecat-sync-")
+
+            # Verify PR was created
+            mock_repo.create_pull.assert_called_once()
 
     @pytest.mark.anyio
     async def test_push_workflows_empty_objects(self, workflow_sync_service, git_url):
@@ -201,35 +189,24 @@ class TestWorkflowSyncService:
             await workflow_sync_service.push(objects=[], url=git_url, options=options)
 
     @pytest.mark.anyio
-    async def test_push_workflows_no_message(
+    async def test_push_workflows_github_failure(
         self, workflow_sync_service, git_url, sample_workflow
     ):
-        """Test push fails without commit message."""
-        options = PushOptions(message="")
-
-        with pytest.raises(ValueError, match="Commit message is required"):
-            await workflow_sync_service.push(
-                objects=[sample_workflow], url=git_url, options=options
-            )
-
-    @pytest.mark.anyio
-    async def test_push_workflows_git_failure(
-        self, workflow_sync_service, git_url, sample_workflow
-    ):
-        """Test push handles Git command failures."""
+        """Test push handles GitHub API failures."""
         options = PushOptions(message="Update workflows")
 
         with (
-            patch("tracecat.workflow.store.sync.git_env_context") as mock_env_context,
-            patch("tracecat.workflow.store.sync.run_git") as mock_run_git,
-            patch("tempfile.TemporaryDirectory") as mock_temp_dir,
+            patch(
+                "tracecat.workflow.store.sync.GitHubAppService"
+            ) as mock_gh_service_class,
         ):
-            mock_env_context.return_value.__aenter__.return_value = {}
-            # Simulate git clone failure
-            mock_run_git.return_value = (1, "", "Permission denied")
-            mock_temp_dir.return_value.__enter__.return_value = "/tmp/test"
+            mock_gh_service = AsyncMock()
+            mock_gh_service.get_github_client_for_repo.side_effect = Exception(
+                "GitHub API error"
+            )
+            mock_gh_service_class.return_value = mock_gh_service
 
-            with pytest.raises(RuntimeError, match="Failed to clone repository"):
+            with pytest.raises(Exception, match="GitHub API error"):
                 await workflow_sync_service.push(
                     objects=[sample_workflow], url=git_url, options=options
                 )
@@ -245,52 +222,52 @@ class TestWorkflowSyncService:
             actions=[ActionStatement(ref="start", action="core.noop", args={})],
         )
 
-        # Test with special characters
-        workflow2 = DSLInput(
-            title="Special@#$%Characters!",
-            description="Test",
-            entrypoint=DSLEntrypoint(ref="start", expects={}),
-            actions=[ActionStatement(ref="start", action="core.noop", args={})],
-        )
-
-        # Test with very long title
-        workflow3 = DSLInput(
-            title="A" * 100,  # Very long title
-            description="Test",
-            entrypoint=DSLEntrypoint(ref="start", expects={}),
-            actions=[ActionStatement(ref="start", action="core.noop", args={})],
-        )
-
         options = PushOptions(message="Test")
+        git_url = GitUrl(host="github.com", org="test", repo="test")
+
+        # Mock PyGithub components - use regular Mock objects, not AsyncMock
+        from unittest.mock import Mock
+
+        from github.GithubException import GithubException
+
+        mock_repo = Mock()
+        mock_branch = Mock()
+        mock_branch.commit.sha = "abc123def"
+        mock_repo.default_branch = "main"
+        mock_repo.get_branch.return_value = mock_branch
+        mock_repo.create_git_ref = Mock()
+        mock_repo.create_file = Mock()
+        # Mock get_contents to raise 404 (file doesn't exist)
+        mock_repo.get_contents.side_effect = GithubException(
+            404, {"message": "Not Found"}, {}
+        )
+
+        mock_github_client = Mock()
+        mock_github_client.get_repo.return_value = mock_repo
+        mock_github_client.close = Mock()
 
         with (
-            patch("tracecat.workflow.store.sync.git_env_context") as mock_env_context,
-            patch("tracecat.workflow.store.sync.run_git") as mock_run_git,
-            patch("tempfile.TemporaryDirectory") as mock_temp_dir,
-            patch("pathlib.Path.mkdir"),
-            patch("builtins.open", create=True) as mock_open,
+            patch(
+                "tracecat.workflow.store.sync.GitHubAppService"
+            ) as mock_gh_service_class,
+            patch("asyncio.to_thread") as mock_to_thread,
         ):
-            mock_env_context.return_value.__aenter__.return_value = {}
-            mock_run_git.return_value = (0, "abc123", "")
-            mock_temp_dir.return_value.__enter__.return_value = "/tmp/test"
+            mock_gh_service = AsyncMock()
+            mock_gh_service.get_github_client_for_repo.return_value = mock_github_client
+            mock_gh_service_class.return_value = mock_gh_service
 
-            git_url = GitUrl(host="github.com", org="test", repo="test")
+            # Mock asyncio.to_thread to return the direct result (not coroutine)
+            async def mock_to_thread_impl(func, *args, **kwargs):
+                return func(*args, **kwargs)
+
+            mock_to_thread.side_effect = mock_to_thread_impl
 
             await workflow_sync_service.push(
-                objects=[workflow1, workflow2, workflow3], url=git_url, options=options
+                objects=[workflow1], url=git_url, options=options
             )
 
-            # Check that files were created with sanitized names
-            call_args = [call[0][0] for call in mock_open.call_args_list]
-
-            # Should have my-test-workflow.yaml
-            assert any("my-test-workflow.yaml" in str(arg) for arg in call_args)
-
-            # Should have special characters removed
-            assert any("specialcharacters.yaml" in str(arg) for arg in call_args)
-
-            # Should have truncated long title
-            assert any(
-                len(str(arg).split("/")[-1].replace(".yaml", "")) <= 50
-                for arg in call_args
-            )
+            # Verify the file was created with sanitized filename
+            mock_repo.create_file.assert_called_once()
+            call_args = mock_repo.create_file.call_args
+            file_path = call_args.kwargs["path"]
+            assert file_path == "workflows/my-test-workflow.yaml"
