@@ -3,6 +3,7 @@
 import { zodResolver } from "@hookform/resolvers/zod"
 import {
   BookA,
+  Braces,
   Brackets,
   Calendar,
   CalendarClock,
@@ -67,7 +68,7 @@ const fieldTypes: {
   { value: "INTEGER", label: "Integer", icon: Hash },
   { value: "NUMBER", label: "Number", icon: DecimalsArrowRight },
   { value: "BOOL", label: "Boolean", icon: ToggleLeft },
-  { value: "JSON", label: "JSON", icon: Brackets },
+  { value: "JSON", label: "JSON", icon: Braces },
   { value: "DATE", label: "Date", icon: Calendar },
   { value: "DATETIME", label: "Date and time", icon: CalendarClock },
   { value: "SELECT", label: "Select", icon: SquareCheck },
