@@ -256,33 +256,6 @@ class TestGitHubAppService:
     # Installation Management Tests
     # ============================================================================
 
-    @pytest.mark.anyio
-    async def test_set_workspace_installation_success(
-        self, github_admin_service, mock_credentials, mock_installation
-    ):
-        """Test setting workspace installation ID."""
-        workspace_id = "workspace-123"
-
-        with (
-            patch.object(
-                github_admin_service,
-                "get_github_app_credentials",
-                return_value=mock_credentials,
-            ),
-            patch.object(
-                github_admin_service,
-                "_get_installation_details",
-                return_value=mock_installation,
-            ),
-        ):
-            config = await github_admin_service.set_workspace_installation(
-                workspace_id, mock_installation.id
-            )
-
-            assert config.installation_id == mock_installation.id
-            assert config.app_id == mock_credentials.app_id
-            assert config.installation == mock_installation
-
     # ============================================================================
     # Repository Access Tests
     # ============================================================================

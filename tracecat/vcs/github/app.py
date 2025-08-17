@@ -372,44 +372,6 @@ class GitHubAppService(BaseService):
             ) from e
 
     @require_access_level(AccessLevel.ADMIN)
-    async def set_workspace_installation(
-        self,
-        workspace_id: WorkspaceID,
-        installation_id: int,
-    ) -> GitHubAppConfig:
-        """Set GitHub App installation ID for a workspace.
-
-        Args:
-            workspace_id: Workspace ID
-            installation_id: GitHub App installation ID
-
-        Returns:
-            GitHub App configuration
-        """
-        # Get app credentials from organization secret to validate they exist
-        credentials = await self.get_github_app_credentials()
-
-        # Verify the installation exists
-        installation = await self._get_installation_details(installation_id)
-
-        config = GitHubAppConfig(
-            installation_id=installation_id,
-            app_id=credentials.app_id,
-            client_id=credentials.client_id,
-            installation=installation,
-        )
-
-        self.logger.info(
-            "Set GitHub App installation for workspace",
-            installation_id=installation_id,
-            workspace_id=workspace_id,
-            app_id=credentials.app_id,
-            account=installation.account_login,
-        )
-
-        return config
-
-    @require_access_level(AccessLevel.ADMIN)
     async def uninstall_app(self) -> None:
         """Remove GitHub App configuration from workspace."""
 
