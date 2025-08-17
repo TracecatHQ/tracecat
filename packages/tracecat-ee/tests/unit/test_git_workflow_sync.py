@@ -108,7 +108,7 @@ class TestGitWorkflowStore:
         self, temp_git_repo: Path, mock_git_env: dict[str, str]
     ):
         """Test listing workflow sources from Git repository."""
-        with patch("tracecat.git.run_git") as mock_run_git:
+        with patch("tracecat.git.utils.run_git") as mock_run_git:
             # Create test workflow UUIDs
             wf_uuid_1 = WorkflowUUID.new_uuid4()
             wf_uuid_2 = WorkflowUUID.new_uuid4()
@@ -151,7 +151,7 @@ class TestGitWorkflowStore:
         """Test fetching YAML content from Git."""
         wf_id = WorkflowUUID.new_uuid4()
         wf_id_short = wf_id.short()
-        with patch("tracecat.git.run_git") as mock_run_git:
+        with patch("tracecat.git.utils.run_git") as mock_run_git:
             mock_run_git.return_value = (0, sample_workflow_yaml, "")
 
             store = GitWorkflowStore(
@@ -182,7 +182,7 @@ class TestGitWorkflowStore:
         self, temp_git_repo: Path, mock_git_env: dict[str, str]
     ):
         """Test that only files under /workflows directory are included."""
-        with patch("tracecat.git.run_git") as mock_run_git:
+        with patch("tracecat.git.utils.run_git") as mock_run_git:
             # Create test workflow UUIDs
             wf_uuid_1 = WorkflowUUID.new_uuid4()
             wf_uuid_2 = WorkflowUUID.new_uuid4()
@@ -249,7 +249,7 @@ class TestGitWorkflowStore:
             )
 
         # Test valid path under workflows/
-        with patch("tracecat.git.run_git") as mock_run_git:
+        with patch("tracecat.git.utils.run_git") as mock_run_git:
             mock_run_git.return_value = (0, sample_workflow_yaml, "")
 
             content = await store.fetch_content(
