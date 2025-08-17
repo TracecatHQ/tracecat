@@ -42,9 +42,6 @@ class GitHubAppManifest(BaseModel):
 def generate_github_app_manifest() -> GitHubAppManifest:
     """Generate GitHub App manifest for enterprise installation.
 
-    Args:
-        organization_name: Name of the organization
-
     Returns:
         GitHub App manifest as GitHubAppManifest object
     """
@@ -71,11 +68,9 @@ def generate_github_app_manifest() -> GitHubAppManifest:
             "url": webhook_url,
             "active": webhook_active,
         },
-        # redirect_url=f"{public_app_url}/organization/vcs/github/install",
-        redirect_url="http://localhost/organization/vcs/github/install",
+        redirect_url=f"{public_app_url}/organization/vcs/github/install",
         # This needs to redirect to the UI instead of the API
-        # callback_urls=[f"{public_app_url}/organization/vcs/github/install"],
-        callback_urls=["http://localhost/organization/vcs/github/install"],
+        callback_urls=[f"{public_app_url}/organization/vcs/github/install"],
         setup_url=f"{public_app_url}/organization/vcs",
         description="GitHub App for Tracecat to manage workflow synchronization with Git repositories. This app enables automated pull request creation for workflow changes.",
         public=False,

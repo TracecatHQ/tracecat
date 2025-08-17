@@ -117,6 +117,7 @@ async def sync_registry_repository(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
         ) from e
     except TracecatCredentialsNotFoundError as e:
+        logger.warning("Credentials not found", exc=e)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),

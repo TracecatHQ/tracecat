@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, Field, SecretStr
+from pydantic import BaseModel, Field, SecretBytes, SecretStr
 
 
 class GitHubRepository(BaseModel):
@@ -38,11 +38,11 @@ class GitHubAppConfig(BaseModel):
 
     # Enterprise-only fields
     app_id: str | None = None
-    private_key_encrypted: bytes | None = None
+    private_key_encrypted: SecretBytes | None = None
 
     # Managed-only fields - set by platform
     client_id: str | None = None
-    webhook_secret: str | None = None
+    webhook_secret: SecretStr | None = None
 
     # Access tracking
     accessible_repositories: list[str] = Field(default_factory=list)

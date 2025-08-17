@@ -43,7 +43,13 @@ class WorkflowStoreService(BaseWorkspaceService):
         )
 
         # Parse the Git URL using workspace settings
-        git_url = parse_git_url(git_repo_url, allowed_domains={"github.com"})
+        try:
+            git_url = parse_git_url(git_repo_url, allowed_domains={"github.com"})
+        except ValueError as e:
+            raise TracecatSettingsError(
+                f"Invalid Git repository URL configured for this workspace: {e}. "
+                "Please contact your administrator to fix the configuration."
+            ) from e
         # Note: We could add ref support later if needed via params or workspace settings
 
         # Build base message

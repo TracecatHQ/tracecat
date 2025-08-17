@@ -85,7 +85,7 @@ class SyncService[T: BaseModel](Protocol):
 
         Args:
             objects: Domain models to serialize and write.
-            target: Repository and branch/tag/SHA to write to (branch recommended).
+            url: Repository and branch/tag/SHA to write to (branch recommended).
             options: Commit metadata and optional provider hints.
 
         Returns:

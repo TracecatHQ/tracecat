@@ -1,3 +1,5 @@
+import asyncio
+
 from fastapi import HTTPException, status
 from fastapi.responses import RedirectResponse
 from github import Github
@@ -41,8 +43,10 @@ async def handle_manifest_conversion(
         # Use PyGithub's requester to call the conversion endpoint
         # Note: No Authorization header needed for this endpoint
         github = Github()
-        _, data = github.requester.requestJsonAndCheck(
-            "POST", f"/app-manifests/{code}/conversions"
+        _, data = await asyncio.to_thread(
+            github.requester.requestJsonAndCheck,
+            "POST",
+            f"/app-manifests/{code}/conversions",
         )
 
         # Extract app credentials from response
@@ -89,7 +93,7 @@ async def handle_manifest_conversion(
         )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"GitHub App manifest conversion failed: {e.data.get('message', 'Unknown error')}",
+            detail=f"GitHub App manifest conversion failed: {(e.data or {}).get('message', 'Unknown error')}",
         ) from e
     except Exception as e:
         logger.error("Error converting GitHub App manifest", error=str(e))
