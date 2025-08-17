@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from tracecat.git import GitUrl
+from tracecat.git.utils import GitUrl
 from tracecat.ssh import get_git_ssh_command, git_env_context
 from tracecat.types.auth import Role
 

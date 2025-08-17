@@ -8,7 +8,7 @@ from typing import Protocol
 
 from pydantic import BaseModel
 
-from tracecat.git import GitUrl
+from tracecat.git.models import GitUrl
 
 
 @dataclass(frozen=True)

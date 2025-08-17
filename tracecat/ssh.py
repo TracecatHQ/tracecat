@@ -23,7 +23,7 @@ from tracecat.secrets.service import SecretsService
 from tracecat.types.auth import Role
 
 if TYPE_CHECKING:
-    from tracecat.git import GitUrl
+    from tracecat.git.models import GitUrl
 
 # Export list for backward compatibility
 __all__ = [

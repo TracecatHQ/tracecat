@@ -7,7 +7,7 @@ import pytest
 
 from tracecat.dsl.common import DSLEntrypoint, DSLInput
 from tracecat.dsl.models import ActionStatement
-from tracecat.git import GitUrl
+from tracecat.git.models import GitUrl
 from tracecat.sync import PullOptions, PushOptions
 from tracecat.types.auth import Role
 from tracecat.workflow.store.sync import WorkflowSyncService

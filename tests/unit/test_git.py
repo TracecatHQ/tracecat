@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from tracecat.git import GitUrl, parse_git_url, resolve_git_ref, run_git
+from tracecat.git.utils import GitUrl, parse_git_url, resolve_git_ref, run_git
 
 
 class TestGitUrl:
