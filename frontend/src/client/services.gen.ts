@@ -398,7 +398,7 @@ export const publicIncomingWebhook = (
   data: PublicIncomingWebhookData
 ): CancelablePromise<PublicIncomingWebhookResponse> => {
   return __request(OpenAPI, {
-    method: "GET",
+    method: "POST",
     url: "/webhooks/{workflow_id}/{secret}",
     path: {
       secret: data.secret,
@@ -438,7 +438,7 @@ export const publicIncomingWebhook1 = (
   data: PublicIncomingWebhook1Data
 ): CancelablePromise<PublicIncomingWebhook1Response> => {
   return __request(OpenAPI, {
-    method: "POST",
+    method: "GET",
     url: "/webhooks/{workflow_id}/{secret}",
     path: {
       secret: data.secret,
@@ -4980,21 +4980,17 @@ export const vcsGetGithubAppManifest =
  * 2. Installation callback: When GitHub redirects after app installation
  * @param data The data for the request.
  * @param data.code Temporary code from GitHub manifest flow
- * @param data.installationId Installation ID from GitHub callback
- * @param data.state CSRF protection state parameter
  * @returns unknown Successful Response
  * @throws ApiError
  */
 export const vcsGithubAppInstallCallback = (
-  data: VcsGithubAppInstallCallbackData = {}
+  data: VcsGithubAppInstallCallbackData
 ): CancelablePromise<VcsGithubAppInstallCallbackResponse> => {
   return __request(OpenAPI, {
     method: "GET",
     url: "/organization/vcs/github/install",
     query: {
       code: data.code,
-      installation_id: data.installationId,
-      state: data.state,
     },
     errors: {
       422: "Validation Error",

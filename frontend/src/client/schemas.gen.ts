@@ -10016,54 +10016,6 @@ export const $WorkflowDefinition = {
       type: "object",
       title: "Content",
     },
-    origin: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Origin",
-      description: "Origin of workflow (e.g., 'git')",
-    },
-    repo_url: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Repo Url",
-      description: "Git repository URL",
-    },
-    repo_path: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Repo Path",
-      description: "Path within repository",
-    },
-    commit_sha: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Commit Sha",
-      description: "Git commit SHA",
-    },
   },
   type: "object",
   required: ["owner_id", "version", "workflow_id", "content"],

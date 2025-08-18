@@ -3383,22 +3383,6 @@ export type WorkflowDefinition = {
   content: {
     [key: string]: unknown
   }
-  /**
-   * Origin of workflow (e.g., 'git')
-   */
-  origin?: string | null
-  /**
-   * Git repository URL
-   */
-  repo_url?: string | null
-  /**
-   * Path within repository
-   */
-  repo_path?: string | null
-  /**
-   * Git commit SHA
-   */
-  commit_sha?: string | null
 }
 
 export type WorkflowDefinitionReadMinimal = {
@@ -5186,15 +5170,7 @@ export type VcsGithubAppInstallCallbackData = {
   /**
    * Temporary code from GitHub manifest flow
    */
-  code?: string | null
-  /**
-   * Installation ID from GitHub callback
-   */
-  installationId?: number | null
-  /**
-   * CSRF protection state parameter
-   */
-  state?: string | null
+  code: string
 }
 
 export type VcsGithubAppInstallCallbackResponse = unknown
@@ -5314,7 +5290,7 @@ export type PublicCheckHealthResponse = {
 
 export type $OpenApiTs = {
   "/webhooks/{workflow_id}/{secret}": {
-    get: {
+    post: {
       req: PublicIncomingWebhookData
       res: {
         /**
@@ -5327,7 +5303,7 @@ export type $OpenApiTs = {
         422: HTTPValidationError
       }
     }
-    post: {
+    get: {
       req: PublicIncomingWebhook1Data
       res: {
         /**
