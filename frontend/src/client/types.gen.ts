@@ -1285,6 +1285,18 @@ export type ExpressionValidationResponse = {
 }
 
 /**
+ * Feature flag enum.
+ */
+export type FeatureFlag = "git-sync"
+
+/**
+ * Response model for feature flags.
+ */
+export type FeatureFlagsRead = {
+  enabled_features: Array<FeatureFlag>
+}
+
+/**
  * Event for when a case field is changed.
  */
 export type FieldChangedEventRead = {
@@ -5164,6 +5176,8 @@ export type ProvidersGetProviderData = {
 
 export type ProvidersGetProviderResponse = ProviderRead
 
+export type FeatureFlagsGetFeatureFlagsResponse = FeatureFlagsRead
+
 export type VcsGetGithubAppManifestResponse = GitHubAppManifestResponse
 
 export type VcsGithubAppInstallCallbackData = {
@@ -7718,6 +7732,16 @@ export type $OpenApiTs = {
          * Validation Error
          */
         422: HTTPValidationError
+      }
+    }
+  }
+  "/feature-flags": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: FeatureFlagsRead
       }
     }
   }

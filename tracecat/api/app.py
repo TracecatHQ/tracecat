@@ -1,6 +1,6 @@
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request, status
+from fastapi import Depends, FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import ORJSONResponse
@@ -39,6 +39,8 @@ from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.editor.router import router as editor_router
+from tracecat.feature_flags import feature_flag_dep
+from tracecat.feature_flags.router import router as feature_flags_router
 from tracecat.integrations.router import integrations_router, providers_router
 from tracecat.logger import logger
 from tracecat.middleware import (
@@ -90,6 +92,9 @@ async def lifespan(app: FastAPI):
         await setup_org_settings(session, role)
         await reload_registry(session, role)
         await setup_workspace_defaults(session, role)
+    logger.info(
+        "Feature flags", feature_flags=[f.value for f in config.TRACECAT__FEATURE_FLAGS]
+    )
     yield
 
 
@@ -208,7 +213,11 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(workflow_folders_router)
     app.include_router(integrations_router)
     app.include_router(providers_router)
-    app.include_router(vcs_router)
+    app.include_router(feature_flags_router)
+    app.include_router(
+        vcs_router,
+        dependencies=[Depends(feature_flag_dep("git-sync"))],
+    )
     app.include_router(
         fastapi_users.get_users_router(UserRead, UserUpdate),
         prefix="/users",

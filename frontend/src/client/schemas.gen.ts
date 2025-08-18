@@ -3860,6 +3860,29 @@ export const $ExpressionValidationResponse = {
   title: "ExpressionValidationResponse",
 } as const
 
+export const $FeatureFlag = {
+  type: "string",
+  enum: ["git-sync"],
+  title: "FeatureFlag",
+  description: "Feature flag enum.",
+} as const
+
+export const $FeatureFlagsRead = {
+  properties: {
+    enabled_features: {
+      items: {
+        $ref: "#/components/schemas/FeatureFlag",
+      },
+      type: "array",
+      title: "Enabled Features",
+    },
+  },
+  type: "object",
+  required: ["enabled_features"],
+  title: "FeatureFlagsRead",
+  description: "Response model for feature flags.",
+} as const
+
 export const $FieldChangedEventRead = {
   properties: {
     wf_exec_id: {

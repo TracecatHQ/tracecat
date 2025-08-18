@@ -114,6 +114,7 @@ import type {
   EditorListFunctionsResponse,
   EditorValidateExpressionData,
   EditorValidateExpressionResponse,
+  FeatureFlagsGetFeatureFlagsResponse,
   FoldersCreateFolderData,
   FoldersCreateFolderResponse,
   FoldersDeleteFolderData,
@@ -4956,6 +4957,23 @@ export const providersGetProvider = (
     },
   })
 }
+
+/**
+ * Get Feature Flags
+ * Get the list of enabled feature flags.
+ *
+ * This endpoint is public and doesn't require authentication,
+ * as feature flags are not sensitive information.
+ * @returns FeatureFlagsRead Successful Response
+ * @throws ApiError
+ */
+export const featureFlagsGetFeatureFlags =
+  (): CancelablePromise<FeatureFlagsGetFeatureFlagsResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/feature-flags",
+    })
+  }
 
 /**
  * Get Github App Manifest
