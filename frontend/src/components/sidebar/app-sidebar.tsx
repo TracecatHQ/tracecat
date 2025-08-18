@@ -1,10 +1,9 @@
 "use client"
 
 import {
-  BracesIcon,
   KeyRoundIcon,
   ListTodoIcon,
-  ShieldAlertIcon,
+  SquareStackIcon,
   Table2Icon,
   UsersIcon,
   WorkflowIcon,
@@ -41,15 +40,9 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 
   const navMain = [
     {
-      title: "Workflows",
-      url: `${basePath}/workflows`,
-      icon: WorkflowIcon,
-      isActive: pathname?.startsWith(`${basePath}/workflows`),
-    },
-    {
       title: "Cases",
       url: `${basePath}/cases`,
-      icon: ShieldAlertIcon,
+      icon: SquareStackIcon,
       isActive: pathname?.startsWith(`${basePath}/cases`),
     },
     {
@@ -57,6 +50,12 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       url: `${basePath}/runbooks`,
       icon: ListTodoIcon,
       isActive: pathname?.startsWith(`${basePath}/runbooks`),
+    },
+    {
+      title: "Workflows",
+      url: `${basePath}/workflows`,
+      icon: WorkflowIcon,
+      isActive: pathname?.startsWith(`${basePath}/workflows`),
     },
   ]
 
@@ -84,12 +83,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       url: `${basePath}/members`,
       icon: UsersIcon,
       isActive: pathname?.startsWith(`${basePath}/members`),
-    },
-    {
-      title: "Custom fields",
-      url: `${basePath}/custom-fields`,
-      icon: BracesIcon,
-      isActive: pathname?.startsWith(`${basePath}/custom-fields`),
     },
   ]
 

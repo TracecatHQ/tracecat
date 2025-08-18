@@ -6,7 +6,12 @@ import Link from "next/link"
 import { usePathname, useSearchParams } from "next/navigation"
 import { type ReactNode, useState } from "react"
 import type { OAuthGrantType } from "@/client"
+import { AddCustomField } from "@/components/cases/add-custom-field"
 import { CreateCaseDialog } from "@/components/cases/case-create-dialog"
+import {
+  CasesViewMode,
+  CasesViewToggle,
+} from "@/components/cases/cases-view-toggle"
 import { CreateWorkflowButton } from "@/components/dashboard/create-workflow-button"
 import {
   FolderViewToggle,
@@ -24,7 +29,6 @@ import {
 } from "@/components/ui/breadcrumb"
 import { Button } from "@/components/ui/button"
 import { SidebarTrigger } from "@/components/ui/sidebar"
-import { AddCustomField } from "@/components/workspaces/add-custom-field"
 import { AddWorkspaceMember } from "@/components/workspaces/add-workspace-member"
 import {
   NewCredentialsDialog,
@@ -87,20 +91,28 @@ function TablesActions() {
 }
 
 function CasesActions() {
+  const [view, setView] = useLocalStorage("cases-view", CasesViewMode.Cases)
   const [dialogOpen, setDialogOpen] = useState(false)
 
   return (
     <>
-      <Button
-        variant="outline"
-        size="sm"
-        className="h-7 bg-white"
-        onClick={() => setDialogOpen(true)}
-      >
-        <Plus className="mr-1 h-3.5 w-3.5" />
-        Create case
-      </Button>
-      <CreateCaseDialog open={dialogOpen} onOpenChange={setDialogOpen} />
+      <CasesViewToggle view={view} onViewChange={setView} />
+      {view === CasesViewMode.CustomFields ? (
+        <AddCustomField />
+      ) : (
+        <>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 bg-white"
+            onClick={() => setDialogOpen(true)}
+          >
+            <Plus className="mr-1 h-3.5 w-3.5" />
+            Create case
+          </Button>
+          <CreateCaseDialog open={dialogOpen} onOpenChange={setDialogOpen} />
+        </>
+      )}
     </>
   )
 }
@@ -126,10 +138,6 @@ function CredentialsActions() {
       </NewCredentialsDialogTrigger>
     </NewCredentialsDialog>
   )
-}
-
-function CustomFieldsActions() {
-  return <AddCustomField />
 }
 
 function CaseBreadcrumb({
@@ -386,13 +394,6 @@ function getPageConfig(
     return {
       title: "Members",
       actions: <MembersActions />,
-    }
-  }
-
-  if (pagePath.startsWith("/custom-fields")) {
-    return {
-      title: "Custom fields",
-      actions: <CustomFieldsActions />,
     }
   }
 

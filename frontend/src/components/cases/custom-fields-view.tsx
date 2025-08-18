@@ -3,14 +3,14 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { DatabaseIcon } from "lucide-react"
 import { casesDeleteField } from "@/client"
+import { CustomFieldsTable } from "@/components/cases/custom-fields-table"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { toast } from "@/components/ui/use-toast"
-import { WorkspaceCustomFieldsTable } from "@/components/workspaces/workspace-custom-fields-table"
 import { useCaseFields } from "@/lib/hooks"
 import { useWorkspace } from "@/providers/workspace"
 
-export default function CustomFieldsPage() {
+export function CustomFieldsView() {
   const { workspaceId, workspace, workspaceError, workspaceLoading } =
     useWorkspace()
   const queryClient = useQueryClient()
@@ -107,7 +107,7 @@ export default function CustomFieldsPage() {
           </div>
         ) : (
           <div className="space-y-4">
-            <WorkspaceCustomFieldsTable
+            <CustomFieldsTable
               fields={caseFields}
               onDeleteField={handleDeleteField}
               isDeleting={deleteCaseFieldIsPending}
