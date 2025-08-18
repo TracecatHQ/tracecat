@@ -41,6 +41,7 @@ export function CasesViewToggle({
         <Tooltip>
           <TooltipTrigger asChild>
             <button
+              type="button"
               onClick={() => handleViewChange(CasesViewMode.Cases)}
               className={cn(
                 "flex size-7 items-center justify-center rounded-l-sm transition-colors",
@@ -63,6 +64,7 @@ export function CasesViewToggle({
         <Tooltip>
           <TooltipTrigger asChild>
             <button
+              type="button"
               onClick={() => handleViewChange(CasesViewMode.CustomFields)}
               className={cn(
                 "flex size-7 items-center justify-center rounded-r-sm transition-colors",
