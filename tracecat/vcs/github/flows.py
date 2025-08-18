@@ -6,9 +6,7 @@ from github import Github
 from github.GithubException import GithubException
 from pydantic import SecretStr
 
-from tracecat import config
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.identifiers import WorkspaceID
 from tracecat.logger import logger
 from tracecat.types.auth import Role
 from tracecat.vcs.github.app import GitHubAppService
@@ -18,7 +16,7 @@ async def handle_manifest_conversion(
     session: AsyncDBSession,
     role: Role,
     code: str,
-    state: str | None,
+    state: str | None = None,
 ) -> RedirectResponse:
     """Handle GitHub App manifest conversion from temporary code.
 
@@ -100,55 +98,4 @@ async def handle_manifest_conversion(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to convert GitHub App manifest",
-        ) from e
-
-
-async def handle_workspace_installation_callback(
-    session: AsyncDBSession,
-    workspace_id: WorkspaceID,
-    role: Role,
-    installation_id: int,
-    state: str | None,
-) -> RedirectResponse:
-    """Handle GitHub App installation callback.
-
-    This is used when we install a GitHub App for a workspace.
-    """
-    if installation_id <= 0:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Installation ID must be a positive integer",
-        )
-
-    # TODO: Validate state parameter for CSRF protection if provided
-    if state:
-        logger.debug(
-            "State parameter received",
-            state=state[:8] + "..." if len(state) > 8 else state,
-        )
-
-    logger.info(
-        "Handling GitHub App installation callback", installation_id=installation_id
-    )
-
-    try:
-        # Store installation ID using GitHub service
-        github_service = GitHubAppService(session=session, role=role)
-        await github_service.set_installation_id(installation_id, workspace_id)
-
-        logger.info(
-            "Successfully stored installation ID", installation_id=installation_id
-        )
-
-        # Redirect to UI setup page with success parameter
-        redirect_url = (
-            f"{config.TRACECAT__PUBLIC_APP_URL}/organization/vcs?setup_success=true"
-        )
-        return RedirectResponse(status_code=status.HTTP_302_FOUND, url=redirect_url)
-
-    except Exception as e:
-        logger.error("Error storing installation ID", error=str(e))
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to store GitHub App installation ID",
         ) from e

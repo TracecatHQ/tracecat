@@ -3,17 +3,14 @@
 from __future__ import annotations
 
 import asyncio
-import time
 from typing import Any
 
-import jwt
 from github import Auth, Github, GithubIntegration
 from github.GithubException import GithubException, UnknownObjectException
 from pydantic import SecretStr
 
 from tracecat.authz.controls import require_access_level
 from tracecat.git.models import GitUrl
-from tracecat.identifiers import WorkspaceID
 from tracecat.secrets.enums import SecretType
 from tracecat.secrets.models import SecretCreate, SecretKeyValue, SecretUpdate
 from tracecat.secrets.service import SecretsService
@@ -22,14 +19,11 @@ from tracecat.types.auth import AccessLevel
 from tracecat.vcs.github.models import (
     GitHubAppConfig,
     GitHubAppCredentials,
-    GitHubInstallation,
 )
 
 
 class GitHubAppError(Exception):
     """GitHub App operation error."""
-
-    pass
 
 
 class GitHubAppService(BaseService):
@@ -370,90 +364,6 @@ class GitHubAppService(BaseService):
             raise GitHubAppError(
                 f"Failed to retrieve GitHub App credentials: {e}"
             ) from e
-
-    @require_access_level(AccessLevel.ADMIN)
-    async def uninstall_app(self) -> None:
-        """Remove GitHub App configuration from workspace."""
-
-        # Remove GitHub App configuration
-        await self.update_github_app_credentials(
-            app_id=None,
-            private_key_pem=None,
-            webhook_secret=None,
-            client_id=None,
-        )
-
-        self.logger.info("Uninstalled GitHub App from workspace")
-
-    # ============================================================================
-    # Workspace-level methods
-    # ============================================================================
-
-    async def set_installation_id(
-        self, installation_id: int, workspace_id: WorkspaceID
-    ) -> GitHubAppConfig:
-        """Set installation ID for existing GitHub App configuration.
-
-        DEPRECATED: Workspace-level installation configuration is deprecated.
-        Installations are now resolved dynamically based on repository context.
-
-        Args:
-            installation_id: GitHub App installation ID
-            workspace_id: Workspace ID
-
-        Returns:
-            Updated GitHub App configuration
-        """
-        # This method is deprecated but kept for backward compatibility
-        raise GitHubAppError(
-            "Workspace-level installation configuration is deprecated. "
-            "Installations are now resolved dynamically based on repository context."
-        )
-
-    # ============================================================================
-    # DEPRECATED: Private helper methods using direct API calls
-    # ============================================================================
-    # These methods are deprecated in favor of PyGithub-based approaches above.
-    # They're kept for backward compatibility but should not be used in new code.
-
-    def _generate_jwt(self, app_id: str, private_key: str) -> str:
-        """Generate JWT for GitHub App authentication.
-
-        DEPRECATED: PyGithub handles JWT generation automatically.
-        """
-        now = int(time.time())
-
-        payload = {
-            "iss": app_id,
-            "iat": now - 60,  # Issued 60 seconds ago
-            "exp": now + (10 * 60),  # Expires in 10 minutes
-        }
-
-        try:
-            token = jwt.encode(payload, private_key, algorithm="RS256")
-            return token
-        except Exception as e:
-            raise GitHubAppError(f"Failed to generate JWT: {e}") from e
-
-    async def _get_installation_details(
-        self, installation_id: int
-    ) -> GitHubInstallation:
-        """Get installation details from GitHub API.
-
-        DEPRECATED: Use PyGithub's Installation objects instead.
-        """
-        # This would require an app JWT, so for now we'll create a minimal installation
-        # In a real implementation, you'd fetch this from GitHub
-        return GitHubInstallation(
-            id=installation_id,
-            account_login="unknown",
-            account_type="Organization",
-            target_type="Organization",
-        )
-
-    # ============================================================================
-    # PyGithub-based installation resolution methods
-    # ============================================================================
 
     async def get_github_client_for_repo(self, repo_url: GitUrl) -> Github:
         """Get authenticated PyGithub client for a specific repository.

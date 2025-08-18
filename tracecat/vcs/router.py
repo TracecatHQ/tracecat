@@ -10,10 +10,7 @@ from tracecat.auth.dependencies import OrgAdminUser
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.logger import logger
 from tracecat.vcs.github.app import GitHubAppError, GitHubAppService
-from tracecat.vcs.github.flows import (
-    handle_manifest_conversion,
-    handle_workspace_installation_callback,
-)
+from tracecat.vcs.github.flows import handle_manifest_conversion
 from tracecat.vcs.github.manifest import generate_github_app_manifest
 from tracecat.vcs.models import (
     GitHubAppCredentialsRequest,
@@ -59,13 +56,7 @@ async def github_app_install_callback(
     *,
     session: AsyncDBSession,
     role: OrgAdminUser,
-    code: str | None = Query(
-        None, description="Temporary code from GitHub manifest flow"
-    ),
-    installation_id: int | None = Query(
-        None, description="Installation ID from GitHub callback"
-    ),
-    state: str | None = Query(None, description="CSRF protection state parameter"),
+    code: str = Query(..., description="Temporary code from GitHub manifest flow"),
 ):
     """Handle GitHub App installation flow.
 
@@ -73,31 +64,10 @@ async def github_app_install_callback(
     1. Code exchange: When GitHub redirects with a temporary code after manifest submission
     2. Installation callback: When GitHub redirects after app installation
     """
-    logger.info(
-        "GitHub App installation callback",
-        code=code,
-        installation_id=installation_id,
-        state=state,
-    )
+    logger.info("GitHub App installation callback", code=code[:5] + "...")
     try:
-        if code:
-            # Code exchange flow: Convert manifest code to app credentials
-            return await handle_manifest_conversion(session, role, code, state)
-        elif installation_id:
-            if not role.workspace_id:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Workspace ID is required",
-                )
-            # Installation callback flow: Store installation ID
-            return await handle_workspace_installation_callback(
-                session, role.workspace_id, role, installation_id, state
-            )
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Either 'code' or 'installation_id' parameter is required",
-            )
+        # Code exchange flow: Convert manifest code to app credentials
+        return await handle_manifest_conversion(session, role, code)
 
     except HTTPException:
         raise
