@@ -9,10 +9,10 @@ export default function VCSSettingsPage() {
         <div className="flex w-full">
           <div className="items-start space-y-3 text-left">
             <h2 className="text-2xl font-semibold tracking-tight">
-              Version control system
+              Workflow sync
             </h2>
             <p className="text-md text-muted-foreground">
-              Set up and manage integrations with your version control systems.
+              Sync workflows to and from your private Git repository.
             </p>
           </div>
         </div>
