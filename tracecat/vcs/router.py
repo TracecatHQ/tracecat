@@ -19,6 +19,8 @@ from tracecat.vcs.models import (
 )
 
 org_router = APIRouter(prefix="/organization/vcs", tags=["vcs", "organization"])
+"""Manage organization-level VCS features."""
+
 github_router = APIRouter(prefix="/github", tags=["vcs", "github", "organization"])
 """Manage GitHub App for organization-level features."""
 
@@ -128,7 +130,6 @@ async def save_github_app_credentials(
 ) -> dict[str, str]:
     """Save GitHub App credentials (register new or update existing)."""
     # Organization-level operation, no specific checks needed since this is org VCS
-
     try:
         github_service = GitHubAppService(session=session, role=role)
         config, was_created = await github_service.save_github_app_credentials(
@@ -172,7 +173,6 @@ async def get_github_app_credentials_status(
 ) -> GitHubAppCredentialsStatus:
     """Get the status of GitHub App credentials."""
     # Organization-level operation, no specific checks needed since this is org VCS
-
     try:
         github_service = GitHubAppService(session=session, role=role)
         status_data = await github_service.get_github_app_credentials_status()
