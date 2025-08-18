@@ -336,27 +336,6 @@ class TestGitHubAppService:
                 await github_service.get_github_client_for_repo(mock_repo_url)
 
     # ============================================================================
-    # Deprecated Method Tests
-    # ============================================================================
-
-    def test_generate_jwt_invalid_key(self, github_service):
-        """Test JWT generation with invalid key."""
-        app_id = "123456"
-        invalid_key = "invalid-key"
-
-        with pytest.raises(GitHubAppError, match="Failed to generate JWT"):
-            github_service._generate_jwt(app_id, invalid_key)
-
-    @pytest.mark.anyio
-    async def test_set_installation_id_deprecated(self, github_service):
-        """Test that set_installation_id raises deprecation error."""
-        with pytest.raises(
-            GitHubAppError,
-            match="Workspace-level installation configuration is deprecated",
-        ):
-            await github_service.set_installation_id(12345, "workspace-123")
-
-    # ============================================================================
     # Permission Error Tests
     # ============================================================================
 
@@ -390,17 +369,6 @@ class TestGitHubAppService:
             match="User does not have required access level: ADMIN",
         ):
             await github_service.update_github_app_credentials(app_id="new-id")
-
-    @pytest.mark.anyio
-    async def test_set_workspace_installation_permission_denied(self, github_service):
-        """Test that non-admin role cannot set workspace installation."""
-        from tracecat.types.exceptions import TracecatAuthorizationError
-
-        with pytest.raises(
-            TracecatAuthorizationError,
-            match="User does not have required access level: ADMIN",
-        ):
-            await github_service.set_workspace_installation("workspace-123", 12345)
 
 
 class TestGitHubAppModels:
