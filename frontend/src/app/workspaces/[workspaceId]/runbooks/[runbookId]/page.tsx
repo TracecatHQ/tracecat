@@ -9,7 +9,7 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { useParams, useRouter, useSearchParams } from "next/navigation"
-import { useCallback } from "react"
+import { useCallback, useEffect } from "react"
 import type { PromptRead } from "@/client"
 import { CaseCommentViewer } from "@/components/cases/case-description-editor"
 import { JsonViewWithControls } from "@/components/json-viewer"
@@ -40,6 +40,12 @@ export default function RunbookDetailPage() {
     workspaceId,
     promptId: runbookId,
   })
+
+  useEffect(() => {
+    if (prompt?.title) {
+      document.title = prompt.title
+    }
+  }, [prompt])
 
   if (isLoading) {
     return <CenteredSpinner />
