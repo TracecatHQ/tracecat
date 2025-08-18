@@ -2,7 +2,6 @@
 
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useQueryClient } from "@tanstack/react-query"
-import { Plus } from "lucide-react"
 import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
@@ -16,7 +15,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog"
 import {
   Form,
@@ -55,10 +53,17 @@ const caseFieldFormSchema = z.object({
 
 type CaseFieldFormValues = z.infer<typeof caseFieldFormSchema>
 
-export function AddCustomField() {
+interface AddCustomFieldDialogProps {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}
+
+export function AddCustomFieldDialog({
+  open,
+  onOpenChange,
+}: AddCustomFieldDialogProps) {
   const { workspaceId } = useWorkspace()
   const queryClient = useQueryClient()
-  const [showDialog, setShowDialog] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   const form = useForm<CaseFieldFormValues>({
@@ -94,7 +99,7 @@ export function AddCustomField() {
       })
 
       form.reset()
-      setShowDialog(false)
+      onOpenChange(false)
     } catch (error) {
       console.error("Failed to create case field", error)
       toast({
@@ -108,13 +113,7 @@ export function AddCustomField() {
   }
 
   return (
-    <Dialog open={showDialog} onOpenChange={setShowDialog}>
-      <DialogTrigger asChild>
-        <Button variant="outline" size="sm" className="h-7 bg-white">
-          <Plus className="mr-1 h-3.5 w-3.5" />
-          Add field
-        </Button>
-      </DialogTrigger>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
           <DialogTitle>Add custom field</DialogTitle>
@@ -129,9 +128,9 @@ export function AddCustomField() {
               name="name"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Field ID</FormLabel>
+                  <FormLabel>Identifier / Slug</FormLabel>
                   <FormControl>
-                    <Input placeholder="e.g., customer_id" {...field} />
+                    <Input {...field} />
                   </FormControl>
                   <FormDescription>
                     A human readable ID of the field. Use snake_case for best
@@ -147,14 +146,14 @@ export function AddCustomField() {
               name="type"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Field Type</FormLabel>
+                  <FormLabel>Data type</FormLabel>
                   <Select
                     onValueChange={field.onChange}
                     defaultValue={field.value}
                   >
                     <FormControl>
                       <SelectTrigger>
-                        <SelectValue placeholder="Select a field type" />
+                        <SelectValue placeholder="Select a data type" />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
@@ -202,10 +201,9 @@ export function AddCustomField() {
               name="default"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Default Value (optional)</FormLabel>
+                  <FormLabel>Default value (optional)</FormLabel>
                   <FormControl>
                     <Input
-                      placeholder="Default value"
                       {...field}
                       value={field.value || ""}
                       onChange={(e) => {
@@ -224,7 +222,7 @@ export function AddCustomField() {
 
             <DialogFooter>
               <Button type="submit" disabled={isSubmitting}>
-                Create Field
+                Add field
               </Button>
             </DialogFooter>
           </form>

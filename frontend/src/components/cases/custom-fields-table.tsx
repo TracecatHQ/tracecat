@@ -27,17 +27,17 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 
-interface WorkspaceCustomFieldsTableProps {
+interface CustomFieldsTableProps {
   fields: CaseFieldRead[]
   onDeleteField: (fieldId: string) => Promise<void>
   isDeleting?: boolean
 }
 
-export function WorkspaceCustomFieldsTable({
+export function CustomFieldsTable({
   fields,
   onDeleteField,
   isDeleting,
-}: WorkspaceCustomFieldsTableProps) {
+}: CustomFieldsTableProps) {
   const [selectedField, setSelectedField] = useState<CaseFieldRead | null>(null)
 
   return (

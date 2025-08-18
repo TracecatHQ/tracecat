@@ -1,7 +1,6 @@
 "use client"
 
 import {
-  BracesIcon,
   KeyRoundIcon,
   ListTodoIcon,
   ShieldAlertIcon,
@@ -84,12 +83,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       url: `${basePath}/members`,
       icon: UsersIcon,
       isActive: pathname?.startsWith(`${basePath}/members`),
-    },
-    {
-      title: "Custom fields",
-      url: `${basePath}/custom-fields`,
-      icon: BracesIcon,
-      isActive: pathname?.startsWith(`${basePath}/custom-fields`),
     },
   ]
 

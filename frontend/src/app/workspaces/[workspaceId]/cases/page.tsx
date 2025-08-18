@@ -1,16 +1,24 @@
-import type { Metadata } from "next"
-import CaseTable from "@/components/cases/case-table"
+"use client"
 
-export const metadata: Metadata = {
-  title: "Cases",
-}
+import CaseTable from "@/components/cases/case-table"
+import { CasesViewMode } from "@/components/cases/cases-view-toggle"
+import { CustomFieldsView } from "@/components/cases/custom-fields-view"
+import { useLocalStorage } from "@/lib/hooks"
 
 export default function CasesPage() {
+  const [view] = useLocalStorage("cases-view", CasesViewMode.Cases)
+
   return (
-    <div className="size-full overflow-auto">
-      <div className="container flex h-full flex-col space-y-12 py-8">
-        <CaseTable />
-      </div>
-    </div>
+    <>
+      {view === CasesViewMode.Cases ? (
+        <div className="size-full overflow-auto">
+          <div className="container flex h-full flex-col space-y-12 py-8">
+            <CaseTable />
+          </div>
+        </div>
+      ) : (
+        <CustomFieldsView />
+      )}
+    </>
   )
 }
