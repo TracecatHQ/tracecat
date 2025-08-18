@@ -3,6 +3,7 @@ import uuid
 from typing import Literal
 
 from tracecat.auth.enums import AuthType
+from tracecat.feature_flags.enums import FeatureFlag
 
 # === Internal Services === #
 TRACECAT__APP_ENV: Literal["development", "staging", "production"] = os.environ.get(
@@ -383,3 +384,11 @@ ENTERPRISE_EDITION = os.environ.get("ENTERPRISE_EDITION", "false").lower() in (
     "1",
 )
 """Whether the enterprise edition is enabled."""
+
+# === Feature Flags === #
+TRACECAT__FEATURE_FLAGS: set[FeatureFlag] = {
+    FeatureFlag(f)
+    for flag in os.environ.get("TRACECAT__FEATURE_FLAGS", "").split(",")
+    if (f := flag.strip())
+}
+"""Set of enabled feature flags."""
