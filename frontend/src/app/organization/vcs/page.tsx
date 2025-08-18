@@ -1,14 +1,12 @@
-"use client"
-
 import { notFound } from "next/navigation"
 
 import { OrgVCSSettings } from "@/components/organization/org-vcs-settings"
-import { useFeatureFlag } from "@/hooks/use-feature-flags"
+import { isFeatureEnabledSS } from "@/hooks/use-feature-flags"
 
-export default function VCSSettingsPage() {
-  const { isFeatureEnabled } = useFeatureFlag()
+export default async function VCSSettingsPage() {
+  const isFeatureEnabled = await isFeatureEnabledSS("git-sync")
 
-  if (!isFeatureEnabled("git-sync")) {
+  if (!isFeatureEnabled) {
     notFound()
   }
 

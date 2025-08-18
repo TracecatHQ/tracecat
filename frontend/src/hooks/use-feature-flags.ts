@@ -30,3 +30,9 @@ export function useFeatureFlag(): {
     isFeatureEnabled: (flag: FeatureFlag) => featureFlags?.has(flag) ?? false,
   }
 }
+
+export async function isFeatureEnabledSS(flag: FeatureFlag): Promise<boolean> {
+  // Runs server-side
+  const response = await featureFlagsGetFeatureFlags()
+  return response.enabled_features.includes(flag)
+}
