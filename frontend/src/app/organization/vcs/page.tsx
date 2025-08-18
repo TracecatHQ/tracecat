@@ -1,8 +1,17 @@
 "use client"
 
+import { notFound } from "next/navigation"
+
 import { OrgVCSSettings } from "@/components/organization/org-vcs-settings"
+import { useFeatureFlag } from "@/hooks/use-feature-flags"
 
 export default function VCSSettingsPage() {
+  const { isFeatureEnabled } = useFeatureFlag()
+
+  if (!isFeatureEnabled("git-sync")) {
+    notFound()
+  }
+
   return (
     <div className="size-full overflow-auto">
       <div className="container flex h-full max-w-[1000px] flex-col space-y-12">

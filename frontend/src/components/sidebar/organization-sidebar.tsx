@@ -32,11 +32,13 @@ import {
   SidebarMenuItem,
   SidebarRail,
 } from "@/components/ui/sidebar"
+import { useFeatureFlag } from "@/hooks/use-feature-flags"
 
 export function OrganizationSidebar({
   ...props
 }: React.ComponentProps<typeof Sidebar>) {
   const pathname = usePathname()
+  const { isFeatureEnabled } = useFeatureFlag()
 
   // Fetch workspaces for the sidebar
   const { data: workspaces } = useQuery({
@@ -81,12 +83,16 @@ export function OrganizationSidebar({
       icon: BotIcon,
       isActive: pathname?.includes("/organization/settings/agent"),
     },
-    {
-      title: "Workflow sync",
-      url: "/organization/vcs",
-      icon: GitBranchIcon,
-      isActive: pathname?.includes("/organization/vcs"),
-    },
+    ...(isFeatureEnabled("git-sync")
+      ? [
+          {
+            title: "Workflow sync",
+            url: "/organization/vcs",
+            icon: GitBranchIcon,
+            isActive: pathname?.includes("/organization/vcs"),
+          },
+        ]
+      : []),
   ]
 
   const navSecrets = [

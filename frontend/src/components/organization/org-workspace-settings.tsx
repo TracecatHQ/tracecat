@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
+import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import { useWorkspaceSettings } from "@/lib/hooks"
 import { OrgWorkspaceDeleteDialog } from "./org-workspace-delete-dialog"
 import { OrgWorkspaceSSHKeyDeleteDialog } from "./org-workspace-ssh-key-delete-dialog"
@@ -48,6 +49,7 @@ export function OrgWorkspaceSettings({
   workspace,
   onWorkspaceDeleted,
 }: OrgWorkspaceSettingsProps) {
+  const { isFeatureEnabled } = useFeatureFlag()
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [sshKeyToDelete, setSSHKeyToDelete] =
     useState<SecretReadMinimal | null>(null)
@@ -123,41 +125,43 @@ export function OrgWorkspaceSettings({
               )}
             />
 
-            <div>
-              <h4 className="text-md font-medium mb-4">
-                Git repository settings
-              </h4>
-              <p className="text-sm text-muted-foreground mb-4">
-                Configure the Git repository used to store and sync workflow
-                definitions for this workspace.
-              </p>
-              <div className="space-y-4">
-                <FormField
-                  control={form.control}
-                  name="git_repo_url"
-                  render={({ field }) => (
-                    <FormItem className="flex flex-col">
-                      <FormLabel>Remote repository URL</FormLabel>
-                      <FormControl>
-                        <Input
-                          placeholder="git+ssh://git@my-host/my-org/my-repo.git"
-                          {...field}
-                          value={field.value ?? ""}
-                        />
-                      </FormControl>
-                      <FormDescription>
-                        Git URL of the remote repository. Must use{" "}
-                        <span className="font-mono tracking-tighter">
-                          git+ssh
-                        </span>{" "}
-                        scheme.
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+            {isFeatureEnabled("git-sync") && (
+              <div>
+                <h4 className="text-md font-medium mb-4">
+                  Git repository settings
+                </h4>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Configure the Git repository used to store and sync workflow
+                  definitions for this workspace.
+                </p>
+                <div className="space-y-4">
+                  <FormField
+                    control={form.control}
+                    name="git_repo_url"
+                    render={({ field }) => (
+                      <FormItem className="flex flex-col">
+                        <FormLabel>Remote repository URL</FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder="git+ssh://git@my-host/my-org/my-repo.git"
+                            {...field}
+                            value={field.value ?? ""}
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          Git URL of the remote repository. Must use{" "}
+                          <span className="font-mono tracking-tighter">
+                            git+ssh
+                          </span>{" "}
+                          scheme.
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
               </div>
-            </div>
+            )}
 
             <Button type="submit" disabled={isUpdating}>
               {isUpdating ? "Saving..." : "Save changes"}
