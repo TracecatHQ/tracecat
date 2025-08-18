@@ -60,6 +60,7 @@ from tracecat.tables.router import router as tables_router
 from tracecat.tags.router import router as tags_router
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatException
+from tracecat.vcs.router import org_router as vcs_router
 from tracecat.webhooks.router import router as webhook_router
 from tracecat.workflow.actions.router import router as workflow_actions_router
 from tracecat.workflow.executions.router import router as workflow_executions_router
@@ -68,6 +69,7 @@ from tracecat.workflow.management.folders.router import (
 )
 from tracecat.workflow.management.router import router as workflow_management_router
 from tracecat.workflow.schedules.router import router as schedules_router
+from tracecat.workflow.store.router import router as workflow_store_router
 from tracecat.workflow.tags.router import router as workflow_tags_router
 from tracecat.workspaces.router import router as workspaces_router
 from tracecat.workspaces.service import WorkspaceService
@@ -185,6 +187,7 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(workflow_executions_router)
     app.include_router(workflow_actions_router)
     app.include_router(workflow_tags_router)
+    app.include_router(workflow_store_router)
     app.include_router(secrets_router)
     app.include_router(schedules_router)
     app.include_router(tags_router)
@@ -205,6 +208,7 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(workflow_folders_router)
     app.include_router(integrations_router)
     app.include_router(providers_router)
+    app.include_router(vcs_router)
     app.include_router(
         fastapi_users.get_users_router(UserRead, UserUpdate),
         prefix="/users",

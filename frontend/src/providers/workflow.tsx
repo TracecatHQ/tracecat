@@ -19,10 +19,12 @@ import {
   type ApiError,
   type ValidationResult,
   type WorkflowCommitResponse,
+  type WorkflowDslPublish,
   type WorkflowRead,
   type WorkflowUpdate,
   workflowsCommitWorkflow,
   workflowsGetWorkflow,
+  workflowsPublishWorkflow,
   workflowsUpdateWorkflow,
 } from "@/client"
 import { toast } from "@/components/ui/use-toast"
@@ -40,6 +42,7 @@ type WorkflowContextType = {
     void,
     unknown
   >
+  publishWorkflow: MutateFunction<void, ApiError, WorkflowDslPublish, unknown>
   updateWorkflow: MutateFunction<void, ApiError, WorkflowUpdate, unknown>
   validationErrors: ValidationResult[] | null
   setValidationErrors: React.Dispatch<SetStateAction<ValidationResult[] | null>>
@@ -132,6 +135,74 @@ export function WorkflowProvider({
     },
   })
 
+  const { mutateAsync: publishWorkflow } = useMutation({
+    mutationFn: async (params: WorkflowDslPublish) =>
+      await workflowsPublishWorkflow({
+        workspaceId,
+        workflowId,
+        requestBody: params,
+      }),
+    onSuccess: () => {
+      toast({
+        title: "Workflow published successfully",
+        description:
+          "Workflow has been published to the configured repository.",
+      })
+    },
+    onError: (error: ApiError) => {
+      console.warn("Failed to publish workflow:", error)
+      const apiError = error as TracecatApiError<string>
+      const detail = apiError.body?.detail
+      switch (apiError.status) {
+        case 400:
+          toast({
+            title: "Failed to publish workflow",
+            description:
+              detail ||
+              "Invalid workflow configuration. Please check the logs for more details.",
+          })
+          break
+        case 403:
+          toast({
+            title: "Failed to publish workflow",
+            description:
+              detail || "You don't have permission to publish this workflow.",
+          })
+          break
+        case 404:
+          toast({
+            title: "Workflow definition not found",
+            description:
+              detail || "Please save the workflow before publishing.",
+          })
+          break
+        case 409:
+          toast({
+            title: "Failed to publish workflow",
+            description:
+              detail ||
+              "There was a conflict publishing the workflow. Please try again.",
+          })
+          break
+        case 422:
+          toast({
+            title: "Failed to publish workflow",
+            description:
+              detail ||
+              "Workflow validation failed. Please check your configuration.",
+          })
+          break
+        default:
+          toast({
+            title: "Failed to publish workflow",
+            description:
+              detail || "Could not publish workflow. Please try again.",
+            variant: "destructive",
+          })
+      }
+    },
+  })
+
   const { mutateAsync: updateWorkflow } = useMutation({
     mutationFn: async (values: WorkflowUpdate) =>
       await workflowsUpdateWorkflow({
@@ -173,6 +244,7 @@ export function WorkflowProvider({
         isLoading,
         error,
         commitWorkflow,
+        publishWorkflow,
         updateWorkflow,
         validationErrors,
         setValidationErrors,

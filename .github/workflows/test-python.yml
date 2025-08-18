@@ -7,6 +7,7 @@ on:
       - tracecat/**
       - registry/**
       - tests/**
+      - packages/tracecat-ee/**
       - pyproject.toml
       - uv.lock
       - Dockerfile
@@ -19,6 +20,7 @@ on:
       - tracecat/**
       - registry/**
       - tests/**
+      - packages/tracecat-ee/**
       - pyproject.toml
       - uv.lock
       - Dockerfile
@@ -153,6 +155,7 @@ jobs:
         test_group:
           - unit
           - registry
+          # - ee # TODO: re-enable this when we have tests
     steps:
       - uses: actions/checkout@v4
         with:
@@ -258,4 +261,9 @@ jobs:
           SLACK_CHANNEL_ID: ${{ secrets.SLACK_CHANNEL_ID }}
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           TRACECAT__SYSTEM_PATH: "/usr/local/bin:/usr/bin:/bin"
-        run: uv run pytest tests/${{ matrix.test_group }} -ra
+        run: |
+          if [ "${{ matrix.test_group }}" = "ee" ]; then
+            uv run pytest packages/tracecat-ee/tests/ -ra
+          else
+            uv run pytest tests/${{ matrix.test_group }} -ra
+          fi

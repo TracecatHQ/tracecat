@@ -30,6 +30,7 @@ from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.integrations.enums import IntegrationStatus, OAuthGrantType
 from tracecat.interactions.enums import InteractionStatus, InteractionType
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
+from tracecat.workspaces.models import WorkspaceSettings
 
 DEFAULT_SA_RELATIONSHIP_KWARGS = {
     "lazy": "selectin",
@@ -102,7 +103,7 @@ class Ownership(SQLModel, table=True):
 class Workspace(Resource, table=True):
     id: UUID4 = Field(default_factory=uuid.uuid4, nullable=False, unique=True)
     name: str = Field(..., index=True, nullable=False)
-    settings: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
+    settings: WorkspaceSettings = Field(default_factory=dict, sa_column=Column(JSONB))
     members: list["User"] = Relationship(
         back_populates="workspaces",
         link_model=Membership,
@@ -291,6 +292,7 @@ class WorkflowDefinition(Resource, table=True):
 
     # DSL content
     content: dict[str, Any] = Field(sa_column=Column(JSONB))
+
     workflow: "Workflow" = Relationship(
         back_populates="definitions",
         sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,

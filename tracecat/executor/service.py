@@ -35,7 +35,7 @@ from tracecat.expressions.eval import (
     extract_templated_secrets,
     get_iterables_from_expression,
 )
-from tracecat.git import prepare_git_url
+from tracecat.git.utils import prepare_git_url
 from tracecat.integrations.enums import OAuthGrantType
 from tracecat.integrations.models import ProviderKey
 from tracecat.integrations.service import IntegrationService

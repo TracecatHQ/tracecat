@@ -3,7 +3,7 @@
 import { zodResolver } from "@hookform/resolvers/zod"
 import type { DialogProps } from "@radix-ui/react-dialog"
 import { KeyRoundIcon } from "lucide-react"
-import React, { type PropsWithChildren } from "react"
+import React from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import type { SecretCreate } from "@/client"
@@ -29,15 +29,27 @@ import {
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/use-toast"
-import { useOrgSecrets } from "@/lib/hooks"
 
-interface CreateOrgSSHKeyDialogProps
-  extends PropsWithChildren<
-    DialogProps & React.HTMLAttributes<HTMLDivElement>
-  > {}
+interface FieldConfig {
+  defaultValue?: string
+  disabled?: boolean
+}
+
+interface CreateSSHKeyDialogProps
+  extends DialogProps,
+    React.HTMLAttributes<HTMLDivElement> {
+  children?: React.ReactNode
+  handler: (params: SecretCreate) => void
+  fieldConfig?: {
+    name?: FieldConfig
+    description?: FieldConfig
+    environment?: FieldConfig
+  }
+}
 const sshKeyRegex =
   /^-----BEGIN[A-Z\s]+PRIVATE KEY-----\n[A-Za-z0-9+/=\s]+\n-----END[A-Z\s]+PRIVATE KEY-----\n?$/
-const createOrgSSHKeySchema = z.object({
+
+const createSSHKeySchema = z.object({
   name: z.string().default(""),
   description: z.string().max(255).default(""),
   environment: z
@@ -52,28 +64,29 @@ const createOrgSSHKeySchema = z.object({
       "Invalid SSH private key format. Must be in PEM format with proper header and footer."
     ),
 })
-type CreateOrgSSHKeyForm = z.infer<typeof createOrgSSHKeySchema>
+type CreateSSHKeyForm = z.infer<typeof createSSHKeySchema>
 
-export function CreateOrgSSHKeyDialog({
+export function CreateSSHKeyDialog({
   children,
   className,
-}: CreateOrgSSHKeyDialogProps) {
+  handler,
+  fieldConfig,
+}: CreateSSHKeyDialogProps) {
   const [showDialog, setShowDialog] = React.useState(false)
-  const { createSecret } = useOrgSecrets()
 
-  const methods = useForm<CreateOrgSSHKeyForm>({
+  const methods = useForm<CreateSSHKeyForm>({
     mode: "onChange",
-    resolver: zodResolver(createOrgSSHKeySchema),
+    resolver: zodResolver(createSSHKeySchema),
     defaultValues: {
-      name: "",
-      description: "",
-      environment: "",
+      name: fieldConfig?.name?.defaultValue || "",
+      description: fieldConfig?.description?.defaultValue || "",
+      environment: fieldConfig?.environment?.defaultValue || "",
       private_key: "",
     },
   })
   const { control, register } = methods
 
-  const onSubmit = async (values: CreateOrgSSHKeyForm) => {
+  const onSubmit = async (values: CreateSSHKeyForm) => {
     const { private_key, ...rest } = values
     try {
       const secret: SecretCreate = {
@@ -81,7 +94,7 @@ export function CreateOrgSSHKeyDialog({
         keys: [{ key: "PRIVATE_KEY", value: private_key }],
         ...rest,
       }
-      await createSecret(secret)
+      await handler(secret)
     } catch (error) {
       console.error(error)
     }
@@ -121,6 +134,7 @@ export function CreateOrgSSHKeyDialog({
                       <Input
                         className="text-sm"
                         placeholder="Name (snake case)"
+                        disabled={fieldConfig?.name?.disabled}
                         {...register("name")}
                       />
                     </FormControl>
@@ -142,6 +156,7 @@ export function CreateOrgSSHKeyDialog({
                       <Input
                         className="text-sm"
                         placeholder="Description"
+                        disabled={fieldConfig?.description?.disabled}
                         {...register("description")}
                       />
                     </FormControl>
@@ -163,6 +178,7 @@ export function CreateOrgSSHKeyDialog({
                       <Input
                         className="text-sm"
                         placeholder='Default environment: "default"'
+                        disabled={fieldConfig?.environment?.disabled}
                         {...register("environment")}
                       />
                     </FormControl>
@@ -208,4 +224,4 @@ export function CreateOrgSSHKeyDialog({
   )
 }
 
-export const CreateOrgSSHKeyDialogTrigger = DialogTrigger
+export const CreateSSHKeyDialogTrigger = DialogTrigger
