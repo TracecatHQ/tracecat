@@ -1,6 +1,6 @@
 "use client"
 
-import { BracesIcon, ShieldAlertIcon } from "lucide-react"
+import { BracesIcon, SquareStackIcon } from "lucide-react"
 import {
   Tooltip,
   TooltipContent,
@@ -51,7 +51,7 @@ export function CasesViewToggle({
               aria-current={view === CasesViewMode.Cases}
               aria-label="Cases view"
             >
-              <ShieldAlertIcon className="size-3.5" />
+              <SquareStackIcon className="size-3.5" />
             </button>
           </TooltipTrigger>
           <TooltipContent>

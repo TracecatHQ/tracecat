@@ -1,13 +1,13 @@
 import type { Metadata } from "next"
 
 export const metadata: Metadata = {
-  title: "Tables",
+  title: "Cases",
 }
 
-export default function TablesLayout({
+export default function CasesLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
-  return <>{children}</>
+  return children
 }
