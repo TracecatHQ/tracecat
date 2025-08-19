@@ -13,15 +13,16 @@ from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatSettingsError
 
 GIT_SSH_URL_REGEX = re.compile(
-    r"^git\+ssh://git@(?P<host>[^/]+)/(?P<org>[^/]+)/(?P<repo>[^/@]+?)(?:\.git)?(?:@(?P<ref>[^/]+))?$"
+    r"^git\+ssh://git@(?P<host>[^/]+)/(?P<path>[^@]+?)(?:\.git)?(?:@(?P<ref>[^/@]+))?$"
 )
-"""Git SSH URL with git user and optional ref."""
+"""Git SSH URL with git user and optional ref. Supports nested groups and ports."""
 
 
 def parse_git_url(url: str, *, allowed_domains: set[str] | None = None) -> GitUrl:
     """Parse a Git repository URL to extract components.
 
     Handles Git SSH URLs with 'git+ssh' prefix and optional '@' for branch specification.
+    Supports nested groups (GitLab), ports, and various URL structures.
 
     Args:
         url: The repository URL to parse.
@@ -35,16 +36,20 @@ def parse_git_url(url: str, *, allowed_domains: set[str] | None = None) -> GitUr
     """
     if match := GIT_SSH_URL_REGEX.match(url):
         host = match.group("host")
-        org = match.group("org")
-        repo = match.group("repo")
+        path = match.group("path")
         ref = match.group("ref")
 
-        if (
-            not isinstance(host, str)
-            or not isinstance(org, str)
-            or not isinstance(repo, str)
-        ):
+        if not isinstance(host, str) or not isinstance(path, str):
             raise ValueError(f"Invalid Git URL: {url}")
+
+        # Split the path to separate org/groups from repo name
+        # The last segment is the repo, everything else is the org/group path
+        path_parts = path.split("/")
+        if len(path_parts) < 2:
+            raise ValueError(f"Invalid Git URL path format: {url}")
+
+        repo = path_parts[-1]
+        org = "/".join(path_parts[:-1])
 
         if allowed_domains and host not in allowed_domains:
             raise ValueError(

@@ -72,12 +72,84 @@ class TestParseGitUrl:
         assert git_url.repo == "myrepo"
         assert git_url.ref == "main"
 
+    def test_parse_gitlab_self_hosted_with_port(self):
+        """Test parsing GitLab self-hosted URL with port."""
+        url = "git+ssh://git@gitlab.example.com:2222/myorg/myrepo.git"
+        git_url = parse_git_url(url)
+        assert git_url.host == "gitlab.example.com:2222"
+        assert git_url.org == "myorg"
+        assert git_url.repo == "myrepo"
+        assert git_url.ref is None
+
+    def test_parse_gitlab_self_hosted_with_port_and_ref(self):
+        """Test parsing GitLab self-hosted URL with port and ref."""
+        url = "git+ssh://git@gitlab.example.com:2222/myorg/myrepo.git@develop"
+        git_url = parse_git_url(url)
+        assert git_url.host == "gitlab.example.com:2222"
+        assert git_url.org == "myorg"
+        assert git_url.repo == "myrepo"
+        assert git_url.ref == "develop"
+
+    def test_parse_gitlab_nested_groups(self):
+        """Test parsing GitLab URL with nested groups/subgroups."""
+        url = "git+ssh://git@gitlab.com/myorg/team/subteam/myrepo.git"
+        git_url = parse_git_url(url)
+        assert git_url.host == "gitlab.com"
+        assert git_url.org == "myorg/team/subteam"
+        assert git_url.repo == "myrepo"
+        assert git_url.ref is None
+
+    def test_parse_gitlab_deep_nested_groups(self):
+        """Test parsing GitLab URL with deeply nested groups."""
+        url = (
+            "git+ssh://git@gitlab.com/org/dept/team/project/subproject/repo.git@feature"
+        )
+        git_url = parse_git_url(url)
+        assert git_url.host == "gitlab.com"
+        assert git_url.org == "org/dept/team/project/subproject"
+        assert git_url.repo == "repo"
+        assert git_url.ref == "feature"
+
+    def test_parse_gitlab_nested_groups_with_port(self):
+        """Test parsing GitLab self-hosted URL with port and nested groups."""
+        url = "git+ssh://git@gitlab.company.com:8022/platform/backend/services/auth-service.git"
+        git_url = parse_git_url(url)
+        assert git_url.host == "gitlab.company.com:8022"
+        assert git_url.org == "platform/backend/services"
+        assert git_url.repo == "auth-service"
+        assert git_url.ref is None
+
+    def test_parse_bitbucket_url(self):
+        """Test parsing Bitbucket URL."""
+        url = "git+ssh://git@bitbucket.org/workspace/myrepo.git"
+        git_url = parse_git_url(url)
+        assert git_url.host == "bitbucket.org"
+        assert git_url.org == "workspace"
+        assert git_url.repo == "myrepo"
+        assert git_url.ref is None
+
+    def test_parse_bitbucket_url_with_ref(self):
+        """Test parsing Bitbucket URL with ref."""
+        url = "git+ssh://git@bitbucket.org/workspace/myrepo.git@develop"
+        git_url = parse_git_url(url)
+        assert git_url.host == "bitbucket.org"
+        assert git_url.org == "workspace"
+        assert git_url.repo == "myrepo"
+        assert git_url.ref == "develop"
+
     def test_parse_url_allowed_domains(self):
         """Test parsing with allowed domains."""
         url = "git+ssh://git@github.com/myorg/myrepo.git"
         allowed_domains = {"github.com", "gitlab.com"}
         git_url = parse_git_url(url, allowed_domains=allowed_domains)
         assert git_url.host == "github.com"
+
+    def test_parse_url_allowed_domains_with_port(self):
+        """Test parsing with allowed domains including port."""
+        url = "git+ssh://git@gitlab.example.com:2222/myorg/myrepo.git"
+        allowed_domains = {"gitlab.example.com:2222", "github.com"}
+        git_url = parse_git_url(url, allowed_domains=allowed_domains)
+        assert git_url.host == "gitlab.example.com:2222"
 
     def test_parse_url_disallowed_domain(self):
         """Test parsing with disallowed domain."""
