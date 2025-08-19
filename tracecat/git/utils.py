@@ -13,7 +13,7 @@ from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatSettingsError
 
 GIT_SSH_URL_REGEX = re.compile(
-    r"^git\+ssh://git@(?P<host>[^/]+)/(?P<path>.+?)(?:\.git)?(?:@(?P<ref>[^/]+))?$"
+    r"^git\+ssh://git@(?P<host>[^/]+)/(?P<path>[^@]+?)(?:\.git)?(?:@(?P<ref>[^/@]+))?$"
 )
 """Git SSH URL with git user and optional ref. Supports nested groups and ports."""
 
