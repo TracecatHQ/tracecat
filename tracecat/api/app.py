@@ -90,7 +90,10 @@ async def lifespan(app: FastAPI):
     async with get_async_session_context_manager() as session:
         # Org
         await setup_org_settings(session, role)
-        await reload_registry(session, role)
+        try:
+            await reload_registry(session, role)
+        except Exception as e:
+            logger.warning("Error reloading registry", error=e)
         await setup_workspace_defaults(session, role)
     logger.info(
         "Feature flags", feature_flags=[f.value for f in config.TRACECAT__FEATURE_FLAGS]
