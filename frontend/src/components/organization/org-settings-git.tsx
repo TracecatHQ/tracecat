@@ -38,7 +38,8 @@ const gitFormSchema = z.object({
       // - Nested groups: git+ssh://git@gitlab.com/org/team/subteam/repo.git
       // - With ref: git+ssh://git@github.com/org/repo.git@main
       // - Optional .git suffix
-      const regex = /^git\+ssh:\/\/git@[^/]+\/.+?(?:\.git)?(?:@[^/]+)?$/
+      // Requires at least 2 path segments (org/repo) to match backend validation
+      const regex = /^git\+ssh:\/\/git@[^/]+\/[^/]+\/.+?(?:\.git)?(?:@[^/]+)?$/
       return regex.test(url)
     }, "Must be a valid Git SSH URL (e.g., git+ssh://git@github.com/org/repo.git)"),
   git_repo_package_name: z.string().nullish(),
