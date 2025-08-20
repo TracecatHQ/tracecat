@@ -1,9 +1,9 @@
 import asyncio
-import re
 from typing import cast
 
 from tracecat import config
 from tracecat.contexts import ctx_role
+from tracecat.git.constants import GIT_SSH_URL_REGEX
 from tracecat.git.models import GitUrl
 from tracecat.logger import logger
 from tracecat.registry.repositories.service import RegistryReposService
@@ -11,11 +11,6 @@ from tracecat.settings.service import get_setting_cached
 from tracecat.ssh import SshEnv
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatSettingsError
-
-GIT_SSH_URL_REGEX = re.compile(
-    r"^git\+ssh://git@(?P<host>[^/]+)/(?P<path>[^@]+?)(?:\.git)?(?:@(?P<ref>[^/@]+))?$"
-)
-"""Git SSH URL with git user and optional ref. Supports nested groups and ports."""
 
 
 def parse_git_url(url: str, *, allowed_domains: set[str] | None = None) -> GitUrl:

@@ -3,6 +3,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
+from tracecat.git.constants import GIT_SSH_URL_REGEX
+
 
 class BaseSettingsGroup(BaseModel):
     """Base class for configurable settings."""
@@ -29,6 +31,20 @@ class GitSettingsUpdate(BaseSettingsGroup):
     )
     git_repo_url: str | None = Field(default=None)
     git_repo_package_name: str | None = Field(default=None)
+
+    @field_validator("git_repo_url", mode="before")
+    def validate_git_repo_url(cls, value: str | None) -> str | None:
+        """Validate that git_repo_url is a valid Git SSH URL if provided."""
+        if value is None:
+            return value
+
+        # Use shared regex from git utils to ensure consistency across the codebase
+        if not GIT_SSH_URL_REGEX.match(value):
+            raise ValueError(
+                "Must be a valid Git SSH URL (e.g., git+ssh://git@github.com/org/repo.git)"
+            )
+
+        return value
 
 
 class SAMLSettingsRead(BaseSettingsGroup):

@@ -193,12 +193,12 @@ async def test_delete_non_system_setting(
 async def test_update_git_settings(
     settings_service_with_defaults: SettingsService,
 ) -> None:
-    """Test updating Git settings."""
+    """Test updating Git settings with valid SSH URL."""
     # Update Git settings with allowed domains and repo info
     service = settings_service_with_defaults
     test_params = GitSettingsUpdate(
         git_allowed_domains=["github.com", "gitlab.com"],
-        git_repo_url="https://github.com/test/repo",
+        git_repo_url="git+ssh://git@github.com/test/repo.git",
         git_repo_package_name="test-package",
     )
     await service.update_git_settings(test_params)
@@ -209,8 +209,88 @@ async def test_update_git_settings(
         setting.key: service.get_value(setting) for setting in git_settings
     }
     assert settings_dict["git_allowed_domains"] == ["github.com", "gitlab.com"]
-    assert settings_dict["git_repo_url"] == "https://github.com/test/repo"
+    assert settings_dict["git_repo_url"] == "git+ssh://git@github.com/test/repo.git"
     assert settings_dict["git_repo_package_name"] == "test-package"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "valid_url",
+    [
+        "git+ssh://git@github.com/org/repo.git",
+        "git+ssh://git@gitlab.example.com:2222/org/repo.git",
+        "git+ssh://git@gitlab.com/org/team/subteam/repo.git",
+        "git+ssh://git@github.com/org/repo.git@main",
+        "git+ssh://git@github.com/org/repo",  # Without .git suffix
+        "git+ssh://git@example.com/very/deep/nested/org/repo.git",
+    ],
+)
+async def test_git_settings_valid_ssh_urls(
+    settings_service_with_defaults: SettingsService,
+    valid_url: str,
+) -> None:
+    """Test that valid Git SSH URLs are accepted."""
+    service = settings_service_with_defaults
+
+    # This should not raise an exception
+    test_params = GitSettingsUpdate(git_repo_url=valid_url)
+    await service.update_git_settings(test_params)
+
+    # Verify the URL was saved
+    git_settings = await service.list_org_settings(keys={"git_repo_url"})
+    settings_dict = {
+        setting.key: service.get_value(setting) for setting in git_settings
+    }
+    assert settings_dict["git_repo_url"] == valid_url
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "invalid_url",
+    [
+        "https://github.com/org/repo.git",  # Wrong protocol
+        "git+ssh://user@github.com/org/repo.git",  # Wrong user
+        "git+ssh://git@github.com/repo.git",  # Only one path segment
+        "git+ssh://git@github.com/",  # No path
+        "git+ssh://git@/org/repo.git",  # No host
+        "git://git@github.com/org/repo.git",  # Missing +ssh
+        "not-a-url",  # Not a URL at all
+        "",  # Empty string
+    ],
+)
+async def test_git_settings_invalid_ssh_urls(
+    settings_service_with_defaults: SettingsService,
+    invalid_url: str,
+) -> None:
+    """Test that invalid Git SSH URLs are rejected."""
+    from pydantic import ValidationError
+
+    # This should raise a ValidationError
+    with pytest.raises(ValidationError) as exc_info:
+        GitSettingsUpdate(git_repo_url=invalid_url)
+
+    # Verify the error message mentions Git SSH URL
+    error_detail = str(exc_info.value)
+    assert "Must be a valid Git SSH URL" in error_detail
+
+
+@pytest.mark.anyio
+async def test_git_settings_null_url_allowed(
+    settings_service_with_defaults: SettingsService,
+) -> None:
+    """Test that None/null git_repo_url is allowed."""
+    service = settings_service_with_defaults
+
+    # This should not raise an exception
+    test_params = GitSettingsUpdate(git_repo_url=None)
+    await service.update_git_settings(test_params)
+
+    # Verify None was saved
+    git_settings = await service.list_org_settings(keys={"git_repo_url"})
+    settings_dict = {
+        setting.key: service.get_value(setting) for setting in git_settings
+    }
+    assert settings_dict["git_repo_url"] is None
 
 
 @pytest.mark.anyio
