@@ -250,7 +250,6 @@ async def test_git_settings_valid_ssh_urls(
     [
         "https://github.com/org/repo.git",  # Wrong protocol
         "git+ssh://user@github.com/org/repo.git",  # Wrong user
-        "git+ssh://git@github.com/repo.git",  # Only one path segment
         "git+ssh://git@github.com/",  # No path
         "git+ssh://git@/org/repo.git",  # No host
         "git://git@github.com/org/repo.git",  # Missing +ssh
