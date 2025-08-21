@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from typing import NotRequired, TypedDict
+
 from pydantic import BaseModel, EmailStr, Field
 
 from tracecat import config
@@ -8,16 +12,30 @@ from tracecat.identifiers import OwnerID, UserID, WorkspaceID
 # === Workspace === #
 
 
+# DTO
+class WorkspaceSettings(TypedDict):
+    git_repo_url: NotRequired[str | None]
+
+
+# Schema
+class WorkspaceSettingsRead(BaseModel):
+    git_repo_url: str | None = None
+
+
+class WorkspaceSettingsUpdate(BaseModel):
+    git_repo_url: str | None = None
+
+
 # Params
 class WorkspaceCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
-    settings: dict[str, str] | None = None
+    settings: WorkspaceSettingsUpdate | None = None
     owner_id: OwnerID = Field(default=config.TRACECAT__DEFAULT_ORG_ID)
 
 
 class WorkspaceUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=100)
-    settings: dict[str, str] | None = None
+    settings: WorkspaceSettingsUpdate | None = None
 
 
 class WorkspaceSearch(BaseModel):
@@ -43,7 +61,7 @@ class WorkspaceMember(BaseModel):
 class WorkspaceRead(BaseModel):
     id: WorkspaceID
     name: str
-    settings: dict[str, str] | None = None
+    settings: WorkspaceSettingsRead | None = None
     owner_id: OwnerID
     n_members: int
     members: list[WorkspaceMember]

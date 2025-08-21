@@ -1,3 +1,0 @@
-email:
-  type: str
-  description: Email to lookup.

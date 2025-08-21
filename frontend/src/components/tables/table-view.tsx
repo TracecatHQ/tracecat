@@ -103,7 +103,7 @@ export function DatabaseTable({
 
   useEffect(() => {
     if (id) {
-      document.title = `${name} | Tables`
+      document.title = `Tables | ${name}`
     }
   }, [id, name])
 

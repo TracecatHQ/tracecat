@@ -1,24 +1,25 @@
 "use client"
 
-import { ChevronLeft, FileTextIcon, LayoutListIcon } from "lucide-react"
+import { formatDistanceToNow } from "date-fns/formatDistanceToNow"
+import {
+  Calendar,
+  ChevronLeft,
+  FileTextIcon,
+  LayoutListIcon,
+} from "lucide-react"
 import Link from "next/link"
 import { useParams, useRouter, useSearchParams } from "next/navigation"
-import { useCallback } from "react"
+import { useCallback, useEffect } from "react"
 import type { PromptRead } from "@/client"
 import { CaseCommentViewer } from "@/components/cases/case-description-editor"
 import { JsonViewWithControls } from "@/components/json-viewer"
 import { CenteredSpinner } from "@/components/loading/spinner"
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb"
+import { RunbookSummaryEditor } from "@/components/runbooks/runbook-summary-editor"
+import { RunbookTitleEditor } from "@/components/runbooks/runbook-title-editor"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { useGetPrompt } from "@/hooks/use-prompt"
+import { useGetPrompt, useUpdatePrompt } from "@/hooks/use-prompt"
+import { capitalizeFirst } from "@/lib/utils"
 import { useWorkspace } from "@/providers/workspace"
 
 export default function RunbookDetailPage() {
@@ -39,6 +40,12 @@ export default function RunbookDetailPage() {
     workspaceId,
     promptId: runbookId,
   })
+
+  useEffect(() => {
+    if (prompt?.title) {
+      document.title = prompt.title
+    }
+  }, [prompt])
 
   if (isLoading) {
     return <CenteredSpinner />
@@ -77,6 +84,7 @@ function RunbookDetailContent({ prompt }: { prompt: PromptRead }) {
   const { workspaceId } = useWorkspace()
   const router = useRouter()
   const searchParams = useSearchParams()
+  const { updatePrompt } = useUpdatePrompt(workspaceId)
 
   // Get active tab from URL query params, default to "summary"
   const activeTab = (
@@ -96,34 +104,25 @@ function RunbookDetailContent({ prompt }: { prompt: PromptRead }) {
 
   return (
     <div className="container mx-auto max-w-4xl p-6 min-h-screen">
-      {/* Breadcrumb */}
-      <Breadcrumb className="mb-6">
-        <BreadcrumbList>
-          <BreadcrumbItem>
-            <BreadcrumbLink asChild>
-              <Link href={`/workspaces/${workspaceId}/runbooks`}>Runbooks</Link>
-            </BreadcrumbLink>
-          </BreadcrumbItem>
-          <BreadcrumbSeparator />
-          <BreadcrumbItem>
-            <BreadcrumbPage>{prompt.title}</BreadcrumbPage>
-          </BreadcrumbItem>
-        </BreadcrumbList>
-      </Breadcrumb>
-
       {/* Header */}
-      <div className="mb-8 flex items-start justify-between">
-        <div className="flex items-start gap-4">
+      <div className="mb-8">
+        <RunbookTitleEditor promptData={prompt} updatePrompt={updatePrompt} />
+        <div className="mt-3 flex items-start gap-4">
           <FileTextIcon className="size-10 p-2 bg-muted rounded-md" />
-          <div>
-            <h1 className="text-xl font-semibold">{prompt.title}</h1>
+          <div className="flex-1">
             <p className="mt-1 text-muted-foreground">
-              Created from chat {prompt.chat_id}
+              {prompt.meta?.case_slug
+                ? `Created from ${prompt.meta.case_slug}`
+                : `Created from chat ${prompt.chat_id}`}
             </p>
-            <div className="mt-2 flex gap-2">
+            <div className="mt-2 flex items-center gap-1">
+              <Calendar className="size-3 text-muted-foreground" />
               <span className="text-sm text-muted-foreground">
-                {prompt.tools.length} tool{prompt.tools.length !== 1 ? "s" : ""}{" "}
-                " Created {new Date(prompt.created_at).toLocaleDateString()}
+                {capitalizeFirst(
+                  formatDistanceToNow(new Date(prompt.created_at), {
+                    addSuffix: true,
+                  })
+                )}
               </span>
             </div>
           </div>
@@ -156,27 +155,25 @@ function RunbookDetailContent({ prompt }: { prompt: PromptRead }) {
         <TabsContent value="summary" className="space-y-6">
           {/* Main Content */}
           <div className="space-y-6">
-            <CaseCommentViewer
-              content={prompt.summary || ""}
-              className="min-h-[200px]"
-            />
+            {prompt.summary !== undefined ? (
+              <RunbookSummaryEditor
+                promptData={prompt}
+                updatePrompt={updatePrompt}
+              />
+            ) : (
+              <CaseCommentViewer content="" className="min-h-[200px]" />
+            )}
           </div>
         </TabsContent>
 
         <TabsContent value="instructions" className="space-y-6">
           <div className="space-y-4">
-            <h3 className="text-lg font-semibold">Raw Prompt (JSON)</h3>
+            <h3 className="text-lg font-semibold">Payload</h3>
             <JsonViewWithControls
               src={prompt}
               defaultExpanded
               defaultTab="nested"
             />
-          </div>
-          <div className="space-y-4">
-            <h3 className="text-lg font-semibold">Full Prompt Content</h3>
-            <pre className="w-full text-xs overflow-x-auto rounded-md border bg-muted-foreground/5 p-4 max-h-[1000px]">
-              {prompt.content}
-            </pre>
           </div>
         </TabsContent>
       </Tabs>

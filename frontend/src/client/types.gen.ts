@@ -180,6 +180,32 @@ export type AgentOutput = {
   usage?: Usage | null
 }
 
+export type AgentSettingsRead = {
+  agent_default_model: string | null
+  agent_fixed_args: string | null
+  agent_case_chat_prompt: string
+  agent_case_chat_inject_content: boolean
+}
+
+export type AgentSettingsUpdate = {
+  /**
+   * The default AI model to use for agent operations.
+   */
+  agent_default_model?: string | null
+  /**
+   * Fixed arguments for agent tools as a JSON string. Format: {'tool_name': {'arg': 'value'}}
+   */
+  agent_fixed_args?: string | null
+  /**
+   * Additional instructions for case chat agent; prepended to UI-provided instructions.
+   */
+  agent_case_chat_prompt?: string
+  /**
+   * Whether to automatically inject case content into agent prompts when a case_id is available.
+   */
+  agent_case_chat_inject_content?: boolean
+}
+
 /**
  * Settings for the app.
  */
@@ -801,6 +827,10 @@ export type ChatRequest = {
   context?: {
     [key: string]: unknown
   } | null
+  /**
+   * Optional base URL for the model provider
+   */
+  base_url?: string | null
 }
 
 /**
@@ -1255,6 +1285,18 @@ export type ExpressionValidationResponse = {
 }
 
 /**
+ * Feature flag enum.
+ */
+export type FeatureFlag = "git-sync"
+
+/**
+ * Response model for feature flags.
+ */
+export type FeatureFlagsRead = {
+  enabled_features: Array<FeatureFlag>
+}
+
+/**
  * Event for when a case field is changed.
  */
 export type FieldChangedEventRead = {
@@ -1303,6 +1345,80 @@ export type GetWorkflowDefinitionActivityInputs = {
   workflow_id: string
   version?: number | null
   task?: ActionStatement | null
+}
+
+/**
+ * Request to register or update GitHub App credentials.
+ */
+export type GitHubAppCredentialsRequest = {
+  /**
+   * GitHub App ID
+   */
+  app_id: string
+  /**
+   * GitHub App private key in PEM format
+   */
+  private_key: string
+  /**
+   * GitHub App webhook secret
+   */
+  webhook_secret?: string | null
+  /**
+   * GitHub App client ID
+   */
+  client_id?: string | null
+}
+
+/**
+ * Status of GitHub App credentials.
+ */
+export type GitHubAppCredentialsStatus = {
+  exists: boolean
+  app_id?: string | null
+  has_webhook_secret?: boolean
+  has_client_id?: boolean
+  created_at?: string | null
+}
+
+/**
+ * GitHub App manifest for creating enterprise apps.
+ */
+export type GitHubAppManifest = {
+  name: string
+  url: string
+  hook_attributes: GitHubWebhookAttributes
+  redirect_url: string
+  callback_urls: Array<string>
+  setup_url: string
+  description: string
+  public: boolean
+  default_permissions: GitHubAppPermissions
+  default_events: Array<string>
+}
+
+/**
+ * GitHub App manifest response.
+ */
+export type GitHubAppManifestResponse = {
+  manifest: GitHubAppManifest
+  instructions: Array<string>
+}
+
+/**
+ * Type definition for GitHub App default permissions.
+ */
+export type GitHubAppPermissions = {
+  contents: string
+  metadata: string
+  pull_requests: string
+}
+
+/**
+ * Type definition for GitHub webhook attributes.
+ */
+export type GitHubWebhookAttributes = {
+  url: string
+  active: boolean
 }
 
 export type GitSettingsRead = {
@@ -1678,6 +1794,12 @@ export type PromptCreate = {
    * ID of the chat to freeze into a prompt
    */
   chat_id: string
+  /**
+   * Optional metadata to include with the prompt (e.g., case information)
+   */
+  meta?: {
+    [key: string]: unknown
+  } | null
 }
 
 /**
@@ -1816,6 +1938,10 @@ export type ProviderCredentialField = {
    * Help text describing this credential
    */
   description: string
+  /**
+   * Whether this field is required
+   */
+  required?: boolean
 }
 
 /**
@@ -1877,7 +2003,7 @@ export type ProviderRead = {
   grant_type: OAuthGrantType
   metadata: ProviderMetadata
   scopes: ProviderScopes
-  schema?: ProviderSchema
+  config_schema: ProviderSchema
   integration_status: IntegrationStatus
   redirect_uri?: string | null
 }
@@ -2571,7 +2697,7 @@ export type SecretReadMinimal = {
 /**
  * The type of a secret.
  */
-export type SecretType = "custom" | "ssh-key"
+export type SecretType = "custom" | "ssh-key" | "github-app"
 
 /**
  * Update a secret.
@@ -2852,6 +2978,9 @@ export type TagInput = {
 export type TagRead = {
   id: string
   name: string
+  /**
+   * Slug-like identifier derived from name, used for API lookups
+   */
   ref: string
   /**
    * Hex color code
@@ -3291,6 +3420,10 @@ export type WorkflowDirectoryItem = {
   type: "workflow"
 }
 
+export type WorkflowDslPublish = {
+  message?: string | null
+}
+
 /**
  * The event types we care about.
  */
@@ -3635,9 +3768,7 @@ export type WorkflowUpdate = {
 
 export type WorkspaceCreate = {
   name: string
-  settings?: {
-    [key: string]: string
-  } | null
+  settings?: WorkspaceSettingsUpdate | null
   owner_id?: string
 }
 
@@ -3668,9 +3799,7 @@ export type WorkspaceMembershipUpdate = {
 export type WorkspaceRead = {
   id: string
   name: string
-  settings?: {
-    [key: string]: string
-  } | null
+  settings?: WorkspaceSettingsRead | null
   owner_id: string
   n_members: number
   members: Array<WorkspaceMember>
@@ -3684,11 +3813,17 @@ export type WorkspaceReadMinimal = {
 
 export type WorkspaceRole = "editor" | "admin"
 
+export type WorkspaceSettingsRead = {
+  git_repo_url?: string | null
+}
+
+export type WorkspaceSettingsUpdate = {
+  git_repo_url?: string | null
+}
+
 export type WorkspaceUpdate = {
   name?: string | null
-  settings?: {
-    [key: string]: string
-  } | null
+  settings?: WorkspaceSettingsUpdate | null
 }
 
 export type Yaml = {
@@ -4051,6 +4186,14 @@ export type WorkflowsRemoveTagData = {
 
 export type WorkflowsRemoveTagResponse = void
 
+export type WorkflowsPublishWorkflowData = {
+  requestBody: WorkflowDslPublish
+  workflowId: string
+  workspaceId: string
+}
+
+export type WorkflowsPublishWorkflowResponse = void
+
 export type SecretsSearchSecretsData = {
   environment: string
   /**
@@ -4400,6 +4543,14 @@ export type SettingsUpdateAppSettingsData = {
 
 export type SettingsUpdateAppSettingsResponse = void
 
+export type SettingsGetAgentSettingsResponse = AgentSettingsRead
+
+export type SettingsUpdateAgentSettingsData = {
+  requestBody: AgentSettingsUpdate
+}
+
+export type SettingsUpdateAgentSettingsResponse = void
+
 export type OrganizationSecretsListOrgSecretsData = {
   /**
    * Filter by secret type
@@ -4561,7 +4712,7 @@ export type CasesListCasesData = {
   /**
    * Filter by tag IDs or slugs (AND logic)
    */
-  tags?: Array<string>
+  tags?: Array<string> | null
   workspaceId: string
 }
 
@@ -4612,7 +4763,7 @@ export type CasesSearchCasesData = {
   /**
    * Filter by tag IDs or slugs (AND logic)
    */
-  tags?: Array<string>
+  tags?: Array<string> | null
   workspaceId: string
 }
 
@@ -5024,6 +5175,40 @@ export type ProvidersGetProviderData = {
 }
 
 export type ProvidersGetProviderResponse = ProviderRead
+
+export type FeatureFlagsGetFeatureFlagsResponse = FeatureFlagsRead
+
+export type VcsGetGithubAppManifestResponse = GitHubAppManifestResponse
+
+export type VcsGithubAppInstallCallbackData = {
+  /**
+   * Temporary code from GitHub manifest flow
+   */
+  code: string
+}
+
+export type VcsGithubAppInstallCallbackResponse = unknown
+
+export type VcsGithubWebhookData = {
+  requestBody: {
+    [key: string]: unknown
+  }
+}
+
+export type VcsGithubWebhookResponse = {
+  [key: string]: string
+}
+
+export type VcsSaveGithubAppCredentialsData = {
+  requestBody: GitHubAppCredentialsRequest
+}
+
+export type VcsSaveGithubAppCredentialsResponse = {
+  [key: string]: string
+}
+
+export type VcsGetGithubAppCredentialsStatusResponse =
+  GitHubAppCredentialsStatus
 
 export type UsersUsersCurrentUserResponse = UserRead
 
@@ -5695,6 +5880,21 @@ export type $OpenApiTs = {
   "/workflows/{workflow_id}/tags/{tag_id}": {
     delete: {
       req: WorkflowsRemoveTagData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workflows/{workflow_id}/publish": {
+    post: {
+      req: WorkflowsPublishWorkflowData
       res: {
         /**
          * Successful Response
@@ -6476,6 +6676,29 @@ export type $OpenApiTs = {
     }
     patch: {
       req: SettingsUpdateAppSettingsData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/settings/agent": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentSettingsRead
+      }
+    }
+    patch: {
+      req: SettingsUpdateAgentSettingsData
       res: {
         /**
          * Successful Response
@@ -7509,6 +7732,85 @@ export type $OpenApiTs = {
          * Validation Error
          */
         422: HTTPValidationError
+      }
+    }
+  }
+  "/feature-flags": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: FeatureFlagsRead
+      }
+    }
+  }
+  "/organization/vcs/github/manifest": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: GitHubAppManifestResponse
+      }
+    }
+  }
+  "/organization/vcs/github/install": {
+    get: {
+      req: VcsGithubAppInstallCallbackData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/vcs/github/webhook": {
+    post: {
+      req: VcsGithubWebhookData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: {
+          [key: string]: string
+        }
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/vcs/github/credentials": {
+    post: {
+      req: VcsSaveGithubAppCredentialsData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: {
+          [key: string]: string
+        }
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/vcs/github/credentials/status": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: GitHubAppCredentialsStatus
       }
     }
   }

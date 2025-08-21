@@ -8,7 +8,7 @@ from typing import Any
 from pydantic import UUID4, BaseModel
 
 from tracecat.config import TRACECAT__APP_ENV
-from tracecat.git import GitUrl
+from tracecat.git.models import GitUrl
 from tracecat.types.auth import Role
 
 

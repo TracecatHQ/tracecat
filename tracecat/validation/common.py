@@ -93,7 +93,7 @@ def json_schema_to_pydantic(
             field_params["description"] = prop_schema_val["description"]
 
         if prop_name not in required:
-            field_type = field_type | None
+            field_type = field_type | None  # type: ignore
             field_params["default"] = None
 
         fields[prop_name] = (field_type, Field(**field_params))

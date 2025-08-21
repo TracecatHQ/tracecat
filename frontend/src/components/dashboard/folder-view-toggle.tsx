@@ -120,6 +120,7 @@ export function FolderViewToggle({
         <Tooltip>
           <TooltipTrigger asChild>
             <button
+              type="button"
               onClick={() => handleViewChange(ViewMode.Tags)}
               className={cn(
                 "flex size-7 items-center justify-center rounded-l-sm transition-colors",
@@ -142,6 +143,7 @@ export function FolderViewToggle({
         <Tooltip>
           <TooltipTrigger asChild>
             <button
+              type="button"
               onClick={() => handleViewChange(ViewMode.Folders)}
               className={cn(
                 "flex size-7 items-center justify-center rounded-r-sm transition-colors",

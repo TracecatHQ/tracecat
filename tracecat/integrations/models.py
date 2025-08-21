@@ -264,7 +264,7 @@ class ProviderRead(BaseModel):
     grant_type: OAuthGrantType
     metadata: ProviderMetadata
     scopes: ProviderScopes
-    schema: ProviderSchema
+    config_schema: ProviderSchema
     integration_status: IntegrationStatus
     # Only applicable to AuthorizationCodeOAuthProvider
     redirect_uri: str | None = None

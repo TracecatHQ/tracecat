@@ -18,11 +18,25 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat.contexts import ctx_role
 from tracecat.logger import logger
+from tracecat.secrets.models import SSHKeyTarget
 from tracecat.secrets.service import SecretsService
 from tracecat.types.auth import Role
 
 if TYPE_CHECKING:
-    from tracecat.git import GitUrl
+    from tracecat.git.models import GitUrl
+
+# Export list for backward compatibility
+__all__ = [
+    "SshEnv",
+    "temporary_ssh_agent",
+    "add_host_to_known_hosts",
+    "add_ssh_key_to_agent",
+    "get_ssh_command",
+    "prepare_ssh_key_file",
+    "ssh_context",
+    "get_git_ssh_command",
+    "git_env_context",
+]
 
 
 @dataclass
@@ -223,14 +237,83 @@ async def ssh_context(
     git_url: GitUrl | None = None,
     session: AsyncSession,
     role: Role | None = None,
+    key_name: str | None = None,
+    target: SSHKeyTarget = "registry",
 ) -> AsyncIterator[SshEnv | None]:
     """Context manager for SSH environment variables."""
     if git_url is None:
         yield None
     else:
         sec_svc = SecretsService(session, role=role)
-        secret = await sec_svc.get_ssh_key()
+        secret = await sec_svc.get_ssh_key(key_name=key_name, target=target)
         async with temporary_ssh_agent() as env:
             await add_ssh_key_to_agent(secret.get_secret_value(), env=env)
             await add_host_to_known_hosts(git_url.host, env=env)
             yield env
+
+
+# New SSH helper functions for Git operations
+
+
+async def get_git_ssh_command(
+    git_url: GitUrl, *, session: AsyncSession, role: Role | None
+) -> str:
+    """Get a Git SSH command for the given Git URL.
+
+    Args:
+        git_url: Git URL object containing repository information.
+        session: Database session.
+        role: User role for permissions.
+
+    Returns:
+        SSH command string for use with GIT_SSH_COMMAND.
+
+    Raises:
+        Exception: If SSH key retrieval or file preparation fails.
+    """
+    role = role or ctx_role.get()
+    service = SecretsService(session=session, role=role)
+    ssh_key = await service.get_ssh_key(target="registry")
+    ssh_cmd = await prepare_ssh_key_file(git_url=git_url, ssh_key=ssh_key)
+    return ssh_cmd
+
+
+@asynccontextmanager
+async def git_env_context(
+    *, git_url: GitUrl, session: AsyncSession, role: Role | None = None
+) -> AsyncIterator[dict[str, str]]:
+    """Context manager for Git SSH environment variables.
+
+    Sets up a temporary SSH agent, adds the SSH key, and ensures the host
+    is in known_hosts. Yields environment dictionary with SSH variables.
+
+    Args:
+        git_url: Git URL object containing repository information.
+        session: Database session.
+        role: User role for permissions.
+
+    Yields:
+        Environment dictionary with SSH_AUTH_SOCK, SSH_AGENT_PID, and GIT_SSH_COMMAND.
+
+    Raises:
+        Exception: If SSH setup fails.
+    """
+    async with ssh_context(
+        git_url=git_url, session=session, role=role, target="store"
+    ) as ssh_env:
+        if ssh_env is None:
+            # Fallback environment if no SSH key is available
+            yield {}
+            return
+
+        # Get the Git SSH command
+        role = role or ctx_role.get()
+        sec_svc = SecretsService(session, role=role)
+        secret = await sec_svc.get_ssh_key(target="store")
+        git_ssh_cmd = await prepare_ssh_key_file(git_url=git_url, ssh_key=secret)
+
+        # Build complete environment
+        env_dict = ssh_env.to_dict()
+        env_dict["GIT_SSH_COMMAND"] = git_ssh_cmd
+
+        yield env_dict

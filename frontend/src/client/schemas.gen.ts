@@ -736,6 +736,97 @@ export const $AgentOutput = {
   title: "AgentOutput",
 } as const
 
+export const $AgentSettingsRead = {
+  properties: {
+    agent_default_model: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Default Model",
+    },
+    agent_fixed_args: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Fixed Args",
+    },
+    agent_case_chat_prompt: {
+      type: "string",
+      title: "Agent Case Chat Prompt",
+    },
+    agent_case_chat_inject_content: {
+      type: "boolean",
+      title: "Agent Case Chat Inject Content",
+    },
+  },
+  type: "object",
+  required: [
+    "agent_default_model",
+    "agent_fixed_args",
+    "agent_case_chat_prompt",
+    "agent_case_chat_inject_content",
+  ],
+  title: "AgentSettingsRead",
+} as const
+
+export const $AgentSettingsUpdate = {
+  properties: {
+    agent_default_model: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Default Model",
+      description: "The default AI model to use for agent operations.",
+    },
+    agent_fixed_args: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 10000,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Agent Fixed Args",
+      description:
+        "Fixed arguments for agent tools as a JSON string. Format: {'tool_name': {'arg': 'value'}}",
+    },
+    agent_case_chat_prompt: {
+      type: "string",
+      title: "Agent Case Chat Prompt",
+      description:
+        "Additional instructions for case chat agent; prepended to UI-provided instructions.",
+      default: "",
+    },
+    agent_case_chat_inject_content: {
+      type: "boolean",
+      title: "Agent Case Chat Inject Content",
+      description:
+        "Whether to automatically inject case content into agent prompts when a case_id is available.",
+      default: false,
+    },
+  },
+  type: "object",
+  title: "AgentSettingsUpdate",
+} as const
+
 export const $AppSettingsRead = {
   properties: {
     app_registry_validation_enabled: {
@@ -2162,6 +2253,8 @@ export const $CaseTagCreate = {
           type: "string",
         },
       ],
+      maxLength: 100,
+      minLength: 1,
       title: "Tag Id",
       description: "Tag ID (UUID) or ref",
     },
@@ -2494,6 +2587,19 @@ export const $ChatRequest = {
       ],
       title: "Context",
       description: "Optional context data for the agent",
+    },
+    base_url: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 500,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Base Url",
+      description: "Optional base URL for the model provider",
     },
   },
   type: "object",
@@ -3754,6 +3860,29 @@ export const $ExpressionValidationResponse = {
   title: "ExpressionValidationResponse",
 } as const
 
+export const $FeatureFlag = {
+  type: "string",
+  enum: ["git-sync"],
+  title: "FeatureFlag",
+  description: "Feature flag enum.",
+} as const
+
+export const $FeatureFlagsRead = {
+  properties: {
+    enabled_features: {
+      items: {
+        $ref: "#/components/schemas/FeatureFlag",
+      },
+      type: "array",
+      title: "Enabled Features",
+    },
+  },
+  type: "object",
+  required: ["enabled_features"],
+  title: "FeatureFlagsRead",
+  description: "Response model for feature flags.",
+} as const
+
 export const $FieldChangedEventRead = {
   properties: {
     wf_exec_id: {
@@ -3953,6 +4082,219 @@ export const $GetWorkflowDefinitionActivityInputs = {
   type: "object",
   required: ["role", "workflow_id"],
   title: "GetWorkflowDefinitionActivityInputs",
+} as const
+
+export const $GitHubAppCredentialsRequest = {
+  properties: {
+    app_id: {
+      type: "string",
+      title: "App Id",
+      description: "GitHub App ID",
+    },
+    private_key: {
+      type: "string",
+      format: "password",
+      title: "Private Key",
+      description: "GitHub App private key in PEM format",
+      writeOnly: true,
+    },
+    webhook_secret: {
+      anyOf: [
+        {
+          type: "string",
+          format: "password",
+          writeOnly: true,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Webhook Secret",
+      description: "GitHub App webhook secret",
+    },
+    client_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Client Id",
+      description: "GitHub App client ID",
+    },
+  },
+  type: "object",
+  required: ["app_id", "private_key"],
+  title: "GitHubAppCredentialsRequest",
+  description: "Request to register or update GitHub App credentials.",
+} as const
+
+export const $GitHubAppCredentialsStatus = {
+  properties: {
+    exists: {
+      type: "boolean",
+      title: "Exists",
+    },
+    app_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "App Id",
+    },
+    has_webhook_secret: {
+      type: "boolean",
+      title: "Has Webhook Secret",
+      default: false,
+    },
+    has_client_id: {
+      type: "boolean",
+      title: "Has Client Id",
+      default: false,
+    },
+    created_at: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Created At",
+    },
+  },
+  type: "object",
+  required: ["exists"],
+  title: "GitHubAppCredentialsStatus",
+  description: "Status of GitHub App credentials.",
+} as const
+
+export const $GitHubAppManifest = {
+  properties: {
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    url: {
+      type: "string",
+      title: "Url",
+    },
+    hook_attributes: {
+      $ref: "#/components/schemas/GitHubWebhookAttributes",
+    },
+    redirect_url: {
+      type: "string",
+      title: "Redirect Url",
+    },
+    callback_urls: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Callback Urls",
+    },
+    setup_url: {
+      type: "string",
+      title: "Setup Url",
+    },
+    description: {
+      type: "string",
+      title: "Description",
+    },
+    public: {
+      type: "boolean",
+      title: "Public",
+    },
+    default_permissions: {
+      $ref: "#/components/schemas/GitHubAppPermissions",
+    },
+    default_events: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Default Events",
+    },
+  },
+  type: "object",
+  required: [
+    "name",
+    "url",
+    "hook_attributes",
+    "redirect_url",
+    "callback_urls",
+    "setup_url",
+    "description",
+    "public",
+    "default_permissions",
+    "default_events",
+  ],
+  title: "GitHubAppManifest",
+  description: "GitHub App manifest for creating enterprise apps.",
+} as const
+
+export const $GitHubAppManifestResponse = {
+  properties: {
+    manifest: {
+      $ref: "#/components/schemas/GitHubAppManifest",
+    },
+    instructions: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Instructions",
+    },
+  },
+  type: "object",
+  required: ["manifest", "instructions"],
+  title: "GitHubAppManifestResponse",
+  description: "GitHub App manifest response.",
+} as const
+
+export const $GitHubAppPermissions = {
+  properties: {
+    contents: {
+      type: "string",
+      title: "Contents",
+    },
+    metadata: {
+      type: "string",
+      title: "Metadata",
+    },
+    pull_requests: {
+      type: "string",
+      title: "Pull Requests",
+    },
+  },
+  type: "object",
+  required: ["contents", "metadata", "pull_requests"],
+  title: "GitHubAppPermissions",
+  description: "Type definition for GitHub App default permissions.",
+} as const
+
+export const $GitHubWebhookAttributes = {
+  properties: {
+    url: {
+      type: "string",
+      title: "Url",
+    },
+    active: {
+      type: "boolean",
+      title: "Active",
+    },
+  },
+  type: "object",
+  required: ["url", "active"],
+  title: "GitHubWebhookAttributes",
+  description: "Type definition for GitHub webhook attributes.",
 } as const
 
 export const $GitSettingsRead = {
@@ -5036,6 +5378,19 @@ export const $PromptCreate = {
       title: "Chat Id",
       description: "ID of the chat to freeze into a prompt",
     },
+    meta: {
+      anyOf: [
+        {
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Meta",
+      description:
+        "Optional metadata to include with the prompt (e.g., case information)",
+    },
   },
   type: "object",
   required: ["chat_id"],
@@ -5283,6 +5638,12 @@ export const $ProviderCredentialField = {
       title: "Description",
       description: "Help text describing this credential",
     },
+    required: {
+      type: "boolean",
+      title: "Required",
+      description: "Whether this field is required",
+      default: true,
+    },
   },
   type: "object",
   required: ["key", "label", "type", "description"],
@@ -5405,7 +5766,7 @@ export const $ProviderRead = {
     scopes: {
       $ref: "#/components/schemas/ProviderScopes",
     },
-    schema: {
+    config_schema: {
       $ref: "#/components/schemas/ProviderSchema",
     },
     integration_status: {
@@ -5424,7 +5785,13 @@ export const $ProviderRead = {
     },
   },
   type: "object",
-  required: ["grant_type", "metadata", "scopes", "integration_status"],
+  required: [
+    "grant_type",
+    "metadata",
+    "scopes",
+    "config_schema",
+    "integration_status",
+  ],
   title: "ProviderRead",
 } as const
 
@@ -7490,7 +7857,7 @@ export const $SecretReadMinimal = {
 
 export const $SecretType = {
   type: "string",
-  enum: ["custom", "ssh-key"],
+  enum: ["custom", "ssh-key", "github-app"],
   title: "SecretType",
   description: "The type of a secret.",
 } as const
@@ -8265,6 +8632,8 @@ export const $TagRead = {
     ref: {
       type: "string",
       title: "Ref",
+      description:
+        "Slug-like identifier derived from name, used for API lookups",
     },
     color: {
       anyOf: [
@@ -9845,6 +10214,24 @@ export const $WorkflowDirectoryItem = {
   title: "WorkflowDirectoryItem",
 } as const
 
+export const $WorkflowDslPublish = {
+  properties: {
+    message: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Message",
+    },
+  },
+  type: "object",
+  title: "WorkflowDslPublish",
+} as const
+
 export const $WorkflowEventType = {
   type: "string",
   enum: [
@@ -11091,16 +11478,12 @@ export const $WorkspaceCreate = {
     settings: {
       anyOf: [
         {
-          additionalProperties: {
-            type: "string",
-          },
-          type: "object",
+          $ref: "#/components/schemas/WorkspaceSettingsUpdate",
         },
         {
           type: "null",
         },
       ],
-      title: "Settings",
     },
     owner_id: {
       type: "string",
@@ -11236,16 +11619,12 @@ export const $WorkspaceRead = {
     settings: {
       anyOf: [
         {
-          additionalProperties: {
-            type: "string",
-          },
-          type: "object",
+          $ref: "#/components/schemas/WorkspaceSettingsRead",
         },
         {
           type: "null",
         },
       ],
-      title: "Settings",
     },
     owner_id: {
       type: "string",
@@ -11296,6 +11675,42 @@ export const $WorkspaceRole = {
   title: "WorkspaceRole",
 } as const
 
+export const $WorkspaceSettingsRead = {
+  properties: {
+    git_repo_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Git Repo Url",
+    },
+  },
+  type: "object",
+  title: "WorkspaceSettingsRead",
+} as const
+
+export const $WorkspaceSettingsUpdate = {
+  properties: {
+    git_repo_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Git Repo Url",
+    },
+  },
+  type: "object",
+  title: "WorkspaceSettingsUpdate",
+} as const
+
 export const $WorkspaceUpdate = {
   properties: {
     name: {
@@ -11314,16 +11729,12 @@ export const $WorkspaceUpdate = {
     settings: {
       anyOf: [
         {
-          additionalProperties: {
-            type: "string",
-          },
-          type: "object",
+          $ref: "#/components/schemas/WorkspaceSettingsUpdate",
         },
         {
           type: "null",
         },
       ],
-      title: "Settings",
     },
   },
   type: "object",

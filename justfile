@@ -10,7 +10,9 @@ down:
 clean:
 	docker volume ls -q | xargs -r docker volume rm
 clean-images:
-	docker images "tracecat*" -q | xargs -r docker rmi
+	docker images --filter "reference=tracecat*" | awk 'NR>1 && $1 != "<none>" && $2 != "<none>" {print $1 ":" $2}' | xargs -r -n 1 docker rmi
+clean-dangling:
+	docker image prune -f
 dev:
 	docker compose -f docker-compose.dev.yml up
 dev-ui:

@@ -1,3 +1,0 @@
-cidr_block:
-  type: str
-  description: CIDR block to allow.

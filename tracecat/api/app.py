@@ -1,6 +1,6 @@
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request, status
+from fastapi import Depends, FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import ORJSONResponse
@@ -39,6 +39,8 @@ from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.editor.router import router as editor_router
+from tracecat.feature_flags import feature_flag_dep
+from tracecat.feature_flags.router import router as feature_flags_router
 from tracecat.integrations.router import integrations_router, providers_router
 from tracecat.logger import logger
 from tracecat.middleware import (
@@ -60,6 +62,7 @@ from tracecat.tables.router import router as tables_router
 from tracecat.tags.router import router as tags_router
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatException
+from tracecat.vcs.router import org_router as vcs_router
 from tracecat.webhooks.router import router as webhook_router
 from tracecat.workflow.actions.router import router as workflow_actions_router
 from tracecat.workflow.executions.router import router as workflow_executions_router
@@ -68,6 +71,7 @@ from tracecat.workflow.management.folders.router import (
 )
 from tracecat.workflow.management.router import router as workflow_management_router
 from tracecat.workflow.schedules.router import router as schedules_router
+from tracecat.workflow.store.router import router as workflow_store_router
 from tracecat.workflow.tags.router import router as workflow_tags_router
 from tracecat.workspaces.router import router as workspaces_router
 from tracecat.workspaces.service import WorkspaceService
@@ -86,8 +90,14 @@ async def lifespan(app: FastAPI):
     async with get_async_session_context_manager() as session:
         # Org
         await setup_org_settings(session, role)
-        await reload_registry(session, role)
+        try:
+            await reload_registry(session, role)
+        except Exception as e:
+            logger.warning("Error reloading registry", error=e)
         await setup_workspace_defaults(session, role)
+    logger.info(
+        "Feature flags", feature_flags=[f.value for f in config.TRACECAT__FEATURE_FLAGS]
+    )
     yield
 
 
@@ -117,7 +127,8 @@ def validation_exception_handler(request: Request, exc: RequestValidationError):
     ser_errors = to_jsonable_python(errors, fallback=str)
     logger.error(
         "API Model Validation error",
-        request=request,
+        method=request.method,
+        path=request.url.path,
         errors=ser_errors,
     )
     return ORJSONResponse(
@@ -184,6 +195,7 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(workflow_executions_router)
     app.include_router(workflow_actions_router)
     app.include_router(workflow_tags_router)
+    app.include_router(workflow_store_router)
     app.include_router(secrets_router)
     app.include_router(schedules_router)
     app.include_router(tags_router)
@@ -204,6 +216,11 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(workflow_folders_router)
     app.include_router(integrations_router)
     app.include_router(providers_router)
+    app.include_router(feature_flags_router)
+    app.include_router(
+        vcs_router,
+        dependencies=[Depends(feature_flag_dep("git-sync"))],
+    )
     app.include_router(
         fastapi_users.get_users_router(UserRead, UserUpdate),
         prefix="/users",

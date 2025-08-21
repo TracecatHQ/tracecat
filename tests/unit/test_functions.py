@@ -1,3 +1,4 @@
+from collections import Counter
 from datetime import UTC, datetime, time, timedelta
 from typing import Any, Literal
 
@@ -15,6 +16,8 @@ from tracecat.expressions.functions import (
     capitalize,
     cast,
     check_ip_version,
+    contains_any_of,
+    contains_none_of,
     create_days,
     create_hours,
     create_minutes,
@@ -26,6 +29,7 @@ from tracecat.expressions.functions import (
     dict_keys,
     dict_lookup,
     dict_values,
+    difference,
     div,
     endswith,
     flatten,
@@ -44,6 +48,7 @@ from tracecat.expressions.functions import (
     greater_than_or_equal,
     hours_between,
     index_by_key,
+    intersection,
     ipv4_in_subnet,
     ipv4_is_public,
     ipv6_in_subnet,
@@ -87,10 +92,12 @@ from tracecat.expressions.functions import (
     strip,
     sub,
     sum_,
+    symmetric_difference,
     titleize,
     to_datetime,
     to_time,
     to_timestamp,
+    union,
     unset_timezone,
     uppercase,
     url_decode,
@@ -396,6 +403,47 @@ def test_equality(func, a: Any, b: Any, expected: bool) -> None:
 )
 def test_is_in(func, a: Any, b: Any, expected: bool) -> None:
     assert func(a, b) == expected
+
+
+@pytest.mark.parametrize(
+    "func,a,b,expected",
+    [
+        (contains_any_of, [1, 3], [2, 3, 4], True),
+        (contains_any_of, ["ex", "ma"], "hello", False),
+        (contains_any_of, ["1", 2, 3.0], ["2", 2, 3.1], True),
+        (contains_none_of, "enc", ["mic", "kitten"], True),
+        (contains_none_of, "x", "hello", True),
+        (contains_none_of, ["1", 4.0], ["1", 2.0, 3], False),
+    ],
+)
+def test_has_any_in(func, a: Any, b: Any, expected: bool) -> None:
+    assert func(a, b) == expected
+
+
+@pytest.mark.parametrize(
+    "func,a,b,expected",
+    [
+        (union, [1, 2, 3], [3, 4, 5], [1, 2, 3, 4, 5]),
+        (union, [1, 2, 3], ["hello", "world"], [1, 2, 3, "hello", "world"]),
+        (intersection, [1, 2, 3], [3, 4, 5], [3]),
+        (intersection, [1, 2, 3], ["hello", "world"], []),
+        (difference, [1, 2, 3], [3, 4, 5], [1, 2]),
+        (difference, [1, 2, 3], ["hello", "world"], [1, 2, 3]),
+        (symmetric_difference, [1, 2, 3], [3, 4, 5], [1, 2, 4, 5]),
+        (
+            symmetric_difference,
+            [1, 2, 3],
+            ["hello", "world"],
+            [1, 2, 3, "hello", "world"],
+        ),
+    ],
+)
+def test_set_operations(func, a: Any, b: Any, expected: list[Any]) -> None:
+    """Test set operations functions."""
+    result = func(a, b)
+    # Compare as multisets (order-independent, preserves multiplicity)
+    # Ref: https://stackoverflow.com/questions/7828867/how-to-efficiently-compare-two-unordered-lists-not-sets
+    assert Counter(result) == Counter(expected)
 
 
 @pytest.mark.parametrize(

@@ -62,6 +62,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # Copy the application files into the container and set ownership
 COPY --chown=apiuser:apiuser ./tracecat /app/tracecat
 COPY --chown=apiuser:apiuser ./packages/tracecat-registry /app/packages/tracecat-registry
+COPY --chown=apiuser:apiuser ./packages/tracecat-ee /app/packages/tracecat-ee
 COPY --chown=apiuser:apiuser ./pyproject.toml /app/pyproject.toml
 COPY --chown=apiuser:apiuser ./uv.lock /app/uv.lock
 COPY --chown=apiuser:apiuser ./.python-version /app/.python-version
@@ -74,7 +75,7 @@ COPY --chown=apiuser:apiuser ./alembic /app/alembic
 COPY --chown=apiuser:apiuser scripts/entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
-# Install the project
+# Install the project with EE features
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --no-editable
 

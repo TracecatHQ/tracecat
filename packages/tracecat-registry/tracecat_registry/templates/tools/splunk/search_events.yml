@@ -51,4 +51,5 @@ definition:
           exec_mode: oneshot
           output_mode: json
           max_count: ${{ inputs.limit }}
+          count: 0
   returns: ${{ steps.search_job.result.data }}

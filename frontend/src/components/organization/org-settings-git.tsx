@@ -29,10 +29,19 @@ const gitFormSchema = z.object({
   git_repo_url: z
     .string()
     .nullish()
-    .refine(
-      (url) => !url || /^git\+ssh:\/\/git@[^/]+\/[^/]+\/[^/@]+\.git$/.test(url),
-      "Must be a valid Git SSH URL in format: git+ssh://git@host/org/repo.git"
-    ),
+    .refine((url) => {
+      if (!url) return true
+      // Matches the backend regex in tracecat/git/utils.py
+      // Supports:
+      // - Standard format: git+ssh://git@github.com/org/repo.git
+      // - With port: git+ssh://git@gitlab.example.com:2222/org/repo.git
+      // - Nested groups: git+ssh://git@gitlab.com/org/team/subteam/repo.git
+      // - With ref: git+ssh://git@github.com/org/repo.git@main
+      // - Optional .git suffix
+      // Requires at least 2 path segments (org/repo) to match backend validation
+      const regex = /^git\+ssh:\/\/git@[^/]+\/[^/]+\/.+?(?:\.git)?(?:@[^/]+)?$/
+      return regex.test(url)
+    }, "Must be a valid Git SSH URL (e.g., git+ssh://git@github.com/org/repo.git)"),
   git_repo_package_name: z.string().nullish(),
 })
 
@@ -99,7 +108,7 @@ export function OrgSettingsGitForm() {
               <FormLabel>Remote repository URL</FormLabel>
               <FormControl>
                 <Input
-                  placeholder="git+ssh://git@my-host/my-org/my-repo.git"
+                  placeholder="git+ssh://git@gitlab.example.com:2222/org/team/repo.git"
                   {...field}
                   value={field.value ?? ""}
                 />
@@ -107,7 +116,7 @@ export function OrgSettingsGitForm() {
               <FormDescription>
                 Git URL of the remote repository. Must use{" "}
                 <span className="font-mono tracking-tighter">git+ssh</span>{" "}
-                scheme.
+                scheme. Supports nested groups and custom ports.
               </FormDescription>
               <FormMessage />
             </FormItem>
@@ -151,7 +160,7 @@ export function OrgSettingsGitForm() {
               </FormControl>
               <FormDescription>
                 Add domains that are allowed for Git operations (e.g.,
-                github.com)
+                github.com, gitlab.com, or gitlab.example.com:2222 with port)
               </FormDescription>
               <FormMessage />
             </FormItem>

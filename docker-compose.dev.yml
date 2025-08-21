@@ -41,6 +41,7 @@ services:
       OAUTH_CLIENT_ID: ${OAUTH_CLIENT_ID}
       OAUTH_CLIENT_SECRET: ${OAUTH_CLIENT_SECRET}
       USER_AUTH_SECRET: ${USER_AUTH_SECRET}
+      TRACECAT__FEATURE_FLAGS: ${TRACECAT__FEATURE_FLAGS}
       # SAML SSO
       SAML_IDP_METADATA_URL: ${SAML_IDP_METADATA_URL}
       # Temporal
@@ -92,6 +93,7 @@ services:
       TRACECAT__EXECUTOR_URL: ${INTERNAL_EXECUTOR_URL}
       TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY} # Sensitive
       TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET} # Sensitive
+      TRACECAT__FEATURE_FLAGS: ${TRACECAT__FEATURE_FLAGS}
       # Temporal
       TEMPORAL__CLUSTER_URL: ${TEMPORAL__CLUSTER_URL}
       TEMPORAL__CLUSTER_QUEUE: ${TEMPORAL__CLUSTER_QUEUE}
@@ -102,6 +104,10 @@ services:
       TRACECAT__LOCAL_REPOSITORY_ENABLED: ${TRACECAT__LOCAL_REPOSITORY_ENABLED}
       # Sentry
       SENTRY_DSN: ${SENTRY_DSN}
+      # Redis
+      REDIS_HOST: ${REDIS_HOST}
+      REDIS_PORT: ${REDIS_PORT}
+      REDIS_URL: ${REDIS_URL}
     volumes:
       - ./tracecat:/app/tracecat
       - ./packages/tracecat-registry:/app/packages/tracecat-registry
@@ -110,6 +116,7 @@ services:
     depends_on:
       - api
       - temporal
+      - redis
 
   executor:
     build:
@@ -130,6 +137,7 @@ services:
       TRACECAT__DB_URI: ${TRACECAT__DB_URI} # Sensitive
       TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY} # Sensitive
       TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET} # Sensitive
+      TRACECAT__FEATURE_FLAGS: ${TRACECAT__FEATURE_FLAGS}
       # Registry
       TRACECAT__UNSAFE_DISABLE_SM_MASKING: ${TRACECAT__UNSAFE_DISABLE_SM_MASKING:-false}
       # Local registry
@@ -231,7 +239,7 @@ services:
     attach: false
 
   temporal_ui:
-    image: temporalio/ui:${TEMPORAL__UI_VERSION}
+    image: temporalio/ui:${TEMPORAL__UI_VERSION:-latest}
     container_name: temporal_ui
     ports:
       - 8081:8080

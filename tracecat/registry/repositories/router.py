@@ -27,6 +27,7 @@ from tracecat.types.auth import AccessLevel, Role
 from tracecat.types.exceptions import (
     RegistryActionValidationError,
     RegistryError,
+    TracecatCredentialsNotFoundError,
     TracecatValidationError,
 )
 
@@ -114,6 +115,12 @@ async def sync_registry_repository(
         logger.warning("Cannot sync repository", exc=e)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        ) from e
+    except TracecatCredentialsNotFoundError as e:
+        logger.warning("Credentials not found", exc=e)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
         ) from e
     except RegistryActionValidationError as e:
         logger.warning("Validation errors while syncing repository", exc=e)

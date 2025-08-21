@@ -114,6 +114,7 @@ import type {
   EditorListFunctionsResponse,
   EditorValidateExpressionData,
   EditorValidateExpressionResponse,
+  FeatureFlagsGetFeatureFlagsResponse,
   FoldersCreateFolderData,
   FoldersCreateFolderResponse,
   FoldersDeleteFolderData,
@@ -234,11 +235,14 @@ import type {
   SecretsSearchSecretsResponse,
   SecretsUpdateSecretByIdData,
   SecretsUpdateSecretByIdResponse,
+  SettingsGetAgentSettingsResponse,
   SettingsGetAppSettingsResponse,
   SettingsGetAuthSettingsResponse,
   SettingsGetGitSettingsResponse,
   SettingsGetOauthSettingsResponse,
   SettingsGetSamlSettingsResponse,
+  SettingsUpdateAgentSettingsData,
+  SettingsUpdateAgentSettingsResponse,
   SettingsUpdateAppSettingsData,
   SettingsUpdateAppSettingsResponse,
   SettingsUpdateAuthSettingsData,
@@ -304,6 +308,14 @@ import type {
   UsersUsersPatchUserResponse,
   UsersUsersUserData,
   UsersUsersUserResponse,
+  VcsGetGithubAppCredentialsStatusResponse,
+  VcsGetGithubAppManifestResponse,
+  VcsGithubAppInstallCallbackData,
+  VcsGithubAppInstallCallbackResponse,
+  VcsGithubWebhookData,
+  VcsGithubWebhookResponse,
+  VcsSaveGithubAppCredentialsData,
+  VcsSaveGithubAppCredentialsResponse,
   WorkflowExecutionsCancelWorkflowExecutionData,
   WorkflowExecutionsCancelWorkflowExecutionResponse,
   WorkflowExecutionsCreateWorkflowExecutionData,
@@ -338,6 +350,8 @@ import type {
   WorkflowsListWorkflowsResponse,
   WorkflowsMoveWorkflowToFolderData,
   WorkflowsMoveWorkflowToFolderResponse,
+  WorkflowsPublishWorkflowData,
+  WorkflowsPublishWorkflowResponse,
   WorkflowsRemoveTagData,
   WorkflowsRemoveTagResponse,
   WorkflowsUpdateWorkflowData,
@@ -1551,6 +1565,35 @@ export const workflowsRemoveTag = (
     query: {
       workspace_id: data.workspaceId,
     },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Publish Workflow
+ * @param data The data for the request.
+ * @param data.workflowId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const workflowsPublishWorkflow = (
+  data: WorkflowsPublishWorkflowData
+): CancelablePromise<WorkflowsPublishWorkflowResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workflows/{workflow_id}/publish",
+    path: {
+      workflow_id: data.workflowId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
     errors: {
       422: "Validation Error",
     },
@@ -2833,6 +2876,40 @@ export const settingsUpdateAppSettings = (
   return __request(OpenAPI, {
     method: "PATCH",
     url: "/settings/app",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Agent Settings
+ * @returns AgentSettingsRead Successful Response
+ * @throws ApiError
+ */
+export const settingsGetAgentSettings =
+  (): CancelablePromise<SettingsGetAgentSettingsResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/settings/agent",
+    })
+  }
+
+/**
+ * Update Agent Settings
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const settingsUpdateAgentSettings = (
+  data: SettingsUpdateAgentSettingsData
+): CancelablePromise<SettingsUpdateAgentSettingsResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/settings/agent",
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
@@ -4880,6 +4957,122 @@ export const providersGetProvider = (
     },
   })
 }
+
+/**
+ * Get Feature Flags
+ * Get the list of enabled feature flags.
+ *
+ * This endpoint is public and doesn't require authentication,
+ * as feature flags are not sensitive information.
+ * @returns FeatureFlagsRead Successful Response
+ * @throws ApiError
+ */
+export const featureFlagsGetFeatureFlags =
+  (): CancelablePromise<FeatureFlagsGetFeatureFlagsResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/feature-flags",
+    })
+  }
+
+/**
+ * Get Github App Manifest
+ * Generate GitHub App manifest for enterprise installation.
+ * @returns GitHubAppManifestResponse Successful Response
+ * @throws ApiError
+ */
+export const vcsGetGithubAppManifest =
+  (): CancelablePromise<VcsGetGithubAppManifestResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/organization/vcs/github/manifest",
+    })
+  }
+
+/**
+ * Github App Install Callback
+ * Handle GitHub App installation flow.
+ *
+ * This endpoint handles two different flows:
+ * 1. Code exchange: When GitHub redirects with a temporary code after manifest submission
+ * 2. Installation callback: When GitHub redirects after app installation
+ * @param data The data for the request.
+ * @param data.code Temporary code from GitHub manifest flow
+ * @returns unknown Successful Response
+ * @throws ApiError
+ */
+export const vcsGithubAppInstallCallback = (
+  data: VcsGithubAppInstallCallbackData
+): CancelablePromise<VcsGithubAppInstallCallbackResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/organization/vcs/github/install",
+    query: {
+      code: data.code,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Github Webhook
+ * Handle GitHub webhook events.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns string Successful Response
+ * @throws ApiError
+ */
+export const vcsGithubWebhook = (
+  data: VcsGithubWebhookData
+): CancelablePromise<VcsGithubWebhookResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/organization/vcs/github/webhook",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Save Github App Credentials
+ * Save GitHub App credentials (register new or update existing).
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns string Successful Response
+ * @throws ApiError
+ */
+export const vcsSaveGithubAppCredentials = (
+  data: VcsSaveGithubAppCredentialsData
+): CancelablePromise<VcsSaveGithubAppCredentialsResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/organization/vcs/github/credentials",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Github App Credentials Status
+ * Get the status of GitHub App credentials.
+ * @returns GitHubAppCredentialsStatus Successful Response
+ * @throws ApiError
+ */
+export const vcsGetGithubAppCredentialsStatus =
+  (): CancelablePromise<VcsGetGithubAppCredentialsStatusResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/organization/vcs/github/credentials/status",
+    })
+  }
 
 /**
  * Users:Current User

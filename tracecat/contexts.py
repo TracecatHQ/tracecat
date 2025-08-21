@@ -5,7 +5,7 @@ from contextvars import ContextVar
 import loguru
 
 from tracecat.dsl.models import ROOT_STREAM, RunContext, StreamID
-from tracecat.ee.interactions.models import InteractionContext
+from tracecat.interactions.models import InteractionContext
 from tracecat.types.auth import Role
 
 __all__ = [

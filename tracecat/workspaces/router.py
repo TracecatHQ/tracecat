@@ -28,6 +28,7 @@ from tracecat.workspaces.models import (
     WorkspaceRead,
     WorkspaceReadMinimal,
     WorkspaceSearch,
+    WorkspaceSettingsRead,
     WorkspaceUpdate,
 )
 from tracecat.workspaces.service import WorkspaceService
@@ -175,7 +176,7 @@ async def get_workspace(
     return WorkspaceRead(
         id=workspace.id,
         name=workspace.name,
-        settings=workspace.settings,
+        settings=WorkspaceSettingsRead.model_validate(workspace.settings),
         owner_id=workspace.owner_id,
         n_members=workspace.n_members,
         members=[
@@ -192,10 +193,7 @@ async def get_workspace(
     )
 
 
-@router.patch(
-    "/{workspace_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-)
+@router.patch("/{workspace_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def update_workspace(
     *,
     role: WorkspaceAdminUserInPath,
@@ -205,12 +203,13 @@ async def update_workspace(
 ) -> None:
     """Update a workspace."""
     service = WorkspaceService(session, role=role)
-    try:
-        await service.update_workspace(workspace_id, params=params)
-    except NoResultFound as e:
+    workspace = await service.get_workspace(workspace_id)
+    if workspace is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
-        ) from e
+            status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found"
+        )
+    logger.info("Updating workspace", params=params)
+    await service.update_workspace(workspace, params=params)
 
 
 @router.delete(

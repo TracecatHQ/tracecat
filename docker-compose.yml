@@ -14,7 +14,7 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile
 
   api:
-    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.40.0}
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.42.0}
     container_name: api
     restart: unless-stopped
     networks:
@@ -43,6 +43,7 @@ services:
       OAUTH_CLIENT_SECRET: ${OAUTH_CLIENT_SECRET}
       USER_AUTH_SECRET: ${USER_AUTH_SECRET}
       RUN_MIGRATIONS: "true"
+      TRACECAT__FEATURE_FLAGS: ${TRACECAT__FEATURE_FLAGS}
       # SAML SSO
       SAML_IDP_METADATA_URL: ${SAML_IDP_METADATA_URL}
       SAML_ALLOW_UNSOLICITED: ${SAML_ALLOW_UNSOLICITED}
@@ -80,7 +81,7 @@ services:
       - redis
 
   worker:
-    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.40.0}
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.42.0}
     restart: unless-stopped
     networks:
       - core
@@ -98,6 +99,7 @@ services:
       TRACECAT__EXECUTOR_URL: ${INTERNAL_EXECUTOR_URL}
       TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY} # Sensitive
       TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET} # Sensitive
+      TRACECAT__FEATURE_FLAGS: ${TRACECAT__FEATURE_FLAGS}
       # Temporal
       TEMPORAL__CLUSTER_URL: ${TEMPORAL__CLUSTER_URL}
       TEMPORAL__CLUSTER_QUEUE: ${TEMPORAL__CLUSTER_QUEUE}
@@ -115,7 +117,7 @@ services:
       - temporal
 
   executor:
-    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.40.0}
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-0.42.0}
     restart: unless-stopped
     networks:
       - core-db
@@ -130,6 +132,7 @@ services:
       TRACECAT__DB_SSLMODE: ${TRACECAT__DB_SSLMODE}
       TRACECAT__DB_URI: ${TRACECAT__DB_URI} # Sensitive
       TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY} # Sensitive
+      TRACECAT__FEATURE_FLAGS: ${TRACECAT__FEATURE_FLAGS}
       # Local registry
       TRACECAT__LOCAL_REPOSITORY_PATH: ${TRACECAT__LOCAL_REPOSITORY_PATH}
       TRACECAT__LOCAL_REPOSITORY_ENABLED: ${TRACECAT__LOCAL_REPOSITORY_ENABLED}
@@ -155,7 +158,7 @@ services:
       - redis
 
   ui:
-    image: ghcr.io/tracecathq/tracecat-ui:${TRACECAT__IMAGE_TAG:-0.40.0}
+    image: ghcr.io/tracecathq/tracecat-ui:${TRACECAT__IMAGE_TAG:-0.42.0}
     container_name: ui
     restart: unless-stopped
     networks:

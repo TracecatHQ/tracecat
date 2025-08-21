@@ -26,6 +26,7 @@ WORKDIR /app
 # Copy the application files into the container
 COPY ./tracecat /app/tracecat
 COPY ./packages/tracecat-registry /app/packages/tracecat-registry
+COPY ./packages/tracecat-ee /app/packages/tracecat-ee
 COPY ./pyproject.toml /app/pyproject.toml
 COPY ./uv.lock /app/uv.lock
 COPY ./.python-version /app/.python-version
@@ -37,7 +38,7 @@ COPY ./alembic /app/alembic
 COPY scripts/entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
-# Install packages from lock file with dev dependencies for hot reloading
+# Install packages from lock file with dev dependencies and EE features for hot reloading
 RUN uv sync --frozen --no-dev
 
 # Place executables in the environment at the front of the path

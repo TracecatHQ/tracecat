@@ -1,0 +1,41 @@
+[build-system]
+requires = ["hatchling >= 1.27.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tracecat-ee"
+description = "Enterprise Edition features for Tracecat"
+readme = "README.md"
+requires-python = ">=3.12"
+license = {file = "tracecat_ee/LICENSE.md"}
+authors = [{ name = "Tracecat", email = "founders@tracecat.com" }]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.12",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "Intended Audience :: System Administrators",
+    "Topic :: Security",
+    "Topic :: System :: Systems Administration",
+]
+dependencies = [
+    # Dependencies for EE features
+    # Note: tracecat core types are imported but not listed as dependency
+    # to avoid circular dependencies in workspace
+]
+dynamic = ["version"]
+
+[project.urls]
+Homepage = "https://tracecat.com"
+Documentation = "https://docs.tracecat.com/"
+Repository = "https://github.com/TracecatHQ/tracecat"
+
+[project.entry-points."tracecat.workflows.git_sync"]
+ee_impl = "tracecat_ee.store.git_sync:sync_repo_workflows"
+
+[project.entry-points."tracecat.workflows.git_store"]
+ee_impl = "tracecat_ee.store.git_store:GitWorkflowStore"
+
+[tool.hatch.version]
+path = "tracecat_ee/__init__.py"

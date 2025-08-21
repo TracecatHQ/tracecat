@@ -11,6 +11,7 @@ import {
   type AgentGetProvidersStatusResponse,
   type AgentListModelsResponse,
   type AgentListProvidersResponse,
+  type AgentSettingsRead,
   type ApiError,
   type AppSettingsRead,
   type AuthSettingsRead,
@@ -122,6 +123,7 @@ import {
   type SecretReadMinimal,
   type SecretUpdate,
   type SessionRead,
+  type SettingsUpdateAgentSettingsData,
   type SettingsUpdateAppSettingsData,
   type SettingsUpdateAuthSettingsData,
   type SettingsUpdateGitSettingsData,
@@ -135,11 +137,13 @@ import {
   secretsDeleteSecretById,
   secretsListSecrets,
   secretsUpdateSecretById,
+  settingsGetAgentSettings,
   settingsGetAppSettings,
   settingsGetAuthSettings,
   settingsGetGitSettings,
   settingsGetOauthSettings,
   settingsGetSamlSettings,
+  settingsUpdateAgentSettings,
   settingsUpdateAppSettings,
   settingsUpdateAuthSettings,
   settingsUpdateGitSettings,
@@ -184,6 +188,13 @@ import {
   triggersUpdateWebhook,
   type UserUpdate,
   usersUsersPatchCurrentUser,
+  type VcsGetGithubAppCredentialsStatusResponse,
+  type VcsGetGithubAppManifestResponse,
+  type VcsSaveGithubAppCredentialsData,
+  type VcsSaveGithubAppCredentialsResponse,
+  vcsGetGithubAppCredentialsStatus,
+  vcsGetGithubAppManifest,
+  vcsSaveGithubAppCredentials,
   type WebhookUpdate,
   type WorkflowDirectoryItem,
   type WorkflowExecutionCreate,
@@ -197,6 +208,7 @@ import {
   type WorkflowsMoveWorkflowToFolderData,
   type WorkflowsRemoveTagData,
   type WorkspaceCreate,
+  type WorkspaceUpdate,
   workflowExecutionsCreateWorkflowExecution,
   workflowExecutionsGetWorkflowExecution,
   workflowExecutionsGetWorkflowExecutionCompact,
@@ -210,8 +222,10 @@ import {
   workspacesCreateWorkspace,
   workspacesDeleteWorkspace,
   workspacesListWorkspaces,
+  workspacesUpdateWorkspace,
 } from "@/client"
 import { toast } from "@/components/ui/use-toast"
+import { useGetPrompt } from "@/hooks/use-prompt"
 
 import { getBaseUrl } from "@/lib/api"
 import { retryHandler, type TracecatApiError } from "@/lib/errors"
@@ -958,20 +972,20 @@ export function useSchedules(workflowId: string) {
   }
 }
 
-export function useWorkspaceSecrets() {
+export function useWorkspaceSecrets(workspaceId: string) {
   const queryClient = useQueryClient()
-  const { workspaceId } = useWorkspace()
   const {
     data: secrets,
     isLoading: secretsIsLoading,
     error: secretsError,
   } = useQuery<SecretReadMinimal[], ApiError>({
-    queryKey: ["workspace-secrets"],
+    queryKey: ["workspace-secrets", workspaceId],
     queryFn: async () =>
       await secretsListSecrets({
         workspaceId,
         type: ["custom"],
       }),
+    enabled: !!workspaceId,
   })
 
   // Create secret
@@ -986,7 +1000,9 @@ export function useWorkspaceSecrets() {
         title: "Added new secret",
         description: "New secret added successfully.",
       })
-      queryClient.invalidateQueries({ queryKey: ["workspace-secrets"] })
+      queryClient.invalidateQueries({
+        queryKey: ["workspace-secrets", workspaceId],
+      })
     },
     onError: (error: TracecatApiError) => {
       switch (error.status) {
@@ -1030,7 +1046,9 @@ export function useWorkspaceSecrets() {
         title: "Updated secret",
         description: "Secret updated successfully.",
       })
-      queryClient.invalidateQueries({ queryKey: ["workspace-secrets"] })
+      queryClient.invalidateQueries({
+        queryKey: ["workspace-secrets", workspaceId],
+      })
     },
     onError: (error: TracecatApiError) => {
       switch (error.status) {
@@ -1054,7 +1072,9 @@ export function useWorkspaceSecrets() {
     mutationFn: async (secret: SecretReadMinimal) =>
       await secretsDeleteSecretById({ workspaceId, secretId: secret.id }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["workspace-secrets"] })
+      queryClient.invalidateQueries({
+        queryKey: ["workspace-secrets", workspaceId],
+      })
       toast({
         title: "Deleted secret",
         description: "Secret deleted successfully.",
@@ -1872,6 +1892,126 @@ export function useOrgGitSettings() {
   }
 }
 
+export function useGitHubAppManifest() {
+  // Get GitHub App manifest
+  const {
+    data: manifest,
+    isLoading: manifestIsLoading,
+    error: manifestError,
+  } = useQuery<VcsGetGithubAppManifestResponse>({
+    queryKey: ["github-app-manifest"],
+    queryFn: async () => await vcsGetGithubAppManifest(),
+  })
+
+  return {
+    manifest,
+    manifestIsLoading,
+    manifestError,
+  }
+}
+
+export function useGitHubAppCredentialsStatus() {
+  // Get GitHub App credentials status
+  const {
+    data: credentialsStatus,
+    isLoading: credentialsStatusIsLoading,
+    error: credentialsStatusError,
+    refetch: refetchCredentialsStatus,
+  } = useQuery<VcsGetGithubAppCredentialsStatusResponse>({
+    queryKey: ["github-app-credentials-status"],
+    queryFn: async () => await vcsGetGithubAppCredentialsStatus(),
+  })
+
+  return {
+    credentialsStatus,
+    credentialsStatusIsLoading,
+    credentialsStatusError,
+    refetchCredentialsStatus,
+  }
+}
+
+export function useGitHubAppCredentials() {
+  const queryClient = useQueryClient()
+
+  // Save GitHub App credentials mutation
+  const saveCredentials = useMutation<
+    VcsSaveGithubAppCredentialsResponse,
+    ApiError,
+    VcsSaveGithubAppCredentialsData["requestBody"]
+  >({
+    mutationFn: async (data) => {
+      return await vcsSaveGithubAppCredentials({ requestBody: data })
+    },
+    onSuccess: () => {
+      // Invalidate and refetch credentials status
+      queryClient.invalidateQueries({
+        queryKey: ["github-app-credentials-status"],
+      })
+    },
+  })
+
+  return {
+    saveCredentials,
+  }
+}
+
+export function useOrgAgentSettings() {
+  const queryClient = useQueryClient()
+  // Get Agent settings
+  const {
+    data: agentSettings,
+    isLoading: agentSettingsIsLoading,
+    error: agentSettingsError,
+  } = useQuery<AgentSettingsRead>({
+    queryKey: ["org-agent-settings"],
+    queryFn: async () => await settingsGetAgentSettings(),
+  })
+
+  // Update Agent settings
+  const {
+    mutateAsync: updateAgentSettings,
+    isPending: updateAgentSettingsIsPending,
+    error: updateAgentSettingsError,
+  } = useMutation({
+    mutationFn: async (params: SettingsUpdateAgentSettingsData) =>
+      await settingsUpdateAgentSettings(params),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["org-agent-settings"] })
+      toast({
+        title: "Updated agent settings",
+        description: "Agent settings updated successfully.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      switch (error.status) {
+        case 403:
+          toast({
+            title: "Forbidden",
+            description: "You cannot perform this action",
+          })
+          break
+        default:
+          console.error("Failed to update agent settings", error)
+          toast({
+            title: "Failed to update agent settings",
+            description: `An error occurred while updating the agent settings: ${error.body.detail}`,
+          })
+      }
+    },
+  })
+
+  return {
+    // Get
+    agentSettings,
+    agentSettingsIsLoading,
+    agentSettingsError,
+    // Update
+    updateAgentSettings,
+    updateAgentSettingsIsPending,
+    updateAgentSettingsError,
+  }
+}
+
 export function useOrgSamlSettings() {
   const queryClient = useQueryClient()
 
@@ -2622,6 +2762,8 @@ export function useGetCase({ caseId, workspaceId }: CasesGetCaseData) {
     caseDataError,
   }
 }
+
+export { useGetPrompt }
 
 export function useCreateCase(workspaceId: string) {
   const queryClient = useQueryClient()
@@ -3855,5 +3997,114 @@ export function useDragDivider({
         cursor: orientation === "vertical" ? "col-resize" : "row-resize",
       },
     },
+  }
+}
+
+export function useWorkspaceSettings(
+  workspaceId: string,
+  onWorkspaceDeleted?: () => void
+) {
+  const queryClient = useQueryClient()
+
+  // Fetch SSH keys for this workspace
+  const { data: sshKeys, isLoading: sshKeysLoading } = useQuery<
+    SecretReadMinimal[]
+  >({
+    queryKey: ["workspace-ssh-keys", workspaceId],
+    queryFn: async () =>
+      await secretsListSecrets({
+        workspaceId,
+        type: ["ssh-key"],
+      }),
+  })
+
+  // SSH key operations
+  const handleCreateWorkspaceSSHKey = async (secret: SecretCreate) => {
+    await secretsCreateSecret({
+      workspaceId,
+      requestBody: secret,
+    })
+    // Invalidate SSH keys query to refresh the list
+    queryClient.invalidateQueries({
+      queryKey: ["workspace-ssh-keys", workspaceId],
+    })
+  }
+
+  const handleDeleteSSHKey = async (sshKey: SecretReadMinimal) => {
+    try {
+      await secretsDeleteSecretById({
+        workspaceId,
+        secretId: sshKey.id,
+      })
+      // Invalidate SSH keys query to refresh the list
+      queryClient.invalidateQueries({
+        queryKey: ["workspace-ssh-keys", workspaceId],
+      })
+    } catch (error) {
+      console.error("Failed to delete SSH key:", error)
+      throw error
+    }
+  }
+
+  // Update workspace
+  const { mutateAsync: updateWorkspace, isPending: isUpdating } = useMutation({
+    mutationFn: async (params: WorkspaceUpdate) => {
+      return await workspacesUpdateWorkspace({
+        workspaceId,
+        requestBody: params,
+      })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["workspace", workspaceId] })
+      queryClient.invalidateQueries({ queryKey: ["workspaces"] })
+      toast({
+        title: "Workspace updated",
+        description: "The workspace name has been updated successfully.",
+      })
+    },
+    onError: (error) => {
+      console.error("Failed to update workspace", error)
+      toast({
+        title: "Error updating workspace",
+        description: "Failed to update the workspace. Please try again.",
+        variant: "destructive",
+      })
+    },
+  })
+
+  // Delete workspace
+  const { mutateAsync: deleteWorkspace, isPending: isDeleting } = useMutation({
+    mutationFn: async () => {
+      return await workspacesDeleteWorkspace({
+        workspaceId,
+      })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["workspaces"] })
+      toast({
+        title: "Workspace deleted",
+        description: "The workspace has been deleted successfully.",
+      })
+      onWorkspaceDeleted?.()
+    },
+    onError: (error) => {
+      console.error("Failed to delete workspace", error)
+      toast({
+        title: "Error deleting workspace",
+        description: "Failed to delete the workspace. Please try again.",
+        variant: "destructive",
+      })
+    },
+  })
+
+  return {
+    sshKeys,
+    sshKeysLoading,
+    updateWorkspace,
+    isUpdating,
+    deleteWorkspace,
+    isDeleting,
+    handleCreateWorkspaceSSHKey,
+    handleDeleteSSHKey,
   }
 }

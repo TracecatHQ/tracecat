@@ -14,6 +14,10 @@ class PromptCreate(BaseModel):
     """Request model for creating a prompt from a chat."""
 
     chat_id: UUID4 = Field(..., description="ID of the chat to freeze into a prompt")
+    meta: dict[str, Any] | None = Field(
+        default=None,
+        description="Optional metadata to include with the prompt (e.g., case information)",
+    )
 
 
 class PromptRead(BaseModel):

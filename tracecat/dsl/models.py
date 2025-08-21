@@ -16,11 +16,11 @@ from pydantic_core import CoreSchema, core_schema
 
 from tracecat.dsl.constants import DEFAULT_ACTION_TIMEOUT
 from tracecat.dsl.enums import JoinStrategy, StreamErrorHandlingStrategy
-from tracecat.ee.interactions.models import ActionInteraction, InteractionContext
 from tracecat.expressions.common import ExprContext
 from tracecat.expressions.validation import ExpressionStr, RequiredExpressionStr
 from tracecat.identifiers import WorkflowExecutionID, WorkflowRunID
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID
+from tracecat.interactions.models import ActionInteraction, InteractionContext
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.types.exceptions import TracecatValidationError
 

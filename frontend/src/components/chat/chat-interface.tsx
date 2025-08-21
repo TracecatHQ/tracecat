@@ -5,6 +5,7 @@ import { ChevronDown, ListTodo, MessageSquare, Plus } from "lucide-react"
 import Link from "next/link"
 import { useEffect, useState } from "react"
 import type { ChatEntity, ChatRead } from "@/client"
+import { RunbookDropdown } from "@/components/cases/runbook-dropdown"
 import { ChatInput } from "@/components/chat/chat-input"
 import { Messages } from "@/components/chat/messages"
 import { CenteredSpinner } from "@/components/loading/spinner"
@@ -24,7 +25,7 @@ import {
 } from "@/components/ui/tooltip"
 import { useChat, useCreateChat, useListChats } from "@/hooks/use-chat"
 import { useCreatePrompt } from "@/hooks/use-prompt"
-import { useChatReadiness } from "@/lib/hooks"
+import { useChatReadiness, useGetCase } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import { useWorkspace } from "@/providers/workspace"
 
@@ -57,6 +58,12 @@ export function ChatInterface({
 
   // Create prompt mutation
   const { createPrompt, createPromptPending } = useCreatePrompt(workspaceId)
+
+  // Fetch case data if entityType is "case"
+  const { caseData } = useGetCase({
+    caseId: entityType === "case" ? entityId : "",
+    workspaceId,
+  })
 
   const { sendMessage, isResponding, messages } = useChat({
     chatId: selectedChatId,
@@ -119,8 +126,19 @@ export function ChatInterface({
     }
 
     try {
+      // Build meta object with case information if this is a case chat
+      let meta = undefined
+      if (entityType === "case" && caseData) {
+        meta = {
+          case_id: caseData.id,
+          case_slug: caseData.short_id,
+          case_title: caseData.summary,
+        }
+      }
+
       const prompt = await createPrompt({
         chat_id: selectedChatId,
+        meta,
       })
 
       console.log(`Chat saved as prompt: "${prompt.title}"`)
@@ -138,7 +156,9 @@ export function ChatInterface({
         // TODO: Make this dynamic
         model_provider: "openai",
         instructions: `You are a helpful AI assistant helping with ${entityType} management.
-        The current ${entityType} ID is ${entityId}. Be concise but thorough in your responses.`,
+        The current ${entityType} ID is: ${entityId}
+        If you need to use the ${entityType} ID in a tool call you should use the above ID.
+        Be concise but thorough in your responses.`,
         context: {
           chatId: selectedChatId,
           workspaceId,
@@ -156,58 +176,6 @@ export function ChatInterface({
   if (chats && chats.length === 0) {
     return (
       <div className="flex h-full flex-col">
-        {/* Header - streamlined */}
-        <div className="px-4 py-3">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button size="sm" variant="ghost" className="px-0">
-                Conversations
-                <ChevronDown className="size-3 ml-1" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-64">
-              {chatsLoading ? (
-                <div className="p-2">
-                  <div className="space-y-2">
-                    <div className="h-8 bg-muted animate-pulse rounded" />
-                    <div className="h-8 bg-muted animate-pulse rounded" />
-                  </div>
-                </div>
-              ) : chatsError ? (
-                <DropdownMenuItem disabled>
-                  <span className="text-red-600">Failed to load chats</span>
-                </DropdownMenuItem>
-              ) : (
-                <ScrollArea className="max-h-64">
-                  {chats?.map((chat: ChatRead) => (
-                    <DropdownMenuItem
-                      key={chat.id}
-                      onClick={() => handleSelectChat(chat.id)}
-                      className={cn(
-                        "flex items-center justify-between cursor-pointer",
-                        selectedChatId === chat.id && "bg-accent"
-                      )}
-                    >
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium truncate">
-                          {chat.title}
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          {formatDistanceToNow(new Date(chat.created_at), {
-                            addSuffix: true,
-                          })}
-                        </div>
-                      </div>
-                    </DropdownMenuItem>
-                  ))}
-                </ScrollArea>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
-
-          {/* New chat icon is now on right-side controls */}
-        </div>
-
         {/* Empty State */}
         <div className="flex h-full items-center justify-center p-8">
           <div className="text-center max-w-sm">
@@ -323,6 +291,13 @@ export function ChatInterface({
                 <TooltipContent side="bottom">Generate runbook</TooltipContent>
               </Tooltip>
             </TooltipProvider>
+            {entityType === "case" && (
+              <RunbookDropdown
+                workspaceId={workspaceId}
+                entityType={entityType}
+                entityId={entityId}
+              />
+            )}
           </div>
         </div>
       </div>

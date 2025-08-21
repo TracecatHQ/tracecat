@@ -2,7 +2,6 @@ import asyncio
 from typing import Any
 
 import pytest
-import tracecat_registry.core.transform as transform_module
 from tracecat_registry.core.transform import (
     apply,
     deduplicate,
@@ -671,18 +670,24 @@ async def test_deduplicate_complex_keys(
 async def test_deduplicate_redis_operation_error(monkeypatch) -> None:
     """Test that deduplicate raises ConnectionError on Redis operation failures."""
 
-    # Mock redis client to fail on set operation
+    # Mock redis.from_url to return a failing client
     class MockRedisClient:
         async def set(self, *args, **kwargs):
             raise Exception("Redis SET failed")
 
-    class MockRedis:
-        client = MockRedisClient()
+        async def aclose(self):
+            pass
 
-    async def mock_get_redis_client():
-        return MockRedis()
+        def pipeline(self, *args, **kwargs):
+            return self
 
-    monkeypatch.setattr(transform_module, "get_redis_client", mock_get_redis_client)
+    def mock_from_url(*args, **kwargs):
+        return MockRedisClient()
+
+    # Import redis.asyncio within the function to patch it
+    import redis.asyncio as redis
+
+    monkeypatch.setattr(redis, "from_url", mock_from_url)
 
     with pytest.raises(ConnectionError, match="key-value store.*"):
         await deduplicate([{"id": 1}], ["id"])
