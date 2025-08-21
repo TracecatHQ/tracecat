@@ -25,5 +25,5 @@ definition:
         payload:
           event_action: resolve
           dedup_key: ${{ inputs.incident_key }}
-          routing_key: ${{ inputs.routing_key }}
+          routing_key: ${{ inputs.service_key }}
   returns: ${{ steps.resolve_event.result.data }}
