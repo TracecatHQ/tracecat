@@ -101,7 +101,7 @@ definition:
                   destination_address["country"] = country_code
               if latitude is None:
                   destination_address["latitude"] = latitude
-              if longitude or longitude == 0:
+              if longitude is None:
                   destination_address["longitude"] = longitude
               if destination_address:
                   payload["destination_address"] = destination_address
