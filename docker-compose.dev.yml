@@ -138,11 +138,10 @@ services:
       TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY} # Sensitive
       TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET} # Sensitive
       TRACECAT__FEATURE_FLAGS: ${TRACECAT__FEATURE_FLAGS}
-      # Ray logging configuration to reduce disk usage
-      RAY_ROTATION_MAX_BYTES: ${RAY_ROTATION_MAX_BYTES:-1048576}  # 1MB default
-      RAY_ROTATION_BACKUP_COUNT: ${RAY_ROTATION_BACKUP_COUNT:-2}  # Keep 2 backups
-      RAY_BACKEND_LOG_LEVEL: ${RAY_BACKEND_LOG_LEVEL:-40}  # ERROR level
-      RAY_DISABLE_IMPORT_WARNING: "1"
+      # Ray logging to reduce disk usage
+      RAY_ROTATION_MAX_BYTES: "1048576"  # 1MB max
+      RAY_ROTATION_BACKUP_COUNT: "1"     # 1 backup  
+      RAY_BACKEND_LOG_LEVEL: "40"        # ERROR only
       # Registry
       TRACECAT__UNSAFE_DISABLE_SM_MASKING: ${TRACECAT__UNSAFE_DISABLE_SM_MASKING:-false}
       # Local registry
