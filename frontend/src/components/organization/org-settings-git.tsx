@@ -41,8 +41,14 @@ const gitFormSchema = z.object({
       // Requires at least 2 path segments (org/repo) to match backend validation
       const regex = /^git\+ssh:\/\/git@[^/]+\/[^/]+\/.+?(?:\.git)?(?:@[^/]+)?$/
       return regex.test(url)
-    }, "Must be a valid Git SSH URL (e.g., git+ssh://git@github.com/org/repo.git)"),
-  git_repo_package_name: z.string().nullish(),
+    }, "Must be a valid Git SSH URL (e.g., git+ssh://git@github.com/org/repo.git)")
+    // Empty string signals removal
+    .transform((url) => url?.trim() || null),
+  git_repo_package_name: z
+    .string()
+    .nullish()
+    // Empty string signals removal
+    .transform((name) => name?.trim() || null),
 })
 
 type GitFormValues = z.infer<typeof gitFormSchema>
@@ -65,8 +71,8 @@ export function OrgSettingsGitForm() {
           text: domain,
         })
       ) ?? [{ id: "0", text: "github.com" }],
-      git_repo_url: gitSettings?.git_repo_url,
-      git_repo_package_name: gitSettings?.git_repo_package_name,
+      git_repo_url: gitSettings?.git_repo_url ?? "",
+      git_repo_package_name: gitSettings?.git_repo_package_name ?? "",
     },
   })
   const onSubmit = async (data: GitFormValues) => {
