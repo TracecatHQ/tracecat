@@ -99,9 +99,9 @@ definition:
                   destination_address["city"] = city
               if country_code:
                   destination_address["country"] = country_code
-              if latitude:
+              if latitude or latitude == 0:
                   destination_address["latitude"] = latitude
-              if longitude:
+              if longitude or longitude == 0:
                   destination_address["longitude"] = longitude
               if destination_address:
                   payload["destination_address"] = destination_address
