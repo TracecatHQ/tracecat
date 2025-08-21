@@ -75,11 +75,17 @@ def sync_executor_entrypoint(input: RunActionInput, role: Role) -> ExecutionResu
         coro = run_action_from_input(input=input, role=role)
         return loop.run_until_complete(coro)
     except Exception as e:
-        # Check for disk space errors
-        if any(keyword in str(e).lower() for keyword in ["no space left", "disk full", "errno 28"]):
-            logger.error("Ray executor disk space error - consider cleaning /tmp/ray logs", error=e)
+        # Check for disk space errors using proper exception types
+        if isinstance(e, OSError) and e.errno == 28:  # ENOSPC - No space left on device
+            logger.error("Ray executor disk space error - clean /tmp/ray logs", error=e)
         else:
-            logger.info("Error running action", error=e, type=type(e).__name__)
+            # Raise the error proxy here
+            logger.info(
+                "Error running action, raising error proxy",
+                error=e,
+                type=type(e).__name__,
+                traceback=traceback.format_exc(),
+            )
         return ExecutorActionErrorInfo.from_exc(e, input.task.action)
     finally:
         loop.run_until_complete(async_engine.dispose())
@@ -451,8 +457,8 @@ async def run_action_on_ray_cluster(
     except RayTaskError as e:
         logger.error("Error running action on ray cluster", error=e)
         if isinstance(e.cause, BaseException):
-            # Check for disk space errors and provide helpful message
-            if any(keyword in str(e.cause).lower() for keyword in ["no space left", "disk full", "errno 28"]):
+            # Check for disk space errors using proper exception types
+            if isinstance(e.cause, OSError) and e.cause.errno == 28:  # ENOSPC
                 logger.error("Ray executor disk space error - clean /tmp/ray logs or increase disk space")
             raise e.cause from None
         raise e
