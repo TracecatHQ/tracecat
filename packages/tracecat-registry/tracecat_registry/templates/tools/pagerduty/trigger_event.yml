@@ -1,0 +1,60 @@
+type: action
+definition:
+  title: Trigger event
+  description: Trigger event to report a new problem
+  display_group: PagerDuty
+  doc_url: https://developer.pagerduty.com/api-reference
+  namespace: tools.pagerduty
+  name: trigger_event
+  expects:
+    severity:
+      type: enum['critical', 'warning', 'error', 'info']
+      description: The perceived severity of the status the event is describing withrespect to the affected system.
+    summary:
+      type: str
+      description: A brief text summary of the event, used to generate the summaries/titles of any associated alerts.
+    source:
+      type: str
+      description: The unique location of the affected system, preferably a hostname or FQDN.
+    service_key:
+      type: str
+      description: The GUID of one of your Events API V2 integrations. This is the "Integration Key" listed on the Events API V2 integration's detail page.
+    incident_key:
+      type: str
+      description: Incident de-duplication key.
+      default: null
+    group:
+      type: str
+      description: Logical grouping of components of a service.
+      default: ""
+    class:
+      type: str
+      description: The class/type of the event.
+      default: ""
+    component:
+      type: str
+      description: Component of the source machine that is responsible for the event.
+      default: ""
+  steps:
+    - ref: trigger_event
+      action: core.http_request
+      args:
+        url: https://events.pagerduty.com/v2/enqueue
+        method: POST
+        headers:
+          Accept: application/json
+          Content-Type: application/json
+        payload:
+          event_action: trigger
+          routing_key: ${{ inputs.service_key }}
+          dedup_key: ${{ inputs.incident_key }}
+          images: []
+          links: []
+          payload:
+            summary: ${{ inputs.summary }}
+            source: ${{ inputs.source }}
+            severity: ${{ inputs.severity }}
+            group: ${{ inputs.group }}
+            class: ${{ inputs.class }}
+            component: ${{ inputs.component }}
+  returns: ${{ steps.trigger_event.result.data }}

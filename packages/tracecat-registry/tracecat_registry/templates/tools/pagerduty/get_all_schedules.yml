@@ -1,0 +1,28 @@
+type: action
+definition:
+  title: Get all schedules
+  description: Get all the on-call schedules.
+  display_group: PagerDuty
+  doc_url: https://developer.pagerduty.com/api-reference
+  namespace: tools.pagerduty
+  name: get_all_schedules
+  secrets:
+    - name: pagerduty
+      keys: ["PAGERDUTY_API_KEY"]
+  expects:
+    query:
+      type: str | None
+      description: Filters the result, showing only the records whose name matches the query.
+      default: null
+  steps:
+    - ref: get_all_schedules
+      action: core.http_request
+      args:
+        url: https://api.pagerduty.com/schedules
+        method: GET
+        headers:
+          Authorization: Token token=${{ SECRETS.pagerduty.PAGERDUTY_API_KEY }}
+          Content-Type: application/json
+        params:
+          query: ${{ inputs.query }}
+  returns: ${{ steps.get_all_schedules.result.data }}
