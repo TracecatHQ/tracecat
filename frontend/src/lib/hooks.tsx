@@ -1874,7 +1874,7 @@ export function useOrgGitSettings() {
           console.error("Failed to update Git settings", error)
           toast({
             title: "Failed to update Git settings",
-            description: `An error occurred while updating the Git settings: ${error.body.detail}`,
+            description: `An error occurred while updating the Git settings: ${typeof error.body.detail === "object" ? JSON.stringify(error.body.detail) : error.body.detail}`,
           })
       }
     },
