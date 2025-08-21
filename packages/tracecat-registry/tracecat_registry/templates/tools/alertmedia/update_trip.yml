@@ -99,7 +99,7 @@ definition:
                   destination_address["city"] = city
               if country_code:
                   destination_address["country"] = country_code
-              if latitude or latitude == 0:
+              if latitude is None:
                   destination_address["latitude"] = latitude
               if longitude or longitude == 0:
                   destination_address["longitude"] = longitude
