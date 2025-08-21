@@ -75,13 +75,24 @@ def sync_executor_entrypoint(input: RunActionInput, role: Role) -> ExecutionResu
         coro = run_action_from_input(input=input, role=role)
         return loop.run_until_complete(coro)
     except Exception as e:
-        # Raise the error proxy here
-        logger.info(
-            "Error running action, raising error proxy",
-            error=e,
-            type=type(e).__name__,
-            traceback=traceback.format_exc(),
-        )
+        # Check for disk space errors and provide enhanced context
+        error_msg = str(e).lower()
+        if any(keyword in error_msg for keyword in ["no space left", "disk full", "errno 28"]):
+            logger.error(
+                "Action failed due to disk space issue",
+                error=e,
+                action=input.task.action,
+                type=type(e).__name__,
+                suggestion="Ray temporary directory may be full. Check disk usage and Ray log configuration.",
+            )
+        else:
+            # Raise the error proxy here
+            logger.info(
+                "Error running action, raising error proxy",
+                error=e,
+                type=type(e).__name__,
+                traceback=traceback.format_exc(),
+            )
         return ExecutorActionErrorInfo.from_exc(e, input.task.action)
     finally:
         loop.run_until_complete(async_engine.dispose())
@@ -452,7 +463,24 @@ async def run_action_on_ray_cluster(
         raise e
     except RayTaskError as e:
         logger.error("Error running action on ray cluster", error=e)
+        # Check if this is a disk space error and provide helpful context
         if isinstance(e.cause, BaseException):
+            # Check for disk space related errors
+            error_msg = str(e.cause).lower()
+            if any(keyword in error_msg for keyword in ["no space left", "disk full", "errno 28"]):
+                logger.error(
+                    "Ray executor failed due to disk space issue",
+                    error=e.cause,
+                    suggestion="Consider reducing Ray log retention or increasing disk space",
+                )
+                # Add additional context to the error
+                enhanced_error = OSError(
+                    f"Ray executor disk space error: {e.cause}. "
+                    f"This may be caused by excessive Ray logs. "
+                    f"Check disk usage in Ray's temporary directories."
+                )
+                enhanced_error.__cause__ = e.cause
+                raise enhanced_error from None
             raise e.cause from None
         raise e
 
