@@ -248,3 +248,12 @@ async def prepare_git_url(role: Role | None = None) -> GitUrl | None:
     except ValueError as e:
         raise TracecatSettingsError(str(e)) from e
     return git_url
+
+
+async def safe_prepare_git_url(role: Role | None = None) -> GitUrl | None:
+    """Prepare the git URL, but return None if there's an error or the url doesn't exist."""
+    try:
+        return await prepare_git_url(role)
+    except Exception as e:
+        logger.error("Error preparing git URL", error=e)
+        return None
