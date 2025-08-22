@@ -68,6 +68,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await queryClient.invalidateQueries({
       queryKey: ["auth"],
     })
+    router.push("/sign-in")
     return logoutResponse
   }
 
