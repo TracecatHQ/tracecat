@@ -7,7 +7,7 @@ import { ViewMode } from "@/components/dashboard/folder-view-toggle"
 import { WorkflowFoldersTable } from "@/components/dashboard/workflow-folders-table"
 import { WorkflowTagsSidebar } from "@/components/dashboard/workflow-tags-sidebar"
 import { useLocalStorage, useTags } from "@/lib/hooks"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 interface WorkflowsDashboardProps {
   workflowView?: ViewMode
@@ -19,7 +19,7 @@ export function WorkflowsDashboard({
   onWorkflowViewChange: propOnWorkflowViewChange,
 }: WorkflowsDashboardProps) {
   const router = useRouter()
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const { tags } = useTags(workspaceId)
   const searchParams = useSearchParams()
   const queryTag = searchParams?.get("tag")

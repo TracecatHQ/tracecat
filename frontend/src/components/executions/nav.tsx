@@ -37,7 +37,7 @@ import { useParams, usePathname } from "next/navigation"
 import { Spinner } from "@/components/loading/spinner"
 import { toast } from "@/components/ui/use-toast"
 import { parseExecutionId } from "@/lib/event-history"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 /**
  * The top-level view of workflow executions (shows each execution and its status)
@@ -57,7 +57,7 @@ export function WorkflowExecutionNav({
   const queryClient = useQueryClient()
   const pathname = usePathname()
   const baseUrl = pathname ? pathname.split("/executions")[0] : ""
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   if (!workflowExecutions) {
     return <NoContent message="No workflow executions found." />
   }

@@ -31,7 +31,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { toast } from "@/components/ui/use-toast"
 import { useOrgAppSettings, useTags, useWorkflowManager } from "@/lib/hooks"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 export function WorkflowActions({
   view,
@@ -45,7 +45,7 @@ export function WorkflowActions({
   setActiveDialog?: (activeDialog: ActiveDialog | null) => void
 }) {
   const { appSettings } = useOrgAppSettings()
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const { tags } = useTags(workspaceId)
 
   const { addWorkflowTag, removeWorkflowTag } = useWorkflowManager()

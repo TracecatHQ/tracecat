@@ -230,7 +230,7 @@ import { useGetPrompt } from "@/hooks/use-prompt"
 import { getBaseUrl } from "@/lib/api"
 import { retryHandler, type TracecatApiError } from "@/lib/errors"
 import type { WorkflowExecutionReadCompact } from "@/lib/event-history"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 interface AppInfo {
   version: string
@@ -435,7 +435,7 @@ interface WorkflowFilter {
 
 export function useWorkflowManager(filter?: WorkflowFilter) {
   const queryClient = useQueryClient()
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
 
   // List all workflows
   const {
@@ -690,7 +690,7 @@ export function useWorkflowExecutions(
     refetchInterval?: number
   }
 ) {
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const {
     data: workflowExecutions,
     isLoading: workflowExecutionsIsLoading,
@@ -717,7 +717,7 @@ export function useWorkflowExecution(
     refetchInterval?: number
   }
 ) {
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const {
     data: execution,
     isLoading: executionIsLoading,
@@ -741,7 +741,7 @@ export function useWorkflowExecution(
 
 export function useCompactWorkflowExecution(workflowExecutionId?: string) {
   // if execution ID contains non-url-safe characters, decode it
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const {
     data: execution,
     isLoading: executionIsLoading,
@@ -788,7 +788,7 @@ export function useCompactWorkflowExecution(workflowExecutionId?: string) {
 
 export function useCreateManualWorkflowExecution(workflowId: string) {
   const queryClient = useQueryClient()
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
 
   const {
     mutateAsync: createExecution,
@@ -853,7 +853,7 @@ export function useLastExecution({
   workflowId?: string | null
   triggerTypes: TriggerType[]
 }) {
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const {
     data: lastExecution,
     isLoading: lastExecutionIsLoading,
@@ -883,7 +883,7 @@ export function useLastExecution({
 
 export function useSchedules(workflowId: string) {
   const queryClient = useQueryClient()
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   // Fetch schedules
   const {
     data: schedules,

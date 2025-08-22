@@ -33,11 +33,11 @@ import {
 import { useWorkflowManager } from "@/lib/hooks"
 import { capitalizeFirst } from "@/lib/utils"
 import { useAuth } from "@/providers/auth"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 export function WorkflowsDashboardTable() {
   const router = useRouter()
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const { user } = useAuth()
   const searchParams = useSearchParams()
   const queryTags = searchParams?.getAll("tag") || undefined

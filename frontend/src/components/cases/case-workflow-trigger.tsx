@@ -35,7 +35,7 @@ import {
   useLocalStorage,
   useWorkflowManager,
 } from "@/lib/hooks"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 interface CaseWorkflowTriggerProps {
   caseData: CaseRead
@@ -48,7 +48,7 @@ interface CaseWorkflowTriggerProps {
  * @returns JSX.Element
  */
 export function CaseWorkflowTrigger({ caseData }: CaseWorkflowTriggerProps) {
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   // Get the manual execution hook for the selected workflow (if any)
   const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(
     null

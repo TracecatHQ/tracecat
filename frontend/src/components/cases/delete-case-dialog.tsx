@@ -14,7 +14,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 import { useDeleteCase } from "@/lib/hooks"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 export function DeleteCaseAlertDialog({
   selectedCase,
@@ -24,7 +24,7 @@ export function DeleteCaseAlertDialog({
   selectedCase: CaseReadMinimal | null
   setSelectedCase: (selectedCase: CaseReadMinimal | null) => void
 }>) {
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const { deleteCase } = useDeleteCase({ workspaceId })
 
   return (

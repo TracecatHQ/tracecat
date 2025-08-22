@@ -34,6 +34,7 @@ import {
   NewCredentialsDialog,
   NewCredentialsDialogTrigger,
 } from "@/components/workspaces/add-workspace-secret"
+import { useWorkspaceDetails } from "@/hooks/use-workspace"
 import {
   useGetCase,
   useGetPrompt,
@@ -41,7 +42,7 @@ import {
   useIntegrationProvider,
   useLocalStorage,
 } from "@/lib/hooks"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 interface PageConfig {
   title: string | ReactNode
@@ -118,7 +119,7 @@ function CasesActions() {
 }
 
 function MembersActions() {
-  const { workspace } = useWorkspace()
+  const { workspace } = useWorkspaceDetails()
 
   if (!workspace) {
     return null
@@ -424,7 +425,7 @@ export function ControlsHeader({
 }: ControlsHeaderProps = {}) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
 
   const pageConfig = pathname
     ? getPageConfig(pathname, workspaceId, searchParams)

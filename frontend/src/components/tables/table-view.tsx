@@ -11,7 +11,7 @@ import { TableViewColumnMenu } from "@/components/tables/table-view-column-menu"
 import { Button } from "@/components/ui/button"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { useTablesPagination } from "@/hooks/pagination/use-tables-pagination"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 function CollapsibleText({ text }: { text: string }) {
   const [isExpanded, setIsExpanded] = React.useState(false)
@@ -79,7 +79,7 @@ export function DatabaseTable({
 }: {
   table: TableRead
 }) {
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const [pageSize, setPageSize] = useState(20)
 
   const {

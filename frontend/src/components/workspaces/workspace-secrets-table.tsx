@@ -27,10 +27,10 @@ import {
   EditCredentialsDialogTrigger,
 } from "@/components/workspaces/edit-workspace-secret"
 import { useWorkspaceSecrets } from "@/lib/hooks"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 export function WorkspaceSecretsTable() {
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const { secrets, secretsIsLoading, secretsError } =
     useWorkspaceSecrets(workspaceId)
   const [selectedSecret, setSelectedSecret] =

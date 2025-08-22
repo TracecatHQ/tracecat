@@ -33,7 +33,7 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 const formSchema = z.object({
   file: z.instanceof(File).refine((file) => file.size <= 5000000, {
@@ -44,7 +44,7 @@ const formSchema = z.object({
 type FormValues = z.infer<typeof formSchema>
 export function WorkspaceManagementButton() {
   const router = useRouter()
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
   })

@@ -29,7 +29,7 @@ import type { ActionRead } from "@/client"
 import { useOrgAppSettings } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import { useWorkflow } from "@/providers/workflow"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 import {
   createAtKeyCompletion,
@@ -75,7 +75,7 @@ export const YamlStyledEditor = React.forwardRef<
     name: name,
     control,
   })
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const { workflow } = useWorkflow()
   const { appSettings } = useOrgAppSettings()
   const [hasErrors, setHasErrors] = useState(false)
@@ -787,7 +787,7 @@ export function YamlViewOnlyEditor({
   value: unknown
   className?: string
 }) {
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const { appSettings } = useOrgAppSettings()
 
   const textValue = React.useMemo(() => {

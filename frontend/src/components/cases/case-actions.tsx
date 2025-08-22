@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { toast } from "@/components/ui/use-toast"
 import { useTags } from "@/lib/hooks"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 export function CaseActions({
   item,
@@ -26,7 +26,7 @@ export function CaseActions({
   item: CaseReadMinimal
   setSelectedCase: (case_: CaseReadMinimal) => void
 }) {
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const { tags } = useTags(workspaceId)
   const queryClient = useQueryClient()
 

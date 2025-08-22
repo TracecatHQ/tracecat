@@ -7,12 +7,13 @@ import { CustomFieldsTable } from "@/components/cases/custom-fields-table"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { toast } from "@/components/ui/use-toast"
+import { useWorkspaceDetails } from "@/hooks/use-workspace"
 import { useCaseFields } from "@/lib/hooks"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 export function CustomFieldsView() {
-  const { workspaceId, workspace, workspaceError, workspaceLoading } =
-    useWorkspace()
+  const workspaceId = useWorkspaceId()
+  const { workspace, workspaceLoading, workspaceError } = useWorkspaceDetails()
   const queryClient = useQueryClient()
 
   const { caseFields, caseFieldsIsLoading, caseFieldsError } =

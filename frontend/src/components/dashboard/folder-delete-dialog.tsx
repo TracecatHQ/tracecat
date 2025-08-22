@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Input } from "@/components/ui/input"
 import { useFolders } from "@/lib/hooks"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 export function FolderDeleteAlertDialog({
   open,
@@ -27,7 +27,7 @@ export function FolderDeleteAlertDialog({
   selectedFolder: FolderDirectoryItem | null
   setSelectedFolder: (selectedFolder: FolderDirectoryItem | null) => void
 }) {
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const { deleteFolder } = useFolders(workspaceId)
   const [confirmName, setConfirmName] = useState("")
 

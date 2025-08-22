@@ -20,11 +20,11 @@ import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useGetPrompt, useUpdatePrompt } from "@/hooks/use-prompt"
 import { capitalizeFirst } from "@/lib/utils"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 export default function RunbookDetailPage() {
   const params = useParams()
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
 
   if (!params) {
     return <div>Error: Invalid parameters</div>
@@ -81,7 +81,7 @@ export default function RunbookDetailPage() {
 type RunbookDetailTab = "summary" | "instructions"
 
 function RunbookDetailContent({ prompt }: { prompt: PromptRead }) {
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const router = useRouter()
   const searchParams = useSearchParams()
   const { updatePrompt } = useUpdatePrompt(workspaceId)

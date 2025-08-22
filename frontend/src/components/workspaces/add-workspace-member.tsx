@@ -7,6 +7,7 @@ import {
   ApiError,
   type UserRead,
   usersSearchUser,
+  type WorkspaceMembershipRead,
   type WorkspaceRead,
 } from "@/client"
 import { Button } from "@/components/ui/button"
@@ -34,9 +35,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import {
+  useCurrentUserRole,
+  useWorkspaceMutations,
+} from "@/hooks/use-workspace"
 import { WorkspaceRoleEnum } from "@/lib/workspace"
 import { useAuth } from "@/providers/auth"
-import { useWorkspace } from "@/providers/workspace"
 
 const addUserSchema = z.object({
   email: z.string().email(),
@@ -49,8 +53,8 @@ export function AddWorkspaceMember({
   className,
 }: { workspace: WorkspaceRead } & React.HTMLAttributes<HTMLButtonElement>) {
   const { user } = useAuth()
-  const { membership, addWorkspaceMembership: addWorkspaceMember } =
-    useWorkspace()
+  const { data: role } = useCurrentUserRole()
+  const { addMember: addWorkspaceMember } = useWorkspaceMutations()
   const [showDialog, setShowDialog] = useState(false)
   const form = useForm<AddUser>({
     resolver: zodResolver(addUserSchema),
@@ -108,7 +112,7 @@ export function AddWorkspaceMember({
         <Button
           variant="outline"
           size="sm"
-          disabled={!user?.isPrivileged(membership)}
+          disabled={!user?.isPrivileged({ role } as WorkspaceMembershipRead)}
           className="h-7 bg-white disabled:cursor-not-allowed"
         >
           <Plus className="mr-1 h-3.5 w-3.5" />

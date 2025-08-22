@@ -43,7 +43,7 @@ import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
 import type { TracecatApiError } from "@/lib/errors"
 import { useFolders, useWorkflowManager } from "@/lib/hooks"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 const importFormSchema = z.object({
   file: z.instanceof(File).refine((file) => file.size <= 5000000, {
@@ -293,7 +293,7 @@ export function CreateWorkflowButton({
   currentFolderPath: string | null
 }) {
   const router = useRouter()
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const { createWorkflow, moveWorkflow } = useWorkflowManager()
   const [importDialogOpen, setImportDialogOpen] = useState(false)
   const [folderDialogOpen, setFolderDialogOpen] = useState(false)

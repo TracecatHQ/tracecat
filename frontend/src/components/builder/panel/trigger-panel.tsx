@@ -91,7 +91,7 @@ import {
 } from "@/lib/time"
 import { cn } from "@/lib/utils"
 import { useWorkflow } from "@/providers/workflow"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 const HTTP_METHODS: readonly WebhookMethod[] = $WebhookMethod.enum
 
@@ -174,7 +174,7 @@ export function WebhookControls({
   webhook: WebhookRead
   workflowId: string
 }) {
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const { mutateAsync } = useUpdateWebhook(workspaceId, workflowId)
 
   const onCheckedChange = async (checked: boolean) => {
@@ -301,7 +301,7 @@ export function ScheduleControls({ workflowId }: { workflowId: string }) {
     updateSchedule,
     deleteSchedule,
   } = useSchedules(workflowId)
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
 
   if (schedulesIsLoading) {
     return <CenteredSpinner />
@@ -451,7 +451,7 @@ type ScheduleInputs = z.infer<typeof scheduleInputsSchema>
 
 export function CreateScheduleDialog({ workflowId }: { workflowId: string }) {
   const { createSchedule } = useSchedules(workflowId)
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const { workflow } = useWorkflow()
   const hasVersion = !!workflow?.version
   const form = useForm<ScheduleInputs>({
