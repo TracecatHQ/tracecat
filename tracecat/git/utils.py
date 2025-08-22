@@ -255,5 +255,5 @@ async def safe_prepare_git_url(role: Role | None = None) -> GitUrl | None:
     try:
         return await prepare_git_url(role)
     except Exception as e:
-        logger.error("Error preparing git URL", error=e)
+        logger.error("Error preparing git URL", error=str(e))
         return None
