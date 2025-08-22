@@ -1,7 +1,7 @@
 "use client"
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { createContext, type ReactNode, useContext } from "react"
+import { createContext, type ReactNode, useContext, useMemo } from "react"
 import {
   type ApiError,
   type WorkspaceMembershipRead,
@@ -229,23 +229,38 @@ export function WorkspaceProvider({
     },
   })
 
+  const value = useMemo(
+    () => ({
+      workspaceId,
+      workspace,
+      workspaceLoading,
+      workspaceError,
+      addWorkspaceMembership,
+      addWorkspaceMembershipIsPending,
+      removeWorkspaceMember,
+      updateWorkspaceMembership,
+      updateWorkspaceMembershipIsPending,
+      updateWorkspace,
+      membership,
+      membershipLoading,
+    }),
+    [
+      workspaceId,
+      workspace,
+      workspaceLoading,
+      workspaceError,
+      addWorkspaceMembership,
+      addWorkspaceMembershipIsPending,
+      removeWorkspaceMember,
+      updateWorkspaceMembership,
+      updateWorkspaceMembershipIsPending,
+      updateWorkspace,
+      membership,
+      membershipLoading,
+    ]
+  )
   return (
-    <WorkspaceContext.Provider
-      value={{
-        workspaceId,
-        workspace,
-        workspaceLoading,
-        workspaceError,
-        addWorkspaceMembership,
-        addWorkspaceMembershipIsPending,
-        removeWorkspaceMember,
-        updateWorkspaceMembership,
-        updateWorkspaceMembershipIsPending,
-        updateWorkspace,
-        membership,
-        membershipLoading,
-      }}
-    >
+    <WorkspaceContext.Provider value={value}>
       {children}
     </WorkspaceContext.Provider>
   )

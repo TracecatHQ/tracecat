@@ -6,7 +6,13 @@ import {
   useQueryClient,
 } from "@tanstack/react-query"
 import { useRouter } from "next/navigation"
-import { createContext, type ReactNode, useContext, useEffect } from "react"
+import {
+  createContext,
+  type ReactNode,
+  useContext,
+  useEffect,
+  useMemo,
+} from "react"
 import {
   type ApiError,
   type AuthAuthDatabaseLoginData,
@@ -79,19 +85,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [userError])
 
-  return (
-    <AuthContext.Provider
-      value={{
-        user: user ?? null,
-        userIsLoading,
-        login,
-        logout,
-        register: authRegisterRegister,
-      }}
-    >
-      {children}
-    </AuthContext.Provider>
+  const value = useMemo(
+    () => ({
+      user: user ?? null,
+      userIsLoading,
+      login,
+      logout,
+      register: authRegisterRegister,
+    }),
+    [user, userIsLoading, login, logout]
   )
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 
 export const useAuth = () => {
