@@ -9,6 +9,7 @@ import { useRouter } from "next/navigation"
 import {
   createContext,
   type ReactNode,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -61,22 +62,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     refetchOnWindowFocus: true,
   })
 
-  const login = async (data: AuthAuthDatabaseLoginData) => {
-    const loginResponse = await authAuthDatabaseLogin(data)
-    await queryClient.invalidateQueries({
-      queryKey: ["auth"],
-    })
-    return loginResponse
-  }
+  const login = useCallback(
+    async (data: AuthAuthDatabaseLoginData) => {
+      const loginResponse = await authAuthDatabaseLogin(data)
+      await queryClient.invalidateQueries({
+        queryKey: ["auth"],
+      })
+      return loginResponse
+    },
+    [queryClient]
+  )
 
-  const logout = async () => {
+  const logout = useCallback(async () => {
     const logoutResponse = await authAuthDatabaseLogout()
     await queryClient.invalidateQueries({
       queryKey: ["auth"],
     })
     router.push("/sign-in")
     return logoutResponse
-  }
+  }, [queryClient])
 
   useEffect(() => {
     if (userError) {
