@@ -1,6 +1,7 @@
 "use client"
 
 import { useRouter, useSearchParams } from "next/navigation"
+import { useEffect } from "react"
 import { WorkflowsDashboardTable } from "@/components/dashboard/dashboard-table"
 import { ViewMode } from "@/components/dashboard/folder-view-toggle"
 import { WorkflowFoldersTable } from "@/components/dashboard/workflow-folders-table"
@@ -33,11 +34,13 @@ export function WorkflowsDashboard({
     propOnWorkflowViewChange ??
     (propWorkflowView === undefined ? setLocalWorkflowView : () => {})
 
-  // If we navigate to a tag that doesn't exist, redirect to the workflows page
-  if (queryTag && !tags?.some((tag) => tag.name === queryTag)) {
-    router.push(`/workspaces/${workspaceId}/workflows`)
-    return null
-  }
+  // Use useEffect to handle redirect instead of calling it during render
+  useEffect(() => {
+    // If we navigate to a tag that doesn't exist, redirect to the workflows page
+    if (queryTag && tags && !tags.some((tag) => tag.name === queryTag)) {
+      router.push(`/workspaces/${workspaceId}/workflows`)
+    }
+  }, [queryTag, tags, router, workspaceId])
 
   if (workflowView === ViewMode.Folders) {
     return (
