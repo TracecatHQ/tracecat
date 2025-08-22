@@ -133,7 +133,7 @@ async def test_dispatch_action_with_foreach(
 @pytest.mark.anyio
 async def test_dispatch_action_with_git_url(mock_session, basic_task_input):
     with (
-        patch("tracecat.executor.service.prepare_git_url") as mock_git_url,
+        patch("tracecat.executor.service.safe_prepare_git_url") as mock_git_url,
         patch("tracecat.executor.service._dispatch_action") as mock_dispatch,
         patch("tracecat.executor.service.get_ssh_command") as mock_ssh_cmd,
     ):
