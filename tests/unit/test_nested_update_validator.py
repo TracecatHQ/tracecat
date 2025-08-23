@@ -43,7 +43,7 @@ async def entity_with_relations(session: AsyncSession, svc_workspace) -> Entity:
         id=uuid4(),
         entity_id=entity.id,
         field_key="manager",
-        field_type=FieldType.RELATION_BELONGS_TO,
+        field_type=FieldType.RELATION_ONE_TO_ONE,
         display_name="Manager",
         relation_kind=RelationKind.ONE_TO_ONE,
         target_entity_id=entity.id,  # Self-reference for testing

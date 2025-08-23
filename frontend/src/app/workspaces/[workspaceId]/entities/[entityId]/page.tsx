@@ -74,8 +74,8 @@ export default function EntityDetailPage() {
     }) => {
       // Use different endpoint for relation fields
       if (
-        data.field_type === "RELATION_BELONGS_TO" ||
-        data.field_type === "RELATION_HAS_MANY"
+        data.field_type === "RELATION_ONE_TO_ONE" ||
+        data.field_type === "RELATION_ONE_TO_MANY"
       ) {
         return await entitiesCreateRelationField({
           workspaceId,

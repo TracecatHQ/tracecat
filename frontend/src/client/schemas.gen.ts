@@ -2384,7 +2384,7 @@ export const $CaseRecordRead = {
       type: "array",
       title: "Relation Fields",
       description:
-        "List of field keys that are relations (BELONGS_TO or HAS_MANY)",
+        "List of field keys that are relations (ONE_TO_ONE or ONE_TO_MANY)",
     },
   },
   type: "object",
@@ -4690,8 +4690,8 @@ export const $FieldType = {
     "ARRAY_NUMBER",
     "SELECT",
     "MULTI_SELECT",
-    "RELATION_BELONGS_TO",
-    "RELATION_HAS_MANY",
+    "RELATION_ONE_TO_ONE",
+    "RELATION_ONE_TO_MANY",
   ],
   title: "FieldType",
   description: `Supported field types for custom entities.
@@ -7847,7 +7847,7 @@ export const $RelationSettings = {
 
 export const $RelationType = {
   type: "string",
-  enum: ["belongs_to", "has_many"],
+  enum: ["one_to_one", "one_to_many"],
   title: "RelationType",
   description: `Types of relations between entities (for API/models).
 

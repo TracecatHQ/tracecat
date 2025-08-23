@@ -17,12 +17,12 @@ pytestmark = pytest.mark.usefixtures("db")
 class TestNestedRecordCreation:
     """Test creating records with nested relation data."""
 
-    async def test_create_record_with_nested_belongs_to(
+    async def test_create_record_with_nested_one_to_one(
         self,
         session: AsyncSession,
         svc_admin_role: Role,
     ):
-        """Test creating a record with a nested belongs_to relation."""
+        """Test creating a record with a nested one_to_one relation."""
         service = CustomEntitiesService(session, svc_admin_role)
 
         # Create two entities: employee and manager
@@ -70,10 +70,10 @@ class TestNestedRecordCreation:
         manager_relation_field = await service.create_relation_field(
             entity_id=employee_entity.id,
             field_key="manager",
-            field_type=FieldType.RELATION_BELONGS_TO,
+            field_type=FieldType.RELATION_ONE_TO_ONE,
             display_name="Manager",
             relation_settings=RelationSettings(
-                relation_type=RelationType.BELONGS_TO,
+                relation_type=RelationType.ONE_TO_ONE,
                 target_entity_id=manager_entity.id,
             ),
         )
@@ -119,12 +119,12 @@ class TestNestedRecordCreation:
         assert manager_record.field_data["name"] == "Jane Smith"
         assert manager_record.field_data["department"] == "Engineering"
 
-    async def test_create_record_with_nested_has_many(
+    async def test_create_record_with_nested_one_to_many(
         self,
         session: AsyncSession,
         svc_admin_role: Role,
     ):
-        """Test creating a record with nested has_many relations."""
+        """Test creating a record with nested one_to_many relations."""
         service = CustomEntitiesService(session, svc_admin_role)
 
         # Create two entities: team and member
@@ -162,14 +162,14 @@ class TestNestedRecordCreation:
             display_name="Team Name",
         )
 
-        # Add a has_many relation field
+        # Add a one_to_many relation field
         members_relation_field = await service.create_relation_field(
             entity_id=team_entity.id,
             field_key="members",
-            field_type=FieldType.RELATION_HAS_MANY,
+            field_type=FieldType.RELATION_ONE_TO_MANY,
             display_name="Members",
             relation_settings=RelationSettings(
-                relation_type=RelationType.HAS_MANY,
+                relation_type=RelationType.ONE_TO_MANY,
                 target_entity_id=member_entity.id,
             ),
         )
@@ -261,14 +261,14 @@ class TestNestedRecordCreation:
             display_name="Project Name",
         )
 
-        # Add has_many relation
+        # Add one_to_many relation
         await service.create_relation_field(
             entity_id=project_entity.id,
             field_key="tasks",
-            field_type=FieldType.RELATION_HAS_MANY,
+            field_type=FieldType.RELATION_ONE_TO_MANY,
             display_name="Tasks",
             relation_settings=RelationSettings(
-                relation_type=RelationType.HAS_MANY,
+                relation_type=RelationType.ONE_TO_MANY,
                 target_entity_id=task_entity.id,
             ),
         )

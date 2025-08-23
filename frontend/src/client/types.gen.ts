@@ -711,7 +711,7 @@ export type CaseRecordRead = {
     [key: string]: unknown
   }
   /**
-   * List of field keys that are relations (BELONGS_TO or HAS_MANY)
+   * List of field keys that are relations (ONE_TO_ONE or ONE_TO_MANY)
    */
   relation_fields?: Array<string>
 }
@@ -1552,8 +1552,8 @@ export type FieldType =
   | "ARRAY_NUMBER"
   | "SELECT"
   | "MULTI_SELECT"
-  | "RELATION_BELONGS_TO"
-  | "RELATION_HAS_MANY"
+  | "RELATION_ONE_TO_ONE"
+  | "RELATION_ONE_TO_MANY"
 
 export type Float = {
   component_id?: "float"
@@ -2727,7 +2727,7 @@ export type RelationSettings = {
  * These values are used in the API and models layer to represent
  * the type of relationship from the perspective of the source entity.
  */
-export type RelationType = "belongs_to" | "has_many"
+export type RelationType = "one_to_one" | "one_to_many"
 
 /**
  * Event for when a case is reopened.

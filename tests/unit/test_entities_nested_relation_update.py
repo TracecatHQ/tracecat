@@ -15,12 +15,12 @@ pytestmark = pytest.mark.usefixtures("db")
 class TestNestedRelationUpdate:
     """Test updating related records through nested updates."""
 
-    async def test_update_record_with_nested_belongs_to(
+    async def test_update_record_with_nested_one_to_one(
         self,
         session: AsyncSession,
         svc_admin_role: Role,
     ):
-        """Test updating a record with nested belongs_to relation data."""
+        """Test updating a record with nested one_to_one relation data."""
         service = CustomEntitiesService(session, svc_admin_role)
 
         # Create two entities: employee and manager
@@ -55,14 +55,14 @@ class TestNestedRelationUpdate:
             display_name="Employee Name",
         )
 
-        # Add belongs_to relation from employee to manager
+        # Add one_to_one relation from employee to manager
         await service.create_relation_field(
             entity_id=employee_entity.id,
             field_key="manager",
-            field_type=FieldType.RELATION_BELONGS_TO,
+            field_type=FieldType.RELATION_ONE_TO_ONE,
             display_name="Manager",
             relation_settings=RelationSettings(
-                relation_type=RelationType.BELONGS_TO,
+                relation_type=RelationType.ONE_TO_ONE,
                 target_entity_id=manager_entity.id,
             ),
         )
@@ -141,10 +141,10 @@ class TestNestedRelationUpdate:
         await service.create_relation_field(
             entity_id=project_entity.id,
             field_key="owner",
-            field_type=FieldType.RELATION_BELONGS_TO,
+            field_type=FieldType.RELATION_ONE_TO_ONE,
             display_name="Owner",
             relation_settings=RelationSettings(
-                relation_type=RelationType.BELONGS_TO,
+                relation_type=RelationType.ONE_TO_ONE,
                 target_entity_id=owner_entity.id,
             ),
         )
@@ -236,10 +236,10 @@ class TestNestedRelationUpdate:
         await service.create_relation_field(
             entity_id=item_entity.id,
             field_key="category",
-            field_type=FieldType.RELATION_BELONGS_TO,
+            field_type=FieldType.RELATION_ONE_TO_ONE,
             display_name="Category",
             relation_settings=RelationSettings(
-                relation_type=RelationType.BELONGS_TO,
+                relation_type=RelationType.ONE_TO_ONE,
                 target_entity_id=category_entity.id,
             ),
         )
@@ -324,10 +324,10 @@ class TestNestedRelationUpdate:
         await service.create_relation_field(
             entity_id=task_entity.id,
             field_key="assignee",
-            field_type=FieldType.RELATION_BELONGS_TO,
+            field_type=FieldType.RELATION_ONE_TO_ONE,
             display_name="Assignee",
             relation_settings=RelationSettings(
-                relation_type=RelationType.BELONGS_TO,
+                relation_type=RelationType.ONE_TO_ONE,
                 target_entity_id=assignee_entity.id,
             ),
         )

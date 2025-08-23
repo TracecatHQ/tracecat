@@ -111,8 +111,8 @@ def validate_default_value_type(
 
     # Check if field type supports default values
     unsupported_types = {
-        FieldType.RELATION_BELONGS_TO,
-        FieldType.RELATION_HAS_MANY,
+        FieldType.RELATION_ONE_TO_ONE,
+        FieldType.RELATION_ONE_TO_MANY,
         FieldType.ARRAY_TEXT,
         FieldType.ARRAY_INTEGER,
         FieldType.ARRAY_NUMBER,
@@ -512,7 +512,7 @@ class RecordValidators:
         """
 
         if field.relation_kind == RelationKind.ONE_TO_ONE:
-            # BELONGS_TO expects a single UUID, string UUID, or dict for inline creation
+            # ONE_TO_ONE expects a single UUID, string UUID, or dict for inline creation
             if isinstance(value, dict):
                 # Allow dict for inline record creation
                 # Basic validation - ensure it's not empty
@@ -521,18 +521,18 @@ class RecordValidators:
                 return True, None
             try:
                 validate_relation_uuid(
-                    value, allow_none=False, context="belongs_to relation"
+                    value, allow_none=False, context="one_to_one relation"
                 )
                 return True, None
             except PydanticCustomError as e:
                 return False, e.message()
 
         elif field.relation_kind == RelationKind.ONE_TO_MANY:
-            # HAS_MANY expects a list of UUIDs or dicts
+            # ONE_TO_MANY expects a list of UUIDs or dicts
             if not isinstance(value, list):
                 return (
                     False,
-                    f"Expected list for has_many relation, got {type(value).__name__}",
+                    f"Expected list for one_to_many relation, got {type(value).__name__}",
                 )
 
             for idx, item in enumerate(value):

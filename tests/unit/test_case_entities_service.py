@@ -142,19 +142,19 @@ async def _prepare_all_field_types(
     await svc.create_relation_field(
         entity.id,
         "department",
-        FieldType.RELATION_BELONGS_TO,
+        FieldType.RELATION_ONE_TO_ONE,
         "Department",
         relation_settings=RelationSettings(
-            relation_type=RelationType.BELONGS_TO, target_entity_id=dept.id
+            relation_type=RelationType.ONE_TO_ONE, target_entity_id=dept.id
         ),
     )
     await svc.create_relation_field(
         entity.id,
         "projects",
-        FieldType.RELATION_HAS_MANY,
+        FieldType.RELATION_ONE_TO_MANY,
         "Projects",
         relation_settings=RelationSettings(
-            relation_type=RelationType.HAS_MANY, target_entity_id=project.id
+            relation_type=RelationType.ONE_TO_MANY, target_entity_id=project.id
         ),
     )
 
@@ -1040,7 +1040,7 @@ class TestCaseEntitiesServiceAdditional:
         # Relation fields are NOT in field_data (stored as links)
         assert "department" not in field_data
 
-        # Has_many relations are NOT in field_data (stored as links)
+        # One_to_many relations are NOT in field_data (stored as links)
         assert "projects" not in field_data
 
         # Verify that field metadata would be available for UI rendering

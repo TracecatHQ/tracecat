@@ -648,7 +648,7 @@ class CustomEntitiesService(BaseWorkspaceService):
         Args:
             entity_id: Entity metadata ID
             field_key: Unique field key
-            field_type: Must be RELATION_BELONGS_TO or RELATION_HAS_MANY
+            field_type: Must be RELATION_ONE_TO_ONE or RELATION_ONE_TO_MANY
             display_name: Human-readable name
             relation_settings: Relation configuration
             description: Optional description
@@ -711,7 +711,7 @@ class CustomEntitiesService(BaseWorkspaceService):
         # Determine relation_kind based on field_type
         relation_kind = (
             RelationKind.ONE_TO_ONE
-            if field_type == FieldType.RELATION_BELONGS_TO
+            if field_type == FieldType.RELATION_ONE_TO_ONE
             else RelationKind.ONE_TO_MANY
         )
 

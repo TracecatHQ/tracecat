@@ -646,9 +646,9 @@ class EntityQueryBuilder:
         # Get field metadata
         field = await self._validate_field(entity_id, field_key)
 
-        if field.field_type not in (
-            FieldType.RELATION_BELONGS_TO,
-            FieldType.RELATION_HAS_MANY,
+        if FieldType(field.field_type) not in (
+            FieldType.RELATION_ONE_TO_ONE,
+            FieldType.RELATION_ONE_TO_MANY,
         ):
             raise ValueError(f"Field {field_key} is not a relation field")
 

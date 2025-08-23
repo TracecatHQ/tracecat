@@ -69,8 +69,8 @@ class CaseEntitiesService(BaseWorkspaceService):
             relation_fields.append(field.field_key)
 
             # Get related records for this field
-            if field.field_type == FieldType.RELATION_BELONGS_TO.value:
-                # For BELONGS_TO, fetch the single related record
+            if field.field_type == FieldType.RELATION_ONE_TO_ONE.value:
+                # For one_to_one, fetch the single related record
                 link_stmt = select(RecordRelationLink).where(
                     RecordRelationLink.source_record_id == record.id,
                     RecordRelationLink.source_field_id == field.id,
@@ -90,8 +90,8 @@ class CaseEntitiesService(BaseWorkspaceService):
                 else:
                     field_data[field.field_key] = None
 
-            elif field.field_type == FieldType.RELATION_HAS_MANY.value:
-                # For HAS_MANY, fetch multiple related records (limited)
+            elif field.field_type == FieldType.RELATION_ONE_TO_MANY.value:
+                # For one_to_many, fetch multiple related records (limited)
                 links_stmt = (
                     select(RecordRelationLink)
                     .where(

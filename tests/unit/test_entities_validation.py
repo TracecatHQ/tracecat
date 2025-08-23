@@ -305,11 +305,11 @@ class TestFieldValidators:
         with pytest.raises(ValidationError) as exc_info:
             FieldMetadataCreate(
                 field_key="relation_field",
-                field_type=FieldType.RELATION_BELONGS_TO,
+                field_type=FieldType.RELATION_ONE_TO_ONE,
                 display_name="Relation Field",
                 default_value="some_id",
                 relation_settings=RelationSettings(
-                    relation_type=RelationType.BELONGS_TO,
+                    relation_type=RelationType.ONE_TO_ONE,
                     target_entity_id=UUID("00000000-0000-0000-0000-000000000001"),
                 ),
             )
@@ -432,46 +432,46 @@ class TestRelationValidators:
         """Test relation settings validation against field type using Pydantic model."""
 
         # Should pass for matching types
-        belongs_to_settings = RelationSettings(
-            relation_type=RelationType.BELONGS_TO,
+        one_to_one_settings = RelationSettings(
+            relation_type=RelationType.ONE_TO_ONE,
             target_entity_id=UUID("00000000-0000-0000-0000-000000000001"),
         )
         field = FieldMetadataCreate(
-            field_key="belongs_to_field",
-            field_type=FieldType.RELATION_BELONGS_TO,
-            display_name="Belongs To Field",
-            relation_settings=belongs_to_settings,
+            field_key="one_to_one_field",
+            field_type=FieldType.RELATION_ONE_TO_ONE,
+            display_name="One To One Field",
+            relation_settings=one_to_one_settings,
         )
-        assert field.relation_settings == belongs_to_settings
+        assert field.relation_settings == one_to_one_settings
 
-        has_many_settings = RelationSettings(
-            relation_type=RelationType.HAS_MANY,
+        one_to_many_settings = RelationSettings(
+            relation_type=RelationType.ONE_TO_MANY,
             target_entity_id=UUID("00000000-0000-0000-0000-000000000002"),
         )
         field = FieldMetadataCreate(
-            field_key="has_many_field",
-            field_type=FieldType.RELATION_HAS_MANY,
-            display_name="Has Many Field",
-            relation_settings=has_many_settings,
+            field_key="one_to_many_field",
+            field_type=FieldType.RELATION_ONE_TO_MANY,
+            display_name="One To Many Field",
+            relation_settings=one_to_many_settings,
         )
-        assert field.relation_settings == has_many_settings
+        assert field.relation_settings == one_to_many_settings
 
         # Should raise for mismatched types
         with pytest.raises(ValidationError) as exc_info:
             FieldMetadataCreate(
-                field_key="belongs_to_field",
-                field_type=FieldType.RELATION_BELONGS_TO,
-                display_name="Belongs To Field",
-                relation_settings=has_many_settings,
+                field_key="one_to_one_field",
+                field_type=FieldType.RELATION_ONE_TO_ONE,
+                display_name="One To One Field",
+                relation_settings=one_to_many_settings,
             )
         assert "doesn't match field type" in str(exc_info.value)
 
         # Should raise for relation field without settings
         with pytest.raises(ValidationError) as exc_info:
             FieldMetadataCreate(
-                field_key="belongs_to_field",
-                field_type=FieldType.RELATION_BELONGS_TO,
-                display_name="Belongs To Field",
+                field_key="one_to_one_field",
+                field_type=FieldType.RELATION_ONE_TO_ONE,
+                display_name="One To One Field",
                 relation_settings=None,
             )
         assert "requires relation_settings" in str(exc_info.value)

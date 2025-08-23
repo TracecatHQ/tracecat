@@ -148,8 +148,8 @@ class FieldMetadataCreate(BaseModel):
     def validate_relation_settings(self) -> Self:
         """Validate relation settings match field type."""
         is_relation = self.field_type in (
-            FieldType.RELATION_BELONGS_TO,
-            FieldType.RELATION_HAS_MANY,
+            FieldType.RELATION_ONE_TO_ONE,
+            FieldType.RELATION_ONE_TO_MANY,
         )
 
         if is_relation and not self.relation_settings:
@@ -171,9 +171,9 @@ class FieldMetadataCreate(BaseModel):
             from tracecat.entities.enums import RelationType
 
             expected_type = (
-                RelationType.BELONGS_TO
-                if self.field_type == FieldType.RELATION_BELONGS_TO
-                else RelationType.HAS_MANY
+                RelationType.ONE_TO_ONE
+                if self.field_type == FieldType.RELATION_ONE_TO_ONE
+                else RelationType.ONE_TO_MANY
             )
             if self.relation_settings.relation_type != expected_type:
                 raise PydanticCustomError(

@@ -71,8 +71,8 @@ const fieldTypeConfig: Partial<
   ARRAY_TEXT: { label: "Text array", icon: BookA },
   ARRAY_INTEGER: { label: "Integer array", icon: ListOrdered },
   ARRAY_NUMBER: { label: "Number array", icon: Brackets },
-  RELATION_BELONGS_TO: { label: "Belongs to", icon: Link },
-  RELATION_HAS_MANY: { label: "Has many", icon: Network },
+  RELATION_ONE_TO_ONE: { label: "One to one", icon: Link },
+  RELATION_ONE_TO_MANY: { label: "One to many", icon: Network },
 }
 
 interface EntityFieldsTableProps {
@@ -156,8 +156,8 @@ export function EntityFieldsTable({
                 // Get target entity name (slug) for relation fields
                 let targetEntityName: string | undefined
                 if (
-                  (fieldType === "RELATION_BELONGS_TO" ||
-                    fieldType === "RELATION_HAS_MANY") &&
+                  (fieldType === "RELATION_ONE_TO_ONE" ||
+                    fieldType === "RELATION_ONE_TO_MANY") &&
                   field.target_entity_id &&
                   entities
                 ) {
@@ -178,9 +178,9 @@ export function EntityFieldsTable({
                 const getTooltipContent = () => {
                   if (!targetEntityName || !currentEntityName) return null
 
-                  if (fieldType === "RELATION_BELONGS_TO") {
+                  if (fieldType === "RELATION_ONE_TO_ONE") {
                     return `One ${currentEntityName} to one ${targetEntityName}`
-                  } else if (fieldType === "RELATION_HAS_MANY") {
+                  } else if (fieldType === "RELATION_ONE_TO_MANY") {
                     return `One ${currentEntityName} to many ${targetEntityName}`
                   }
                   return null

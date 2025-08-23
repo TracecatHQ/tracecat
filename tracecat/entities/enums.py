@@ -19,7 +19,12 @@ class RelationType(StrEnum):
 
     These values are used in the API and models layer to represent
     the type of relationship from the perspective of the source entity.
+
+    Note: We use explicit cardinality terms to avoid ambiguity.
     """
 
-    BELONGS_TO = "belongs_to"  # Maps to ONE_TO_ONE in database (source has one target)
-    HAS_MANY = "has_many"  # Maps to ONE_TO_MANY in database (source has many targets)
+    ONE_TO_ONE = "one_to_one"
+    ONE_TO_MANY = "one_to_many"
+    # Future support (not yet implemented in v1):
+    MANY_TO_ONE = "many_to_one"
+    MANY_TO_MANY = "many_to_many"

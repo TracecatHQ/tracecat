@@ -98,32 +98,32 @@ class TestEntityRelations:
         """Test creation of unidirectional relation fields.
 
         Note: Due to the nesting policy, we can only create one direction
-        of the relation - either belongs_to OR has_many, not both.
+        of the relation - either one_to_one OR one_to_many, not both.
         """
-        # Create belongs_to field (customer -> organization)
+        # Create one_to_one field (customer -> organization)
         relation_settings = RelationSettings(
-            relation_type=RelationType.BELONGS_TO,
+            relation_type=RelationType.ONE_TO_ONE,
             target_entity_id=organization_entity.id,
         )
 
-        belongs_to_field = await entities_service.create_relation_field(
+        one_to_one_field = await entities_service.create_relation_field(
             entity_id=customer_entity.id,
             field_key="organization",
-            field_type=FieldType.RELATION_BELONGS_TO,
+            field_type=FieldType.RELATION_ONE_TO_ONE,
             display_name="Organization",
             relation_settings=relation_settings,
         )
 
-        # Verify belongs_to field
-        assert belongs_to_field.field_type == FieldType.RELATION_BELONGS_TO
-        assert belongs_to_field.entity_id == customer_entity.id
-        assert belongs_to_field.relation_kind == RelationKind.ONE_TO_ONE
-        assert belongs_to_field.target_entity_id == organization_entity.id
+        # Verify one_to_one field
+        assert one_to_one_field.field_type == FieldType.RELATION_ONE_TO_ONE
+        assert one_to_one_field.entity_id == customer_entity.id
+        assert one_to_one_field.relation_kind == RelationKind.ONE_TO_ONE
+        assert one_to_one_field.target_entity_id == organization_entity.id
 
-        # Try to create has_many field in the opposite direction - should fail
+        # Try to create one_to_many field in the opposite direction - should fail
         # because customer entity now has a relation field pointing to organization
-        has_many_settings = RelationSettings(
-            relation_type=RelationType.HAS_MANY,
+        one_to_many_settings = RelationSettings(
+            relation_type=RelationType.ONE_TO_MANY,
             target_entity_id=customer_entity.id,
         )
 
@@ -131,9 +131,9 @@ class TestEntityRelations:
             await entities_service.create_relation_field(
                 entity_id=organization_entity.id,
                 field_key="customers",
-                field_type=FieldType.RELATION_HAS_MANY,
+                field_type=FieldType.RELATION_ONE_TO_MANY,
                 display_name="Customers",
-                relation_settings=has_many_settings,
+                relation_settings=one_to_many_settings,
             )
 
     async def test_create_relation_field_with_settings(
@@ -144,25 +144,25 @@ class TestEntityRelations:
     ):
         """Test creating a single relation field with settings."""
         relation_settings = RelationSettings(
-            relation_type=RelationType.BELONGS_TO,
+            relation_type=RelationType.ONE_TO_ONE,
             target_entity_id=organization_entity.id,
         )
 
         field = await entities_service.create_relation_field(
             entity_id=customer_entity.id,
             field_key="org",
-            field_type=FieldType.RELATION_BELONGS_TO,
+            field_type=FieldType.RELATION_ONE_TO_ONE,
             display_name="Organization",
             relation_settings=relation_settings,
             description="Customer's organization",
         )
 
-        assert field.field_type == FieldType.RELATION_BELONGS_TO
+        assert field.field_type == FieldType.RELATION_ONE_TO_ONE
         assert field.relation_kind == RelationKind.ONE_TO_ONE
         assert field.target_entity_id == organization_entity.id
         # v1: cascade_delete is always true, field removed
 
-    async def test_create_record_with_belongs_to_relation(
+    async def test_create_record_with_one_to_one_relation(
         self,
         entities_service: CustomEntitiesService,
         customer_entity,
@@ -170,16 +170,16 @@ class TestEntityRelations:
         session: AsyncSession,
     ):
         """Test creating a record with a belongs-to relation set at creation time."""
-        # Create belongs_to field
+        # Create one_to_one field
         relation_settings = RelationSettings(
-            relation_type=RelationType.BELONGS_TO,
+            relation_type=RelationType.ONE_TO_ONE,
             target_entity_id=organization_entity.id,
         )
 
-        belongs_to_field = await entities_service.create_relation_field(
+        one_to_one_field = await entities_service.create_relation_field(
             entity_id=customer_entity.id,
             field_key="organization",
-            field_type=FieldType.RELATION_BELONGS_TO,
+            field_type=FieldType.RELATION_ONE_TO_ONE,
             display_name="Organization",
             relation_settings=relation_settings,
         )
@@ -209,11 +209,11 @@ class TestEntityRelations:
         link = link_result.first()
 
         assert link is not None
-        assert link.source_field_id == belongs_to_field.id
+        assert link.source_field_id == one_to_one_field.id
         assert link.source_entity_id == customer_entity.id
         assert link.target_entity_id == organization_entity.id
 
-    async def test_create_record_with_has_many_relation(
+    async def test_create_record_with_one_to_many_relation(
         self,
         entities_service: CustomEntitiesService,
         customer_entity,
@@ -221,18 +221,18 @@ class TestEntityRelations:
         session: AsyncSession,
     ):
         """Test creating a record with a has-many relation set at creation time."""
-        # Create has_many field
-        has_many_settings = RelationSettings(
-            relation_type=RelationType.HAS_MANY,
+        # Create one_to_many field
+        one_to_many_settings = RelationSettings(
+            relation_type=RelationType.ONE_TO_MANY,
             target_entity_id=customer_entity.id,
         )
 
-        has_many_field = await entities_service.create_relation_field(
+        one_to_many_field = await entities_service.create_relation_field(
             entity_id=organization_entity.id,
             field_key="customers",
-            field_type=FieldType.RELATION_HAS_MANY,
+            field_type=FieldType.RELATION_ONE_TO_MANY,
             display_name="Customers",
-            relation_settings=has_many_settings,
+            relation_settings=one_to_many_settings,
         )
 
         # Create customers first
@@ -244,7 +244,7 @@ class TestEntityRelations:
             )
             customers.append(customer)
 
-        # Create organization with has_many relation set at creation
+        # Create organization with one_to_many relation set at creation
         org = await entities_service.create_record(
             entity_id=organization_entity.id,
             data={
@@ -257,7 +257,7 @@ class TestEntityRelations:
         # Verify links were created
         link_stmt = select(RecordRelationLink).where(
             RecordRelationLink.source_record_id == org.id,
-            RecordRelationLink.source_field_id == has_many_field.id,
+            RecordRelationLink.source_field_id == one_to_many_field.id,
         )
         link_result = await session.exec(link_stmt)
         links = list(link_result.all())
@@ -274,16 +274,16 @@ class TestEntityRelations:
         organization_entity,
     ):
         """Test that invalid relation IDs are rejected at creation."""
-        # Create belongs_to field
+        # Create one_to_one field
         relation_settings = RelationSettings(
-            relation_type=RelationType.BELONGS_TO,
+            relation_type=RelationType.ONE_TO_ONE,
             target_entity_id=organization_entity.id,
         )
 
         await entities_service.create_relation_field(
             entity_id=customer_entity.id,
             field_key="organization",
-            field_type=FieldType.RELATION_BELONGS_TO,
+            field_type=FieldType.RELATION_ONE_TO_ONE,
             display_name="Organization",
             relation_settings=relation_settings,
         )
@@ -334,10 +334,10 @@ class TestEntityRelations:
             await service1.create_relation_field(
                 entity_id=customer_entity.id,
                 field_key="cross_workspace",
-                field_type=FieldType.RELATION_BELONGS_TO,
+                field_type=FieldType.RELATION_ONE_TO_ONE,
                 display_name="Cross Workspace",
                 relation_settings=RelationSettings(
-                    relation_type=RelationType.BELONGS_TO,
+                    relation_type=RelationType.ONE_TO_ONE,
                     target_entity_id=other_entity.id,  # Different workspace!
                 ),
             )
@@ -349,16 +349,16 @@ class TestEntityRelations:
         organization_entity,
     ):
         """Test that relation fields cannot be updated after record creation."""
-        # Create belongs_to field
+        # Create one_to_one field
         relation_settings = RelationSettings(
-            relation_type=RelationType.BELONGS_TO,
+            relation_type=RelationType.ONE_TO_ONE,
             target_entity_id=organization_entity.id,
         )
 
         await entities_service.create_relation_field(
             entity_id=customer_entity.id,
             field_key="organization",
-            field_type=FieldType.RELATION_BELONGS_TO,
+            field_type=FieldType.RELATION_ONE_TO_ONE,
             display_name="Organization",
             relation_settings=relation_settings,
         )
@@ -406,18 +406,18 @@ class TestEntityRelations:
         organization_entity,
     ):
         """Test paginated queries for related records."""
-        # Create has_many field
-        has_many_settings = RelationSettings(
-            relation_type=RelationType.HAS_MANY,
+        # Create one_to_many field
+        one_to_many_settings = RelationSettings(
+            relation_type=RelationType.ONE_TO_MANY,
             target_entity_id=customer_entity.id,
         )
 
-        has_many_field = await entities_service.create_relation_field(
+        one_to_many_field = await entities_service.create_relation_field(
             entity_id=organization_entity.id,
             field_key="customers",
-            field_type=FieldType.RELATION_HAS_MANY,
+            field_type=FieldType.RELATION_ONE_TO_MANY,
             display_name="Customers",
-            relation_settings=has_many_settings,
+            relation_settings=one_to_many_settings,
         )
 
         # Create 150 customers
@@ -441,7 +441,7 @@ class TestEntityRelations:
         # Test first page
         page1_records, total = await entities_service.query_builder.has_related(
             source_record_id=org.id,
-            field_id=has_many_field.id,
+            field_id=one_to_many_field.id,
             page=1,
             page_size=50,
         )
@@ -452,7 +452,7 @@ class TestEntityRelations:
         # Test second page
         page2_records, total = await entities_service.query_builder.has_related(
             source_record_id=org.id,
-            field_id=has_many_field.id,
+            field_id=one_to_many_field.id,
             page=2,
             page_size=50,
         )
@@ -462,7 +462,7 @@ class TestEntityRelations:
         # Test last page
         page3_records, total = await entities_service.query_builder.has_related(
             source_record_id=org.id,
-            field_id=has_many_field.id,
+            field_id=one_to_many_field.id,
             page=3,
             page_size=50,
         )
@@ -475,7 +475,7 @@ class TestEntityRelations:
             filtered_total,
         ) = await entities_service.query_builder.has_related(
             source_record_id=org.id,
-            field_id=has_many_field.id,
+            field_id=one_to_many_field.id,
             target_filters=[{"field": "name", "operator": "ilike", "value": "%00%"}],
             page=1,
             page_size=50,

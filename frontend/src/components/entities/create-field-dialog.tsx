@@ -76,8 +76,8 @@ const fieldTypes: {
   { value: "ARRAY_TEXT", label: "Text array", icon: BookA },
   { value: "ARRAY_INTEGER", label: "Integer array", icon: ListOrdered },
   { value: "ARRAY_NUMBER", label: "Number array", icon: Brackets },
-  { value: "RELATION_BELONGS_TO", label: "Belongs to", icon: Link2 },
-  { value: "RELATION_HAS_MANY", label: "Has many", icon: GitBranch },
+  { value: "RELATION_ONE_TO_ONE", label: "One to one", icon: Link2 },
+  { value: "RELATION_ONE_TO_MANY", label: "One to many", icon: GitBranch },
 ]
 
 const createFieldSchema = z.object({
@@ -101,8 +101,8 @@ const createFieldSchema = z.object({
     "ARRAY_TEXT",
     "ARRAY_INTEGER",
     "ARRAY_NUMBER",
-    "RELATION_BELONGS_TO",
-    "RELATION_HAS_MANY",
+    "RELATION_ONE_TO_ONE",
+    "RELATION_ONE_TO_MANY",
   ] as const),
   display_name: z.string().min(1, "Display name is required"),
   description: z.string().optional(),
@@ -110,7 +110,7 @@ const createFieldSchema = z.object({
   enum_options: z.array(z.string()).optional(),
   relation_settings: z
     .object({
-      relation_type: z.enum(["belongs_to", "has_many"]),
+      relation_type: z.enum(["one_to_one", "one_to_many"]),
       target_entity_id: z.string(),
       // v1: Relations are unidirectional, cascade delete is always true
     })
@@ -157,7 +157,7 @@ export function CreateFieldDialog({
       default_value: "",
       enum_options: [],
       relation_settings: {
-        relation_type: "belongs_to",
+        relation_type: "one_to_one",
         target_entity_id: "",
       },
     },
@@ -174,7 +174,8 @@ export function CreateFieldDialog({
   )
   const isRelationField = useMemo(
     () =>
-      fieldType === "RELATION_BELONGS_TO" || fieldType === "RELATION_HAS_MANY",
+      fieldType === "RELATION_ONE_TO_ONE" ||
+      fieldType === "RELATION_ONE_TO_MANY",
     [fieldType]
   )
 
@@ -246,15 +247,15 @@ export function CreateFieldDialog({
 
       // Process relation_settings for RELATION fields
       if (
-        data.field_type === "RELATION_BELONGS_TO" ||
-        data.field_type === "RELATION_HAS_MANY"
+        data.field_type === "RELATION_ONE_TO_ONE" ||
+        data.field_type === "RELATION_ONE_TO_MANY"
       ) {
         if (data.relation_settings?.target_entity_id) {
           processedData.relation_settings = {
             relation_type:
-              data.field_type === "RELATION_BELONGS_TO"
-                ? "belongs_to"
-                : "has_many",
+              data.field_type === "RELATION_ONE_TO_ONE"
+                ? "one_to_one"
+                : "one_to_many",
             target_entity_id: data.relation_settings.target_entity_id,
             // v1: No backref or cascade config
           }

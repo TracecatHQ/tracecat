@@ -772,10 +772,10 @@ class TestCustomEntitiesService:
 class TestRelationFieldCreation:
     """Test relation field handling during record creation."""
 
-    async def test_create_record_with_belongs_to_relation(
+    async def test_create_record_with_one_to_one_relation(
         self, admin_entities_service: CustomEntitiesService
     ) -> None:
-        """Test creating a record with a belongs_to relation."""
+        """Test creating a record with a one_to_one relation."""
         # Create two entity types
         user_entity = await admin_entities_service.create_entity(
             name="user", display_name="User"
@@ -795,17 +795,17 @@ class TestRelationFieldCreation:
             entity_id=user_entity.id, data={"name": "John Doe"}
         )
 
-        # Create post entity with author field (belongs_to user)
+        # Create post entity with author field (one_to_one user)
         from tracecat.entities.enums import RelationType
         from tracecat.entities.models import RelationSettings
 
         author_field = await admin_entities_service.create_relation_field(
             entity_id=post_entity.id,
             field_key="author",
-            field_type=FieldType.RELATION_BELONGS_TO,
+            field_type=FieldType.RELATION_ONE_TO_ONE,
             display_name="Author",
             relation_settings=RelationSettings(
-                relation_type=RelationType.BELONGS_TO,
+                relation_type=RelationType.ONE_TO_ONE,
                 target_entity_id=user_entity.id,
             ),
         )
@@ -844,10 +844,10 @@ class TestRelationFieldCreation:
         assert link.source_entity_id == post_entity.id
         assert link.target_entity_id == user_entity.id
 
-    async def test_create_record_with_has_many_relation(
+    async def test_create_record_with_one_to_many_relation(
         self, admin_entities_service: CustomEntitiesService
     ) -> None:
-        """Test creating a record with a has_many relation."""
+        """Test creating a record with a one_to_many relation."""
         # Create two entity types
         category_entity = await admin_entities_service.create_entity(
             name="category", display_name="Category"
@@ -873,17 +873,17 @@ class TestRelationFieldCreation:
             entity_id=product_entity.id, data={"name": "Product 3"}
         )
 
-        # Create category entity with products field (has_many products)
+        # Create category entity with products field (one_to_many products)
         from tracecat.entities.enums import RelationType
         from tracecat.entities.models import RelationSettings
 
         products_field = await admin_entities_service.create_relation_field(
             entity_id=category_entity.id,
             field_key="products",
-            field_type=FieldType.RELATION_HAS_MANY,
+            field_type=FieldType.RELATION_ONE_TO_MANY,
             display_name="Products",
             relation_settings=RelationSettings(
-                relation_type=RelationType.HAS_MANY,
+                relation_type=RelationType.ONE_TO_MANY,
                 target_entity_id=product_entity.id,
             ),
         )
@@ -946,10 +946,10 @@ class TestRelationFieldCreation:
         await admin_entities_service.create_relation_field(
             entity_id=entity1.id,
             field_key="related",
-            field_type=FieldType.RELATION_BELONGS_TO,
+            field_type=FieldType.RELATION_ONE_TO_ONE,
             display_name="Related",
             relation_settings=RelationSettings(
-                relation_type=RelationType.BELONGS_TO,
+                relation_type=RelationType.ONE_TO_ONE,
                 target_entity_id=entity2.id,
             ),
         )
@@ -962,14 +962,14 @@ class TestRelationFieldCreation:
             )
         assert "Invalid UUID format" in str(exc_info.value)
 
-        # Try with wrong type for has_many
+        # Try with wrong type for one_to_many
         await admin_entities_service.create_relation_field(
             entity_id=entity1.id,
             field_key="many_related",
-            field_type=FieldType.RELATION_HAS_MANY,
+            field_type=FieldType.RELATION_ONE_TO_MANY,
             display_name="Many Related",
             relation_settings=RelationSettings(
-                relation_type=RelationType.HAS_MANY,
+                relation_type=RelationType.ONE_TO_MANY,
                 target_entity_id=entity2.id,
             ),
         )
@@ -979,7 +979,7 @@ class TestRelationFieldCreation:
                 entity_id=entity1.id,
                 data={"many_related": "not-a-list"},  # Should be a list
             )
-        assert "Expected list for has_many relation" in str(exc_info.value)
+        assert "Expected list for one_to_many relation" in str(exc_info.value)
 
         with pytest.raises(TracecatValidationError) as exc_info:
             await admin_entities_service.create_record(
@@ -1016,10 +1016,10 @@ class TestRelationFieldCreation:
         await admin_entities_service.create_relation_field(
             entity_id=entity1.id,
             field_key="relation_field",
-            field_type=FieldType.RELATION_BELONGS_TO,
+            field_type=FieldType.RELATION_ONE_TO_ONE,
             display_name="Relation Field",
             relation_settings=RelationSettings(
-                relation_type=RelationType.BELONGS_TO,
+                relation_type=RelationType.ONE_TO_ONE,
                 target_entity_id=entity2.id,
             ),
         )
@@ -1080,10 +1080,10 @@ class TestRelationFieldCreation:
         ceo_field = await admin_entities_service.create_relation_field(
             entity_id=company_entity.id,
             field_key="ceo",
-            field_type=FieldType.RELATION_BELONGS_TO,
+            field_type=FieldType.RELATION_ONE_TO_ONE,
             display_name="CEO",
             relation_settings=RelationSettings(
-                relation_type=RelationType.BELONGS_TO,
+                relation_type=RelationType.ONE_TO_ONE,
                 target_entity_id=employee_entity.id,
             ),
         )
@@ -1091,10 +1091,10 @@ class TestRelationFieldCreation:
         employees_field = await admin_entities_service.create_relation_field(
             entity_id=company_entity.id,
             field_key="employees",
-            field_type=FieldType.RELATION_HAS_MANY,
+            field_type=FieldType.RELATION_ONE_TO_MANY,
             display_name="Employees",
             relation_settings=RelationSettings(
-                relation_type=RelationType.HAS_MANY,
+                relation_type=RelationType.ONE_TO_MANY,
                 target_entity_id=employee_entity.id,
             ),
         )

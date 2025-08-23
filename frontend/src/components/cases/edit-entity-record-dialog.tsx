@@ -121,8 +121,8 @@ function generateZodSchema(
       case "OBJECT":
         fieldSchema = z.any().optional()
         break
-      case "RELATION_BELONGS_TO":
-        // For belongs_to relations, we create a nested object for the related entity
+      case "RELATION_ONE_TO_ONE":
+        // For one_to_one relations, we create a nested object for the related entity
         if (relationFields) {
           const relationKey = field.key
           const relatedFields = relationFields.get(relationKey)
@@ -252,14 +252,14 @@ export function EditEntityRecordDialog({
 
     schema.fields.forEach((field) => {
       const fieldType = field.type.toUpperCase()
-      if (fieldType === "RELATION_BELONGS_TO") {
+      if (fieldType === "RELATION_ONE_TO_ONE") {
         // Find the full field metadata to get target entity ID
         const fullField = fullFields?.find((f) => f.field_key === field.key)
         relations.push({
           ...field,
           targetEntityId: fullField?.target_entity_id || undefined,
         })
-      } else if (fieldType !== "RELATION_HAS_MANY") {
+      } else if (fieldType !== "RELATION_ONE_TO_MANY") {
         // Skip HAS_MANY relations as they're not edited inline
         regular.push(field)
       }
@@ -293,8 +293,8 @@ export function EditEntityRecordDialog({
             const filteredFields = targetSchema.fields.filter((field) => {
               const fieldType = field.type.toUpperCase()
               return (
-                fieldType !== "RELATION_BELONGS_TO" &&
-                fieldType !== "RELATION_HAS_MANY"
+                fieldType !== "RELATION_ONE_TO_ONE" &&
+                fieldType !== "RELATION_ONE_TO_MANY"
               )
             })
 
@@ -356,10 +356,10 @@ export function EditEntityRecordDialog({
             fieldType === "ARRAY_FLOAT"
           ) {
             formattedData[key] = Array.isArray(value) ? value : []
-          } else if (fieldType === "RELATION_HAS_MANY") {
+          } else if (fieldType === "RELATION_ONE_TO_MANY") {
             // HAS_MANY relations are arrays of related records
             formattedData[key] = Array.isArray(value) ? value : []
-          } else if (fieldType === "RELATION_BELONGS_TO") {
+          } else if (fieldType === "RELATION_ONE_TO_ONE") {
             // BELONGS_TO relations - initialize as empty object if null
             // This allows users to fill in the fields
             formattedData[key] = value || {}
@@ -383,8 +383,8 @@ export function EditEntityRecordDialog({
 
           // Skip empty relation objects (null relations that weren't edited)
           if (
-            (fieldType === "RELATION_BELONGS_TO" ||
-              fieldType === "RELATION_HAS_MANY") &&
+            (fieldType === "RELATION_ONE_TO_ONE" ||
+              fieldType === "RELATION_ONE_TO_MANY") &&
             (value === null ||
               value === undefined ||
               (typeof value === "object" && Object.keys(value).length === 0))

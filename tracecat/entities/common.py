@@ -58,14 +58,14 @@ def serialize_value(value: Any, field_type: FieldType) -> Any:
             return value.isoformat()
         return value  # Already a string
 
-    elif field_type == FieldType.RELATION_BELONGS_TO:
+    elif field_type == FieldType.RELATION_ONE_TO_ONE:
         # Store UUID as string for JSONB
         if isinstance(value, UUID):
             return str(value)
         return value
 
-    elif field_type == FieldType.RELATION_HAS_MANY:
-        # Has-many relations are not stored in field_data
+    elif field_type == FieldType.RELATION_ONE_TO_MANY:
+        # One-to-many relations are not stored in field_data
         return None
 
     elif field_type == FieldType.JSON:
@@ -89,8 +89,8 @@ def validate_relation_settings(
         Tuple of (is_valid, error_message)
     """
     is_relation = field_type in (
-        FieldType.RELATION_BELONGS_TO,
-        FieldType.RELATION_HAS_MANY,
+        FieldType.RELATION_ONE_TO_ONE,
+        FieldType.RELATION_ONE_TO_MANY,
     )
 
     if is_relation and not relation_settings:
@@ -105,9 +105,9 @@ def validate_relation_settings(
     if relation_settings:
         # Validate relation_type matches field_type
         expected_type = (
-            RelationType.BELONGS_TO
-            if field_type == FieldType.RELATION_BELONGS_TO
-            else RelationType.HAS_MANY
+            RelationType.ONE_TO_ONE
+            if field_type == FieldType.RELATION_ONE_TO_ONE
+            else RelationType.ONE_TO_MANY
         )
         if relation_settings.relation_type != expected_type:
             return (
@@ -118,10 +118,10 @@ def validate_relation_settings(
     return True, None
 
 
-def format_belongs_to_cache(
+def format_one_to_one_cache(
     record_id: UUID, display_value: str | None = None
 ) -> dict[str, Any]:
-    """Format belongs-to relation for JSONB cache.
+    """Format one-to-one relation for JSONB cache.
 
     Args:
         record_id: The related record's UUID
@@ -159,14 +159,14 @@ def deserialize_value(value: Any, field_type: FieldType) -> Any:
             return datetime.fromisoformat(value.replace("Z", "+00:00"))
         return value
 
-    elif field_type == FieldType.RELATION_BELONGS_TO:
+    elif field_type == FieldType.RELATION_ONE_TO_ONE:
         # Convert string UUID to UUID object
         if isinstance(value, str):
             return UUID(value)
         return value
 
-    elif field_type == FieldType.RELATION_HAS_MANY:
-        # Has-many relations are not stored in field_data
+    elif field_type == FieldType.RELATION_ONE_TO_MANY:
+        # One-to-many relations are not stored in field_data
         return None
 
     elif field_type == FieldType.JSON:
