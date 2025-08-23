@@ -2310,6 +2310,30 @@ export const $CaseRecordLinkRead = {
       format: "uuid4",
       title: "Record Id",
     },
+    created_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Created At",
+    },
+    updated_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Updated At",
+    },
     entity: {
       anyOf: [
         {

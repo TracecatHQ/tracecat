@@ -695,6 +695,8 @@ export type CaseRecordLinkRead = {
   case_id: string
   entity_id: string
   record_id: string
+  created_at?: string | null
+  updated_at?: string | null
   entity?: CaseEntityRead | null
   record?: CaseRecordRead | null
 }
