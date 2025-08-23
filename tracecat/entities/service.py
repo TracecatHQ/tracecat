@@ -1066,6 +1066,36 @@ class CustomEntitiesService(BaseWorkspaceService):
                 record.field_data = {**record.field_data, **field_updates}
                 flag_modified(record, "field_data")
 
+    async def _create_relation_for_update(
+        self,
+        source_record: Record,
+        field: FieldMetadata,
+        relation_data: dict[str, Any],
+    ) -> None:
+        """Create a new related record and link during update.
+
+        Args:
+            source_record: The source record being updated
+            field: The relation field metadata
+            relation_data: Data for creating the related record
+        """
+        if not field.target_entity_id:
+            raise ValueError(f"Relation field {field.field_key} missing target entity")
+
+        # Create the related record
+        target_record = await self.create_record(field.target_entity_id, relation_data)
+
+        # Create the relation link
+        link = RecordRelationLink(
+            owner_id=self.workspace_id,
+            source_entity_id=source_record.entity_id,
+            source_field_id=field.id,
+            source_record_id=source_record.id,
+            target_entity_id=field.target_entity_id,
+            target_record_id=target_record.id,
+        )
+        self.session.add(link)
+
     async def update_record(self, record_id: UUID, updates: dict[str, Any]) -> Record:
         """Update entity record with support for nested relation updates.
 
@@ -1081,14 +1111,43 @@ class CustomEntitiesService(BaseWorkspaceService):
             - Nested updates modify target entity's fields
             - All updates execute in a single transaction
             - Circular references are detected and handled
+            - Null relations with dict values create new related records
         """
+        # First, handle creation of new relations for null relation fields
+        source_record = await self.get_record(record_id)
+        active_fields = await self.list_fields(
+            source_record.entity_id, include_inactive=False
+        )
+
+        # Separate out null relations that need to be created
+        updates_copy = updates.copy()
+        for field in active_fields:
+            if field.relation_kind == RelationKind.ONE_TO_ONE:
+                field_value = updates.get(field.field_key)
+                if isinstance(field_value, dict) and field_value:
+                    # Check if relation already exists
+                    stmt = select(RecordRelationLink).where(
+                        RecordRelationLink.source_record_id == record_id,
+                        RecordRelationLink.source_field_id == field.id,
+                    )
+                    result = await self.session.exec(stmt)
+                    existing_link = result.first()
+
+                    if not existing_link:
+                        # No existing relation - create new record and link
+                        await self._create_relation_for_update(
+                            source_record, field, field_value
+                        )
+                        # Remove from updates since we handled it
+                        updates_copy.pop(field.field_key, None)
+
         # Create validator with query builder for efficiency
         validator = NestedUpdateValidator(
             self.session, self.workspace_id, self.query_builder
         )
 
-        # Build and validate complete update plan upfront
-        update_plan = await validator.validate_and_plan_updates(record_id, updates)
+        # Build and validate complete update plan upfront (with remaining updates)
+        update_plan = await validator.validate_and_plan_updates(record_id, updates_copy)
 
         # Execute all updates in a single transaction with savepoint
         async with self.session.begin_nested():
