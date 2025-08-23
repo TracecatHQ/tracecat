@@ -1,11 +1,11 @@
 "use client"
 
-import { ChevronDown, Database, Loader2, Plus } from "lucide-react"
-import { useMemo, useState } from "react"
-import type { CaseEntityRead, CaseRecordLinkRead } from "@/client"
+import { Loader2 } from "lucide-react"
+import { useState } from "react"
+import type { CaseRecordLinkRead } from "@/client"
 import { CreateEntityRecordDialog } from "@/components/cases/create-entity-record-dialog"
 import { EditEntityRecordDialog } from "@/components/cases/edit-entity-record-dialog"
-import { EntityRecordCard } from "@/components/cases/entity-record-card"
+import { EntityRecordsTable } from "@/components/cases/entity-records-table"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -17,19 +17,11 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import { Skeleton } from "@/components/ui/skeleton"
-import {
   useDeleteCaseRecord,
   useListCaseRecords,
   useListEntities,
   useRemoveCaseRecordLink,
 } from "@/lib/hooks"
-import { cn } from "@/lib/utils"
 
 interface CaseEntitiesSectionProps {
   caseId: string
@@ -59,18 +51,6 @@ export function CaseEntitiesSection({
     workspaceId,
     includeInactive: false,
   })
-
-  // Build unique entities list from recordLinks for relation tooltips
-  const uniqueEntities = useMemo(() => {
-    if (!records) return []
-    const entitiesMap = new Map<string, CaseEntityRead>()
-    records.forEach((link) => {
-      if (link.entity) {
-        entitiesMap.set(link.entity.id, link.entity)
-      }
-    })
-    return Array.from(entitiesMap.values())
-  }, [records])
 
   const { deleteRecord, isDeleting } = useDeleteCaseRecord({
     caseId,
@@ -102,115 +82,19 @@ export function CaseEntitiesSection({
     }
   }
 
-  // Group records by entity type for better organization (optional)
-  const recordsByEntity = records?.reduce(
-    (acc, record) => {
-      const entityId = record.record?.entity_id || record.entity_id
-      if (!acc[entityId]) {
-        acc[entityId] = []
-      }
-      acc[entityId].push(record)
-      return acc
-    },
-    {} as Record<string, CaseRecordLinkRead[]>
-  )
-
   return (
     <div className="space-y-4 p-4">
-      {/* Add entity record dropdown */}
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <div
-            className={cn(
-              "flex items-center justify-between gap-2 p-1.5 rounded-md border border-dashed transition-all cursor-pointer group",
-              "border-muted-foreground/25 hover:border-muted-foreground/50 hover:bg-muted/30"
-            )}
-          >
-            <div className="flex items-center gap-2">
-              <div className="p-1.5 rounded bg-muted group-hover:bg-muted-foreground/10 transition-colors">
-                <Plus className="h-3.5 w-3.5 text-muted-foreground" />
-              </div>
-              <span className="text-xs text-muted-foreground group-hover:text-foreground transition-colors">
-                Add entity record
-              </span>
-            </div>
-            <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-          </div>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="w-[200px]">
-          {isLoadingEntities ? (
-            <DropdownMenuItem disabled>
-              <Loader2 className="mr-2 h-3 w-3 animate-spin" />
-              Loading entities...
-            </DropdownMenuItem>
-          ) : entities && entities.length > 0 ? (
-            entities.map((entity) => (
-              <DropdownMenuItem
-                key={entity.id}
-                onClick={() => setSelectedEntityId(entity.id)}
-                className="text-xs"
-              >
-                <Database className="mr-2 h-3 w-3" />
-                {entity.display_name}
-              </DropdownMenuItem>
-            ))
-          ) : (
-            <DropdownMenuItem disabled className="text-xs">
-              No entities available
-            </DropdownMenuItem>
-          )}
-        </DropdownMenuContent>
-      </DropdownMenu>
-
-      {/* Records list */}
-      {isLoadingRecords ? (
-        <div className="space-y-3">
-          <Skeleton className="h-24 w-full" />
-          <Skeleton className="h-24 w-full" />
-          <Skeleton className="h-24 w-full" />
-        </div>
-      ) : !records || records.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-4">
-          <div className="p-2 rounded-full bg-muted/50 mb-3">
-            <Database className="h-5 w-5 text-muted-foreground" />
-          </div>
-          <h3 className="text-sm font-medium text-muted-foreground mb-1">
-            No entities found
-          </h3>
-          <p className="text-xs text-muted-foreground/75 text-center max-w-[250px]">
-            Add entity records to track structured data for this case
-          </p>
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {recordsByEntity &&
-            Object.entries(recordsByEntity).map(([entityId, entityRecords]) => {
-              // Use the entity from the first record link (they all have the same entity)
-              const entity = entityRecords[0]?.entity
-              return (
-                <div key={entityId} className="space-y-3">
-                  {entity && entityRecords.length > 1 && (
-                    <h3 className="text-xs font-medium text-muted-foreground">
-                      {entity.display_name} ({entityRecords.length})
-                    </h3>
-                  )}
-                  {entityRecords.map((recordLink) => (
-                    <EntityRecordCard
-                      key={recordLink.id}
-                      recordLink={recordLink}
-                      entity={recordLink.entity}
-                      entities={uniqueEntities}
-                      workspaceId={workspaceId}
-                      onEdit={() => setEditingRecord(recordLink)}
-                      onDelete={() => setDeletingRecord(recordLink)}
-                      onRemoveLink={() => setRemovingLink(recordLink)}
-                    />
-                  ))}
-                </div>
-              )
-            })}
-        </div>
-      )}
+      {/* Records table */}
+      <EntityRecordsTable
+        records={records || []}
+        isLoading={isLoadingRecords}
+        onEdit={(recordLink) => setEditingRecord(recordLink)}
+        onDelete={(recordLink) => setDeletingRecord(recordLink)}
+        onRemoveLink={(recordLink) => setRemovingLink(recordLink)}
+        onAddEntity={(entityId) => setSelectedEntityId(entityId)}
+        entities={entities}
+        isLoadingEntities={isLoadingEntities}
+      />
 
       {/* Create dialog */}
       {selectedEntityId && (
