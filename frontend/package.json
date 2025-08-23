@@ -80,7 +80,7 @@
     "lucide-react": "^0.359.0",
     "motion": "^12.23.1",
     "next": "15.3.0",
-    "next-runtime-env": "^3.2.2",
+    "next-runtime-env": "^3.3.0",
     "next-themes": "^0.2.1",
     "papaparse": "^5.5.2",
     "posthog-js": "^1.219.1",
