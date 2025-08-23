@@ -6,7 +6,7 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import TracecatIcon from "public/icon.png"
 import type React from "react"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import { ApiError } from "@/client"
@@ -56,9 +56,11 @@ function isEmailLoginValidationError(
 export function SignUp({ className }: React.HTMLProps<HTMLDivElement>) {
   const { user } = useAuth()
   const router = useRouter()
-  if (user) {
-    router.push("/workspaces")
-  }
+  useEffect(() => {
+    if (user) {
+      router.push("/workspaces")
+    }
+  }, [user, router])
 
   return (
     <div
