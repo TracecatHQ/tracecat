@@ -126,12 +126,12 @@ export function RunbooksDashboard() {
         cell: ({ row }) => {
           const summary = row.getValue<string | null>("summary")
           return (
-            <div className="max-w-[400px] truncate text-sm text-muted-foreground">
+            <div className="max-w-[400px] truncate text-xs text-muted-foreground">
               {summary || "No summary available"}
             </div>
           )
         },
-        enableSorting: false,
+        enableSorting: true,
       },
       {
         accessorKey: "tools",
