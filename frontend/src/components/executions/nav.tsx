@@ -67,7 +67,7 @@ export function WorkflowExecutionNav({
     try {
       await workflowExecutionsTerminateWorkflowExecution({
         workspaceId,
-        executionId,
+        executionId: encodeURIComponent(executionId),
         requestBody: {
           reason: "User terminated execution",
         },
