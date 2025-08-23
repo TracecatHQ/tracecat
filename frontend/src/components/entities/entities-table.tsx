@@ -282,25 +282,9 @@ export function EntitiesTable({
                                 Deactivate entity
                               </DropdownMenuItem>
                             </AlertDialogTrigger>
-                            {onDeleteEntity && (
-                              <AlertDialogTrigger asChild>
-                                <DropdownMenuItem
-                                  className="text-rose-500 focus:text-rose-600"
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    setSelectedEntity(row.original)
-                                    setActionType("delete")
-                                  }}
-                                >
-                                  <Trash2 className="mr-2 h-3 w-3" />
-                                  Delete entity
-                                </DropdownMenuItem>
-                              </AlertDialogTrigger>
-                            )}
                           </>
                         ) : (
                           <>
-                            <DropdownMenuSeparator />
                             <DropdownMenuItem
                               onClick={(e) => {
                                 e.stopPropagation()
@@ -318,6 +302,24 @@ export function EntitiesTable({
                               <CheckCircle className="mr-2 h-3 w-3" />
                               Reactivate entity
                             </DropdownMenuItem>
+                            {onDeleteEntity && (
+                              <>
+                                <DropdownMenuSeparator />
+                                <AlertDialogTrigger asChild>
+                                  <DropdownMenuItem
+                                    className="text-rose-500 focus:text-rose-600"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      setSelectedEntity(row.original)
+                                      setActionType("delete")
+                                    }}
+                                  >
+                                    <Trash2 className="mr-2 h-3 w-3" />
+                                    Delete entity
+                                  </DropdownMenuItem>
+                                </AlertDialogTrigger>
+                              </>
+                            )}
                           </>
                         )}
                       </DropdownMenuContent>
@@ -357,7 +359,7 @@ export function EntitiesTable({
           <AlertDialogFooter>
             <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              variant="destructive"
+              variant={actionType === "delete" ? "destructive" : "default"}
               onClick={async () => {
                 if (selectedEntity) {
                   try {

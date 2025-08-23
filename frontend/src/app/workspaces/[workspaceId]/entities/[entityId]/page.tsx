@@ -6,13 +6,11 @@ import { useParams } from "next/navigation"
 import { useEffect, useState } from "react"
 import {
   entitiesCreateField,
-  entitiesCreateRelationField,
   entitiesDeactivateField,
   entitiesDeleteField,
   entitiesReactivateField,
   type FieldMetadataRead,
   type FieldType,
-  type RelationSettings,
 } from "@/client"
 import { CreateFieldDialog } from "@/components/entities/create-field-dialog"
 import { EditFieldDialog } from "@/components/entities/edit-field-dialog"
@@ -23,7 +21,6 @@ import { Card, CardContent } from "@/components/ui/card"
 import { toast } from "@/components/ui/use-toast"
 import { entityEvents } from "@/lib/entity-events"
 import {
-  useEntities,
   useEntity,
   useEntityFields,
   useUpdateEntityField,
@@ -53,7 +50,6 @@ export default function EntityDetailPage() {
     workspaceId,
     entityId
   )
-  const { entities } = useEntities(workspaceId)
 
   // Set up the callback for the Add Field button in header
   useEffect(() => {
@@ -69,44 +65,20 @@ export default function EntityDetailPage() {
       display_name: string
       description?: string
       enum_options?: string[]
-      relation_settings?: RelationSettings
       default_value?: unknown
     }) => {
-      // Use different endpoint for relation fields
-      const isRelationField =
-        data.field_type === "RELATION_ONE_TO_ONE" ||
-        data.field_type === "RELATION_ONE_TO_MANY" ||
-        data.field_type === "RELATION_MANY_TO_ONE" ||
-        data.field_type === "RELATION_MANY_TO_MANY"
-
-      if (isRelationField) {
-        return await entitiesCreateRelationField({
-          workspaceId,
-          entityId,
-          requestBody: {
-            field_key: data.field_key,
-            field_type: data.field_type as FieldType,
-            display_name: data.display_name,
-            description: data.description,
-            relation_settings: data.relation_settings,
-          },
-        })
-      } else {
-        return await entitiesCreateField({
-          workspaceId,
-          entityId,
-          requestBody: {
-            field_key: data.field_key,
-            field_type: data.field_type as FieldType,
-            display_name: data.display_name,
-            description: data.description,
-            enum_options: data.enum_options,
-            default_value: data.default_value,
-            // Include relation_settings defensively; it will be undefined for non-relation types
-            relation_settings: data.relation_settings,
-          },
-        })
-      }
+      return await entitiesCreateField({
+        workspaceId,
+        entityId,
+        requestBody: {
+          field_key: data.field_key,
+          field_type: data.field_type as FieldType,
+          display_name: data.display_name,
+          description: data.description,
+          enum_options: data.enum_options,
+          default_value: data.default_value,
+        },
+      })
     },
     onSuccess: () => {
       queryClient.invalidateQueries({
@@ -255,8 +227,6 @@ export default function EntityDetailPage() {
           ) : (
             <EntityFieldsTable
               fields={fields}
-              entities={entities}
-              currentEntityName={entity?.name}
               onEditField={(field) => {
                 setSelectedFieldForEdit(field)
                 setEditFieldDialogOpen(true)
@@ -291,6 +261,36 @@ export default function EntityDetailPage() {
             await createFieldMutation(data)
           } catch (error) {
             console.error("Failed to create field:", error)
+            // Ensure the dialog also captures this error
+            // and display a user-friendly message in the parent
+            let message = "Failed to create the field. Please try again."
+            if (error && typeof error === "object") {
+              const err = error as {
+                body?: {
+                  detail?: string | string[]
+                  message?: string
+                  error?: string
+                }
+                message?: string
+                status?: number
+                statusText?: string
+              }
+              const detail = err.body?.detail
+              if (Array.isArray(detail)) {
+                message = detail.join("\n")
+              } else {
+                message =
+                  (typeof detail === "string" && detail) ||
+                  err.body?.message ||
+                  err.body?.error ||
+                  (err.status && err.statusText
+                    ? `${err.status} ${err.statusText}`
+                    : err.message) ||
+                  message
+              }
+            }
+            setCreateFieldError(message)
+            throw error
           }
         }}
       />

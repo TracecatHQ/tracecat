@@ -22,6 +22,9 @@ from tracecat.entities.models import (
     RecordCreate,
     RecordRead,
     RecordUpdate,
+    RelationDefinitionCreate,
+    RelationDefinitionRead,
+    RelationDefinitionUpdate,
 )
 from tracecat.entities.service import CustomEntitiesService
 from tracecat.types.auth import Role
@@ -124,8 +127,7 @@ async def deactivate_entity(
 ) -> EntityRead:
     """Soft delete entity.
 
-    Cascades to all fields owned by the entity and their paired backrefs on
-    other entities to keep relations consistent.
+    Cascades to all fields and relations owned by the entity.
     """
     service = CustomEntitiesService(session, role)
     try:
@@ -146,8 +148,7 @@ async def reactivate_entity(
 ) -> EntityRead:
     """Reactivate soft-deleted entity.
 
-    Cascades to all fields owned by the entity and their paired backrefs on
-    other entities to keep relations consistent.
+    Cascades to all fields and relations owned by the entity.
     """
     service = CustomEntitiesService(session, role)
     try:
@@ -173,8 +174,7 @@ async def delete_entity(
     - All records for the entity
     - All fields owned by the entity
     - All relation links (source or target) involving the entity
-    - Any relation fields on other entities that target this entity (cascade),
-      along with their paired backrefs
+    - All relations where this entity is source or target
     """
     service = CustomEntitiesService(session, role)
     try:
@@ -197,31 +197,7 @@ async def create_field(
     """Create a new field for an entity."""
     service = CustomEntitiesService(session, role)
     try:
-        # Route relation field types to relation creation path
-        from tracecat.entities.types import FieldType as CEFieldType
-
-        if params.field_type in (
-            CEFieldType.RELATION_ONE_TO_ONE,
-            CEFieldType.RELATION_ONE_TO_MANY,
-            CEFieldType.RELATION_MANY_TO_ONE,
-            CEFieldType.RELATION_MANY_TO_MANY,
-        ):
-            if not params.relation_settings:
-                raise HTTPException(
-                    status_code=400,
-                    detail="relation_settings required for relation fields",
-                )
-            field = await service.create_relation_field(
-                entity_id=entity_id,
-                field_key=params.field_key,
-                field_type=params.field_type,
-                display_name=params.display_name,
-                relation_settings=params.relation_settings,
-                description=params.description,
-            )
-            return FieldMetadataRead.model_validate(field, from_attributes=True)
-
-        # Pass parameters directly - Pydantic handles None values properly
+        # Pass parameters directly - FieldMetadataCreate will reject relation types
         field = await service.create_field(
             entity_id=entity_id,
             field_key=params.field_key,
@@ -300,11 +276,7 @@ async def deactivate_field(
     session: AsyncDBSession,
     field_id: UUID,
 ) -> FieldMetadataRead:
-    """Soft delete field (data preserved).
-
-    Also deactivates the paired backref field if present to keep relations
-    consistent across entities.
-    """
+    """Soft delete field (data preserved)."""
     service = CustomEntitiesService(session, role)
     try:
         field = await service.deactivate_field(field_id)
@@ -322,11 +294,7 @@ async def reactivate_field(
     session: AsyncDBSession,
     field_id: UUID,
 ) -> FieldMetadataRead:
-    """Reactivate soft-deleted field.
-
-    Also reactivates the paired backref field if present to keep relations
-    consistent across entities.
-    """
+    """Reactivate soft-deleted field."""
     service = CustomEntitiesService(session, role)
     try:
         field = await service.reactivate_field(field_id)
@@ -347,8 +315,6 @@ async def delete_field(
     """Permanently delete a field and all associated data.
 
     Warning: This is a hard delete - all data will be permanently lost.
-    If the field has a paired backref field, that field is also deleted along
-    with its relation links to avoid leaving orphans.
     """
     service = CustomEntitiesService(session, role)
     try:
@@ -357,44 +323,107 @@ async def delete_field(
         raise HTTPException(status_code=404, detail=str(e)) from e
 
 
-# Relation Field Endpoints
+# Relation Endpoints
 
 
-@router.post("/{entity_id}/fields/relation", response_model=FieldMetadataRead)
-async def create_relation_field(
+@router.post("/{entity_id}/relations", response_model=RelationDefinitionRead)
+async def create_relation(
     *,
     role: WorkspaceUser,
     session: AsyncDBSession,
     entity_id: UUID,
-    params: FieldMetadataCreate,
-) -> FieldMetadataRead:
-    """Create a relation field.
-
-    Requires `relation_settings` in the body.
-
-    Note: Backrefs are auto-created. For every relation field created on the
-    source entity, a complementary field is automatically created on the target
-    entity and linked via `backref_field_id` on both sides. A human-readable
-    `field_key` for the backref is derived and uniquified automatically.
-    """
-    if not params.relation_settings:
-        raise HTTPException(
-            status_code=400, detail="relation_settings required for relation fields"
-        )
-
+    params: RelationDefinitionCreate,
+) -> RelationDefinitionRead:
+    """Create a relation definition for an entity."""
     service = CustomEntitiesService(session, role)
     try:
-        field = await service.create_relation_field(
-            entity_id=entity_id,
-            field_key=params.field_key,
-            field_type=params.field_type,
-            display_name=params.display_name,
-            relation_settings=params.relation_settings,
-            description=params.description,
-        )
-        return FieldMetadataRead.model_validate(field, from_attributes=True)
+        relation = await service.create_relation(entity_id=entity_id, data=params)
+        return RelationDefinitionRead.model_validate(relation, from_attributes=True)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+    except TracecatNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@router.get("/{entity_id}/relations", response_model=list[RelationDefinitionRead])
+async def list_relations(
+    *,
+    role: WorkspaceUser,
+    session: AsyncDBSession,
+    entity_id: UUID,
+) -> list[RelationDefinitionRead]:
+    """List relation definitions for an entity (as source)."""
+    service = CustomEntitiesService(session, role)
+    relations = await service.list_relations(entity_id)
+    return [
+        RelationDefinitionRead.model_validate(r, from_attributes=True)
+        for r in relations
+    ]
+
+
+@router.patch("/relations/{relation_id}", response_model=RelationDefinitionRead)
+async def update_relation(
+    *,
+    role: WorkspaceUser,
+    session: AsyncDBSession,
+    relation_id: UUID,
+    params: RelationDefinitionUpdate,
+) -> RelationDefinitionRead:
+    service = CustomEntitiesService(session, role)
+    try:
+        relation = await service.update_relation(relation_id, params)
+        return RelationDefinitionRead.model_validate(relation, from_attributes=True)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except TracecatNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@router.post(
+    "/relations/{relation_id}/deactivate", response_model=RelationDefinitionRead
+)
+async def deactivate_relation(
+    *,
+    role: WorkspaceUser,
+    session: AsyncDBSession,
+    relation_id: UUID,
+) -> RelationDefinitionRead:
+    service = CustomEntitiesService(session, role)
+    try:
+        relation = await service.deactivate_relation(relation_id)
+        return RelationDefinitionRead.model_validate(relation, from_attributes=True)
+    except TracecatNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@router.post(
+    "/relations/{relation_id}/reactivate", response_model=RelationDefinitionRead
+)
+async def reactivate_relation(
+    *,
+    role: WorkspaceUser,
+    session: AsyncDBSession,
+    relation_id: UUID,
+) -> RelationDefinitionRead:
+    service = CustomEntitiesService(session, role)
+    try:
+        relation = await service.reactivate_relation(relation_id)
+        return RelationDefinitionRead.model_validate(relation, from_attributes=True)
+    except TracecatNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@router.delete("/relations/{relation_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_relation(
+    *,
+    role: WorkspaceUser,
+    session: AsyncDBSession,
+    relation_id: UUID,
+) -> None:
+    """Permanently delete a relation and all its links."""
+    service = CustomEntitiesService(session, role)
+    try:
+        await service.delete_relation(relation_id)
     except TracecatNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
 
@@ -545,6 +574,10 @@ async def get_entity_schema(
                 )
                 for f in schema_result.fields
                 if f.is_active
+            ],
+            relations=[
+                RelationDefinitionRead.model_validate(r, from_attributes=True)
+                for r in schema_result.relations
             ],
         )
     except TracecatNotFoundError as e:

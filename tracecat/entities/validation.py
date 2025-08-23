@@ -4,13 +4,14 @@ This module provides both pure validation functions and database-dependent valid
 Pure functions are at module level, database-dependent validators are in classes.
 """
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from enum import Enum
 from typing import Any
 from uuid import UUID
 
+import sqlalchemy as sa
 from pydantic_core import PydanticCustomError
-from sqlmodel import col, select
+from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat.db.schemas import (
@@ -18,8 +19,9 @@ from tracecat.db.schemas import (
     FieldMetadata,
     Record,
     RecordRelationLink,
+    RelationDefinition,
 )
-from tracecat.entities.enums import RelationKind
+from tracecat.entities.enums import RelationType
 from tracecat.entities.query import EntityQueryBuilder
 from tracecat.entities.types import (
     FieldType,
@@ -30,23 +32,7 @@ from tracecat.identifiers import WorkspaceID
 from tracecat.logger import logger
 from tracecat.types.exceptions import TracecatNotFoundError, TracecatValidationError
 
-
-# Relation Nesting Configuration
-class RelationNestingPolicy(Enum):
-    """Policy for relation nesting restrictions.
-
-    This enum allows easy configuration of relation restrictions.
-    Future policies can be added without changing validation logic.
-    """
-
-    BLOCK_ALL = "block_all"  # No relations to entities with relations
-    ALLOW_ONE_LEVEL = "allow_one_level"  # Allow 1 level of nesting
-    ALLOW_TWO_LEVELS = "allow_two_levels"  # Allow 2 levels
-    UNRESTRICTED = "unrestricted"  # No restrictions
-
-
-# Module-level configuration (easy to change in the future)
-CURRENT_NESTING_POLICY = RelationNestingPolicy.BLOCK_ALL
+# Relation nesting policy and validator removed (replaced by graph-based guardrails later)
 
 
 # Pure validation functions (no database dependencies)
@@ -111,10 +97,6 @@ def validate_default_value_type(
 
     # Check if field type supports default values
     unsupported_types = {
-        FieldType.RELATION_ONE_TO_ONE,
-        FieldType.RELATION_ONE_TO_MANY,
-        FieldType.RELATION_MANY_TO_ONE,
-        FieldType.RELATION_MANY_TO_MANY,
         FieldType.ARRAY_TEXT,
         FieldType.ARRAY_INTEGER,
         FieldType.ARRAY_NUMBER,
@@ -436,6 +418,7 @@ class RecordValidators:
         self,
         data: dict[str, Any],
         fields: list[FieldMetadata],
+        relations: Mapping[str, RelationDefinition] | None = None,
     ) -> dict[str, Any]:
         """Validate record data against field definitions.
 
@@ -453,39 +436,24 @@ class RecordValidators:
         validated = {}
 
         active_fields = {f.field_key: f for f in fields if f.is_active}
+        relations = relations or {}
 
         # Check for acceptable structure - only for active fields
         for key, value in data.items():
-            if key in active_fields and not validate_flat_structure(value):
-                errors.append(
-                    f"Field '{key}': Nested arrays or excessive nesting (>3 levels) not allowed"
-                )
+            if key in active_fields:
+                if not validate_flat_structure(value):
+                    errors.append(
+                        f"Field '{key}': Nested arrays or excessive nesting (>3 levels) not allowed"
+                    )
 
         if errors:
             raise TracecatValidationError("; ".join(errors))
 
         for key, value in data.items():
-            if key not in active_fields:
-                # Silently skip inactive/unknown fields
-                continue
-
-            field = active_fields[key]
-
-            # Handle relation fields separately
-            if field.relation_kind:
+            # Regular field validation
+            if key in active_fields:
+                field = active_fields[key]
                 if value is not None:
-                    # Validate relation field value
-                    is_valid, error = await self._validate_relation_field_value(
-                        field, value
-                    )
-                    if not is_valid:
-                        errors.append(f"Field '{key}': {error}")
-                        continue
-                validated[key] = value
-            else:
-                # Regular field validation
-                if value is not None:
-                    # Validate the value against the field type
                     try:
                         validate_field_value_type(
                             value, FieldType(field.field_type), field.enum_options
@@ -494,14 +462,31 @@ class RecordValidators:
                         errors.append(f"Field '{key}': {e.message()}")
                         continue
                 validated[key] = value
+                continue
+
+            # Relation value validation
+            if key in relations:
+                rel_def = relations[key]
+                if value is not None:
+                    is_valid, error = await self._validate_relation_value(
+                        rel_def, value
+                    )
+                    if not is_valid:
+                        errors.append(f"Field '{key}': {error}")
+                        continue
+                validated[key] = value
+                continue
+
+            # Unknown key: skip silently
+            continue
 
         if errors:
             raise TracecatValidationError("; ".join(errors))
 
         return validated
 
-    async def _validate_relation_field_value(
-        self, field: FieldMetadata, value: Any
+    async def _validate_relation_value(
+        self, rel_def: RelationDefinition, value: Any
     ) -> tuple[bool, str | None]:
         """Validate a relation field value.
 
@@ -512,148 +497,41 @@ class RecordValidators:
         Returns:
             Tuple of (is_valid, error_message)
         """
-
-        if field.relation_kind == RelationKind.ONE_TO_ONE:
-            # ONE_TO_ONE expects a single UUID, string UUID, or dict for inline creation
+        rt = RelationType(rel_def.relation_type)
+        if rt in (RelationType.ONE_TO_ONE, RelationType.MANY_TO_ONE):
+            # Allow dict for inline creation or a single UUID
             if isinstance(value, dict):
-                # Allow dict for inline record creation
-                # Basic validation - ensure it's not empty
                 if not value:
                     return False, "Empty dict not allowed for relation field"
                 return True, None
             try:
-                validate_relation_uuid(
-                    value, allow_none=False, context="one_to_one relation"
-                )
+                validate_relation_uuid(value, allow_none=False, context="relation")
                 return True, None
             except PydanticCustomError as e:
                 return False, e.message()
 
-        elif field.relation_kind == RelationKind.ONE_TO_MANY:
-            # ONE_TO_MANY expects a list of UUIDs or dicts
-            if not isinstance(value, list):
-                return (
-                    False,
-                    f"Expected list for one_to_many relation, got {type(value).__name__}",
+        # ONE_TO_MANY / MANY_TO_MANY expects list of UUIDs or dicts
+        if not isinstance(value, list):
+            return (
+                False,
+                f"Expected list for relation, got {type(value).__name__}",
+            )
+        for idx, item in enumerate(value):
+            if isinstance(item, dict):
+                if not item:
+                    return False, f"Item at index {idx}: Empty dict not allowed"
+                continue
+            try:
+                validate_relation_uuid(
+                    item, allow_none=False, context=f"item at index {idx}"
                 )
-
-            for idx, item in enumerate(value):
-                if isinstance(item, dict):
-                    # Allow dict for inline record creation
-                    if not item:
-                        return False, f"Item at index {idx}: Empty dict not allowed"
-                    continue
-                try:
-                    validate_relation_uuid(
-                        item, allow_none=False, context=f"item at index {idx}"
-                    )
-                except PydanticCustomError as e:
-                    return False, f"Item at index {idx}: {e.message()}"
-
-            return True, None
-
-        return False, f"Unknown relation kind: {field.relation_kind}"
-
-
-class RelationNestingValidator:
-    """Validator for relation nesting restrictions.
-
-    This validator checks if creating a relation field would violate
-    the configured nesting policy. Easy to extend for future policies.
-    """
-
-    def __init__(
-        self,
-        session: AsyncSession,
-        workspace_id: str | UUID | WorkspaceID | None,
-        policy: RelationNestingPolicy = CURRENT_NESTING_POLICY,
-    ):
-        """Initialize nesting validator.
-
-        Args:
-            session: Database session
-            workspace_id: Workspace ID for scoping queries
-            policy: Nesting policy to enforce (defaults to module config)
-        """
-        self.session = session
-        self.workspace_id = workspace_id
-        self.policy = policy
-
-    async def validate_relation_creation(
-        self,
-        source_entity_id: UUID,
-        target_entity_id: UUID,
-    ) -> tuple[bool, str | None]:
-        """Validate if a relation can be created based on nesting policy.
-
-        Args:
-            source_entity_id: Entity where the relation field is being created
-            target_entity_id: Entity that the relation will point to
-
-        Returns:
-            Tuple of (is_valid, error_message)
-        """
-        if self.policy == RelationNestingPolicy.UNRESTRICTED:
-            return True, None
-
-        if self.policy == RelationNestingPolicy.BLOCK_ALL:
-            # Check if target entity has any relation fields
-            if await self._entity_has_relations(target_entity_id):
-                return False, (
-                    "Cannot create relation to an entity that has relation fields. "
-                    "Nested relations are currently not supported."
-                )
-
-            # Check if any entity already references the source entity
-            if await self._entity_is_referenced(source_entity_id):
-                return False, (
-                    "Cannot create relation field on an entity that is already "
-                    "referenced by another entity. Nested relations are currently not supported."
-                )
-
-        # Future policies can be implemented here
-        elif self.policy == RelationNestingPolicy.ALLOW_ONE_LEVEL:
-            # TODO: Implement 1-level nesting validation
-            # This would check the depth of the relation chain
-            pass
-        elif self.policy == RelationNestingPolicy.ALLOW_TWO_LEVELS:
-            # TODO: Implement 2-level nesting validation
-            pass
+            except PydanticCustomError as e:
+                return False, f"Item at index {idx}: {e.message()}"
 
         return True, None
 
-    async def _entity_has_relations(self, entity_id: UUID) -> bool:
-        """Check if entity has any active relation fields.
 
-        Args:
-            entity_id: Entity to check
-
-        Returns:
-            True if entity has relation fields, False otherwise
-        """
-        stmt = select(FieldMetadata).where(
-            FieldMetadata.entity_id == entity_id,
-            col(FieldMetadata.relation_kind).isnot(None),
-            FieldMetadata.is_active,
-        )
-        result = await self.session.exec(stmt)
-        return result.first() is not None
-
-    async def _entity_is_referenced(self, entity_id: UUID) -> bool:
-        """Check if any other entity has a relation field targeting this entity.
-
-        Args:
-            entity_id: Entity to check
-
-        Returns:
-            True if entity is referenced by another entity, False otherwise
-        """
-        stmt = select(FieldMetadata).where(
-            FieldMetadata.target_entity_id == entity_id,
-            FieldMetadata.is_active,
-        )
-        result = await self.session.exec(stmt)
-        return result.first() is not None
+"""Relation nesting validator removed in favor of simple guardrails in future."""
 
 
 @dataclass
@@ -675,6 +553,221 @@ class UpdatePlan:
     relation_links: dict[tuple[UUID, UUID], UUID] = field(
         default_factory=dict
     )  # (record_id, field_id) -> target_record_id
+
+
+class RelationValidators:
+    """Database-dependent validators for relation operations with policy enforcement."""
+
+    def __init__(
+        self,
+        session: AsyncSession,
+        workspace_id: str | UUID | WorkspaceID | None,
+    ):
+        """Initialize relation validators.
+
+        Args:
+            session: Database session
+            workspace_id: Workspace ID for scoping queries
+        """
+        self.session = session
+        self.workspace_id = workspace_id
+
+    async def get_workspace_relation_policy(self) -> tuple[str, int | None]:
+        """Get workspace relation policy settings.
+
+        Returns:
+            Tuple of (policy_type, max_degree) where:
+            - policy_type: "unrestricted", "allow_one_level", "block_cycles", "max_degree"
+            - max_degree: Maximum degree for "max_degree" policy, None otherwise
+        """
+        from tracecat.db.schemas import Workspace
+
+        stmt = select(Workspace).where(Workspace.id == self.workspace_id)
+        result = await self.session.exec(stmt)
+        workspace = result.first()
+
+        if not workspace or not workspace.settings:
+            return ("unrestricted", None)
+
+        policy = (
+            workspace.settings.get("relation_policy", "unrestricted") or "unrestricted"
+        )
+        max_degree = workspace.settings.get("relation_max_degree")
+        return (policy, max_degree)
+
+    async def validate_relation_creation(
+        self,
+        source_entity_id: UUID,
+        target_entity_id: UUID,
+        relation_type: str,
+    ) -> None:
+        """Validate relation creation against workspace policies.
+
+        Args:
+            source_entity_id: Source entity ID
+            target_entity_id: Target entity ID
+            relation_type: Type of relation being created
+
+        Raises:
+            TracecatValidationError: If relation violates workspace policy
+        """
+        policy, max_degree = await self.get_workspace_relation_policy()
+
+        if policy == "unrestricted":
+            return
+
+        # Check for self-referential relations
+        if source_entity_id == target_entity_id:
+            if policy in ("block_cycles", "allow_one_level"):
+                # Check if this would create a cycle
+                await self._validate_no_cycles(source_entity_id, target_entity_id)
+
+        if policy == "allow_one_level":
+            # Only allow direct relations, no transitive relations
+            await self._validate_one_level_only(source_entity_id, target_entity_id)
+
+        elif policy == "max_degree" and max_degree is not None:
+            # Check if this would exceed the maximum degree
+            await self._validate_max_degree(
+                source_entity_id, target_entity_id, max_degree
+            )
+
+    async def _validate_no_cycles(
+        self,
+        source_entity_id: UUID,
+        target_entity_id: UUID,
+    ) -> None:
+        """Validate that creating a relation won't create a cycle.
+
+        Args:
+            source_entity_id: Source entity ID
+            target_entity_id: Target entity ID
+
+        Raises:
+            TracecatValidationError: If relation would create a cycle
+        """
+
+        # Check if there's already a path from target to source
+        # This would create a cycle if we add source -> target
+        visited = set()
+        to_visit = [target_entity_id]
+
+        while to_visit:
+            current = to_visit.pop()
+            if current in visited:
+                continue
+            visited.add(current)
+
+            if current == source_entity_id:
+                raise TracecatValidationError(
+                    "Creating this relation would create a cycle in the relation graph"
+                )
+
+            # Find all entities that current points to
+            stmt = select(RelationDefinition.target_entity_id).where(
+                RelationDefinition.source_entity_id == current,
+                RelationDefinition.owner_id == self.workspace_id,
+                RelationDefinition.is_active == sa.true(),
+            )
+            result = await self.session.exec(stmt)
+            for target_id in result:
+                if target_id not in visited:
+                    to_visit.append(target_id)
+
+    async def _validate_one_level_only(
+        self,
+        source_entity_id: UUID,
+        target_entity_id: UUID,
+    ) -> None:
+        """Validate that entities only have direct relations (no transitive).
+
+        Args:
+            source_entity_id: Source entity ID
+            target_entity_id: Target entity ID
+
+        Raises:
+            TracecatValidationError: If relation would create transitive relations
+        """
+
+        # Check if source already has any relations
+        stmt = select(RelationDefinition).where(
+            RelationDefinition.source_entity_id == source_entity_id,
+            RelationDefinition.owner_id == self.workspace_id,
+            RelationDefinition.is_active == sa.true(),
+        )
+        result = await self.session.exec(stmt)
+        source_relations = result.all()
+
+        # Check if target already has any relations
+        stmt = select(RelationDefinition).where(
+            RelationDefinition.target_entity_id == target_entity_id,
+            RelationDefinition.owner_id == self.workspace_id,
+            RelationDefinition.is_active == sa.true(),
+        )
+        result = await self.session.exec(stmt)
+        target_relations = result.all()
+
+        # If either has existing relations, this would create a transitive relation
+        if source_relations or target_relations:
+            raise TracecatValidationError(
+                "Workspace policy only allows one level of relations. "
+                "Cannot create relations between entities that already have relations."
+            )
+
+    async def _validate_max_degree(
+        self,
+        source_entity_id: UUID,
+        target_entity_id: UUID,
+        max_degree: int,
+    ) -> None:
+        """Validate that relation doesn't exceed maximum degree.
+
+        Args:
+            source_entity_id: Source entity ID
+            target_entity_id: Target entity ID
+            max_degree: Maximum allowed degree
+
+        Raises:
+            TracecatValidationError: If relation would exceed max degree
+        """
+
+        # Count existing outgoing relations from source
+        stmt = (
+            select(sa.func.count())
+            .select_from(RelationDefinition)
+            .where(
+                RelationDefinition.source_entity_id == source_entity_id,
+                RelationDefinition.owner_id == self.workspace_id,
+                RelationDefinition.is_active == sa.true(),
+            )
+        )
+        result = await self.session.exec(stmt)
+        outgoing_count = result.first() or 0
+
+        if outgoing_count >= max_degree:
+            raise TracecatValidationError(
+                f"Entity already has {outgoing_count} outgoing relations. "
+                f"Maximum allowed is {max_degree}."
+            )
+
+        # Count existing incoming relations to target
+        stmt = (
+            select(sa.func.count())
+            .select_from(RelationDefinition)
+            .where(
+                RelationDefinition.target_entity_id == target_entity_id,
+                RelationDefinition.owner_id == self.workspace_id,
+                RelationDefinition.is_active == sa.true(),
+            )
+        )
+        result = await self.session.exec(stmt)
+        incoming_count = result.first() or 0
+
+        if incoming_count >= max_degree:
+            raise TracecatValidationError(
+                f"Target entity already has {incoming_count} incoming relations. "
+                f"Maximum allowed is {max_degree}."
+            )
 
 
 class NestedUpdateValidator:
@@ -777,35 +870,34 @@ class NestedUpdateValidator:
         if not record:
             raise TracecatNotFoundError(f"Record {record_id} not found")
 
-        # Load entity fields
-        stmt = select(FieldMetadata).where(
-            FieldMetadata.entity_id == record.entity_id,
-            FieldMetadata.is_active,
+        # Load active relations keyed by source_key
+        rel_stmt = select(RelationDefinition).where(
+            RelationDefinition.source_entity_id == record.entity_id,
+            RelationDefinition.is_active,
+            RelationDefinition.owner_id == self.workspace_id,
         )
-        result = await self.session.exec(stmt)
-        fields = list(result.all())
+        rels = list((await self.session.exec(rel_stmt)).all())
+        rel_map = {r.source_key: r for r in rels}
 
         # Separate regular and relation updates
         regular_updates = {}
         relation_updates = {}
 
         for key, value in updates.items():
-            field = next((f for f in fields if f.field_key == key), None)
-            if not field:
-                logger.debug(f"Skipping unknown field {key}")
-                continue
-
-            # Check if it's a relation field with nested updates
-            if (
-                field.relation_kind == RelationKind.ONE_TO_ONE
-                and isinstance(value, dict)
-                and value  # Non-empty dict
-            ):
-                # This is a nested relation update
-                relation_updates[key] = (field, value)
-            elif field.relation_kind and isinstance(value, dict) and not value:
-                # Empty dict for relation field - skip it entirely
-                continue
+            if key in rel_map:
+                rel_def = rel_map[key]
+                rt = RelationType(rel_def.relation_type)
+                if (
+                    rt in (RelationType.ONE_TO_ONE, RelationType.MANY_TO_ONE)
+                    and isinstance(value, dict)
+                    and value
+                ):
+                    relation_updates[key] = (rel_def, value)
+                elif isinstance(value, dict) and not value:
+                    continue
+                else:
+                    # Not a nested relation update
+                    pass
             else:
                 # Regular field update - validate JSON depth
                 if not self._validate_json_depth(value):
@@ -825,32 +917,32 @@ class NestedUpdateValidator:
             plan.steps.append(step)
 
         # Process nested relation updates
-        for _key, (field, nested_value) in relation_updates.items():
+        for _key, (rel_def, nested_value) in relation_updates.items():
             # Find the linked record
-            link = await self._get_relation_link(record_id, field.id)
+            link = await self._get_relation_link_by_rel(record_id, rel_def.id)
             if link:
                 # Store the link for reference
-                plan.relation_links[(record_id, field.id)] = link.target_record_id
+                plan.relation_links[(record_id, rel_def.id)] = link.target_record_id
                 # Recursively build plan for nested update
                 await self._build_update_plan(
                     plan, link.target_record_id, nested_value, depth + 1
                 )
 
-    async def _get_relation_link(
-        self, source_record_id: UUID, source_field_id: UUID
+    async def _get_relation_link_by_rel(
+        self, source_record_id: UUID, relation_definition_id: UUID
     ) -> RecordRelationLink | None:
         """Get relation link for a record and field.
 
         Args:
             source_record_id: Source record ID
-            source_field_id: Source field ID
+            relation_definition_id: Relation definition ID
 
         Returns:
             RecordRelationLink if found, None otherwise
         """
         stmt = select(RecordRelationLink).where(
             RecordRelationLink.source_record_id == source_record_id,
-            RecordRelationLink.source_field_id == source_field_id,
+            RecordRelationLink.relation_definition_id == relation_definition_id,
         )
         result = await self.session.exec(stmt)
         return result.first()
@@ -889,9 +981,15 @@ class NestedUpdateValidator:
             Dict mapping record ID to list of relation links
         """
         from collections import defaultdict
+        from typing import cast
 
+        from sqlalchemy.sql import ColumnElement
+
+        source_record_col = cast(
+            ColumnElement[Any], RecordRelationLink.source_record_id
+        )
         stmt = select(RecordRelationLink).where(
-            RecordRelationLink.source_record_id.in_(record_ids),
+            source_record_col.in_(record_ids),
             RecordRelationLink.owner_id == self.workspace_id,
         )
         result = await self.session.exec(stmt)
@@ -903,22 +1001,4 @@ class NestedUpdateValidator:
         return dict(links_by_record)
 
 
-class RelationValidators:
-    """Database-dependent validators for relation operations."""
-
-    def __init__(
-        self, session: AsyncSession, workspace_id: str | UUID | WorkspaceID | None
-    ):
-        """Initialize relation validators.
-
-        Args:
-            session: Database session
-            workspace_id: Workspace ID for scoping queries
-        """
-        self.session = session
-        self.workspace_id = workspace_id
-        self.entity_validators = EntityValidators(session, workspace_id)
-        self.record_validators = RecordValidators(session, workspace_id)
-        self.nesting_validator = RelationNestingValidator(session, workspace_id)
-
-    # Removed unused validate_target_entity / validate_target_record helpers (dead code)
+# Previous RelationValidators removed.

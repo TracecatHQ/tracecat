@@ -14,7 +14,6 @@ from sqlalchemy import (
     Identity,
     Index,
     Integer,
-    String,
     func,
     text,
 )
@@ -1474,26 +1473,6 @@ class FieldMetadata(SQLModel, TimestampMixin, table=True):
         default=None, sa_column=Column(JSONB), description="Default value for field"
     )
 
-    # Relation field columns
-    relation_kind: str | None = Field(
-        default=None,
-        max_length=20,
-        sa_column=Column(String(20)),
-        description="Type of relation: one_to_one or one_to_many",
-    )
-    target_entity_id: UUID4 | None = Field(
-        default=None,
-        sa_column=Column(UUID, ForeignKey("entity.id", ondelete="CASCADE")),
-        description="Target entity for relations",
-    )
-    backref_field_id: UUID4 | None = Field(
-        default=None,
-        sa_column=Column(
-            UUID, ForeignKey("field_metadata.id", ondelete="SET NULL"), nullable=True
-        ),
-        description="Backref field pairing (metadata only)",
-    )
-
     # Enum field options (for SELECT and MULTI_SELECT types)
     enum_options: list[str] | None = Field(
         default=None,
@@ -1508,10 +1487,67 @@ class FieldMetadata(SQLModel, TimestampMixin, table=True):
             "foreign_keys": "[FieldMetadata.entity_id]",
         },
     )
-    target_entity: Entity | None = Relationship(
+    # Note: Relationship fields are now modeled in RelationDefinition; FieldMetadata
+    # contains only primitive/select/array field definitions.
+
+
+class RelationDefinition(SQLModel, TimestampMixin, table=True):
+    """Defines a first-class relation between two entities.
+
+    This is the single source of truth for relations. Links between records
+    reference this definition via relation_definition_id.
+    """
+
+    __tablename__: str = "relation_definition"
+    __table_args__ = (
+        # Enforce unique source_key per source entity
+        UniqueConstraint(
+            "source_entity_id", "source_key", name="uq_relation_source_key"
+        ),
+        Index("idx_relation_owner_id", "owner_id"),
+        Index("idx_relation_source_entity_id", "source_entity_id"),
+        Index("idx_relation_target_entity_id", "target_entity_id"),
+    )
+
+    id: UUID4 = Field(default_factory=uuid.uuid4, primary_key=True)
+    owner_id: UUID4
+
+    source_entity_id: UUID4 = Field(
+        sa_column=Column(UUID, ForeignKey("entity.id", ondelete="CASCADE"))
+    )
+    target_entity_id: UUID4 = Field(
+        sa_column=Column(UUID, ForeignKey("entity.id", ondelete="CASCADE"))
+    )
+
+    # Human key used by clients to refer to this relation from the source entity
+    source_key: str = Field(..., max_length=100, index=True)
+    display_name: str = Field(..., max_length=255)
+
+    # Relation type aligned with RelationType API enum
+    relation_type: str = Field(
+        ...,
+        max_length=20,
+        description="one_to_one, one_to_many, many_to_one, many_to_many",
+    )
+
+    # Lifecycle
+    is_active: bool = Field(default=True, index=True)
+    deactivated_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(TIMESTAMP(timezone=True)),
+    )
+
+    # Relationships
+    source_entity: Entity = Relationship(
         sa_relationship_kwargs={
-            "foreign_keys": "[FieldMetadata.target_entity_id]",
-            "lazy": "selectin",
+            "foreign_keys": "[RelationDefinition.source_entity_id]",
+            **DEFAULT_SA_RELATIONSHIP_KWARGS,
+        }
+    )
+    target_entity: Entity = Relationship(
+        sa_relationship_kwargs={
+            "foreign_keys": "[RelationDefinition.target_entity_id]",
+            **DEFAULT_SA_RELATIONSHIP_KWARGS,
         }
     )
 
@@ -1548,28 +1584,34 @@ class RecordRelationLink(SQLModel, TimestampMixin, table=True):
     __table_args__ = (
         UniqueConstraint(
             "source_record_id",
-            "source_field_id",
+            "relation_definition_id",
             "target_record_id",
             name="uq_record_relation_link_triple",
         ),
-        Index("idx_record_relation_source", "source_record_id", "source_field_id"),
+        Index(
+            "idx_record_relation_source",
+            "source_record_id",
+            "relation_definition_id",
+        ),
         Index("idx_record_relation_target", "target_record_id"),
         Index("idx_record_relation_owner", "owner_id"),
         Index(
-            "idx_record_relation_field_target", "source_field_id", "target_record_id"
+            "idx_record_relation_def_target",
+            "relation_definition_id",
+            "target_record_id",
         ),
         # Partial unique indexes to enforce cardinality when applicable
         Index(
             "uq_record_relation_source_single",
             "source_record_id",
-            "source_field_id",
+            "relation_definition_id",
             unique=True,
             postgresql_where=text("source_limit_one = true"),
         ),
         Index(
             "uq_record_relation_target_single",
             "target_record_id",
-            "source_field_id",
+            "relation_definition_id",
             unique=True,
             postgresql_where=text("target_limit_one = true"),
         ),
@@ -1582,8 +1624,8 @@ class RecordRelationLink(SQLModel, TimestampMixin, table=True):
     source_entity_id: UUID4 = Field(
         sa_column=Column(UUID, ForeignKey("entity.id", ondelete="CASCADE"))
     )
-    source_field_id: UUID4 = Field(
-        sa_column=Column(UUID, ForeignKey("field_metadata.id", ondelete="CASCADE"))
+    relation_definition_id: UUID4 = Field(
+        sa_column=Column(UUID, ForeignKey("relation_definition.id", ondelete="CASCADE"))
     )
     source_record_id: UUID4 = Field(
         sa_column=Column(UUID, ForeignKey("record.id", ondelete="CASCADE"))
@@ -1598,19 +1640,21 @@ class RecordRelationLink(SQLModel, TimestampMixin, table=True):
     )
 
     # DB-enforced cardinality flags (true relations)
-    # When true, enforce at most one link per (source_record_id, source_field_id)
+    # When true, enforce at most one link per (source_record_id, relation_definition_id)
     source_limit_one: bool = Field(
         default=False,
         nullable=False,
         description=(
-            "If true, enforce single target per source for this field (O2O/M2O)."
+            "If true, enforce single target per source for this relation (O2O/M2O)."
         ),
     )
-    # When true, enforce at most one link per (target_record_id, source_field_id)
+    # When true, enforce at most one link per (target_record_id, relation_definition_id)
     target_limit_one: bool = Field(
         default=False,
         nullable=False,
-        description=("If true, enforce single source per target for this field (O2O)."),
+        description=(
+            "If true, enforce single source per target for this relation (O2O)."
+        ),
     )
 
     # Relationships (for eager loading)
@@ -1620,9 +1664,9 @@ class RecordRelationLink(SQLModel, TimestampMixin, table=True):
             **DEFAULT_SA_RELATIONSHIP_KWARGS,
         }
     )
-    source_field: FieldMetadata = Relationship(
+    relation_definition: RelationDefinition = Relationship(
         sa_relationship_kwargs={
-            "foreign_keys": "[RecordRelationLink.source_field_id]",
+            "foreign_keys": "[RecordRelationLink.relation_definition_id]",
             **DEFAULT_SA_RELATIONSHIP_KWARGS,
         }
     )

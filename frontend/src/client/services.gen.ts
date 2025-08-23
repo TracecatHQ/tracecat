@@ -132,18 +132,22 @@ import type {
   EntitiesCreateFieldResponse,
   EntitiesCreateRecordData,
   EntitiesCreateRecordResponse,
-  EntitiesCreateRelationFieldData,
-  EntitiesCreateRelationFieldResponse,
+  EntitiesCreateRelationData,
+  EntitiesCreateRelationResponse,
   EntitiesDeactivateEntityData,
   EntitiesDeactivateEntityResponse,
   EntitiesDeactivateFieldData,
   EntitiesDeactivateFieldResponse,
+  EntitiesDeactivateRelationData,
+  EntitiesDeactivateRelationResponse,
   EntitiesDeleteEntityData,
   EntitiesDeleteEntityResponse,
   EntitiesDeleteFieldData,
   EntitiesDeleteFieldResponse,
   EntitiesDeleteRecordData,
   EntitiesDeleteRecordResponse,
+  EntitiesDeleteRelationData,
+  EntitiesDeleteRelationResponse,
   EntitiesGetEntityData,
   EntitiesGetEntityResponse,
   EntitiesGetEntitySchemaData,
@@ -156,18 +160,24 @@ import type {
   EntitiesListEntitiesResponse,
   EntitiesListFieldsData,
   EntitiesListFieldsResponse,
+  EntitiesListRelationsData,
+  EntitiesListRelationsResponse,
   EntitiesQueryRecordsData,
   EntitiesQueryRecordsResponse,
   EntitiesReactivateEntityData,
   EntitiesReactivateEntityResponse,
   EntitiesReactivateFieldData,
   EntitiesReactivateFieldResponse,
+  EntitiesReactivateRelationData,
+  EntitiesReactivateRelationResponse,
   EntitiesUpdateEntityData,
   EntitiesUpdateEntityResponse,
   EntitiesUpdateFieldData,
   EntitiesUpdateFieldResponse,
   EntitiesUpdateRecordData,
   EntitiesUpdateRecordResponse,
+  EntitiesUpdateRelationData,
+  EntitiesUpdateRelationResponse,
   FeatureFlagsGetFeatureFlagsResponse,
   FoldersCreateFolderData,
   FoldersCreateFolderResponse,
@@ -453,7 +463,7 @@ export const publicIncomingWebhook = (
   data: PublicIncomingWebhookData
 ): CancelablePromise<PublicIncomingWebhookResponse> => {
   return __request(OpenAPI, {
-    method: "GET",
+    method: "POST",
     url: "/webhooks/{workflow_id}/{secret}",
     path: {
       secret: data.secret,
@@ -493,7 +503,7 @@ export const publicIncomingWebhook1 = (
   data: PublicIncomingWebhook1Data
 ): CancelablePromise<PublicIncomingWebhook1Response> => {
   return __request(OpenAPI, {
-    method: "POST",
+    method: "GET",
     url: "/webhooks/{workflow_id}/{secret}",
     path: {
       secret: data.secret,
@@ -4477,6 +4487,8 @@ export const entitiesUpdateEntity = (
 /**
  * Deactivate Entity
  * Soft delete entity.
+ *
+ * Cascades to all fields and relations owned by the entity.
  * @param data The data for the request.
  * @param data.entityId
  * @param data.workspaceId
@@ -4504,6 +4516,8 @@ export const entitiesDeactivateEntity = (
 /**
  * Reactivate Entity
  * Reactivate soft-deleted entity.
+ *
+ * Cascades to all fields and relations owned by the entity.
  * @param data The data for the request.
  * @param data.entityId
  * @param data.workspaceId
@@ -4533,7 +4547,11 @@ export const entitiesReactivateEntity = (
  * Permanently delete an entity and all associated data.
  *
  * Warning: This is a hard delete - all data will be permanently lost.
- * This includes all records, fields, and relation links.
+ * This includes:
+ * - All records for the entity
+ * - All fields owned by the entity
+ * - All relation links (source or target) involving the entity
+ * - All relations where this entity is source or target
  * @param data The data for the request.
  * @param data.entityId
  * @param data.workspaceId
@@ -4758,24 +4776,21 @@ export const entitiesDeleteField = (
 }
 
 /**
- * Create Relation Field
- * Create a relation field.
- *
- * Requires `relation_settings` in the body. Optionally set `backref_key` to
- * auto-create a complementary field on the target entity (linked via backref_field_id).
+ * Create Relation
+ * Create a relation definition for an entity.
  * @param data The data for the request.
  * @param data.entityId
  * @param data.workspaceId
  * @param data.requestBody
- * @returns FieldMetadataRead Successful Response
+ * @returns RelationDefinitionRead Successful Response
  * @throws ApiError
  */
-export const entitiesCreateRelationField = (
-  data: EntitiesCreateRelationFieldData
-): CancelablePromise<EntitiesCreateRelationFieldResponse> => {
+export const entitiesCreateRelation = (
+  data: EntitiesCreateRelationData
+): CancelablePromise<EntitiesCreateRelationResponse> => {
   return __request(OpenAPI, {
     method: "POST",
-    url: "/entities/{entity_id}/fields/relation",
+    url: "/entities/{entity_id}/relations",
     path: {
       entity_id: data.entityId,
     },
@@ -4784,6 +4799,141 @@ export const entitiesCreateRelationField = (
     },
     body: data.requestBody,
     mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Relations
+ * List relation definitions for an entity (as source).
+ * @param data The data for the request.
+ * @param data.entityId
+ * @param data.workspaceId
+ * @returns RelationDefinitionRead Successful Response
+ * @throws ApiError
+ */
+export const entitiesListRelations = (
+  data: EntitiesListRelationsData
+): CancelablePromise<EntitiesListRelationsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/entities/{entity_id}/relations",
+    path: {
+      entity_id: data.entityId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Relation
+ * @param data The data for the request.
+ * @param data.relationId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns RelationDefinitionRead Successful Response
+ * @throws ApiError
+ */
+export const entitiesUpdateRelation = (
+  data: EntitiesUpdateRelationData
+): CancelablePromise<EntitiesUpdateRelationResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/entities/relations/{relation_id}",
+    path: {
+      relation_id: data.relationId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Relation
+ * Permanently delete a relation and all its links.
+ * @param data The data for the request.
+ * @param data.relationId
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const entitiesDeleteRelation = (
+  data: EntitiesDeleteRelationData
+): CancelablePromise<EntitiesDeleteRelationResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/entities/relations/{relation_id}",
+    path: {
+      relation_id: data.relationId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Deactivate Relation
+ * @param data The data for the request.
+ * @param data.relationId
+ * @param data.workspaceId
+ * @returns RelationDefinitionRead Successful Response
+ * @throws ApiError
+ */
+export const entitiesDeactivateRelation = (
+  data: EntitiesDeactivateRelationData
+): CancelablePromise<EntitiesDeactivateRelationResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/entities/relations/{relation_id}/deactivate",
+    path: {
+      relation_id: data.relationId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Reactivate Relation
+ * @param data The data for the request.
+ * @param data.relationId
+ * @param data.workspaceId
+ * @returns RelationDefinitionRead Successful Response
+ * @throws ApiError
+ */
+export const entitiesReactivateRelation = (
+  data: EntitiesReactivateRelationData
+): CancelablePromise<EntitiesReactivateRelationResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/entities/relations/{relation_id}/reactivate",
+    path: {
+      relation_id: data.relationId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
     errors: {
       422: "Validation Error",
     },

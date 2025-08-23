@@ -66,13 +66,6 @@ class EntityRead(BaseModel):
 # Field Settings Models (for specific field types)
 
 
-class RelationSettings(BaseModel):
-    """Settings for relation fields."""
-
-    relation_type: RelationType
-    target_entity_id: UUID
-
-
 # Field Metadata Models
 
 
@@ -87,10 +80,6 @@ class FieldMetadataCreate(BaseModel):
         default=None,
         min_length=1,
         description="Options for SELECT/MULTI_SELECT fields",
-    )
-    relation_settings: RelationSettings | None = Field(
-        default=None,
-        description="Settings for relation fields (required when field_type is RELATION_*)",
     )
     default_value: Any | None = Field(
         default=None,
@@ -143,61 +132,6 @@ class FieldMetadataCreate(BaseModel):
 
         return self
 
-    @model_validator(mode="after")
-    def validate_relation_settings(self) -> Self:
-        """Validate relation settings match field type."""
-        is_relation = self.field_type in (
-            FieldType.RELATION_ONE_TO_ONE,
-            FieldType.RELATION_ONE_TO_MANY,
-            FieldType.RELATION_MANY_TO_ONE,
-            FieldType.RELATION_MANY_TO_MANY,
-        )
-
-        if is_relation and not self.relation_settings:
-            raise PydanticCustomError(
-                "missing_relation_settings",
-                "Relation field type {field_type} requires relation_settings",
-                {"field_type": self.field_type.value},
-            )
-
-        if not is_relation and self.relation_settings:
-            raise PydanticCustomError(
-                "invalid_relation_settings",
-                "Non-relation field type {field_type} cannot have relation_settings",
-                {"field_type": self.field_type.value},
-            )
-
-        if self.relation_settings:
-            # Validate relation_type matches field_type
-            from tracecat.entities.enums import RelationType
-
-            if self.field_type in (
-                FieldType.RELATION_ONE_TO_ONE,
-                FieldType.RELATION_MANY_TO_ONE,
-            ):
-                expected_type = (
-                    RelationType.ONE_TO_ONE
-                    if self.field_type == FieldType.RELATION_ONE_TO_ONE
-                    else RelationType.MANY_TO_ONE
-                )
-            else:
-                expected_type = (
-                    RelationType.ONE_TO_MANY
-                    if self.field_type == FieldType.RELATION_ONE_TO_MANY
-                    else RelationType.MANY_TO_MANY
-                )
-            if self.relation_settings.relation_type != expected_type:
-                raise PydanticCustomError(
-                    "mismatched_relation_type",
-                    "Relation type {relation_type} doesn't match field type {field_type}",
-                    {
-                        "relation_type": self.relation_settings.relation_type.value,
-                        "field_type": self.field_type.value,
-                    },
-                )
-
-        return self
-
 
 class FieldMetadataUpdate(BaseModel):
     """Request model for updating field display properties."""
@@ -232,10 +166,6 @@ class FieldMetadataRead(BaseModel):
     deactivated_at: datetime | None
     created_at: datetime
     updated_at: datetime
-    # Relation fields
-    relation_kind: str | None = None
-    target_entity_id: UUID | None = None
-    backref_field_id: UUID | None = None
     # Enum field options
     enum_options: list[str] | None = None
     default_value: Any | None = None
@@ -358,6 +288,9 @@ class EntitySchemaResponse(BaseModel):
 
     entity: EntitySchemaInfo = Field(..., description="Entity metadata")
     fields: list[EntitySchemaField] = Field(..., description="Field definitions")
+    relations: list["RelationDefinitionRead"] = Field(
+        default_factory=list, description="Relation definitions"
+    )
 
 
 class EntitySchemaResult(BaseModel):
@@ -367,5 +300,51 @@ class EntitySchemaResult(BaseModel):
     fields: list["FieldMetadata"] = Field(
         ..., description="List of FieldMetadata objects"
     )
+    relations: list[Any] = Field(
+        default_factory=list, description="List of RelationDefinition objects"
+    )
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
+# Relations API models
+
+
+class RelationDefinitionCreate(BaseModel):
+    source_key: str = Field(..., min_length=1, max_length=100)
+    display_name: str = Field(..., min_length=1, max_length=255)
+    relation_type: RelationType
+    target_entity_id: UUID
+
+    @field_validator("source_key", mode="before")
+    @classmethod
+    def validate_source_key(cls, value: str) -> str:
+        return validate_field_key_format(value)
+
+
+class RelationDefinitionUpdate(BaseModel):
+    display_name: str | None = Field(default=None, min_length=1, max_length=255)
+    source_key: str | None = Field(default=None, min_length=1, max_length=100)
+
+    @field_validator("source_key", mode="before")
+    @classmethod
+    def validate_source_key(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        return validate_field_key_format(value)
+
+
+class RelationDefinitionRead(BaseModel):
+    id: UUID
+    owner_id: UUID
+    source_entity_id: UUID
+    target_entity_id: UUID
+    source_key: str
+    display_name: str
+    relation_type: RelationType
+    is_active: bool
+    deactivated_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}

@@ -255,7 +255,7 @@ export function CreateEntityRecordDialog({
         const fullField = fullFields?.find((f) => f.field_key === field.key)
         relations.push({
           ...field,
-          targetEntityId: fullField?.target_entity_id || undefined,
+          targetEntityId: undefined, // Relations are now managed separately
         })
       } else if (
         fieldType !== "RELATION_ONE_TO_MANY" &&

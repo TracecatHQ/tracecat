@@ -4,7 +4,6 @@ from datetime import date, datetime
 from enum import StrEnum
 from types import UnionType
 from typing import Any, Protocol
-from uuid import UUID
 
 from pydantic_core import PydanticCustomError
 
@@ -33,15 +32,6 @@ class FieldType(StrEnum):
 
     # Multi-select (stored as array of strings)
     MULTI_SELECT = "MULTI_SELECT"
-
-    # Relation types
-    RELATION_ONE_TO_ONE = "RELATION_ONE_TO_ONE"  # 1:1 per source record (one source may point to one target)
-    RELATION_ONE_TO_MANY = "RELATION_ONE_TO_MANY"  # 1:N from source record (one source may point to many targets)
-    # New relation types (v1.1):
-    # MANY_TO_ONE behaves like ONE_TO_ONE from the source record perspective (single target).
-    # MANY_TO_MANY behaves like ONE_TO_MANY from the source record perspective (multiple targets).
-    RELATION_MANY_TO_ONE = "RELATION_MANY_TO_ONE"
-    RELATION_MANY_TO_MANY = "RELATION_MANY_TO_MANY"
 
 
 class FieldValidator(Protocol):
@@ -134,20 +124,12 @@ def get_python_type(field_type: FieldType) -> type | UnionType | None:
         FieldType.ARRAY_NUMBER: list[float],
         FieldType.SELECT: str,
         FieldType.MULTI_SELECT: list[str],
-        FieldType.RELATION_ONE_TO_ONE: UUID,  # UUID of related record or None
-        FieldType.RELATION_ONE_TO_MANY: None,  # Not stored directly in field_data
-        FieldType.RELATION_MANY_TO_ONE: UUID,  # Same storage as ONE_TO_ONE (single target)
-        FieldType.RELATION_MANY_TO_MANY: None,  # Same as ONE_TO_MANY (links only)
     }
 
-    py_type = type_map.get(field_type, Any)
-
-    # Special case: RELATION_ONE_TO_MANY doesn't store data in field_data
+    py_type = type_map.get(field_type, object)
     if py_type is None:
         return None
-
-    # In v1, all fields are nullable
-    return py_type | None
+    return py_type | type(None)
 
 
 def validate_field_value_type(
@@ -334,33 +316,6 @@ def validate_field_value_type(
                 "invalid_list_item",
                 "All array elements must be numbers",
             )
-
-    elif field_type in (FieldType.RELATION_ONE_TO_ONE, FieldType.RELATION_MANY_TO_ONE):
-        if value is not None:
-            if isinstance(value, str):
-                try:
-                    return UUID(value)
-                except ValueError as e:
-                    raise PydanticCustomError(
-                        "invalid_uuid",
-                        "Invalid UUID format for relation",
-                    ) from e
-            elif not isinstance(value, UUID):
-                raise PydanticCustomError(
-                    "invalid_type",
-                    "Expected UUID for one_to_one relation, got {type_name}",
-                    {"type_name": type(value).__name__},
-                )
-
-    elif field_type in (
-        FieldType.RELATION_ONE_TO_MANY,
-        FieldType.RELATION_MANY_TO_MANY,
-    ):
-        # One-to-many relations are handled separately
-        raise PydanticCustomError(
-            "invalid_field_type",
-            "One-to-many relations should be handled through relation endpoints",
-        )
 
     else:
         raise PydanticCustomError(

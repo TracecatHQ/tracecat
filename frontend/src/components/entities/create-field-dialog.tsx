@@ -2,28 +2,27 @@
 
 import { zodResolver } from "@hookform/resolvers/zod"
 import {
+  AlertCircleIcon,
   BookA,
   Braces,
   Brackets,
   Calendar,
   CalendarClock,
   DecimalsArrowRight,
-  GitBranch,
   Hash,
   Info,
-  Link2,
   ListOrdered,
   ListTodo,
   SquareCheck,
   ToggleLeft,
   Type,
 } from "lucide-react"
-import { useParams } from "next/navigation"
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import type { FieldType } from "@/client"
 import { MultiTagCommandInput } from "@/components/tags-input"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -57,7 +56,6 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { useEntities } from "@/lib/hooks/use-entities"
 
 const fieldTypes: {
   value: FieldType
@@ -76,10 +74,6 @@ const fieldTypes: {
   { value: "ARRAY_TEXT", label: "Text array", icon: BookA },
   { value: "ARRAY_INTEGER", label: "Integer array", icon: ListOrdered },
   { value: "ARRAY_NUMBER", label: "Number array", icon: Brackets },
-  { value: "RELATION_ONE_TO_ONE", label: "One to one", icon: Link2 },
-  { value: "RELATION_ONE_TO_MANY", label: "One to many", icon: GitBranch },
-  { value: "RELATION_MANY_TO_ONE", label: "Many to one", icon: Link2 },
-  { value: "RELATION_MANY_TO_MANY", label: "Many to many", icon: GitBranch },
 ]
 
 const createFieldSchema = z.object({
@@ -103,26 +97,11 @@ const createFieldSchema = z.object({
     "ARRAY_TEXT",
     "ARRAY_INTEGER",
     "ARRAY_NUMBER",
-    "RELATION_ONE_TO_ONE",
-    "RELATION_ONE_TO_MANY",
-    "RELATION_MANY_TO_ONE",
-    "RELATION_MANY_TO_MANY",
   ] as const),
   display_name: z.string().min(1, "Display name is required"),
   description: z.string().optional(),
   default_value: z.any().optional(),
   enum_options: z.array(z.string()).optional(),
-  relation_settings: z
-    .object({
-      relation_type: z.enum([
-        "one_to_one",
-        "one_to_many",
-        "many_to_one",
-        "many_to_many",
-      ]),
-      target_entity_id: z.string(),
-    })
-    .optional(),
 })
 
 type CreateFieldFormData = z.infer<typeof createFieldSchema>
@@ -152,8 +131,7 @@ export function CreateFieldDialog({
   errorMessage,
 }: CreateFieldDialogProps) {
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const params = useParams<{ workspaceId: string }>()
-  const { entities } = useEntities(params?.workspaceId || "")
+  const [submitError, setSubmitError] = useState<string | null>(null)
 
   const form = useForm<CreateFieldFormData>({
     resolver: zodResolver(createFieldSchema),
@@ -164,10 +142,6 @@ export function CreateFieldDialog({
       description: "",
       default_value: "",
       enum_options: [],
-      relation_settings: {
-        relation_type: "one_to_one",
-        target_entity_id: "",
-      },
     },
   })
 
@@ -180,18 +154,12 @@ export function CreateFieldDialog({
     () => fieldType === "SELECT" || fieldType === "MULTI_SELECT",
     [fieldType]
   )
-  const isRelationField = useMemo(
-    () =>
-      fieldType === "RELATION_ONE_TO_ONE" ||
-      fieldType === "RELATION_ONE_TO_MANY" ||
-      fieldType === "RELATION_MANY_TO_ONE" ||
-      fieldType === "RELATION_MANY_TO_MANY",
-    [fieldType]
-  )
 
   const handleSubmit = async (data: CreateFieldFormData) => {
     setIsSubmitting(true)
     try {
+      // Clear any previous submit error
+      setSubmitError(null)
       // Convert default value based on field type
       let processedData = { ...data }
 
@@ -255,47 +223,51 @@ export function CreateFieldDialog({
         delete processedData.enum_options
       }
 
-      // Process relation_settings for RELATION fields
-      if (
-        data.field_type === "RELATION_ONE_TO_ONE" ||
-        data.field_type === "RELATION_ONE_TO_MANY" ||
-        data.field_type === "RELATION_MANY_TO_ONE" ||
-        data.field_type === "RELATION_MANY_TO_MANY"
-      ) {
-        if (data.relation_settings?.target_entity_id) {
-          processedData.relation_settings = {
-            relation_type:
-              data.field_type === "RELATION_ONE_TO_ONE"
-                ? "one_to_one"
-                : data.field_type === "RELATION_ONE_TO_MANY"
-                  ? "one_to_many"
-                  : data.field_type === "RELATION_MANY_TO_ONE"
-                    ? "many_to_one"
-                    : "many_to_many",
-            target_entity_id: data.relation_settings.target_entity_id,
-          }
-        } else {
-          // Relation fields require a target entity
-          console.error(
-            "Relation fields require a target entity to be selected"
-          )
-          throw new Error(
-            "Please select a target entity for this relation field"
-          )
-        }
-      } else {
-        delete processedData.relation_settings
-      }
-
       await onSubmit(processedData)
       form.reset()
       onOpenChange(false)
     } catch (error) {
       console.error("Failed to create field:", error)
+      // Try to extract a user-friendly message if available
+      let message = "Failed to create the field. Please try again."
+      if (error && typeof error === "object") {
+        // Common shapes from our ApiError
+        const err = error as {
+          body?: {
+            detail?: string | string[]
+            message?: string
+            error?: string
+          }
+          message?: string
+          status?: number
+          statusText?: string
+        }
+        const detail = err.body?.detail
+        if (Array.isArray(detail)) {
+          message = detail.join("\n")
+        } else {
+          message =
+            (typeof detail === "string" && detail) ||
+            err.body?.message ||
+            err.body?.error ||
+            (err.status && err.statusText
+              ? `${err.status} ${err.statusText}`
+              : err.message) ||
+            message
+        }
+      }
+      setSubmitError(message)
     } finally {
       setIsSubmitting(false)
     }
   }
+
+  // Clear local submit error when dialog is closed
+  useEffect(() => {
+    if (!open) {
+      setSubmitError(null)
+    }
+  }, [open])
 
   return (
     <TooltipProvider>
@@ -306,17 +278,21 @@ export function CreateFieldDialog({
             <DialogDescription>
               Add a new field to this entity.
             </DialogDescription>
-            {errorMessage && (
-              <p className="text-sm font-medium text-destructive">
-                {errorMessage}
-              </p>
-            )}
           </DialogHeader>
           <Form {...form}>
             <form
               onSubmit={form.handleSubmit(handleSubmit)}
               className="space-y-4"
             >
+              {(submitError || errorMessage) && (
+                <Alert variant="destructive">
+                  <AlertCircleIcon />
+                  <AlertTitle>Failed to create field</AlertTitle>
+                  <AlertDescription>
+                    {submitError || errorMessage}
+                  </AlertDescription>
+                </Alert>
+              )}
               <FormField
                 control={form.control}
                 name="field_key"
@@ -442,41 +418,6 @@ export function CreateFieldDialog({
                     </FormItem>
                   )}
                 />
-              )}
-              {isRelationField && (
-                <>
-                  <FormField
-                    control={form.control}
-                    name="relation_settings.target_entity_id"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Target entity</FormLabel>
-                        <Select
-                          onValueChange={field.onChange}
-                          value={field.value}
-                        >
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            {entities?.map((entity) => (
-                              <SelectItem key={entity.id} value={entity.id}>
-                                {entity.display_name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <FormDescription>
-                          Link this entity to another entity via a relation
-                          field
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </>
               )}
               {supportsPrimitive && (
                 <FormField

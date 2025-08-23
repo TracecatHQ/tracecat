@@ -15,6 +15,7 @@ from tracecat.db.schemas import (
     FieldMetadata,
     Record,
     RecordRelationLink,
+    RelationDefinition,
 )
 from tracecat.entities.service import CustomEntitiesService
 from tracecat.service import BaseWorkspaceService
@@ -59,46 +60,40 @@ class CaseEntitiesService(BaseWorkspaceService):
             Tuple of (field_data with resolved relations, list of relation field keys)
         """
         field_data = dict(record.field_data)
-        relation_fields = []
+        relation_fields: list[str] = []
+        # Load relations for this entity
+        rel_stmt = select(RelationDefinition).where(
+            RelationDefinition.source_entity_id == record.entity_id,
+            RelationDefinition.owner_id == self.workspace_id,
+            RelationDefinition.is_active,
+        )
+        rels = list((await self.session.exec(rel_stmt)).all())
 
-        for field in fields:
-            if not field.relation_kind:
-                continue
-
-            relation_fields.append(field.field_key)
-
-            # Get related records for this field based on relation_kind
-            if field.relation_kind == "one_to_one":
-                # For one_to_one, fetch the single related record
+        for rel in rels:
+            relation_fields.append(rel.source_key)
+            # Fetch links for this relation
+            if rel.relation_type in ("one_to_one", "many_to_one"):
                 link_stmt = select(RecordRelationLink).where(
                     RecordRelationLink.source_record_id == record.id,
-                    RecordRelationLink.source_field_id == field.id,
+                    RecordRelationLink.relation_definition_id == rel.id,
                 )
-                link_result = await self.session.exec(link_stmt)
-                link = link_result.first()
-
+                link = (await self.session.exec(link_stmt)).first()
                 if link:
                     try:
                         target_record = await entity_service.get_record(
                             link.target_record_id
                         )
-                        # Include the target record's field_data directly
-                        field_data[field.field_key] = target_record.field_data
+                        field_data[rel.source_key] = target_record.field_data
                     except TracecatNotFoundError:
-                        field_data[field.field_key] = None
+                        field_data[rel.source_key] = None
                 else:
-                    field_data[field.field_key] = None
-
-            elif field.relation_kind == "one_to_many":
-                # For one_to_many, fetch multiple related records
+                    field_data[rel.source_key] = None
+            else:
                 links_stmt = select(RecordRelationLink).where(
                     RecordRelationLink.source_record_id == record.id,
-                    RecordRelationLink.source_field_id == field.id,
+                    RecordRelationLink.relation_definition_id == rel.id,
                 )
-
-                links_result = await self.session.exec(links_stmt)
-                links = links_result.all()
-
+                links = list((await self.session.exec(links_stmt)).all())
                 related_records = []
                 for link in links:
                     try:
@@ -108,8 +103,7 @@ class CaseEntitiesService(BaseWorkspaceService):
                         related_records.append(target_record.field_data)
                     except TracecatNotFoundError:
                         continue
-
-                field_data[field.field_key] = related_records
+                field_data[rel.source_key] = related_records
 
         return field_data, relation_fields
 

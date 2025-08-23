@@ -5,7 +5,8 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat.db.schemas import RecordRelationLink
-from tracecat.entities.models import RelationSettings, RelationType
+from tracecat.entities.enums import RelationType
+from tracecat.entities.models import RelationDefinitionCreate
 from tracecat.entities.service import CustomEntitiesService
 from tracecat.entities.types import FieldType
 from tracecat.types.auth import Role
@@ -67,12 +68,11 @@ class TestNestedRecordCreation:
         )
 
         # Add a relation field pointing to manager
-        manager_relation_field = await service.create_relation_field(
-            entity_id=employee_entity.id,
-            field_key="manager",
-            field_type=FieldType.RELATION_ONE_TO_ONE,
-            display_name="Manager",
-            relation_settings=RelationSettings(
+        manager_rel = await service.create_relation(
+            employee_entity.id,
+            RelationDefinitionCreate(
+                source_key="manager",
+                display_name="Manager",
                 relation_type=RelationType.ONE_TO_ONE,
                 target_entity_id=manager_entity.id,
             ),
@@ -105,7 +105,7 @@ class TestNestedRecordCreation:
         # Verify the relation link was created
         link_stmt = select(RecordRelationLink).where(
             RecordRelationLink.source_record_id == employee_record.id,
-            RecordRelationLink.source_field_id == manager_relation_field.id,
+            RecordRelationLink.relation_definition_id == manager_rel.id,
         )
         result = await session.exec(link_stmt)
         link = result.first()
@@ -163,12 +163,11 @@ class TestNestedRecordCreation:
         )
 
         # Add a one_to_many relation field
-        members_relation_field = await service.create_relation_field(
-            entity_id=team_entity.id,
-            field_key="members",
-            field_type=FieldType.RELATION_ONE_TO_MANY,
-            display_name="Members",
-            relation_settings=RelationSettings(
+        members_rel = await service.create_relation(
+            team_entity.id,
+            RelationDefinitionCreate(
+                source_key="members",
+                display_name="Members",
                 relation_type=RelationType.ONE_TO_MANY,
                 target_entity_id=member_entity.id,
             ),
@@ -205,7 +204,7 @@ class TestNestedRecordCreation:
         # Verify the relation links were created
         links_stmt = select(RecordRelationLink).where(
             RecordRelationLink.source_record_id == team_record.id,
-            RecordRelationLink.source_field_id == members_relation_field.id,
+            RecordRelationLink.relation_definition_id == members_rel.id,
         )
         result = await session.exec(links_stmt)
         links = result.all()
@@ -262,12 +261,11 @@ class TestNestedRecordCreation:
         )
 
         # Add one_to_many relation
-        await service.create_relation_field(
-            entity_id=project_entity.id,
-            field_key="tasks",
-            field_type=FieldType.RELATION_ONE_TO_MANY,
-            display_name="Tasks",
-            relation_settings=RelationSettings(
+        await service.create_relation(
+            project_entity.id,
+            RelationDefinitionCreate(
+                source_key="tasks",
+                display_name="Tasks",
                 relation_type=RelationType.ONE_TO_MANY,
                 target_entity_id=task_entity.id,
             ),

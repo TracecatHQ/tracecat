@@ -3,7 +3,8 @@
 import pytest
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from tracecat.entities.models import RelationSettings, RelationType
+from tracecat.entities.enums import RelationType
+from tracecat.entities.models import RelationDefinitionCreate
 from tracecat.entities.service import CustomEntitiesService
 from tracecat.entities.types import FieldType
 from tracecat.types.auth import Role
@@ -56,12 +57,11 @@ class TestNestedRelationUpdate:
         )
 
         # Add one_to_one relation from employee to manager
-        await service.create_relation_field(
-            entity_id=employee_entity.id,
-            field_key="manager",
-            field_type=FieldType.RELATION_ONE_TO_ONE,
-            display_name="Manager",
-            relation_settings=RelationSettings(
+        await service.create_relation(
+            employee_entity.id,
+            RelationDefinitionCreate(
+                source_key="manager",
+                display_name="Manager",
                 relation_type=RelationType.ONE_TO_ONE,
                 target_entity_id=manager_entity.id,
             ),
@@ -138,12 +138,11 @@ class TestNestedRelationUpdate:
         )
 
         # Add relation
-        await service.create_relation_field(
-            entity_id=project_entity.id,
-            field_key="owner",
-            field_type=FieldType.RELATION_ONE_TO_ONE,
-            display_name="Owner",
-            relation_settings=RelationSettings(
+        await service.create_relation(
+            project_entity.id,
+            RelationDefinitionCreate(
+                source_key="owner",
+                display_name="Owner",
                 relation_type=RelationType.ONE_TO_ONE,
                 target_entity_id=owner_entity.id,
             ),
@@ -233,12 +232,11 @@ class TestNestedRelationUpdate:
         )
 
         # Add relation
-        await service.create_relation_field(
-            entity_id=item_entity.id,
-            field_key="category",
-            field_type=FieldType.RELATION_ONE_TO_ONE,
-            display_name="Category",
-            relation_settings=RelationSettings(
+        await service.create_relation(
+            item_entity.id,
+            RelationDefinitionCreate(
+                source_key="category",
+                display_name="Category",
                 relation_type=RelationType.ONE_TO_ONE,
                 target_entity_id=category_entity.id,
             ),
@@ -321,12 +319,11 @@ class TestNestedRelationUpdate:
         )
 
         # Add relation
-        await service.create_relation_field(
-            entity_id=task_entity.id,
-            field_key="assignee",
-            field_type=FieldType.RELATION_ONE_TO_ONE,
-            display_name="Assignee",
-            relation_settings=RelationSettings(
+        await service.create_relation(
+            task_entity.id,
+            RelationDefinitionCreate(
+                source_key="assignee",
+                display_name="Assignee",
                 relation_type=RelationType.ONE_TO_ONE,
                 target_entity_id=assignee_entity.id,
             ),

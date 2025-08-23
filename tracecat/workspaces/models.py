@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import NotRequired, TypedDict
+from typing import Literal, NotRequired, TypedDict
 
 from pydantic import BaseModel, EmailStr, Field
 
@@ -15,15 +15,27 @@ from tracecat.identifiers import OwnerID, UserID, WorkspaceID
 # DTO
 class WorkspaceSettings(TypedDict):
     git_repo_url: NotRequired[str | None]
+    relation_policy: NotRequired[
+        Literal["unrestricted", "allow_one_level", "block_cycles", "max_degree"] | None
+    ]
+    relation_max_degree: NotRequired[int | None]
 
 
 # Schema
 class WorkspaceSettingsRead(BaseModel):
     git_repo_url: str | None = None
+    relation_policy: (
+        Literal["unrestricted", "allow_one_level", "block_cycles", "max_degree"] | None
+    ) = None
+    relation_max_degree: int | None = None
 
 
 class WorkspaceSettingsUpdate(BaseModel):
     git_repo_url: str | None = None
+    relation_policy: (
+        Literal["unrestricted", "allow_one_level", "block_cycles", "max_degree"] | None
+    ) = None
+    relation_max_degree: int | None = None
 
 
 # Params

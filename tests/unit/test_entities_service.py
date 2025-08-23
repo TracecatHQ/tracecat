@@ -7,7 +7,14 @@ from pydantic import ValidationError
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from tracecat.db.schemas import Entity, FieldMetadata, Record
+from tracecat.db.schemas import (
+    Entity,
+    FieldMetadata,
+    Record,
+    RecordRelationLink,
+)
+from tracecat.entities.enums import RelationType
+from tracecat.entities.models import RelationDefinitionCreate
 from tracecat.entities.service import CustomEntitiesService
 from tracecat.entities.types import FieldType
 from tracecat.types.auth import AccessLevel, Role
@@ -797,14 +804,13 @@ class TestRelationFieldCreation:
 
         # Create post entity with author field (one_to_one user)
         from tracecat.entities.enums import RelationType
-        from tracecat.entities.models import RelationSettings
+        from tracecat.entities.models import RelationDefinitionCreate
 
-        author_field = await admin_entities_service.create_relation_field(
-            entity_id=post_entity.id,
-            field_key="author",
-            field_type=FieldType.RELATION_ONE_TO_ONE,
-            display_name="Author",
-            relation_settings=RelationSettings(
+        author_rel = await admin_entities_service.create_relation(
+            post_entity.id,
+            RelationDefinitionCreate(
+                source_key="author",
+                display_name="Author",
                 relation_type=RelationType.ONE_TO_ONE,
                 target_entity_id=user_entity.id,
             ),
@@ -835,7 +841,7 @@ class TestRelationFieldCreation:
 
         stmt = select(RecordRelationLink).where(
             RecordRelationLink.source_record_id == post_record.id,
-            RecordRelationLink.source_field_id == author_field.id,
+            RecordRelationLink.relation_definition_id == author_rel.id,
             RecordRelationLink.target_record_id == user_record.id,
         )
         result = await admin_entities_service.session.exec(stmt)
@@ -844,47 +850,7 @@ class TestRelationFieldCreation:
         assert link.source_entity_id == post_entity.id
         assert link.target_entity_id == user_entity.id
 
-    async def test_auto_backref_creation(
-        self, admin_entities_service: CustomEntitiesService
-    ) -> None:
-        """Creating a relation auto-creates complementary backref field on target."""
-        # Create two entities
-        a = await admin_entities_service.create_entity(name="a_ent", display_name="A")
-        b = await admin_entities_service.create_entity(name="b_ent", display_name="B")
-
-        from tracecat.entities.enums import RelationType
-        from tracecat.entities.models import RelationSettings
-
-        # Create relation (backref is auto-created)
-        a_field = await admin_entities_service.create_relation_field(
-            entity_id=a.id,
-            field_key="to_b",
-            field_type=FieldType.RELATION_MANY_TO_ONE,
-            display_name="To B",
-            relation_settings=RelationSettings(
-                relation_type=RelationType.MANY_TO_ONE, target_entity_id=b.id
-            ),
-        )
-
-        # Verify complementary field exists on B and fields are linked via backref_field_id
-        a_fields = await admin_entities_service.list_fields(a.id)
-        b_fields = await admin_entities_service.list_fields(b.id)
-        # Re-fetch a_field from listing to include backref linkage
-        a_field = next(f for f in a_fields if f.field_key == "to_b")
-        # Identify backref by linkage rather than assuming a fixed key
-        b_field = next(f for f in b_fields if f.backref_field_id == a_field.id)
-        assert a_field.backref_field_id == b_field.id
-        assert b_field.backref_field_id == a_field.id
-        # Check complement type and target
-        assert b_field.field_type in (
-            FieldType.RELATION_ONE_TO_ONE,
-            FieldType.RELATION_ONE_TO_MANY,
-            FieldType.RELATION_MANY_TO_ONE,
-            FieldType.RELATION_MANY_TO_MANY,
-        )
-        # MANY_TO_ONE on source should complement to ONE_TO_MANY on target
-        assert b_field.field_type == FieldType.RELATION_ONE_TO_MANY.value
-        assert b_field.target_entity_id == a.id
+    # Backref logic removed in new model; auto-backrefs no longer exist.
 
     async def test_create_record_with_one_to_many_relation(
         self, admin_entities_service: CustomEntitiesService
@@ -917,14 +883,13 @@ class TestRelationFieldCreation:
 
         # Create category entity with products field (one_to_many products)
         from tracecat.entities.enums import RelationType
-        from tracecat.entities.models import RelationSettings
+        from tracecat.entities.models import RelationDefinitionCreate
 
-        products_field = await admin_entities_service.create_relation_field(
-            entity_id=category_entity.id,
-            field_key="products",
-            field_type=FieldType.RELATION_ONE_TO_MANY,
-            display_name="Products",
-            relation_settings=RelationSettings(
+        products_rel = await admin_entities_service.create_relation(
+            category_entity.id,
+            RelationDefinitionCreate(
+                source_key="products",
+                display_name="Products",
                 relation_type=RelationType.ONE_TO_MANY,
                 target_entity_id=product_entity.id,
             ),
@@ -958,7 +923,7 @@ class TestRelationFieldCreation:
 
         stmt = select(RecordRelationLink).where(
             RecordRelationLink.source_record_id == category_record.id,
-            RecordRelationLink.source_field_id == products_field.id,
+            RecordRelationLink.relation_definition_id == products_rel.id,
         )
         result = await admin_entities_service.session.exec(stmt)
         links = list(result.all())
@@ -994,14 +959,13 @@ class TestRelationFieldCreation:
 
         # Create child entity with parent field (many_to_one parent)
         from tracecat.entities.enums import RelationType
-        from tracecat.entities.models import RelationSettings
+        from tracecat.entities.models import RelationDefinitionCreate
 
-        parent_field = await admin_entities_service.create_relation_field(
-            entity_id=child_entity.id,
-            field_key="parent",
-            field_type=FieldType.RELATION_MANY_TO_ONE,
-            display_name="Parent",
-            relation_settings=RelationSettings(
+        await admin_entities_service.create_relation(
+            child_entity.id,
+            RelationDefinitionCreate(
+                source_key="parent",
+                display_name="Parent",
                 relation_type=RelationType.MANY_TO_ONE,
                 target_entity_id=parent_entity.id,
             ),
@@ -1030,7 +994,6 @@ class TestRelationFieldCreation:
 
         stmt = select(RecordRelationLink).where(
             RecordRelationLink.source_record_id == child_record.id,
-            RecordRelationLink.source_field_id == parent_field.id,
             RecordRelationLink.target_record_id == parent_record.id,
         )
         result = await admin_entities_service.session.exec(stmt)
@@ -1065,14 +1028,13 @@ class TestRelationFieldCreation:
 
         # Create relation field on A (many_to_many to B)
         from tracecat.entities.enums import RelationType
-        from tracecat.entities.models import RelationSettings
+        from tracecat.entities.models import RelationDefinitionCreate
 
-        tags_field = await admin_entities_service.create_relation_field(
-            entity_id=a_entity.id,
-            field_key="tags",
-            field_type=FieldType.RELATION_MANY_TO_MANY,
-            display_name="Tags",
-            relation_settings=RelationSettings(
+        tags_rel = await admin_entities_service.create_relation(
+            a_entity.id,
+            RelationDefinitionCreate(
+                source_key="tags",
+                display_name="Tags",
                 relation_type=RelationType.MANY_TO_MANY,
                 target_entity_id=b_entity.id,
             ),
@@ -1101,7 +1063,7 @@ class TestRelationFieldCreation:
 
         stmt = select(RecordRelationLink).where(
             RecordRelationLink.source_record_id == a_record.id,
-            RecordRelationLink.source_field_id == tags_field.id,
+            RecordRelationLink.relation_definition_id == tags_rel.id,
         )
         result = await admin_entities_service.session.exec(stmt)
         links = list(result.all())
@@ -1119,16 +1081,12 @@ class TestRelationFieldCreation:
             name="entity2", display_name="Entity 2"
         )
 
-        # Create relation field
-        from tracecat.entities.enums import RelationType
-        from tracecat.entities.models import RelationSettings
-
-        await admin_entities_service.create_relation_field(
+        # Create relation
+        await admin_entities_service.create_relation(
             entity_id=entity1.id,
-            field_key="related",
-            field_type=FieldType.RELATION_ONE_TO_ONE,
-            display_name="Related",
-            relation_settings=RelationSettings(
+            data=RelationDefinitionCreate(
+                source_key="related",
+                display_name="Related",
                 relation_type=RelationType.ONE_TO_ONE,
                 target_entity_id=entity2.id,
             ),
@@ -1143,12 +1101,11 @@ class TestRelationFieldCreation:
         assert "Invalid UUID format" in str(exc_info.value)
 
         # Try with wrong type for one_to_many
-        await admin_entities_service.create_relation_field(
+        await admin_entities_service.create_relation(
             entity_id=entity1.id,
-            field_key="many_related",
-            field_type=FieldType.RELATION_ONE_TO_MANY,
-            display_name="Many Related",
-            relation_settings=RelationSettings(
+            data=RelationDefinitionCreate(
+                source_key="many_related",
+                display_name="Many Related",
                 relation_type=RelationType.ONE_TO_MANY,
                 target_entity_id=entity2.id,
             ),
@@ -1159,7 +1116,7 @@ class TestRelationFieldCreation:
                 entity_id=entity1.id,
                 data={"many_related": "not-a-list"},  # Should be a list
             )
-        assert "Expected list for one_to_many relation" in str(exc_info.value)
+        assert "Expected list for relation" in str(exc_info.value)
 
         with pytest.raises(TracecatValidationError) as exc_info:
             await admin_entities_service.create_record(
@@ -1189,16 +1146,12 @@ class TestRelationFieldCreation:
             default_value="default text",
         )
 
-        # Create relation field - should not support defaults
-        from tracecat.entities.enums import RelationType
-        from tracecat.entities.models import RelationSettings
-
-        await admin_entities_service.create_relation_field(
+        # Create relation - should not support defaults
+        await admin_entities_service.create_relation(
             entity_id=entity1.id,
-            field_key="relation_field",
-            field_type=FieldType.RELATION_ONE_TO_ONE,
-            display_name="Relation Field",
-            relation_settings=RelationSettings(
+            data=RelationDefinitionCreate(
+                source_key="relation_field",
+                display_name="Relation Field",
                 relation_type=RelationType.ONE_TO_ONE,
                 target_entity_id=entity2.id,
             ),
@@ -1254,26 +1207,21 @@ class TestRelationFieldCreation:
             display_name="Founded Year",
         )
 
-        from tracecat.entities.enums import RelationType
-        from tracecat.entities.models import RelationSettings
-
-        ceo_field = await admin_entities_service.create_relation_field(
+        ceo_relation = await admin_entities_service.create_relation(
             entity_id=company_entity.id,
-            field_key="ceo",
-            field_type=FieldType.RELATION_ONE_TO_ONE,
-            display_name="CEO",
-            relation_settings=RelationSettings(
+            data=RelationDefinitionCreate(
+                source_key="ceo",
+                display_name="CEO",
                 relation_type=RelationType.ONE_TO_ONE,
                 target_entity_id=employee_entity.id,
             ),
         )
 
-        employees_field = await admin_entities_service.create_relation_field(
+        employees_relation = await admin_entities_service.create_relation(
             entity_id=company_entity.id,
-            field_key="employees",
-            field_type=FieldType.RELATION_ONE_TO_MANY,
-            display_name="Employees",
-            relation_settings=RelationSettings(
+            data=RelationDefinitionCreate(
+                source_key="employees",
+                display_name="Employees",
                 relation_type=RelationType.ONE_TO_MANY,
                 target_entity_id=employee_entity.id,
             ),
@@ -1306,7 +1254,7 @@ class TestRelationFieldCreation:
         # Check CEO link
         stmt = select(RecordRelationLink).where(
             RecordRelationLink.source_record_id == company_record.id,
-            RecordRelationLink.source_field_id == ceo_field.id,
+            RecordRelationLink.relation_definition_id == ceo_relation.id,
         )
         result = await admin_entities_service.session.exec(stmt)
         ceo_link = result.first()
@@ -1316,7 +1264,7 @@ class TestRelationFieldCreation:
         # Check employee links
         stmt = select(RecordRelationLink).where(
             RecordRelationLink.source_record_id == company_record.id,
-            RecordRelationLink.source_field_id == employees_field.id,
+            RecordRelationLink.relation_definition_id == employees_relation.id,
         )
         result = await admin_entities_service.session.exec(stmt)
         emp_links = list(result.all())
@@ -1326,60 +1274,6 @@ class TestRelationFieldCreation:
         self, admin_entities_service: CustomEntitiesService
     ) -> None:
         """Deactivating/reactivating a relation field propagates to its backref."""
-        # Setup entities
-        src = await admin_entities_service.create_entity(
-            name="src_rel", display_name="Src Rel"
-        )
-        dst = await admin_entities_service.create_entity(
-            name="dst_rel", display_name="Dst Rel"
-        )
-
-        from tracecat.entities.enums import RelationType
-        from tracecat.entities.models import RelationSettings
-
-        # Create relation field (source: MANY_TO_ONE → backref on target: ONE_TO_MANY)
-        a_field = await admin_entities_service.create_relation_field(
-            entity_id=src.id,
-            field_key="to_dst",
-            field_type=FieldType.RELATION_MANY_TO_ONE,
-            display_name="To Dst",
-            relation_settings=RelationSettings(
-                relation_type=RelationType.MANY_TO_ONE, target_entity_id=dst.id
-            ),
-        )
-
-        # Find backref field on dst
-        dst_fields = await admin_entities_service.list_fields(dst.id)
-        b_field = next(f for f in dst_fields if f.backref_field_id == a_field.id)
-
-        # Deactivate source field → backref should deactivate too
-        await admin_entities_service.deactivate_field(a_field.id)
-        a_field_after = await admin_entities_service.get_field(a_field.id)
-        b_field_after = await admin_entities_service.get_field(b_field.id)
-        assert (
-            a_field_after.is_active is False
-            and a_field_after.deactivated_at is not None
-        )
-        assert (
-            b_field_after.is_active is False
-            and b_field_after.deactivated_at is not None
-        )
-
-        # Reactivate source field → backref should reactivate too
-        await admin_entities_service.reactivate_field(a_field.id)
-        a_field_after2 = await admin_entities_service.get_field(a_field.id)
-        b_field_after2 = await admin_entities_service.get_field(b_field.id)
-        assert (
-            a_field_after2.is_active is True and a_field_after2.deactivated_at is None
-        )
-        assert (
-            b_field_after2.is_active is True and b_field_after2.deactivated_at is None
-        )
-
-    async def test_delete_field_also_deletes_backref_and_links(
-        self, admin_entities_service: CustomEntitiesService
-    ) -> None:
-        """Hard deleting a relation field removes its backref and all links."""
         # Entities and fields
         src = await admin_entities_service.create_entity(
             name="src_del", display_name="Src Del"
@@ -1401,23 +1295,14 @@ class TestRelationFieldCreation:
             display_name="Name",
         )
 
-        from tracecat.entities.enums import RelationType
-        from tracecat.entities.models import RelationSettings
-
-        rel_field = await admin_entities_service.create_relation_field(
+        rel_def = await admin_entities_service.create_relation(
             entity_id=src.id,
-            field_key="owner",
-            field_type=FieldType.RELATION_MANY_TO_ONE,
-            display_name="Owner",
-            relation_settings=RelationSettings(
-                relation_type=RelationType.MANY_TO_ONE, target_entity_id=dst.id
+            data=RelationDefinitionCreate(
+                source_key="owner",
+                display_name="Owner",
+                relation_type=RelationType.MANY_TO_ONE,
+                target_entity_id=dst.id,
             ),
-        )
-
-        # Resolve backref on target entity
-        dst_fields = await admin_entities_service.list_fields(dst.id)
-        backref_field = next(
-            f for f in dst_fields if f.backref_field_id == rel_field.id
         )
 
         # Create records and a link via record creation
@@ -1430,31 +1315,38 @@ class TestRelationFieldCreation:
         # Sanity: ensure link exists
         from sqlmodel import select
 
-        from tracecat.db.schemas import RecordRelationLink
-
         stmt = select(RecordRelationLink).where(
             RecordRelationLink.source_record_id == src_rec.id,
-            RecordRelationLink.source_field_id == rel_field.id,
+            RecordRelationLink.relation_definition_id == rel_def.id,
             RecordRelationLink.target_record_id == dst_rec.id,
         )
         result = await admin_entities_service.session.exec(stmt)
         assert result.first() is not None
 
-        # Delete source relation field
-        await admin_entities_service.delete_field(rel_field.id)
+        # Deactivate source relation
+        await admin_entities_service.deactivate_relation(rel_def.id)
 
-        # Backref should be gone
-        from tracecat.types.exceptions import TracecatNotFoundError
-
-        with pytest.raises(TracecatNotFoundError):
-            await admin_entities_service.get_field(backref_field.id)
-
-        # Links should be removed for both field ids
+        # Links should still exist but relation is inactive
         stmt2 = select(RecordRelationLink).where(
-            RecordRelationLink.source_field_id.in_([rel_field.id, backref_field.id])
+            RecordRelationLink.relation_definition_id == rel_def.id
         )
         result2 = await admin_entities_service.session.exec(stmt2)
-        assert list(result2.all()) == []
+        links = list(result2.all())
+        assert len(links) == 1  # Link still exists
+
+        # Verify relation is inactive
+        rel_check = await admin_entities_service.get_relation(rel_def.id)
+        assert rel_check.is_active is False
+
+        # Delete the relation to actually remove links
+        await admin_entities_service.delete_relation(rel_def.id)
+
+        # Now links should be removed
+        stmt3 = select(RecordRelationLink).where(
+            RecordRelationLink.relation_definition_id == rel_def.id
+        )
+        result3 = await admin_entities_service.session.exec(stmt3)
+        assert list(result3.all()) == []
 
     async def test_delete_entity_cascades_referencing_fields(
         self, admin_entities_service: CustomEntitiesService
@@ -1486,25 +1378,22 @@ class TestRelationFieldCreation:
         )
 
         # B -> A and C -> A relations
-        from tracecat.entities.enums import RelationType
-        from tracecat.entities.models import RelationSettings
-
-        await admin_entities_service.create_relation_field(
+        await admin_entities_service.create_relation(
             entity_id=b.id,
-            field_key="to_a",
-            field_type=FieldType.RELATION_MANY_TO_ONE,
-            display_name="To A",
-            relation_settings=RelationSettings(
-                relation_type=RelationType.MANY_TO_ONE, target_entity_id=a.id
+            data=RelationDefinitionCreate(
+                source_key="to_a",
+                display_name="To A",
+                relation_type=RelationType.MANY_TO_ONE,
+                target_entity_id=a.id,
             ),
         )
-        await admin_entities_service.create_relation_field(
+        await admin_entities_service.create_relation(
             entity_id=c.id,
-            field_key="to_a",
-            field_type=FieldType.RELATION_ONE_TO_ONE,
-            display_name="To A",
-            relation_settings=RelationSettings(
-                relation_type=RelationType.ONE_TO_ONE, target_entity_id=a.id
+            data=RelationDefinitionCreate(
+                source_key="to_a",
+                display_name="To A",
+                relation_type=RelationType.ONE_TO_ONE,
+                target_entity_id=a.id,
             ),
         )
 
@@ -1519,18 +1408,14 @@ class TestRelationFieldCreation:
             entity_id=c.id, data={"name": "C1", "to_a": str(a_rec.id)}
         )
 
-        # Delete entity A (should cascade delete B->A and C->A fields and their backrefs)
+        # Delete entity A (should cascade delete relations referencing A)
         await admin_entities_service.delete_entity(a.id)
 
-        # Ensure fields on B and C that targeted A are deleted
-        b_fields_after = await admin_entities_service.list_fields(
-            b.id, include_inactive=True
-        )
-        c_fields_after = await admin_entities_service.list_fields(
-            c.id, include_inactive=True
-        )
-        assert all(f.field_key != "to_a" for f in b_fields_after)
-        assert all(f.field_key != "to_a" for f in c_fields_after)
+        # Ensure relations on B and C that targeted A are deleted
+        b_relations_after = await admin_entities_service.list_relations(b.id)
+        c_relations_after = await admin_entities_service.list_relations(c.id)
+        assert all(r.source_key != "to_a" for r in b_relations_after)
+        assert all(r.source_key != "to_a" for r in c_relations_after)
 
         # Ensure links pointing to A are gone
         from sqlmodel import select
@@ -1543,10 +1428,10 @@ class TestRelationFieldCreation:
         result = await admin_entities_service.session.exec(stmt)
         assert list(result.all()) == []
 
-    async def test_deactivate_entity_cascades_fields_and_backrefs(
+    async def test_deactivate_entity_cascades_fields_and_relations(
         self, admin_entities_service: CustomEntitiesService
     ) -> None:
-        """Soft-deactivating an entity deactivates its fields and paired backrefs."""
+        """Soft-deactivating an entity deactivates its fields and relations."""
         # Entities
         a = await admin_entities_service.create_entity(name="a_soft", display_name="A")
         b = await admin_entities_service.create_entity(name="b_soft", display_name="B")
@@ -1558,22 +1443,15 @@ class TestRelationFieldCreation:
             field_type=FieldType.TEXT,
             display_name="Name",
         )
-        from tracecat.entities.enums import RelationType
-        from tracecat.entities.models import RelationSettings
-
-        rel_a = await admin_entities_service.create_relation_field(
+        rel_a = await admin_entities_service.create_relation(
             entity_id=a.id,
-            field_key="to_b",
-            field_type=FieldType.RELATION_MANY_TO_ONE,
-            display_name="To B",
-            relation_settings=RelationSettings(
-                relation_type=RelationType.MANY_TO_ONE, target_entity_id=b.id
+            data=RelationDefinitionCreate(
+                source_key="to_b",
+                display_name="To B",
+                relation_type=RelationType.MANY_TO_ONE,
+                target_entity_id=b.id,
             ),
         )
-
-        # Resolve backref on B
-        b_fields = await admin_entities_service.list_fields(b.id)
-        backref = next(f for f in b_fields if f.backref_field_id == rel_a.id)
 
         # Deactivate entity A
         deactivated = await admin_entities_service.deactivate_entity(a.id)
@@ -1587,17 +1465,14 @@ class TestRelationFieldCreation:
             not f.is_active and f.deactivated_at is not None for f in a_fields_after
         )
 
-        # Verify backref on B is inactive
-        backref_after = await admin_entities_service.get_field(backref.id)
-        assert (
-            backref_after.is_active is False
-            and backref_after.deactivated_at is not None
-        )
+        # Verify relation from A is inactive
+        rel_a_after = await admin_entities_service.get_relation(rel_a.id)
+        assert rel_a_after.is_active is False and rel_a_after.deactivated_at is not None
 
-    async def test_reactivate_entity_cascades_fields_and_backrefs(
+    async def test_reactivate_entity_cascades_fields_and_relations(
         self, admin_entities_service: CustomEntitiesService
     ) -> None:
-        """Reactivating an entity reactivates its fields and paired backrefs."""
+        """Reactivating an entity reactivates its fields and relations."""
         # Entities
         a = await admin_entities_service.create_entity(
             name="a_soft_re", display_name="A"
@@ -1607,22 +1482,15 @@ class TestRelationFieldCreation:
         )
 
         # Create relation
-        from tracecat.entities.enums import RelationType
-        from tracecat.entities.models import RelationSettings
-
-        rel_a = await admin_entities_service.create_relation_field(
+        rel_a = await admin_entities_service.create_relation(
             entity_id=a.id,
-            field_key="to_b",
-            field_type=FieldType.RELATION_MANY_TO_ONE,
-            display_name="To B",
-            relation_settings=RelationSettings(
-                relation_type=RelationType.MANY_TO_ONE, target_entity_id=b.id
+            data=RelationDefinitionCreate(
+                source_key="to_b",
+                display_name="To B",
+                relation_type=RelationType.MANY_TO_ONE,
+                target_entity_id=b.id,
             ),
         )
-
-        # Get backref
-        b_fields = await admin_entities_service.list_fields(b.id)
-        backref = next(f for f in b_fields if f.backref_field_id == rel_a.id)
 
         # Deactivate then reactivate entity A
         await admin_entities_service.deactivate_entity(a.id)
@@ -1635,9 +1503,9 @@ class TestRelationFieldCreation:
         )
         assert all(f.is_active for f in a_fields_after)
 
-        # Verify backref on B is active again
-        backref_after = await admin_entities_service.get_field(backref.id)
-        assert backref_after.is_active is True and backref_after.deactivated_at is None
+        # Verify relation from A is active again
+        rel_a_after = await admin_entities_service.get_relation(rel_a.id)
+        assert rel_a_after.is_active is True and rel_a_after.deactivated_at is None
 
     async def test_cardinality_uniqueness_enforced(
         self, admin_entities_service: CustomEntitiesService
@@ -1653,17 +1521,14 @@ class TestRelationFieldCreation:
             dst.id, "name", FieldType.TEXT, "Name"
         )
 
-        from tracecat.entities.enums import RelationType
-        from tracecat.entities.models import RelationSettings
-
-        # O2O field on src
-        await admin_entities_service.create_relation_field(
+        # O2O relation on src
+        await admin_entities_service.create_relation(
             entity_id=src.id,
-            field_key="o2o",
-            field_type=FieldType.RELATION_ONE_TO_ONE,
-            display_name="O2O",
-            relation_settings=RelationSettings(
-                relation_type=RelationType.ONE_TO_ONE, target_entity_id=dst.id
+            data=RelationDefinitionCreate(
+                source_key="o2o",
+                display_name="O2O",
+                relation_type=RelationType.ONE_TO_ONE,
+                target_entity_id=dst.id,
             ),
         )
 
@@ -1680,13 +1545,13 @@ class TestRelationFieldCreation:
             )
 
         # M2O: single target per source, but many sources can point to same target
-        await admin_entities_service.create_relation_field(
+        await admin_entities_service.create_relation(
             entity_id=src.id,
-            field_key="m2o",
-            field_type=FieldType.RELATION_MANY_TO_ONE,
-            display_name="M2O",
-            relation_settings=RelationSettings(
-                relation_type=RelationType.MANY_TO_ONE, target_entity_id=dst.id
+            data=RelationDefinitionCreate(
+                source_key="m2o",
+                display_name="M2O",
+                relation_type=RelationType.MANY_TO_ONE,
+                target_entity_id=dst.id,
             ),
         )
         # One source points to one target at creation time
@@ -3569,7 +3434,7 @@ class TestInactiveEntityWriteRejection:
                 display_name="F",
             )
 
-    async def test_create_relation_field_rejected_when_source_or_target_inactive(
+    async def test_create_relation_rejected_when_source_or_target_inactive(
         self, admin_entities_service: CustomEntitiesService
     ) -> None:
         src = await admin_entities_service.create_entity(
@@ -3579,19 +3444,16 @@ class TestInactiveEntityWriteRejection:
             name="tgt_inact", display_name="Tgt Inact"
         )
 
-        from tracecat.entities.enums import RelationType
-        from tracecat.entities.models import RelationSettings
-
         # Deactivate source - should reject
         await admin_entities_service.deactivate_entity(src.id)
         with pytest.raises(TracecatValidationError):
-            await admin_entities_service.create_relation_field(
+            await admin_entities_service.create_relation(
                 entity_id=src.id,
-                field_key="rel",
-                field_type=FieldType.RELATION_MANY_TO_ONE,
-                display_name="Rel",
-                relation_settings=RelationSettings(
-                    relation_type=RelationType.MANY_TO_ONE, target_entity_id=tgt.id
+                data=RelationDefinitionCreate(
+                    source_key="rel",
+                    display_name="Rel",
+                    relation_type=RelationType.MANY_TO_ONE,
+                    target_entity_id=tgt.id,
                 ),
             )
 
@@ -3599,12 +3461,12 @@ class TestInactiveEntityWriteRejection:
         await admin_entities_service.reactivate_entity(src.id)
         await admin_entities_service.deactivate_entity(tgt.id)
         with pytest.raises(TracecatValidationError):
-            await admin_entities_service.create_relation_field(
+            await admin_entities_service.create_relation(
                 entity_id=src.id,
-                field_key="rel2",
-                field_type=FieldType.RELATION_MANY_TO_ONE,
-                display_name="Rel2",
-                relation_settings=RelationSettings(
-                    relation_type=RelationType.MANY_TO_ONE, target_entity_id=tgt.id
+                data=RelationDefinitionCreate(
+                    source_key="rel2",
+                    display_name="Rel2",
+                    relation_type=RelationType.MANY_TO_ONE,
+                    target_entity_id=tgt.id,
                 ),
             )

@@ -10,7 +10,7 @@ from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.models import CaseCreate
 from tracecat.cases.service import CasesService
 from tracecat.entities.enums import RelationType
-from tracecat.entities.models import RelationSettings
+from tracecat.entities.models import RelationDefinitionCreate
 from tracecat.entities.service import CustomEntitiesService
 from tracecat.entities.types import FieldType
 from tracecat.types.auth import Role
@@ -139,22 +139,22 @@ async def _prepare_all_field_types(
         enum_options=["x", "y", "z"],
     )
     # Relations
-    await svc.create_relation_field(
+    await svc.create_relation(
         entity.id,
-        "department",
-        FieldType.RELATION_ONE_TO_ONE,
-        "Department",
-        relation_settings=RelationSettings(
-            relation_type=RelationType.ONE_TO_ONE, target_entity_id=dept.id
+        RelationDefinitionCreate(
+            source_key="department",
+            display_name="Department",
+            relation_type=RelationType.ONE_TO_ONE,
+            target_entity_id=dept.id,
         ),
     )
-    await svc.create_relation_field(
+    await svc.create_relation(
         entity.id,
-        "projects",
-        FieldType.RELATION_ONE_TO_MANY,
-        "Projects",
-        relation_settings=RelationSettings(
-            relation_type=RelationType.ONE_TO_MANY, target_entity_id=project.id
+        RelationDefinitionCreate(
+            source_key="projects",
+            display_name="Projects",
+            relation_type=RelationType.ONE_TO_MANY,
+            target_entity_id=project.id,
         ),
     )
 
@@ -191,7 +191,6 @@ async def test_case_entities_with_many_to_one_and_many_to_many(
     # Create case
     case = await cases_service.create_case(
         CaseCreate(
-            title="Test Case",
             summary="Test case for entities",
             description="",
             status=CaseStatus.NEW,
@@ -219,25 +218,22 @@ async def test_case_entities_with_many_to_one_and_many_to_many(
         child.id, "title", FieldType.TEXT, "Title"
     )
 
-    from tracecat.entities.enums import RelationType
-    from tracecat.entities.models import RelationSettings
-
-    await entities_admin_service.create_relation_field(
+    await entities_admin_service.create_relation(
         child.id,
-        "parent",
-        FieldType.RELATION_MANY_TO_ONE,
-        "Parent",
-        relation_settings=RelationSettings(
-            relation_type=RelationType.MANY_TO_ONE, target_entity_id=parent.id
+        RelationDefinitionCreate(
+            source_key="parent",
+            display_name="Parent",
+            relation_type=RelationType.MANY_TO_ONE,
+            target_entity_id=parent.id,
         ),
     )
-    await entities_admin_service.create_relation_field(
+    await entities_admin_service.create_relation(
         child.id,
-        "tags",
-        FieldType.RELATION_MANY_TO_MANY,
-        "Tags",
-        relation_settings=RelationSettings(
-            relation_type=RelationType.MANY_TO_MANY, target_entity_id=tag.id
+        RelationDefinitionCreate(
+            source_key="tags",
+            display_name="Tags",
+            relation_type=RelationType.MANY_TO_MANY,
+            target_entity_id=tag.id,
         ),
     )
 
@@ -1037,6 +1033,7 @@ class TestCaseEntitiesServiceAdditional:
         # Get entity details for validation
         entity = await entities_admin_service.get_entity(entity_id)
         fields = await entities_admin_service.list_fields(entity_id)
+        relations = await entities_admin_service.list_relations(entity_id)
 
         # Create and link the record
         link = await case_entities_service.create_record(
@@ -1138,5 +1135,8 @@ class TestCaseEntitiesServiceAdditional:
         field_keys = {f.field_key for f in fields}
         assert "integer_value" in field_keys
         assert "select_value" in field_keys
-        assert "department" in field_keys
-        assert "projects" in field_keys
+
+        # Relations are now separate from fields
+        relation_keys = {r.source_key for r in relations}
+        assert "department" in relation_keys
+        assert "projects" in relation_keys

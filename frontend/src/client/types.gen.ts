@@ -1323,6 +1323,10 @@ export type EntitySchemaResponse = {
    * Field definitions
    */
   fields: Array<EntitySchemaField>
+  /**
+   * Relation definitions
+   */
+  relations?: Array<RelationDefinitionRead>
 }
 
 /**
@@ -1492,10 +1496,6 @@ export type FieldMetadataCreate = {
    */
   enum_options?: Array<string> | null
   /**
-   * Settings for relation fields (required when field_type is RELATION_*)
-   */
-  relation_settings?: RelationSettings | null
-  /**
    * Default value for the field (only for primitive types)
    */
   default_value?: unknown | null
@@ -1515,9 +1515,6 @@ export type FieldMetadataRead = {
   deactivated_at: string | null
   created_at: string
   updated_at: string
-  relation_kind?: string | null
-  target_entity_id?: string | null
-  backref_field_id?: string | null
   enum_options?: Array<string> | null
   default_value?: unknown | null
 }
@@ -1537,8 +1534,6 @@ export type FieldMetadataUpdate = {
 
 /**
  * Supported field types for custom entities.
- *
- * v1: Basic types plus JSON for structured data with controlled nesting.
  */
 export type FieldType =
   | "INTEGER"
@@ -1553,10 +1548,6 @@ export type FieldType =
   | "ARRAY_NUMBER"
   | "SELECT"
   | "MULTI_SELECT"
-  | "RELATION_ONE_TO_ONE"
-  | "RELATION_ONE_TO_MANY"
-  | "RELATION_MANY_TO_ONE"
-  | "RELATION_MANY_TO_MANY"
 
 export type Float = {
   component_id?: "float"
@@ -2716,12 +2707,30 @@ export type RegistrySecretType_Output =
   | RegistrySecret
   | RegistryOAuthSecret_Output
 
-/**
- * Settings for relation fields.
- */
-export type RelationSettings = {
+export type RelationDefinitionCreate = {
+  source_key: string
+  display_name: string
   relation_type: RelationType
   target_entity_id: string
+}
+
+export type RelationDefinitionRead = {
+  id: string
+  owner_id: string
+  source_entity_id: string
+  target_entity_id: string
+  source_key: string
+  display_name: string
+  relation_type: RelationType
+  is_active: boolean
+  deactivated_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type RelationDefinitionUpdate = {
+  display_name?: string | null
+  source_key?: string | null
 }
 
 /**
@@ -4146,10 +4155,24 @@ export type WorkspaceRole = "editor" | "admin"
 
 export type WorkspaceSettingsRead = {
   git_repo_url?: string | null
+  relation_policy?:
+    | "unrestricted"
+    | "allow_one_level"
+    | "block_cycles"
+    | "max_degree"
+    | null
+  relation_max_degree?: number | null
 }
 
 export type WorkspaceSettingsUpdate = {
   git_repo_url?: string | null
+  relation_policy?:
+    | "unrestricted"
+    | "allow_one_level"
+    | "block_cycles"
+    | "max_degree"
+    | null
+  relation_max_degree?: number | null
 }
 
 export type WorkspaceUpdate = {
@@ -5413,13 +5436,49 @@ export type EntitiesDeleteFieldData = {
 
 export type EntitiesDeleteFieldResponse = void
 
-export type EntitiesCreateRelationFieldData = {
+export type EntitiesCreateRelationData = {
   entityId: string
-  requestBody: FieldMetadataCreate
+  requestBody: RelationDefinitionCreate
   workspaceId: string
 }
 
-export type EntitiesCreateRelationFieldResponse = FieldMetadataRead
+export type EntitiesCreateRelationResponse = RelationDefinitionRead
+
+export type EntitiesListRelationsData = {
+  entityId: string
+  workspaceId: string
+}
+
+export type EntitiesListRelationsResponse = Array<RelationDefinitionRead>
+
+export type EntitiesUpdateRelationData = {
+  relationId: string
+  requestBody: RelationDefinitionUpdate
+  workspaceId: string
+}
+
+export type EntitiesUpdateRelationResponse = RelationDefinitionRead
+
+export type EntitiesDeleteRelationData = {
+  relationId: string
+  workspaceId: string
+}
+
+export type EntitiesDeleteRelationResponse = void
+
+export type EntitiesDeactivateRelationData = {
+  relationId: string
+  workspaceId: string
+}
+
+export type EntitiesDeactivateRelationResponse = RelationDefinitionRead
+
+export type EntitiesReactivateRelationData = {
+  relationId: string
+  workspaceId: string
+}
+
+export type EntitiesReactivateRelationResponse = RelationDefinitionRead
 
 export type EntitiesCreateRecordData = {
   entityId: string
@@ -5845,7 +5904,7 @@ export type PublicCheckHealthResponse = {
 
 export type $OpenApiTs = {
   "/webhooks/{workflow_id}/{secret}": {
-    get: {
+    post: {
       req: PublicIncomingWebhookData
       res: {
         /**
@@ -5858,7 +5917,7 @@ export type $OpenApiTs = {
         422: HTTPValidationError
       }
     }
-    post: {
+    get: {
       req: PublicIncomingWebhook1Data
       res: {
         /**
@@ -8132,14 +8191,85 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/entities/{entity_id}/fields/relation": {
+  "/entities/{entity_id}/relations": {
     post: {
-      req: EntitiesCreateRelationFieldData
+      req: EntitiesCreateRelationData
       res: {
         /**
          * Successful Response
          */
-        200: FieldMetadataRead
+        200: RelationDefinitionRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    get: {
+      req: EntitiesListRelationsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<RelationDefinitionRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/entities/relations/{relation_id}": {
+    patch: {
+      req: EntitiesUpdateRelationData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: RelationDefinitionRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: EntitiesDeleteRelationData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/entities/relations/{relation_id}/deactivate": {
+    post: {
+      req: EntitiesDeactivateRelationData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: RelationDefinitionRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/entities/relations/{relation_id}/reactivate": {
+    post: {
+      req: EntitiesReactivateRelationData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: RelationDefinitionRead
         /**
          * Validation Error
          */

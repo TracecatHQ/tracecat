@@ -3877,6 +3877,14 @@ export const $EntitySchemaResponse = {
       title: "Fields",
       description: "Field definitions",
     },
+    relations: {
+      items: {
+        $ref: "#/components/schemas/RelationDefinitionRead",
+      },
+      type: "array",
+      title: "Relations",
+      description: "Relation definitions",
+    },
   },
   type: "object",
   required: ["entity", "fields"],
@@ -4463,18 +4471,6 @@ export const $FieldMetadataCreate = {
       title: "Enum Options",
       description: "Options for SELECT/MULTI_SELECT fields",
     },
-    relation_settings: {
-      anyOf: [
-        {
-          $ref: "#/components/schemas/RelationSettings",
-        },
-        {
-          type: "null",
-        },
-      ],
-      description:
-        "Settings for relation fields (required when field_type is RELATION_*)",
-    },
     default_value: {
       anyOf: [
         {},
@@ -4552,41 +4548,6 @@ export const $FieldMetadataRead = {
       type: "string",
       format: "date-time",
       title: "Updated At",
-    },
-    relation_kind: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Relation Kind",
-    },
-    target_entity_id: {
-      anyOf: [
-        {
-          type: "string",
-          format: "uuid",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Target Entity Id",
-    },
-    backref_field_id: {
-      anyOf: [
-        {
-          type: "string",
-          format: "uuid",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Backref Field Id",
     },
     enum_options: {
       anyOf: [
@@ -4702,15 +4663,9 @@ export const $FieldType = {
     "ARRAY_NUMBER",
     "SELECT",
     "MULTI_SELECT",
-    "RELATION_ONE_TO_ONE",
-    "RELATION_ONE_TO_MANY",
-    "RELATION_MANY_TO_ONE",
-    "RELATION_MANY_TO_MANY",
   ],
   title: "FieldType",
-  description: `Supported field types for custom entities.
-
-v1: Basic types plus JSON for structured data with controlled nesting.`,
+  description: "Supported field types for custom entities.",
 } as const
 
 export const $Float = {
@@ -7842,8 +7797,20 @@ export const $RegistrySecretType_Output = {
   },
 } as const
 
-export const $RelationSettings = {
+export const $RelationDefinitionCreate = {
   properties: {
+    source_key: {
+      type: "string",
+      maxLength: 100,
+      minLength: 1,
+      title: "Source Key",
+    },
+    display_name: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      title: "Display Name",
+    },
     relation_type: {
       $ref: "#/components/schemas/RelationType",
     },
@@ -7854,9 +7821,118 @@ export const $RelationSettings = {
     },
   },
   type: "object",
-  required: ["relation_type", "target_entity_id"],
-  title: "RelationSettings",
-  description: "Settings for relation fields.",
+  required: ["source_key", "display_name", "relation_type", "target_entity_id"],
+  title: "RelationDefinitionCreate",
+} as const
+
+export const $RelationDefinitionRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    owner_id: {
+      type: "string",
+      format: "uuid",
+      title: "Owner Id",
+    },
+    source_entity_id: {
+      type: "string",
+      format: "uuid",
+      title: "Source Entity Id",
+    },
+    target_entity_id: {
+      type: "string",
+      format: "uuid",
+      title: "Target Entity Id",
+    },
+    source_key: {
+      type: "string",
+      title: "Source Key",
+    },
+    display_name: {
+      type: "string",
+      title: "Display Name",
+    },
+    relation_type: {
+      $ref: "#/components/schemas/RelationType",
+    },
+    is_active: {
+      type: "boolean",
+      title: "Is Active",
+    },
+    deactivated_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Deactivated At",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "owner_id",
+    "source_entity_id",
+    "target_entity_id",
+    "source_key",
+    "display_name",
+    "relation_type",
+    "is_active",
+    "deactivated_at",
+    "created_at",
+    "updated_at",
+  ],
+  title: "RelationDefinitionRead",
+} as const
+
+export const $RelationDefinitionUpdate = {
+  properties: {
+    display_name: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Display Name",
+    },
+    source_key: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 100,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Source Key",
+    },
+  },
+  type: "object",
+  title: "RelationDefinitionUpdate",
 } as const
 
 export const $RelationType = {
@@ -12630,6 +12706,34 @@ export const $WorkspaceSettingsRead = {
       ],
       title: "Git Repo Url",
     },
+    relation_policy: {
+      anyOf: [
+        {
+          type: "string",
+          enum: [
+            "unrestricted",
+            "allow_one_level",
+            "block_cycles",
+            "max_degree",
+          ],
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Relation Policy",
+    },
+    relation_max_degree: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Relation Max Degree",
+    },
   },
   type: "object",
   title: "WorkspaceSettingsRead",
@@ -12647,6 +12751,34 @@ export const $WorkspaceSettingsUpdate = {
         },
       ],
       title: "Git Repo Url",
+    },
+    relation_policy: {
+      anyOf: [
+        {
+          type: "string",
+          enum: [
+            "unrestricted",
+            "allow_one_level",
+            "block_cycles",
+            "max_degree",
+          ],
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Relation Policy",
+    },
+    relation_max_degree: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Relation Max Degree",
     },
   },
   type: "object",
