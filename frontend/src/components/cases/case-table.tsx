@@ -16,17 +16,19 @@ import { DataTable, type DataTableToolbarProps } from "@/components/data-table"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { useToast } from "@/components/ui/use-toast"
 import { useCasesPagination } from "@/hooks"
+import { useAuth } from "@/hooks/use-auth"
+import { useWorkspaceMembers } from "@/hooks/use-workspace"
 import { getDisplayName } from "@/lib/auth"
 import { useDeleteCase } from "@/lib/hooks"
-import { useAuth } from "@/providers/auth"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 export default function CaseTable() {
   const { user } = useAuth()
-  const { workspaceId, workspace } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const [pageSize, setPageSize] = useState(20)
   const [selectedCase, setSelectedCase] = useState<CaseReadMinimal | null>(null)
   const router = useRouter()
+  const { members } = useWorkspaceMembers(workspaceId)
 
   const {
     data: cases,
@@ -88,7 +90,7 @@ export default function CaseTable() {
 
   const defaultToolbarProps = useMemo(() => {
     const workspaceMembers =
-      workspace?.members.map((m) => {
+      members?.map((m) => {
         const displayName = getDisplayName({
           first_name: m.first_name,
           last_name: m.last_name,
@@ -135,7 +137,7 @@ export default function CaseTable() {
         },
       ],
     } as DataTableToolbarProps<CaseReadMinimal>
-  }, [workspace])
+  }, [members])
 
   return (
     <DeleteCaseAlertDialog

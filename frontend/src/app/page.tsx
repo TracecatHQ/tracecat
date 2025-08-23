@@ -10,8 +10,8 @@ import { Icons } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import PrivacyPolicy from "@/components/privacy-policy"
 import { buttonVariants } from "@/components/ui/button"
+import { useAuth } from "@/hooks/use-auth"
 import { cn } from "@/lib/utils"
-import { useAuth } from "@/providers/auth"
 
 export default function HomePage() {
   const { user, userIsLoading } = useAuth()

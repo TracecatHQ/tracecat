@@ -45,12 +45,12 @@ import { CollapsibleCard } from "@/components/ui/collapsible-card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useIntegrationProvider } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 export default function ProviderDetailPage() {
   const searchParams = useSearchParams()
   const params = useParams()
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
 
   if (!params) {
     return <div>Error: Invalid parameters</div>
@@ -104,7 +104,7 @@ export default function ProviderDetailPage() {
 type ProviderDetailTab = "overview" | "configuration"
 
 function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const router = useRouter()
   const searchParams = useSearchParams()
   const [errorMessage, setErrorMessage] = useState("")

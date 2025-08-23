@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/popover"
 import { toast } from "@/components/ui/use-toast"
 import { useFolders } from "@/lib/hooks"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 interface FolderMoveDialogProps {
   open: boolean
@@ -37,8 +37,8 @@ export function FolderMoveDialog({
   selectedFolder,
   setSelectedFolder,
 }: FolderMoveDialogProps) {
-  const { workspaceId } = useWorkspace()
-  const { folders, moveFolder } = useFolders(workspaceId)
+  const workspaceId = useWorkspaceId()
+  const { folders, moveFolder } = useFolders(workspaceId, { enabled: open })
   const [destinationPath, setDestinationPath] = useState<string>("/")
   const [isMoving, setIsMoving] = useState(false)
   const [openFolderSelect, setOpenFolderSelect] = useState(false)

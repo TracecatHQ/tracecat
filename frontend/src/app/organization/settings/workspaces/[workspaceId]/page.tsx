@@ -6,33 +6,33 @@ import { workspacesGetWorkspace } from "@/client"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { OrgWorkspaceSettings } from "@/components/organization/org-workspace-settings"
-import { useAuth } from "@/providers/auth"
+import { useAuth } from "@/hooks/use-auth"
+import { useCurrentUserRole } from "@/hooks/use-workspace"
 
 export default function OrganizationWorkspaceSettingsPage() {
   const params = useParams<{ workspaceId: string }>()
   const router = useRouter()
   const { user } = useAuth()
-
-  if (!params) {
-    return <AlertNotification level="error" message="Invalid workspace ID." />
-  }
-
   const workspaceId = params.workspaceId
 
   const {
     data: workspace,
-    isLoading,
-    error,
+    isLoading: workspaceLoading,
+    error: workspaceError,
   } = useQuery({
     queryKey: ["workspace", workspaceId],
     queryFn: async () => await workspacesGetWorkspace({ workspaceId }),
   })
 
-  if (isLoading) {
+  if (!params) {
+    return <AlertNotification level="error" message="Invalid workspace ID." />
+  }
+
+  if (workspaceLoading) {
     return <CenteredSpinner />
   }
 
-  if (error || !workspace) {
+  if (workspaceError || !workspace) {
     return (
       <AlertNotification level="error" message="Error loading workspace." />
     )
@@ -40,8 +40,8 @@ export default function OrganizationWorkspaceSettingsPage() {
 
   // Check if user is org admin or workspace admin
   const isOrgAdmin = user?.isPrivileged()
-  const membership = workspace.members.find((m) => m.user_id === user?.id)
-  const isWorkspaceAdmin = membership?.workspace_role === "admin"
+  const { role } = useCurrentUserRole()
+  const isWorkspaceAdmin = role === "admin"
 
   if (!isOrgAdmin && !isWorkspaceAdmin) {
     return (

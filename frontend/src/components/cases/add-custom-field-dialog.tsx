@@ -35,7 +35,7 @@ import {
 } from "@/components/ui/select"
 import { toast } from "@/components/ui/use-toast"
 import { SqlTypeEnum } from "@/lib/tables"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 const caseFieldFormSchema = z.object({
   name: z
@@ -62,7 +62,7 @@ export function AddCustomFieldDialog({
   open,
   onOpenChange,
 }: AddCustomFieldDialogProps) {
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const queryClient = useQueryClient()
   const [isSubmitting, setIsSubmitting] = useState(false)
 

@@ -12,11 +12,11 @@ import { DynamicNavbar } from "@/components/nav/dynamic-nav"
 import { AppSidebar } from "@/components/sidebar/app-sidebar"
 import { Button } from "@/components/ui/button"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
+import { useAuthActions } from "@/hooks/use-auth"
 import { useWorkspaceManager } from "@/lib/hooks"
-import { useAuth } from "@/providers/auth"
 import { WorkflowBuilderProvider } from "@/providers/builder"
 import { WorkflowProvider } from "@/providers/workflow"
-import { WorkspaceProvider } from "@/providers/workspace"
+import { WorkspaceIdProvider } from "@/providers/workspace-id"
 
 export default function WorkspaceLayout({
   children,
@@ -44,7 +44,7 @@ export default function WorkspaceLayout({
   }
 
   return (
-    <WorkspaceProvider workspaceId={selectedWorkspaceId}>
+    <WorkspaceIdProvider workspaceId={selectedWorkspaceId}>
       {workflowId ? (
         <WorkflowView workspaceId={selectedWorkspaceId} workflowId={workflowId}>
           <WorkspaceChildren>{children}</WorkspaceChildren>
@@ -52,7 +52,7 @@ export default function WorkspaceLayout({
       ) : (
         <WorkspaceChildren>{children}</WorkspaceChildren>
       )}
-    </WorkspaceProvider>
+    </WorkspaceIdProvider>
   )
 }
 
@@ -118,7 +118,7 @@ function WorkflowView({
 }
 
 function NoWorkspaces() {
-  const { logout } = useAuth()
+  const { logout } = useAuthActions()
   const handleLogout = async () => {
     await logout()
   }

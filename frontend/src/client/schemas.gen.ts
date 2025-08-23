@@ -11631,20 +11631,9 @@ export const $WorkspaceRead = {
       format: "uuid",
       title: "Owner Id",
     },
-    n_members: {
-      type: "integer",
-      title: "N Members",
-    },
-    members: {
-      items: {
-        $ref: "#/components/schemas/WorkspaceMember",
-      },
-      type: "array",
-      title: "Members",
-    },
   },
   type: "object",
-  required: ["id", "name", "owner_id", "n_members", "members"],
+  required: ["id", "name", "owner_id"],
   title: "WorkspaceRead",
 } as const
 
@@ -11659,13 +11648,9 @@ export const $WorkspaceReadMinimal = {
       type: "string",
       title: "Name",
     },
-    n_members: {
-      type: "integer",
-      title: "N Members",
-    },
   },
   type: "object",
-  required: ["id", "name", "n_members"],
+  required: ["id", "name"],
   title: "WorkspaceReadMinimal",
 } as const
 

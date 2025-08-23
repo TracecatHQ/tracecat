@@ -27,7 +27,7 @@ import { useChat, useCreateChat, useListChats } from "@/hooks/use-chat"
 import { useCreatePrompt } from "@/hooks/use-prompt"
 import { useChatReadiness, useGetCase } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 interface ChatInterfaceProps {
   chatId?: string
@@ -42,7 +42,7 @@ export function ChatInterface({
   entityId,
   onChatSelect,
 }: ChatInterfaceProps) {
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const [selectedChatId, setSelectedChatId] = useState<string | undefined>(
     chatId
   )

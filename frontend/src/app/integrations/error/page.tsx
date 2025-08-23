@@ -2,12 +2,13 @@
 
 import { AlertCircle, ChevronLeft } from "lucide-react"
 import { useSearchParams } from "next/navigation"
+import { Suspense } from "react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { env } from "@/env.mjs"
 
-export default function OAuthErrorPage() {
+function OAuthErrorContent() {
   const searchParams = useSearchParams()
 
   const error = searchParams?.get("error") || "unknown_error"
@@ -47,5 +48,13 @@ export default function OAuthErrorPage() {
         </CardContent>
       </Card>
     </div>
+  )
+}
+
+export default function OAuthErrorPage() {
+  return (
+    <Suspense fallback={null}>
+      <OAuthErrorContent />
+    </Suspense>
   )
 }

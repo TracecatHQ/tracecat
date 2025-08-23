@@ -52,7 +52,7 @@ import {
 import { cn, slugify, undoSlugify } from "@/lib/utils"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 export function WorkflowEventsHeader({
   execution,
@@ -60,7 +60,7 @@ export function WorkflowEventsHeader({
   execution: WorkflowExecutionReadCompact
 }) {
   const { setSelectedNodeId } = useWorkflowBuilder()
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const parentExec = execution.parent_wf_exec_id
   const parentExecId = parentExec ? executionId(parentExec) : null
   return (

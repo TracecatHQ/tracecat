@@ -47,7 +47,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { useTags } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 const createTagSchema = z.object({
   name: z
@@ -242,7 +242,7 @@ function TagItemActionDialogContent({
   tag: TagRead
 }) {
   const router = useRouter()
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const { updateTag, deleteTag } = useTags(workspaceId)
   const methods = useForm<TagUpdate>({
     resolver: zodResolver(updateTagSchema),

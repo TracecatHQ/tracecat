@@ -36,9 +36,9 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
+import { useAuth } from "@/hooks/use-auth"
 import { useWorkspaceManager } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
-import { useAuth } from "@/providers/auth"
 
 export function AppMenu({ workspaceId }: { workspaceId: string }) {
   const router = useRouter()

@@ -1,6 +1,5 @@
 "use client"
 
-import { useQuery } from "@tanstack/react-query"
 import {
   BotIcon,
   ChevronLeftIcon,
@@ -17,7 +16,6 @@ import {
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import type * as React from "react"
-import { workspacesListWorkspaces } from "@/client"
 import { SidebarUserNav } from "@/components/sidebar/sidebar-user-nav"
 import {
   Sidebar,
@@ -33,6 +31,7 @@ import {
   SidebarRail,
 } from "@/components/ui/sidebar"
 import { useFeatureFlag } from "@/hooks/use-feature-flags"
+import { useWorkspaceManager } from "@/lib/hooks"
 
 export function OrganizationSidebar({
   ...props
@@ -41,10 +40,7 @@ export function OrganizationSidebar({
   const { isFeatureEnabled } = useFeatureFlag()
 
   // Fetch workspaces for the sidebar
-  const { data: workspaces } = useQuery({
-    queryKey: ["workspaces"],
-    queryFn: async () => await workspacesListWorkspaces(),
-  })
+  const { workspaces } = useWorkspaceManager()
 
   const navSettings = [
     {

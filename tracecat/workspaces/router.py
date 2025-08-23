@@ -98,10 +98,7 @@ async def list_workspaces(
                 detail="User ID is required",
             )
         workspaces = await service.list_workspaces(role.user_id)
-    return [
-        WorkspaceReadMinimal(id=ws.id, name=ws.name, n_members=ws.n_members)
-        for ws in workspaces
-    ]
+    return [WorkspaceReadMinimal(id=ws.id, name=ws.name) for ws in workspaces]
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -134,9 +131,7 @@ async def create_workspace(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="Resource already exists"
         ) from e
-    return WorkspaceReadMinimal(
-        id=workspace.id, name=workspace.name, n_members=workspace.n_members
-    )
+    return WorkspaceReadMinimal(id=workspace.id, name=workspace.name)
 
 
 # NOTE: This route must be defined before the route for getting a single workspace for both to work
@@ -150,10 +145,7 @@ async def search_workspaces(
     """Return Workflow as title, description, list of Action JSONs, adjacency list of Action IDs."""
     service = WorkspaceService(session, role=role)
     workspaces = await service.search_workspaces(params)
-    return [
-        WorkspaceReadMinimal(id=ws.id, name=ws.name, n_members=ws.n_members)
-        for ws in workspaces
-    ]
+    return [WorkspaceReadMinimal(id=ws.id, name=ws.name) for ws in workspaces]
 
 
 @router.get("/{workspace_id}")
@@ -170,26 +162,12 @@ async def get_workspace(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found"
         )
-    membership_svc = MembershipService(session, role=role)
-    memberships = await membership_svc.list_memberships_with_users(workspace_id)
 
     return WorkspaceRead(
         id=workspace.id,
         name=workspace.name,
         settings=WorkspaceSettingsRead.model_validate(workspace.settings),
         owner_id=workspace.owner_id,
-        n_members=workspace.n_members,
-        members=[
-            WorkspaceMember(
-                user_id=user.id,
-                first_name=user.first_name,
-                last_name=user.last_name,
-                email=user.email,
-                org_role=user.role,
-                workspace_role=membership.role,
-            )
-            for membership, user in memberships
-        ],
     )
 
 
@@ -239,6 +217,17 @@ async def delete_workspace(
 
 
 # === Memberships === #
+@router.get("/{workspace_id}/members")
+async def list_workspace_members(
+    *,
+    role: WorkspaceUserInPath,
+    workspace_id: WorkspaceID,
+    session: AsyncDBSession,
+) -> list[WorkspaceMember]:
+    """List members of a workspace."""
+    service = MembershipService(session, role=role)
+    memberships = await service.list_workspace_members(workspace_id)
+    return memberships
 
 
 @router.get("/{workspace_id}/memberships")

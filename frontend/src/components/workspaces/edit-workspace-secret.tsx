@@ -29,7 +29,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { toast } from "@/components/ui/use-toast"
 import { useWorkspaceSecrets } from "@/lib/hooks"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 interface EditCredentialsDialogProps
   extends PropsWithChildren<
@@ -58,7 +58,7 @@ export function EditCredentialsDialog({
   className,
   ...props
 }: EditCredentialsDialogProps) {
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const { updateSecretById } = useWorkspaceSecrets(workspaceId)
 
   const methods = useForm<SecretUpdate>({

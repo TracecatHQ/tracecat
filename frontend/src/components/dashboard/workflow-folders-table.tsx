@@ -42,19 +42,13 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { useAuth } from "@/hooks/use-auth"
 import { type DirectoryItem, useGetDirectoryItems } from "@/lib/hooks"
 import { capitalizeFirst } from "@/lib/utils"
-import { useAuth } from "@/providers/auth"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
-export function WorkflowFoldersTable({
-  view,
-  setView,
-}: {
-  view: ViewMode
-  setView?: (view: ViewMode) => void
-}) {
-  const { workspaceId } = useWorkspace()
+export function WorkflowFoldersTable({ view }: { view: ViewMode }) {
+  const workspaceId = useWorkspaceId()
   const searchParams = useSearchParams()
   const path = searchParams?.get("path") || "/"
   const _segments = path.split("/").filter(Boolean)
@@ -86,7 +80,7 @@ export function WorkflowsDashboardTable({
   directoryItemsError: ApiError | null
 }) {
   const router = useRouter()
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const { user } = useAuth()
   const [activeDialog, setActiveDialog] = useState<ActiveDialog | null>(null)
   const [selectedWorkflow, setSelectedWorkflow] =

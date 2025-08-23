@@ -30,14 +30,14 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { useAuth } from "@/hooks/use-auth"
 import { useWorkflowManager } from "@/lib/hooks"
 import { capitalizeFirst } from "@/lib/utils"
-import { useAuth } from "@/providers/auth"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
-export function WorkflowsDashboardTable() {
+export function WorkflowsTagsDashboardTable() {
   const router = useRouter()
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const { user } = useAuth()
   const searchParams = useSearchParams()
   const queryTags = searchParams?.getAll("tag") || undefined

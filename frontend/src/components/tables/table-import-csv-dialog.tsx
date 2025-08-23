@@ -44,7 +44,7 @@ import { toast } from "@/components/ui/use-toast"
 import type { TracecatApiError } from "@/lib/errors"
 import { useGetTable, useImportCsv } from "@/lib/hooks"
 import { type CsvPreviewData, getCsvPreview } from "@/lib/tables"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 const BYTES_PER_MB = 1024 * 1024
 const FILE_SIZE_LIMIT_MB = 5
@@ -85,7 +85,7 @@ export function TableImportCsvDialog({
 }: TableImportCsvDialogProps) {
   const params = useParams<{ tableId: string }>()
   const tableId = params?.tableId
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const { table } = useGetTable({
     tableId: tableId ?? "",
     workspaceId,

@@ -59,6 +59,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { ValidationErrorView } from "@/components/validation-errors"
+import { useWorkspaceDetails } from "@/hooks/use-workspace"
 import type { TracecatApiError } from "@/lib/errors"
 import {
   useCreateManualWorkflowExecution,
@@ -67,7 +68,7 @@ import {
 import { cn } from "@/lib/utils"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 export function BuilderNav() {
   const {
@@ -79,7 +80,8 @@ export function BuilderNav() {
     setValidationErrors,
   } = useWorkflow()
 
-  const { workspaceId, workspace, workspaceLoading } = useWorkspace()
+  const workspaceId = useWorkspaceId()
+  const { workspace, workspaceLoading } = useWorkspaceDetails()
 
   const handleCommit = async () => {
     console.log("Saving changes...")
@@ -158,7 +160,7 @@ export function BuilderNav() {
 
 function TabSwitcher({ workflowId }: { workflowId: string }) {
   const pathname = usePathname()
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   let leafRoute: string = "workflow"
   if (pathname && pathname.includes("executions")) {
     leafRoute = "executions"

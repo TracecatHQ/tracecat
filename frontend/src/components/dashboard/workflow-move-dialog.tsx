@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/popover"
 import { toast } from "@/components/ui/use-toast"
 import { useFolders, useWorkflowManager } from "@/lib/hooks"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 interface WorkflowMoveDialogProps {
   open: boolean
@@ -39,9 +39,9 @@ export function WorkflowMoveDialog({
   selectedWorkflow,
   setSelectedWorkflow,
 }: WorkflowMoveDialogProps) {
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const { moveWorkflow } = useWorkflowManager()
-  const { folders } = useFolders(workspaceId)
+  const { folders } = useFolders(workspaceId, { enabled: open })
   const [isLoading, setIsLoading] = useState(false)
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null)
   const [openFolderSelect, setOpenFolderSelect] = useState(false)

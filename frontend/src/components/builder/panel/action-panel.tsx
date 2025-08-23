@@ -119,7 +119,7 @@ import { isTracecatJsonSchema, type TracecatJsonSchema } from "@/lib/schema"
 import { cn, slugify } from "@/lib/utils"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 // These are YAML strings
 const actionFormSchema = z.object({
@@ -267,7 +267,7 @@ function ActionPanelContent({
   workflowId: string
 }) {
   const { appSettings } = useOrgAppSettings()
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const { validationErrors } = useWorkflow()
   const { action, actionIsLoading, updateAction } = useAction(
     actionId,
@@ -1691,7 +1691,7 @@ function RegistryActionSecrets({
 }: {
   secrets: NonNullable<RegistryActionRead["secrets"]>
 }) {
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const customSecrets = secrets.filter(
     (secret): secret is RegistrySecret => secret.type === "custom"
   )

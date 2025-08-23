@@ -59,6 +59,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { useAuth } from "@/hooks/use-auth"
 import { SYSTEM_USER } from "@/lib/auth"
 import type { ModelMessage } from "@/lib/chat"
 import {
@@ -72,7 +73,6 @@ import {
 import { useGetRegistryAction } from "@/lib/hooks"
 import { getSpacedBlocks } from "@/lib/rich-text-editor"
 import { cn, reconstructActionType } from "@/lib/utils"
-import { useAuth } from "@/providers/auth"
 import { useWorkflowBuilder } from "@/providers/builder"
 
 type TabType = "input" | "result" | "interaction"

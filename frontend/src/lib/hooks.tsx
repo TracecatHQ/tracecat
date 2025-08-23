@@ -230,7 +230,7 @@ import { useGetPrompt } from "@/hooks/use-prompt"
 import { getBaseUrl } from "@/lib/api"
 import { retryHandler, type TracecatApiError } from "@/lib/errors"
 import type { WorkflowExecutionReadCompact } from "@/lib/event-history"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 interface AppInfo {
   version: string
@@ -435,7 +435,7 @@ interface WorkflowFilter {
 
 export function useWorkflowManager(filter?: WorkflowFilter) {
   const queryClient = useQueryClient()
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
 
   // List all workflows
   const {
@@ -595,6 +595,7 @@ export function useWorkspaceManager() {
   } = useQuery({
     queryKey: ["workspaces"],
     queryFn: async () => await workspacesListWorkspaces(),
+    staleTime: 5 * 60 * 1000, // 5 minutes
   })
 
   // Create workspace
@@ -690,7 +691,7 @@ export function useWorkflowExecutions(
     refetchInterval?: number
   }
 ) {
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const {
     data: workflowExecutions,
     isLoading: workflowExecutionsIsLoading,
@@ -717,7 +718,7 @@ export function useWorkflowExecution(
     refetchInterval?: number
   }
 ) {
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const {
     data: execution,
     isLoading: executionIsLoading,
@@ -741,7 +742,7 @@ export function useWorkflowExecution(
 
 export function useCompactWorkflowExecution(workflowExecutionId?: string) {
   // if execution ID contains non-url-safe characters, decode it
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const {
     data: execution,
     isLoading: executionIsLoading,
@@ -788,7 +789,7 @@ export function useCompactWorkflowExecution(workflowExecutionId?: string) {
 
 export function useCreateManualWorkflowExecution(workflowId: string) {
   const queryClient = useQueryClient()
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
 
   const {
     mutateAsync: createExecution,
@@ -853,7 +854,7 @@ export function useLastExecution({
   workflowId?: string | null
   triggerTypes: TriggerType[]
 }) {
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const {
     data: lastExecution,
     isLoading: lastExecutionIsLoading,
@@ -883,7 +884,7 @@ export function useLastExecution({
 
 export function useSchedules(workflowId: string) {
   const queryClient = useQueryClient()
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   // Fetch schedules
   const {
     data: schedules,
@@ -1699,7 +1700,10 @@ export function useSessions() {
   }
 }
 
-export function useTags(workspaceId: string) {
+export function useTags(
+  workspaceId: string,
+  options: { enabled: boolean } = { enabled: true }
+) {
   const queryClient = useQueryClient()
 
   // List tags
@@ -1710,6 +1714,7 @@ export function useTags(workspaceId: string) {
   } = useQuery<TagRead[]>({
     queryKey: ["tags", workspaceId],
     queryFn: async () => await tagsListTags({ workspaceId }),
+    enabled: options.enabled,
   })
 
   // Create tag
@@ -3061,7 +3066,10 @@ export function useDeleteCaseComment({
   }
 }
 
-export function useFolders(workspaceId: string) {
+export function useFolders(
+  workspaceId: string,
+  options: { enabled: boolean } = { enabled: true }
+) {
   const queryClient = useQueryClient()
 
   // List folders
@@ -3072,6 +3080,7 @@ export function useFolders(workspaceId: string) {
   } = useQuery<WorkflowFolderRead[]>({
     queryKey: ["folders", workspaceId],
     queryFn: async () => await foldersListFolders({ workspaceId }),
+    enabled: options.enabled,
   })
 
   // Get folder by parent path
@@ -3087,7 +3096,7 @@ export function useFolders(workspaceId: string) {
         workspaceId,
         parentPath: "/",
       }),
-    enabled: !!workspaceId,
+    enabled: options.enabled && !!workspaceId,
   })
 
   // Create folder

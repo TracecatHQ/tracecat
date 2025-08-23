@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogFooter } from "@/components/ui/dialog"
 import { Form, FormItem, FormMessage } from "@/components/ui/form"
 import { useGetChat, useUpdateChat } from "@/hooks/use-chat"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 interface ChatToolsDialogProps {
   open: boolean
@@ -28,7 +28,7 @@ export function ChatToolsDialog({
   onOpenChange,
   chatId,
 }: ChatToolsDialogProps) {
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const { chat } = useGetChat({ chatId, workspaceId })
   const { updateChat, isUpdating } = useUpdateChat(workspaceId)
 

@@ -4,12 +4,12 @@ import { useParams } from "next/navigation"
 import { useEffect } from "react"
 import { CasePanelView } from "@/components/cases/case-panel-view"
 import { useGetCase } from "@/lib/hooks"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 export default function CaseDetailPage() {
   const params = useParams<{ caseId: string }>()
   const caseId = params?.caseId
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
 
   const { caseData } = useGetCase({
     caseId: caseId || "",

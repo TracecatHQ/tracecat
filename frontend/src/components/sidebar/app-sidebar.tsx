@@ -27,7 +27,7 @@ import {
   SidebarMenuItem,
   SidebarRail,
 } from "@/components/ui/sidebar"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 function SidebarHeaderContent({ workspaceId }: { workspaceId: string }) {
   return <AppMenu workspaceId={workspaceId} />
@@ -35,7 +35,7 @@ function SidebarHeaderContent({ workspaceId }: { workspaceId: string }) {
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const pathname = usePathname()
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const basePath = `/workspaces/${workspaceId}`
 
   const navMain = [

@@ -15,11 +15,11 @@ import { Badge } from "@/components/ui/badge"
 import { Checkbox } from "@/components/ui/checkbox"
 import { toast } from "@/components/ui/use-toast"
 import { useDeletePrompt, useListPrompts } from "@/hooks/use-prompt"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 export function RunbooksDashboard() {
   const [isDeleting, setIsDeleting] = useState(false)
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const router = useRouter()
 
   const {

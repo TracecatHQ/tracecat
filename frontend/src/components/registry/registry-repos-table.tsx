@@ -46,9 +46,9 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
+import { useAuth } from "@/hooks/use-auth"
 import { getRelativeTime } from "@/lib/event-history"
 import { useRegistryRepositories } from "@/lib/hooks"
-import { useAuth } from "@/providers/auth"
 
 enum AlertAction {
   SYNC,

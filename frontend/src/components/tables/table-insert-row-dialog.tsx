@@ -26,7 +26,7 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { useGetTable, useInsertRow } from "@/lib/hooks"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 // Update the schema to be dynamic based on table columns
 const createInsertTableRowSchema = (table: TableRead) => {
@@ -100,7 +100,7 @@ export function TableInsertRowDialog({
 }) {
   const params = useParams<{ tableId: string }>()
   const tableId = params?.tableId
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const { table } = useGetTable({ tableId: tableId || "", workspaceId })
   const { insertRow, insertRowIsPending } = useInsertRow()
 
