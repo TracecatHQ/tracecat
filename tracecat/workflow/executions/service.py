@@ -21,6 +21,7 @@ from temporalio.common import (
     SearchAttributePair,
     TypedSearchAttributes,
 )
+from temporalio.exceptions import TerminatedError
 from temporalio.service import RPCError
 
 from tracecat import config
@@ -696,10 +697,29 @@ class WorkflowExecutionsService:
                 **kwargs,
             )
         except WorkflowFailureError as e:
-            self.logger.error(
-                str(e), role=self.role, wf_exec_id=wf_exec_id, cause=e.cause
-            )
-            raise e
+            if isinstance(e.cause, TerminatedError):
+                self.logger.info(
+                    "Workflow execution terminated by user",
+                    role=self.role,
+                    wf_exec_id=wf_exec_id,
+                    cause=e.cause,
+                )
+                # Don't re-raise for expected terminations
+                return WorkflowDispatchResponse(
+                    wf_id=wf_id,
+                    result={
+                        "status": "terminated",
+                        "message": "Workflow execution terminated by user",
+                    },
+                )
+            else:
+                self.logger.error(
+                    "Workflow execution failed",
+                    role=self.role,
+                    wf_exec_id=wf_exec_id,
+                    cause=e.cause,
+                )
+                raise e
         except RPCError as e:
             self.logger.error(
                 f"Temporal service RPC error occurred while executing the workflow: {e}",
