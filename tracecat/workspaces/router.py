@@ -1,4 +1,3 @@
-import time
 from typing import Annotated
 
 from fastapi import (
@@ -227,13 +226,7 @@ async def list_workspace_members(
 ) -> list[WorkspaceMember]:
     """List members of a workspace."""
     service = MembershipService(session, role=role)
-    start_time = time.time()
     memberships = await service.list_workspace_members(workspace_id)
-    end_time = time.time()
-    logger.warning(
-        "Listed members",
-        duration_ms=(end_time - start_time) * 1000,
-    )
     return memberships
 
 
@@ -246,13 +239,7 @@ async def list_workspace_memberships(
 ) -> list[WorkspaceMembershipRead]:
     """List memberships of a workspace."""
     service = MembershipService(session, role=role)
-    start_time = time.time()
     memberships = await service.list_memberships(workspace_id)
-    end_time = time.time()
-    logger.warning(
-        "Listed memberships",
-        duration_ms=(end_time - start_time) * 1000,
-    )
     return [
         WorkspaceMembershipRead(
             user_id=membership.user_id,
