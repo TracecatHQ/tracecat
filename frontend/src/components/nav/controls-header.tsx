@@ -1,11 +1,13 @@
 "use client"
 
+import { useQueryClient } from "@tanstack/react-query"
 import { format, formatDistanceToNow } from "date-fns"
 import { Calendar, PanelRight, Plus } from "lucide-react"
 import Link from "next/link"
 import { usePathname, useSearchParams } from "next/navigation"
 import { type ReactNode, useState } from "react"
 import type { OAuthGrantType } from "@/client"
+import { entitiesCreateEntity } from "@/client"
 import { AddCustomField } from "@/components/cases/add-custom-field"
 import { CreateCaseDialog } from "@/components/cases/case-create-dialog"
 import {
@@ -17,6 +19,8 @@ import {
   FolderViewToggle,
   ViewMode,
 } from "@/components/dashboard/folder-view-toggle"
+import { CreateEntityDialog } from "@/components/entities/create-entity-dialog"
+import { EntityDetailActions } from "@/components/entities/entity-detail-actions"
 import { CreateTableDialog } from "@/components/tables/table-create-dialog"
 import { TableInsertButton } from "@/components/tables/table-insert-button"
 import {
@@ -29,6 +33,7 @@ import {
 } from "@/components/ui/breadcrumb"
 import { Button } from "@/components/ui/button"
 import { SidebarTrigger } from "@/components/ui/sidebar"
+import { toast } from "@/components/ui/use-toast"
 import { AddWorkspaceMember } from "@/components/workspaces/add-workspace-member"
 import {
   NewCredentialsDialog,
@@ -41,6 +46,7 @@ import {
   useIntegrationProvider,
   useLocalStorage,
 } from "@/lib/hooks"
+import { useEntity } from "@/lib/hooks/use-entities"
 import { useWorkspace } from "@/providers/workspace"
 
 interface PageConfig {
@@ -137,6 +143,77 @@ function CredentialsActions() {
         </Button>
       </NewCredentialsDialogTrigger>
     </NewCredentialsDialog>
+  )
+}
+
+function CustomFieldsActions() {
+  return <AddCustomField />
+}
+
+function EntitiesActions() {
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const { workspaceId } = useWorkspace()
+  const queryClient = useQueryClient()
+
+  // Early return if no workspace is selected
+  if (!workspaceId) {
+    return null
+  }
+
+  const handleCreateEntity = async (data: {
+    name: string
+    display_name: string
+    description?: string
+    icon?: string
+  }) => {
+    try {
+      await entitiesCreateEntity({
+        workspaceId,
+        requestBody: {
+          name: data.name,
+          display_name: data.display_name,
+          description: data.description,
+          icon: data.icon,
+        },
+      })
+
+      queryClient.invalidateQueries({
+        queryKey: ["entities", workspaceId],
+      })
+
+      toast({
+        title: "Entity created",
+        description: `${data.display_name} has been created successfully.`,
+      })
+    } catch (_error) {
+      // Log error but don't use console.error in production
+      // The error is already handled by the toast
+      toast({
+        title: "Error creating entity",
+        description: "Failed to create entity. Please try again.",
+        variant: "destructive",
+      })
+      // Don't rethrow - it's already handled
+    }
+  }
+
+  return (
+    <>
+      <Button
+        variant="outline"
+        size="sm"
+        className="h-7 bg-white"
+        onClick={() => setDialogOpen(true)}
+      >
+        <Plus className="mr-1 h-3.5 w-3.5" />
+        Create custom entity
+      </Button>
+      <CreateEntityDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        onSubmit={handleCreateEntity}
+      />
+    </>
   )
 }
 
@@ -307,6 +384,36 @@ function RunbookBreadcrumb({
   )
 }
 
+function EntityBreadcrumb({
+  entityId,
+  workspaceId,
+}: {
+  entityId: string
+  workspaceId: string
+}) {
+  const { entity } = useEntity(workspaceId, entityId)
+
+  return (
+    <Breadcrumb>
+      <BreadcrumbList className="relative z-10 flex items-center gap-2 text-sm flex-nowrap overflow-hidden whitespace-nowrap min-w-0 bg-white pr-1">
+        <BreadcrumbItem>
+          <BreadcrumbLink asChild className="font-semibold hover:no-underline">
+            <Link href={`/workspaces/${workspaceId}/entities`}>Entities</Link>
+          </BreadcrumbLink>
+        </BreadcrumbItem>
+        <BreadcrumbSeparator className="shrink-0">
+          <span className="text-muted-foreground">/</span>
+        </BreadcrumbSeparator>
+        <BreadcrumbItem>
+          <BreadcrumbPage className="font-semibold">
+            {entity?.display_name || entityId}
+          </BreadcrumbPage>
+        </BreadcrumbItem>
+      </BreadcrumbList>
+    </Breadcrumb>
+  )
+}
+
 function getPageConfig(
   pathname: string,
   workspaceId: string,
@@ -397,6 +504,32 @@ function getPageConfig(
     }
   }
 
+  if (pagePath.startsWith("/custom-fields")) {
+    return {
+      title: "Custom fields",
+      actions: <CustomFieldsActions />,
+    }
+  }
+
+  if (pagePath.startsWith("/entities")) {
+    // Check if this is an entity detail page
+    const entityMatch = pagePath.match(/^\/entities\/([^/]+)$/)
+    if (entityMatch) {
+      const entityId = entityMatch[1]
+      return {
+        title: (
+          <EntityBreadcrumb entityId={entityId} workspaceId={workspaceId} />
+        ),
+        actions: <EntityDetailActions />,
+      }
+    }
+
+    return {
+      title: "Entities",
+      actions: <EntitiesActions />,
+    }
+  }
+
   if (pagePath.startsWith("/runbooks")) {
     // Check if this is a runbook detail page
     const runbookMatch = pagePath.match(/^\/runbooks\/([^/]+)$/)
@@ -426,18 +559,20 @@ export function ControlsHeader({
   const searchParams = useSearchParams()
   const { workspaceId } = useWorkspace()
 
-  const pageConfig = pathname
-    ? getPageConfig(pathname, workspaceId, searchParams)
-    : null
+  const pageConfig =
+    pathname && workspaceId
+      ? getPageConfig(pathname, workspaceId, searchParams)
+      : null
 
   if (!pageConfig) {
     return null
   }
 
   // Check if this is a case detail page to show timestamp
-  const pagePath = pathname
-    ? pathname.replace(`/workspaces/${workspaceId}`, "") || "/"
-    : "/"
+  const pagePath =
+    pathname && workspaceId
+      ? pathname.replace(`/workspaces/${workspaceId}`, "") || "/"
+      : "/"
   const isCaseDetail = pagePath.match(/^\/cases\/([^/]+)$/)
 
   return (
@@ -459,7 +594,8 @@ export function ControlsHeader({
       <div className="flex items-center gap-2 flex-shrink-0">
         {pageConfig.actions
           ? pageConfig.actions
-          : isCaseDetail && (
+          : isCaseDetail &&
+            workspaceId && (
               <CaseTimestamp
                 caseId={isCaseDetail[1]}
                 workspaceId={workspaceId}

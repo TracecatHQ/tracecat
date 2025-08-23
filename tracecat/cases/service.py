@@ -6,7 +6,7 @@ from typing import Any, Literal
 import sqlalchemy as sa
 from asyncpg import UndefinedColumnError
 from sqlalchemy.exc import ProgrammingError
-from sqlalchemy.orm import aliased, selectinload
+from sqlalchemy.orm import aliased
 from sqlmodel import and_, cast, col, desc, func, or_, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -115,7 +115,6 @@ class CasesService(BaseWorkspaceService):
         stmt = (
             select(Case)
             .where(Case.owner_id == self.workspace_id)
-            .options(selectinload(Case.tags))
             .order_by(col(Case.created_at).desc(), col(Case.id).desc())
         )
 
@@ -125,7 +124,9 @@ class CasesService(BaseWorkspaceService):
 
             for tag_id in tag_ids:
                 stmt = stmt.where(
-                    Case.id.in_(select(CaseTag.case_id).where(CaseTag.tag_id == tag_id))
+                    col(Case.id).in_(
+                        select(CaseTag.case_id).where(CaseTag.tag_id == tag_id)
+                    )
                 )
 
         # Apply cursor filtering
@@ -255,11 +256,7 @@ class CasesService(BaseWorkspaceService):
         Returns:
             Sequence of cases matching the search criteria
         """
-        statement = (
-            select(Case)
-            .where(Case.owner_id == self.workspace_id)
-            .options(selectinload(Case.tags))
-        )
+        statement = select(Case).where(Case.owner_id == self.workspace_id)
 
         # Apply search term filter (search in summary and description)
         if search_term:
@@ -339,13 +336,9 @@ class CasesService(BaseWorkspaceService):
         Raises:
             TracecatNotFoundError: If the case doesn't exist
         """
-        statement = (
-            select(Case)
-            .where(
-                Case.owner_id == self.workspace_id,
-                Case.id == case_id,
-            )
-            .options(selectinload(Case.tags))
+        statement = select(Case).where(
+            Case.owner_id == self.workspace_id,
+            Case.id == case_id,
         )
 
         result = await self.session.exec(statement)
@@ -826,8 +819,7 @@ class CaseAttachmentService(BaseWorkspaceService):
         statement = (
             select(CaseAttachment)
             .join(File, cast(CaseAttachment.file_id, sa.UUID) == cast(File.id, sa.UUID))
-            .where(CaseAttachment.case_id == case.id, File.deleted_at.is_(None))
-            .options(selectinload(CaseAttachment.file))
+            .where(CaseAttachment.case_id == case.id, col(File.deleted_at).is_(None))
             .order_by(desc(col(CaseAttachment.created_at)))
         )
         result = await self.session.exec(statement)
@@ -981,12 +973,10 @@ class CaseAttachmentService(BaseWorkspaceService):
 
         # Check if attachment already exists for this case and file
         existing_attachment = await self.session.exec(
-            select(CaseAttachment)
-            .where(
+            select(CaseAttachment).where(
                 CaseAttachment.case_id == case.id,
                 CaseAttachment.file_id == file.id,
             )
-            .options(selectinload(CaseAttachment.file))
         )
         attachment = existing_attachment.first()
 

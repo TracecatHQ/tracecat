@@ -7,7 +7,16 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from pydantic import UUID4, BaseModel, ConfigDict, computed_field
-from sqlalchemy import TIMESTAMP, Column, ForeignKey, Identity, Index, Integer, func
+from sqlalchemy import (
+    TIMESTAMP,
+    Column,
+    ForeignKey,
+    Identity,
+    Index,
+    Integer,
+    String,
+    func,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import UUID, Field, Relationship, SQLModel, UniqueConstraint
 
@@ -887,6 +896,13 @@ class Case(Resource, table=True):
         link_model=CaseTag,
         sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
     )
+    record_links: list["CaseRecordLink"] = Relationship(
+        back_populates="case",
+        sa_relationship_kwargs={
+            "cascade": "all, delete",
+            **DEFAULT_SA_RELATIONSHIP_KWARGS,
+        },
+    )
 
 
 class CaseComment(Resource, table=True):
@@ -1096,7 +1112,10 @@ class CaseAttachment(SQLModel, TimestampMixin, table=True):
     )
     # Relationships
     case: Case = Relationship(back_populates="attachments")
-    file: File = Relationship(back_populates="attachments")
+    file: File = Relationship(
+        back_populates="attachments",
+        sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
+    )
 
     @computed_field
     @property
@@ -1383,4 +1402,251 @@ class Tag(Resource, table=True):
         back_populates="tags",
         link_model=CaseTag,
         sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
+    )
+
+
+class Entity(Resource, table=True):
+    """Custom entity type definitions - immutable after creation."""
+
+    __tablename__: str = "entity"
+    __table_args__ = (UniqueConstraint("owner_id", "name"),)
+
+    id: UUID4 = Field(
+        default_factory=uuid.uuid4, nullable=False, unique=True, index=True
+    )
+    name: str = Field(..., max_length=100, index=True)  # Immutable identifier
+    display_name: str = Field(..., max_length=255)  # Mutable display name
+    description: str | None = Field(default=None, max_length=1000)
+    icon: str | None = Field(default=None, max_length=100)
+    is_active: bool = Field(default=True, index=True)
+
+    # Relationships
+    fields: list["FieldMetadata"] = Relationship(
+        back_populates="entity",
+        sa_relationship_kwargs={
+            "cascade": "all, delete",
+            "foreign_keys": "[FieldMetadata.entity_id]",
+            **DEFAULT_SA_RELATIONSHIP_KWARGS,
+        },
+    )
+    data_records: list["Record"] = Relationship(
+        back_populates="entity",
+        sa_relationship_kwargs={
+            "cascade": "all, delete",
+            **DEFAULT_SA_RELATIONSHIP_KWARGS,
+        },
+    )
+
+
+class FieldMetadata(SQLModel, TimestampMixin, table=True):
+    """Field definitions - immutable key and type after creation."""
+
+    __tablename__: str = "field_metadata"
+    __table_args__ = (
+        UniqueConstraint("entity_id", "field_key"),
+        Index("idx_active_fields", "entity_id", "is_active"),
+    )
+
+    id: UUID4 = Field(default_factory=uuid.uuid4, primary_key=True)
+    entity_id: UUID4 = Field(
+        sa_column=Column(UUID, ForeignKey("entity.id", ondelete="CASCADE"))
+    )
+
+    # IMMUTABLE after creation
+    field_key: str = Field(..., max_length=100, index=True)
+    field_type: str = Field(..., max_length=50)  # FieldType enum value
+
+    # MUTABLE properties
+    display_name: str = Field(..., max_length=255)
+    description: str | None = Field(default=None, max_length=1000)
+
+    # Soft delete support
+    is_active: bool = Field(default=True, index=True)
+    deactivated_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(TIMESTAMP(timezone=True)),
+    )
+
+    # All fields are nullable and non-unique in v1
+    # Default value for fields (only for primitive types)
+    default_value: dict[str, Any] | None = Field(
+        default=None, sa_column=Column(JSONB), description="Default value for field"
+    )
+
+    # Relation field columns
+    relation_kind: str | None = Field(
+        default=None,
+        max_length=20,
+        sa_column=Column(String(20)),
+        description="Type of relation: one_to_one or one_to_many",
+    )
+    target_entity_id: UUID4 | None = Field(
+        default=None,
+        sa_column=Column(UUID, ForeignKey("entity.id", ondelete="CASCADE")),
+        description="Target entity for relations",
+    )
+
+    # Enum field options (for SELECT and MULTI_SELECT types)
+    enum_options: list[str] | None = Field(
+        default=None,
+        sa_column=Column(JSONB),
+        description="List of valid options for SELECT/MULTI_SELECT fields",
+    )
+
+    # Relationships
+    entity: Entity = Relationship(
+        back_populates="fields",
+        sa_relationship_kwargs={
+            "foreign_keys": "[FieldMetadata.entity_id]",
+        },
+    )
+    target_entity: Entity | None = Relationship(
+        sa_relationship_kwargs={
+            "foreign_keys": "[FieldMetadata.target_entity_id]",
+            "lazy": "selectin",
+        }
+    )
+
+
+class Record(Resource, table=True):
+    """Data storage with JSONB structure."""
+
+    __tablename__: str = "record"
+    __table_args__ = (
+        # GIN index for top-level JSONB queries
+        Index("idx_record_gin", "field_data", postgresql_using="gin"),
+        Index("idx_record_owner_created", "entity_id", "owner_id", "created_at"),
+        Index("idx_record_entity_id", "entity_id"),  # Separate index for entity_id
+    )
+
+    id: UUID4 = Field(
+        default_factory=uuid.uuid4, nullable=False, unique=True, index=True
+    )
+    entity_id: UUID4 = Field(
+        sa_column=Column(UUID, ForeignKey("entity.id", ondelete="CASCADE"))
+    )
+
+    # Supports nested objects (up to 3 levels deep), but no nested arrays
+    field_data: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
+
+    # Relationships
+    entity: Entity = Relationship(back_populates="data_records")
+
+
+class RecordRelationLink(SQLModel, TimestampMixin, table=True):
+    """Link table for entity relations - source of truth for all relationships."""
+
+    __tablename__: str = "record_relation_link"
+    __table_args__ = (
+        UniqueConstraint(
+            "source_record_id",
+            "source_field_id",
+            "target_record_id",
+            name="uq_record_relation_link_triple",
+        ),
+        Index("idx_record_relation_source", "source_record_id", "source_field_id"),
+        Index("idx_record_relation_target", "target_record_id"),
+        Index("idx_record_relation_owner", "owner_id"),
+        Index(
+            "idx_record_relation_field_target", "source_field_id", "target_record_id"
+        ),
+    )
+
+    id: UUID4 = Field(default_factory=uuid.uuid4, primary_key=True)
+    owner_id: UUID4 = Field(..., index=True)  # Must match owner_id of records
+
+    # Source side
+    source_entity_id: UUID4 = Field(
+        sa_column=Column(UUID, ForeignKey("entity.id", ondelete="CASCADE"))
+    )
+    source_field_id: UUID4 = Field(
+        sa_column=Column(UUID, ForeignKey("field_metadata.id", ondelete="CASCADE"))
+    )
+    source_record_id: UUID4 = Field(
+        sa_column=Column(UUID, ForeignKey("record.id", ondelete="CASCADE"))
+    )
+
+    # Target side
+    target_entity_id: UUID4 = Field(
+        sa_column=Column(UUID, ForeignKey("entity.id", ondelete="CASCADE"))
+    )
+    target_record_id: UUID4 = Field(
+        sa_column=Column(UUID, ForeignKey("record.id", ondelete="CASCADE"))
+    )
+
+    # Relationships (for eager loading)
+    source_entity_metadata: Entity = Relationship(
+        sa_relationship_kwargs={
+            "foreign_keys": "[RecordRelationLink.source_entity_id]",
+            **DEFAULT_SA_RELATIONSHIP_KWARGS,
+        }
+    )
+    source_field: FieldMetadata = Relationship(
+        sa_relationship_kwargs={
+            "foreign_keys": "[RecordRelationLink.source_field_id]",
+            **DEFAULT_SA_RELATIONSHIP_KWARGS,
+        }
+    )
+    source_record: Record = Relationship(
+        sa_relationship_kwargs={
+            "foreign_keys": "[RecordRelationLink.source_record_id]",
+            **DEFAULT_SA_RELATIONSHIP_KWARGS,
+        }
+    )
+    target_entity_metadata: Entity = Relationship(
+        sa_relationship_kwargs={
+            "foreign_keys": "[RecordRelationLink.target_entity_id]",
+            **DEFAULT_SA_RELATIONSHIP_KWARGS,
+        }
+    )
+    target_record: Record = Relationship(
+        sa_relationship_kwargs={
+            "foreign_keys": "[RecordRelationLink.target_record_id]",
+            **DEFAULT_SA_RELATIONSHIP_KWARGS,
+        }
+    )
+
+
+class CaseRecordLink(Resource, table=True):
+    """Link between cases and entity records."""
+
+    __tablename__: str = "case_record_link"
+    __table_args__ = (
+        UniqueConstraint("case_id", "record_id", name="uq_case_record_link"),
+        Index("idx_case_record_case", "case_id"),
+        Index("idx_case_record_entity", "entity_id"),
+    )
+
+    id: UUID4 = Field(
+        default_factory=uuid.uuid4, nullable=False, unique=True, index=True
+    )
+    case_id: UUID4 = Field(
+        sa_column=Column(UUID, ForeignKey("cases.id", ondelete="CASCADE"))
+    )
+    entity_id: UUID4 = Field(
+        sa_column=Column(UUID, ForeignKey("entity.id", ondelete="CASCADE"))
+    )
+    record_id: UUID4 = Field(
+        sa_column=Column(UUID, ForeignKey("record.id", ondelete="CASCADE"))
+    )
+
+    # Relationships
+    case: "Case" = Relationship(
+        back_populates="record_links",
+        sa_relationship_kwargs={
+            "foreign_keys": "[CaseRecordLink.case_id]",
+            **DEFAULT_SA_RELATIONSHIP_KWARGS,
+        },
+    )
+    entity: Entity = Relationship(
+        sa_relationship_kwargs={
+            "foreign_keys": "[CaseRecordLink.entity_id]",
+            **DEFAULT_SA_RELATIONSHIP_KWARGS,
+        }
+    )
+    record: Record = Relationship(
+        sa_relationship_kwargs={
+            "foreign_keys": "[CaseRecordLink.record_id]",
+            **DEFAULT_SA_RELATIONSHIP_KWARGS,
+        }
     )

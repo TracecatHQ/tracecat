@@ -1800,6 +1800,54 @@ export const $CaseCustomFieldRead = {
   title: "CaseCustomFieldRead",
 } as const
 
+export const $CaseEntityRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid4",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    display_name: {
+      type: "string",
+      title: "Display Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    icon: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Icon",
+    },
+    is_active: {
+      type: "boolean",
+      title: "Is Active",
+    },
+  },
+  type: "object",
+  required: ["id", "name", "display_name", "description", "icon", "is_active"],
+  title: "CaseEntityRead",
+  description: "Entity metadata.",
+} as const
+
 export const $CaseEventRead = {
   oneOf: [
     {
@@ -2198,6 +2246,151 @@ export const $CaseReadMinimal = {
     "severity",
   ],
   title: "CaseReadMinimal",
+} as const
+
+export const $CaseRecordLinkCreate = {
+  properties: {
+    entity_id: {
+      type: "string",
+      format: "uuid4",
+      title: "Entity Id",
+      description: "Entity ID",
+    },
+    record_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid4",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Record Id",
+      description: "Existing record ID to link",
+    },
+    record_data: {
+      anyOf: [
+        {
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Record Data",
+      description: "Data for creating a new record",
+    },
+  },
+  type: "object",
+  required: ["entity_id"],
+  title: "CaseRecordLinkCreate",
+  description: "Create a link between a case and a record.",
+} as const
+
+export const $CaseRecordLinkRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid4",
+      title: "Id",
+    },
+    case_id: {
+      type: "string",
+      format: "uuid4",
+      title: "Case Id",
+    },
+    entity_id: {
+      type: "string",
+      format: "uuid4",
+      title: "Entity Id",
+    },
+    record_id: {
+      type: "string",
+      format: "uuid4",
+      title: "Record Id",
+    },
+    created_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Created At",
+    },
+    updated_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Updated At",
+    },
+    entity: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseEntityRead",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    record: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseRecordRead",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+  },
+  type: "object",
+  required: ["id", "case_id", "entity_id", "record_id"],
+  title: "CaseRecordLinkRead",
+  description: "Case record link with entity and record details.",
+} as const
+
+export const $CaseRecordRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid4",
+      title: "Id",
+    },
+    entity_id: {
+      type: "string",
+      format: "uuid4",
+      title: "Entity Id",
+    },
+    field_data: {
+      type: "object",
+      title: "Field Data",
+    },
+    relation_fields: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Relation Fields",
+      description:
+        "List of field keys that are relations (ONE_TO_ONE or ONE_TO_MANY)",
+    },
+  },
+  type: "object",
+  required: ["id", "entity_id", "field_data"],
+  title: "CaseRecordRead",
+  description: "Record data.",
 } as const
 
 export const $CaseSeverity = {
@@ -3465,6 +3658,277 @@ export const $EditorParamRead = {
   title: "EditorParamRead",
 } as const
 
+export const $EntityCreate = {
+  properties: {
+    name: {
+      type: "string",
+      maxLength: 100,
+      minLength: 1,
+      title: "Name",
+    },
+    display_name: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      title: "Display Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    icon: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 100,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Icon",
+    },
+  },
+  type: "object",
+  required: ["name", "display_name"],
+  title: "EntityCreate",
+  description: "Request model for creating entity.",
+} as const
+
+export const $EntityRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    display_name: {
+      type: "string",
+      title: "Display Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    icon: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Icon",
+    },
+    is_active: {
+      type: "boolean",
+      title: "Is Active",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+    owner_id: {
+      type: "string",
+      format: "uuid",
+      title: "Owner Id",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "name",
+    "display_name",
+    "description",
+    "icon",
+    "is_active",
+    "created_at",
+    "updated_at",
+    "owner_id",
+  ],
+  title: "EntityRead",
+  description: "Response model for entity.",
+} as const
+
+export const $EntitySchemaField = {
+  properties: {
+    key: {
+      type: "string",
+      title: "Key",
+      description: "Field key",
+    },
+    type: {
+      type: "string",
+      title: "Type",
+      description: "Field type",
+    },
+    display_name: {
+      type: "string",
+      title: "Display Name",
+      description: "Display name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+      description: "Field description",
+    },
+    enum_options: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Enum Options",
+      description: "Options for SELECT/MULTI_SELECT fields",
+    },
+  },
+  type: "object",
+  required: ["key", "type", "display_name"],
+  title: "EntitySchemaField",
+  description: "Schema field description for API responses.",
+} as const
+
+export const $EntitySchemaInfo = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+      description: "Entity ID",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+      description: "Entity name",
+    },
+    display_name: {
+      type: "string",
+      title: "Display Name",
+      description: "Display name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+      description: "Entity description",
+    },
+  },
+  type: "object",
+  required: ["id", "name", "display_name"],
+  title: "EntitySchemaInfo",
+  description: "Entity metadata in schema response.",
+} as const
+
+export const $EntitySchemaResponse = {
+  properties: {
+    entity: {
+      $ref: "#/components/schemas/EntitySchemaInfo",
+      description: "Entity metadata",
+    },
+    fields: {
+      items: {
+        $ref: "#/components/schemas/EntitySchemaField",
+      },
+      type: "array",
+      title: "Fields",
+      description: "Field definitions",
+    },
+  },
+  type: "object",
+  required: ["entity", "fields"],
+  title: "EntitySchemaResponse",
+  description: "Response for entity schema endpoint.",
+} as const
+
+export const $EntityUpdate = {
+  properties: {
+    display_name: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Display Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    icon: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 100,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Icon",
+    },
+  },
+  type: "object",
+  title: "EntityUpdate",
+  description: "Request model for updating entity.",
+} as const
+
 export const $ErrorDetails = {
   properties: {
     type: {
@@ -3952,6 +4416,287 @@ export const $FieldDiff = {
   type: "object",
   required: ["field", "old", "new"],
   title: "FieldDiff",
+} as const
+
+export const $FieldMetadataCreate = {
+  properties: {
+    field_key: {
+      type: "string",
+      maxLength: 100,
+      minLength: 1,
+      title: "Field Key",
+    },
+    field_type: {
+      $ref: "#/components/schemas/FieldType",
+    },
+    display_name: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      title: "Display Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    enum_options: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+          minItems: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Enum Options",
+      description: "Options for SELECT/MULTI_SELECT fields",
+    },
+    relation_settings: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/RelationSettings",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "Settings for relation fields (required when field_type is RELATION_*)",
+    },
+    default_value: {
+      anyOf: [
+        {},
+        {
+          type: "null",
+        },
+      ],
+      title: "Default Value",
+      description: "Default value for the field (only for primitive types)",
+    },
+  },
+  type: "object",
+  required: ["field_key", "field_type", "display_name"],
+  title: "FieldMetadataCreate",
+  description: "Request model for creating field.",
+} as const
+
+export const $FieldMetadataRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    entity_id: {
+      type: "string",
+      format: "uuid",
+      title: "Entity Id",
+    },
+    field_key: {
+      type: "string",
+      title: "Field Key",
+    },
+    field_type: {
+      type: "string",
+      title: "Field Type",
+    },
+    display_name: {
+      type: "string",
+      title: "Display Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    is_active: {
+      type: "boolean",
+      title: "Is Active",
+    },
+    deactivated_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Deactivated At",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+    relation_kind: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Relation Kind",
+    },
+    target_entity_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Target Entity Id",
+    },
+    enum_options: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Enum Options",
+    },
+    default_value: {
+      anyOf: [
+        {},
+        {
+          type: "null",
+        },
+      ],
+      title: "Default Value",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "entity_id",
+    "field_key",
+    "field_type",
+    "display_name",
+    "description",
+    "is_active",
+    "deactivated_at",
+    "created_at",
+    "updated_at",
+  ],
+  title: "FieldMetadataRead",
+  description: "Response model for field.",
+} as const
+
+export const $FieldMetadataUpdate = {
+  properties: {
+    display_name: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Display Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    enum_options: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+          minItems: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Enum Options",
+      description: "Options for SELECT/MULTI_SELECT fields",
+    },
+    default_value: {
+      anyOf: [
+        {},
+        {
+          type: "null",
+        },
+      ],
+      title: "Default Value",
+    },
+  },
+  type: "object",
+  title: "FieldMetadataUpdate",
+  description: "Request model for updating field display properties.",
+} as const
+
+export const $FieldType = {
+  type: "string",
+  enum: [
+    "INTEGER",
+    "NUMBER",
+    "TEXT",
+    "BOOL",
+    "JSON",
+    "DATETIME",
+    "DATE",
+    "ARRAY_TEXT",
+    "ARRAY_INTEGER",
+    "ARRAY_NUMBER",
+    "SELECT",
+    "MULTI_SELECT",
+    "RELATION_ONE_TO_ONE",
+    "RELATION_ONE_TO_MANY",
+  ],
+  title: "FieldType",
+  description: `Supported field types for custom entities.
+
+v1: Basic types plus JSON for structured data with controlled nesting.`,
 } as const
 
 export const $Float = {
@@ -5867,6 +6612,94 @@ export const $ProviderScopes = {
   description: "Scope metadata for a provider.",
 } as const
 
+export const $QueryFilter = {
+  properties: {
+    field: {
+      type: "string",
+      title: "Field",
+      description: "Field key to filter on",
+    },
+    operator: {
+      type: "string",
+      pattern: "^(eq|in|ilike|contains|between|is_null|is_not_null)$",
+      title: "Operator",
+      description: "Filter operator",
+    },
+    value: {
+      title: "Value",
+      description: "Filter value(s)",
+    },
+  },
+  type: "object",
+  required: ["field", "operator"],
+  title: "QueryFilter",
+  description: "Single filter specification.",
+} as const
+
+export const $QueryRequest = {
+  properties: {
+    filters: {
+      items: {
+        $ref: "#/components/schemas/QueryFilter",
+      },
+      type: "array",
+      title: "Filters",
+    },
+    limit: {
+      type: "integer",
+      maximum: 1000,
+      minimum: 1,
+      title: "Limit",
+      default: 100,
+    },
+    offset: {
+      type: "integer",
+      minimum: 0,
+      title: "Offset",
+      default: 0,
+    },
+  },
+  type: "object",
+  title: "QueryRequest",
+  description: "Request model for querying entity records.",
+} as const
+
+export const $QueryResponse = {
+  properties: {
+    records: {
+      items: {
+        $ref: "#/components/schemas/RecordRead",
+      },
+      type: "array",
+      title: "Records",
+    },
+    total: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total",
+      description: "Total count if available",
+    },
+    limit: {
+      type: "integer",
+      title: "Limit",
+    },
+    offset: {
+      type: "integer",
+      title: "Offset",
+    },
+  },
+  type: "object",
+  required: ["records", "limit", "offset"],
+  title: "QueryResponse",
+  description: "Response model for query results.",
+} as const
+
 export const $ReceiveInteractionResponse = {
   properties: {
     message: {
@@ -5877,6 +6710,72 @@ export const $ReceiveInteractionResponse = {
   type: "object",
   required: ["message"],
   title: "ReceiveInteractionResponse",
+} as const
+
+export const $RecordCreate = {
+  properties: {},
+  additionalProperties: true,
+  type: "object",
+  title: "RecordCreate",
+  description: `Request model for creating record.
+
+Note: The actual fields are dynamic based on entity type.
+This is a base model - actual validation happens in service.`,
+} as const
+
+export const $RecordRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    entity_id: {
+      type: "string",
+      format: "uuid",
+      title: "Entity Id",
+    },
+    field_data: {
+      type: "object",
+      title: "Field Data",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+    owner_id: {
+      type: "string",
+      format: "uuid",
+      title: "Owner Id",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "entity_id",
+    "field_data",
+    "created_at",
+    "updated_at",
+    "owner_id",
+  ],
+  title: "RecordRead",
+  description: "Response model for record.",
+} as const
+
+export const $RecordUpdate = {
+  properties: {},
+  additionalProperties: true,
+  type: "object",
+  title: "RecordUpdate",
+  description: `Request model for updating record.
+
+Note: The actual fields are dynamic based on entity type.`,
 } as const
 
 export const $RegistryActionCreate = {
@@ -6927,6 +7826,33 @@ export const $RegistrySecretType_Output = {
       oauth: "#/components/schemas/RegistryOAuthSecret-Output",
     },
   },
+} as const
+
+export const $RelationSettings = {
+  properties: {
+    relation_type: {
+      $ref: "#/components/schemas/RelationType",
+    },
+    target_entity_id: {
+      type: "string",
+      format: "uuid",
+      title: "Target Entity Id",
+    },
+  },
+  type: "object",
+  required: ["relation_type", "target_entity_id"],
+  title: "RelationSettings",
+  description: "Settings for relation fields.",
+} as const
+
+export const $RelationType = {
+  type: "string",
+  enum: ["one_to_one", "one_to_many"],
+  title: "RelationType",
+  description: `Types of relations between entities (for API/models).
+
+These values are used in the API and models layer to represent
+the type of relationship from the perspective of the source entity.`,
 } as const
 
 export const $ReopenedEventRead = {

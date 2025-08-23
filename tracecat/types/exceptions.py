@@ -31,6 +31,10 @@ class TracecatValidationError(TracecatException):
     """Tracecat user-facing validation error"""
 
 
+class InvalidFieldDefaultError(TracecatValidationError):
+    """Error raised when a field default value is invalid"""
+
+
 class TracecatDSLError(TracecatValidationError):
     """Tracecat user-facing DSL error"""
 

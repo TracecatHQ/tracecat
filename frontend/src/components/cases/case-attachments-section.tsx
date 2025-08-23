@@ -541,7 +541,7 @@ export function CaseAttachmentsSection({
   return (
     <TooltipProvider>
       <div className="mx-auto w-full">
-        <div className="space-y-4 p-4">
+        <div className="space-y-5 p-4">
           <div
             onClick={handleAddAttachment}
             onDragEnter={handleDragEnter}
@@ -569,7 +569,7 @@ export function CaseAttachmentsSection({
           {attachments.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-4">
               <div className="p-2 rounded-full bg-muted/50 mb-3">
-                <Paperclip className="h-6 w-6 text-muted-foreground" />
+                <Paperclip className="h-5 w-5 text-muted-foreground" />
               </div>
               <h3 className="text-sm font-medium text-muted-foreground mb-1">
                 No attachments found
@@ -580,12 +580,12 @@ export function CaseAttachmentsSection({
               </p>
             </div>
           ) : (
-            <div className="space-y-1">
+            <div className="space-y-2">
               {attachments.map((attachment) => {
                 return (
                   <div
                     key={attachment.id}
-                    className="flex items-center gap-4 p-2 px-3.5 rounded-md hover:bg-muted/40 transition-colors group"
+                    className="flex items-center gap-4 p-2 rounded-md hover:bg-muted/40 transition-colors group"
                   >
                     <div
                       className={`p-1 rounded ${getFileColor(attachment.content_type)}`}

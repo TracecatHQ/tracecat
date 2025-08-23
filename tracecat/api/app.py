@@ -31,6 +31,7 @@ from tracecat.auth.users import (
     auth_backend,
     fastapi_users,
 )
+from tracecat.cases.entities.router import router as case_entities_router
 from tracecat.cases.router import case_fields_router as case_fields_router
 from tracecat.cases.router import cases_router as cases_router
 from tracecat.cases.tags.router import router as case_tags_router
@@ -41,6 +42,7 @@ from tracecat.db.engine import get_async_session_context_manager
 from tracecat.editor.router import router as editor_router
 from tracecat.feature_flags import feature_flag_dep
 from tracecat.feature_flags.router import router as feature_flags_router
+from tracecat.entities.router import router as entities_router
 from tracecat.integrations.router import integrations_router, providers_router
 from tracecat.logger import logger
 from tracecat.middleware import (
@@ -211,6 +213,8 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(cases_router)
     app.include_router(case_fields_router)
     app.include_router(case_tags_router)
+    app.include_router(case_entities_router)
+    app.include_router(entities_router)
     app.include_router(chat_router)
     app.include_router(prompt_router)
     app.include_router(workflow_folders_router)
@@ -285,11 +289,11 @@ def create_app(**kwargs) -> FastAPI:
 
     # Exception handlers
     app.add_exception_handler(Exception, generic_exception_handler)
-    app.add_exception_handler(TracecatException, tracecat_exception_handler)  # type: ignore  # type: ignore
-    app.add_exception_handler(RequestValidationError, validation_exception_handler)  # type: ignore
+    app.add_exception_handler(TracecatException, tracecat_exception_handler)
+    app.add_exception_handler(RequestValidationError, validation_exception_handler)
     app.add_exception_handler(
         FastAPIUsersException,
-        fastapi_users_auth_exception_handler,  # type: ignore
+        fastapi_users_auth_exception_handler,
     )
 
     # Middleware
