@@ -46,7 +46,6 @@ class WorkspaceSearch(BaseModel):
 class WorkspaceReadMinimal(BaseModel):
     id: WorkspaceID
     name: str
-    n_members: int
 
 
 class WorkspaceMember(BaseModel):
@@ -63,8 +62,6 @@ class WorkspaceRead(BaseModel):
     name: str
     settings: WorkspaceSettingsRead | None = None
     owner_id: OwnerID
-    n_members: int
-    members: list[WorkspaceMember]
 
 
 # === Membership === #

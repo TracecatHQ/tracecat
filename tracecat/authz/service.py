@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from sqlmodel import select
+from sqlmodel import and_, select
 
 from tracecat.authz.controls import require_workspace_role
 from tracecat.authz.models import WorkspaceRole
@@ -10,6 +10,7 @@ from tracecat.db.schemas import Membership, User
 from tracecat.identifiers import UserID, WorkspaceID
 from tracecat.service import BaseService
 from tracecat.workspaces.models import (
+    WorkspaceMember,
     WorkspaceMembershipCreate,
     WorkspaceMembershipUpdate,
 )
@@ -26,15 +27,28 @@ class MembershipService(BaseService):
         result = await self.session.exec(statement)
         return result.all()
 
-    async def list_memberships_with_users(
+    async def list_workspace_members(
         self, workspace_id: WorkspaceID
-    ) -> Sequence[tuple[Membership, User]]:
-        """List all workspace memberships with user details."""
-        statement = select(Membership, User).where(
-            Membership.workspace_id == workspace_id, Membership.user_id == User.id
+    ) -> list[WorkspaceMember]:
+        """List all workspace members."""
+        statement = select(User, Membership.role).where(
+            and_(
+                Membership.workspace_id == workspace_id,
+                Membership.user_id == User.id,
+            )
         )
         result = await self.session.exec(statement)
-        return result.all()
+        return [
+            WorkspaceMember(
+                user_id=user.id,
+                first_name=user.first_name,
+                last_name=user.last_name,
+                email=user.email,
+                org_role=user.role,
+                workspace_role=WorkspaceRole(ws_role),
+            )
+            for user, ws_role in result.all()
+        ]
 
     async def get_membership(
         self, workspace_id: WorkspaceID, user_id: UserID

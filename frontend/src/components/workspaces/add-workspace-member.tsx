@@ -53,7 +53,7 @@ export function AddWorkspaceMember({
   className,
 }: { workspace: WorkspaceRead } & React.HTMLAttributes<HTMLButtonElement>) {
   const { user } = useAuth()
-  const { data: role } = useCurrentUserRole()
+  const { role } = useCurrentUserRole()
   const { addMember: addWorkspaceMember } = useWorkspaceMutations()
   const [showDialog, setShowDialog] = useState(false)
   const form = useForm<AddUser>({

@@ -46,7 +46,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useToast } from "@/components/ui/use-toast"
-import { useWorkspaceDetails } from "@/hooks/use-workspace"
+import { useWorkspaceMembers } from "@/hooks/use-workspace"
 import {
   useAddCaseTag,
   useGetCase,
@@ -64,7 +64,7 @@ interface CasePanelContentProps {
 
 export function CasePanelView({ caseId }: CasePanelContentProps) {
   const workspaceId = useWorkspaceId()
-  const { workspace } = useWorkspaceDetails()
+  const { members } = useWorkspaceMembers(workspaceId)
   const router = useRouter()
   const searchParams = useSearchParams()
 
@@ -201,7 +201,7 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                     value={
                       <AssigneeSelect
                         assignee={caseData.assignee}
-                        workspaceMembers={workspace?.members ?? []}
+                        workspaceMembers={members ?? []}
                         onValueChange={handleAssigneeChange}
                       />
                     }

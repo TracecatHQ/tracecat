@@ -1,6 +1,8 @@
 "use client"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
+  type ApiError,
+  type WorkspaceMember,
   type WorkspaceMembershipRead,
   type WorkspaceRead,
   type WorkspacesCreateWorkspaceMembershipData,
@@ -11,6 +13,7 @@ import {
   workspacesDeleteWorkspaceMembership,
   workspacesGetWorkspace,
   workspacesGetWorkspaceMembership,
+  workspacesListWorkspaceMembers,
   workspacesUpdateWorkspaceMembership,
 } from "@/client"
 import { useAuth } from "@/hooks/use-auth"
@@ -39,7 +42,11 @@ export function useWorkspaceDetails() {
 export function useCurrentUserRole() {
   const workspaceId = useWorkspaceId()
   const { user } = useAuth()
-  return useQuery({
+  const {
+    data: role,
+    isLoading: roleLoading,
+    error: roleError,
+  } = useQuery({
     queryKey: ["membership", workspaceId, user?.id],
     queryFn: () =>
       workspacesGetWorkspaceMembership({
@@ -51,6 +58,7 @@ export function useCurrentUserRole() {
     retry: retryHandler,
     staleTime: 300_000,
   })
+  return { role, roleLoading, roleError }
 }
 
 /* ── MUTATIONS ─────────────────────────────────────────────────────────── */
@@ -103,4 +111,17 @@ export function useWorkspaceMutations() {
     removeMember,
     removePending,
   }
+}
+
+export function useWorkspaceMembers(workspaceId: string) {
+  const {
+    data: members,
+    isLoading: membersLoading,
+    error: membersError,
+  } = useQuery<WorkspaceMember[], ApiError>({
+    queryKey: ["workspace", workspaceId, "members"],
+    queryFn: () => workspacesListWorkspaceMembers({ workspaceId }),
+  })
+
+  return { members, membersLoading, membersError }
 }

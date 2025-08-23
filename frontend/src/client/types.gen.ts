@@ -3801,14 +3801,11 @@ export type WorkspaceRead = {
   name: string
   settings?: WorkspaceSettingsRead | null
   owner_id: string
-  n_members: number
-  members: Array<WorkspaceMember>
 }
 
 export type WorkspaceReadMinimal = {
   id: string
   name: string
-  n_members: number
 }
 
 export type WorkspaceRole = "editor" | "admin"
@@ -3928,6 +3925,12 @@ export type WorkspacesDeleteWorkspaceData = {
 }
 
 export type WorkspacesDeleteWorkspaceResponse = void
+
+export type WorkspacesListWorkspaceMembersData = {
+  workspaceId: string
+}
+
+export type WorkspacesListWorkspaceMembersResponse = Array<WorkspaceMember>
 
 export type WorkspacesListWorkspaceMembershipsData = {
   workspaceId: string
@@ -5304,7 +5307,7 @@ export type PublicCheckHealthResponse = {
 
 export type $OpenApiTs = {
   "/webhooks/{workflow_id}/{secret}": {
-    post: {
+    get: {
       req: PublicIncomingWebhookData
       res: {
         /**
@@ -5317,7 +5320,7 @@ export type $OpenApiTs = {
         422: HTTPValidationError
       }
     }
-    get: {
+    post: {
       req: PublicIncomingWebhook1Data
       res: {
         /**
@@ -5433,6 +5436,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/members": {
+    get: {
+      req: WorkspacesListWorkspaceMembersData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<WorkspaceMember>
         /**
          * Validation Error
          */

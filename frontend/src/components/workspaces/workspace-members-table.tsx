@@ -51,6 +51,7 @@ import { toast } from "@/components/ui/use-toast"
 import { useAuth } from "@/hooks/use-auth"
 import {
   useCurrentUserRole,
+  useWorkspaceMembers,
   useWorkspaceMutations,
 } from "@/hooks/use-workspace"
 import { WorkspaceRoleEnum } from "@/lib/workspace"
@@ -63,8 +64,11 @@ export function WorkspaceMembersTable({
   const { user } = useAuth()
   const [selectedUser, setSelectedUser] = useState<WorkspaceMember | null>(null)
   const [isChangeRoleOpen, setIsChangeRoleOpen] = useState(false)
-  const { data: role } = useCurrentUserRole()
+  const { role } = useCurrentUserRole()
   const { removeMember, updateMember } = useWorkspaceMutations()
+  const { members, membersLoading, membersError } = useWorkspaceMembers(
+    workspace.id
+  )
 
   const handleChangeRole = useCallback(
     async (role: WorkspaceRole) => {
@@ -106,7 +110,9 @@ export function WorkspaceMembersTable({
         }}
       >
         <DataTable
-          data={workspace?.members}
+          data={members}
+          isLoading={membersLoading}
+          error={membersError}
           columns={[
             {
               accessorKey: "email",

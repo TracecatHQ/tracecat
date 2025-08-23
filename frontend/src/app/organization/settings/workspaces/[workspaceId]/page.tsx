@@ -7,6 +7,7 @@ import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { OrgWorkspaceSettings } from "@/components/organization/org-workspace-settings"
 import { useAuth } from "@/hooks/use-auth"
+import { useCurrentUserRole } from "@/hooks/use-workspace"
 
 export default function OrganizationWorkspaceSettingsPage() {
   const params = useParams<{ workspaceId: string }>()
@@ -39,8 +40,8 @@ export default function OrganizationWorkspaceSettingsPage() {
 
   // Check if user is org admin or workspace admin
   const isOrgAdmin = user?.isPrivileged()
-  const membership = workspace.members.find((m) => m.user_id === user?.id)
-  const isWorkspaceAdmin = membership?.workspace_role === "admin"
+  const { role } = useCurrentUserRole()
+  const isWorkspaceAdmin = role === "admin"
 
   if (!isOrgAdmin && !isWorkspaceAdmin) {
     return (
