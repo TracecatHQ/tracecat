@@ -72,6 +72,11 @@ class OAuthAccount(SQLModelBaseOAuthAccount, table=True):
 class Membership(SQLModel, table=True):
     """Link table for users and workspaces (many to many)."""
 
+    __table_args__ = (
+        Index("ix_membership_workspace_id", "workspace_id"),
+        Index("ix_membership_workspace_user", "workspace_id", "user_id"),
+    )
+
     user_id: UUID4 = Field(foreign_key="user.id", primary_key=True)
     workspace_id: UUID4 = Field(foreign_key="workspace.id", primary_key=True)
     role: WorkspaceRole = Field(
@@ -144,11 +149,6 @@ class Workspace(Resource, table=True):
             **DEFAULT_SA_RELATIONSHIP_KWARGS,
         },
     )
-
-    @computed_field
-    @property
-    def n_members(self) -> int:
-        return len(self.members)
 
 
 class User(SQLModelBaseUserDB, table=True):
