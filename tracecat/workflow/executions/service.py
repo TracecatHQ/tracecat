@@ -129,7 +129,7 @@ class WorkflowExecutionsService:
     async def get_execution(
         self, wf_exec_id: WorkflowExecutionID, _include_legacy: bool = True
     ) -> WorkflowExecution | None:
-        self.logger.info("Getting workflow execution", wf_exec_id=wf_exec_id)
+        self.logger.debug("Getting workflow execution", wf_exec_id=wf_exec_id)
         handle = self.handle(wf_exec_id)
         try:
             return await handle.describe()
