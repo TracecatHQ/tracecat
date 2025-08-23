@@ -38,7 +38,7 @@ export function FolderMoveDialog({
   setSelectedFolder,
 }: FolderMoveDialogProps) {
   const workspaceId = useWorkspaceId()
-  const { folders, moveFolder } = useFolders(workspaceId)
+  const { folders, moveFolder } = useFolders(workspaceId, { enabled: open })
   const [destinationPath, setDestinationPath] = useState<string>("/")
   const [isMoving, setIsMoving] = useState(false)
   const [openFolderSelect, setOpenFolderSelect] = useState(false)

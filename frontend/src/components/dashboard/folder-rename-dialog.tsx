@@ -55,7 +55,9 @@ export function FolderRenameDialog({
   setSelectedFolder: (selectedFolder: FolderDirectoryItem | null) => void
 }) {
   const workspaceId = useWorkspaceId()
-  const { updateFolder, updateFolderIsPending } = useFolders(workspaceId)
+  const { updateFolder, updateFolderIsPending } = useFolders(workspaceId, {
+    enabled: open,
+  })
 
   const form = useForm<RenameFolderSchema>({
     resolver: zodResolver(renameFolderSchema),

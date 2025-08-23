@@ -206,7 +206,7 @@ function CreateFolderDialog({
   workspaceId: string
   currentFolderPath: string | null
 }) {
-  const { createFolder } = useFolders(workspaceId)
+  const { createFolder } = useFolders(workspaceId, { enabled: open })
 
   const form = useForm<FolderFormValues>({
     resolver: zodResolver(folderFormSchema),

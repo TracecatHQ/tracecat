@@ -28,7 +28,7 @@ export function FolderDeleteAlertDialog({
   setSelectedFolder: (selectedFolder: FolderDirectoryItem | null) => void
 }) {
   const workspaceId = useWorkspaceId()
-  const { deleteFolder } = useFolders(workspaceId)
+  const { deleteFolder } = useFolders(workspaceId, { enabled: open })
   const [confirmName, setConfirmName] = useState("")
 
   return (

@@ -1699,7 +1699,10 @@ export function useSessions() {
   }
 }
 
-export function useTags(workspaceId: string) {
+export function useTags(
+  workspaceId: string,
+  options: { enabled: boolean } = { enabled: true }
+) {
   const queryClient = useQueryClient()
 
   // List tags
@@ -1710,6 +1713,7 @@ export function useTags(workspaceId: string) {
   } = useQuery<TagRead[]>({
     queryKey: ["tags", workspaceId],
     queryFn: async () => await tagsListTags({ workspaceId }),
+    enabled: options.enabled,
   })
 
   // Create tag
@@ -3061,7 +3065,10 @@ export function useDeleteCaseComment({
   }
 }
 
-export function useFolders(workspaceId: string) {
+export function useFolders(
+  workspaceId: string,
+  options: { enabled: boolean } = { enabled: true }
+) {
   const queryClient = useQueryClient()
 
   // List folders
@@ -3072,6 +3079,7 @@ export function useFolders(workspaceId: string) {
   } = useQuery<WorkflowFolderRead[]>({
     queryKey: ["folders", workspaceId],
     queryFn: async () => await foldersListFolders({ workspaceId }),
+    enabled: options.enabled,
   })
 
   // Get folder by parent path
@@ -3087,7 +3095,7 @@ export function useFolders(workspaceId: string) {
         workspaceId,
         parentPath: "/",
       }),
-    enabled: !!workspaceId,
+    enabled: options.enabled && !!workspaceId,
   })
 
   // Create folder
