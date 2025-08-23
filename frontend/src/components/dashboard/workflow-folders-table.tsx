@@ -47,13 +47,7 @@ import { capitalizeFirst } from "@/lib/utils"
 import { useAuth } from "@/providers/auth"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
-export function WorkflowFoldersTable({
-  view,
-  setView,
-}: {
-  view: ViewMode
-  setView?: (view: ViewMode) => void
-}) {
+export function WorkflowFoldersTable({ view }: { view: ViewMode }) {
   const workspaceId = useWorkspaceId()
   const searchParams = useSearchParams()
   const path = searchParams?.get("path") || "/"

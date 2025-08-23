@@ -35,7 +35,7 @@ import { capitalizeFirst } from "@/lib/utils"
 import { useAuth } from "@/providers/auth"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
-export function WorkflowsDashboardTable() {
+export function WorkflowsTagsDashboardTable() {
   const router = useRouter()
   const workspaceId = useWorkspaceId()
   const { user } = useAuth()
