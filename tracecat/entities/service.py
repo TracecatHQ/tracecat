@@ -235,11 +235,37 @@ class CustomEntitiesService(BaseWorkspaceService):
         if not entity.is_active:
             raise ValueError("Entity is already inactive")
 
+        # Deactivate entity and cascade to its fields and paired backrefs
         entity.is_active = False
+
+        # Deactivate all fields owned by this entity
+        now = datetime.now(UTC)
+        fm_entity_col = cast(ColumnElement[Any], FieldMetadata.entity_id)
+        await self.session.execute(
+            sa.update(FieldMetadata)
+            .where(fm_entity_col == entity_id, FieldMetadata.is_active == True)  # noqa: E712
+            .values(is_active=False, deactivated_at=now)
+        )
+
+        # Also deactivate paired backref fields on other entities
+        # First load ids of fields owned by this entity
+        stmt_ids = select(FieldMetadata.id).where(FieldMetadata.entity_id == entity_id)
+        result = await self.session.exec(stmt_ids)
+        owned_field_ids = list(result.all())
+        if owned_field_ids:
+            await self.session.execute(
+                sa.update(FieldMetadata)
+                .where(
+                    FieldMetadata.backref_field_id.in_(owned_field_ids),
+                    FieldMetadata.is_active == True,  # noqa: E712
+                )
+                .values(is_active=False, deactivated_at=now)
+            )
+
         await self.session.commit()
         await self.session.refresh(entity)
 
-        logger.info(f"Deactivated entity {entity.name}")
+        logger.info(f"Deactivated entity {entity.name} and cascaded to fields/backrefs")
         return entity
 
     @require_access_level(AccessLevel.ADMIN)
@@ -261,11 +287,35 @@ class CustomEntitiesService(BaseWorkspaceService):
         if entity.is_active:
             raise ValueError("Entity is already active")
 
+        # Reactivate entity and cascade to its fields and paired backrefs
         entity.is_active = True
+
+        # Reactivate all fields owned by this entity
+        fm_entity_col = cast(ColumnElement[Any], FieldMetadata.entity_id)
+        await self.session.execute(
+            sa.update(FieldMetadata)
+            .where(fm_entity_col == entity_id, FieldMetadata.is_active == False)  # noqa: E712
+            .values(is_active=True, deactivated_at=None)
+        )
+
+        # Also reactivate paired backref fields on other entities
+        stmt_ids = select(FieldMetadata.id).where(FieldMetadata.entity_id == entity_id)
+        result = await self.session.exec(stmt_ids)
+        owned_field_ids = list(result.all())
+        if owned_field_ids:
+            await self.session.execute(
+                sa.update(FieldMetadata)
+                .where(
+                    FieldMetadata.backref_field_id.in_(owned_field_ids),
+                    FieldMetadata.is_active == False,  # noqa: E712
+                )
+                .values(is_active=True, deactivated_at=None)
+            )
+
         await self.session.commit()
         await self.session.refresh(entity)
 
-        logger.info(f"Reactivated entity {entity.name}")
+        logger.info(f"Reactivated entity {entity.name} and cascaded to fields/backrefs")
         return entity
 
     @require_access_level(AccessLevel.ADMIN)
@@ -283,6 +333,23 @@ class CustomEntitiesService(BaseWorkspaceService):
             - Deletes the entity metadata
         """
         entity = await self.get_entity(entity_id)
+
+        # First, cascade delete any relation fields on other entities that
+        # target this entity to avoid leaving orphaned backrefs
+        ref_stmt = select(FieldMetadata).where(
+            FieldMetadata.target_entity_id == entity_id
+        )
+        ref_result = await self.session.exec(ref_stmt)
+        referencing_fields = list(ref_result.all())
+
+        for f in referencing_fields:
+            # Skip fields owned by the entity we're deleting; they'll be removed below
+            if f.entity_id != entity_id:
+                try:
+                    await self.delete_field(f.id)
+                except TracecatNotFoundError:
+                    # Field might have been deleted as a backref of a previous deletion
+                    continue
 
         # Bulk delete all relation links involving this entity (source or target)
         src_ent_col = cast(ColumnElement[Any], RecordRelationLink.source_entity_id)
@@ -344,6 +411,8 @@ class CustomEntitiesService(BaseWorkspaceService):
         Raises:
             ValueError: If field_key invalid or already exists
         """
+        # Reject writes to inactive entities
+        await self.entity_validators.validate_entity_active(entity_id)
         # Validate entity exists
         await self.get_entity(entity_id)
 
@@ -479,6 +548,8 @@ class CustomEntitiesService(BaseWorkspaceService):
             ValueError: If validation fails
         """
         field = await self.get_field(field_id)
+        # Reject writes to inactive entities
+        await self.entity_validators.validate_entity_active(field.entity_id)
 
         if display_name is not None:
             field.display_name = display_name
@@ -541,13 +612,30 @@ class CustomEntitiesService(BaseWorkspaceService):
         if not field.is_active:
             raise ValueError("Field is already inactive")
 
+        # Deactivate this field and its backref (if any) in one transaction
+        now = datetime.now(UTC)
         field.is_active = False
-        field.deactivated_at = datetime.now(UTC)
+        field.deactivated_at = now
+
+        # Also deactivate the paired backref field if it exists and is active
+        backref_id = field.backref_field_id
+        backref_field: FieldMetadata | None = None
+        if backref_id:
+            try:
+                backref_field = await self.get_field(backref_id)
+            except TracecatNotFoundError:
+                backref_field = None
+
+        if backref_field and backref_field.is_active:
+            backref_field.is_active = False
+            backref_field.deactivated_at = now
 
         await self.session.commit()
         await self.session.refresh(field)
-
-        logger.info(f"Deactivated field {field.field_key}")
+        logger.info(
+            f"Deactivated field {field.field_key}"
+            + (f" and backref {backref_field.field_key}" if backref_field else "")
+        )
         return field
 
     @require_access_level(AccessLevel.ADMIN)
@@ -568,13 +656,28 @@ class CustomEntitiesService(BaseWorkspaceService):
         if field.is_active:
             raise ValueError("Field is already active")
 
+        # Reactivate this field and its backref (if any) in one transaction
         field.is_active = True
         field.deactivated_at = None
 
+        backref_id = field.backref_field_id
+        backref_field: FieldMetadata | None = None
+        if backref_id:
+            try:
+                backref_field = await self.get_field(backref_id)
+            except TracecatNotFoundError:
+                backref_field = None
+
+        if backref_field and not backref_field.is_active:
+            backref_field.is_active = True
+            backref_field.deactivated_at = None
+
         await self.session.commit()
         await self.session.refresh(field)
-
-        logger.info(f"Reactivated field {field.field_key}")
+        logger.info(
+            f"Reactivated field {field.field_key}"
+            + (f" and backref {backref_field.field_key}" if backref_field else "")
+        )
         return field
 
     @require_access_level(AccessLevel.ADMIN)
@@ -592,7 +695,16 @@ class CustomEntitiesService(BaseWorkspaceService):
         """
         field = await self.get_field(field_id)
 
-        # If it's a relation field, bulk delete all associated links
+        # Capture backref before deleting
+        backref_id = field.backref_field_id
+        backref_field: FieldMetadata | None = None
+        if backref_id:
+            try:
+                backref_field = await self.get_field(backref_id)
+            except TracecatNotFoundError:
+                backref_field = None
+
+        # If it's a relation field, bulk delete all associated links for this field
         if field.relation_kind:
             src_field_col = cast(ColumnElement[Any], RecordRelationLink.source_field_id)
             await self.session.execute(
@@ -600,8 +712,6 @@ class CustomEntitiesService(BaseWorkspaceService):
             )
 
         # Remove field key from all records' JSONB field_data in one update
-        # Use PostgreSQL JSONB '-' operator
-        # Use JSONB '-' operator to remove a top-level key
         field_data_col = cast(ColumnElement[Any], Record.field_data)
         rec_entity_col2 = cast(ColumnElement[Any], Record.entity_id)
         rec_owner_col2 = cast(ColumnElement[Any], Record.owner_id)
@@ -616,9 +726,39 @@ class CustomEntitiesService(BaseWorkspaceService):
 
         # Delete the field metadata itself
         await self.session.delete(field)
+
+        # If a backref exists, clean it up too
+        if backref_field is not None:
+            # Delete relation links for backref field
+            if backref_field.relation_kind:
+                src_field_col = cast(
+                    ColumnElement[Any], RecordRelationLink.source_field_id
+                )
+                await self.session.execute(
+                    sa.delete(RecordRelationLink).where(
+                        src_field_col == backref_field.id
+                    )
+                )
+
+            # Remove backref field key from its records
+            await self.session.execute(
+                sa.update(Record)
+                .where(
+                    rec_entity_col2 == backref_field.entity_id,
+                    rec_owner_col2 == self.workspace_id,
+                )
+                .values(field_data=field_data_col.op("-")(backref_field.field_key))
+            )
+
+            # Finally delete backref field metadata
+            await self.session.delete(backref_field)
+
         await self.session.commit()
 
-        logger.info(f"Permanently deleted field {field.field_key}")
+        logger.info(
+            f"Permanently deleted field {field.field_key}"
+            + (f" and backref {backref_field.field_key}" if backref_field else "")
+        )
 
     # Relation Field Operations
 
@@ -649,6 +789,9 @@ class CustomEntitiesService(BaseWorkspaceService):
             ValueError: If validation fails
             TracecatNotFoundError: If entity or target entity not found
         """
+        # Reject writes to inactive entities (source)
+        await self.entity_validators.validate_entity_active(entity_id)
+
         # Validate entity exists
         await self.get_entity(entity_id)
 
@@ -657,9 +800,11 @@ class CustomEntitiesService(BaseWorkspaceService):
         if not is_valid:
             raise ValueError(error)
 
-        # Validate target entity exists and belongs to same owner
+        # Validate target entity exists and belongs to same owner, and is active
         try:
-            await self.get_entity(relation_settings.target_entity_id)
+            await self.entity_validators.validate_entity_active(
+                relation_settings.target_entity_id
+            )
         except TracecatNotFoundError as err:
             raise ValueError(
                 f"Target entity {relation_settings.target_entity_id} not found"
@@ -801,6 +946,9 @@ class CustomEntitiesService(BaseWorkspaceService):
 
     async def create_record(self, entity_id: UUID, data: dict[str, Any]) -> Record:
         """Create a new entity record."""
+        # Reject writes to inactive entities
+        await self.entity_validators.validate_entity_active(entity_id)
+
         active_fields = await self.list_fields(entity_id, include_inactive=False)
 
         relation_fields, regular_fields, field_map = (
@@ -1165,6 +1313,8 @@ class CustomEntitiesService(BaseWorkspaceService):
         """
         # First, handle creation of new relations for null relation fields
         source_record = await self.get_record(record_id)
+        # Reject writes to inactive entities (source)
+        await self.entity_validators.validate_entity_active(source_record.entity_id)
         active_fields = await self.list_fields(
             source_record.entity_id, include_inactive=False
         )
@@ -1198,6 +1348,10 @@ class CustomEntitiesService(BaseWorkspaceService):
 
         # Build and validate complete update plan upfront (with remaining updates)
         update_plan = await validator.validate_and_plan_updates(record_id, updates_copy)
+
+        # Ensure all entities in the plan are active before applying updates
+        for step in update_plan.steps:
+            await self.entity_validators.validate_entity_active(step.entity_id)
 
         # Execute all updates in a single transaction with savepoint
         async with self.session.begin_nested():
@@ -1255,6 +1409,8 @@ class CustomEntitiesService(BaseWorkspaceService):
             record_id: Record to delete
         """
         record = await self.get_record(record_id)
+        # Reject writes to inactive entities
+        await self.entity_validators.validate_entity_active(record.entity_id)
         await self.session.delete(record)
         await self.session.commit()
 

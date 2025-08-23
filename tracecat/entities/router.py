@@ -122,7 +122,11 @@ async def deactivate_entity(
     session: AsyncDBSession,
     entity_id: UUID,
 ) -> EntityRead:
-    """Soft delete entity."""
+    """Soft delete entity.
+
+    Cascades to all fields owned by the entity and their paired backrefs on
+    other entities to keep relations consistent.
+    """
     service = CustomEntitiesService(session, role)
     try:
         entity = await service.deactivate_entity(entity_id)
@@ -140,7 +144,11 @@ async def reactivate_entity(
     session: AsyncDBSession,
     entity_id: UUID,
 ) -> EntityRead:
-    """Reactivate soft-deleted entity."""
+    """Reactivate soft-deleted entity.
+
+    Cascades to all fields owned by the entity and their paired backrefs on
+    other entities to keep relations consistent.
+    """
     service = CustomEntitiesService(session, role)
     try:
         entity = await service.reactivate_entity(entity_id)
@@ -161,7 +169,12 @@ async def delete_entity(
     """Permanently delete an entity and all associated data.
 
     Warning: This is a hard delete - all data will be permanently lost.
-    This includes all records, fields, and relation links.
+    This includes:
+    - All records for the entity
+    - All fields owned by the entity
+    - All relation links (source or target) involving the entity
+    - Any relation fields on other entities that target this entity (cascade),
+      along with their paired backrefs
     """
     service = CustomEntitiesService(session, role)
     try:
@@ -287,7 +300,11 @@ async def deactivate_field(
     session: AsyncDBSession,
     field_id: UUID,
 ) -> FieldMetadataRead:
-    """Soft delete field (data preserved)."""
+    """Soft delete field (data preserved).
+
+    Also deactivates the paired backref field if present to keep relations
+    consistent across entities.
+    """
     service = CustomEntitiesService(session, role)
     try:
         field = await service.deactivate_field(field_id)
@@ -305,7 +322,11 @@ async def reactivate_field(
     session: AsyncDBSession,
     field_id: UUID,
 ) -> FieldMetadataRead:
-    """Reactivate soft-deleted field."""
+    """Reactivate soft-deleted field.
+
+    Also reactivates the paired backref field if present to keep relations
+    consistent across entities.
+    """
     service = CustomEntitiesService(session, role)
     try:
         field = await service.reactivate_field(field_id)
@@ -326,6 +347,8 @@ async def delete_field(
     """Permanently delete a field and all associated data.
 
     Warning: This is a hard delete - all data will be permanently lost.
+    If the field has a paired backref field, that field is also deleted along
+    with its relation links to avoid leaving orphans.
     """
     service = CustomEntitiesService(session, role)
     try:
@@ -347,8 +370,12 @@ async def create_relation_field(
 ) -> FieldMetadataRead:
     """Create a relation field.
 
-    Requires `relation_settings` in the body. Optionally set `backref_key` to
-    auto-create a complementary field on the target entity (linked via backref_field_id).
+    Requires `relation_settings` in the body.
+
+    Note: Backrefs are auto-created. For every relation field created on the
+    source entity, a complementary field is automatically created on the target
+    entity and linked via `backref_field_id` on both sides. A human-readable
+    `field_key` for the backref is derived and uniquified automatically.
     """
     if not params.relation_settings:
         raise HTTPException(

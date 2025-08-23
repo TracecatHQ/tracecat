@@ -121,7 +121,6 @@ const createFieldSchema = z.object({
         "many_to_many",
       ]),
       target_entity_id: z.string(),
-      // v1: Relations are unidirectional, cascade delete is always true
     })
     .optional(),
 })

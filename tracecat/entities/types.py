@@ -1,7 +1,4 @@
-"""Field types and validation for custom entities.
-
-v1: Basic types plus JSON type for structured data (nested objects supported).
-"""
+"""Field types and validation for custom entities."""
 
 from datetime import date, datetime
 from enum import StrEnum
@@ -13,10 +10,7 @@ from pydantic_core import PydanticCustomError
 
 
 class FieldType(StrEnum):
-    """Supported field types for custom entities.
-
-    v1: Basic types plus JSON for structured data with controlled nesting.
-    """
+    """Supported field types for custom entities."""
 
     # Primitive types
     INTEGER = "INTEGER"

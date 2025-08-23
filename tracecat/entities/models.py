@@ -236,7 +236,6 @@ class FieldMetadataRead(BaseModel):
     relation_kind: str | None = None
     target_entity_id: UUID | None = None
     backref_field_id: UUID | None = None
-    # v1: No backref_field_id or cascade_delete (always true)
     # Enum field options
     enum_options: list[str] | None = None
     default_value: Any | None = None
