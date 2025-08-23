@@ -3,7 +3,7 @@ import "@/styles/globals.css"
 import type { Metadata } from "next"
 import dynamic from "next/dynamic"
 import { PublicEnvScript } from "next-runtime-env"
-import React from "react"
+import React, { Suspense } from "react"
 import { Toaster } from "@/components/ui/toaster"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { siteConfig } from "@/config/site"
@@ -55,7 +55,11 @@ export default async function RootLayout({ children }: RootLayoutProps) {
         >
           <DefaultQueryClientProvider>
             <TooltipProvider>
-              {PostHogPageView && <PostHogPageView />}
+              {PostHogPageView && (
+                <Suspense fallback={null}>
+                  <PostHogPageView />
+                </Suspense>
+              )}
               {children}
             </TooltipProvider>
           </DefaultQueryClientProvider>
