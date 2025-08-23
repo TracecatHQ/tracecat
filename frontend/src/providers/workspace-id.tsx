@@ -4,14 +4,14 @@ import { createContext, type ReactNode, useContext } from "react"
 const WorkspaceIdContext = createContext<string | undefined>(undefined)
 
 export function WorkspaceIdProvider({
-  value,
+  workspaceId,
   children,
 }: {
-  value: string
+  workspaceId: string
   children: ReactNode
 }) {
   return (
-    <WorkspaceIdContext.Provider value={value}>
+    <WorkspaceIdContext.Provider value={workspaceId}>
       {children}
     </WorkspaceIdContext.Provider>
   )
