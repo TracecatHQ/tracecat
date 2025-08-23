@@ -1,7 +1,10 @@
-import { AxiosError } from "axios"
-import type { UserRead, UserRole, WorkspaceMembershipRead } from "@/client"
-
-import { client } from "@/lib/api"
+import {
+  ApiError,
+  type UserRead,
+  type UserRole,
+  usersUsersCurrentUser,
+  type WorkspaceMembershipRead,
+} from "@/client"
 
 export const SYSTEM_USER_READ: UserRead = {
   id: "system",
@@ -14,10 +17,9 @@ export const SYSTEM_USER_READ: UserRead = {
 
 export async function getCurrentUser(): Promise<UserRead | null> {
   try {
-    const response = await client.get("/users/me")
-    return response.data as UserRead
+    return await usersUsersCurrentUser()
   } catch (error) {
-    if (error instanceof AxiosError) {
+    if (error instanceof ApiError) {
       // Backend throws 401 unauthorized if the user is not logged in
       console.log("User is not logged in")
       return null
