@@ -35,7 +35,7 @@ from tracecat.expressions.eval import (
     extract_templated_secrets,
     get_iterables_from_expression,
 )
-from tracecat.git.utils import prepare_git_url
+from tracecat.git.utils import safe_prepare_git_url
 from tracecat.integrations.enums import OAuthGrantType
 from tracecat.integrations.models import ProviderKey
 from tracecat.integrations.service import IntegrationService
@@ -408,9 +408,12 @@ async def run_action_on_ray_cluster(
     # Add git URL to pip dependencies if SHA is present
     pip_deps = []
     if ctx.git_url and ctx.git_url.ref:
-        url = ctx.git_url.to_url()
-        pip_deps.append(url)
-        logger.trace("Adding git URL to runtime env", git_url=ctx.git_url, url=url)
+        try:
+            url = ctx.git_url.to_url()
+            pip_deps.append(url)
+            logger.trace("Adding git URL to runtime env", git_url=ctx.git_url, url=url)
+        except Exception as e:
+            logger.error("Error adding git URL to runtime env", error=e)
 
     # If we have a local registry, we need to add it to the runtime env
     if config.TRACECAT__LOCAL_REPOSITORY_ENABLED:
@@ -488,12 +491,11 @@ async def dispatch_action_on_cluster(
         TracecatException: If there are errors evaluating for_each expressions or during execution
         ExecutorErrorWrapper: If there are errors from the executor itself
     """
-    git_url = await prepare_git_url()
 
     role = ctx_role.get()
-
     ctx = DispatchActionContext(role=role)
-    if git_url:
+
+    if git_url := await safe_prepare_git_url():
         sh_cmd = await get_ssh_command(git_url=git_url, session=session, role=role)
         ctx.ssh_command = sh_cmd
         ctx.git_url = git_url

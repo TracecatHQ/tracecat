@@ -1,3 +1,4 @@
+import logging
 import os
 from contextlib import contextmanager
 
@@ -15,6 +16,8 @@ def setup_ray():
         namespace="tracecat",
         dashboard_host="0.0.0.0",
         include_dashboard=True,
+        log_to_driver=False,
+        logging_level=logging.WARNING,
         num_cpus=DEFAULT_NUM_WORKERS,
         resources={"cpu": DEFAULT_NUM_WORKERS},
     )

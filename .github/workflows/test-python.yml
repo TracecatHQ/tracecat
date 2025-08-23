@@ -8,6 +8,7 @@ on:
       - registry/**
       - tests/**
       - packages/tracecat-ee/**
+      - packages/tracecat-registry/tracecat_registry/templates/**/*.yml
       - pyproject.toml
       - uv.lock
       - Dockerfile
@@ -21,6 +22,7 @@ on:
       - registry/**
       - tests/**
       - packages/tracecat-ee/**
+      - packages/tracecat-registry/tracecat_registry/templates/**/*.yml
       - pyproject.toml
       - uv.lock
       - Dockerfile
