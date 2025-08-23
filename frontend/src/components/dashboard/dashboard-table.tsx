@@ -30,9 +30,9 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { useAuth } from "@/hooks/use-auth"
 import { useWorkflowManager } from "@/lib/hooks"
 import { capitalizeFirst } from "@/lib/utils"
-import { useAuth } from "@/providers/auth"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 export function WorkflowsTagsDashboardTable() {

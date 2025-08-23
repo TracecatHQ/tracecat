@@ -24,8 +24,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { toast } from "@/components/ui/use-toast"
+import { useAuth } from "@/hooks/use-auth"
 import { useRegistryActions } from "@/lib/hooks"
-import { useAuth } from "@/providers/auth"
 
 export function RegistryActionsTable() {
   const { user } = useAuth()

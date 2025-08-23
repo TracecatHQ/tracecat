@@ -58,9 +58,9 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { toast } from "@/components/ui/use-toast"
+import { useAuth } from "@/hooks/use-auth"
 import { useDeleteColumn, useUpdateColumn } from "@/lib/hooks"
 import { SqlTypeEnum } from "@/lib/tables"
-import { useAuth } from "@/providers/auth"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 type TableViewColumnMenuType = "delete" | "edit" | "set-natural-key" | null

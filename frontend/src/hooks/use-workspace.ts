@@ -13,8 +13,8 @@ import {
   workspacesGetWorkspaceMembership,
   workspacesUpdateWorkspaceMembership,
 } from "@/client"
+import { useAuth } from "@/hooks/use-auth"
 import { retryHandler } from "@/lib/errors"
-import { useAuth } from "@/providers/auth"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 /* ── SELECTORS ─────────────────────────────────────────────────────────── */

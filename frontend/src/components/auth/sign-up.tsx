@@ -27,9 +27,9 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
+import { useAuth, useAuthActions } from "@/hooks/use-auth"
 import type { RequestValidationError, TracecatApiError } from "@/lib/errors"
 import { cn } from "@/lib/utils"
-import { useAuth } from "@/providers/auth"
 
 // Move type definition outside the function for reuse
 type EmailLoginValidationError = {
@@ -101,7 +101,7 @@ type BasicLoginForm = z.infer<typeof basicRegistrationSchema>
 
 export function BasicRegistrationForm() {
   const [isLoading, setIsLoading] = useState(false)
-  const { register, login } = useAuth()
+  const { register, login } = useAuthActions()
   const form = useForm<BasicLoginForm>({
     resolver: zodResolver(basicRegistrationSchema),
     defaultValues: {

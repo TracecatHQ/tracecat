@@ -44,10 +44,10 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
+import { useAuth } from "@/hooks/use-auth"
 import { useWorkspaceDetails } from "@/hooks/use-workspace"
 import { useWorkspaceManager } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
-import { useAuth } from "@/providers/auth"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 export function WorkspaceSelector(props: React.HTMLAttributes<HTMLElement>) {

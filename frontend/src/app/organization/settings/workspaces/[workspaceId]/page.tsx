@@ -6,7 +6,7 @@ import { workspacesGetWorkspace } from "@/client"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { OrgWorkspaceSettings } from "@/components/organization/org-workspace-settings"
-import { useAuth } from "@/providers/auth"
+import { useAuth } from "@/hooks/use-auth"
 
 export default function OrganizationWorkspaceSettingsPage() {
   const params = useParams<{ workspaceId: string }>()

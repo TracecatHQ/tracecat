@@ -3,7 +3,7 @@
 import { UpdateEmailForm } from "@/components/auth/update-email-form"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
-import { useAuth } from "@/providers/auth"
+import { useAuth } from "@/hooks/use-auth"
 
 export default function EmailPage() {
   const { user, userIsLoading } = useAuth()

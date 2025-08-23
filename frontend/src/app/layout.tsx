@@ -9,7 +9,6 @@ import { TooltipProvider } from "@/components/ui/tooltip"
 import { siteConfig } from "@/config/site"
 import { fontSans } from "@/lib/fonts"
 import { cn } from "@/lib/utils"
-import { AuthProvider } from "@/providers/auth"
 import type { PHProviderType } from "@/providers/posthog"
 import { DefaultQueryClientProvider } from "@/providers/query"
 
@@ -55,12 +54,10 @@ export default async function RootLayout({ children }: RootLayoutProps) {
           )}
         >
           <DefaultQueryClientProvider>
-            <AuthProvider>
-              <TooltipProvider>
-                {PostHogPageView && <PostHogPageView />}
-                {children}
-              </TooltipProvider>
-            </AuthProvider>
+            <TooltipProvider>
+              {PostHogPageView && <PostHogPageView />}
+              {children}
+            </TooltipProvider>
           </DefaultQueryClientProvider>
           <Toaster />
         </body>

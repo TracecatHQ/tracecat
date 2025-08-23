@@ -35,12 +35,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { useAuth } from "@/hooks/use-auth"
 import {
   useCurrentUserRole,
   useWorkspaceMutations,
 } from "@/hooks/use-workspace"
 import { WorkspaceRoleEnum } from "@/lib/workspace"
-import { useAuth } from "@/providers/auth"
 
 const addUserSchema = z.object({
   email: z.string().email(),

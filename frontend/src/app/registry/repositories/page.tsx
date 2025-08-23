@@ -3,8 +3,8 @@
 import { RefreshCcw } from "lucide-react"
 import { RegistryRepositoriesTable } from "@/components/registry/registry-repos-table"
 import { Button } from "@/components/ui/button"
+import { useAuth } from "@/hooks/use-auth"
 import { useRegistryRepositoriesReload } from "@/lib/hooks"
-import { useAuth } from "@/providers/auth"
 
 export default function RegistryRepositoriesPage() {
   const { user } = useAuth()

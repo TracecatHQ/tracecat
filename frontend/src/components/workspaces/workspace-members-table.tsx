@@ -48,12 +48,12 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { toast } from "@/components/ui/use-toast"
+import { useAuth } from "@/hooks/use-auth"
 import {
   useCurrentUserRole,
   useWorkspaceMutations,
 } from "@/hooks/use-workspace"
 import { WorkspaceRoleEnum } from "@/lib/workspace"
-import { useAuth } from "@/providers/auth"
 
 export function WorkspaceMembersTable({
   workspace,
