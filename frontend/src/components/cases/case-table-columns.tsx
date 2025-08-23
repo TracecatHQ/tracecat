@@ -185,10 +185,10 @@ export function createColumns(
         return (
           <Tooltip>
             <TooltipTrigger>
-              <span className="truncate text-xs">{fullDateTime}</span>
+              <span className="truncate text-xs">{timeAgo}</span>
             </TooltipTrigger>
             <TooltipContent>
-              <p>{timeAgo}</p>
+              <p>{fullDateTime}</p>
             </TooltipContent>
           </Tooltip>
         )
@@ -216,10 +216,10 @@ export function createColumns(
         return (
           <Tooltip>
             <TooltipTrigger>
-              <span className="truncate text-xs">{fullDateTime}</span>
+              <span className="truncate text-xs">{timeAgo}</span>
             </TooltipTrigger>
             <TooltipContent>
-              <p>{timeAgo}</p>
+              <p>{fullDateTime}</p>
             </TooltipContent>
           </Tooltip>
         )
