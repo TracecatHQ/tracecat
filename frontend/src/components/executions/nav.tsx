@@ -31,10 +31,10 @@ import { cn, undoSlugify } from "@/lib/utils"
 import "react18-json-view/src/style.css"
 
 import { TriangleRightIcon } from "@radix-ui/react-icons"
+import { useQueryClient } from "@tanstack/react-query"
 import Link from "next/link"
-import { useParams, usePathname, useRouter } from "next/navigation"
+import { useParams, usePathname } from "next/navigation"
 import { Spinner } from "@/components/loading/spinner"
-import { ToastAction } from "@/components/ui/toast"
 import { toast } from "@/components/ui/use-toast"
 import { parseExecutionId } from "@/lib/event-history"
 import { useWorkspace } from "@/providers/workspace"
@@ -49,12 +49,12 @@ export function WorkflowExecutionNav({
 }: {
   executions?: WorkflowExecutionReadMinimal[]
 }) {
-  const params = useParams<{ executionId: string }>()
+  const params = useParams<{ executionId: string; workflowId: string }>()
   const currExecutionId = params?.executionId
   const currExecutionIdDecoded = currExecutionId
     ? decodeURIComponent(currExecutionId)
     : null
-  const router = useRouter()
+  const queryClient = useQueryClient()
   const pathname = usePathname()
   const baseUrl = pathname ? pathname.split("/executions")[0] : ""
   const { workspaceId } = useWorkspace()
@@ -74,17 +74,12 @@ export function WorkflowExecutionNav({
       })
       toast({
         title: "Successfully requested termination",
-        description: `Execution ${executionId} has been terminated. You can refresh the page to see the updated status.`,
-        action: (
-          <ToastAction
-            altText="Refresh"
-            onClick={() => window.location.reload()}
-          >
-            Refresh
-          </ToastAction>
-        ),
+        description: `Execution ${executionId} has been terminated.`,
       })
-      router.refresh()
+      // Invalidate executions query to refetch data
+      queryClient.invalidateQueries({
+        queryKey: ["workflow-executions", params?.workflowId],
+      })
     } catch (error) {
       console.error(error)
       toast({
@@ -159,7 +154,7 @@ export function WorkflowExecutionNav({
                     <Label className="text-xs text-muted-foreground">
                       Execution ID
                     </Label>
-                    <span>{parseExecutionId(execution.id)[1]}</span>
+                    <span>{executionId}</span>
                   </div>
                   <div className="flex flex-col">
                     <Label className="text-xs text-muted-foreground">
