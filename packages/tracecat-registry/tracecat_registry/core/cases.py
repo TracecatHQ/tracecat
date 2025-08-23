@@ -123,7 +123,7 @@ async def create_case(
             # Refresh case to include tags
             await service.session.refresh(case)
 
-    return case.model_dump()
+    return case.model_dump(mode="json")
 
 
 @registry.register(
@@ -213,7 +213,7 @@ async def update_case(
             # Refresh case to include updated tags
             await service.session.refresh(updated_case)
 
-    return updated_case.model_dump()
+    return updated_case.model_dump(mode="json")
 
 
 @registry.register(
@@ -249,7 +249,7 @@ async def create_comment(
                     parent_id=UUID(parent_id) if parent_id else None,
                 ),
             )
-    return comment.model_dump()
+    return comment.model_dump(mode="json")
 
 
 @registry.register(
@@ -285,7 +285,7 @@ async def update_comment(
         updated_comment = await service.update_comment(
             comment, CaseCommentUpdate(**params)
         )
-    return updated_comment.model_dump()
+    return updated_comment.model_dump(mode="json")
 
 
 @registry.register(
@@ -599,7 +599,7 @@ async def assign_user(
         updated_case = await service.update_case(
             case, CaseUpdate(assignee_id=UUID(assignee_id))
         )
-    return updated_case.model_dump()
+    return updated_case.model_dump(mode="json")
 
 
 @registry.register(
@@ -630,7 +630,7 @@ async def assign_user_by_email(
 
         # Update the case with the user's ID
         updated_case = await service.update_case(case, CaseUpdate(assignee_id=user.id))
-    return updated_case.model_dump()
+    return updated_case.model_dump(mode="json")
 
 
 @registry.register(
