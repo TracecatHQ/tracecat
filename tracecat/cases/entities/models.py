@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any
 
 from pydantic import UUID4, BaseModel, Field
@@ -20,6 +21,8 @@ class CaseRecordLinkRead(BaseModel):
     case_id: UUID4
     entity_id: UUID4
     record_id: UUID4
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
     entity: "CaseEntityRead | None" = None
     record: "CaseRecordRead | None" = None
 

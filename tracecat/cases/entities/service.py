@@ -188,6 +188,8 @@ class CaseEntitiesService(BaseWorkspaceService):
                     case_id=link.case_id,
                     entity_id=link.entity_id,
                     record_id=link.record_id,
+                    created_at=link.created_at,
+                    updated_at=link.updated_at,
                     entity=entity_read,
                     record=record_read,
                 )
@@ -375,6 +377,8 @@ class CaseEntitiesService(BaseWorkspaceService):
             case_id=link.case_id,
             entity_id=link.entity_id,
             record_id=link.record_id,
+            created_at=link.created_at,
+            updated_at=link.updated_at,
             entity=entity_read,
             record=record_read,
         )
@@ -430,6 +434,8 @@ class CaseEntitiesService(BaseWorkspaceService):
             case_id=link_read.case_id,
             entity_id=link_read.entity_id,
             record_id=link_read.record_id,
+            created_at=link_read.created_at,
+            updated_at=link_read.updated_at,
             entity=link_read.entity,
             record=CaseRecordRead(
                 id=entity_record.id,
