@@ -1,6 +1,6 @@
 "use client"
 
-import { Database, Loader2, Plus } from "lucide-react"
+import { ChevronDown, Database, Loader2, Plus } from "lucide-react"
 import { useMemo, useState } from "react"
 import type { CaseEntityRead, CaseRecordLinkRead } from "@/client"
 import { CreateEntityRecordDialog } from "@/components/cases/create-entity-record-dialog"
@@ -16,10 +16,17 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   useDeleteCaseRecord,
   useListCaseRecords,
+  useListEntities,
   useRemoveCaseRecordLink,
 } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
@@ -33,7 +40,7 @@ export function CaseEntitiesSection({
   caseId,
   workspaceId,
 }: CaseEntitiesSectionProps) {
-  const [showCreateDialog, setShowCreateDialog] = useState(false)
+  const [selectedEntityId, setSelectedEntityId] = useState<string | null>(null)
   const [editingRecord, setEditingRecord] = useState<CaseRecordLinkRead | null>(
     null
   )
@@ -46,6 +53,11 @@ export function CaseEntitiesSection({
   const { records, isLoading: isLoadingRecords } = useListCaseRecords({
     caseId,
     workspaceId,
+  })
+
+  const { entities, isLoading: isLoadingEntities } = useListEntities({
+    workspaceId,
+    includeInactive: false,
   })
 
   // Build unique entities list from recordLinks for relation tooltips
@@ -105,21 +117,50 @@ export function CaseEntitiesSection({
 
   return (
     <div className="space-y-4 p-4">
-      {/* Add entity record button */}
-      <div
-        onClick={() => setShowCreateDialog(true)}
-        className={cn(
-          "flex items-center gap-2 p-1.5 rounded-md border border-dashed transition-all cursor-pointer group",
-          "border-muted-foreground/25 hover:border-muted-foreground/50 hover:bg-muted/30"
-        )}
-      >
-        <div className="p-1.5 rounded bg-muted group-hover:bg-muted-foreground/10 transition-colors">
-          <Plus className="h-3.5 w-3.5 text-muted-foreground" />
-        </div>
-        <span className="text-xs text-muted-foreground group-hover:text-foreground transition-colors">
-          Add entity record
-        </span>
-      </div>
+      {/* Add entity record dropdown */}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <div
+            className={cn(
+              "flex items-center justify-between gap-2 p-1.5 rounded-md border border-dashed transition-all cursor-pointer group",
+              "border-muted-foreground/25 hover:border-muted-foreground/50 hover:bg-muted/30"
+            )}
+          >
+            <div className="flex items-center gap-2">
+              <div className="p-1.5 rounded bg-muted group-hover:bg-muted-foreground/10 transition-colors">
+                <Plus className="h-3.5 w-3.5 text-muted-foreground" />
+              </div>
+              <span className="text-xs text-muted-foreground group-hover:text-foreground transition-colors">
+                Add entity record
+              </span>
+            </div>
+            <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+          </div>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="w-[200px]">
+          {isLoadingEntities ? (
+            <DropdownMenuItem disabled>
+              <Loader2 className="mr-2 h-3 w-3 animate-spin" />
+              Loading entities...
+            </DropdownMenuItem>
+          ) : entities && entities.length > 0 ? (
+            entities.map((entity) => (
+              <DropdownMenuItem
+                key={entity.id}
+                onClick={() => setSelectedEntityId(entity.id)}
+                className="text-xs"
+              >
+                <Database className="mr-2 h-3 w-3" />
+                {entity.display_name}
+              </DropdownMenuItem>
+            ))
+          ) : (
+            <DropdownMenuItem disabled className="text-xs">
+              No entities available
+            </DropdownMenuItem>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
 
       {/* Records list */}
       {isLoadingRecords ? (
@@ -172,13 +213,20 @@ export function CaseEntitiesSection({
       )}
 
       {/* Create dialog */}
-      <CreateEntityRecordDialog
-        open={showCreateDialog}
-        onOpenChange={setShowCreateDialog}
-        caseId={caseId}
-        workspaceId={workspaceId}
-        onSuccess={() => setShowCreateDialog(false)}
-      />
+      {selectedEntityId && (
+        <CreateEntityRecordDialog
+          open={!!selectedEntityId}
+          onOpenChange={(open) => {
+            if (!open) {
+              setSelectedEntityId(null)
+            }
+          }}
+          entityId={selectedEntityId}
+          caseId={caseId}
+          workspaceId={workspaceId}
+          onSuccess={() => setSelectedEntityId(null)}
+        />
+      )}
 
       {/* Edit dialog */}
       {editingRecord && (

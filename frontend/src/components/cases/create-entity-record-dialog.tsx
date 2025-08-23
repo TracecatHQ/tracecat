@@ -1,30 +1,36 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
-import { Database, Loader2 } from "lucide-react"
+import { Database, Link, Loader2 } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import type { CaseRecordLinkCreate, EntitySchemaField } from "@/client"
 import { EntityFieldInput } from "@/components/cases/entity-field-input"
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from "@/components/ui/breadcrumb"
 import { Button } from "@/components/ui/button"
+import {
+  Carousel,
+  CarouselContent,
+  CarouselItem,
+  CarouselNext,
+  CarouselPrevious,
+} from "@/components/ui/carousel"
 import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
-  DialogTitle,
 } from "@/components/ui/dialog"
 import { Form } from "@/components/ui/form"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   useCreateCaseRecord,
@@ -36,6 +42,7 @@ import {
 interface CreateEntityRecordDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  entityId: string
   caseId: string
   workspaceId: string
   onSuccess?: () => void
@@ -197,11 +204,12 @@ function generateFieldSchema(field: EntitySchemaField): z.ZodTypeAny {
 export function CreateEntityRecordDialog({
   open,
   onOpenChange,
+  entityId,
   caseId,
   workspaceId,
   onSuccess,
 }: CreateEntityRecordDialogProps) {
-  const [selectedEntityId, setSelectedEntityId] = useState<string>("")
+  const [currentStep, setCurrentStep] = useState<1 | 2>(1)
   const [relationSchemas, setRelationSchemas] = useState<
     Map<string, EntitySchemaField[]>
   >(new Map())
@@ -209,18 +217,18 @@ export function CreateEntityRecordDialog({
     Map<string, string>
   >(new Map())
 
-  const { entities, isLoading: entitiesLoading } = useListEntities({
+  const { entities } = useListEntities({
     workspaceId,
     includeInactive: false,
   })
 
   const { schema, isLoading: schemaLoading } = useGetEntitySchema({
-    entityId: selectedEntityId,
+    entityId: entityId,
     workspaceId,
   })
 
   const { fields: fullFields, isLoading: fieldsLoading } = useListEntityFields({
-    entityId: selectedEntityId,
+    entityId: entityId,
     workspaceId,
   })
 
@@ -337,7 +345,7 @@ export function CreateEntityRecordDialog({
   }, [schema, form])
 
   const handleSubmit = async (values: z.infer<typeof formSchema>) => {
-    if (!selectedEntityId) return
+    if (!entityId) return
 
     try {
       // Filter out empty relation objects and null values
@@ -357,14 +365,13 @@ export function CreateEntityRecordDialog({
       )
 
       const recordData: CaseRecordLinkCreate = {
-        entity_id: selectedEntityId,
+        entity_id: entityId,
         record_data: filteredValues,
       }
 
       await createRecord(recordData)
       onOpenChange(false)
       form.reset()
-      setSelectedEntityId("")
       onSuccess?.()
     } catch (error) {
       console.error("Failed to create entity record:", error)
@@ -391,54 +398,94 @@ export function CreateEntityRecordDialog({
     return false
   }, [regularFields, relationFields, relationSchemas])
 
+  // Helper function to handle step navigation
+  const handleStepChange = (step: 1 | 2) => {
+    setCurrentStep(step)
+  }
+
+  // Check if we have relations to show
+  const hasRelations =
+    relationFields.length > 0 &&
+    relationFields.some((field) => {
+      const relatedSchema = relationSchemas.get(field.key)
+      return relatedSchema && relatedSchema.length > 0
+    })
+
+  // Set initial step when dialog opens
+  useEffect(() => {
+    if (open && schema) {
+      if (regularFields.length > 0) {
+        setCurrentStep(1)
+      } else if (hasRelations) {
+        setCurrentStep(2)
+      }
+    }
+  }, [open, schema, regularFields.length, hasRelations])
+
+  // Get selected entity name
+  const selectedEntity = entities?.find((e) => e.id === entityId)
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl max-h-[85vh] overflow-hidden flex flex-col">
         <DialogHeader>
-          <DialogTitle>Add entity record</DialogTitle>
-          <DialogDescription>
-            Select an entity and fill in the record data to link it to this
-            case.
-          </DialogDescription>
+          <div className="space-y-4">
+            {regularFields.length > 0 && hasRelations && (
+              <Breadcrumb>
+                <BreadcrumbList>
+                  <BreadcrumbItem>
+                    {currentStep === 1 ? (
+                      <BreadcrumbPage className="flex items-center gap-2">
+                        <Database className="h-4 w-4" />
+                        Fields
+                      </BreadcrumbPage>
+                    ) : (
+                      <BreadcrumbLink
+                        className="flex items-center gap-2 cursor-pointer"
+                        onClick={() => handleStepChange(1)}
+                      >
+                        <Database className="h-4 w-4" />
+                        Fields
+                      </BreadcrumbLink>
+                    )}
+                  </BreadcrumbItem>
+                  <BreadcrumbSeparator />
+                  <BreadcrumbItem>
+                    {currentStep === 2 ? (
+                      <BreadcrumbPage className="flex items-center gap-2">
+                        <Link className="h-4 w-4" />
+                        Related entities
+                      </BreadcrumbPage>
+                    ) : (
+                      <BreadcrumbLink
+                        className="flex items-center gap-2 cursor-pointer"
+                        onClick={() => handleStepChange(2)}
+                      >
+                        <Link className="h-4 w-4" />
+                        Related entities
+                      </BreadcrumbLink>
+                    )}
+                  </BreadcrumbItem>
+                </BreadcrumbList>
+              </Breadcrumb>
+            )}
+            <DialogDescription>
+              {currentStep === 1 &&
+                regularFields.length > 0 &&
+                `Fill in field data for ${selectedEntity?.display_name || "entity"}.`}
+              {currentStep === 2 &&
+                `Fill in field data for entities related to ${selectedEntity?.display_name || "entity"}.`}
+              {!regularFields.length &&
+                hasRelations &&
+                `Fill in field data for entities related to ${selectedEntity?.display_name || "entity"}.`}
+            </DialogDescription>
+          </div>
         </DialogHeader>
 
         <div className="flex-1 overflow-y-auto px-1 py-0.5">
           <div className="space-y-6">
-            {/* Entity Selector */}
-            <div className="space-y-2">
-              <label className="text-xs font-medium">Entity</label>
-              {entitiesLoading ? (
-                <Skeleton className="h-8 w-full" />
-              ) : (
-                <Select
-                  value={selectedEntityId}
-                  onValueChange={setSelectedEntityId}
-                >
-                  <SelectTrigger className="h-8 text-xs">
-                    <SelectValue placeholder="Select an entity" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {entities?.map((entity) => (
-                      <SelectItem
-                        key={entity.id}
-                        value={entity.id}
-                        className="text-xs"
-                      >
-                        <div className="flex items-center gap-2">
-                          <span>{entity.display_name}</span>
-                          <span className="text-muted-foreground">
-                            ({entity.name})
-                          </span>
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-            </div>
-
-            {/* Dynamic Form Fields */}
-            {selectedEntityId && (
+            {/* Step 1: Regular Fields */}
+            {currentStep === 1 && regularFields.length > 0 && (
               <>
                 {isLoadingData ? (
                   <div className="space-y-3">
@@ -447,112 +494,192 @@ export function CreateEntityRecordDialog({
                     <Skeleton className="h-8 w-full" />
                   </div>
                 ) : schema ? (
-                  // Check if entity has any fillable fields
-                  !hasFillableFields ? (
-                    <div className="flex flex-col items-center justify-center py-8">
-                      <div className="p-2 rounded-full bg-muted/50 mb-3">
-                        <Database className="h-5 w-5 text-muted-foreground" />
+                  <Form {...form}>
+                    <form
+                      onSubmit={form.handleSubmit(handleSubmit)}
+                      className="space-y-6"
+                    >
+                      {/* Main Entity Fields - No Badge */}
+                      <div className="space-y-4">
+                        {regularFields.map((field) => (
+                          <EntityFieldInput
+                            key={field.key}
+                            field={field}
+                            control={form.control}
+                            name={field.key}
+                            disabled={isCreating}
+                          />
+                        ))}
                       </div>
-                      <h3 className="text-sm font-medium text-muted-foreground mb-1">
-                        No fields found
-                      </h3>
-                      <p className="text-xs text-muted-foreground/75 text-center max-w-[250px]">
-                        The selected entity requires at least one field to be
-                        filled in.
-                      </p>
-                    </div>
-                  ) : (
-                    <Form {...form}>
-                      <form
-                        onSubmit={form.handleSubmit(handleSubmit)}
-                        className="space-y-6"
-                      >
-                        {/* Main Entity Fields */}
-                        {regularFields.length > 0 && (
-                          <div className="space-y-4">
-                            {regularFields.length > 0 &&
-                              relationFields.length > 0 && (
-                                <h3 className="text-sm font-medium text-muted-foreground">
-                                  {schema.entity.display_name} fields
-                                </h3>
-                              )}
-                            {regularFields.map((field) => (
-                              <EntityFieldInput
-                                key={field.key}
-                                field={field}
-                                control={form.control}
-                                name={field.key}
-                                disabled={isCreating}
-                              />
-                            ))}
-                          </div>
-                        )}
-
-                        {/* Relation Fields */}
-                        {relationFields.map((field) => {
-                          const relatedSchema = relationSchemas.get(field.key)
-                          const entityName = relationEntityNames.get(field.key)
-
-                          if (!relatedSchema || relatedSchema.length === 0)
-                            return null
-
-                          return (
-                            <div key={field.key} className="space-y-4">
-                              <Separator />
-                              <div className="space-y-4">
-                                <div>
-                                  <h3 className="text-sm font-medium">
-                                    {field.display_name}
-                                  </h3>
-                                  {entityName && (
-                                    <p className="text-xs text-muted-foreground mt-1">
-                                      Create new {entityName}
-                                    </p>
-                                  )}
-                                </div>
-                                {relatedSchema.map((relField) => (
-                                  <EntityFieldInput
-                                    key={`${field.key}.${relField.key}`}
-                                    field={relField}
-                                    control={form.control}
-                                    name={`${field.key}.${relField.key}`}
-                                    disabled={isCreating}
-                                  />
-                                ))}
-                              </div>
-                            </div>
-                          )
-                        })}
-                      </form>
-                    </Form>
-                  )
+                    </form>
+                  </Form>
                 ) : null}
               </>
+            )}
+
+            {/* Step 2: Relation Fields Carousel */}
+            {currentStep === 2 && hasRelations && (
+              <>
+                {isLoadingData ? (
+                  <div className="space-y-3">
+                    <Skeleton className="h-8 w-full" />
+                    <Skeleton className="h-8 w-full" />
+                    <Skeleton className="h-8 w-full" />
+                  </div>
+                ) : schema ? (
+                  <Form {...form}>
+                    <form
+                      onSubmit={form.handleSubmit(handleSubmit)}
+                      className="space-y-6"
+                    >
+                      <div className="px-12">
+                        <Carousel className="w-full">
+                          <CarouselContent>
+                            {(() => {
+                              let visibleIndex = 0
+                              const visibleRelationsCount =
+                                relationFields.filter((f) => {
+                                  const schema = relationSchemas.get(f.key)
+                                  return schema && schema.length > 0
+                                }).length
+
+                              return relationFields.map((field) => {
+                                const relatedSchema = relationSchemas.get(
+                                  field.key
+                                )
+                                const entityName = relationEntityNames.get(
+                                  field.key
+                                )
+
+                                if (
+                                  !relatedSchema ||
+                                  relatedSchema.length === 0
+                                )
+                                  return null
+
+                                visibleIndex++
+                                const currentIndex = visibleIndex
+
+                                return (
+                                  <CarouselItem key={field.key}>
+                                    <div className="p-1">
+                                      <div className="space-y-6 pt-3">
+                                        <div>
+                                          <h3 className="text-base font-medium">
+                                            {field.display_name}
+                                            {visibleRelationsCount > 1 && (
+                                              <span className="text-muted-foreground ml-2 text-sm">
+                                                ({currentIndex} of{" "}
+                                                {visibleRelationsCount})
+                                              </span>
+                                            )}
+                                          </h3>
+                                          {entityName && (
+                                            <p className="text-xs text-muted-foreground mt-1">
+                                              Create new {entityName}
+                                            </p>
+                                          )}
+                                        </div>
+                                        <div className="space-y-4">
+                                          {relatedSchema.map((relField) => (
+                                            <EntityFieldInput
+                                              key={`${field.key}.${relField.key}`}
+                                              field={relField}
+                                              control={form.control}
+                                              name={`${field.key}.${relField.key}`}
+                                              disabled={isCreating}
+                                            />
+                                          ))}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </CarouselItem>
+                                )
+                              })
+                            })()}
+                          </CarouselContent>
+                          {relationFields.filter((field) => {
+                            const relatedSchema = relationSchemas.get(field.key)
+                            return relatedSchema && relatedSchema.length > 0
+                          }).length > 1 && (
+                            <>
+                              <CarouselPrevious />
+                              <CarouselNext />
+                            </>
+                          )}
+                        </Carousel>
+                      </div>
+                    </form>
+                  </Form>
+                ) : null}
+              </>
+            )}
+
+            {/* No fields message */}
+            {!isLoadingData && schema && !hasFillableFields && (
+              <div className="flex flex-col items-center justify-center py-8">
+                <div className="p-2 rounded-full bg-muted/50 mb-3">
+                  <Database className="h-5 w-5 text-muted-foreground" />
+                </div>
+                <h3 className="text-sm font-medium text-muted-foreground mb-1">
+                  No fields found
+                </h3>
+                <p className="text-xs text-muted-foreground/75 text-center max-w-[250px]">
+                  The selected entity requires at least one field to be filled
+                  in.
+                </p>
+              </div>
             )}
           </div>
         </div>
 
         <DialogFooter className="pt-4">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-            disabled={isCreating}
-          >
-            Cancel
-          </Button>
-          <Button
-            onClick={form.handleSubmit(handleSubmit)}
-            disabled={
-              !selectedEntityId ||
-              isCreating ||
-              isLoadingData ||
-              (schema && !hasFillableFields)
-            }
-          >
-            {isCreating && <Loader2 className="mr-2 h-3 w-3 animate-spin" />}
-            Create
-          </Button>
+          <div className="flex items-center justify-end w-full">
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  onOpenChange(false)
+                  setCurrentStep(1)
+                  form.reset()
+                }}
+                disabled={isCreating}
+              >
+                Cancel
+              </Button>
+
+              {/* Next Button for Step 1 */}
+              {currentStep === 1 &&
+                regularFields.length > 0 &&
+                hasRelations && (
+                  <Button
+                    onClick={() => setCurrentStep(2)}
+                    disabled={isCreating}
+                  >
+                    Next
+                  </Button>
+                )}
+
+              {/* Create Button for Final Step or Step 1 if no relations */}
+              {((currentStep === 1 && !hasRelations) || currentStep === 2) && (
+                <Button
+                  onClick={form.handleSubmit(handleSubmit)}
+                  disabled={
+                    !entityId ||
+                    isCreating ||
+                    isLoadingData ||
+                    (schema && !hasFillableFields)
+                  }
+                >
+                  {isCreating && (
+                    <Loader2 className="mr-2 h-3 w-3 animate-spin" />
+                  )}
+                  Create
+                </Button>
+              )}
+            </div>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>

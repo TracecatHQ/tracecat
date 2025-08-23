@@ -8,6 +8,7 @@ import { usePathname, useSearchParams } from "next/navigation"
 import { type ReactNode, useState } from "react"
 import type { OAuthGrantType } from "@/client"
 import { entitiesCreateEntity } from "@/client"
+import { AddCustomField } from "@/components/cases/add-custom-field"
 import { CreateCaseDialog } from "@/components/cases/case-create-dialog"
 import {
   CasesViewMode,
@@ -33,7 +34,6 @@ import {
 import { Button } from "@/components/ui/button"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 import { toast } from "@/components/ui/use-toast"
-import { AddCustomField } from "@/components/cases/add-custom-field"
 import { AddWorkspaceMember } from "@/components/workspaces/add-workspace-member"
 import {
   NewCredentialsDialog,
