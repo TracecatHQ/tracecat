@@ -41,8 +41,8 @@ class FieldType(StrEnum):
     MULTI_SELECT = "MULTI_SELECT"
 
     # Relation types
-    RELATION_BELONGS_TO = "RELATION_BELONGS_TO"  # N:1 relationship
-    RELATION_HAS_MANY = "RELATION_HAS_MANY"  # 1:N relationship
+    RELATION_BELONGS_TO = "RELATION_BELONGS_TO"  # 1:1 per source record (one source may point to one target)
+    RELATION_HAS_MANY = "RELATION_HAS_MANY"  # 1:N from source record (one source may point to many targets)
 
 
 class FieldValidator(Protocol):
