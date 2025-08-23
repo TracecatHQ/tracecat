@@ -595,6 +595,7 @@ export function useWorkspaceManager() {
   } = useQuery({
     queryKey: ["workspaces"],
     queryFn: async () => await workspacesListWorkspaces(),
+    staleTime: 5 * 60 * 1000, // 5 minutes
   })
 
   // Create workspace
