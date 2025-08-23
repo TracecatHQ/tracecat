@@ -73,6 +73,8 @@ const fieldTypeConfig: Partial<
   ARRAY_NUMBER: { label: "Number array", icon: Brackets },
   RELATION_ONE_TO_ONE: { label: "One to one", icon: Link },
   RELATION_ONE_TO_MANY: { label: "One to many", icon: Network },
+  RELATION_MANY_TO_ONE: { label: "Many to one", icon: Link },
+  RELATION_MANY_TO_MANY: { label: "Many to many", icon: Network },
 }
 
 interface EntityFieldsTableProps {
@@ -157,7 +159,9 @@ export function EntityFieldsTable({
                 let targetEntityName: string | undefined
                 if (
                   (fieldType === "RELATION_ONE_TO_ONE" ||
-                    fieldType === "RELATION_ONE_TO_MANY") &&
+                    fieldType === "RELATION_ONE_TO_MANY" ||
+                    fieldType === "RELATION_MANY_TO_ONE" ||
+                    fieldType === "RELATION_MANY_TO_MANY") &&
                   field.target_entity_id &&
                   entities
                 ) {
@@ -182,6 +186,10 @@ export function EntityFieldsTable({
                     return `One ${currentEntityName} to one ${targetEntityName}`
                   } else if (fieldType === "RELATION_ONE_TO_MANY") {
                     return `One ${currentEntityName} to many ${targetEntityName}`
+                  } else if (fieldType === "RELATION_MANY_TO_ONE") {
+                    return `Many ${currentEntityName} to one ${targetEntityName}`
+                  } else if (fieldType === "RELATION_MANY_TO_MANY") {
+                    return `Many ${currentEntityName} to many ${targetEntityName}`
                   }
                   return null
                 }

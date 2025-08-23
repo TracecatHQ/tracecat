@@ -181,6 +181,87 @@ async def _prepare_all_field_types(
     return entity.id, create_data, update_data
 
 
+@pytest.mark.anyio
+async def test_case_entities_with_many_to_one_and_many_to_many(
+    case_entities_service: CaseEntitiesService,
+    entities_admin_service: CustomEntitiesService,
+    cases_service: CasesService,
+) -> None:
+    """Ensure case list resolves many_to_one as object and many_to_many as list."""
+    # Create case
+    case = await cases_service.create_case(
+        CaseCreate(
+            title="Test Case",
+            summary="Test case for entities",
+            description="",
+            status=CaseStatus.NEW,
+            severity=CaseSeverity.MEDIUM,
+            priority=CasePriority.MEDIUM,
+        )
+    )
+
+    # Setup entities
+    parent = await entities_admin_service.create_entity(
+        name="ce_parent", display_name="Parent"
+    )
+    await entities_admin_service.create_field(parent.id, "name", FieldType.TEXT, "Name")
+    p1 = await entities_admin_service.create_record(parent.id, {"name": "P1"})
+
+    tag = await entities_admin_service.create_entity(name="ce_tag", display_name="Tag")
+    await entities_admin_service.create_field(tag.id, "name", FieldType.TEXT, "Name")
+    t1 = await entities_admin_service.create_record(tag.id, {"name": "T1"})
+    t2 = await entities_admin_service.create_record(tag.id, {"name": "T2"})
+
+    child = await entities_admin_service.create_entity(
+        name="ce_child", display_name="Child"
+    )
+    await entities_admin_service.create_field(
+        child.id, "title", FieldType.TEXT, "Title"
+    )
+
+    from tracecat.entities.enums import RelationType
+    from tracecat.entities.models import RelationSettings
+
+    await entities_admin_service.create_relation_field(
+        child.id,
+        "parent",
+        FieldType.RELATION_MANY_TO_ONE,
+        "Parent",
+        relation_settings=RelationSettings(
+            relation_type=RelationType.MANY_TO_ONE, target_entity_id=parent.id
+        ),
+    )
+    await entities_admin_service.create_relation_field(
+        child.id,
+        "tags",
+        FieldType.RELATION_MANY_TO_MANY,
+        "Tags",
+        relation_settings=RelationSettings(
+            relation_type=RelationType.MANY_TO_MANY, target_entity_id=tag.id
+        ),
+    )
+
+    # Create child record and link to case
+    await case_entities_service.create_record(
+        case_id=case.id,
+        entity_id=child.id,
+        entity_data={
+            "title": "Child A",
+            "parent": str(p1.id),
+            "tags": [str(t1.id), str(t2.id)],
+        },
+    )
+
+    # List records for case and inspect resolved relations
+    results = await case_entities_service.list_records(case.id)
+    assert len(results) == 1
+    rec = results[0].record
+    assert rec is not None
+    assert "parent" in rec.relation_fields and "tags" in rec.relation_fields
+    assert isinstance(rec.field_data.get("parent"), dict)
+    assert isinstance(rec.field_data.get("tags"), list)
+
+
 async def _prepare_security_alert(
     svc: CustomEntitiesService,
 ) -> tuple[uuid.UUID, dict[str, Any], dict[str, Any]]:
@@ -1037,11 +1118,20 @@ class TestCaseEntitiesServiceAdditional:
         assert isinstance(field_data["multi_select"], list)
         assert set(field_data["multi_select"]) == {"x", "z"}
 
-        # Relation fields are NOT in field_data (stored as links)
-        assert "department" not in field_data
+        # Relation fields ARE resolved and included in field_data for case entities
+        # The case entities service resolves relations at read time
+        assert "department" in field_data
+        # Department relation should be resolved to the related record's field_data
+        assert isinstance(field_data["department"], dict)
+        assert field_data["department"]["name"] == "Engineering"
 
-        # One_to_many relations are NOT in field_data (stored as links)
-        assert "projects" not in field_data
+        # One_to_many relations are resolved as lists of related records
+        assert "projects" in field_data
+        assert isinstance(field_data["projects"], list)
+        assert len(field_data["projects"]) == 2
+        # Projects should be resolved to their field_data
+        project_codes = {p["code"] for p in field_data["projects"]}
+        assert project_codes == {"PJT-A", "PJT-B"}
 
         # Verify that field metadata would be available for UI rendering
         # (Frontend would need to call a separate endpoint to get field definitions)

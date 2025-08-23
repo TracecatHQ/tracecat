@@ -184,6 +184,30 @@ async def create_field(
     """Create a new field for an entity."""
     service = CustomEntitiesService(session, role)
     try:
+        # Route relation field types to relation creation path
+        from tracecat.entities.types import FieldType as CEFieldType
+
+        if params.field_type in (
+            CEFieldType.RELATION_ONE_TO_ONE,
+            CEFieldType.RELATION_ONE_TO_MANY,
+            CEFieldType.RELATION_MANY_TO_ONE,
+            CEFieldType.RELATION_MANY_TO_MANY,
+        ):
+            if not params.relation_settings:
+                raise HTTPException(
+                    status_code=400,
+                    detail="relation_settings required for relation fields",
+                )
+            field = await service.create_relation_field(
+                entity_id=entity_id,
+                field_key=params.field_key,
+                field_type=params.field_type,
+                display_name=params.display_name,
+                relation_settings=params.relation_settings,
+                description=params.description,
+            )
+            return FieldMetadataRead.model_validate(field, from_attributes=True)
+
         # Pass parameters directly - Pydantic handles None values properly
         field = await service.create_field(
             entity_id=entity_id,
@@ -323,7 +347,8 @@ async def create_relation_field(
 ) -> FieldMetadataRead:
     """Create a relation field.
 
-    Requires relation_settings in the request body.
+    Requires `relation_settings` in the body. Optionally set `backref_key` to
+    auto-create a complementary field on the target entity (linked via backref_field_id).
     """
     if not params.relation_settings:
         raise HTTPException(

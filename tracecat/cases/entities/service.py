@@ -17,7 +17,6 @@ from tracecat.db.schemas import (
     RecordRelationLink,
 )
 from tracecat.entities.service import CustomEntitiesService
-from tracecat.entities.types import FieldType
 from tracecat.service import BaseWorkspaceService
 from tracecat.types.exceptions import TracecatNotFoundError
 
@@ -68,8 +67,8 @@ class CaseEntitiesService(BaseWorkspaceService):
 
             relation_fields.append(field.field_key)
 
-            # Get related records for this field
-            if field.field_type == FieldType.RELATION_ONE_TO_ONE.value:
+            # Get related records for this field based on relation_kind
+            if field.relation_kind == "one_to_one":
                 # For one_to_one, fetch the single related record
                 link_stmt = select(RecordRelationLink).where(
                     RecordRelationLink.source_record_id == record.id,
@@ -90,16 +89,12 @@ class CaseEntitiesService(BaseWorkspaceService):
                 else:
                     field_data[field.field_key] = None
 
-            elif field.field_type == FieldType.RELATION_ONE_TO_MANY.value:
-                # For one_to_many, fetch multiple related records (limited)
-                links_stmt = (
-                    select(RecordRelationLink)
-                    .where(
-                        RecordRelationLink.source_record_id == record.id,
-                        RecordRelationLink.source_field_id == field.id,
-                    )
-                    .limit(10)
-                )  # Limit to prevent performance issues
+            elif field.relation_kind == "one_to_many":
+                # For one_to_many, fetch multiple related records
+                links_stmt = select(RecordRelationLink).where(
+                    RecordRelationLink.source_record_id == record.id,
+                    RecordRelationLink.source_field_id == field.id,
+                )
 
                 links_result = await self.session.exec(links_stmt)
                 links = links_result.all()

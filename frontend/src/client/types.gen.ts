@@ -1517,6 +1517,7 @@ export type FieldMetadataRead = {
   updated_at: string
   relation_kind?: string | null
   target_entity_id?: string | null
+  backref_field_id?: string | null
   enum_options?: Array<string> | null
   default_value?: unknown | null
 }
@@ -1554,6 +1555,8 @@ export type FieldType =
   | "MULTI_SELECT"
   | "RELATION_ONE_TO_ONE"
   | "RELATION_ONE_TO_MANY"
+  | "RELATION_MANY_TO_ONE"
+  | "RELATION_MANY_TO_MANY"
 
 export type Float = {
   component_id?: "float"
@@ -2726,8 +2729,14 @@ export type RelationSettings = {
  *
  * These values are used in the API and models layer to represent
  * the type of relationship from the perspective of the source entity.
+ *
+ * Note: We use explicit cardinality terms to avoid ambiguity.
  */
-export type RelationType = "one_to_one" | "one_to_many"
+export type RelationType =
+  | "one_to_one"
+  | "one_to_many"
+  | "many_to_one"
+  | "many_to_many"
 
 /**
  * Event for when a case is reopened.
@@ -5836,7 +5845,7 @@ export type PublicCheckHealthResponse = {
 
 export type $OpenApiTs = {
   "/webhooks/{workflow_id}/{secret}": {
-    post: {
+    get: {
       req: PublicIncomingWebhookData
       res: {
         /**
@@ -5849,7 +5858,7 @@ export type $OpenApiTs = {
         422: HTTPValidationError
       }
     }
-    get: {
+    post: {
       req: PublicIncomingWebhook1Data
       res: {
         /**

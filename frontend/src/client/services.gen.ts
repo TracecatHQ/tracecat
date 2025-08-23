@@ -453,7 +453,7 @@ export const publicIncomingWebhook = (
   data: PublicIncomingWebhookData
 ): CancelablePromise<PublicIncomingWebhookResponse> => {
   return __request(OpenAPI, {
-    method: "POST",
+    method: "GET",
     url: "/webhooks/{workflow_id}/{secret}",
     path: {
       secret: data.secret,
@@ -493,7 +493,7 @@ export const publicIncomingWebhook1 = (
   data: PublicIncomingWebhook1Data
 ): CancelablePromise<PublicIncomingWebhook1Response> => {
   return __request(OpenAPI, {
-    method: "GET",
+    method: "POST",
     url: "/webhooks/{workflow_id}/{secret}",
     path: {
       secret: data.secret,
@@ -4761,7 +4761,8 @@ export const entitiesDeleteField = (
  * Create Relation Field
  * Create a relation field.
  *
- * Requires relation_settings in the request body.
+ * Requires `relation_settings` in the body. Optionally set `backref_key` to
+ * auto-create a complementary field on the target entity (linked via backref_field_id).
  * @param data The data for the request.
  * @param data.entityId
  * @param data.workspaceId

@@ -73,10 +73,13 @@ export default function EntityDetailPage() {
       default_value?: unknown
     }) => {
       // Use different endpoint for relation fields
-      if (
+      const isRelationField =
         data.field_type === "RELATION_ONE_TO_ONE" ||
-        data.field_type === "RELATION_ONE_TO_MANY"
-      ) {
+        data.field_type === "RELATION_ONE_TO_MANY" ||
+        data.field_type === "RELATION_MANY_TO_ONE" ||
+        data.field_type === "RELATION_MANY_TO_MANY"
+
+      if (isRelationField) {
         return await entitiesCreateRelationField({
           workspaceId,
           entityId,
@@ -99,6 +102,8 @@ export default function EntityDetailPage() {
             description: data.description,
             enum_options: data.enum_options,
             default_value: data.default_value,
+            // Include relation_settings defensively; it will be undefined for non-relation types
+            relation_settings: data.relation_settings,
           },
         })
       }

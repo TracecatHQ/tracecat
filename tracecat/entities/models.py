@@ -71,7 +71,6 @@ class RelationSettings(BaseModel):
 
     relation_type: RelationType
     target_entity_id: UUID
-    # v1: Relations are unidirectional, cascade delete is always true
 
 
 # Field Metadata Models
@@ -150,6 +149,8 @@ class FieldMetadataCreate(BaseModel):
         is_relation = self.field_type in (
             FieldType.RELATION_ONE_TO_ONE,
             FieldType.RELATION_ONE_TO_MANY,
+            FieldType.RELATION_MANY_TO_ONE,
+            FieldType.RELATION_MANY_TO_MANY,
         )
 
         if is_relation and not self.relation_settings:
@@ -170,11 +171,21 @@ class FieldMetadataCreate(BaseModel):
             # Validate relation_type matches field_type
             from tracecat.entities.enums import RelationType
 
-            expected_type = (
-                RelationType.ONE_TO_ONE
-                if self.field_type == FieldType.RELATION_ONE_TO_ONE
-                else RelationType.ONE_TO_MANY
-            )
+            if self.field_type in (
+                FieldType.RELATION_ONE_TO_ONE,
+                FieldType.RELATION_MANY_TO_ONE,
+            ):
+                expected_type = (
+                    RelationType.ONE_TO_ONE
+                    if self.field_type == FieldType.RELATION_ONE_TO_ONE
+                    else RelationType.MANY_TO_ONE
+                )
+            else:
+                expected_type = (
+                    RelationType.ONE_TO_MANY
+                    if self.field_type == FieldType.RELATION_ONE_TO_MANY
+                    else RelationType.MANY_TO_MANY
+                )
             if self.relation_settings.relation_type != expected_type:
                 raise PydanticCustomError(
                     "mismatched_relation_type",
@@ -224,6 +235,7 @@ class FieldMetadataRead(BaseModel):
     # Relation fields
     relation_kind: str | None = None
     target_entity_id: UUID | None = None
+    backref_field_id: UUID | None = None
     # v1: No backref_field_id or cascade_delete (always true)
     # Enum field options
     enum_options: list[str] | None = None

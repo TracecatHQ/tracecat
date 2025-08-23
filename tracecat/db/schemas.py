@@ -16,6 +16,7 @@ from sqlalchemy import (
     Integer,
     String,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import UUID, Field, Relationship, SQLModel, UniqueConstraint
@@ -1485,6 +1486,13 @@ class FieldMetadata(SQLModel, TimestampMixin, table=True):
         sa_column=Column(UUID, ForeignKey("entity.id", ondelete="CASCADE")),
         description="Target entity for relations",
     )
+    backref_field_id: UUID4 | None = Field(
+        default=None,
+        sa_column=Column(
+            UUID, ForeignKey("field_metadata.id", ondelete="SET NULL"), nullable=True
+        ),
+        description="Backref field pairing (metadata only)",
+    )
 
     # Enum field options (for SELECT and MULTI_SELECT types)
     enum_options: list[str] | None = Field(
@@ -1550,6 +1558,21 @@ class RecordRelationLink(SQLModel, TimestampMixin, table=True):
         Index(
             "idx_record_relation_field_target", "source_field_id", "target_record_id"
         ),
+        # Partial unique indexes to enforce cardinality when applicable
+        Index(
+            "uq_record_relation_source_single",
+            "source_record_id",
+            "source_field_id",
+            unique=True,
+            postgresql_where=text("source_limit_one = true"),
+        ),
+        Index(
+            "uq_record_relation_target_single",
+            "target_record_id",
+            "source_field_id",
+            unique=True,
+            postgresql_where=text("target_limit_one = true"),
+        ),
     )
 
     id: UUID4 = Field(default_factory=uuid.uuid4, primary_key=True)
@@ -1572,6 +1595,22 @@ class RecordRelationLink(SQLModel, TimestampMixin, table=True):
     )
     target_record_id: UUID4 = Field(
         sa_column=Column(UUID, ForeignKey("record.id", ondelete="CASCADE"))
+    )
+
+    # DB-enforced cardinality flags (true relations)
+    # When true, enforce at most one link per (source_record_id, source_field_id)
+    source_limit_one: bool = Field(
+        default=False,
+        nullable=False,
+        description=(
+            "If true, enforce single target per source for this field (O2O/M2O)."
+        ),
+    )
+    # When true, enforce at most one link per (target_record_id, source_field_id)
+    target_limit_one: bool = Field(
+        default=False,
+        nullable=False,
+        description=("If true, enforce single source per target for this field (O2O)."),
     )
 
     # Relationships (for eager loading)

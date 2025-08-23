@@ -113,6 +113,8 @@ def validate_default_value_type(
     unsupported_types = {
         FieldType.RELATION_ONE_TO_ONE,
         FieldType.RELATION_ONE_TO_MANY,
+        FieldType.RELATION_MANY_TO_ONE,
+        FieldType.RELATION_MANY_TO_MANY,
         FieldType.ARRAY_TEXT,
         FieldType.ARRAY_INTEGER,
         FieldType.ARRAY_NUMBER,
@@ -919,58 +921,4 @@ class RelationValidators:
         self.record_validators = RecordValidators(session, workspace_id)
         self.nesting_validator = RelationNestingValidator(session, workspace_id)
 
-    async def validate_target_entity(self, target_entity_name: str) -> Entity:
-        """Validate that target entity exists and is active.
-
-        Args:
-            target_entity_name: Name of target entity
-
-        Returns:
-            Entity of target entity
-
-        Raises:
-            TracecatNotFoundError: If entity not found
-            TracecatValidationError: If entity not active
-        """
-        stmt = select(Entity).where(
-            Entity.name == target_entity_name,
-            Entity.owner_id == self.workspace_id,
-        )
-        result = await self.session.exec(stmt)
-        entity = result.first()
-
-        if not entity:
-            raise TracecatNotFoundError(
-                f"Target entity '{target_entity_name}' not found"
-            )
-
-        if not entity.is_active:
-            raise TracecatValidationError(
-                f"Target entity '{target_entity_name}' is not active"
-            )
-
-        return entity
-
-    async def validate_target_record(
-        self, record_id: UUID, target_entity_id: UUID
-    ) -> Record:
-        """Validate that target record exists and belongs to target entity.
-
-        Args:
-            record_id: Target record ID
-            target_entity_id: Expected entity ID
-
-        Returns:
-            Record of target record
-
-        Raises:
-            TracecatNotFoundError: If record not found
-        """
-        record = await self.record_validators.validate_record_exists(
-            record_id, target_entity_id
-        )
-        if not record:
-            raise TracecatNotFoundError(
-                f"Target record {record_id} not found in entity"
-            )
-        return record
+    # Removed unused validate_target_entity / validate_target_record helpers (dead code)

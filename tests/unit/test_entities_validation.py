@@ -481,14 +481,19 @@ class TestRelationValidators:
         relation_validators: RelationValidators,
         test_entity: Entity,
     ):
-        """Test target entity validation."""
-        # Should find existing entity
-        result = await relation_validators.validate_target_entity(test_entity.name)
+        """Test target entity validation using entity_validators."""
+        # Should find existing entity using entity_validators
+        result = await relation_validators.entity_validators.validate_entity_exists(
+            test_entity.id
+        )
         assert result.id == test_entity.id
 
         # Should raise for non-existent entity
+        fake_entity_id = UUID("00000000-0000-0000-0000-000000000000")
         with pytest.raises(TracecatNotFoundError) as exc_info:
-            await relation_validators.validate_target_entity("non_existent")
+            await relation_validators.entity_validators.validate_entity_exists(
+                fake_entity_id
+            )
         assert "not found" in str(exc_info.value)
 
     async def test_validate_target_entity_active(
@@ -503,9 +508,11 @@ class TestRelationValidators:
         session.add(test_entity)
         await session.commit()
 
-        # Should raise for inactive entity
+        # Should raise for inactive entity using entity_validators
         with pytest.raises(TracecatValidationError) as exc_info:
-            await relation_validators.validate_target_entity(test_entity.name)
+            await relation_validators.entity_validators.validate_entity_active(
+                test_entity.id
+            )
         assert "not active" in str(exc_info.value)
 
     async def test_validate_target_record_exists_and_matches_entity(
@@ -514,9 +521,9 @@ class TestRelationValidators:
         test_record: Record,
         test_entity: Entity,
     ):
-        """Test target record validation."""
-        # Should find existing record in correct entity
-        result = await relation_validators.validate_target_record(
+        """Test target record validation using record_validators."""
+        # Should find existing record in correct entity using record_validators
+        result = await relation_validators.record_validators.validate_record_exists(
             test_record.id, test_entity.id
         )
         assert result.id == test_record.id
@@ -524,6 +531,6 @@ class TestRelationValidators:
         # Should raise for wrong entity
         fake_entity_id = UUID("00000000-0000-0000-0000-000000000000")
         with pytest.raises(TracecatNotFoundError):
-            await relation_validators.validate_target_record(
+            await relation_validators.record_validators.validate_record_exists(
                 test_record.id, fake_entity_id
             )

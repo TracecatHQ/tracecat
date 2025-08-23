@@ -4576,6 +4576,18 @@ export const $FieldMetadataRead = {
       ],
       title: "Target Entity Id",
     },
+    backref_field_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Backref Field Id",
+    },
     enum_options: {
       anyOf: [
         {
@@ -4692,6 +4704,8 @@ export const $FieldType = {
     "MULTI_SELECT",
     "RELATION_ONE_TO_ONE",
     "RELATION_ONE_TO_MANY",
+    "RELATION_MANY_TO_ONE",
+    "RELATION_MANY_TO_MANY",
   ],
   title: "FieldType",
   description: `Supported field types for custom entities.
@@ -7847,12 +7861,14 @@ export const $RelationSettings = {
 
 export const $RelationType = {
   type: "string",
-  enum: ["one_to_one", "one_to_many"],
+  enum: ["one_to_one", "one_to_many", "many_to_one", "many_to_many"],
   title: "RelationType",
   description: `Types of relations between entities (for API/models).
 
 These values are used in the API and models layer to represent
-the type of relationship from the perspective of the source entity.`,
+the type of relationship from the perspective of the source entity.
+
+Note: We use explicit cardinality terms to avoid ambiguity.`,
 } as const
 
 export const $ReopenedEventRead = {

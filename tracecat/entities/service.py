@@ -4,9 +4,12 @@ from datetime import UTC, datetime
 from typing import Any, cast
 from uuid import UUID
 
+import sqlalchemy as sa
 from pydantic import BaseModel, ConfigDict, ValidationError, create_model
 from pydantic import Field as PydanticField
+from sqlalchemy import exc as sa_exc
 from sqlalchemy.orm.attributes import flag_modified
+from sqlalchemy.sql import ColumnElement
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -48,14 +51,7 @@ from tracecat.types.exceptions import TracecatNotFoundError
 
 
 class CustomEntitiesService(BaseWorkspaceService):
-    """Service for custom entities with immutable field schemas.
-
-    v1 Features:
-    - Fields are immutable after creation (key and type cannot change)
-    - All fields are nullable (no required fields)
-    - Soft delete only (data preserved)
-    - JSON field type supports nested objects (up to 3 levels deep)
-    """
+    """Service for custom entities with immutable field schemas."""
 
     service_name = "custom_entities"
 
@@ -288,37 +284,29 @@ class CustomEntitiesService(BaseWorkspaceService):
         """
         entity = await self.get_entity(entity_id)
 
-        # Delete all relation links involving this entity
-        # Links where records of this entity are sources
-        source_links_stmt = select(RecordRelationLink).where(
-            RecordRelationLink.source_entity_id == entity_id
+        # Bulk delete all relation links involving this entity (source or target)
+        src_ent_col = cast(ColumnElement[Any], RecordRelationLink.source_entity_id)
+        tgt_ent_col = cast(ColumnElement[Any], RecordRelationLink.target_entity_id)
+        await self.session.execute(
+            sa.delete(RecordRelationLink).where(
+                sa.or_(src_ent_col == entity_id, tgt_ent_col == entity_id)
+            )
         )
-        source_links_result = await self.session.exec(source_links_stmt)
-        for link in source_links_result.all():
-            await self.session.delete(link)
 
-        # Links where records of this entity are targets
-        target_links_stmt = select(RecordRelationLink).where(
-            RecordRelationLink.target_entity_id == entity_id
+        # Bulk delete all records of this entity for this workspace
+        rec_entity_col = cast(ColumnElement[Any], Record.entity_id)
+        rec_owner_col = cast(ColumnElement[Any], Record.owner_id)
+        await self.session.execute(
+            sa.delete(Record).where(
+                rec_entity_col == entity_id, rec_owner_col == self.workspace_id
+            )
         )
-        target_links_result = await self.session.exec(target_links_stmt)
-        for link in target_links_result.all():
-            await self.session.delete(link)
 
-        # Delete all records of this entity
-        records_stmt = select(Record).where(
-            Record.entity_id == entity_id,
-            Record.owner_id == self.workspace_id,
+        # Bulk delete all fields of this entity
+        fm_entity_col = cast(ColumnElement[Any], FieldMetadata.entity_id)
+        await self.session.execute(
+            sa.delete(FieldMetadata).where(fm_entity_col == entity_id)
         )
-        records_result = await self.session.exec(records_stmt)
-        for record in records_result.all():
-            await self.session.delete(record)
-
-        # Delete all fields (cascade will handle this, but let's be explicit)
-        fields_stmt = select(FieldMetadata).where(FieldMetadata.entity_id == entity_id)
-        fields_result = await self.session.exec(fields_stmt)
-        for field in fields_result.all():
-            await self.session.delete(field)
 
         # Delete the entity metadata itself
         await self.session.delete(entity)
@@ -604,26 +592,27 @@ class CustomEntitiesService(BaseWorkspaceService):
         """
         field = await self.get_field(field_id)
 
-        # If it's a relation field, delete all associated links
+        # If it's a relation field, bulk delete all associated links
         if field.relation_kind:
-            # Delete all links where this field is the source
-            links_stmt = select(RecordRelationLink).where(
-                RecordRelationLink.source_field_id == field_id
+            src_field_col = cast(ColumnElement[Any], RecordRelationLink.source_field_id)
+            await self.session.execute(
+                sa.delete(RecordRelationLink).where(src_field_col == field_id)
             )
-            links_result = await self.session.exec(links_stmt)
-            for link in links_result.all():
-                await self.session.delete(link)
 
-        # Remove field data from all records of this entity
-        records_stmt = select(Record).where(
-            Record.entity_id == field.entity_id,
-            Record.owner_id == self.workspace_id,
+        # Remove field key from all records' JSONB field_data in one update
+        # Use PostgreSQL JSONB '-' operator
+        # Use JSONB '-' operator to remove a top-level key
+        field_data_col = cast(ColumnElement[Any], Record.field_data)
+        rec_entity_col2 = cast(ColumnElement[Any], Record.entity_id)
+        rec_owner_col2 = cast(ColumnElement[Any], Record.owner_id)
+        await self.session.execute(
+            sa.update(Record)
+            .where(
+                rec_entity_col2 == field.entity_id,
+                rec_owner_col2 == self.workspace_id,
+            )
+            .values(field_data=field_data_col.op("-")(field.field_key))
         )
-        records_result = await self.session.exec(records_stmt)
-        for record in records_result.all():
-            if field.field_key in record.field_data:
-                del record.field_data[field.field_key]
-                flag_modified(record, "field_data")
 
         # Delete the field metadata itself
         await self.session.delete(field)
@@ -648,13 +637,13 @@ class CustomEntitiesService(BaseWorkspaceService):
         Args:
             entity_id: Entity metadata ID
             field_key: Unique field key
-            field_type: Must be RELATION_ONE_TO_ONE or RELATION_ONE_TO_MANY
+            field_type: Relation field type (ONE_TO_ONE, ONE_TO_MANY, MANY_TO_ONE, MANY_TO_MANY)
             display_name: Human-readable name
             relation_settings: Relation configuration
             description: Optional description
 
         Returns:
-            Created FieldMetadata with relation metadata
+            Created FieldMetadata with relation metadata (and optional backref linkage)
 
         Raises:
             ValueError: If validation fails
@@ -676,7 +665,7 @@ class CustomEntitiesService(BaseWorkspaceService):
                 f"Target entity {relation_settings.target_entity_id} not found"
             ) from err
 
-        # Validate relation nesting policy
+        # Validate relation nesting policy (primary field)
         (
             is_valid,
             error_msg,
@@ -708,98 +697,105 @@ class CustomEntitiesService(BaseWorkspaceService):
             entity_id, validated.field_key
         )
 
-        # Determine relation_kind based on field_type
-        relation_kind = (
-            RelationKind.ONE_TO_ONE
-            if field_type == FieldType.RELATION_ONE_TO_ONE
-            else RelationKind.ONE_TO_MANY
-        )
+        # Determine relation_kind based on source-side multiplicity
+        if field_type in (
+            FieldType.RELATION_ONE_TO_ONE,
+            FieldType.RELATION_MANY_TO_ONE,
+        ):
+            relation_kind = RelationKind.ONE_TO_ONE
+        else:
+            relation_kind = RelationKind.ONE_TO_MANY
 
-        # Create field with relation metadata
-        field = FieldMetadata(
-            entity_id=entity_id,
-            field_key=validated.field_key,
-            field_type=validated.field_type,
-            display_name=validated.display_name,
-            description=validated.description,
-            is_active=True,
-            relation_kind=relation_kind,
-            target_entity_id=relation_settings.target_entity_id,
-        )
+        # Single transaction for creating field and auto backref pairing
+        async with self.session.begin_nested():
+            # Create field with relation metadata
+            field = FieldMetadata(
+                entity_id=entity_id,
+                field_key=validated.field_key,
+                field_type=validated.field_type.value,
+                display_name=validated.display_name,
+                description=validated.description,
+                is_active=True,
+                relation_kind=relation_kind,
+                target_entity_id=relation_settings.target_entity_id,
+            )
 
-        self.session.add(field)
+            self.session.add(field)
+            # Flush to obtain primary key without committing
+            await self.session.flush()
+
+            # Auto-create backref on the target entity
+            def _complement(ft: FieldType) -> FieldType:
+                match ft:
+                    case FieldType.RELATION_ONE_TO_ONE:
+                        return FieldType.RELATION_ONE_TO_ONE
+                    case FieldType.RELATION_MANY_TO_ONE:
+                        return FieldType.RELATION_ONE_TO_MANY
+                    case FieldType.RELATION_ONE_TO_MANY:
+                        return FieldType.RELATION_MANY_TO_ONE
+                    case FieldType.RELATION_MANY_TO_MANY:
+                        return FieldType.RELATION_MANY_TO_MANY
+                    case _:
+                        raise ValueError("Unsupported relation field type for backref")
+
+            backref_type = _complement(field_type)
+
+            # Determine relation_kind for backref
+            if backref_type in (
+                FieldType.RELATION_ONE_TO_ONE,
+                FieldType.RELATION_MANY_TO_ONE,
+            ):
+                backref_relation_kind = RelationKind.ONE_TO_ONE
+            else:
+                backref_relation_kind = RelationKind.ONE_TO_MANY
+
+            # Derive a sensible backref field_key automatically
+            # Use source entity slug and source field key to improve uniqueness/readability
+            source_entity = await self.get_entity(entity_id)
+            base_key = f"{source_entity.name}_{validated.field_key}_ref"
+
+            # Ensure uniqueness on target entity; append numeric suffix if needed
+            candidate = base_key
+            suffix = 2
+            while True:
+                try:
+                    await self.field_validators.validate_field_key_unique(
+                        relation_settings.target_entity_id, candidate
+                    )
+                    break
+                except Exception:
+                    candidate = f"{base_key}_{suffix}"
+                    suffix += 1
+
+            backref_field = FieldMetadata(
+                entity_id=relation_settings.target_entity_id,
+                field_key=candidate,
+                field_type=backref_type.value,
+                display_name=display_name,
+                description=(
+                    description
+                    or f"Auto backref for {field.field_key} on entity {str(entity_id)}"
+                ),
+                is_active=True,
+                relation_kind=backref_relation_kind,
+                target_entity_id=entity_id,
+            )
+
+            self.session.add(backref_field)
+            await self.session.flush()
+
+            # Link the pair via backref_field_id for easier introspection
+            field.backref_field_id = backref_field.id
+            backref_field.backref_field_id = field.id
+
+        # Commit once after nested ops; ensure field is refreshed
         await self.session.commit()
         await self.session.refresh(field)
         return field
 
     # Relation handling helpers
 
-    async def handle_record_deletion(
-        self,
-        record_id: UUID,
-        cascade_relations: bool = True,
-    ) -> None:
-        """Handle cascading deletes for relations.
-
-        Args:
-            record_id: Record being deleted
-            cascade_relations: Whether to cascade delete related records
-
-        Note:
-            - Source record deletion: Links auto-deleted via FK CASCADE
-            - Target record deletion: Handles based on cascade_delete setting
-        """
-        record = await self.get_record(record_id)
-
-        # Find all fields that reference this record's entity as a target
-        referencing_fields_stmt = select(FieldMetadata).where(
-            FieldMetadata.target_entity_id == record.entity_id,
-            FieldMetadata.is_active,
-        )
-        referencing_fields_result = await self.session.exec(referencing_fields_stmt)
-        referencing_fields = list(referencing_fields_result.all())
-
-        for field in referencing_fields:
-            # Find all source records that link to this record
-            links_stmt = select(RecordRelationLink).where(
-                RecordRelationLink.target_record_id == record_id,
-                RecordRelationLink.source_field_id == field.id,
-            )
-            links_result = await self.session.exec(links_stmt)
-            links = list(links_result.all())
-
-            if field.relation_kind == RelationKind.ONE_TO_ONE:
-                # For one_to_one: always cascade delete source records
-                if cascade_relations:
-                    # Delete source records
-                    for link in links:
-                        source_record = await self.get_record(link.source_record_id)
-                        await self.session.delete(source_record)
-                else:
-                    # Just delete the links (sets relation to NULL)
-                    for link in links:
-                        await self.session.delete(link)
-
-                        # Clear from field_data cache if present
-                        source_record = await self.get_record(link.source_record_id)
-                        if field.field_key in source_record.field_data:
-                            del source_record.field_data[field.field_key]
-                            flag_modified(source_record, "field_data")
-
-            elif field.relation_kind == RelationKind.ONE_TO_MANY:
-                # For one_to_many: just delete the links
-                # (The source record deletion is handled separately)
-                for link in links:
-                    await self.session.delete(link)
-
-        # Process in batches if there are many affected records
-        if len(links) > 100:
-            logger.warning(
-                f"Large cascade delete affecting {len(links)} records. "
-                "Consider using background job for better performance."
-            )
-
-        await self.session.commit()
+    # Note: record deletions rely on FK CASCADE to remove relation links.
 
     # Data Operations
 
@@ -843,7 +839,17 @@ class CustomEntitiesService(BaseWorkspaceService):
                 relation_data=relation_data,
                 relation_fields=relation_fields,
             )
-            await self.session.commit()
+            try:
+                await self.session.commit()
+            except sa_exc.IntegrityError as e:  # Concurrency-safe error mapping
+                msg = str(getattr(e, "orig", e))
+                if "uq_record_relation_source_single" in msg:
+                    raise ValueError("Relation already set for this record") from e
+                if "uq_record_relation_target_single" in msg:
+                    raise ValueError("Target already linked for this relation") from e
+                if "uq_record_relation_link_triple" in msg:
+                    raise ValueError("Duplicate relation link") from e
+                raise
 
         return record
 
@@ -925,9 +931,38 @@ class CustomEntitiesService(BaseWorkspaceService):
             if not target_ids:
                 continue
 
-            # v1: Do not cache relation data in field_data; only manage links
+            # Compute DB-enforced cardinality flags from the declared field type
+            field_type = FieldType(field.field_type)
+            source_limit_one = field_type in (
+                FieldType.RELATION_ONE_TO_ONE,
+                FieldType.RELATION_MANY_TO_ONE,
+            )
+            target_limit_one = field_type in (FieldType.RELATION_ONE_TO_ONE,)
 
             for target_id in target_ids:
+                # Pre-check for uniqueness to provide clearer errors before DB constraint
+                if source_limit_one:
+                    existing_src_stmt = select(RecordRelationLink).where(
+                        RecordRelationLink.source_record_id == record.id,
+                        RecordRelationLink.source_field_id == field.id,
+                    )
+                    existing_src_res = await self.session.exec(existing_src_stmt)
+                    if existing_src_res.first() is not None:
+                        raise ValueError(
+                            f"Relation '{field.field_key}' is already set for this record"
+                        )
+
+                if target_limit_one:
+                    existing_tgt_stmt = select(RecordRelationLink).where(
+                        RecordRelationLink.target_record_id == target_id,
+                        RecordRelationLink.source_field_id == field.id,
+                    )
+                    existing_tgt_res = await self.session.exec(existing_tgt_stmt)
+                    if existing_tgt_res.first() is not None:
+                        raise ValueError(
+                            f"Target record is already linked via '{field.field_key}'"
+                        )
+
                 link = RecordRelationLink(
                     owner_id=self.workspace_id,
                     source_entity_id=entity_id,
@@ -935,6 +970,8 @@ class CustomEntitiesService(BaseWorkspaceService):
                     source_record_id=record.id,
                     target_entity_id=target_entity_id,  # Already a UUID
                     target_record_id=target_id,
+                    source_limit_one=source_limit_one,
+                    target_limit_one=target_limit_one,
                 )
                 self.session.add(link)
 
@@ -1046,26 +1083,6 @@ class CustomEntitiesService(BaseWorkspaceService):
 
         return record
 
-    async def _batch_update_records_optimized(
-        self, update_steps: list[tuple[UUID, dict[str, Any]]]
-    ) -> None:
-        """Optimized batch update using JSONB merge operations.
-
-        Args:
-            update_steps: List of (record_id, updates) tuples
-
-        Note:
-            This uses PostgreSQL's JSONB concatenation for efficient updates.
-            All updates are applied in a single SQL statement per record.
-        """
-        for record_id, field_updates in update_steps:
-            if field_updates:
-                # Use JSONB concatenation (||) for efficient merge
-                # Load record, update, and let SQLAlchemy handle it
-                record = await self.get_record(record_id)
-                record.field_data = {**record.field_data, **field_updates}
-                flag_modified(record, "field_data")
-
     async def _create_relation_for_update(
         self,
         source_record: Record,
@@ -1085,6 +1102,37 @@ class CustomEntitiesService(BaseWorkspaceService):
         # Create the related record
         target_record = await self.create_record(field.target_entity_id, relation_data)
 
+        # Compute DB-enforced cardinality flags based on field type
+        field_type = FieldType(field.field_type)
+        source_limit_one = field_type in (
+            FieldType.RELATION_ONE_TO_ONE,
+            FieldType.RELATION_MANY_TO_ONE,
+        )
+        target_limit_one = field_type in (FieldType.RELATION_ONE_TO_ONE,)
+
+        # Pre-checks to surface clearer errors before DB constraint violations
+        if source_limit_one:
+            existing_src_stmt = select(RecordRelationLink).where(
+                RecordRelationLink.source_record_id == source_record.id,
+                RecordRelationLink.source_field_id == field.id,
+            )
+            existing_src_res = await self.session.exec(existing_src_stmt)
+            if existing_src_res.first() is not None:
+                raise ValueError(
+                    f"Relation '{field.field_key}' is already set for this record"
+                )
+
+        if target_limit_one:
+            existing_tgt_stmt = select(RecordRelationLink).where(
+                RecordRelationLink.target_record_id == target_record.id,
+                RecordRelationLink.source_field_id == field.id,
+            )
+            existing_tgt_res = await self.session.exec(existing_tgt_stmt)
+            if existing_tgt_res.first() is not None:
+                raise ValueError(
+                    f"Target record is already linked via '{field.field_key}'"
+                )
+
         # Create the relation link
         link = RecordRelationLink(
             owner_id=self.workspace_id,
@@ -1093,6 +1141,8 @@ class CustomEntitiesService(BaseWorkspaceService):
             source_record_id=source_record.id,
             target_entity_id=field.target_entity_id,
             target_record_id=target_record.id,
+            source_limit_one=source_limit_one,
+            target_limit_one=target_limit_one,
         )
         self.session.add(link)
 
@@ -1180,8 +1230,18 @@ class CustomEntitiesService(BaseWorkspaceService):
                     # Mark field_data as modified for SQLAlchemy
                     flag_modified(record, "field_data")
 
-        # Single commit for all changes
-        await self.session.commit()
+        # Single commit for all changes (with constraint error mapping)
+        try:
+            await self.session.commit()
+        except sa_exc.IntegrityError as e:
+            msg = str(getattr(e, "orig", e))
+            if "uq_record_relation_source_single" in msg:
+                raise ValueError("Relation already set for this record") from e
+            if "uq_record_relation_target_single" in msg:
+                raise ValueError("Target already linked for this relation") from e
+            if "uq_record_relation_link_triple" in msg:
+                raise ValueError("Duplicate relation link") from e
+            raise
 
         # Refresh and return the main record
         main_record = await self.get_record(record_id)
@@ -1282,50 +1342,6 @@ class CustomEntitiesService(BaseWorkspaceService):
 
         return records[0]
 
-    async def query_records_by_slug(
-        self,
-        entity_id: UUID,
-        slug_pattern: str,
-        slug_field: str = "name",
-        limit: int = 100,
-        offset: int = 0,
-    ) -> list[Record]:
-        """Query records by slug field pattern.
-
-        Args:
-            entity_id: Entity metadata ID
-            slug_pattern: Pattern to match (supports % wildcards)
-            slug_field: Field to search (default: "name")
-            limit: Max records to return
-            offset: Number of records to skip
-
-        Returns:
-            List of matching EntityData records
-        """
-        # Validate entity exists
-        await self.get_entity(entity_id)
-
-        # Build query using the slug_matches method
-        slug_condition = await self.query_builder.slug_matches(
-            entity_id, slug_field, slug_pattern
-        )
-
-        stmt = (
-            select(Record)
-            .where(
-                Record.entity_id == entity_id,
-                Record.owner_id == self.workspace_id,
-                slug_condition,
-            )
-            .limit(limit)
-            .offset(offset)
-        )
-
-        result = await self.session.exec(stmt)
-        return list(result.all())
-
-    # Helper Methods
-
     def get_active_fields_model(self, fields: list[FieldMetadata]) -> type[BaseModel]:
         """Generate Pydantic model for active fields only.
 
@@ -1343,6 +1359,10 @@ class CustomEntitiesService(BaseWorkspaceService):
 
             # Get Python type for field
             py_type = get_python_type(FieldType(field.field_type))
+
+            # Skip relation fields that don't store values in field_data
+            if py_type is None:
+                continue
 
             # Create field with description
             field_definitions[field.field_key] = (

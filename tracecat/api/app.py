@@ -40,9 +40,9 @@ from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.editor.router import router as editor_router
+from tracecat.entities.router import router as entities_router
 from tracecat.feature_flags import feature_flag_dep
 from tracecat.feature_flags.router import router as feature_flags_router
-from tracecat.entities.router import router as entities_router
 from tracecat.integrations.router import integrations_router, providers_router
 from tracecat.logger import logger
 from tracecat.middleware import (

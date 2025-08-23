@@ -844,6 +844,37 @@ class TestRelationFieldCreation:
         assert link.source_entity_id == post_entity.id
         assert link.target_entity_id == user_entity.id
 
+    async def test_auto_backref_creation(
+        self, admin_entities_service: CustomEntitiesService
+    ) -> None:
+        """Creating a relation with backref_key auto-creates complementary field on target."""
+        # Create two entities
+        a = await admin_entities_service.create_entity(name="a_ent", display_name="A")
+        b = await admin_entities_service.create_entity(name="b_ent", display_name="B")
+
+        from tracecat.entities.enums import RelationType
+        from tracecat.entities.models import RelationSettings
+
+        # Create relation with backref
+        await admin_entities_service.create_relation_field(
+            entity_id=a.id,
+            field_key="to_b",
+            field_type=FieldType.RELATION_MANY_TO_ONE,
+            display_name="To B",
+            relation_settings=RelationSettings(
+                relation_type=RelationType.MANY_TO_ONE, target_entity_id=b.id
+            ),
+            backref_key="from_a",
+        )
+
+        # Verify complementary field exists on B and fields are linked via backref_field_id
+        a_fields = await admin_entities_service.list_fields(a.id)
+        b_fields = await admin_entities_service.list_fields(b.id)
+        a_field = next(f for f in a_fields if f.field_key == "to_b")
+        b_field = next(f for f in b_fields if f.field_key == "from_a")
+        assert a_field.backref_field_id == b_field.id
+        assert b_field.backref_field_id == a_field.id
+
     async def test_create_record_with_one_to_many_relation(
         self, admin_entities_service: CustomEntitiesService
     ) -> None:
@@ -926,6 +957,144 @@ class TestRelationFieldCreation:
         assert product1.id in target_ids
         assert product2.id in target_ids
         assert product3.id not in target_ids
+
+    async def test_create_record_with_many_to_one_relation(
+        self, admin_entities_service: CustomEntitiesService
+    ) -> None:
+        """Test creating a record with a many_to_one relation (single target per source)."""
+        # Create two entity types
+        child_entity = await admin_entities_service.create_entity(
+            name="child", display_name="Child"
+        )
+        parent_entity = await admin_entities_service.create_entity(
+            name="parent", display_name="Parent"
+        )
+
+        # Create a parent record to reference
+        await admin_entities_service.create_field(
+            entity_id=parent_entity.id,
+            field_key="name",
+            field_type=FieldType.TEXT,
+            display_name="Name",
+        )
+        parent_record = await admin_entities_service.create_record(
+            entity_id=parent_entity.id, data={"name": "P1"}
+        )
+
+        # Create child entity with parent field (many_to_one parent)
+        from tracecat.entities.enums import RelationType
+        from tracecat.entities.models import RelationSettings
+
+        parent_field = await admin_entities_service.create_relation_field(
+            entity_id=child_entity.id,
+            field_key="parent",
+            field_type=FieldType.RELATION_MANY_TO_ONE,
+            display_name="Parent",
+            relation_settings=RelationSettings(
+                relation_type=RelationType.MANY_TO_ONE,
+                target_entity_id=parent_entity.id,
+            ),
+        )
+
+        await admin_entities_service.create_field(
+            entity_id=child_entity.id,
+            field_key="title",
+            field_type=FieldType.TEXT,
+            display_name="Title",
+        )
+
+        # Create child with parent relation
+        child_record = await admin_entities_service.create_record(
+            entity_id=child_entity.id,
+            data={"title": "C1", "parent": str(parent_record.id)},
+        )
+
+        # Verify relation not cached in field_data
+        assert "parent" not in child_record.field_data
+
+        # Verify link exists
+        from sqlmodel import select
+
+        from tracecat.db.schemas import RecordRelationLink
+
+        stmt = select(RecordRelationLink).where(
+            RecordRelationLink.source_record_id == child_record.id,
+            RecordRelationLink.source_field_id == parent_field.id,
+            RecordRelationLink.target_record_id == parent_record.id,
+        )
+        result = await admin_entities_service.session.exec(stmt)
+        link = result.first()
+        assert link is not None
+
+    async def test_create_record_with_many_to_many_relation(
+        self, admin_entities_service: CustomEntitiesService
+    ) -> None:
+        """Test creating a record with a many_to_many relation (multiple targets)."""
+        # Create two entity types
+        a_entity = await admin_entities_service.create_entity(
+            name="a_entity", display_name="A"
+        )
+        b_entity = await admin_entities_service.create_entity(
+            name="b_entity", display_name="B"
+        )
+
+        # Create B records
+        await admin_entities_service.create_field(
+            entity_id=b_entity.id,
+            field_key="name",
+            field_type=FieldType.TEXT,
+            display_name="Name",
+        )
+        b1 = await admin_entities_service.create_record(
+            entity_id=b_entity.id, data={"name": "B1"}
+        )
+        b2 = await admin_entities_service.create_record(
+            entity_id=b_entity.id, data={"name": "B2"}
+        )
+
+        # Create relation field on A (many_to_many to B)
+        from tracecat.entities.enums import RelationType
+        from tracecat.entities.models import RelationSettings
+
+        tags_field = await admin_entities_service.create_relation_field(
+            entity_id=a_entity.id,
+            field_key="tags",
+            field_type=FieldType.RELATION_MANY_TO_MANY,
+            display_name="Tags",
+            relation_settings=RelationSettings(
+                relation_type=RelationType.MANY_TO_MANY,
+                target_entity_id=b_entity.id,
+            ),
+        )
+
+        await admin_entities_service.create_field(
+            entity_id=a_entity.id,
+            field_key="title",
+            field_type=FieldType.TEXT,
+            display_name="Title",
+        )
+
+        # Create A with tags relation
+        a_record = await admin_entities_service.create_record(
+            entity_id=a_entity.id,
+            data={"title": "A1", "tags": [str(b1.id), str(b2.id)]},
+        )
+
+        # Verify not cached in field_data
+        assert "tags" not in a_record.field_data
+
+        # Verify links
+        from sqlmodel import select
+
+        from tracecat.db.schemas import RecordRelationLink
+
+        stmt = select(RecordRelationLink).where(
+            RecordRelationLink.source_record_id == a_record.id,
+            RecordRelationLink.source_field_id == tags_field.id,
+        )
+        result = await admin_entities_service.session.exec(stmt)
+        links = list(result.all())
+        assert {link.target_record_id for link in links} == {b1.id, b2.id}
 
     async def test_create_record_with_invalid_relation_uuid(
         self, admin_entities_service: CustomEntitiesService
@@ -1141,6 +1310,65 @@ class TestRelationFieldCreation:
         result = await admin_entities_service.session.exec(stmt)
         emp_links = list(result.all())
         assert len(emp_links) == 2
+
+    async def test_cardinality_uniqueness_enforced(
+        self, admin_entities_service: CustomEntitiesService
+    ) -> None:
+        """O2O and M2O enforce single target per source; O2O enforces single source per target."""
+        # Setup entities
+        src = await admin_entities_service.create_entity(name="src", display_name="Src")
+        dst = await admin_entities_service.create_entity(name="dst", display_name="Dst")
+        await admin_entities_service.create_field(
+            src.id, "name", FieldType.TEXT, "Name"
+        )
+        await admin_entities_service.create_field(
+            dst.id, "name", FieldType.TEXT, "Name"
+        )
+
+        from tracecat.entities.enums import RelationType
+        from tracecat.entities.models import RelationSettings
+
+        # O2O field on src
+        await admin_entities_service.create_relation_field(
+            entity_id=src.id,
+            field_key="o2o",
+            field_type=FieldType.RELATION_ONE_TO_ONE,
+            display_name="O2O",
+            relation_settings=RelationSettings(
+                relation_type=RelationType.ONE_TO_ONE, target_entity_id=dst.id
+            ),
+        )
+
+        # Create records
+        dst_rec = await admin_entities_service.create_record(dst.id, {"name": "d"})
+        await admin_entities_service.create_record(
+            src.id, {"name": "s1", "o2o": str(dst_rec.id)}
+        )
+
+        # Different source to the same target should fail for O2O (target unique)
+        with pytest.raises(ValueError):
+            await admin_entities_service.create_record(
+                entity_id=src.id, data={"name": "s2", "o2o": str(dst_rec.id)}
+            )
+
+        # M2O: single target per source, but many sources can point to same target
+        await admin_entities_service.create_relation_field(
+            entity_id=src.id,
+            field_key="m2o",
+            field_type=FieldType.RELATION_MANY_TO_ONE,
+            display_name="M2O",
+            relation_settings=RelationSettings(
+                relation_type=RelationType.MANY_TO_ONE, target_entity_id=dst.id
+            ),
+        )
+        # One source points to one target at creation time
+        await admin_entities_service.create_record(
+            entity_id=src.id, data={"name": "s1m2o", "m2o": str(dst_rec.id)}
+        )
+        # Different source to same target is allowed
+        await admin_entities_service.create_record(
+            entity_id=src.id, data={"name": "s2m2o", "m2o": str(dst_rec.id)}
+        )
 
 
 @pytest.mark.anyio
