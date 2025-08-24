@@ -837,10 +837,14 @@ class Case(Resource, table=True):
         description="The ID of the user who is assigned to the case.",
         sa_column=Column(UUID, ForeignKey("user.id", ondelete="SET NULL")),
     )
-    assignee: User | None = Relationship(back_populates="assigned_cases")
+    assignee: User | None = Relationship(
+        back_populates="assigned_cases",
+        sa_relationship_kwargs={"lazy": "selectin"},
+    )
     tags: list["Tag"] = Relationship(
         back_populates="cases",
         link_model=CaseTag,
+        sa_relationship_kwargs={"lazy": "selectin"},
     )
 
 
