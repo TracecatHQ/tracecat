@@ -32,10 +32,6 @@ from tracecat.interactions.enums import InteractionStatus, InteractionType
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.workspaces.models import WorkspaceSettings
 
-DEFAULT_SA_RELATIONSHIP_KWARGS = {
-    "lazy": "selectin",
-}
-
 
 class TimestampMixin(BaseModel):
     created_at: datetime = Field(
@@ -181,10 +177,7 @@ class User(SQLModelBaseUserDB, table=True):
 
 class AccessToken(SQLModelBaseAccessToken, table=True):
     id: UUID4 = Field(default_factory=uuid.uuid4, nullable=False, unique=True)
-    user: "User" = Relationship(
-        back_populates="access_tokens",
-        sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
-    )
+    user: "User" = Relationship(back_populates="access_tokens")
 
 
 class SAMLRequestData(SQLModel, table=True):
@@ -285,10 +278,7 @@ class WorkflowDefinition(Resource, table=True):
     # DSL content
     content: dict[str, Any] = Field(sa_column=Column(JSONB))
 
-    workflow: "Workflow" = Relationship(
-        back_populates="definitions",
-        sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
-    )
+    workflow: "Workflow" = Relationship(back_populates="definitions")
 
 
 class WorkflowFolder(Resource, table=True):
@@ -317,10 +307,7 @@ class WorkflowFolder(Resource, table=True):
     owner: "Workspace" = Relationship(back_populates="folders")
     workflows: list["Workflow"] = Relationship(
         back_populates="folder",
-        sa_relationship_kwargs={
-            "cascade": "all, delete-orphan",
-            **DEFAULT_SA_RELATIONSHIP_KWARGS,
-        },
+        sa_relationship_kwargs={"cascade": "all, delete-orphan"},
     )
 
     @property
@@ -424,37 +411,24 @@ class Workflow(Resource, table=True):
     # Relationships
     actions: list["Action"] | None = Relationship(
         back_populates="workflow",
-        sa_relationship_kwargs={
-            "cascade": "all, delete",
-            **DEFAULT_SA_RELATIONSHIP_KWARGS,
-        },
+        sa_relationship_kwargs={"cascade": "all, delete"},
     )
     definitions: list["WorkflowDefinition"] | None = Relationship(
         back_populates="workflow",
-        sa_relationship_kwargs={
-            "cascade": "all, delete",
-            **DEFAULT_SA_RELATIONSHIP_KWARGS,
-        },
+        sa_relationship_kwargs={"cascade": "all, delete"},
     )
     # Triggers
     webhook: "Webhook" = Relationship(
         back_populates="workflow",
-        sa_relationship_kwargs={
-            "cascade": "all, delete",
-            **DEFAULT_SA_RELATIONSHIP_KWARGS,
-        },
+        sa_relationship_kwargs={"cascade": "all, delete"},
     )
     schedules: list["Schedule"] | None = Relationship(
         back_populates="workflow",
-        sa_relationship_kwargs={
-            "cascade": "all, delete",
-            **DEFAULT_SA_RELATIONSHIP_KWARGS,
-        },
+        sa_relationship_kwargs={"cascade": "all, delete"},
     )
     tags: list["Tag"] = Relationship(
         back_populates="workflows",
         link_model=WorkflowTag,
-        sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
     )
 
 
@@ -472,9 +446,7 @@ class Webhook(Resource, table=True):
     workflow_id: uuid.UUID = Field(
         sa_column=Column(UUID, ForeignKey("workflow.id", ondelete="CASCADE"))
     )
-    workflow: Workflow | None = Relationship(
-        back_populates="webhook", sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS
-    )
+    workflow: Workflow | None = Relationship(back_populates="webhook")
 
     @computed_field
     @property
@@ -515,10 +487,7 @@ class Schedule(Resource, table=True):
     workflow_id: uuid.UUID = Field(
         sa_column=Column(UUID, ForeignKey("workflow.id", ondelete="CASCADE"))
     )
-    workflow: Workflow | None = Relationship(
-        back_populates="schedules",
-        sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
-    )
+    workflow: Workflow | None = Relationship(back_populates="schedules")
 
 
 class Action(Resource, table=True):
@@ -556,9 +525,7 @@ class Action(Resource, table=True):
     workflow_id: uuid.UUID = Field(
         sa_column=Column(UUID, ForeignKey("workflow.id", ondelete="CASCADE"))
     )
-    workflow: Workflow | None = Relationship(
-        back_populates="actions", sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS
-    )
+    workflow: Workflow | None = Relationship(back_populates="actions")
 
     @property
     def ref(self) -> str:
@@ -594,10 +561,7 @@ class RegistryRepository(Resource, table=True):
     # Relationships
     actions: list["RegistryAction"] = Relationship(
         back_populates="repository",
-        sa_relationship_kwargs={
-            "cascade": "all, delete",
-            **DEFAULT_SA_RELATIONSHIP_KWARGS,
-        },
+        sa_relationship_kwargs={"cascade": "all, delete"},
     )
 
 
@@ -713,10 +677,7 @@ class Table(Resource, table=True):
     # Add relationship to columns
     columns: list["TableColumn"] = Relationship(
         back_populates="table",
-        sa_relationship_kwargs={
-            "cascade": "all, delete",
-            **DEFAULT_SA_RELATIONSHIP_KWARGS,
-        },
+        sa_relationship_kwargs={"cascade": "all, delete"},
     )
 
 
@@ -741,10 +702,7 @@ class TableColumn(SQLModel, TimestampMixin, table=True):
     nullable: bool = Field(default=True)
     default: Any | None = Field(default=None, sa_column=Column(JSONB))
     # Relationship back to the table
-    table: Table = Relationship(
-        back_populates="columns",
-        sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
-    )
+    table: Table = Relationship(back_populates="columns")
 
 
 class CaseFields(SQLModel, TimestampMixin, table=True):
@@ -839,45 +797,29 @@ class Case(Resource, table=True):
         sa_relationship_kwargs={
             "cascade": "all, delete",
             "uselist": False,  # Make this a one-to-one relationship
-            **DEFAULT_SA_RELATIONSHIP_KWARGS,
         },
     )
     comments: list["CaseComment"] = Relationship(
         back_populates="case",
-        sa_relationship_kwargs={
-            "cascade": "all, delete",
-            **DEFAULT_SA_RELATIONSHIP_KWARGS,
-        },
+        sa_relationship_kwargs={"cascade": "all, delete"},
     )
     events: list["CaseEvent"] = Relationship(
         back_populates="case",
-        sa_relationship_kwargs={
-            "cascade": "all, delete",
-            **DEFAULT_SA_RELATIONSHIP_KWARGS,
-        },
+        sa_relationship_kwargs={"cascade": "all, delete"},
     )
     attachments: list["CaseAttachment"] = Relationship(
         back_populates="case",
-        sa_relationship_kwargs={
-            "cascade": "all, delete",
-            **DEFAULT_SA_RELATIONSHIP_KWARGS,
-        },
+        sa_relationship_kwargs={"cascade": "all, delete"},
     )
     assignee_id: uuid.UUID | None = Field(
         default=None,
         description="The ID of the user who is assigned to the case.",
         sa_column=Column(UUID, ForeignKey("user.id", ondelete="SET NULL")),
     )
-    assignee: User | None = Relationship(
-        back_populates="assigned_cases",
-        sa_relationship_kwargs={
-            **DEFAULT_SA_RELATIONSHIP_KWARGS,
-        },
-    )
+    assignee: User | None = Relationship(back_populates="assigned_cases")
     tags: list["Tag"] = Relationship(
         back_populates="cases",
         link_model=CaseTag,
-        sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
     )
 
 
@@ -1044,10 +986,7 @@ class File(Resource, table=True):
     )
     attachments: list["CaseAttachment"] = Relationship(
         back_populates="file",
-        sa_relationship_kwargs={
-            "cascade": "all, delete",
-            **DEFAULT_SA_RELATIONSHIP_KWARGS,
-        },
+        sa_relationship_kwargs={"cascade": "all, delete"},
     )
 
     @computed_field
@@ -1183,9 +1122,7 @@ class OAuthIntegration(SQLModel, TimestampMixin, table=True):
     )
 
     # Relationships
-    user: User | None = Relationship(
-        sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS
-    )
+    user: User | None = Relationship()
     owner: Workspace = Relationship(back_populates="integrations")
 
     @property
@@ -1343,7 +1280,7 @@ class Prompt(Resource, table=True):
     )
 
     # Relationships
-    chat: Chat = Relationship(sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS)
+    chat: Chat = Relationship()
 
 
 class Tag(Resource, table=True):
@@ -1369,10 +1306,8 @@ class Tag(Resource, table=True):
     workflows: list["Workflow"] = Relationship(
         back_populates="tags",
         link_model=WorkflowTag,
-        sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
     )
     cases: list["Case"] = Relationship(
         back_populates="tags",
         link_model=CaseTag,
-        sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
     )

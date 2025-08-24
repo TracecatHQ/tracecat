@@ -7,6 +7,7 @@ from typing import Any
 import sqlalchemy as sa
 import yaml
 from pydantic import ValidationError
+from sqlalchemy.orm import selectinload
 from sqlmodel import and_, cast, col, select
 from temporalio import activity
 
@@ -131,6 +132,9 @@ class WorkflowsManagementService(BaseService):
                 .distinct()
             )
 
+        # Add eager loading for tags since they're accessed in the router
+        stmt = stmt.options(selectinload(Workflow.tags))  # type: ignore
+
         results = await self.session.exec(stmt)
         res = []
         for workflow, defn_id, defn_version, defn_created in results.all():
@@ -245,6 +249,9 @@ class WorkflowsManagementService(BaseService):
         # Fetch limit + 1 to determine if there are more items
         stmt = stmt.limit(params.limit + 1)
 
+        # Add eager loading for tags since they're accessed in the router
+        stmt = stmt.options(selectinload(Workflow.tags))  # type: ignore
+
         results = await self.session.exec(stmt)
         raw_items = list(results.all())
 
@@ -297,9 +304,17 @@ class WorkflowsManagementService(BaseService):
         )
 
     async def get_workflow(self, workflow_id: WorkflowID) -> Workflow | None:
-        statement = select(Workflow).where(
-            Workflow.owner_id == self.role.workspace_id,
-            Workflow.id == workflow_id,
+        statement = (
+            select(Workflow)
+            .where(
+                Workflow.owner_id == self.role.workspace_id,
+                Workflow.id == workflow_id,
+            )
+            .options(
+                selectinload(Workflow.actions),  # type: ignore
+                selectinload(Workflow.webhook),  # type: ignore
+                selectinload(Workflow.schedules),  # type: ignore
+            )
         )
         result = await self.session.exec(statement)
         return result.one_or_none()
