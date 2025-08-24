@@ -2,6 +2,7 @@
 
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import type { ColumnDef, Row } from "@tanstack/react-table"
 import {
   CheckCircle,
   Copy,
@@ -204,7 +205,7 @@ export function RelationsWorkspaceTable() {
     null
   )
 
-  const columns = [
+  const columns: ColumnDef<RelationDefinitionRead, unknown>[] = [
     {
       accessorKey: "display_name",
       header: ({ column }) => (
@@ -259,7 +260,11 @@ export function RelationsWorkspaceTable() {
       },
       enableSorting: true,
       enableHiding: false,
-      filterFn: (row, _id, value: string[]) => {
+      filterFn: (
+        row: Row<RelationDefinitionRead>,
+        _id: string,
+        value: string[]
+      ) => {
         const v = row.getValue("source") as string
         return value.includes(v)
       },
@@ -298,7 +303,11 @@ export function RelationsWorkspaceTable() {
       },
       enableSorting: true,
       enableHiding: false,
-      filterFn: (row, _id, value: string[]) => {
+      filterFn: (
+        row: Row<RelationDefinitionRead>,
+        _id: string,
+        value: string[]
+      ) => {
         const v = row.getValue("target") as string
         return value.includes(v)
       },
@@ -336,7 +345,11 @@ export function RelationsWorkspaceTable() {
       },
       enableSorting: true,
       enableHiding: false,
-      filterFn: (row, _id, value: string[]) => {
+      filterFn: (
+        row: Row<RelationDefinitionRead>,
+        _id: string,
+        value: string[]
+      ) => {
         const v = row.getValue("relation_type") as string
         return value.includes(v)
       },
@@ -363,7 +376,11 @@ export function RelationsWorkspaceTable() {
       enableSorting: true,
       enableHiding: false,
       enableColumnFilter: true,
-      filterFn: (row, _id, value: string[]) => {
+      filterFn: (
+        row: Row<RelationDefinitionRead>,
+        _id: string,
+        value: string[]
+      ) => {
         const status = row.original.is_active ? "active" : "inactive"
         return value.includes(status)
       },

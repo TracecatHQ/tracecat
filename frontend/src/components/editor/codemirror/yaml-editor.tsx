@@ -25,7 +25,7 @@ import { AlertTriangle, Check } from "lucide-react"
 import React, { useCallback, useMemo, useRef, useState } from "react"
 import { type Control, useController } from "react-hook-form"
 import YAML from "yaml"
-import type { ActionRead } from "@/client"
+import type { ActionRead, WorkflowRead } from "@/client"
 import { useOrgAppSettings } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 
@@ -92,7 +92,7 @@ export const YamlStyledEditor = React.forwardRef<
   })
   const { workspaceId } = useWorkspace()
   // Get actions from workflow if provider exists; otherwise, use empty
-  let workflowCtx: { workflow: Record<string, ActionRead> | null } | null = null
+  let workflowCtx: { workflow: WorkflowRead | null } | null = null
   if (_useWorkflow) {
     try {
       workflowCtx = _useWorkflow()
@@ -104,9 +104,8 @@ export const YamlStyledEditor = React.forwardRef<
   const [hasErrors, setHasErrors] = useState(false)
   const [saveState, setSaveState] = useState<SaveState>(SaveState.IDLE)
   const [validationErrors, setValidationErrors] = useState<string[]>([])
-  const actions =
-    (workflowCtx?.workflow?.actions as Record<string, ActionRead>) ||
-    ({} as Record<string, ActionRead>)
+  const actions: Record<string, ActionRead> =
+    workflowCtx?.workflow?.actions ?? {}
   const editorRef = useRef<EditorView | null>(null)
 
   const textValue = React.useMemo(

@@ -346,7 +346,6 @@ export function EntityRelationsTable({ entityId }: { entityId: string }) {
               ),
             },
           ]}
-          pageSize={10}
           toolbarProps={undefined}
           onRowClick={undefined}
           emptyState={{
