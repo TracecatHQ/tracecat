@@ -62,8 +62,7 @@ const createRelationSchema = z.object({
     "many_to_many",
   ] as const),
   target_entity_id: z.string().uuid("Select a target entity"),
-  // Optional in entity-scoped create; required in global create
-  source_entity_id: z.string().uuid("Select a source entity").optional(),
+  source_entity_id: z.string().uuid("Select a source entity"),
 })
 
 export type CreateRelationFormData = z.infer<typeof createRelationSchema>
@@ -73,8 +72,6 @@ interface CreateRelationDialogProps {
   onOpenChange: (open: boolean) => void
   onSubmit: (data: CreateRelationFormData) => Promise<void>
   errorMessage?: string
-  // Global creation support: show a source selector, optionally preselected
-  showSourceSelector?: boolean
   sourceEntityId?: string
 }
 
@@ -83,7 +80,6 @@ export function CreateRelationDialog({
   onOpenChange,
   onSubmit,
   errorMessage,
-  showSourceSelector = false,
   sourceEntityId,
 }: CreateRelationDialogProps) {
   const { workspaceId } = useWorkspace()
@@ -161,7 +157,7 @@ export function CreateRelationDialog({
         <DialogHeader>
           <DialogTitle>Add relation</DialogTitle>
           <DialogDescription>
-            Link this entity to a target entity.
+            Create a relation between two entities in your workspace.
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
@@ -244,35 +240,33 @@ export function CreateRelationDialog({
               )}
             />
 
-            {showSourceSelector && (
-              <FormField
-                control={form.control}
-                name="source_entity_id"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Source entity</FormLabel>
-                    <Select
-                      onValueChange={field.onChange}
-                      value={field.value || ""}
-                    >
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select source entity" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {activeEntities.map((e) => (
-                          <SelectItem key={e.id} value={e.id}>
-                            {e.display_name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            )}
+            <FormField
+              control={form.control}
+              name="source_entity_id"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Source entity</FormLabel>
+                  <Select
+                    onValueChange={field.onChange}
+                    value={field.value || ""}
+                  >
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select source entity" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {activeEntities.map((e) => (
+                        <SelectItem key={e.id} value={e.id}>
+                          {e.display_name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
 
             <FormField
               control={form.control}

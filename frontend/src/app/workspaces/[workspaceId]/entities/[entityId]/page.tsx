@@ -13,10 +13,8 @@ import {
   type FieldType,
 } from "@/client"
 import { CreateFieldDialog } from "@/components/entities/create-field-dialog"
-import { CreateRelationDialog } from "@/components/entities/create-relation-dialog"
 import { EditFieldDialog } from "@/components/entities/edit-field-dialog"
 import { EntityFieldsTable } from "@/components/entities/entity-fields-table"
-import { EntityRelationsTable } from "@/components/entities/entity-relations-table"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { Card, CardContent } from "@/components/ui/card"
@@ -24,7 +22,6 @@ import { toast } from "@/components/ui/use-toast"
 import { entityEvents } from "@/lib/entity-events"
 import { useLocalStorage } from "@/lib/hooks"
 import {
-  useCreateRelation,
   useEntity,
   useEntityFields,
   useUpdateEntityField,
@@ -38,11 +35,6 @@ export default function EntityDetailPage() {
   const queryClient = useQueryClient()
   const [createFieldDialogOpen, setCreateFieldDialogOpen] = useState(false)
   const [createFieldError, setCreateFieldError] = useState<string | null>(null)
-  const [createRelationDialogOpen, setCreateRelationDialogOpen] =
-    useState(false)
-  const [createRelationError, setCreateRelationError] = useState<string | null>(
-    null
-  )
   const [editFieldDialogOpen, setEditFieldDialogOpen] = useState(false)
   const [selectedFieldForEdit, setSelectedFieldForEdit] =
     useState<FieldMetadataRead | null>(null)
@@ -69,12 +61,8 @@ export default function EntityDetailPage() {
   useEffect(() => {
     const handleAddField = () => setCreateFieldDialogOpen(true)
     const unsubscribe = entityEvents.onAddField(handleAddField)
-    const unsubscribeRel = entityEvents.onAddRelation(() =>
-      setCreateRelationDialogOpen(true)
-    )
     return () => {
       unsubscribe()
-      unsubscribeRel()
     }
   }, [])
 
@@ -123,8 +111,6 @@ export default function EntityDetailPage() {
       setCreateFieldError(message)
     },
   })
-
-  const { createRelation } = useCreateRelation(workspaceId, entityId)
 
   const { mutateAsync: deactivateFieldMutation, isPending: isDeactivating } =
     useMutation({
@@ -265,16 +251,6 @@ export default function EntityDetailPage() {
               isDeleting={isDeactivating || isDeletingField}
             />
           )}
-
-          {/* Relations section */}
-          <div className="mt-8">
-            <h3 className="text-sm font-semibold mb-2">Relations</h3>
-            <Card>
-              <CardContent className="py-4">
-                <EntityRelationsTable entityId={entityId} />
-              </CardContent>
-            </Card>
-          </div>
         </div>
       </div>
 
@@ -345,41 +321,6 @@ export default function EntityDetailPage() {
           }
         }}
         isPending={updateFieldIsPending}
-      />
-
-      <CreateRelationDialog
-        open={createRelationDialogOpen}
-        onOpenChange={(open) => {
-          setCreateRelationDialogOpen(open)
-          if (!open) setCreateRelationError(null)
-        }}
-        onSubmit={async (data) => {
-          try {
-            await createRelation({
-              source_key: data.source_key,
-              display_name: data.display_name,
-              relation_type: data.relation_type,
-              target_entity_id: data.target_entity_id,
-            })
-            setCreateRelationDialogOpen(false)
-            // Refresh relations list
-            queryClient.invalidateQueries({
-              queryKey: ["entity-relations", workspaceId, entityId],
-            })
-          } catch (error) {
-            console.error("Failed to create relation:", error)
-            let message = "Failed to create relation. Please try again."
-            if (error && typeof error === "object") {
-              const err = error as {
-                body?: { detail?: string }
-                message?: string
-              }
-              message = err.body?.detail || err.message || message
-            }
-            setCreateRelationError(message)
-          }
-        }}
-        errorMessage={createRelationError || undefined}
       />
     </div>
   )

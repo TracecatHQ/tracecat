@@ -80,15 +80,6 @@ function EntitiesDetailHeaderActions() {
         <Plus className="mr-1 h-3.5 w-3.5" />
         Add field
       </Button>
-      <Button
-        variant="outline"
-        size="sm"
-        className="h-7 bg-white"
-        onClick={() => entityEvents.emitAddRelation()}
-      >
-        <Plus className="mr-1 h-3.5 w-3.5" />
-        Add relation
-      </Button>
     </div>
   )
 }
@@ -345,8 +336,6 @@ function EntitiesActions() {
                 target_entity_id: data.target_entity_id,
               })
             }}
-            // Show and require the source selector for global creation
-            showSourceSelector
             sourceEntityId={searchParams?.get("source") ?? undefined}
           />
         </>
