@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from pydantic import UUID4
+from sqlalchemy.orm import load_only, noload
 from sqlmodel import select
 
 from tracecat import config
@@ -20,13 +21,19 @@ class WorkspaceService(BaseService):
     """Manage workspaces."""
 
     service_name = "workspace"
+    _load_only = ["id", "name"]
 
     @require_access_level(AccessLevel.ADMIN)
     async def admin_list_workspaces(
         self, limit: int | None = None
     ) -> Sequence[Workspace]:
         """List all workspaces in the organization."""
-        statement = select(Workspace)
+        statement = select(Workspace).options(
+            load_only(
+                *(getattr(Workspace, f) for f in self._load_only)
+            ),  # only what the route returns
+            noload("*"),  # disable all relationship loaders
+        )
         if limit is not None:
             if limit <= 0:
                 raise TracecatException("List workspace limit must be greater than 0")
@@ -37,15 +44,16 @@ class WorkspaceService(BaseService):
     async def list_workspaces(
         self, user_id: UserID, limit: int | None = None
     ) -> Sequence[Workspace]:
-        """List all workspaces that a user is a member of.
-
-        If user_id is provided, list only workspaces where user is a member.
-        if user_id is None, list all workspaces.
-        """
-        # List workspaces where user is a member
-        statement = select(Workspace).where(
-            Workspace.id == Membership.workspace_id,
-            Membership.user_id == user_id,
+        """List all workspaces that a user is a member of."""
+        statement = (
+            select(Workspace)
+            .where(
+                Workspace.id == Membership.workspace_id, Membership.user_id == user_id
+            )
+            .options(
+                load_only(*(getattr(Workspace, f) for f in self._load_only)),
+                noload("*"),
+            )
         )
         if limit is not None:
             if limit <= 0:
