@@ -424,11 +424,17 @@ class Workflow(Resource, table=True):
     # Triggers
     webhook: "Webhook" = Relationship(
         back_populates="workflow",
-        sa_relationship_kwargs={"cascade": "all, delete"},
+        sa_relationship_kwargs={
+            "cascade": "all, delete",
+            "lazy": "selectin",
+        },
     )
     schedules: list["Schedule"] | None = Relationship(
         back_populates="workflow",
-        sa_relationship_kwargs={"cascade": "all, delete"},
+        sa_relationship_kwargs={
+            "cascade": "all, delete",
+            "lazy": "selectin",
+        },
     )
     tags: list["Tag"] = Relationship(
         back_populates="workflows",
@@ -685,7 +691,10 @@ class Table(Resource, table=True):
     # Add relationship to columns
     columns: list["TableColumn"] = Relationship(
         back_populates="table",
-        sa_relationship_kwargs={"cascade": "all, delete"},
+        sa_relationship_kwargs={
+            "cascade": "all, delete",
+            "lazy": "selectin",
+        },
     )
 
 
@@ -710,7 +719,10 @@ class TableColumn(SQLModel, TimestampMixin, table=True):
     nullable: bool = Field(default=True)
     default: Any | None = Field(default=None, sa_column=Column(JSONB))
     # Relationship back to the table
-    table: Table = Relationship(back_populates="columns")
+    table: Table = Relationship(
+        back_populates="columns",
+        sa_relationship_kwargs={"lazy": "selectin"},
+    )
 
 
 class CaseFields(SQLModel, TimestampMixin, table=True):
