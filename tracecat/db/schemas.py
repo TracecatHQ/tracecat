@@ -112,42 +112,26 @@ class Workspace(Resource, table=True):
     members: list["User"] = Relationship(
         back_populates="workspaces",
         link_model=Membership,
-        sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
     )
     workflows: list["Workflow"] = Relationship(
         back_populates="owner",
-        sa_relationship_kwargs={
-            "cascade": "all, delete",
-            **DEFAULT_SA_RELATIONSHIP_KWARGS,
-        },
+        sa_relationship_kwargs={"cascade": "all, delete"},
     )
     secrets: list["Secret"] = Relationship(
         back_populates="owner",
-        sa_relationship_kwargs={
-            "cascade": "all, delete",
-            **DEFAULT_SA_RELATIONSHIP_KWARGS,
-        },
+        sa_relationship_kwargs={"cascade": "all, delete"},
     )
     tags: list["Tag"] = Relationship(
         back_populates="owner",
-        sa_relationship_kwargs={
-            "cascade": "all, delete",
-            **DEFAULT_SA_RELATIONSHIP_KWARGS,
-        },
+        sa_relationship_kwargs={"cascade": "all, delete"},
     )
     folders: list["WorkflowFolder"] = Relationship(
         back_populates="owner",
-        sa_relationship_kwargs={
-            "cascade": "all, delete",
-            **DEFAULT_SA_RELATIONSHIP_KWARGS,
-        },
+        sa_relationship_kwargs={"cascade": "all, delete"},
     )
     integrations: list["OAuthIntegration"] = Relationship(
         back_populates="owner",
-        sa_relationship_kwargs={
-            "cascade": "all, delete",
-            **DEFAULT_SA_RELATIONSHIP_KWARGS,
-        },
+        sa_relationship_kwargs={"cascade": "all, delete"},
     )
 
 
