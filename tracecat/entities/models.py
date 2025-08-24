@@ -322,6 +322,21 @@ class RelationDefinitionCreate(BaseModel):
         return validate_field_key_format(value)
 
 
+class RelationDefinitionCreateGlobal(BaseModel):
+    """Global create model that includes the source entity ID."""
+
+    source_entity_id: UUID
+    source_key: str = Field(..., min_length=1, max_length=100)
+    display_name: str = Field(..., min_length=1, max_length=255)
+    relation_type: RelationType
+    target_entity_id: UUID
+
+    @field_validator("source_key", mode="before")
+    @classmethod
+    def validate_source_key(cls, value: str) -> str:
+        return validate_field_key_format(value)
+
+
 class RelationDefinitionUpdate(BaseModel):
     display_name: str | None = Field(default=None, min_length=1, max_length=255)
     source_key: str | None = Field(default=None, min_length=1, max_length=100)

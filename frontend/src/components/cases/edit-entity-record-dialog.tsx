@@ -1,47 +1,38 @@
 "use client"
 
-import { zodResolver } from "@hookform/resolvers/zod"
-import { Database, Link, Loader2 } from "lucide-react"
-import { useEffect, useMemo, useState } from "react"
+import { CheckCheck, Copy, Loader2, RotateCcw } from "lucide-react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useForm } from "react-hook-form"
-import { z } from "zod"
-import type {
-  CaseRecordLinkRead,
-  EntitySchemaField,
-  RecordUpdate,
-} from "@/client"
-import { EntityFieldInput } from "@/components/cases/entity-field-input"
+import YAML from "yaml"
+import type { CaseRecordLinkRead, EntitySchemaField } from "@/client"
 import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb"
+  YamlStyledEditor,
+  type YamlStyledEditorRef,
+} from "@/components/editor/codemirror/yaml-editor"
+import { JsonViewWithControls } from "@/components/json-viewer"
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion"
 import { Button } from "@/components/ui/button"
-import {
-  Carousel,
-  CarouselContent,
-  CarouselItem,
-  CarouselNext,
-  CarouselPrevious,
-} from "@/components/ui/carousel"
 import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
+  DialogTitle,
 } from "@/components/ui/dialog"
 import { Form } from "@/components/ui/form"
-import { Skeleton } from "@/components/ui/skeleton"
 import {
-  useGetEntitySchema,
-  useListEntities,
-  useListEntityFields,
-  useUpdateCaseRecord,
-} from "@/lib/hooks"
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
+import { useGetEntitySchema, useUpdateCaseRecord } from "@/lib/hooks"
 
 interface EditEntityRecordDialogProps {
   open: boolean
@@ -50,160 +41,6 @@ interface EditEntityRecordDialogProps {
   recordLink: CaseRecordLinkRead
   workspaceId: string
   onSuccess?: () => void
-}
-
-function generateZodSchema(
-  fields: EntitySchemaField[],
-  relationFields?: Map<string, EntitySchemaField[]>
-): z.ZodObject<Record<string, z.ZodTypeAny>> {
-  const schema: Record<string, z.ZodTypeAny> = {}
-
-  // Process main entity fields
-  fields.forEach((field) => {
-    const fieldType = field.type.toUpperCase()
-    let fieldSchema: z.ZodTypeAny
-
-    switch (fieldType) {
-      case "TEXT":
-      case "STRING":
-      case "LONGTEXT":
-      case "TEXTAREA":
-        fieldSchema = z.string().nullable().optional()
-        break
-      case "INTEGER":
-      case "INT":
-        fieldSchema = z.number().int().nullable().optional()
-        break
-      case "NUMBER":
-      case "FLOAT":
-      case "DECIMAL":
-        fieldSchema = z.number().nullable().optional()
-        break
-      case "BOOL":
-      case "BOOLEAN":
-        fieldSchema = z.boolean().default(false)
-        break
-      case "DATE":
-        fieldSchema = z.string().nullable().optional()
-        break
-      case "DATETIME":
-      case "TIMESTAMP":
-        fieldSchema = z.string().nullable().optional()
-        break
-      case "SELECT":
-      case "ENUM":
-        if (field.enum_options && field.enum_options.length > 0) {
-          fieldSchema = z
-            .enum(field.enum_options as [string, ...string[]])
-            .nullable()
-            .optional()
-        } else {
-          fieldSchema = z.string().nullable().optional()
-        }
-        break
-      case "MULTI_SELECT":
-      case "MULTISELECT":
-        fieldSchema = z.array(z.string()).default([])
-        break
-      case "ARRAY_TEXT":
-      case "ARRAY_STRING":
-        fieldSchema = z.array(z.string()).default([])
-        break
-      case "ARRAY_INTEGER":
-      case "ARRAY_INT":
-        fieldSchema = z.array(z.number().int()).default([])
-        break
-      case "ARRAY_NUMBER":
-      case "ARRAY_FLOAT":
-        fieldSchema = z.array(z.number()).default([])
-        break
-      case "JSON":
-      case "OBJECT":
-        fieldSchema = z.any().optional()
-        break
-      case "RELATION_ONE_TO_ONE":
-      case "RELATION_MANY_TO_ONE":
-        // For one_to_one relations, we create a nested object for the related entity
-        if (relationFields) {
-          const relationKey = field.key
-          const relatedFields = relationFields.get(relationKey)
-          if (relatedFields) {
-            // Create a nested schema for the related entity
-            const nestedSchema: Record<string, z.ZodTypeAny> = {}
-            relatedFields.forEach((relField) => {
-              nestedSchema[relField.key] = generateFieldSchema(relField)
-            })
-            fieldSchema = z.object(nestedSchema).nullable().optional()
-          } else {
-            fieldSchema = z.any().nullable().optional()
-          }
-        } else {
-          fieldSchema = z.any().nullable().optional()
-        }
-        break
-      default:
-        fieldSchema = z.any().optional()
-    }
-
-    schema[field.key] = fieldSchema
-  })
-
-  return z.object(schema)
-}
-
-// Helper function to generate schema for individual fields
-function generateFieldSchema(field: EntitySchemaField): z.ZodTypeAny {
-  const fieldType = field.type.toUpperCase()
-
-  switch (fieldType) {
-    case "TEXT":
-    case "STRING":
-    case "LONGTEXT":
-    case "TEXTAREA":
-      return z.string().nullable().optional()
-    case "INTEGER":
-    case "INT":
-      return z.number().int().nullable().optional()
-    case "NUMBER":
-    case "FLOAT":
-    case "DECIMAL":
-      return z.number().nullable().optional()
-    case "BOOL":
-    case "BOOLEAN":
-      return z.boolean().default(false)
-    case "DATE":
-      return z.string().nullable().optional()
-    case "DATETIME":
-    case "TIMESTAMP":
-      return z.string().nullable().optional()
-    case "SELECT":
-    case "ENUM":
-      if (field.enum_options && field.enum_options.length > 0) {
-        return z
-          .enum(field.enum_options as [string, ...string[]])
-          .nullable()
-          .optional()
-      } else {
-        return z.string().nullable().optional()
-      }
-    case "MULTI_SELECT":
-    case "MULTISELECT":
-      return z.array(z.string()).default([])
-    case "ARRAY_TEXT":
-    case "ARRAY_STRING":
-      return z.array(z.string()).default([])
-    case "ARRAY_INTEGER":
-    case "ARRAY_INT":
-      return z.array(z.number().int()).default([])
-    case "ARRAY_NUMBER":
-    case "ARRAY_FLOAT":
-      return z.array(z.number()).default([])
-    case "JSON":
-    case "OBJECT":
-      return z.any().optional()
-    default:
-      return z.any().optional()
-  }
 }
 
 export function EditEntityRecordDialog({
@@ -215,25 +52,7 @@ export function EditEntityRecordDialog({
   onSuccess,
 }: EditEntityRecordDialogProps) {
   const entityId = recordLink.record?.entity_id || recordLink.entity_id
-  const [currentStep, setCurrentStep] = useState<1 | 2>(1)
-  const [relationSchemas, setRelationSchemas] = useState<
-    Map<string, EntitySchemaField[]>
-  >(new Map())
-  const [relationEntityNames, setRelationEntityNames] = useState<
-    Map<string, string>
-  >(new Map())
-
-  const { entities } = useListEntities({
-    workspaceId,
-    includeInactive: false,
-  })
-
   const { schema, isLoading: schemaLoading } = useGetEntitySchema({
-    entityId,
-    workspaceId,
-  })
-
-  const { fields: fullFields, isLoading: fieldsLoading } = useListEntityFields({
     entityId,
     workspaceId,
   })
@@ -244,181 +63,157 @@ export function EditEntityRecordDialog({
     workspaceId,
   })
 
-  // Separate regular fields and relation fields
-  const { regularFields, relationFields } = useMemo(() => {
-    if (!schema?.fields) return { regularFields: [], relationFields: [] }
+  const form = useForm<{ record_data: Record<string, unknown> | undefined }>({
+    defaultValues: { record_data: recordLink.record?.field_data || {} },
+  })
+  const editorRef = useRef<YamlStyledEditorRef | null>(null)
+  const [copied, setCopied] = useState(false)
+  const [relationSchemas, setRelationSchemas] = useState<
+    Map<string, EntitySchemaField[]>
+  >(new Map())
 
-    const regular: EntitySchemaField[] = []
-    const relations: Array<EntitySchemaField & { targetEntityId?: string }> = []
-
-    schema.fields.forEach((field) => {
-      const fieldType = field.type.toUpperCase()
-      if (
-        fieldType === "RELATION_ONE_TO_ONE" ||
-        fieldType === "RELATION_MANY_TO_ONE"
-      ) {
-        // Find the full field metadata to get target entity ID
-        const fullField = fullFields?.find((f) => f.field_key === field.key)
-        relations.push({
-          ...field,
-          targetEntityId: undefined, // Relations are now managed separately
-        })
-      } else if (
-        fieldType !== "RELATION_ONE_TO_MANY" &&
-        fieldType !== "RELATION_MANY_TO_MANY"
-      ) {
-        // Skip HAS_MANY relations as they're not edited inline
-        regular.push(field)
-      }
-    })
-
-    return { regularFields: regular, relationFields: relations }
-  }, [schema, fullFields])
-
-  // Fetch schemas for relation fields
   useEffect(() => {
-    const fetchRelationSchemas = async () => {
-      if (relationFields.length === 0) {
-        setRelationSchemas(new Map())
-        setRelationEntityNames(new Map())
-        return
-      }
+    form.reset({ record_data: recordLink.record?.field_data || {} })
+  }, [recordLink.record?.field_data])
 
-      const newSchemas = new Map<string, EntitySchemaField[]>()
-      const newEntityNames = new Map<string, string>()
-
-      for (const field of relationFields) {
-        if (field.targetEntityId) {
-          try {
-            const { entitiesGetEntitySchema } = await import("@/client")
-            const targetSchema = await entitiesGetEntitySchema({
-              entityId: field.targetEntityId,
-              workspaceId,
-            })
-
-            // Filter out relation fields to prevent recursive nesting
-            const filteredFields = targetSchema.fields.filter((field) => {
-              const fieldType = field.type.toUpperCase()
-              return (
-                fieldType !== "RELATION_ONE_TO_ONE" &&
-                fieldType !== "RELATION_ONE_TO_MANY" &&
-                fieldType !== "RELATION_MANY_TO_ONE" &&
-                fieldType !== "RELATION_MANY_TO_MANY"
-              )
-            })
-
-            newSchemas.set(field.key, filteredFields)
-            newEntityNames.set(field.key, targetSchema.entity.display_name)
-          } catch (error) {
-            console.error(
-              `Failed to fetch schema for relation field ${field.key}:`,
-              error
-            )
-          }
-        }
-      }
-
-      setRelationSchemas(newSchemas)
-      setRelationEntityNames(newEntityNames)
+  // Ensure prefill each time dialog opens
+  useEffect(() => {
+    if (open) {
+      form.reset({ record_data: recordLink.record?.field_data || {} })
     }
+  }, [open])
 
-    fetchRelationSchemas()
-  }, [relationFields, workspaceId])
+  const isLoadingData = schemaLoading
+  const hasFillableFields = useMemo(() => true, [])
+  // Shared helpers to build placeholder values
+  const placeholderForType = (t: string): unknown => {
+    const type = t.toUpperCase()
+    switch (type) {
+      case "TEXT":
+      case "STRING":
+      case "LONGTEXT":
+      case "TEXTAREA":
+        return "text"
+      case "INTEGER":
+      case "INT":
+        return 123
+      case "NUMBER":
+      case "FLOAT":
+      case "DECIMAL":
+        return 123.45
+      case "BOOL":
+      case "BOOLEAN":
+        return true
+      case "DATE":
+        return "2025-01-01"
+      case "DATETIME":
+      case "TIMESTAMP":
+        return "2025-01-01T12:00:00Z"
+      case "JSON":
+      case "OBJECT":
+        return { key: "value" }
+      default:
+        return "value"
+    }
+  }
 
-  const formSchema = useMemo(() => {
-    if (!schema) return z.object({})
-    // Include all fields with relation schemas for nested updates
-    return generateZodSchema(schema.fields, relationSchemas)
+  const placeholderForField = (f: EntitySchemaField): unknown => {
+    const t = f.type.toUpperCase()
+    if (t === "SELECT" || t === "ENUM") {
+      if (f.enum_options && f.enum_options.length > 0) return f.enum_options[0]
+      return "option"
+    }
+    if (t === "MULTI_SELECT" || t === "MULTISELECT") {
+      if (f.enum_options && f.enum_options.length > 0) {
+        return f.enum_options.slice(
+          0,
+          Math.max(1, Math.min(2, f.enum_options.length))
+        )
+      }
+      return ["item"]
+    }
+    if (t.startsWith("ARRAY_")) {
+      const itemType = t.replace("ARRAY_", "")
+      const sample = placeholderForType(itemType)
+      return [sample, sample]
+    }
+    return placeholderForType(t)
+  }
+  const examplePayload = useMemo(() => {
+    if (!schema) return {}
+    const ex: Record<string, unknown> = {}
+
+    for (const f of schema.fields) {
+      ex[f.key] = placeholderForField(f)
+    }
+    for (const r of schema.relations || []) {
+      const relType = String(r.relation_type)
+      const fields = relationSchemas.get(r.source_key)
+      const buildObj = () => {
+        const obj: Record<string, unknown> = {}
+        if (fields && fields.length > 0) {
+          for (const f of fields) {
+            obj[f.key] = placeholderForField(f)
+          }
+        } else {
+          obj["key"] = "value"
+        }
+        return obj
+      }
+      if (relType === "one_to_one" || relType === "many_to_one") {
+        ex[r.source_key] = buildObj()
+      } else {
+        ex[r.source_key] = [buildObj()]
+      }
+    }
+    return ex
   }, [schema, relationSchemas])
 
-  const form = useForm({
-    resolver: zodResolver(formSchema),
-    defaultValues: {},
-  })
-
-  // Initialize form with existing data (including relation fields for nested updates)
+  // Fetch relation target schemas to show per-relation examples
   useEffect(() => {
-    if (recordLink.record?.field_data && schema?.fields) {
-      const formattedData: Record<string, unknown> = {}
-
-      // Parse the field data and format it for the form
-      Object.entries(recordLink.record.field_data).forEach(([key, value]) => {
-        const field = schema.fields.find((f) => f.key === key)
-        if (field) {
-          const fieldType = field.type.toUpperCase()
-
-          // Handle special formatting for dates and arrays
-          if (
-            fieldType === "DATE" ||
-            fieldType === "DATETIME" ||
-            fieldType === "TIMESTAMP"
-          ) {
-            formattedData[key] = value as string
-          } else if (
-            fieldType === "MULTI_SELECT" ||
-            fieldType === "MULTISELECT" ||
-            fieldType === "ARRAY_TEXT" ||
-            fieldType === "ARRAY_STRING" ||
-            fieldType === "ARRAY_INTEGER" ||
-            fieldType === "ARRAY_INT" ||
-            fieldType === "ARRAY_NUMBER" ||
-            fieldType === "ARRAY_FLOAT"
-          ) {
-            formattedData[key] = Array.isArray(value) ? value : []
-          } else if (
-            fieldType === "RELATION_ONE_TO_MANY" ||
-            fieldType === "RELATION_MANY_TO_MANY"
-          ) {
-            // HAS_MANY relations are arrays of related records
-            formattedData[key] = Array.isArray(value) ? value : []
-          } else if (
-            fieldType === "RELATION_ONE_TO_ONE" ||
-            fieldType === "RELATION_MANY_TO_ONE"
-          ) {
-            // BELONGS_TO relations - initialize as empty object if null
-            // This allows users to fill in the fields
-            formattedData[key] = value || {}
-          } else {
-            formattedData[key] = value
-          }
+    const fetchSchemas = async () => {
+      if (!schema?.relations || schema.relations.length === 0) {
+        setRelationSchemas(new Map())
+        return
+      }
+      const m = new Map<string, EntitySchemaField[]>()
+      try {
+        const { entitiesGetEntitySchema } = await import("@/client")
+        for (const r of schema.relations) {
+          const target = await entitiesGetEntitySchema({
+            entityId: r.target_entity_id,
+            workspaceId,
+          })
+          const fields = (target.fields || []).filter(
+            (f) => !f.type.startsWith("RELATION_")
+          )
+          m.set(r.source_key, fields)
         }
-      })
-
-      form.reset(formattedData)
+      } catch {}
+      setRelationSchemas(m)
     }
-  }, [recordLink.record?.field_data, schema, form])
+    fetchSchemas()
+  }, [schema?.relations, workspaceId])
 
-  const handleSubmit = async (values: z.infer<typeof formSchema>) => {
+  const relationExamples = useMemo(() => {
+    const map = new Map<string, Record<string, unknown>>()
+    relationSchemas.forEach((fields, key) => {
+      const obj: Record<string, unknown> = {}
+      fields.forEach((f) => {
+        obj[f.key] = placeholderForField(f)
+      })
+      map.set(key, obj)
+    })
+    return map
+  }, [relationSchemas])
+
+  const handleSubmit = async (values: {
+    record_data?: Record<string, unknown>
+  }) => {
     try {
-      // Filter out empty relation objects to prevent invalid updates
-      const filteredValues = Object.entries(values).reduce(
-        (acc, [key, value]) => {
-          const field = schema?.fields.find((f) => f.key === key)
-          const fieldType = field?.type.toUpperCase()
-
-          // Skip empty relation objects (null relations that weren't edited)
-          if (
-            (fieldType === "RELATION_ONE_TO_ONE" ||
-              fieldType === "RELATION_ONE_TO_MANY" ||
-              fieldType === "RELATION_MANY_TO_ONE" ||
-              fieldType === "RELATION_MANY_TO_MANY") &&
-            (value === null ||
-              value === undefined ||
-              (typeof value === "object" && Object.keys(value).length === 0))
-          ) {
-            // Don't include empty relations in update
-            return acc
-          }
-
-          acc[key] = value
-          return acc
-        },
-        {} as Record<string, unknown>
+      await updateRecord(
+        (values.record_data || {}) as import("@/client").RecordUpdate
       )
-
-      // Send filtered values including valid nested relation updates
-      const updateData: RecordUpdate = filteredValues
-      await updateRecord(updateData)
       onOpenChange(false)
       onSuccess?.()
     } catch (error) {
@@ -426,259 +221,126 @@ export function EditEntityRecordDialog({
     }
   }
 
-  const isLoadingData =
-    schemaLoading ||
-    fieldsLoading ||
-    (relationFields.length > 0 && relationSchemas.size < relationFields.length)
-
-  // Check if there are any fillable fields (regular fields or relations with fields)
-  const hasFillableFields = useMemo(() => {
-    if (regularFields.length > 0) return true
-
-    // Check if any relation has fillable fields
-    for (const field of relationFields) {
-      const relatedSchema = relationSchemas.get(field.key)
-      if (relatedSchema && relatedSchema.length > 0) {
-        return true
-      }
-    }
-
-    return false
-  }, [regularFields, relationFields, relationSchemas])
-
-  // Helper function to handle step navigation
-  const handleStepChange = (step: 1 | 2) => {
-    setCurrentStep(step)
-  }
-
-  // Check if we have relations to show
-  const hasRelations =
-    relationFields.length > 0 &&
-    relationFields.some((field) => {
-      const relatedSchema = relationSchemas.get(field.key)
-      return relatedSchema && relatedSchema.length > 0
-    })
-
-  // Set initial step when dialog opens
-  useEffect(() => {
-    if (open && schema) {
-      if (regularFields.length > 0) {
-        setCurrentStep(1)
-      } else if (hasRelations) {
-        setCurrentStep(2)
-      }
-    }
-  }, [open, schema, regularFields.length, hasRelations])
-
-  // Get selected entity name
-  const selectedEntity = entities?.find((e) => e.id === entityId)
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl max-h-[85vh] overflow-hidden flex flex-col">
         <DialogHeader>
-          <div className="space-y-4">
-            {regularFields.length > 0 && hasRelations && (
-              <Breadcrumb>
-                <BreadcrumbList>
-                  <BreadcrumbItem>
-                    {currentStep === 1 ? (
-                      <BreadcrumbPage className="flex items-center gap-2">
-                        <Database className="h-4 w-4" />
-                        Fields
-                      </BreadcrumbPage>
-                    ) : (
-                      <BreadcrumbLink
-                        className="flex items-center gap-2 cursor-pointer"
-                        onClick={() => handleStepChange(1)}
-                      >
-                        <Database className="h-4 w-4" />
-                        Fields
-                      </BreadcrumbLink>
-                    )}
-                  </BreadcrumbItem>
-                  <BreadcrumbSeparator />
-                  <BreadcrumbItem>
-                    {currentStep === 2 ? (
-                      <BreadcrumbPage className="flex items-center gap-2">
-                        <Link className="h-4 w-4" />
-                        Related entities
-                      </BreadcrumbPage>
-                    ) : (
-                      <BreadcrumbLink
-                        className="flex items-center gap-2 cursor-pointer"
-                        onClick={() => handleStepChange(2)}
-                      >
-                        <Link className="h-4 w-4" />
-                        Related entities
-                      </BreadcrumbLink>
-                    )}
-                  </BreadcrumbItem>
-                </BreadcrumbList>
-              </Breadcrumb>
-            )}
-            <DialogDescription>
-              {currentStep === 1 &&
-                regularFields.length > 0 &&
-                `Update field data for ${selectedEntity?.display_name || "entity"}.`}
-              {currentStep === 2 &&
-                `Update related entity data for ${selectedEntity?.display_name || "entity"}.`}
-              {!regularFields.length &&
-                hasRelations &&
-                `Update related entity data for ${selectedEntity?.display_name || "entity"}.`}
-            </DialogDescription>
-          </div>
+          <DialogTitle>Edit entity record</DialogTitle>
+          <DialogDescription>
+            Edit the record payload as YAML. Include relation keys to create or
+            update related records.
+          </DialogDescription>
         </DialogHeader>
 
         <div className="flex-1 overflow-y-auto px-1 py-0.5">
-          <div className="space-y-6">
-            {/* Step 1: Regular Fields */}
-            {currentStep === 1 && regularFields.length > 0 && (
-              <>
-                {isLoadingData ? (
-                  <div className="space-y-3">
-                    <Skeleton className="h-8 w-full" />
-                    <Skeleton className="h-8 w-full" />
-                    <Skeleton className="h-8 w-full" />
-                  </div>
-                ) : schema ? (
-                  <Form {...form}>
-                    <form
-                      onSubmit={form.handleSubmit(handleSubmit)}
-                      className="space-y-6"
-                    >
-                      {/* Main Entity Fields - No Badge */}
-                      <div className="space-y-4">
-                        {regularFields.map((field) => (
-                          <EntityFieldInput
-                            key={field.key}
-                            field={field}
-                            control={form.control}
-                            name={field.key}
-                            disabled={isUpdating}
-                          />
-                        ))}
-                      </div>
-                    </form>
-                  </Form>
-                ) : null}
-              </>
-            )}
-
-            {/* Step 2: Relation Fields Carousel */}
-            {currentStep === 2 && hasRelations && (
-              <>
-                {isLoadingData ? (
-                  <div className="space-y-3">
-                    <Skeleton className="h-8 w-full" />
-                    <Skeleton className="h-8 w-full" />
-                    <Skeleton className="h-8 w-full" />
-                  </div>
-                ) : schema ? (
-                  <Form {...form}>
-                    <form
-                      onSubmit={form.handleSubmit(handleSubmit)}
-                      className="space-y-6"
-                    >
-                      <div className="px-12">
-                        <Carousel className="w-full">
-                          <CarouselContent>
-                            {(() => {
-                              let visibleIndex = 0
-                              const visibleRelationsCount =
-                                relationFields.filter((f) => {
-                                  const schema = relationSchemas.get(f.key)
-                                  return schema && schema.length > 0
-                                }).length
-
-                              return relationFields.map((field) => {
-                                const relatedSchema = relationSchemas.get(
-                                  field.key
-                                )
-                                const entityName = relationEntityNames.get(
-                                  field.key
-                                )
-
-                                if (
-                                  !relatedSchema ||
-                                  relatedSchema.length === 0
-                                )
-                                  return null
-
-                                visibleIndex++
-                                const currentIndex = visibleIndex
-
-                                return (
-                                  <CarouselItem key={field.key}>
-                                    <div className="p-1">
-                                      <div className="space-y-6 pt-3">
-                                        <div>
-                                          <h3 className="text-base font-medium">
-                                            {field.display_name}
-                                            {visibleRelationsCount > 1 && (
-                                              <span className="text-muted-foreground ml-2 text-sm">
-                                                ({currentIndex} of{" "}
-                                                {visibleRelationsCount})
-                                              </span>
-                                            )}
-                                          </h3>
-                                          {entityName && (
-                                            <p className="text-xs text-muted-foreground mt-1">
-                                              Update {entityName}
-                                            </p>
-                                          )}
-                                        </div>
-                                        <div className="space-y-4">
-                                          {relatedSchema.map((relField) => (
-                                            <EntityFieldInput
-                                              key={`${field.key}.${relField.key}`}
-                                              field={relField}
-                                              control={form.control}
-                                              name={`${field.key}.${relField.key}`}
-                                              disabled={isUpdating}
-                                            />
-                                          ))}
-                                        </div>
-                                      </div>
-                                    </div>
-                                  </CarouselItem>
-                                )
+          <Accordion type="single" collapsible className="mb-3">
+            <AccordionItem value="schemas">
+              <div className="flex items-center justify-between pr-1">
+                <AccordionTrigger className="px-0 text-xs">
+                  Schemas
+                </AccordionTrigger>
+                <div className="flex items-center gap-1">
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          className="mr-1 text-muted-foreground hover:text-foreground"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            form.setValue(
+                              "record_data",
+                              (recordLink.record?.field_data || {}) as Record<
+                                string,
+                                unknown
+                              >,
+                              { shouldDirty: true }
+                            )
+                          }}
+                        >
+                          <RotateCcw className="h-3.5 w-3.5" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent>Reset to current values</TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          className="mr-1 text-muted-foreground hover:text-foreground"
+                          onClick={async (e) => {
+                            e.stopPropagation()
+                            try {
+                              const yamlText = YAML.stringify(examplePayload, {
+                                lineWidth: 0,
+                                minContentWidth: 0,
                               })
-                            })()}
-                          </CarouselContent>
-                          {relationFields.filter((field) => {
-                            const relatedSchema = relationSchemas.get(field.key)
-                            return relatedSchema && relatedSchema.length > 0
-                          }).length > 1 && (
-                            <>
-                              <CarouselPrevious />
-                              <CarouselNext />
-                            </>
+                              await navigator.clipboard?.writeText(yamlText)
+                            } catch {}
+                            form.setValue("record_data", examplePayload, {
+                              shouldDirty: true,
+                            })
+                            setCopied(true)
+                            setTimeout(() => setCopied(false), 1200)
+                          }}
+                        >
+                          {copied ? (
+                            <CheckCheck className="h-3.5 w-3.5" />
+                          ) : (
+                            <Copy className="h-3.5 w-3.5" />
                           )}
-                        </Carousel>
-                      </div>
-                    </form>
-                  </Form>
-                ) : null}
-              </>
-            )}
-
-            {/* No fields message */}
-            {!isLoadingData && schema && !hasFillableFields && (
-              <div className="flex flex-col items-center justify-center py-8">
-                <div className="p-2 rounded-full bg-muted/50 mb-3">
-                  <Database className="h-5 w-5 text-muted-foreground" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent>Copy sample payload</TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
                 </div>
-                <h3 className="text-sm font-medium text-muted-foreground mb-1">
-                  No fields found
-                </h3>
-                <p className="text-xs text-muted-foreground/75 text-center max-w-[250px]">
-                  The selected entity requires at least one field to be filled
-                  in.
-                </p>
               </div>
-            )}
-          </div>
+              <AccordionContent>
+                <div className="mb-3">
+                  <JsonViewWithControls
+                    src={examplePayload}
+                    defaultExpanded
+                    defaultTab="nested"
+                    showControls={false}
+                  />
+                </div>
+                {relationExamples.size > 0 && (
+                  <div className="mb-3 space-y-2">
+                    {Array.from(relationExamples.entries()).map(
+                      ([key, obj]) => (
+                        <div key={key} className="space-y-1">
+                          <div className="text-[11px] text-muted-foreground">
+                            {key}
+                          </div>
+                          <JsonViewWithControls
+                            src={obj}
+                            defaultExpanded
+                            defaultTab="nested"
+                            showControls={false}
+                          />
+                        </div>
+                      )
+                    )}
+                  </div>
+                )}
+              </AccordionContent>
+            </AccordionItem>
+          </Accordion>
+          <Form {...form}>
+            <form
+              onSubmit={form.handleSubmit(handleSubmit)}
+              className="space-y-4"
+            >
+              <YamlStyledEditor
+                ref={editorRef}
+                name="record_data"
+                control={form.control}
+              />
+            </form>
+          </Form>
         </div>
 
         <DialogFooter className="pt-4">
@@ -689,42 +351,29 @@ export function EditEntityRecordDialog({
                 variant="outline"
                 onClick={() => {
                   onOpenChange(false)
-                  setCurrentStep(1)
                   form.reset()
                 }}
                 disabled={isUpdating}
               >
                 Cancel
               </Button>
-
-              {/* Next Button for Step 1 */}
-              {currentStep === 1 &&
-                regularFields.length > 0 &&
-                hasRelations && (
-                  <Button
-                    onClick={() => setCurrentStep(2)}
-                    disabled={isUpdating}
-                  >
-                    Next
-                  </Button>
+              <Button
+                onClick={() => {
+                  editorRef.current?.commitToForm()
+                  form.handleSubmit(handleSubmit)()
+                }}
+                disabled={
+                  !entityId ||
+                  isUpdating ||
+                  isLoadingData ||
+                  (schema && !hasFillableFields)
+                }
+              >
+                {isUpdating && (
+                  <Loader2 className="mr-2 h-3 w-3 animate-spin" />
                 )}
-
-              {/* Save Button for Final Step or Step 1 if no relations */}
-              {((currentStep === 1 && !hasRelations) || currentStep === 2) && (
-                <Button
-                  onClick={form.handleSubmit(handleSubmit)}
-                  disabled={
-                    isUpdating ||
-                    isLoadingData ||
-                    (schema && !hasFillableFields)
-                  }
-                >
-                  {isUpdating && (
-                    <Loader2 className="mr-2 h-3 w-3 animate-spin" />
-                  )}
-                  Save changes
-                </Button>
-              )}
+                Save changes
+              </Button>
             </div>
           </div>
         </DialogFooter>

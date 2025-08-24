@@ -157,9 +157,6 @@ export function EntityRecordsTable({
       enableSorting: true,
       enableHiding: false,
       enableColumnFilter: true,
-      size: 320,
-      minSize: 280,
-      maxSize: 380,
     },
     {
       accessorKey: "record",
@@ -179,7 +176,7 @@ export function EntityRecordsTable({
         }
 
         return (
-          <div className="max-h-[100px] overflow-auto max-w-[360px]">
+          <div className="overflow-auto w-64">
             <JsonView
               collapsed={false}
               displaySize

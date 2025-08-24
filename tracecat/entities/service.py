@@ -770,6 +770,26 @@ class CustomEntitiesService(BaseWorkspaceService):
         res = await self.session.exec(stmt)
         return list(res.all())
 
+    async def list_all_relations(
+        self,
+        *,
+        source_entity_id: UUID | None = None,
+        target_entity_id: UUID | None = None,
+        include_inactive: bool = False,
+    ) -> list[RelationDefinition]:
+        """List relation definitions for the workspace with optional filters."""
+        stmt = select(RelationDefinition).where(
+            RelationDefinition.owner_id == self.workspace_id,
+        )
+        if source_entity_id is not None:
+            stmt = stmt.where(RelationDefinition.source_entity_id == source_entity_id)
+        if target_entity_id is not None:
+            stmt = stmt.where(RelationDefinition.target_entity_id == target_entity_id)
+        if not include_inactive:
+            stmt = stmt.where(RelationDefinition.is_active)
+        res = await self.session.exec(stmt)
+        return list(res.all())
+
     @require_access_level(AccessLevel.ADMIN)
     async def update_relation(
         self, relation_id: UUID, params: RelationDefinitionUpdate

@@ -23,6 +23,7 @@ from tracecat.entities.models import (
     RecordRead,
     RecordUpdate,
     RelationDefinitionCreate,
+    RelationDefinitionCreateGlobal,
     RelationDefinitionRead,
     RelationDefinitionUpdate,
 )
@@ -359,6 +360,54 @@ async def list_relations(
         RelationDefinitionRead.model_validate(r, from_attributes=True)
         for r in relations
     ]
+
+
+@router.get("/relations", response_model=list[RelationDefinitionRead])
+async def list_all_relations(
+    *,
+    role: WorkspaceUser,
+    session: AsyncDBSession,
+    source_entity_id: UUID | None = Query(None),
+    target_entity_id: UUID | None = Query(None),
+    include_inactive: bool = Query(False, description="Include soft-deleted relations"),
+) -> list[RelationDefinitionRead]:
+    """List relation definitions across the workspace, with optional filters."""
+    service = CustomEntitiesService(session, role)
+    relations = await service.list_all_relations(
+        source_entity_id=source_entity_id,
+        target_entity_id=target_entity_id,
+        include_inactive=include_inactive,
+    )
+    return [
+        RelationDefinitionRead.model_validate(r, from_attributes=True)
+        for r in relations
+    ]
+
+
+@router.post("/relations", response_model=RelationDefinitionRead)
+async def create_relation_global(
+    *,
+    role: WorkspaceUser,
+    session: AsyncDBSession,
+    params: RelationDefinitionCreateGlobal,
+) -> RelationDefinitionRead:
+    """Create a relation definition for a specific source entity (global endpoint)."""
+    service = CustomEntitiesService(session, role)
+    try:
+        relation = await service.create_relation(
+            entity_id=params.source_entity_id,
+            data=RelationDefinitionCreate(
+                source_key=params.source_key,
+                display_name=params.display_name,
+                relation_type=params.relation_type,
+                target_entity_id=params.target_entity_id,
+            ),
+        )
+        return RelationDefinitionRead.model_validate(relation, from_attributes=True)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except TracecatNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
 
 
 @router.patch("/relations/{relation_id}", response_model=RelationDefinitionRead)

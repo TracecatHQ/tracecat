@@ -53,18 +53,22 @@ export function useEntity(workspaceId: string, entityId: string) {
   return { entity, entityIsLoading, entityError }
 }
 
-export function useEntityFields(workspaceId: string, entityId: string) {
+export function useEntityFields(
+  workspaceId: string,
+  entityId: string,
+  includeInactive = false
+) {
   const {
     data: fields,
     isLoading: fieldsIsLoading,
     error: fieldsError,
   } = useQuery({
-    queryKey: ["entity-fields", workspaceId, entityId],
+    queryKey: ["entity-fields", workspaceId, entityId, includeInactive],
     queryFn: async () => {
       const response = await entitiesListFields({
         workspaceId,
         entityId,
-        includeInactive: true,
+        includeInactive,
       })
       return response
     },

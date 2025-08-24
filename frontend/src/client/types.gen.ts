@@ -2714,6 +2714,17 @@ export type RelationDefinitionCreate = {
   target_entity_id: string
 }
 
+/**
+ * Global create model that includes the source entity ID.
+ */
+export type RelationDefinitionCreateGlobal = {
+  source_entity_id: string
+  source_key: string
+  display_name: string
+  relation_type: RelationType
+  target_entity_id: string
+}
+
 export type RelationDefinitionRead = {
   id: string
   owner_id: string
@@ -5451,6 +5462,25 @@ export type EntitiesListRelationsData = {
 
 export type EntitiesListRelationsResponse = Array<RelationDefinitionRead>
 
+export type EntitiesListAllRelationsData = {
+  /**
+   * Include soft-deleted relations
+   */
+  includeInactive?: boolean
+  sourceEntityId?: string | null
+  targetEntityId?: string | null
+  workspaceId: string
+}
+
+export type EntitiesListAllRelationsResponse = Array<RelationDefinitionRead>
+
+export type EntitiesCreateRelationGlobalData = {
+  requestBody: RelationDefinitionCreateGlobal
+  workspaceId: string
+}
+
+export type EntitiesCreateRelationGlobalResponse = RelationDefinitionRead
+
 export type EntitiesUpdateRelationData = {
   relationId: string
   requestBody: RelationDefinitionUpdate
@@ -5904,7 +5934,7 @@ export type PublicCheckHealthResponse = {
 
 export type $OpenApiTs = {
   "/webhooks/{workflow_id}/{secret}": {
-    post: {
+    get: {
       req: PublicIncomingWebhookData
       res: {
         /**
@@ -5917,7 +5947,7 @@ export type $OpenApiTs = {
         422: HTTPValidationError
       }
     }
-    get: {
+    post: {
       req: PublicIncomingWebhook1Data
       res: {
         /**
@@ -8212,6 +8242,34 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: Array<RelationDefinitionRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/entities/relations": {
+    get: {
+      req: EntitiesListAllRelationsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<RelationDefinitionRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: EntitiesCreateRelationGlobalData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: RelationDefinitionRead
         /**
          * Validation Error
          */

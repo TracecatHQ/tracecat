@@ -7825,6 +7825,46 @@ export const $RelationDefinitionCreate = {
   title: "RelationDefinitionCreate",
 } as const
 
+export const $RelationDefinitionCreateGlobal = {
+  properties: {
+    source_entity_id: {
+      type: "string",
+      format: "uuid",
+      title: "Source Entity Id",
+    },
+    source_key: {
+      type: "string",
+      maxLength: 100,
+      minLength: 1,
+      title: "Source Key",
+    },
+    display_name: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      title: "Display Name",
+    },
+    relation_type: {
+      $ref: "#/components/schemas/RelationType",
+    },
+    target_entity_id: {
+      type: "string",
+      format: "uuid",
+      title: "Target Entity Id",
+    },
+  },
+  type: "object",
+  required: [
+    "source_entity_id",
+    "source_key",
+    "display_name",
+    "relation_type",
+    "target_entity_id",
+  ],
+  title: "RelationDefinitionCreateGlobal",
+  description: "Global create model that includes the source entity ID.",
+} as const
+
 export const $RelationDefinitionRead = {
   properties: {
     id: {

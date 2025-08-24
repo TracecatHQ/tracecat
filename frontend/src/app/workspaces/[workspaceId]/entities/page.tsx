@@ -1,7 +1,6 @@
 "use client"
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { DatabaseIcon } from "lucide-react"
 import {
   type EntityRead,
   entitiesDeactivateEntity,
@@ -11,9 +10,12 @@ import {
   entitiesUpdateEntity,
 } from "@/client"
 import { EntitiesTable } from "@/components/entities/entities-table"
+import { EntitiesViewMode } from "@/components/entities/entities-view-toggle"
+import { RelationsWorkspaceTable } from "@/components/entities/relations-workspace-table"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { toast } from "@/components/ui/use-toast"
+import { useLocalStorage } from "@/lib/hooks"
 import { useEntities } from "@/lib/hooks/use-entities"
 import { useWorkspace } from "@/providers/workspace"
 
@@ -21,11 +23,13 @@ export default function EntitiesPage() {
   const { workspaceId, workspace, workspaceError, workspaceLoading } =
     useWorkspace()
   const queryClient = useQueryClient()
+  const [view] = useLocalStorage("entities-view", EntitiesViewMode.Fields)
+  const [includeInactive] = useLocalStorage("entities-include-inactive", false)
 
   // Always show all entities including inactive ones
   const { entities, entitiesIsLoading, entitiesError } = useEntities(
     workspaceId,
-    true // Always include inactive
+    includeInactive
   )
 
   // Fetch field counts for all entities
@@ -238,20 +242,8 @@ export default function EntitiesPage() {
   return (
     <div className="size-full overflow-auto">
       <div className="container flex h-full max-w-[1000px] flex-col space-y-8 py-8">
-        {entities.length === 0 ? (
-          <div className="flex h-full flex-col items-center justify-center gap-4">
-            <div className="rounded-full bg-muted p-3">
-              <DatabaseIcon className="size-8 text-muted-foreground" />
-            </div>
-            <div className="space-y-1 text-center">
-              <h4 className="text-sm font-semibold text-muted-foreground">
-                No custom entities defined yet
-              </h4>
-              <p className="text-xs text-muted-foreground">
-                Create your first entity using the button in the header
-              </p>
-            </div>
-          </div>
+        {view === EntitiesViewMode.Relations ? (
+          <RelationsWorkspaceTable />
         ) : (
           <div className="space-y-4">
             <EntitiesTable

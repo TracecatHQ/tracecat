@@ -23,12 +23,24 @@ import { tags } from "@lezer/highlight"
 import CodeMirror from "@uiw/react-codemirror"
 import { AlertTriangle, Check } from "lucide-react"
 import React, { useCallback, useMemo, useRef, useState } from "react"
-import { type Control, type FieldValues, useController } from "react-hook-form"
+import { type Control, useController } from "react-hook-form"
 import YAML from "yaml"
 import type { ActionRead } from "@/client"
 import { useOrgAppSettings } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
-import { useWorkflow } from "@/providers/workflow"
+
+// Workflow context is optional; editor should work outside WorkflowProvider too
+let _useWorkflow:
+  | (() => { workflow: Record<string, ActionRead> | null })
+  | null = null
+try {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const mod = require("@/providers/workflow")
+  _useWorkflow = (mod && mod.useWorkflow) || null
+} catch {
+  _useWorkflow = null
+}
+
 import { useWorkspace } from "@/providers/workspace"
 
 import {
@@ -63,25 +75,38 @@ export interface YamlStyledEditorRef {
   commitToForm: () => void
 }
 
+type YamlStyledEditorProps = {
+  name: string
+  // biome-ignore lint/suspicious/noExplicitAny: Accept any RHF Control to be form-agnostic
+  control: Control<any>
+  forEachExpressions?: string | string[] | null | undefined
+}
+
 export const YamlStyledEditor = React.forwardRef<
   YamlStyledEditorRef,
-  {
-    name: string
-    control: Control<FieldValues>
-    forEachExpressions?: string | string[] | null | undefined
-  }
+  YamlStyledEditorProps
 >(({ name, control, forEachExpressions }, ref) => {
-  const { field, fieldState } = useController<FieldValues>({
+  const { field, fieldState } = useController({
     name: name,
     control,
   })
   const { workspaceId } = useWorkspace()
-  const { workflow } = useWorkflow()
+  // Get actions from workflow if provider exists; otherwise, use empty
+  let workflowCtx: { workflow: Record<string, ActionRead> | null } | null = null
+  if (_useWorkflow) {
+    try {
+      workflowCtx = _useWorkflow()
+    } catch {
+      workflowCtx = null
+    }
+  }
   const { appSettings } = useOrgAppSettings()
   const [hasErrors, setHasErrors] = useState(false)
   const [saveState, setSaveState] = useState<SaveState>(SaveState.IDLE)
   const [validationErrors, setValidationErrors] = useState<string[]>([])
-  const actions = workflow?.actions || ({} as Record<string, ActionRead>)
+  const actions =
+    (workflowCtx?.workflow?.actions as Record<string, ActionRead>) ||
+    ({} as Record<string, ActionRead>)
   const editorRef = useRef<EditorView | null>(null)
 
   const textValue = React.useMemo(

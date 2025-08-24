@@ -7,7 +7,7 @@ import Link from "next/link"
 import { usePathname, useSearchParams } from "next/navigation"
 import { type ReactNode, useState } from "react"
 import type { OAuthGrantType } from "@/client"
-import { entitiesCreateEntity } from "@/client"
+import { entitiesCreateEntity, entitiesCreateRelationGlobal } from "@/client"
 import { AddCustomField } from "@/components/cases/add-custom-field"
 import { CreateCaseDialog } from "@/components/cases/case-create-dialog"
 import {
@@ -20,7 +20,11 @@ import {
   ViewMode,
 } from "@/components/dashboard/folder-view-toggle"
 import { CreateEntityDialog } from "@/components/entities/create-entity-dialog"
-import { EntityDetailActions } from "@/components/entities/entity-detail-actions"
+import { CreateRelationDialog } from "@/components/entities/create-relation-dialog"
+import {
+  EntitiesViewMode,
+  EntitiesViewToggle,
+} from "@/components/entities/entities-view-toggle"
 import { CreateTableDialog } from "@/components/tables/table-create-dialog"
 import { TableInsertButton } from "@/components/tables/table-insert-button"
 import {
@@ -32,13 +36,16 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
 import { Button } from "@/components/ui/button"
+import { Label } from "@/components/ui/label"
 import { SidebarTrigger } from "@/components/ui/sidebar"
+import { Switch } from "@/components/ui/switch"
 import { toast } from "@/components/ui/use-toast"
 import { AddWorkspaceMember } from "@/components/workspaces/add-workspace-member"
 import {
   NewCredentialsDialog,
   NewCredentialsDialogTrigger,
 } from "@/components/workspaces/add-workspace-secret"
+import { entityEvents } from "@/lib/entity-events"
 import {
   useGetCase,
   useGetPrompt,
@@ -59,6 +66,31 @@ interface ControlsHeaderProps {
   isChatOpen?: boolean
   /** Callback to toggle the chat sidebar */
   onToggleChat?: () => void
+}
+
+function EntitiesDetailHeaderActions() {
+  return (
+    <div className="flex items-center gap-2">
+      <Button
+        variant="outline"
+        size="sm"
+        className="h-7 bg-white"
+        onClick={() => entityEvents.emitAddField()}
+      >
+        <Plus className="mr-1 h-3.5 w-3.5" />
+        Add field
+      </Button>
+      <Button
+        variant="outline"
+        size="sm"
+        className="h-7 bg-white"
+        onClick={() => entityEvents.emitAddRelation()}
+      >
+        <Plus className="mr-1 h-3.5 w-3.5" />
+        Add relation
+      </Button>
+    </div>
+  )
 }
 
 function WorkflowsActions() {
@@ -151,8 +183,22 @@ function CustomFieldsActions() {
 }
 
 function EntitiesActions() {
-  const [dialogOpen, setDialogOpen] = useState(false)
+  const [createEntityDialogOpen, setCreateEntityDialogOpen] = useState(false)
+  const [createRelationDialogOpen, setCreateRelationDialogOpen] =
+    useState(false)
+  const [createRelationError, setCreateRelationError] = useState<string | null>(
+    null
+  )
+  const [view, setView] = useLocalStorage(
+    "entities-view",
+    EntitiesViewMode.Fields
+  )
+  const [includeInactive, setIncludeInactive] = useLocalStorage(
+    "entities-include-inactive",
+    false
+  )
   const { workspaceId } = useWorkspace()
+  const searchParams = useSearchParams()
   const queryClient = useQueryClient()
 
   // Early return if no workspace is selected
@@ -197,23 +243,115 @@ function EntitiesActions() {
     }
   }
 
+  const handleCreateRelationGlobal = async (data: {
+    source_entity_id: string
+    source_key: string
+    display_name: string
+    relation_type: import("@/client").RelationType
+    target_entity_id: string
+  }) => {
+    if (!workspaceId) return
+    try {
+      setCreateRelationError(null)
+      await entitiesCreateRelationGlobal({
+        workspaceId,
+        requestBody: {
+          source_entity_id: data.source_entity_id,
+          source_key: data.source_key,
+          display_name: data.display_name,
+          relation_type: data.relation_type,
+          target_entity_id: data.target_entity_id,
+        },
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["workspace-relations", workspaceId],
+      })
+      toast({ title: "Relation created", description: "Relation added." })
+      setCreateRelationDialogOpen(false)
+    } catch (error) {
+      console.error("Failed to create relation:", error)
+      let message = "Failed to create relation. Please try again."
+      if (error && typeof error === "object") {
+        const err = error as { body?: { detail?: string }; message?: string }
+        message = err.body?.detail || err.message || message
+      }
+      setCreateRelationError(message)
+    }
+  }
+
   return (
-    <>
-      <Button
-        variant="outline"
-        size="sm"
-        className="h-7 bg-white"
-        onClick={() => setDialogOpen(true)}
-      >
-        <Plus className="mr-1 h-3.5 w-3.5" />
-        Create custom entity
-      </Button>
-      <CreateEntityDialog
-        open={dialogOpen}
-        onOpenChange={setDialogOpen}
-        onSubmit={handleCreateEntity}
-      />
-    </>
+    <div className="flex items-center gap-2">
+      {/* Include inactive toggle on the left of the views switch */}
+      <div className="flex items-center gap-2 mr-4">
+        <Label
+          htmlFor="entities-include-inactive-global"
+          className="text-xs text-muted-foreground"
+        >
+          Include inactive
+        </Label>
+        <Switch
+          id="entities-include-inactive-global"
+          checked={includeInactive}
+          onCheckedChange={setIncludeInactive}
+        />
+      </div>
+      <EntitiesViewToggle view={view} onViewChange={setView} />
+      {view === EntitiesViewMode.Fields ? (
+        <>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 bg-white"
+            onClick={() => setCreateEntityDialogOpen(true)}
+          >
+            <Plus className="mr-1 h-3.5 w-3.5" />
+            Add entity
+          </Button>
+          <CreateEntityDialog
+            open={createEntityDialogOpen}
+            onOpenChange={setCreateEntityDialogOpen}
+            onSubmit={handleCreateEntity}
+          />
+        </>
+      ) : (
+        <>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 bg-white"
+            onClick={() => setCreateRelationDialogOpen(true)}
+          >
+            <Plus className="mr-1 h-3.5 w-3.5" />
+            Add relation
+          </Button>
+          <CreateRelationDialog
+            open={createRelationDialogOpen}
+            onOpenChange={(open) => {
+              setCreateRelationDialogOpen(open)
+              if (!open) setCreateRelationError(null)
+            }}
+            errorMessage={createRelationError || undefined}
+            onSubmit={async (data) => {
+              // Ensure source is provided in global mode
+              if (!data.source_entity_id) {
+                setCreateRelationError("Select a source entity")
+                return
+              }
+              await handleCreateRelationGlobal({
+                source_entity_id: data.source_entity_id,
+                source_key: data.source_key,
+                display_name: data.display_name,
+                relation_type: data.relation_type,
+                target_entity_id: data.target_entity_id,
+              })
+            }}
+            // Show and require the source selector for global creation
+            showSourceSelector
+            sourceEntityId={searchParams?.get("source") ?? undefined}
+          />
+        </>
+      )}
+    </div>
   )
 }
 
@@ -520,7 +658,7 @@ function getPageConfig(
         title: (
           <EntityBreadcrumb entityId={entityId} workspaceId={workspaceId} />
         ),
-        actions: <EntityDetailActions />,
+        actions: <EntitiesDetailHeaderActions />,
       }
     }
 

@@ -133,6 +133,8 @@ import type {
   EntitiesCreateRecordData,
   EntitiesCreateRecordResponse,
   EntitiesCreateRelationData,
+  EntitiesCreateRelationGlobalData,
+  EntitiesCreateRelationGlobalResponse,
   EntitiesCreateRelationResponse,
   EntitiesDeactivateEntityData,
   EntitiesDeactivateEntityResponse,
@@ -156,6 +158,8 @@ import type {
   EntitiesGetFieldResponse,
   EntitiesGetRecordData,
   EntitiesGetRecordResponse,
+  EntitiesListAllRelationsData,
+  EntitiesListAllRelationsResponse,
   EntitiesListEntitiesData,
   EntitiesListEntitiesResponse,
   EntitiesListFieldsData,
@@ -463,7 +467,7 @@ export const publicIncomingWebhook = (
   data: PublicIncomingWebhookData
 ): CancelablePromise<PublicIncomingWebhookResponse> => {
   return __request(OpenAPI, {
-    method: "POST",
+    method: "GET",
     url: "/webhooks/{workflow_id}/{secret}",
     path: {
       secret: data.secret,
@@ -503,7 +507,7 @@ export const publicIncomingWebhook1 = (
   data: PublicIncomingWebhook1Data
 ): CancelablePromise<PublicIncomingWebhook1Response> => {
   return __request(OpenAPI, {
-    method: "GET",
+    method: "POST",
     url: "/webhooks/{workflow_id}/{secret}",
     path: {
       secret: data.secret,
@@ -4826,6 +4830,61 @@ export const entitiesListRelations = (
     query: {
       workspace_id: data.workspaceId,
     },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List All Relations
+ * List relation definitions across the workspace, with optional filters.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.sourceEntityId
+ * @param data.targetEntityId
+ * @param data.includeInactive Include soft-deleted relations
+ * @returns RelationDefinitionRead Successful Response
+ * @throws ApiError
+ */
+export const entitiesListAllRelations = (
+  data: EntitiesListAllRelationsData
+): CancelablePromise<EntitiesListAllRelationsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/entities/relations",
+    query: {
+      source_entity_id: data.sourceEntityId,
+      target_entity_id: data.targetEntityId,
+      include_inactive: data.includeInactive,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Relation Global
+ * Create a relation definition for a specific source entity (global endpoint).
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns RelationDefinitionRead Successful Response
+ * @throws ApiError
+ */
+export const entitiesCreateRelationGlobal = (
+  data: EntitiesCreateRelationGlobalData
+): CancelablePromise<EntitiesCreateRelationGlobalResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/entities/relations",
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
     errors: {
       422: "Validation Error",
     },

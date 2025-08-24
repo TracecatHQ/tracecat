@@ -32,6 +32,27 @@ class EntityEventEmitter {
       }
     }
   }
+
+  emitAddRelation() {
+    const callbacks = this.listeners.get("add-relation")
+    if (callbacks) {
+      Array.from(callbacks).forEach((callback) => callback())
+    }
+  }
+
+  onAddRelation(callback: () => void) {
+    if (!this.listeners.has("add-relation")) {
+      this.listeners.set("add-relation", new Set())
+    }
+    this.listeners.get("add-relation")!.add(callback)
+
+    return () => {
+      const callbacks = this.listeners.get("add-relation")
+      if (callbacks) {
+        callbacks.delete(callback)
+      }
+    }
+  }
 }
 
 export const entityEvents = EntityEventEmitter.getInstance()
