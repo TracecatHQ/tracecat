@@ -5,6 +5,7 @@ from collections.abc import Sequence
 from typing import Literal
 
 import sqlalchemy as sa
+from sqlalchemy.orm import selectinload
 from sqlmodel import and_, cast, col, func, or_, select
 
 from tracecat.db.schemas import Workflow, WorkflowDefinition, WorkflowFolder
@@ -510,6 +511,7 @@ class WorkflowFolderService(BaseService):
                 if order_by == "desc"
                 else col(Workflow.created_at).asc()
             )
+            .options(selectinload(Workflow.tags))  # type: ignore
         )
 
         workflow_result = await self.session.exec(workflow_statement)

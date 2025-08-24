@@ -115,7 +115,7 @@ class CasesService(BaseWorkspaceService):
         stmt = (
             select(Case)
             .where(Case.owner_id == self.workspace_id)
-            .options(selectinload(Case.tags))
+            .options(selectinload(Case.tags))  # type: ignore
             .order_by(col(Case.created_at).desc(), col(Case.id).desc())
         )
 
@@ -125,7 +125,9 @@ class CasesService(BaseWorkspaceService):
 
             for tag_id in tag_ids:
                 stmt = stmt.where(
-                    Case.id.in_(select(CaseTag.case_id).where(CaseTag.tag_id == tag_id))
+                    col(Case.id).in_(
+                        select(CaseTag.case_id).where(CaseTag.tag_id == tag_id)
+                    )
                 )
 
         # Apply cursor filtering
@@ -258,7 +260,7 @@ class CasesService(BaseWorkspaceService):
         statement = (
             select(Case)
             .where(Case.owner_id == self.workspace_id)
-            .options(selectinload(Case.tags))
+            .options(selectinload(Case.tags))  # type: ignore
         )
 
         # Apply search term filter (search in summary and description)
@@ -345,7 +347,7 @@ class CasesService(BaseWorkspaceService):
                 Case.owner_id == self.workspace_id,
                 Case.id == case_id,
             )
-            .options(selectinload(Case.tags))
+            .options(selectinload(Case.tags))  # type: ignore
         )
 
         result = await self.session.exec(statement)
@@ -826,8 +828,8 @@ class CaseAttachmentService(BaseWorkspaceService):
         statement = (
             select(CaseAttachment)
             .join(File, cast(CaseAttachment.file_id, sa.UUID) == cast(File.id, sa.UUID))
-            .where(CaseAttachment.case_id == case.id, File.deleted_at.is_(None))
-            .options(selectinload(CaseAttachment.file))
+            .where(CaseAttachment.case_id == case.id, col(File.deleted_at).is_(None))
+            .options(selectinload(CaseAttachment.file))  # type: ignore
             .order_by(desc(col(CaseAttachment.created_at)))
         )
         result = await self.session.exec(statement)
@@ -986,7 +988,7 @@ class CaseAttachmentService(BaseWorkspaceService):
                 CaseAttachment.case_id == case.id,
                 CaseAttachment.file_id == file.id,
             )
-            .options(selectinload(CaseAttachment.file))
+            .options(selectinload(CaseAttachment.file))  # type: ignore
         )
         attachment = existing_attachment.first()
 
