@@ -30,6 +30,7 @@ from tracecat.entities.models import (
 from tracecat.entities.service import CustomEntitiesService
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatNotFoundError
+from tracecat.types.pagination import CursorPaginatedResponse, CursorPaginationParams
 
 router = APIRouter(prefix="/entities", tags=["entities"])
 
@@ -119,14 +120,14 @@ async def update_entity(
         raise HTTPException(status_code=404, detail=str(e)) from e
 
 
-@router.delete("/types/{entity_id}", response_model=EntityRead)
-async def deactivate_entity(
+@router.post("/types/{entity_id}/archive", response_model=EntityRead)
+async def archive_entity(
     *,
     role: WorkspaceUser,
     session: AsyncDBSession,
     entity_id: UUID,
 ) -> EntityRead:
-    """Soft delete entity.
+    """Archive (soft delete) entity.
 
     Cascades to all fields and relations owned by the entity.
     """
@@ -140,14 +141,14 @@ async def deactivate_entity(
         raise HTTPException(status_code=400, detail=str(e)) from e
 
 
-@router.post("/types/{entity_id}/reactivate", response_model=EntityRead)
-async def reactivate_entity(
+@router.post("/types/{entity_id}/restore", response_model=EntityRead)
+async def restore_entity(
     *,
     role: WorkspaceUser,
     session: AsyncDBSession,
     entity_id: UUID,
 ) -> EntityRead:
-    """Reactivate soft-deleted entity.
+    """Restore archived entity.
 
     Cascades to all fields and relations owned by the entity.
     """
@@ -161,7 +162,7 @@ async def reactivate_entity(
         raise HTTPException(status_code=400, detail=str(e)) from e
 
 
-@router.delete("/types/{entity_id}/hard", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/types/{entity_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_entity(
     *,
     role: WorkspaceUser,
@@ -270,14 +271,14 @@ async def update_field(
         raise HTTPException(status_code=404, detail=str(e)) from e
 
 
-@router.post("/fields/{field_id}/deactivate", response_model=FieldMetadataRead)
-async def deactivate_field(
+@router.post("/fields/{field_id}/archive", response_model=FieldMetadataRead)
+async def archive_field(
     *,
     role: WorkspaceUser,
     session: AsyncDBSession,
     field_id: UUID,
 ) -> FieldMetadataRead:
-    """Soft delete field (data preserved)."""
+    """Archive (soft delete) field metadata (data preserved)."""
     service = CustomEntitiesService(session, role)
     try:
         field = await service.deactivate_field(field_id)
@@ -288,14 +289,14 @@ async def deactivate_field(
         raise HTTPException(status_code=404, detail=str(e)) from e
 
 
-@router.post("/fields/{field_id}/reactivate", response_model=FieldMetadataRead)
-async def reactivate_field(
+@router.post("/fields/{field_id}/restore", response_model=FieldMetadataRead)
+async def restore_field(
     *,
     role: WorkspaceUser,
     session: AsyncDBSession,
     field_id: UUID,
 ) -> FieldMetadataRead:
-    """Reactivate soft-deleted field."""
+    """Restore archived field."""
     service = CustomEntitiesService(session, role)
     try:
         field = await service.reactivate_field(field_id)
@@ -306,7 +307,7 @@ async def reactivate_field(
         raise HTTPException(status_code=404, detail=str(e)) from e
 
 
-@router.delete("/fields/{field_id}/hard", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/fields/{field_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_field(
     *,
     role: WorkspaceUser,
@@ -428,10 +429,8 @@ async def update_relation(
         raise HTTPException(status_code=404, detail=str(e)) from e
 
 
-@router.post(
-    "/relations/{relation_id}/deactivate", response_model=RelationDefinitionRead
-)
-async def deactivate_relation(
+@router.post("/relations/{relation_id}/archive", response_model=RelationDefinitionRead)
+async def archive_relation(
     *,
     role: WorkspaceUser,
     session: AsyncDBSession,
@@ -445,10 +444,8 @@ async def deactivate_relation(
         raise HTTPException(status_code=404, detail=str(e)) from e
 
 
-@router.post(
-    "/relations/{relation_id}/reactivate", response_model=RelationDefinitionRead
-)
-async def reactivate_relation(
+@router.post("/relations/{relation_id}/restore", response_model=RelationDefinitionRead)
+async def restore_relation(
     *,
     role: WorkspaceUser,
     session: AsyncDBSession,
@@ -553,6 +550,74 @@ async def delete_record(
         await service.delete_record(record_id)
     except TracecatNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@router.get("/records")
+async def list_all_records(
+    *,
+    role: WorkspaceUser,
+    session: AsyncDBSession,
+    entity_id: UUID | None = Query(None),
+    include_deleted: bool = Query(False),
+    limit: int = Query(20, ge=1, le=100, description="Maximum items per page"),
+    cursor: str | None = Query(None, description="Cursor for pagination"),
+    reverse: bool = Query(False, description="Reverse pagination direction"),
+) -> CursorPaginatedResponse[RecordRead]:
+    """List records globally with cursor-based pagination and optional filters."""
+    service = CustomEntitiesService(session, role)
+    params = CursorPaginationParams(limit=limit, cursor=cursor, reverse=reverse)
+    try:
+        result = await service.list_all_records_paginated(
+            params, entity_id=entity_id, include_deleted=include_deleted
+        )
+        return CursorPaginatedResponse(
+            items=[
+                RecordRead.model_validate(r, from_attributes=True) for r in result.items
+            ],
+            next_cursor=result.next_cursor,
+            prev_cursor=result.prev_cursor,
+            has_more=result.has_more,
+            has_previous=result.has_previous,
+            total_estimate=result.total_estimate,
+        )
+    except TracecatNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@router.post("/records/{record_id}/archive", response_model=RecordRead)
+async def archive_record(
+    *,
+    role: WorkspaceUser,
+    session: AsyncDBSession,
+    record_id: UUID,
+) -> RecordRead:
+    """Soft delete (archive) a record."""
+    service = CustomEntitiesService(session, role)
+    try:
+        record = await service.archive_record(record_id)
+        return RecordRead.model_validate(record, from_attributes=True)
+    except TracecatNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@router.post("/records/{record_id}/restore", response_model=RecordRead)
+async def restore_record(
+    *,
+    role: WorkspaceUser,
+    session: AsyncDBSession,
+    record_id: UUID,
+) -> RecordRead:
+    """Restore a soft-deleted record."""
+    service = CustomEntitiesService(session, role)
+    try:
+        record = await service.restore_record(record_id)
+        return RecordRead.model_validate(record, from_attributes=True)
+    except TracecatNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 @router.post("/{entity_id}/query", response_model=QueryResponse)

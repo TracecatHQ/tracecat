@@ -20,6 +20,7 @@ import {
   ViewMode,
 } from "@/components/dashboard/folder-view-toggle"
 import { CreateEntityDialog } from "@/components/entities/create-entity-dialog"
+import { CreateRecordDialog } from "@/components/entities/create-record-dialog"
 import { CreateRelationDialog } from "@/components/entities/create-relation-dialog"
 import {
   EntitiesViewMode,
@@ -177,6 +178,7 @@ function EntitiesActions() {
   const [createEntityDialogOpen, setCreateEntityDialogOpen] = useState(false)
   const [createRelationDialogOpen, setCreateRelationDialogOpen] =
     useState(false)
+  const [createRecordDialogOpen, setCreateRecordDialogOpen] = useState(false)
   const [createRelationError, setCreateRelationError] = useState<string | null>(
     null
   )
@@ -273,19 +275,21 @@ function EntitiesActions() {
   return (
     <div className="flex items-center gap-2">
       {/* Include inactive toggle on the left of the views switch */}
-      <div className="flex items-center gap-2 mr-4">
-        <Label
-          htmlFor="entities-include-inactive-global"
-          className="text-xs text-muted-foreground"
-        >
-          Include inactive
-        </Label>
-        <Switch
-          id="entities-include-inactive-global"
-          checked={includeInactive}
-          onCheckedChange={setIncludeInactive}
-        />
-      </div>
+      {view !== EntitiesViewMode.Records && (
+        <div className="flex items-center gap-2 mr-4">
+          <Label
+            htmlFor="entities-include-inactive-global"
+            className="text-xs text-muted-foreground"
+          >
+            Include inactive
+          </Label>
+          <Switch
+            id="entities-include-inactive-global"
+            checked={includeInactive}
+            onCheckedChange={setIncludeInactive}
+          />
+        </div>
+      )}
       <EntitiesViewToggle view={view} onViewChange={setView} />
       {view === EntitiesViewMode.Fields ? (
         <>
@@ -304,7 +308,7 @@ function EntitiesActions() {
             onSubmit={handleCreateEntity}
           />
         </>
-      ) : (
+      ) : view === EntitiesViewMode.Relations ? (
         <>
           <Button
             variant="outline"
@@ -337,6 +341,30 @@ function EntitiesActions() {
               })
             }}
             sourceEntityId={searchParams?.get("source") ?? undefined}
+          />
+        </>
+      ) : (
+        <>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 bg-white"
+            onClick={() => setCreateRecordDialogOpen(true)}
+          >
+            <Plus className="mr-1 h-3.5 w-3.5" />
+            Create record
+          </Button>
+          <CreateRecordDialog
+            open={createRecordDialogOpen}
+            onOpenChange={setCreateRecordDialogOpen}
+            workspaceId={workspaceId!}
+            onSuccess={() => {
+              setCreateRecordDialogOpen(false)
+              // invalidate records views if needed
+              queryClient.invalidateQueries({
+                queryKey: ["workspace-records-cursor", workspaceId],
+              })
+            }}
           />
         </>
       )}

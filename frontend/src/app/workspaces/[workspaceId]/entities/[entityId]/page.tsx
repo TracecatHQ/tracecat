@@ -5,18 +5,20 @@ import { Settings2Icon } from "lucide-react"
 import { useParams } from "next/navigation"
 import { useEffect, useState } from "react"
 import {
+  entitiesArchiveField,
   entitiesCreateField,
-  entitiesDeactivateField,
   entitiesDeleteField,
-  entitiesReactivateField,
+  entitiesRestoreField,
   type FieldMetadataRead,
   type FieldType,
 } from "@/client"
 import { CreateFieldDialog } from "@/components/entities/create-field-dialog"
 import { EditFieldDialog } from "@/components/entities/edit-field-dialog"
 import { EntityFieldsTable } from "@/components/entities/entity-fields-table"
+import { EntityRecordsTable } from "@/components/entities/entity-records-table"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
+import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { toast } from "@/components/ui/use-toast"
 import { entityEvents } from "@/lib/entity-events"
@@ -55,6 +57,10 @@ export default function EntityDetailPage() {
   const { updateField, updateFieldIsPending } = useUpdateEntityField(
     workspaceId,
     entityId
+  )
+  const [detailView, setDetailView] = useLocalStorage(
+    "entity-detail-view",
+    "fields"
   )
 
   // Set up the callback for the Add Field button in header
@@ -115,7 +121,7 @@ export default function EntityDetailPage() {
   const { mutateAsync: deactivateFieldMutation, isPending: isDeactivating } =
     useMutation({
       mutationFn: async (fieldId: string) => {
-        return await entitiesDeactivateField({
+        return await entitiesArchiveField({
           workspaceId,
           fieldId,
         })
@@ -125,15 +131,15 @@ export default function EntityDetailPage() {
           queryKey: ["entity-fields", workspaceId, entityId],
         })
         toast({
-          title: "Field deactivated",
-          description: "The field was deactivated successfully.",
+          title: "Field archived",
+          description: "The field was archived successfully.",
         })
       },
       onError: (error) => {
-        console.error("Failed to deactivate field", error)
+        console.error("Failed to archive field", error)
         toast({
-          title: "Error deactivating field",
-          description: "Failed to deactivate the field. Please try again.",
+          title: "Error archiving field",
+          description: "Failed to archive the field. Please try again.",
           variant: "destructive",
         })
       },
@@ -141,7 +147,7 @@ export default function EntityDetailPage() {
 
   const { mutateAsync: reactivateFieldMutation } = useMutation({
     mutationFn: async (fieldId: string) => {
-      return await entitiesReactivateField({
+      return await entitiesRestoreField({
         workspaceId,
         fieldId,
       })
@@ -151,15 +157,15 @@ export default function EntityDetailPage() {
         queryKey: ["entity-fields", workspaceId, entityId],
       })
       toast({
-        title: "Field reactivated",
-        description: "The field was reactivated successfully.",
+        title: "Field restored",
+        description: "The field was restored successfully.",
       })
     },
     onError: (error) => {
-      console.error("Failed to reactivate field", error)
+      console.error("Failed to restore field", error)
       toast({
-        title: "Error reactivating field",
-        description: "Failed to reactivate the field. Please try again.",
+        title: "Error restoring field",
+        description: "Failed to restore the field. Please try again.",
         variant: "destructive",
       })
     },
@@ -220,15 +226,35 @@ export default function EntityDetailPage() {
   return (
     <div className="size-full overflow-auto">
       <div className="container max-w-[1200px] my-16">
+        {/* Local view toggle: Fields | Records */}
+        <div className="mb-4 inline-flex items-center rounded-md border">
+          <Button
+            type="button"
+            variant={detailView === "fields" ? "secondary" : "ghost"}
+            className="h-7 rounded-r-none"
+            onClick={() => setDetailView("fields")}
+          >
+            Fields
+          </Button>
+          <Button
+            type="button"
+            variant={detailView === "records" ? "secondary" : "ghost"}
+            className="h-7 rounded-l-none"
+            onClick={() => setDetailView("records")}
+          >
+            Records
+          </Button>
+        </div>
         <div className="space-y-4">
-          {fields.length === 0 ? (
+          {detailView === "records" ? (
+            <EntityRecordsTable entityId={entity.id} />
+          ) : fields.length === 0 ? (
             <Card>
               <CardContent className="flex flex-col items-center justify-center py-12">
                 <Settings2Icon className="h-12 w-12 text-muted-foreground mb-4" />
                 <h3 className="text-sm font-semibold mb-1">No fields yet</h3>
                 <p className="text-xs text-muted-foreground text-center max-w-[300px]">
-                  Add fields to define the structure of your{" "}
-                  {entity.display_name.toLowerCase()} records
+                  Add fields to define the structure of your records
                 </p>
               </CardContent>
             </Card>

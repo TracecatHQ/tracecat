@@ -10,11 +10,11 @@ import type {
 } from "@/client"
 import {
   casesAddRecordToCase,
-  casesDeleteRecordFromCase,
   casesGetCaseRecord,
   casesListCaseRecords,
   casesRemoveRecordFromCase,
   casesUpdateCaseRecord,
+  entitiesDeleteRecord,
   entitiesGetEntitySchema,
   entitiesListEntities,
   entitiesListFields,
@@ -194,8 +194,7 @@ export function useDeleteCaseRecord({
     error: deleteError,
   } = useMutation({
     mutationFn: async (recordId: string) => {
-      return await casesDeleteRecordFromCase({
-        caseId,
+      return await entitiesDeleteRecord({
         recordId,
         workspaceId,
       })
@@ -209,7 +208,7 @@ export function useDeleteCaseRecord({
       })
       toast({
         title: "Record deleted",
-        description: "The entity record has been permanently deleted.",
+        description: "The record was permanently deleted.",
       })
     },
     onError: (error) => {

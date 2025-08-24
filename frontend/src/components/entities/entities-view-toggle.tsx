@@ -1,6 +1,6 @@
 "use client"
 
-import { BracesIcon, Link as LinkIcon } from "lucide-react"
+import { BracesIcon, Link as LinkIcon, Rows } from "lucide-react"
 import {
   Tooltip,
   TooltipContent,
@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils"
 export enum EntitiesViewMode {
   Fields = "fields",
   Relations = "relations",
+  Records = "records",
 }
 
 interface EntitiesViewToggleProps {
@@ -64,7 +65,7 @@ export function EntitiesViewToggle({
               type="button"
               onClick={() => handleViewChange(EntitiesViewMode.Relations)}
               className={cn(
-                "flex size-7 items-center justify-center rounded-r-sm transition-colors",
+                "flex size-7 items-center justify-center transition-colors",
                 view === EntitiesViewMode.Relations
                   ? "bg-background text-accent-foreground"
                   : "bg-accent text-muted-foreground hover:bg-muted/50"
@@ -77,6 +78,29 @@ export function EntitiesViewToggle({
           </TooltipTrigger>
           <TooltipContent>
             <p>Relations</p>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={() => handleViewChange(EntitiesViewMode.Records)}
+              className={cn(
+                "flex size-7 items-center justify-center rounded-r-sm transition-colors",
+                view === EntitiesViewMode.Records
+                  ? "bg-background text-accent-foreground"
+                  : "bg-accent text-muted-foreground hover:bg-muted/50"
+              )}
+              aria-current={view === EntitiesViewMode.Records}
+              aria-label="Records view"
+            >
+              <Rows className="size-3.5" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>
+            <p>Records</p>
           </TooltipContent>
         </Tooltip>
       </TooltipProvider>

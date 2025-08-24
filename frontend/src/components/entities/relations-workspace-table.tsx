@@ -17,10 +17,10 @@ import {
 import { useSearchParams } from "next/navigation"
 import { useEffect, useMemo, useState } from "react"
 import {
-  entitiesDeactivateRelation,
+  entitiesArchiveRelation,
   entitiesDeleteRelation,
   entitiesListAllRelations,
-  entitiesReactivateRelation,
+  entitiesRestoreRelation,
   entitiesUpdateRelation,
   type RelationDefinitionRead,
 } from "@/client"
@@ -138,28 +138,28 @@ export function RelationsWorkspaceTable() {
 
   const { mutateAsync: doDeactivate } = useMutation({
     mutationFn: async (relationId: string) =>
-      entitiesDeactivateRelation({ workspaceId: workspaceId!, relationId }),
+      entitiesArchiveRelation({ workspaceId: workspaceId!, relationId }),
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: ["workspace-relations", workspaceId],
       })
-      toast({ title: "Relation deactivated" })
+      toast({ title: "Relation archived" })
     },
     onError: () =>
-      toast({ title: "Failed to deactivate relation", variant: "destructive" }),
+      toast({ title: "Failed to archive relation", variant: "destructive" }),
   })
 
   const { mutateAsync: doReactivate } = useMutation({
     mutationFn: async (relationId: string) =>
-      entitiesReactivateRelation({ workspaceId: workspaceId!, relationId }),
+      entitiesRestoreRelation({ workspaceId: workspaceId!, relationId }),
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: ["workspace-relations", workspaceId],
       })
-      toast({ title: "Relation reactivated" })
+      toast({ title: "Relation restored" })
     },
     onError: () =>
-      toast({ title: "Failed to reactivate relation", variant: "destructive" }),
+      toast({ title: "Failed to restore relation", variant: "destructive" }),
   })
 
   const { mutateAsync: doDelete } = useMutation({
@@ -479,7 +479,7 @@ export function RelationsWorkspaceTable() {
                       }}
                     >
                       <XCircle className="mr-2 h-3 w-3" />
-                      Deactivate relation
+                      Archive relation
                     </DropdownMenuItem>
                   </AlertDialogTrigger>
                 </>
@@ -492,7 +492,7 @@ export function RelationsWorkspaceTable() {
                     }}
                   >
                     <CheckCircle className="mr-2 h-3 w-3" />
-                    Reactivate relation
+                    Restore relation
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <AlertDialogTrigger asChild>
@@ -580,7 +580,7 @@ export function RelationsWorkspaceTable() {
           <AlertDialogTitle>
             {actionType === "delete"
               ? "Delete relation permanently"
-              : "Deactivate relation"}
+              : "Archive relation"}
           </AlertDialogTitle>
           <AlertDialogDescription>
             {actionType === "delete" ? (
@@ -592,9 +592,9 @@ export function RelationsWorkspaceTable() {
               </>
             ) : (
               <>
-                Are you sure you want to deactivate the relation{" "}
+                Are you sure you want to archive the relation{" "}
                 <strong>{selectedRelation?.display_name}</strong>? The relation
-                will be hidden but data will be preserved. You can reactivate it
+                will be hidden but data will be preserved. You can restore it
                 later.
               </>
             )}
@@ -620,7 +620,7 @@ export function RelationsWorkspaceTable() {
               }
             }}
           >
-            {actionType === "delete" ? "Delete Permanently" : "Deactivate"}
+            {actionType === "delete" ? "Delete Permanently" : "Archive"}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

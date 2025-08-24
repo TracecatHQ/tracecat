@@ -1573,6 +1573,12 @@ class Record(Resource, table=True):
     # Supports nested objects (up to 3 levels deep), but no nested arrays
     field_data: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
 
+    # Soft delete support for records
+    deleted_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(TIMESTAMP(timezone=True)),
+    )
+
     # Relationships
     entity: Entity = Relationship(back_populates="data_records")
 

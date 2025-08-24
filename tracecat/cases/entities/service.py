@@ -165,6 +165,7 @@ class CaseEntitiesService(BaseWorkspaceService):
                 record_read = CaseRecordRead(
                     id=record.id,
                     entity_id=record.entity_id,
+                    updated_at=record.updated_at,
                     field_data=resolved_field_data,
                     relation_fields=relation_fields,
                 )
@@ -234,6 +235,7 @@ class CaseEntitiesService(BaseWorkspaceService):
         return CaseRecordRead(
             id=record.id,
             entity_id=record.entity_id,
+            updated_at=record.updated_at,
             field_data=resolved_field_data,
             relation_fields=relation_fields,
         )
@@ -429,6 +431,7 @@ class CaseEntitiesService(BaseWorkspaceService):
             record=CaseRecordRead(
                 id=entity_record.id,
                 entity_id=entity_record.entity_id,
+                updated_at=entity_record.updated_at,
                 field_data=resolved_field_data,
                 relation_fields=relation_fields,
             ),
@@ -484,6 +487,7 @@ class CaseEntitiesService(BaseWorkspaceService):
         return CaseRecordRead(
             id=updated.id,
             entity_id=updated.entity_id,
+            updated_at=updated.updated_at,
             field_data=resolved_field_data,
             relation_fields=relation_fields,
         )
@@ -512,35 +516,5 @@ class CaseEntitiesService(BaseWorkspaceService):
         await self.session.delete(link)
         await self.session.commit()
 
-    async def delete_record(self, case_id: uuid.UUID, record_id: uuid.UUID) -> None:
-        """Delete an entity record linked to a case.
-
-        Args:
-            case_id: The case ID
-            record_id: The entity record ID to delete
-
-        Raises:
-            TracecatNotFoundError: If case not found
-            ValueError: If record not found
-        """
-        # Validate case exists
-        await self.validate_case_exists(case_id)
-
-        # Find the link by case_id and record_id
-        stmt = select(CaseRecordLink).where(
-            CaseRecordLink.case_id == case_id,
-            CaseRecordLink.record_id == record_id,
-        )
-        result = await self.session.exec(stmt)
-        link = result.first()
-
-        if not link:
-            raise ValueError(f"Entity record {record_id} not found for this case")
-
-        # Delete the record using entities service
-        # This will cascade delete the link due to FK constraint
-        entity_service = CustomEntitiesService(session=self.session, role=self.role)
-        await entity_service.delete_record(record_id)
-
-        # No need to delete the link - it's cascade deleted with the record
-        await self.session.commit()
+    # Note: Destructive record deletion is intentionally not supported in the case context.
+    # Records should be managed via entities endpoints.

@@ -69,8 +69,6 @@ import type {
   CasesDeleteCommentResponse,
   CasesDeleteFieldData,
   CasesDeleteFieldResponse,
-  CasesDeleteRecordFromCaseData,
-  CasesDeleteRecordFromCaseResponse,
   CasesDownloadAttachmentData,
   CasesDownloadAttachmentResponse,
   CasesGetCaseData,
@@ -126,6 +124,14 @@ import type {
   EditorListFunctionsResponse,
   EditorValidateExpressionData,
   EditorValidateExpressionResponse,
+  EntitiesArchiveEntityData,
+  EntitiesArchiveEntityResponse,
+  EntitiesArchiveFieldData,
+  EntitiesArchiveFieldResponse,
+  EntitiesArchiveRecordData,
+  EntitiesArchiveRecordResponse,
+  EntitiesArchiveRelationData,
+  EntitiesArchiveRelationResponse,
   EntitiesCreateEntityData,
   EntitiesCreateEntityResponse,
   EntitiesCreateFieldData,
@@ -136,12 +142,6 @@ import type {
   EntitiesCreateRelationGlobalData,
   EntitiesCreateRelationGlobalResponse,
   EntitiesCreateRelationResponse,
-  EntitiesDeactivateEntityData,
-  EntitiesDeactivateEntityResponse,
-  EntitiesDeactivateFieldData,
-  EntitiesDeactivateFieldResponse,
-  EntitiesDeactivateRelationData,
-  EntitiesDeactivateRelationResponse,
   EntitiesDeleteEntityData,
   EntitiesDeleteEntityResponse,
   EntitiesDeleteFieldData,
@@ -158,6 +158,8 @@ import type {
   EntitiesGetFieldResponse,
   EntitiesGetRecordData,
   EntitiesGetRecordResponse,
+  EntitiesListAllRecordsData,
+  EntitiesListAllRecordsResponse,
   EntitiesListAllRelationsData,
   EntitiesListAllRelationsResponse,
   EntitiesListEntitiesData,
@@ -168,12 +170,14 @@ import type {
   EntitiesListRelationsResponse,
   EntitiesQueryRecordsData,
   EntitiesQueryRecordsResponse,
-  EntitiesReactivateEntityData,
-  EntitiesReactivateEntityResponse,
-  EntitiesReactivateFieldData,
-  EntitiesReactivateFieldResponse,
-  EntitiesReactivateRelationData,
-  EntitiesReactivateRelationResponse,
+  EntitiesRestoreEntityData,
+  EntitiesRestoreEntityResponse,
+  EntitiesRestoreFieldData,
+  EntitiesRestoreFieldResponse,
+  EntitiesRestoreRecordData,
+  EntitiesRestoreRecordResponse,
+  EntitiesRestoreRelationData,
+  EntitiesRestoreRelationResponse,
   EntitiesUpdateEntityData,
   EntitiesUpdateEntityResponse,
   EntitiesUpdateFieldData,
@@ -4278,15 +4282,26 @@ export const casesGetCaseRecord = (
 
 /**
  * Update Case Record
- * Update an record linked to a case.
+ * Update a record linked to a case with relation support.
  *
- * Args:
- * case_id: The case ID
- * record_id: The record ID to update
- * updates: Field updates
+ * Semantics:
+ * - Regular fields: provide key/value updates as usual.
+ * - One-to-one / many-to-one relations:
+ * - Provide a nested object on the relation key to update the existing target's fields.
+ * - If no link exists, providing a nested object will create a new target record and link it.
+ * - Operators supported:
+ * - ``{ relation__set: <uuid|object|null> }`` replace or clear the link.
+ * - ``{ relation__clear: true }`` clear the link.
+ * - ``{ relation__add: <uuid|object> }`` set if empty; errors if already linked.
+ * - One-to-many / many-to-many relations:
+ * - Provide an array on the relation key to add items. Dict items are created inline; UUIDs are linked.
+ * - Operators supported:
+ * - ``{ relation__add: [<uuid|object>, ...] }`` add links (idempotent for existing links).
+ * - ``{ relation__remove: [<uuid>, ...] }`` remove specific links.
+ * - ``{ relation__clear: true }`` remove all links.
+ * - ``{ relation__set: [<uuid|object>, ...] }`` replace all links with the given set.
  *
- * Returns:
- * Updated record
+ * Returns the updated record with resolved relation fields.
  * @param data The data for the request.
  * @param data.caseId
  * @param data.recordId
@@ -4310,39 +4325,6 @@ export const casesUpdateCaseRecord = (
     },
     body: data.requestBody,
     mediaType: "application/json",
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * Delete Record From Case
- * Delete an record linked to a case.
- *
- * Args:
- * case_id: The case ID
- * record_id: The record ID to delete
- * @param data The data for the request.
- * @param data.caseId
- * @param data.recordId
- * @param data.workspaceId
- * @returns void Successful Response
- * @throws ApiError
- */
-export const casesDeleteRecordFromCase = (
-  data: CasesDeleteRecordFromCaseData
-): CancelablePromise<CasesDeleteRecordFromCaseResponse> => {
-  return __request(OpenAPI, {
-    method: "DELETE",
-    url: "/cases/{case_id}/records/{record_id}",
-    path: {
-      case_id: data.caseId,
-      record_id: data.recordId,
-    },
-    query: {
-      workspace_id: data.workspaceId,
-    },
     errors: {
       422: "Validation Error",
     },
@@ -4489,64 +4471,6 @@ export const entitiesUpdateEntity = (
 }
 
 /**
- * Deactivate Entity
- * Soft delete entity.
- *
- * Cascades to all fields and relations owned by the entity.
- * @param data The data for the request.
- * @param data.entityId
- * @param data.workspaceId
- * @returns EntityRead Successful Response
- * @throws ApiError
- */
-export const entitiesDeactivateEntity = (
-  data: EntitiesDeactivateEntityData
-): CancelablePromise<EntitiesDeactivateEntityResponse> => {
-  return __request(OpenAPI, {
-    method: "DELETE",
-    url: "/entities/types/{entity_id}",
-    path: {
-      entity_id: data.entityId,
-    },
-    query: {
-      workspace_id: data.workspaceId,
-    },
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * Reactivate Entity
- * Reactivate soft-deleted entity.
- *
- * Cascades to all fields and relations owned by the entity.
- * @param data The data for the request.
- * @param data.entityId
- * @param data.workspaceId
- * @returns EntityRead Successful Response
- * @throws ApiError
- */
-export const entitiesReactivateEntity = (
-  data: EntitiesReactivateEntityData
-): CancelablePromise<EntitiesReactivateEntityResponse> => {
-  return __request(OpenAPI, {
-    method: "POST",
-    url: "/entities/types/{entity_id}/reactivate",
-    path: {
-      entity_id: data.entityId,
-    },
-    query: {
-      workspace_id: data.workspaceId,
-    },
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
  * Delete Entity
  * Permanently delete an entity and all associated data.
  *
@@ -4567,7 +4491,65 @@ export const entitiesDeleteEntity = (
 ): CancelablePromise<EntitiesDeleteEntityResponse> => {
   return __request(OpenAPI, {
     method: "DELETE",
-    url: "/entities/types/{entity_id}/hard",
+    url: "/entities/types/{entity_id}",
+    path: {
+      entity_id: data.entityId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Archive Entity
+ * Archive (soft delete) entity.
+ *
+ * Cascades to all fields and relations owned by the entity.
+ * @param data The data for the request.
+ * @param data.entityId
+ * @param data.workspaceId
+ * @returns EntityRead Successful Response
+ * @throws ApiError
+ */
+export const entitiesArchiveEntity = (
+  data: EntitiesArchiveEntityData
+): CancelablePromise<EntitiesArchiveEntityResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/entities/types/{entity_id}/archive",
+    path: {
+      entity_id: data.entityId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Restore Entity
+ * Restore archived entity.
+ *
+ * Cascades to all fields and relations owned by the entity.
+ * @param data The data for the request.
+ * @param data.entityId
+ * @param data.workspaceId
+ * @returns EntityRead Successful Response
+ * @throws ApiError
+ */
+export const entitiesRestoreEntity = (
+  data: EntitiesRestoreEntityData
+): CancelablePromise<EntitiesRestoreEntityResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/entities/types/{entity_id}/restore",
     path: {
       entity_id: data.entityId,
     },
@@ -4697,60 +4679,6 @@ export const entitiesUpdateField = (
 }
 
 /**
- * Deactivate Field
- * Soft delete field (data preserved).
- * @param data The data for the request.
- * @param data.fieldId
- * @param data.workspaceId
- * @returns FieldMetadataRead Successful Response
- * @throws ApiError
- */
-export const entitiesDeactivateField = (
-  data: EntitiesDeactivateFieldData
-): CancelablePromise<EntitiesDeactivateFieldResponse> => {
-  return __request(OpenAPI, {
-    method: "POST",
-    url: "/entities/fields/{field_id}/deactivate",
-    path: {
-      field_id: data.fieldId,
-    },
-    query: {
-      workspace_id: data.workspaceId,
-    },
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * Reactivate Field
- * Reactivate soft-deleted field.
- * @param data The data for the request.
- * @param data.fieldId
- * @param data.workspaceId
- * @returns FieldMetadataRead Successful Response
- * @throws ApiError
- */
-export const entitiesReactivateField = (
-  data: EntitiesReactivateFieldData
-): CancelablePromise<EntitiesReactivateFieldResponse> => {
-  return __request(OpenAPI, {
-    method: "POST",
-    url: "/entities/fields/{field_id}/reactivate",
-    path: {
-      field_id: data.fieldId,
-    },
-    query: {
-      workspace_id: data.workspaceId,
-    },
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
  * Delete Field
  * Permanently delete a field and all associated data.
  *
@@ -4766,7 +4694,61 @@ export const entitiesDeleteField = (
 ): CancelablePromise<EntitiesDeleteFieldResponse> => {
   return __request(OpenAPI, {
     method: "DELETE",
-    url: "/entities/fields/{field_id}/hard",
+    url: "/entities/fields/{field_id}",
+    path: {
+      field_id: data.fieldId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Archive Field
+ * Archive (soft delete) field metadata (data preserved).
+ * @param data The data for the request.
+ * @param data.fieldId
+ * @param data.workspaceId
+ * @returns FieldMetadataRead Successful Response
+ * @throws ApiError
+ */
+export const entitiesArchiveField = (
+  data: EntitiesArchiveFieldData
+): CancelablePromise<EntitiesArchiveFieldResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/entities/fields/{field_id}/archive",
+    path: {
+      field_id: data.fieldId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Restore Field
+ * Restore archived field.
+ * @param data The data for the request.
+ * @param data.fieldId
+ * @param data.workspaceId
+ * @returns FieldMetadataRead Successful Response
+ * @throws ApiError
+ */
+export const entitiesRestoreField = (
+  data: EntitiesRestoreFieldData
+): CancelablePromise<EntitiesRestoreFieldResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/entities/fields/{field_id}/restore",
     path: {
       field_id: data.fieldId,
     },
@@ -4948,19 +4930,19 @@ export const entitiesDeleteRelation = (
 }
 
 /**
- * Deactivate Relation
+ * Archive Relation
  * @param data The data for the request.
  * @param data.relationId
  * @param data.workspaceId
  * @returns RelationDefinitionRead Successful Response
  * @throws ApiError
  */
-export const entitiesDeactivateRelation = (
-  data: EntitiesDeactivateRelationData
-): CancelablePromise<EntitiesDeactivateRelationResponse> => {
+export const entitiesArchiveRelation = (
+  data: EntitiesArchiveRelationData
+): CancelablePromise<EntitiesArchiveRelationResponse> => {
   return __request(OpenAPI, {
     method: "POST",
-    url: "/entities/relations/{relation_id}/deactivate",
+    url: "/entities/relations/{relation_id}/archive",
     path: {
       relation_id: data.relationId,
     },
@@ -4974,19 +4956,19 @@ export const entitiesDeactivateRelation = (
 }
 
 /**
- * Reactivate Relation
+ * Restore Relation
  * @param data The data for the request.
  * @param data.relationId
  * @param data.workspaceId
  * @returns RelationDefinitionRead Successful Response
  * @throws ApiError
  */
-export const entitiesReactivateRelation = (
-  data: EntitiesReactivateRelationData
-): CancelablePromise<EntitiesReactivateRelationResponse> => {
+export const entitiesRestoreRelation = (
+  data: EntitiesRestoreRelationData
+): CancelablePromise<EntitiesRestoreRelationResponse> => {
   return __request(OpenAPI, {
     method: "POST",
-    url: "/entities/relations/{relation_id}/reactivate",
+    url: "/entities/relations/{relation_id}/restore",
     path: {
       relation_id: data.relationId,
     },
@@ -5101,6 +5083,93 @@ export const entitiesDeleteRecord = (
   return __request(OpenAPI, {
     method: "DELETE",
     url: "/entities/records/{record_id}",
+    path: {
+      record_id: data.recordId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List All Records
+ * List records globally with cursor-based pagination and optional filters.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.entityId
+ * @param data.includeDeleted
+ * @param data.limit Maximum items per page
+ * @param data.cursor Cursor for pagination
+ * @param data.reverse Reverse pagination direction
+ * @returns CursorPaginatedResponse_RecordRead_ Successful Response
+ * @throws ApiError
+ */
+export const entitiesListAllRecords = (
+  data: EntitiesListAllRecordsData
+): CancelablePromise<EntitiesListAllRecordsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/entities/records",
+    query: {
+      entity_id: data.entityId,
+      include_deleted: data.includeDeleted,
+      limit: data.limit,
+      cursor: data.cursor,
+      reverse: data.reverse,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Archive Record
+ * Soft delete (archive) a record.
+ * @param data The data for the request.
+ * @param data.recordId
+ * @param data.workspaceId
+ * @returns RecordRead Successful Response
+ * @throws ApiError
+ */
+export const entitiesArchiveRecord = (
+  data: EntitiesArchiveRecordData
+): CancelablePromise<EntitiesArchiveRecordResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/entities/records/{record_id}/archive",
+    path: {
+      record_id: data.recordId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Restore Record
+ * Restore a soft-deleted record.
+ * @param data The data for the request.
+ * @param data.recordId
+ * @param data.workspaceId
+ * @returns RecordRead Successful Response
+ * @throws ApiError
+ */
+export const entitiesRestoreRecord = (
+  data: EntitiesRestoreRecordData
+): CancelablePromise<EntitiesRestoreRecordResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/entities/records/{record_id}/restore",
     path: {
       record_id: data.recordId,
     },

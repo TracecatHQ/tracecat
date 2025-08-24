@@ -274,7 +274,7 @@ export function EntityFieldsTable({
                               }}
                             >
                               <XCircle className="mr-2 h-3 w-3" />
-                              Deactivate field
+                              Archive field
                             </DropdownMenuItem>
                           </AlertDialogTrigger>
                         </>
@@ -287,7 +287,7 @@ export function EntityFieldsTable({
                             }
                           >
                             <CheckCircle className="mr-2 h-3 w-3" />
-                            Reactivate field
+                            Restore field
                           </DropdownMenuItem>
                         </>
                       )}
@@ -322,7 +322,7 @@ export function EntityFieldsTable({
           <AlertDialogTitle>
             {actionType === "delete"
               ? "Delete field permanently"
-              : "Deactivate field"}
+              : "Archive field"}
           </AlertDialogTitle>
           <AlertDialogDescription>
             {actionType === "delete" ? (
@@ -334,7 +334,7 @@ export function EntityFieldsTable({
               </>
             ) : (
               <>
-                Are you sure you want to deactivate the field{" "}
+                Are you sure you want to archive the field{" "}
                 <strong>{selectedField?.display_name}</strong>? The field will
                 be hidden but data will be preserved.
               </>
@@ -362,7 +362,7 @@ export function EntityFieldsTable({
             }}
             disabled={isDeleting}
           >
-            {actionType === "delete" ? "Delete Permanently" : "Deactivate"}
+            {actionType === "delete" ? "Delete Permanently" : "Archive"}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

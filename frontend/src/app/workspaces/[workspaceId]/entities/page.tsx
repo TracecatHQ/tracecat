@@ -3,14 +3,15 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   type EntityRead,
-  entitiesDeactivateEntity,
+  entitiesArchiveEntity,
   entitiesDeleteEntity,
   entitiesListFields,
-  entitiesReactivateEntity,
+  entitiesRestoreEntity,
   entitiesUpdateEntity,
 } from "@/client"
 import { EntitiesTable } from "@/components/entities/entities-table"
 import { EntitiesViewMode } from "@/components/entities/entities-view-toggle"
+import { RecordsWorkspaceTable } from "@/components/entities/records-workspace-table"
 import { RelationsWorkspaceTable } from "@/components/entities/relations-workspace-table"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
@@ -58,69 +59,65 @@ export default function EntitiesPage() {
     enabled: !!entities && entities.length > 0,
   })
 
-  const {
-    mutateAsync: deactivateEntity,
-    isPending: deactivateEntityIsPending,
-  } = useMutation({
-    mutationFn: async (entityId: string) => {
-      return await entitiesDeactivateEntity({
-        workspaceId,
-        entityId,
-      })
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["entities", workspaceId],
-      })
-      queryClient.invalidateQueries({
-        queryKey: ["entity-field-counts", workspaceId],
-      })
-      toast({
-        title: "Entity deactivated",
-        description: "The entity was deactivated successfully.",
-      })
-    },
-    onError: (error) => {
-      console.error("Failed to deactivate entity", error)
-      toast({
-        title: "Error deactivating entity",
-        description: "Failed to deactivate the entity. Please try again.",
-        variant: "destructive",
-      })
-    },
-  })
+  const { mutateAsync: archiveEntity, isPending: archiveEntityIsPending } =
+    useMutation({
+      mutationFn: async (entityId: string) => {
+        return await entitiesArchiveEntity({
+          workspaceId,
+          entityId,
+        })
+      },
+      onSuccess: () => {
+        queryClient.invalidateQueries({
+          queryKey: ["entities", workspaceId],
+        })
+        queryClient.invalidateQueries({
+          queryKey: ["entity-field-counts", workspaceId],
+        })
+        toast({
+          title: "Entity archived",
+          description: "The entity was archived successfully.",
+        })
+      },
+      onError: (error) => {
+        console.error("Failed to archive entity", error)
+        toast({
+          title: "Error archiving entity",
+          description: "Failed to archive the entity. Please try again.",
+          variant: "destructive",
+        })
+      },
+    })
 
-  const {
-    mutateAsync: reactivateEntity,
-    isPending: reactivateEntityIsPending,
-  } = useMutation({
-    mutationFn: async (entityId: string) => {
-      return await entitiesReactivateEntity({
-        workspaceId,
-        entityId,
-      })
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["entities", workspaceId],
-      })
-      queryClient.invalidateQueries({
-        queryKey: ["entity-field-counts", workspaceId],
-      })
-      toast({
-        title: "Entity reactivated",
-        description: "The entity was reactivated successfully.",
-      })
-    },
-    onError: (error) => {
-      console.error("Failed to reactivate entity", error)
-      toast({
-        title: "Error reactivating entity",
-        description: "Failed to reactivate the entity. Please try again.",
-        variant: "destructive",
-      })
-    },
-  })
+  const { mutateAsync: restoreEntity, isPending: restoreEntityIsPending } =
+    useMutation({
+      mutationFn: async (entityId: string) => {
+        return await entitiesRestoreEntity({
+          workspaceId,
+          entityId,
+        })
+      },
+      onSuccess: () => {
+        queryClient.invalidateQueries({
+          queryKey: ["entities", workspaceId],
+        })
+        queryClient.invalidateQueries({
+          queryKey: ["entity-field-counts", workspaceId],
+        })
+        toast({
+          title: "Entity restored",
+          description: "The entity was restored successfully.",
+        })
+      },
+      onError: (error) => {
+        console.error("Failed to restore entity", error)
+        toast({
+          title: "Error restoring entity",
+          description: "Failed to restore the entity. Please try again.",
+          variant: "destructive",
+        })
+      },
+    })
 
   const { mutateAsync: updateEntity, isPending: updateEntityIsPending } =
     useMutation({
@@ -206,11 +203,11 @@ export default function EntitiesPage() {
   }
 
   const handleDeactivateEntity = async (entityId: string) => {
-    await deactivateEntity(entityId)
+    await archiveEntity(entityId)
   }
 
   const handleReactivateEntity = async (entityId: string) => {
-    await reactivateEntity(entityId)
+    await restoreEntity(entityId)
   }
 
   if (workspaceLoading || entitiesIsLoading) {
@@ -244,6 +241,8 @@ export default function EntitiesPage() {
       <div className="container flex h-full max-w-[1000px] flex-col space-y-8 py-8">
         {view === EntitiesViewMode.Relations ? (
           <RelationsWorkspaceTable />
+        ) : view === EntitiesViewMode.Records ? (
+          <RecordsWorkspaceTable />
         ) : (
           <div className="space-y-4">
             <EntitiesTable
@@ -254,8 +253,8 @@ export default function EntitiesPage() {
               onDeactivateEntity={handleDeactivateEntity}
               onReactivateEntity={handleReactivateEntity}
               isDeleting={
-                deactivateEntityIsPending ||
-                reactivateEntityIsPending ||
+                archiveEntityIsPending ||
+                restoreEntityIsPending ||
                 deleteEntityIsPending
               }
               isUpdating={updateEntityIsPending}

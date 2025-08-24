@@ -2373,6 +2373,18 @@ export const $CaseRecordRead = {
       format: "uuid4",
       title: "Entity Id",
     },
+    updated_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Updated At",
+    },
     field_data: {
       type: "object",
       title: "Field Data",
@@ -3111,6 +3123,69 @@ export const $CursorPaginatedResponse_CaseReadMinimal_ = {
   type: "object",
   required: ["items"],
   title: "CursorPaginatedResponse[CaseReadMinimal]",
+} as const
+
+export const $CursorPaginatedResponse_RecordRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/RecordRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[RecordRead]",
 } as const
 
 export const $CursorPaginatedResponse_TableRowRead_ = {
@@ -6717,6 +6792,18 @@ export const $RecordRead = {
       type: "string",
       format: "date-time",
       title: "Updated At",
+    },
+    deleted_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Deleted At",
     },
     owner_id: {
       type: "string",

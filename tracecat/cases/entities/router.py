@@ -135,15 +135,26 @@ async def update_case_record(
     record_id: UUID4,
     updates: RecordUpdate,
 ) -> CaseRecordRead:
-    """Update an record linked to a case.
+    """Update a record linked to a case with relation support.
 
-    Args:
-        case_id: The case ID
-        record_id: The record ID to update
-        updates: Field updates
+    Semantics:
+    - Regular fields: provide key/value updates as usual.
+    - One-to-one / many-to-one relations:
+      - Provide a nested object on the relation key to update the existing target's fields.
+      - If no link exists, providing a nested object will create a new target record and link it.
+      - Operators supported:
+        - ``{ relation__set: <uuid|object|null> }`` replace or clear the link.
+        - ``{ relation__clear: true }`` clear the link.
+        - ``{ relation__add: <uuid|object> }`` set if empty; errors if already linked.
+    - One-to-many / many-to-many relations:
+      - Provide an array on the relation key to add items. Dict items are created inline; UUIDs are linked.
+      - Operators supported:
+        - ``{ relation__add: [<uuid|object>, ...] }`` add links (idempotent for existing links).
+        - ``{ relation__remove: [<uuid>, ...] }`` remove specific links.
+        - ``{ relation__clear: true }`` remove all links.
+        - ``{ relation__set: [<uuid|object>, ...] }`` replace all links with the given set.
 
-    Returns:
-        Updated record
+    Returns the updated record with resolved relation fields.
     """
     service = CaseEntitiesService(session, role=role)
     try:
@@ -179,32 +190,6 @@ async def remove_record_from_case(
     service = CaseEntitiesService(session, role=role)
     try:
         await service.remove_record(case_id, link_id)
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(e),
-        ) from e
-
-
-@router.delete(
-    "/{case_id}/records/{record_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-)
-async def delete_record_from_case(
-    role: WorkspaceUser,
-    session: AsyncDBSession,
-    case_id: UUID4,
-    record_id: UUID4,
-) -> None:
-    """Delete an record linked to a case.
-
-    Args:
-        case_id: The case ID
-        record_id: The record ID to delete
-    """
-    service = CaseEntitiesService(session, role=role)
-    try:
-        await service.delete_record(case_id, record_id)
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

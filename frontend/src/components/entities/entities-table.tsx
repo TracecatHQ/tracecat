@@ -279,7 +279,7 @@ export function EntitiesTable({
                                 }}
                               >
                                 <XCircle className="mr-2 h-3 w-3" />
-                                Deactivate entity
+                                Archive entity
                               </DropdownMenuItem>
                             </AlertDialogTrigger>
                           </>
@@ -300,7 +300,7 @@ export function EntitiesTable({
                               }}
                             >
                               <CheckCircle className="mr-2 h-3 w-3" />
-                              Reactivate entity
+                              Restore entity
                             </DropdownMenuItem>
                             {onDeleteEntity && (
                               <>
@@ -336,7 +336,7 @@ export function EntitiesTable({
             <AlertDialogTitle>
               {actionType === "delete"
                 ? "Delete entity permanently"
-                : "Deactivate entity"}
+                : "Archive entity"}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {actionType === "delete" ? (
@@ -348,10 +348,10 @@ export function EntitiesTable({
                 </>
               ) : (
                 <>
-                  Are you sure you want to deactivate the entity{" "}
+                  Are you sure you want to archive the entity{" "}
                   <strong>{selectedEntity?.display_name}</strong>? This will
                   hide the entity from normal use, but all data will be
-                  preserved. You can reactivate the entity later.
+                  preserved. You can restore the entity later.
                 </>
               )}
             </AlertDialogDescription>
@@ -377,7 +377,7 @@ export function EntitiesTable({
               }}
               disabled={isDeleting}
             >
-              {actionType === "delete" ? "Delete Permanently" : "Deactivate"}
+              {actionType === "delete" ? "Delete Permanently" : "Archive"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

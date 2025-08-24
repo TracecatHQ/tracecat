@@ -47,6 +47,7 @@ class CaseRecordRead(BaseModel):
 
     id: UUID4
     entity_id: UUID4
+    updated_at: datetime | None = None
     field_data: dict[str, Any]
     relation_fields: list[str] = Field(
         default_factory=list,

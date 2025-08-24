@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 
+import sqlalchemy as sa
 from fastapi import Depends, FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -94,6 +95,8 @@ async def lifespan(app: FastAPI):
         await setup_org_settings(session, role)
         await reload_registry(session, role)
         await setup_workspace_defaults(session, role)
+        # Ensure DB schema changes for entities (lightweight migration)
+        await setup_entities_schema(session)
     logger.info(
         "Feature flags", feature_flags=[f.value for f in config.TRACECAT__FEATURE_FLAGS]
     )
@@ -117,6 +120,24 @@ async def setup_workspace_defaults(session: AsyncSession, admin_role: Role):
             logger.info("Default workspace created", workspace=default_workspace)
         except IntegrityError:
             logger.info("Default workspace already exists, skipping")
+
+
+async def setup_entities_schema(session: AsyncSession) -> None:
+    """Apply lightweight schema adjustments required by entities.
+
+    This avoids runtime errors when new nullable columns are introduced
+    without a full migration framework.
+    """
+    try:
+        # Soft-delete support for records
+        await session.exec(
+            sa.text(
+                "ALTER TABLE record ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ"
+            )
+        )
+        await session.commit()
+    except Exception as e:  # Log and continue; fail-fast is not desired at startup
+        logger.warning("Schema setup for entities failed", error=str(e))
 
 
 # Catch-all exception handler to prevent stack traces from leaking

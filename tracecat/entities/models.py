@@ -203,6 +203,7 @@ class RecordRead(BaseModel):
     field_data: dict[str, Any]
     created_at: datetime
     updated_at: datetime
+    deleted_at: datetime | None = None
     owner_id: UUID
 
     model_config = {"from_attributes": True}
@@ -236,6 +237,14 @@ class QueryResponse(BaseModel):
 
     records: list[RecordRead]
     total: int | None = Field(default=None, description="Total count if available")
+    limit: int
+    offset: int
+
+
+class RecordsListResponse(BaseModel):
+    """Response model for listing records globally."""
+
+    records: list[RecordRead]
     limit: int
     offset: int
 

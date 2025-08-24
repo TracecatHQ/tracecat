@@ -97,7 +97,19 @@ export function EntityRecordsTable({
       accessorKey: "updated_at",
       header: () => <span className="text-xs">Updated</span>,
       cell: ({ row }) => {
-        const updatedAt = row.original.updated_at
+        // Prefer the record's updated_at if available; fall back to link's
+        const getRecordUpdatedAt = (
+          rec: CaseRecordLinkRead["record"]
+        ): string | undefined => {
+          if (!rec || typeof rec !== "object") return undefined
+          if ("updated_at" in rec) {
+            const v = (rec as { updated_at?: unknown }).updated_at
+            return typeof v === "string" ? v : undefined
+          }
+          return undefined
+        }
+        const recordUpdated = getRecordUpdatedAt(row.original.record)
+        const updatedAt = recordUpdated ?? row.original.updated_at
         if (!updatedAt) {
           return <span className="text-xs text-muted-foreground">-</span>
         }
@@ -404,10 +416,7 @@ export function EntityRecordsTable({
                   className="h-24 text-center"
                 >
                   <div className="flex flex-col items-center justify-center text-muted-foreground">
-                    <p className="text-sm">No entity records found</p>
-                    <p className="text-xs mt-1">
-                      Add entity records to track structured data for this case
-                    </p>
+                    <p className="text-xs">No entity records found</p>
                   </div>
                 </TableCell>
               </TableRow>

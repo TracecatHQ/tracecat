@@ -11,7 +11,7 @@ from sqlalchemy import exc as sa_exc
 from sqlalchemy.ext.asyncio import AsyncSession as SAAsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy.sql import ColumnElement
-from sqlmodel import select
+from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat.authz.controls import require_access_level
@@ -50,6 +50,11 @@ from tracecat.logger import logger
 from tracecat.service import BaseWorkspaceService
 from tracecat.types.auth import AccessLevel, Role
 from tracecat.types.exceptions import TracecatNotFoundError
+from tracecat.types.pagination import (
+    BaseCursorPaginator,
+    CursorPaginatedResponse,
+    CursorPaginationParams,
+)
 
 
 class CustomEntitiesService(BaseWorkspaceService):
@@ -1206,7 +1211,9 @@ class CustomEntitiesService(BaseWorkspaceService):
             TracecatNotFoundError: If not found
         """
         stmt = select(Record).where(
-            Record.id == record_id, Record.owner_id == self.workspace_id
+            Record.id == record_id,
+            Record.owner_id == self.workspace_id,
+            col(Record.deleted_at).is_(None),
         )
         result = await self.session.exec(stmt)
         record = result.first()
@@ -1299,7 +1306,7 @@ class CustomEntitiesService(BaseWorkspaceService):
             - Circular references are detected and handled
             - Null relations with dict values create new related records
         """
-        # First, handle creation of new relations for null relation fields
+        # First, handle creation/update of relations according to update semantics
         source_record = await self.get_record(record_id)
         # Reject writes to inactive entities (source)
         await self.entity_validators.validate_entity_active(source_record.entity_id)
@@ -1307,29 +1314,209 @@ class CustomEntitiesService(BaseWorkspaceService):
             source_record.entity_id, include_inactive=False
         )
 
-        # Separate out null relations that need to be created
+        # Work on a copy of updates and progressively consume relation keys
         updates_copy = updates.copy()
-        # Pre-handle inline nested creation for O2O/M2O relations using relations map
+
+        # Load active relations for this source entity
         active_relations = await self.list_relations(
             source_record.entity_id, include_inactive=False
         )
         relation_map = {r.source_key: r for r in active_relations}
+
+        # Helper: create a link to an existing target id, enforcing cardinality
+        async def _link_existing_target(
+            src_record: Record, rel_def: RelationDefinition, target_id: UUID
+        ) -> None:
+            rt = RelationType(rel_def.relation_type)
+            if rt == RelationType.ONE_TO_ONE:
+                source_limit_one = True
+                target_limit_one = True
+            elif rt == RelationType.MANY_TO_ONE:
+                source_limit_one = True
+                target_limit_one = False
+            else:
+                source_limit_one = False
+                target_limit_one = False
+
+            if source_limit_one:
+                existing_src_stmt = select(RecordRelationLink).where(
+                    RecordRelationLink.source_record_id == src_record.id,
+                    RecordRelationLink.relation_definition_id == rel_def.id,
+                )
+                if (await self.session.exec(existing_src_stmt)).first() is not None:
+                    raise ValueError(
+                        f"Relation '{rel_def.source_key}' is already set for this record"
+                    )
+
+            if target_limit_one:
+                existing_tgt_stmt = select(RecordRelationLink).where(
+                    RecordRelationLink.target_record_id == target_id,
+                    RecordRelationLink.relation_definition_id == rel_def.id,
+                )
+                if (await self.session.exec(existing_tgt_stmt)).first() is not None:
+                    raise ValueError(
+                        f"Target record is already linked via '{rel_def.source_key}'"
+                    )
+
+            link = RecordRelationLink(
+                owner_id=self.workspace_id,
+                source_entity_id=src_record.entity_id,
+                relation_definition_id=rel_def.id,
+                source_record_id=src_record.id,
+                target_entity_id=rel_def.target_entity_id,
+                target_record_id=target_id,
+                source_limit_one=source_limit_one,
+                target_limit_one=target_limit_one,
+            )
+            self.session.add(link)
+
+        # Helper: remove specific links for a relation
+        async def _remove_relation_links(
+            src_record_id: UUID, rel_def: RelationDefinition, target_ids: list[UUID]
+        ) -> None:
+            if not target_ids:
+                return
+            stmt = select(RecordRelationLink).where(
+                RecordRelationLink.source_record_id == src_record_id,
+                RecordRelationLink.relation_definition_id == rel_def.id,
+                cast(Any, RecordRelationLink.target_record_id).in_(target_ids),
+            )
+            res = await self.session.exec(stmt)
+            for link in res.all():
+                await self.session.delete(link)
+
+        # Helper: clear all links for a relation
+        async def _clear_relation_links(
+            src_record_id: UUID, rel_def: RelationDefinition
+        ) -> None:
+            stmt = select(RecordRelationLink).where(
+                RecordRelationLink.source_record_id == src_record_id,
+                RecordRelationLink.relation_definition_id == rel_def.id,
+            )
+            res = await self.session.exec(stmt)
+            for link in res.all():
+                await self.session.delete(link)
+
+        # 1) Pre-handle inline nested creation for O2O/M2O with dict value (if no link)
         for source_key, rel_def in relation_map.items():
             rt = RelationType(rel_def.relation_type)
             if rt in (RelationType.ONE_TO_ONE, RelationType.MANY_TO_ONE):
                 rel_value = updates.get(source_key)
                 if isinstance(rel_value, dict) and rel_value:
-                    # Check if relation already exists for this record
                     stmt = select(RecordRelationLink).where(
                         RecordRelationLink.source_record_id == record_id,
                         RecordRelationLink.relation_definition_id == rel_def.id,
                     )
-                    existing_link = (await self.session.exec(stmt)).first()
-                    if not existing_link:
+                    if (await self.session.exec(stmt)).first() is None:
                         await self._create_relation_for_update(
                             source_record, rel_def, rel_value
                         )
                         updates_copy.pop(source_key, None)
+
+        # 2) Operators: __add, __remove, __set, __clear
+        for source_key, rel_def in relation_map.items():
+            add_key = f"{source_key}__add"
+            remove_key = f"{source_key}__remove"
+            set_key = f"{source_key}__set"
+            clear_key = f"{source_key}__clear"
+
+            # Clear
+            if clear_key in updates_copy:
+                await _clear_relation_links(source_record.id, rel_def)
+                updates_copy.pop(clear_key, None)
+
+            # Add
+            if add_key in updates_copy:
+                value = updates_copy.pop(add_key)
+                rt = RelationType(rel_def.relation_type)
+                if rt in (RelationType.ONE_TO_MANY, RelationType.MANY_TO_MANY):
+                    # Use create path helper for arrays
+                    await self._create_relation_links_new(
+                        entity_id=source_record.entity_id,
+                        record=source_record,
+                        relation_data={source_key: value},
+                        relation_defs={source_key: rel_def},
+                        depth=0,
+                    )
+                else:
+                    # Single-side add: accept dict/UUID, like set-if-empty
+                    if isinstance(value, dict) and value:
+                        await self._create_relation_for_update(
+                            source_record, rel_def, value
+                        )
+                    else:
+                        # UUID or str
+                        if isinstance(value, str):
+                            target_id = UUID(value)
+                        elif isinstance(value, UUID):
+                            target_id = value
+                        else:
+                            raise ValueError(f"Invalid target ID type: {type(value)}")
+                        await self._validate_target_records_exist(
+                            [target_id], rel_def.target_entity_id
+                        )
+                        await _link_existing_target(source_record, rel_def, target_id)
+
+            # Remove
+            if remove_key in updates_copy:
+                value = updates_copy.pop(remove_key)
+                # Normalize list of ids
+                if isinstance(value, list):
+                    ids = [UUID(v) if isinstance(v, str) else v for v in value]
+                else:
+                    ids = [UUID(value) if isinstance(value, str) else value]
+                await _remove_relation_links(source_record.id, rel_def, ids)
+
+            # Set
+            if set_key in updates_copy:
+                value = updates_copy.pop(set_key)
+                rt = RelationType(rel_def.relation_type)
+                # Clear existing links first
+                await _clear_relation_links(source_record.id, rel_def)
+                if rt in (RelationType.ONE_TO_ONE, RelationType.MANY_TO_ONE):
+                    # Expect single dict/UUID (or None)
+                    if value is None:
+                        continue
+                    if isinstance(value, dict) and value:
+                        await self._create_relation_for_update(
+                            source_record, rel_def, value
+                        )
+                    else:
+                        if isinstance(value, str):
+                            target_id = UUID(value)
+                        elif isinstance(value, UUID):
+                            target_id = value
+                        else:
+                            raise ValueError(f"Invalid target ID type: {type(value)}")
+                        await self._validate_target_records_exist(
+                            [target_id], rel_def.target_entity_id
+                        )
+                        await _link_existing_target(source_record, rel_def, target_id)
+                else:
+                    # List relations: accept list of dict/UUID
+                    await self._create_relation_links_new(
+                        entity_id=source_record.entity_id,
+                        record=source_record,
+                        relation_data={source_key: value},
+                        relation_defs={source_key: rel_def},
+                        depth=0,
+                    )
+
+        # 3) Additive arrays for list relations via plain key: treat as __add
+        for source_key, rel_def in relation_map.items():
+            rt = RelationType(rel_def.relation_type)
+            if source_key in updates_copy and rt in (
+                RelationType.ONE_TO_MANY,
+                RelationType.MANY_TO_MANY,
+            ):
+                value = updates_copy.pop(source_key)
+                await self._create_relation_links_new(
+                    entity_id=source_record.entity_id,
+                    record=source_record,
+                    relation_data={source_key: value},
+                    relation_defs={source_key: rel_def},
+                    depth=0,
+                )
 
         # Create validator with query builder for efficiency
         validator = NestedUpdateValidator(
@@ -1398,7 +1585,13 @@ class CustomEntitiesService(BaseWorkspaceService):
         Args:
             record_id: Record to delete
         """
-        record = await self.get_record(record_id)
+        stmt = select(Record).where(
+            Record.id == record_id, Record.owner_id == self.workspace_id
+        )
+        result = await self.session.exec(stmt)
+        record = result.first()
+        if not record:
+            raise TracecatNotFoundError(f"Record {record_id} not found")
         # Reject writes to inactive entities
         await self.entity_validators.validate_entity_active(record.entity_id)
         await self.session.delete(record)
@@ -1429,6 +1622,7 @@ class CustomEntitiesService(BaseWorkspaceService):
         stmt = select(Record).where(
             Record.entity_id == entity_id,
             Record.owner_id == self.workspace_id,
+            col(Record.deleted_at).is_(None),
         )
 
         # Apply filters if provided
@@ -1469,6 +1663,7 @@ class CustomEntitiesService(BaseWorkspaceService):
         stmt = select(Record).where(
             Record.entity_id == entity_id,
             Record.owner_id == self.workspace_id,
+            col(Record.deleted_at).is_(None),
             slug_condition,
         )
 
@@ -1487,6 +1682,171 @@ class CustomEntitiesService(BaseWorkspaceService):
             )
 
         return records[0]
+
+    # Global records lifecycle and listing
+
+    async def list_all_records(
+        self,
+        *,
+        entity_id: UUID | None = None,
+        include_deleted: bool = False,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[Record]:
+        """List records globally across entities.
+
+        Args:
+            entity_id: Optional filter by entity ID
+            include_deleted: Include archived (soft-deleted) records if True
+            limit: Max records
+            offset: Offset for pagination
+        """
+        stmt = select(Record).where(Record.owner_id == self.workspace_id)
+        if entity_id is not None:
+            stmt = stmt.where(Record.entity_id == entity_id)
+        if not include_deleted:
+            stmt = stmt.where(col(Record.deleted_at).is_(None))
+        stmt = stmt.limit(limit).offset(offset)
+        result = await self.session.exec(stmt)
+        return list(result.all())
+
+    async def list_all_records_paginated(
+        self,
+        params: CursorPaginationParams,
+        *,
+        entity_id: UUID | None = None,
+        include_deleted: bool = False,
+    ) -> CursorPaginatedResponse[Record]:
+        """List records globally with cursor-based pagination.
+
+        Orders by created_at desc, id desc. Supports optional entity filter and
+        include_deleted to include archived records.
+        """
+        paginator = BaseCursorPaginator(self.session)
+
+        # Estimated total count for UX (may be None)
+        total_estimate = await paginator.get_table_row_estimate("record")
+
+        # Base query
+        stmt = (
+            select(Record)
+            .where(Record.owner_id == self.workspace_id)
+            .order_by(col(Record.created_at).desc(), col(Record.id).desc())
+        )
+
+        if entity_id is not None:
+            stmt = stmt.where(Record.entity_id == entity_id)
+        if not include_deleted:
+            stmt = stmt.where(col(Record.deleted_at).is_(None))
+
+        # Apply cursor filtering
+        if params.cursor:
+            cursor_data = paginator.decode_cursor(params.cursor)
+            cursor_time = cursor_data.created_at
+            cursor_id = UUID(cursor_data.id)
+
+            if params.reverse:
+                stmt = stmt.where(
+                    sa.or_(
+                        col(Record.created_at) > cursor_time,
+                        sa.and_(
+                            col(Record.created_at) == cursor_time,
+                            col(Record.id) > cursor_id,
+                        ),
+                    )
+                ).order_by(col(Record.created_at).asc(), col(Record.id).asc())
+            else:
+                stmt = stmt.where(
+                    sa.or_(
+                        col(Record.created_at) < cursor_time,
+                        sa.and_(
+                            col(Record.created_at) == cursor_time,
+                            col(Record.id) < cursor_id,
+                        ),
+                    )
+                )
+
+        # Fetch limit + 1 to determine if there is a next page
+        stmt = stmt.limit(params.limit + 1)
+        result = await self.session.exec(stmt)
+        all_records = list(result.all())
+
+        # Determine paging
+        has_more = len(all_records) > params.limit
+        records = all_records[: params.limit] if has_more else all_records
+
+        next_cursor: str | None = None
+        prev_cursor: str | None = None
+        has_previous = params.cursor is not None
+
+        if has_more and records:
+            last_record = records[-1]
+            next_cursor = paginator.encode_cursor(
+                last_record.created_at, last_record.id
+            )
+
+        if params.cursor and records:
+            first_record = records[0]
+            if params.reverse:
+                # For reverse, first item becomes next cursor
+                next_cursor = paginator.encode_cursor(
+                    first_record.created_at, first_record.id
+                )
+            else:
+                prev_cursor = paginator.encode_cursor(
+                    first_record.created_at, first_record.id
+                )
+
+        return CursorPaginatedResponse(
+            items=records,
+            next_cursor=next_cursor,
+            prev_cursor=prev_cursor,
+            has_more=has_more,
+            has_previous=has_previous,
+            total_estimate=total_estimate,
+        )
+
+    async def archive_record(self, record_id: UUID) -> Record:
+        """Soft delete (archive) a record by setting deleted_at.
+
+        Returns the archived record.
+        """
+        # Fetch ignoring deleted filter
+        stmt = select(Record).where(
+            Record.id == record_id, Record.owner_id == self.workspace_id
+        )
+        result = await self.session.exec(stmt)
+        record = result.first()
+        if not record:
+            raise TracecatNotFoundError(f"Record {record_id} not found")
+
+        # Reject writes to inactive entities
+        await self.entity_validators.validate_entity_active(record.entity_id)
+
+        if record.deleted_at is None:
+            record.deleted_at = datetime.now(UTC)
+            await self.session.commit()
+            await self.session.refresh(record)
+        return record
+
+    async def restore_record(self, record_id: UUID) -> Record:
+        """Restore a soft-deleted record (clear deleted_at)."""
+        stmt = select(Record).where(
+            Record.id == record_id, Record.owner_id == self.workspace_id
+        )
+        result = await self.session.exec(stmt)
+        record = result.first()
+        if not record:
+            raise TracecatNotFoundError(f"Record {record_id} not found")
+
+        # Reject writes to inactive entities
+        await self.entity_validators.validate_entity_active(record.entity_id)
+
+        if record.deleted_at is not None:
+            record.deleted_at = None
+            await self.session.commit()
+            await self.session.refresh(record)
+        return record
 
     def get_active_fields_model(self, fields: list[FieldMetadata]) -> type[BaseModel]:
         """Generate Pydantic model for active fields only.

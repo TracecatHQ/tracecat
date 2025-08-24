@@ -131,10 +131,10 @@ export function CaseEntitiesSection({
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete entity record?</AlertDialogTitle>
+            <AlertDialogTitle>Delete record?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will permanently delete this entity record. This action
-              cannot be undone.
+              This will permanently delete this record. This action cannot be
+              undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

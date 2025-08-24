@@ -707,6 +707,7 @@ export type CaseRecordLinkRead = {
 export type CaseRecordRead = {
   id: string
   entity_id: string
+  updated_at?: string | null
   field_data: {
     [key: string]: unknown
   }
@@ -1013,6 +1014,30 @@ export type CreatedEventRead = {
 
 export type CursorPaginatedResponse_CaseReadMinimal_ = {
   items: Array<CaseReadMinimal>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
+export type CursorPaginatedResponse_RecordRead_ = {
+  items: Array<RecordRead>
   /**
    * Cursor for next page
    */
@@ -2329,6 +2354,7 @@ export type RecordRead = {
   }
   created_at: string
   updated_at: string
+  deleted_at?: string | null
   owner_id: string
 }
 
@@ -5323,14 +5349,6 @@ export type CasesUpdateCaseRecordData = {
 
 export type CasesUpdateCaseRecordResponse = CaseRecordRead
 
-export type CasesDeleteRecordFromCaseData = {
-  caseId: string
-  recordId: string
-  workspaceId: string
-}
-
-export type CasesDeleteRecordFromCaseResponse = void
-
 export type CasesRemoveRecordFromCaseData = {
   caseId: string
   linkId: string
@@ -5371,26 +5389,26 @@ export type EntitiesUpdateEntityData = {
 
 export type EntitiesUpdateEntityResponse = EntityRead
 
-export type EntitiesDeactivateEntityData = {
-  entityId: string
-  workspaceId: string
-}
-
-export type EntitiesDeactivateEntityResponse = EntityRead
-
-export type EntitiesReactivateEntityData = {
-  entityId: string
-  workspaceId: string
-}
-
-export type EntitiesReactivateEntityResponse = EntityRead
-
 export type EntitiesDeleteEntityData = {
   entityId: string
   workspaceId: string
 }
 
 export type EntitiesDeleteEntityResponse = void
+
+export type EntitiesArchiveEntityData = {
+  entityId: string
+  workspaceId: string
+}
+
+export type EntitiesArchiveEntityResponse = EntityRead
+
+export type EntitiesRestoreEntityData = {
+  entityId: string
+  workspaceId: string
+}
+
+export type EntitiesRestoreEntityResponse = EntityRead
 
 export type EntitiesCreateFieldData = {
   entityId: string
@@ -5426,26 +5444,26 @@ export type EntitiesUpdateFieldData = {
 
 export type EntitiesUpdateFieldResponse = FieldMetadataRead
 
-export type EntitiesDeactivateFieldData = {
-  fieldId: string
-  workspaceId: string
-}
-
-export type EntitiesDeactivateFieldResponse = FieldMetadataRead
-
-export type EntitiesReactivateFieldData = {
-  fieldId: string
-  workspaceId: string
-}
-
-export type EntitiesReactivateFieldResponse = FieldMetadataRead
-
 export type EntitiesDeleteFieldData = {
   fieldId: string
   workspaceId: string
 }
 
 export type EntitiesDeleteFieldResponse = void
+
+export type EntitiesArchiveFieldData = {
+  fieldId: string
+  workspaceId: string
+}
+
+export type EntitiesArchiveFieldResponse = FieldMetadataRead
+
+export type EntitiesRestoreFieldData = {
+  fieldId: string
+  workspaceId: string
+}
+
+export type EntitiesRestoreFieldResponse = FieldMetadataRead
 
 export type EntitiesCreateRelationData = {
   entityId: string
@@ -5496,19 +5514,19 @@ export type EntitiesDeleteRelationData = {
 
 export type EntitiesDeleteRelationResponse = void
 
-export type EntitiesDeactivateRelationData = {
+export type EntitiesArchiveRelationData = {
   relationId: string
   workspaceId: string
 }
 
-export type EntitiesDeactivateRelationResponse = RelationDefinitionRead
+export type EntitiesArchiveRelationResponse = RelationDefinitionRead
 
-export type EntitiesReactivateRelationData = {
+export type EntitiesRestoreRelationData = {
   relationId: string
   workspaceId: string
 }
 
-export type EntitiesReactivateRelationResponse = RelationDefinitionRead
+export type EntitiesRestoreRelationResponse = RelationDefinitionRead
 
 export type EntitiesCreateRecordData = {
   entityId: string
@@ -5539,6 +5557,40 @@ export type EntitiesDeleteRecordData = {
 }
 
 export type EntitiesDeleteRecordResponse = void
+
+export type EntitiesListAllRecordsData = {
+  /**
+   * Cursor for pagination
+   */
+  cursor?: string | null
+  entityId?: string | null
+  includeDeleted?: boolean
+  /**
+   * Maximum items per page
+   */
+  limit?: number
+  /**
+   * Reverse pagination direction
+   */
+  reverse?: boolean
+  workspaceId: string
+}
+
+export type EntitiesListAllRecordsResponse = CursorPaginatedResponse_RecordRead_
+
+export type EntitiesArchiveRecordData = {
+  recordId: string
+  workspaceId: string
+}
+
+export type EntitiesArchiveRecordResponse = RecordRead
+
+export type EntitiesRestoreRecordData = {
+  recordId: string
+  workspaceId: string
+}
+
+export type EntitiesRestoreRecordResponse = RecordRead
 
 export type EntitiesQueryRecordsData = {
   entityId: string
@@ -7992,19 +8044,6 @@ export type $OpenApiTs = {
         422: HTTPValidationError
       }
     }
-    delete: {
-      req: CasesDeleteRecordFromCaseData
-      res: {
-        /**
-         * Successful Response
-         */
-        204: void
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
   }
   "/cases/{case_id}/record-links/{link_id}": {
     delete: {
@@ -8077,42 +8116,42 @@ export type $OpenApiTs = {
       }
     }
     delete: {
-      req: EntitiesDeactivateEntityData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: EntityRead
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/entities/types/{entity_id}/reactivate": {
-    post: {
-      req: EntitiesReactivateEntityData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: EntityRead
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/entities/types/{entity_id}/hard": {
-    delete: {
       req: EntitiesDeleteEntityData
       res: {
         /**
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/entities/types/{entity_id}/archive": {
+    post: {
+      req: EntitiesArchiveEntityData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: EntityRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/entities/types/{entity_id}/restore": {
+    post: {
+      req: EntitiesRestoreEntityData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: EntityRead
         /**
          * Validation Error
          */
@@ -8175,38 +8214,6 @@ export type $OpenApiTs = {
         422: HTTPValidationError
       }
     }
-  }
-  "/entities/fields/{field_id}/deactivate": {
-    post: {
-      req: EntitiesDeactivateFieldData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: FieldMetadataRead
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/entities/fields/{field_id}/reactivate": {
-    post: {
-      req: EntitiesReactivateFieldData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: FieldMetadataRead
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/entities/fields/{field_id}/hard": {
     delete: {
       req: EntitiesDeleteFieldData
       res: {
@@ -8214,6 +8221,36 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/entities/fields/{field_id}/archive": {
+    post: {
+      req: EntitiesArchiveFieldData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: FieldMetadataRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/entities/fields/{field_id}/restore": {
+    post: {
+      req: EntitiesRestoreFieldData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: FieldMetadataRead
         /**
          * Validation Error
          */
@@ -8305,9 +8342,9 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/entities/relations/{relation_id}/deactivate": {
+  "/entities/relations/{relation_id}/archive": {
     post: {
-      req: EntitiesDeactivateRelationData
+      req: EntitiesArchiveRelationData
       res: {
         /**
          * Successful Response
@@ -8320,9 +8357,9 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/entities/relations/{relation_id}/reactivate": {
+  "/entities/relations/{relation_id}/restore": {
     post: {
-      req: EntitiesReactivateRelationData
+      req: EntitiesRestoreRelationData
       res: {
         /**
          * Successful Response
@@ -8384,6 +8421,51 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/entities/records": {
+    get: {
+      req: EntitiesListAllRecordsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_RecordRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/entities/records/{record_id}/archive": {
+    post: {
+      req: EntitiesArchiveRecordData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: RecordRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/entities/records/{record_id}/restore": {
+    post: {
+      req: EntitiesRestoreRecordData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: RecordRead
         /**
          * Validation Error
          */
