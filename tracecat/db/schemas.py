@@ -164,26 +164,34 @@ class User(SQLModelBaseUserDB, table=True):
         back_populates="user",
         sa_relationship_kwargs={
             "cascade": "all, delete",
-            **DEFAULT_SA_RELATIONSHIP_KWARGS,
+            "lazy": "select",
         },
     )
     workspaces: list["Workspace"] = Relationship(
         back_populates="members",
         link_model=Membership,
-        sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
+        sa_relationship_kwargs={
+            "lazy": "select",
+        },
     )
     assigned_cases: list["Case"] = Relationship(
         back_populates="assignee",
-        sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
+        sa_relationship_kwargs={
+            "lazy": "select",
+        },
     )
     access_tokens: list["AccessToken"] = Relationship(
         back_populates="user",
-        sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
+        sa_relationship_kwargs={
+            "lazy": "select",
+        },
     )
     # Relationships
     chats: list["Chat"] = Relationship(
         back_populates="user",
-        sa_relationship_kwargs=DEFAULT_SA_RELATIONSHIP_KWARGS,
+        sa_relationship_kwargs={
+            "lazy": "select",
+        },
     )
 
 
