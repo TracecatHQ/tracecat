@@ -817,6 +817,7 @@ class Case(Resource, table=True):
         sa_relationship_kwargs={
             "cascade": "all, delete",
             "uselist": False,  # Make this a one-to-one relationship
+            "lazy": "selectin",
         },
     )
     comments: list["CaseComment"] = Relationship(
