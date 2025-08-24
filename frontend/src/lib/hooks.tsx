@@ -770,7 +770,6 @@ export function useCompactWorkflowExecution(workflowExecutionId?: string) {
       // Adjust polling based on workflow status
       switch (query.state.data?.status) {
         case "RUNNING":
-          console.log("Running, polling every 1000ms")
           return 1000
         default:
           return false
