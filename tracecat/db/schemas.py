@@ -411,7 +411,11 @@ class Workflow(Resource, table=True):
     # Relationships
     actions: list["Action"] | None = Relationship(
         back_populates="workflow",
-        sa_relationship_kwargs={"cascade": "all, delete"},
+        # Use selectin to load actions in the same query
+        sa_relationship_kwargs={
+            "cascade": "all, delete",
+            "lazy": "selectin",
+        },
     )
     definitions: list["WorkflowDefinition"] | None = Relationship(
         back_populates="workflow",
@@ -561,7 +565,11 @@ class RegistryRepository(Resource, table=True):
     # Relationships
     actions: list["RegistryAction"] = Relationship(
         back_populates="repository",
-        sa_relationship_kwargs={"cascade": "all, delete"},
+        # Use selectin to load actions in the same query
+        sa_relationship_kwargs={
+            "cascade": "all, delete",
+            "lazy": "selectin",
+        },
     )
 
 
