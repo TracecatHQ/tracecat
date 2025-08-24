@@ -55,7 +55,7 @@ class RegistryReposService(BaseService):
         )
         self.session.add(repository)
         await self.session.commit()
-        await self.session.refresh(repository)
+        await self.session.refresh(repository, ["actions"])
         return repository
 
     async def update_repository(
@@ -66,7 +66,7 @@ class RegistryReposService(BaseService):
             setattr(repository, key, value)
         self.session.add(repository)
         await self.session.commit()
-        await self.session.refresh(repository)
+        await self.session.refresh(repository, ["actions"])
         return repository
 
     async def delete_repository(self, repository: RegistryRepository) -> None:
