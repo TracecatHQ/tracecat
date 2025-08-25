@@ -158,6 +158,8 @@ import type {
   EntitiesGetFieldResponse,
   EntitiesGetRecordData,
   EntitiesGetRecordResponse,
+  EntitiesListAllFieldsData,
+  EntitiesListAllFieldsResponse,
   EntitiesListAllRecordsData,
   EntitiesListAllRecordsResponse,
   EntitiesListAllRelationsData,
@@ -4612,6 +4614,33 @@ export const entitiesListFields = (
       entity_id: data.entityId,
     },
     query: {
+      include_inactive: data.includeInactive,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List All Fields
+ * List field metadata across the workspace, with optional filters.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.entityId
+ * @param data.includeInactive Include soft-deleted fields
+ * @returns FieldMetadataRead Successful Response
+ * @throws ApiError
+ */
+export const entitiesListAllFields = (
+  data: EntitiesListAllFieldsData
+): CancelablePromise<EntitiesListAllFieldsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/entities/fields",
+    query: {
+      entity_id: data.entityId,
       include_inactive: data.includeInactive,
       workspace_id: data.workspaceId,
     },

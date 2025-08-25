@@ -795,6 +795,32 @@ class CustomEntitiesService(BaseWorkspaceService):
         res = await self.session.exec(stmt)
         return list(res.all())
 
+    async def list_all_fields(
+        self,
+        *,
+        entity_id: UUID | None = None,
+        include_inactive: bool = False,
+    ) -> list[FieldMetadata]:
+        """List field metadata across the workspace with optional filters.
+
+        Filters by workspace ownership via a join to Entity.
+        """
+        stmt = (
+            select(FieldMetadata)
+            .join(
+                Entity,
+                cast(ColumnElement[Any], FieldMetadata.entity_id)
+                == cast(ColumnElement[Any], Entity.id),
+            )
+            .where(Entity.owner_id == self.workspace_id)
+        )
+        if entity_id is not None:
+            stmt = stmt.where(FieldMetadata.entity_id == entity_id)
+        if not include_inactive:
+            stmt = stmt.where(FieldMetadata.is_active)
+        res = await self.session.exec(stmt)
+        return list(res.all())
+
     @require_access_level(AccessLevel.ADMIN)
     async def update_relation(
         self, relation_id: UUID, params: RelationDefinitionUpdate

@@ -230,6 +230,22 @@ async def list_fields(
     return [FieldMetadataRead.model_validate(f, from_attributes=True) for f in fields]
 
 
+@router.get("/fields", response_model=list[FieldMetadataRead])
+async def list_all_fields(
+    *,
+    role: WorkspaceUser,
+    session: AsyncDBSession,
+    entity_id: UUID | None = Query(None),
+    include_inactive: bool = Query(False, description="Include soft-deleted fields"),
+) -> list[FieldMetadataRead]:
+    """List field metadata across the workspace, with optional filters."""
+    service = CustomEntitiesService(session, role)
+    fields = await service.list_all_fields(
+        entity_id=entity_id, include_inactive=include_inactive
+    )
+    return [FieldMetadataRead.model_validate(f, from_attributes=True) for f in fields]
+
+
 @router.get("/fields/{field_id}", response_model=FieldMetadataRead)
 async def get_field(
     *,

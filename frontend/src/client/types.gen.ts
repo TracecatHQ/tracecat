@@ -5429,6 +5429,17 @@ export type EntitiesListFieldsData = {
 
 export type EntitiesListFieldsResponse = Array<FieldMetadataRead>
 
+export type EntitiesListAllFieldsData = {
+  entityId?: string | null
+  /**
+   * Include soft-deleted fields
+   */
+  includeInactive?: boolean
+  workspaceId: string
+}
+
+export type EntitiesListAllFieldsResponse = Array<FieldMetadataRead>
+
 export type EntitiesGetFieldData = {
   fieldId: string
   workspaceId: string
@@ -8175,6 +8186,21 @@ export type $OpenApiTs = {
     }
     get: {
       req: EntitiesListFieldsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<FieldMetadataRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/entities/fields": {
+    get: {
+      req: EntitiesListAllFieldsData
       res: {
         /**
          * Successful Response

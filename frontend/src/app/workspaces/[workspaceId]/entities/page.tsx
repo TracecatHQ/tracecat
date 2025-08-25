@@ -5,7 +5,8 @@ import {
   type EntityRead,
   entitiesArchiveEntity,
   entitiesDeleteEntity,
-  entitiesListFields,
+  entitiesListAllFields,
+  entitiesListAllRelations,
   entitiesRestoreEntity,
   entitiesUpdateEntity,
 } from "@/client"
@@ -29,27 +30,47 @@ export default function EntitiesPage() {
     includeInactive
   )
 
-  // Fetch field counts for all entities
+  // Fetch field counts with a single list-all-fields request and aggregate
   const { data: fieldCounts = {} } = useQuery({
     queryKey: ["entity-field-counts", workspaceId, entities?.length],
     queryFn: async () => {
       if (!entities) return {}
+      const fields = await entitiesListAllFields({
+        workspaceId,
+        includeInactive: false,
+      })
+      const counts: Record<string, number> = {}
+      for (const f of fields) {
+        counts[f.entity_id] = (counts[f.entity_id] || 0) + 1
+      }
+      for (const e of entities) {
+        if (counts[e.id] == null) counts[e.id] = 0
+      }
+      return counts
+    },
+    enabled: !!entities && entities.length > 0,
+  })
+
+  // Fetch relation counts (outgoing relation definitions per entity)
+  const { data: relationCounts = {} } = useQuery({
+    queryKey: ["entity-relation-counts", workspaceId, entities?.length],
+    queryFn: async () => {
+      if (!entities) return {}
+
+      // Use the existing list-all-relations endpoint and count by source entity
+      const all = await entitiesListAllRelations({
+        workspaceId,
+        includeInactive: false,
+      })
 
       const counts: Record<string, number> = {}
-      await Promise.all(
-        entities.map(async (entity) => {
-          try {
-            const response = await entitiesListFields({
-              workspaceId,
-              entityId: entity.id,
-              includeInactive: false,
-            })
-            counts[entity.id] = response.length
-          } catch {
-            counts[entity.id] = 0
-          }
-        })
-      )
+      for (const rel of all) {
+        counts[rel.source_entity_id] = (counts[rel.source_entity_id] || 0) + 1
+      }
+      // Ensure all entities appear with at least 0
+      for (const e of entities) {
+        if (counts[e.id] == null) counts[e.id] = 0
+      }
       return counts
     },
     enabled: !!entities && entities.length > 0,
@@ -69,6 +90,9 @@ export default function EntitiesPage() {
         })
         queryClient.invalidateQueries({
           queryKey: ["entity-field-counts", workspaceId],
+        })
+        queryClient.invalidateQueries({
+          queryKey: ["entity-relation-counts", workspaceId],
         })
         toast({
           title: "Entity archived",
@@ -99,6 +123,9 @@ export default function EntitiesPage() {
         })
         queryClient.invalidateQueries({
           queryKey: ["entity-field-counts", workspaceId],
+        })
+        queryClient.invalidateQueries({
+          queryKey: ["entity-relation-counts", workspaceId],
         })
         toast({
           title: "Entity restored",
@@ -167,6 +194,9 @@ export default function EntitiesPage() {
         })
         queryClient.invalidateQueries({
           queryKey: ["entity-field-counts", workspaceId],
+        })
+        queryClient.invalidateQueries({
+          queryKey: ["entity-relation-counts", workspaceId],
         })
         toast({
           title: "Entity deleted",
@@ -239,6 +269,7 @@ export default function EntitiesPage() {
           <EntitiesTable
             entities={entities}
             fieldCounts={fieldCounts}
+            relationCounts={relationCounts}
             onEditEntity={handleEditEntity}
             onDeleteEntity={handleDeleteEntity}
             onDeactivateEntity={handleDeactivateEntity}

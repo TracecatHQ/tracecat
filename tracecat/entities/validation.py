@@ -6,11 +6,12 @@ Pure functions are at module level, database-dependent validators are in classes
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 import sqlalchemy as sa
 from pydantic_core import PydanticCustomError
+from sqlalchemy.sql import ColumnElement
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -290,7 +291,11 @@ class FieldValidators:
         # Join with Entity to check workspace ownership
         stmt = (
             select(FieldMetadata)
-            .join(Entity, FieldMetadata.entity_id == Entity.id)  # type: ignore[arg-type]
+            .join(
+                Entity,
+                cast(ColumnElement[Any], FieldMetadata.entity_id)
+                == cast(ColumnElement[Any], Entity.id),
+            )
             .where(
                 FieldMetadata.id == field_id,
                 Entity.owner_id == self.workspace_id,
@@ -322,7 +327,11 @@ class FieldValidators:
         # Join with Entity to check workspace ownership
         stmt = (
             select(FieldMetadata)
-            .join(Entity, FieldMetadata.entity_id == Entity.id)  # type: ignore[arg-type]
+            .join(
+                Entity,
+                cast(ColumnElement[Any], FieldMetadata.entity_id)
+                == cast(ColumnElement[Any], Entity.id),
+            )
             .where(
                 FieldMetadata.entity_id == entity_id,
                 FieldMetadata.field_key == field_key,

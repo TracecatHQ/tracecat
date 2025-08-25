@@ -38,6 +38,7 @@ import { useWorkspace } from "@/providers/workspace"
 interface EntitiesTableProps {
   entities: EntityRead[]
   fieldCounts: Record<string, number>
+  relationCounts: Record<string, number>
   onEditEntity?: (
     entity: EntityRead,
     data: {
@@ -56,6 +57,7 @@ interface EntitiesTableProps {
 export function EntitiesTable({
   entities,
   fieldCounts,
+  relationCounts,
   onEditEntity,
   onDeleteEntity,
   onDeactivateEntity,
@@ -175,33 +177,19 @@ export function EntitiesTable({
               enableHiding: false,
             },
             {
-              id: "tags",
-              accessorFn: () => 0, // Placeholder for future implementation
+              id: "relations",
+              accessorFn: (row) => relationCounts[row.id] || 0,
               header: ({ column }) => (
                 <DataTableColumnHeader
                   className="text-xs"
                   column={column}
-                  title="Tags"
+                  title="Relations"
                 />
               ),
-              cell: () => (
-                <div className="text-xs text-muted-foreground">0</div>
-              ),
-              enableSorting: true,
-              enableHiding: false,
-            },
-            {
-              id: "cases",
-              accessorFn: () => 0, // Placeholder for future implementation
-              header: ({ column }) => (
-                <DataTableColumnHeader
-                  className="text-xs"
-                  column={column}
-                  title="Cases"
-                />
-              ),
-              cell: () => (
-                <div className="text-xs text-muted-foreground">0</div>
+              cell: ({ row }) => (
+                <div className="text-xs">
+                  {relationCounts[row.original.id] || 0}
+                </div>
               ),
               enableSorting: true,
               enableHiding: false,
