@@ -64,7 +64,7 @@ export function WorkspaceMembersTable({
   const { user } = useAuth()
   const [selectedUser, setSelectedUser] = useState<WorkspaceMember | null>(null)
   const [isChangeRoleOpen, setIsChangeRoleOpen] = useState(false)
-  const { role } = useCurrentUserRole()
+  const { role } = useCurrentUserRole(workspace.id)
   const { removeMember, updateMember } = useWorkspaceMutations()
   const { members, membersLoading, membersError } = useWorkspaceMembers(
     workspace.id
