@@ -14,6 +14,7 @@ export default function OrganizationWorkspaceSettingsPage() {
   const router = useRouter()
   const { user } = useAuth()
   const workspaceId = params.workspaceId
+  const { role } = useCurrentUserRole(workspaceId)
 
   const {
     data: workspace,
@@ -40,7 +41,6 @@ export default function OrganizationWorkspaceSettingsPage() {
 
   // Check if user is org admin or workspace admin
   const isOrgAdmin = user?.isPrivileged()
-  const { role } = useCurrentUserRole()
   const isWorkspaceAdmin = role === "admin"
 
   if (!isOrgAdmin && !isWorkspaceAdmin) {

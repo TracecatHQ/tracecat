@@ -39,8 +39,16 @@ export function useWorkspaceDetails() {
   return { workspace, workspaceLoading, workspaceError }
 }
 
-export function useCurrentUserRole() {
-  const workspaceId = useWorkspaceId()
+/**
+ * Returns the membership role of the current user in the specified workspace.
+ *
+ * @param workspaceId - The ID of the workspace to check membership for.
+ * @returns An object containing:
+ *   - role: The user's role in the workspace, or undefined if not found.
+ *   - roleLoading: Whether the role is currently loading.
+ *   - roleError: Any error encountered while fetching the role.
+ */
+export function useCurrentUserRole(workspaceId: string) {
   const { user } = useAuth()
   const {
     data: role,
