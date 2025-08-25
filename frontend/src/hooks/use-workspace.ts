@@ -48,11 +48,7 @@ export function useWorkspaceDetails() {
  *   - roleLoading: Whether the role is currently loading.
  *   - roleError: Any error encountered while fetching the role.
  */
-export function useCurrentUserRole(workspaceId: string): {
-  role?: string
-  roleLoading: boolean
-  roleError?: unknown
-} {
+export function useCurrentUserRole(workspaceId: string) {
   const { user } = useAuth()
   const {
     data: role,
