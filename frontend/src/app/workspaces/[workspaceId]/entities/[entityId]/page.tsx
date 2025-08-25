@@ -15,10 +15,8 @@ import {
 import { CreateFieldDialog } from "@/components/entities/create-field-dialog"
 import { EditFieldDialog } from "@/components/entities/edit-field-dialog"
 import { EntityFieldsTable } from "@/components/entities/entity-fields-table"
-import { EntityRecordsTable } from "@/components/entities/entity-records-table"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
-import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { toast } from "@/components/ui/use-toast"
 import { entityEvents } from "@/lib/entity-events"
@@ -57,10 +55,6 @@ export default function EntityDetailPage() {
   const { updateField, updateFieldIsPending } = useUpdateEntityField(
     workspaceId,
     entityId
-  )
-  const [detailView, setDetailView] = useLocalStorage(
-    "entity-detail-view",
-    "fields"
   )
 
   // Set up the callback for the Add Field button in header
@@ -225,30 +219,9 @@ export default function EntityDetailPage() {
 
   return (
     <div className="size-full overflow-auto">
-      <div className="container max-w-[1200px] my-16">
-        {/* Local view toggle: Fields | Records */}
-        <div className="mb-4 inline-flex items-center rounded-md border">
-          <Button
-            type="button"
-            variant={detailView === "fields" ? "secondary" : "ghost"}
-            className="h-7 rounded-r-none"
-            onClick={() => setDetailView("fields")}
-          >
-            Fields
-          </Button>
-          <Button
-            type="button"
-            variant={detailView === "records" ? "secondary" : "ghost"}
-            className="h-7 rounded-l-none"
-            onClick={() => setDetailView("records")}
-          >
-            Records
-          </Button>
-        </div>
+      <div className="container max-w-[1200px] py-8">
         <div className="space-y-4">
-          {detailView === "records" ? (
-            <EntityRecordsTable entityId={entity.id} />
-          ) : fields.length === 0 ? (
+          {fields.length === 0 ? (
             <Card>
               <CardContent className="flex flex-col items-center justify-center py-12">
                 <Settings2Icon className="h-12 w-12 text-muted-foreground mb-4" />

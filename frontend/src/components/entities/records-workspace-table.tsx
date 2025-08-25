@@ -3,8 +3,9 @@
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import type { ColumnDef } from "@tanstack/react-table"
-import { Archive, RefreshCcw, Rows, Trash2 } from "lucide-react"
+import { Archive, RefreshCcw, Trash2 } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
+import JsonView from "react18-json-view"
 import {
   type EntitiesListAllRecordsResponse,
   entitiesArchiveRecord,
@@ -42,21 +43,27 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Switch } from "@/components/ui/switch"
 import { toast } from "@/components/ui/use-toast"
 import { useEntities } from "@/lib/hooks/use-entities"
 import { getIconByName } from "@/lib/icon-data"
 import { shortTimeAgo } from "@/lib/utils"
 import { useWorkspace } from "@/providers/workspace"
 
-export function RecordsWorkspaceTable() {
+import "react18-json-view/src/style.css"
+
+interface RecordsWorkspaceTableProps {
+  includeDeleted?: boolean
+}
+
+export function RecordsWorkspaceTable({
+  includeDeleted = false,
+}: RecordsWorkspaceTableProps = {}) {
   const { workspaceId } = useWorkspace()
   const queryClient = useQueryClient()
   const { entities } = useEntities(workspaceId || "", true)
 
   // Filters and pagination state
   const [entityFilter, setEntityFilter] = useState<string | null>(null)
-  const [includeDeleted, setIncludeDeleted] = useState(false)
   const [pageSize, setPageSize] = useState(20)
   const [cursor, setCursor] = useState<string | null>(null)
   const [pageIndex, setPageIndex] = useState(0)
@@ -233,25 +240,34 @@ export function RecordsWorkspaceTable() {
       enableHiding: false,
     },
     {
-      id: "summary",
+      id: "record",
       accessorFn: (row) => row.field_data,
       header: ({ column }) => (
         <DataTableColumnHeader
           className="text-xs"
           column={column}
-          title="Summary"
+          title="Record"
         />
       ),
       cell: ({ row }) => {
-        const fd = row.original.field_data || {}
-        const summary =
-          (fd["name"] as string) ||
-          (fd["title"] as string) ||
-          (fd["summary"] as string) ||
-          "—"
+        const fieldData = row.original.field_data || {}
+        if (Object.keys(fieldData).length === 0) {
+          return (
+            <span className="text-xs text-muted-foreground">No fields</span>
+          )
+        }
+
         return (
-          <div className="text-xs text-foreground/80 truncate max-w-[300px]">
-            {summary}
+          <div className="overflow-auto w-64">
+            <JsonView
+              collapsed={false}
+              displaySize
+              enableClipboard
+              src={fieldData}
+              className="break-all text-xs"
+              theme="atom"
+              collapseStringsAfterLength={50}
+            />
           </div>
         )
       },
@@ -276,8 +292,13 @@ export function RecordsWorkspaceTable() {
           {row.original.deleted_at ? "Archived" : "Active"}
         </Badge>
       ),
+      filterFn: (row, _id, value: string[]) => {
+        const status = row.original.deleted_at ? "archived" : "active"
+        return value.includes(status)
+      },
       enableSorting: false,
       enableHiding: false,
+      enableColumnFilter: true,
     },
     {
       accessorKey: "created_at",
@@ -376,10 +397,6 @@ export function RecordsWorkspaceTable() {
     <div className="space-y-4">
       <div className="flex items-center gap-3">
         <div className="flex items-center gap-2">
-          <Rows className="h-3.5 w-3.5 text-muted-foreground" />
-          <span className="text-xs text-muted-foreground">Records</span>
-        </div>
-        <div className="flex items-center gap-2">
           <Label
             htmlFor="record-filter-entity"
             className="text-xs text-muted-foreground"
@@ -402,19 +419,6 @@ export function RecordsWorkspaceTable() {
               ))}
             </SelectContent>
           </Select>
-        </div>
-        <div className="flex items-center gap-2">
-          <Label
-            htmlFor="records-include-deleted"
-            className="text-xs text-muted-foreground"
-          >
-            Include deleted
-          </Label>
-          <Switch
-            id="records-include-deleted"
-            checked={includeDeleted}
-            onCheckedChange={setIncludeDeleted}
-          />
         </div>
       </div>
 

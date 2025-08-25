@@ -10,9 +10,6 @@ import {
   entitiesUpdateEntity,
 } from "@/client"
 import { EntitiesTable } from "@/components/entities/entities-table"
-import { EntitiesViewMode } from "@/components/entities/entities-view-toggle"
-import { RecordsWorkspaceTable } from "@/components/entities/records-workspace-table"
-import { RelationsWorkspaceTable } from "@/components/entities/relations-workspace-table"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { toast } from "@/components/ui/use-toast"
@@ -24,7 +21,6 @@ export default function EntitiesPage() {
   const { workspaceId, workspace, workspaceError, workspaceLoading } =
     useWorkspace()
   const queryClient = useQueryClient()
-  const [view] = useLocalStorage("entities-view", EntitiesViewMode.Fields)
   const [includeInactive] = useLocalStorage("entities-include-inactive", false)
 
   // Always show all entities including inactive ones
@@ -238,29 +234,23 @@ export default function EntitiesPage() {
 
   return (
     <div className="size-full overflow-auto">
-      <div className="container flex h-full max-w-[1000px] flex-col space-y-8 py-8">
-        {view === EntitiesViewMode.Relations ? (
-          <RelationsWorkspaceTable />
-        ) : view === EntitiesViewMode.Records ? (
-          <RecordsWorkspaceTable />
-        ) : (
-          <div className="space-y-4">
-            <EntitiesTable
-              entities={entities}
-              fieldCounts={fieldCounts}
-              onEditEntity={handleEditEntity}
-              onDeleteEntity={handleDeleteEntity}
-              onDeactivateEntity={handleDeactivateEntity}
-              onReactivateEntity={handleReactivateEntity}
-              isDeleting={
-                archiveEntityIsPending ||
-                restoreEntityIsPending ||
-                deleteEntityIsPending
-              }
-              isUpdating={updateEntityIsPending}
-            />
-          </div>
-        )}
+      <div className="container max-w-[1200px] my-8">
+        <div className="space-y-4">
+          <EntitiesTable
+            entities={entities}
+            fieldCounts={fieldCounts}
+            onEditEntity={handleEditEntity}
+            onDeleteEntity={handleDeleteEntity}
+            onDeactivateEntity={handleDeactivateEntity}
+            onReactivateEntity={handleReactivateEntity}
+            isDeleting={
+              archiveEntityIsPending ||
+              restoreEntityIsPending ||
+              deleteEntityIsPending
+            }
+            isUpdating={updateEntityIsPending}
+          />
+        </div>
       </div>
     </div>
   )

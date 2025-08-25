@@ -40,12 +40,22 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import {
   Tooltip,
   TooltipContent,
@@ -204,6 +214,12 @@ export function RelationsWorkspaceTable() {
   const [actionType, setActionType] = useState<"delete" | "deactivate" | null>(
     null
   )
+
+  // Edit relation dialog state
+  const [editDialogOpen, setEditDialogOpen] = useState(false)
+  const [relationToEdit, setRelationToEdit] =
+    useState<RelationDefinitionRead | null>(null)
+  const [editDisplayName, setEditDisplayName] = useState("")
 
   const columns: ColumnDef<RelationDefinitionRead, unknown>[] = [
     {
@@ -448,19 +464,11 @@ export function RelationsWorkspaceTable() {
                 Copy relation ID
               </DropdownMenuItem>
               <DropdownMenuItem
-                onClick={async (e) => {
+                onClick={(e) => {
                   e.stopPropagation()
-                  // Simple edit - just rename for now
-                  const newName = window.prompt(
-                    "Enter new display name:",
-                    row.original.display_name
-                  )
-                  if (newName && newName !== row.original.display_name) {
-                    await doUpdate({
-                      relationId: row.original.id,
-                      display_name: newName,
-                    })
-                  }
+                  setRelationToEdit(row.original)
+                  setEditDisplayName(row.original.display_name)
+                  setEditDialogOpen(true)
                 }}
               >
                 <Pencil className="mr-2 h-3 w-3" />
@@ -575,6 +583,73 @@ export function RelationsWorkspaceTable() {
           ],
         }}
       />
+      {/* Edit relation dialog */}
+      <Dialog
+        open={editDialogOpen}
+        onOpenChange={(open) => {
+          setEditDialogOpen(open)
+          if (!open) {
+            setRelationToEdit(null)
+            setEditDisplayName("")
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Edit relation</DialogTitle>
+            <DialogDescription>
+              Update the display name for this relation.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="relation_display_name">Name</Label>
+              <Input
+                id="relation_display_name"
+                value={editDisplayName}
+                onChange={(e) => setEditDisplayName(e.target.value)}
+                placeholder="Enter display name"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={async () => {
+                const trimmed = editDisplayName.trim()
+                if (
+                  relationToEdit &&
+                  trimmed &&
+                  trimmed !== relationToEdit.display_name
+                ) {
+                  try {
+                    await doUpdate({
+                      relationId: relationToEdit.id,
+                      display_name: trimmed,
+                    })
+                    setEditDialogOpen(false)
+                    setRelationToEdit(null)
+                    setEditDisplayName("")
+                  } catch (err) {
+                    console.error("Failed to update relation:", err)
+                  }
+                } else {
+                  setEditDialogOpen(false)
+                }
+              }}
+              disabled={
+                !relationToEdit ||
+                !editDisplayName.trim() ||
+                editDisplayName.trim() === relationToEdit?.display_name
+              }
+            >
+              Save changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>

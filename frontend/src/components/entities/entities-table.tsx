@@ -83,6 +83,11 @@ export function EntitiesTable({
       >
         <DataTable
           data={entities}
+          getRowHref={(row) =>
+            row.original.is_active
+              ? `/workspaces/${workspaceId}/entities/${row.original.id}`
+              : undefined
+          }
           columns={[
             {
               accessorKey: "display_name",
@@ -101,33 +106,22 @@ export function EntitiesTable({
                   row.original.display_name?.[0]?.toUpperCase() || "?"
 
                 return (
-                  <div
-                    className={row.original.is_active ? "cursor-pointer" : ""}
-                    onClick={() => {
-                      if (row.original.is_active) {
-                        router.push(
-                          `/workspaces/${workspaceId}/entities/${row.original.id}`
-                        )
-                      }
-                    }}
-                  >
-                    <div className="flex items-center gap-2.5">
-                      <Avatar className="size-7 shrink-0">
-                        <AvatarFallback className="text-xs">
-                          {IconComponent ? (
-                            <IconComponent className="size-4" />
-                          ) : (
-                            initials
-                          )}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div>
-                        <div className="font-medium text-sm">
-                          {row.original.display_name}
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          {row.original.name}
-                        </div>
+                  <div className="flex items-center gap-2.5">
+                    <Avatar className="size-7 shrink-0">
+                      <AvatarFallback className="text-xs">
+                        {IconComponent ? (
+                          <IconComponent className="size-4" />
+                        ) : (
+                          initials
+                        )}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div>
+                      <div className="font-medium text-sm">
+                        {row.original.display_name}
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {row.original.name}
                       </div>
                     </div>
                   </div>

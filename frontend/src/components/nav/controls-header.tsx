@@ -182,12 +182,19 @@ function EntitiesActions() {
   const [createRelationError, setCreateRelationError] = useState<string | null>(
     null
   )
-  const [view, setView] = useLocalStorage(
-    "entities-view",
-    EntitiesViewMode.Fields
-  )
+  const pathname = usePathname()
+  // Derive view from pathname (link-based routing)
+  const view: EntitiesViewMode = pathname?.includes("/entities/records")
+    ? EntitiesViewMode.Records
+    : pathname?.includes("/entities/relations")
+      ? EntitiesViewMode.Relations
+      : EntitiesViewMode.Fields
   const [includeInactive, setIncludeInactive] = useLocalStorage(
     "entities-include-inactive",
+    false
+  )
+  const [includeArchived, setIncludeArchived] = useLocalStorage(
+    "entities-include-archived",
     false
   )
   const { workspaceId } = useWorkspace()
@@ -274,8 +281,8 @@ function EntitiesActions() {
 
   return (
     <div className="flex items-center gap-2">
-      {/* Include inactive toggle on the left of the views switch */}
-      {view !== EntitiesViewMode.Records && (
+      {/* Include toggles on the left of the views switch */}
+      {view !== EntitiesViewMode.Records ? (
         <div className="flex items-center gap-2 mr-4">
           <Label
             htmlFor="entities-include-inactive-global"
@@ -289,8 +296,22 @@ function EntitiesActions() {
             onCheckedChange={setIncludeInactive}
           />
         </div>
+      ) : (
+        <div className="flex items-center gap-2 mr-4">
+          <Label
+            htmlFor="entities-include-archived-global"
+            className="text-xs text-muted-foreground"
+          >
+            Include archived
+          </Label>
+          <Switch
+            id="entities-include-archived-global"
+            checked={includeArchived}
+            onCheckedChange={setIncludeArchived}
+          />
+        </div>
       )}
-      <EntitiesViewToggle view={view} onViewChange={setView} />
+      <EntitiesViewToggle />
       {view === EntitiesViewMode.Fields ? (
         <>
           <Button
@@ -667,18 +688,32 @@ function getPageConfig(
   }
 
   if (pagePath.startsWith("/entities")) {
-    // Check if this is an entity detail page
-    const entityMatch = pagePath.match(/^\/entities\/([^/]+)$/)
-    if (entityMatch) {
-      const entityId = entityMatch[1]
+    // Reserved subroutes under /entities that are not entity detail
+    if (
+      pagePath === "/entities/relations" ||
+      pagePath === "/entities/records"
+    ) {
       return {
-        title: (
-          <EntityBreadcrumb entityId={entityId} workspaceId={workspaceId} />
-        ),
-        actions: <EntitiesDetailHeaderActions />,
+        title: "Entities",
+        actions: <EntitiesActions />,
       }
     }
-
+    // Check if this is an entity detail page (exclude reserved names)
+    const entityMatch = pagePath.match(/^\/entities\/([^/]+)$/)
+    if (entityMatch) {
+      const slug = entityMatch[1]
+      if (slug !== "relations" && slug !== "records") {
+        return {
+          title: <EntityBreadcrumb entityId={slug} workspaceId={workspaceId} />,
+          actions: <EntitiesDetailHeaderActions />,
+        }
+      }
+      return {
+        title: "Entities",
+        actions: <EntitiesActions />,
+      }
+    }
+    // Default /entities index
     return {
       title: "Entities",
       actions: <EntitiesActions />,
