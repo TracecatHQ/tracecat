@@ -75,7 +75,7 @@ const workflowUpdateFormSchema = z.object({
     .optional(),
   timeout: z
     .number()
-    .min(1, { message: "Timeout must be at least 1 second" })
+    .min(0, { message: "Timeout must be at least 0 seconds" })
     .max(1209600, {
       message: "Timeout cannot exceed 14 days (1209600 seconds)",
     })
@@ -116,7 +116,7 @@ export function WorkflowPanel({
       description: workflow.description || "",
       alias: workflow.alias,
       environment: workflow.config?.environment || "default",
-      timeout: workflow.config?.timeout || 300,
+      timeout: workflow.config?.timeout || 0,
       static_inputs: workflow.static_inputs,
       expects: workflow.expects || undefined,
       returns: workflow.returns,
@@ -468,8 +468,9 @@ export function WorkflowPanel({
                                         {": float"}
                                         <p className="text-muted-foreground">
                                           # The maximum number of seconds to
-                                          wait for the workflow to complete.
-                                          Defaults to 300 seconds (5 minutes).
+                                          wait for the workflow to complete. If
+                                          set to 0, the workflow will not
+                                          timeout. Defaults to 0 (unlimited).
                                         </p>
                                       </div>
                                     </pre>
@@ -512,7 +513,7 @@ export function WorkflowPanel({
                                   <Input
                                     type="number"
                                     className="text-xs"
-                                    placeholder="300"
+                                    placeholder="0 (unlimited)"
                                     value={field.value || ""}
                                     onChange={(e) =>
                                       field.onChange(
