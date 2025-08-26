@@ -6,6 +6,7 @@ Objectives
 2. Test that workflow executions without failures don't create synthetic events
 3. Test that workflows with both action and workflow failures show both event types
 4. Test edge cases and error conditions in event processing
+5. Test workspace timeout resolution logic
 
 """
 
@@ -16,6 +17,7 @@ import pytest
 from temporalio.api.enums.v1 import EventType
 from temporalio.client import Client, WorkflowHandle
 
+from tracecat.db.schemas import Workspace
 from tracecat.identifiers.workflow import WorkflowExecutionID
 from tracecat.types.auth import Role
 from tracecat.workflow.executions.enums import WorkflowExecutionEventStatus
@@ -27,6 +29,7 @@ from tracecat.workflow.executions.service import (
     WF_FAILURE_REF,
     WorkflowExecutionsService,
 )
+from tracecat.workspaces.service import WorkspaceService
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -46,6 +49,26 @@ def mock_role(svc_workspace) -> Role:
         user_id=None,
         service_id="tracecat-service",
     )
+
+
+@pytest.fixture
+def workspace_with_unlimited_timeout(svc_workspace) -> Workspace:
+    """Create a workspace with unlimited timeout enabled."""
+    svc_workspace.settings = {
+        "workflow_unlimited_timeout_enabled": True,
+        "workflow_default_timeout_seconds": None,
+    }
+    return svc_workspace
+
+
+@pytest.fixture
+def workspace_with_default_timeout(svc_workspace) -> Workspace:
+    """Create a workspace with a default timeout."""
+    svc_workspace.settings = {
+        "workflow_unlimited_timeout_enabled": False,
+        "workflow_default_timeout_seconds": 600,
+    }
+    return svc_workspace
 
 
 @pytest.fixture
@@ -560,3 +583,166 @@ class TestWorkflowExecutionEvents:
             if event.action_error:
                 assert event.action_error.message == "Database operation failed"
                 assert event.action_error.cause == complex_cause
+
+
+# === Timeout Resolution Tests ===
+
+
+class TestTimeoutResolution:
+    """Test workspace-level timeout resolution logic."""
+
+    @pytest.mark.anyio
+    async def test_unlimited_timeout_enabled_returns_none(
+        self, mock_client: Mock, workspace_with_unlimited_timeout: Workspace
+    ) -> None:
+        """Test that unlimited timeout enabled returns None (unlimited)."""
+        role = Role(
+            type="service",
+            workspace_id=workspace_with_unlimited_timeout.id,
+            user_id=None,
+            service_id="tracecat-service",
+        )
+        service = WorkflowExecutionsService(client=mock_client, role=role)
+
+        with patch.object(WorkspaceService, "with_session") as mock_ws_service:
+            mock_svc = Mock()
+
+            async def mock_get_workspace(workspace_id):
+                return workspace_with_unlimited_timeout
+
+            mock_svc.get_workspace = mock_get_workspace
+            mock_ws_service.return_value.__aenter__.return_value = mock_svc
+
+            result = await service._resolve_execution_timeout(seconds=300)
+
+            assert result is None
+
+    @pytest.mark.anyio
+    async def test_workspace_default_timeout_used(
+        self, mock_client: Mock, workspace_with_default_timeout: Workspace
+    ) -> None:
+        """Test that workspace default timeout is used when set."""
+        role = Role(
+            type="service",
+            workspace_id=workspace_with_default_timeout.id,
+            user_id=None,
+            service_id="tracecat-service",
+        )
+        service = WorkflowExecutionsService(client=mock_client, role=role)
+
+        with patch.object(WorkspaceService, "with_session") as mock_ws_service:
+            mock_svc = Mock()
+
+            async def mock_get_workspace(workspace_id):
+                return workspace_with_default_timeout
+
+            mock_svc.get_workspace = mock_get_workspace
+            mock_ws_service.return_value.__aenter__.return_value = mock_svc
+
+            result = await service._resolve_execution_timeout(seconds=300)
+
+            assert result == datetime.timedelta(seconds=600)
+
+    @pytest.mark.anyio
+    async def test_dsl_timeout_fallback(
+        self, mock_client: Mock, svc_workspace: Workspace
+    ) -> None:
+        """Test that DSL timeout is used when no workspace override."""
+        # Workspace with no timeout settings
+        svc_workspace.settings = {}
+
+        role = Role(
+            type="service",
+            workspace_id=svc_workspace.id,
+            user_id=None,
+            service_id="tracecat-service",
+        )
+        service = WorkflowExecutionsService(client=mock_client, role=role)
+
+        with patch.object(WorkspaceService, "with_session") as mock_ws_service:
+            mock_svc = Mock()
+
+            async def mock_get_workspace(workspace_id):
+                return svc_workspace
+
+            mock_svc.get_workspace = mock_get_workspace
+            mock_ws_service.return_value.__aenter__.return_value = mock_svc
+
+            result = await service._resolve_execution_timeout(seconds=300)
+
+            assert result == datetime.timedelta(seconds=300)
+
+    @pytest.mark.anyio
+    async def test_unlimited_when_no_timeouts(
+        self, mock_client: Mock, svc_workspace: Workspace
+    ) -> None:
+        """Test that unlimited is used when no timeouts are set."""
+        # Workspace with no timeout settings
+        svc_workspace.settings = {}
+
+        role = Role(
+            type="service",
+            workspace_id=svc_workspace.id,
+            user_id=None,
+            service_id="tracecat-service",
+        )
+        service = WorkflowExecutionsService(client=mock_client, role=role)
+
+        with patch.object(WorkspaceService, "with_session") as mock_ws_service:
+            mock_svc = Mock()
+
+            async def mock_get_workspace(workspace_id):
+                return svc_workspace
+
+            mock_svc.get_workspace = mock_get_workspace
+            mock_ws_service.return_value.__aenter__.return_value = mock_svc
+
+            result = await service._resolve_execution_timeout(seconds=0)
+
+            assert result is None
+
+    @pytest.mark.anyio
+    async def test_no_workspace_uses_dsl_timeout(self, mock_client: Mock) -> None:
+        """Test that DSL timeout is used when no workspace ID."""
+        role = Role(
+            type="service",
+            workspace_id=None,
+            user_id=None,
+            service_id="tracecat-service",
+        )
+        service = WorkflowExecutionsService(client=mock_client, role=role)
+
+        result = await service._resolve_execution_timeout(seconds=300)
+
+        assert result == datetime.timedelta(seconds=300)
+
+    @pytest.mark.anyio
+    async def test_precedence_unlimited_overrides_all(
+        self, mock_client: Mock, svc_workspace: Workspace
+    ) -> None:
+        """Test that unlimited timeout overrides workspace default and DSL timeout."""
+        svc_workspace.settings = {
+            "workflow_unlimited_timeout_enabled": True,
+            "workflow_default_timeout_seconds": 600,
+        }
+
+        role = Role(
+            type="service",
+            workspace_id=svc_workspace.id,
+            user_id=None,
+            service_id="tracecat-service",
+        )
+        service = WorkflowExecutionsService(client=mock_client, role=role)
+
+        with patch.object(WorkspaceService, "with_session") as mock_ws_service:
+            mock_svc = Mock()
+
+            async def mock_get_workspace(workspace_id):
+                return svc_workspace
+
+            mock_svc.get_workspace = mock_get_workspace
+            mock_ws_service.return_value.__aenter__.return_value = mock_svc
+
+            result = await service._resolve_execution_timeout(seconds=300)
+
+            assert result is None

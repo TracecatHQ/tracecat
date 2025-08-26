@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
+import { Switch } from "@/components/ui/switch"
 import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import { useWorkspaceSettings } from "@/lib/hooks"
 import { OrgWorkspaceDeleteDialog } from "./org-workspace-delete-dialog"
@@ -36,6 +37,11 @@ const workspaceSettingsSchema = z.object({
       (url) => !url || /^git\+ssh:\/\/git@[^/]+\/[^/]+\/[^/@]+\.git$/.test(url),
       "Must be a valid Git SSH URL in format: git+ssh://git@host/org/repo.git"
     ),
+  workflow_unlimited_timeout_enabled: z.boolean().optional(),
+  workflow_default_timeout_seconds: z
+    .number()
+    .min(1, "Timeout must be at least 1 second")
+    .optional(),
 })
 
 type WorkspaceSettingsForm = z.infer<typeof workspaceSettingsSchema>
@@ -69,6 +75,10 @@ export function OrgWorkspaceSettings({
     defaultValues: {
       name: workspace.name,
       git_repo_url: workspace.settings?.git_repo_url || "",
+      workflow_unlimited_timeout_enabled:
+        workspace.settings?.workflow_unlimited_timeout_enabled || false,
+      workflow_default_timeout_seconds:
+        workspace.settings?.workflow_default_timeout_seconds || undefined,
     },
   })
 
@@ -77,6 +87,10 @@ export function OrgWorkspaceSettings({
       name: values.name,
       settings: {
         git_repo_url: values.git_repo_url,
+        workflow_unlimited_timeout_enabled:
+          values.workflow_unlimited_timeout_enabled,
+        workflow_default_timeout_seconds:
+          values.workflow_default_timeout_seconds,
       },
     })
   }
@@ -162,6 +176,78 @@ export function OrgWorkspaceSettings({
                 </div>
               </div>
             )}
+
+            <div>
+              <h4 className="text-md font-medium mb-4">
+                Workflow timeout settings
+              </h4>
+              <p className="text-sm text-muted-foreground mb-4">
+                Configure default timeout behavior for all workflows in this
+                workspace.
+              </p>
+              <div className="space-y-4">
+                <FormField
+                  control={form.control}
+                  name="workflow_unlimited_timeout_enabled"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                      <div className="space-y-0.5">
+                        <FormLabel className="text-base">
+                          Unlimited workflow timeout
+                        </FormLabel>
+                        <FormDescription>
+                          Allow workflows to run indefinitely without timeout
+                          constraints. When enabled, individual workflow timeout
+                          settings are ignored.
+                        </FormDescription>
+                      </div>
+                      <FormControl>
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="workflow_default_timeout_seconds"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-col">
+                      <FormLabel>Default workflow timeout (seconds)</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          placeholder="300"
+                          {...field}
+                          value={field.value ?? ""}
+                          onChange={(e) =>
+                            field.onChange(
+                              e.target.value
+                                ? Number(e.target.value)
+                                : undefined
+                            )
+                          }
+                          disabled={form.watch(
+                            "workflow_unlimited_timeout_enabled"
+                          )}
+                          className="max-w-md"
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        Default timeout in seconds for workflows in this
+                        workspace. Individual workflow settings will fall back
+                        to this value. Leave empty to use per-workflow timeout
+                        settings.
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+            </div>
 
             <Button type="submit" disabled={isUpdating}>
               {isUpdating ? "Saving..." : "Save changes"}

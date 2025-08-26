@@ -3066,8 +3066,8 @@ export const $DSLConfig_Input = {
       type: "number",
       title: "Timeout",
       description:
-        "The maximum number of seconds to wait for the workflow to complete.",
-      default: 300,
+        "Workflow timeout in seconds. If set to 0, the workflow has no timeout.",
+      default: 0,
     },
   },
   type: "object",
@@ -3090,8 +3090,8 @@ export const $DSLConfig_Output = {
       type: "number",
       title: "Timeout",
       description:
-        "The maximum number of seconds to wait for the workflow to complete.",
-      default: 300,
+        "Workflow timeout in seconds. If set to 0, the workflow has no timeout.",
+      default: 0,
     },
   },
   type: "object",
@@ -3254,7 +3254,7 @@ export const $DSLRunArgs = {
       type: "string",
       format: "duration",
       title: "Timeout",
-      description: "The maximum time to wait for the workflow to complete.",
+      description: "Platform activity start-to-close timeout.",
     },
     schedule_id: {
       anyOf: [
@@ -11673,6 +11673,28 @@ export const $WorkspaceSettingsRead = {
       ],
       title: "Git Repo Url",
     },
+    workflow_unlimited_timeout_enabled: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workflow Unlimited Timeout Enabled",
+    },
+    workflow_default_timeout_seconds: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workflow Default Timeout Seconds",
+    },
   },
   type: "object",
   title: "WorkspaceSettingsRead",
@@ -11690,6 +11712,28 @@ export const $WorkspaceSettingsUpdate = {
         },
       ],
       title: "Git Repo Url",
+    },
+    workflow_unlimited_timeout_enabled: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workflow Unlimited Timeout Enabled",
+    },
+    workflow_default_timeout_seconds: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workflow Default Timeout Seconds",
     },
   },
   type: "object",

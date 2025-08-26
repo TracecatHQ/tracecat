@@ -69,6 +69,7 @@ from tracecat.workflow.executions.models import (
     WorkflowExecutionEvent,
     WorkflowExecutionEventCompact,
 )
+from tracecat.workspaces.service import WorkspaceService
 
 
 class WorkflowExecutionsService:
@@ -89,6 +90,43 @@ class WorkflowExecutionsService:
         self, wf_exec_id: WorkflowExecutionID
     ) -> WorkflowHandle[DSLWorkflow, DSLRunArgs]:
         return self._client.get_workflow_handle_for(DSLWorkflow.run, wf_exec_id)
+
+    async def _resolve_execution_timeout(
+        self, seconds: float | int | None
+    ) -> datetime.timedelta | None:
+        """Resolve the execution timeout based on workspace settings and DSL config.
+
+        Precedence order:
+        1. If workspace unlimited timeout enabled → return None (unlimited)
+        2. Else if workspace default seconds > 0 → return timedelta
+        3. Else if DSL timeout > 0 → return timedelta
+        4. Otherwise → return None (unlimited)
+
+        Args:
+            role: The role context to get workspace ID
+            dsl_timeout_seconds: The DSL-configured timeout in seconds
+
+        Returns:
+            timedelta if timeout should be applied, None for unlimited
+        """
+        if (ws_id := self.role.workspace_id) is not None:
+            async with WorkspaceService.with_session(role=self.role) as ws_svc:
+                workspace = await ws_svc.get_workspace(ws_id)
+                if workspace and isinstance(workspace.settings, dict):
+                    if bool(
+                        workspace.settings.get("workflow_unlimited_timeout_enabled")
+                    ):
+                        return None
+                    ws_default = workspace.settings.get(
+                        "workflow_default_timeout_seconds"
+                    )
+                    if isinstance(ws_default, int) and ws_default > 0:
+                        return datetime.timedelta(seconds=ws_default)
+
+        if seconds and seconds > 0:
+            return datetime.timedelta(seconds=float(seconds))
+
+        return None
 
     async def query_interaction_states(
         self,
@@ -661,6 +699,11 @@ class WorkflowExecutionsService:
             kwargs.setdefault(
                 "task_timeout", datetime.timedelta(seconds=float(task_timeout))
             )
+        # Resolve execution timeout based on workspace settings
+        if execution_timeout := await self._resolve_execution_timeout(
+            seconds=dsl.config.timeout
+        ):
+            kwargs["execution_timeout"] = execution_timeout
 
         logger.info(
             f"Executing DSL workflow: {dsl.title}",
@@ -691,8 +734,6 @@ class WorkflowExecutionsService:
                 id=wf_exec_id,
                 task_queue=config.TEMPORAL__CLUSTER_QUEUE,
                 retry_policy=RETRY_POLICIES["workflow:fail_fast"],
-                # We don't currently differentiate between exec and run timeout as we fail fast for workflows
-                execution_timeout=datetime.timedelta(seconds=dsl.config.timeout),
                 search_attributes=search_attrs,
                 **kwargs,
             )
