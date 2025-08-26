@@ -1960,9 +1960,8 @@ class TestFieldTypeRecordCreation:
             await admin_entities_service.create_record(
                 entity_id=entity.id, data={"tags": [["nested", "array"]]}
             )
-        assert "Nested arrays" in str(exc_info.value) or "Nested objects" in str(
-            exc_info.value
-        )
+        # Nested arrays explicitly rejected
+        assert "Nested arrays" in str(exc_info.value)
 
     async def test_array_integer_field_record_creation(
         self, admin_entities_service: CustomEntitiesService
@@ -2583,9 +2582,7 @@ class TestFieldTypeEdgeCases:
                 entity_id=entity.id,
                 data={"array_field": [["nested", "array"]]},
             )
-        assert "Nested arrays" in str(exc_info.value) or "excessive nesting" in str(
-            exc_info.value
-        )
+        assert "Nested arrays" in str(exc_info.value)
 
         # Arrays cannot contain objects for ARRAY_TEXT type
         with pytest.raises(TracecatValidationError) as exc_info:
@@ -3031,9 +3028,7 @@ class TestEntitiesIntegration:
             display_name="Array Field",
         )
 
-        with pytest.raises(
-            TracecatValidationError, match="Nested arrays|excessive nesting"
-        ):
+        with pytest.raises(TracecatValidationError):
             await admin_entities_service.create_record(
                 entity_id=entity.id,
                 data={

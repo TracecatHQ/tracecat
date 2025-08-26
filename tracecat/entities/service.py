@@ -61,6 +61,10 @@ class CustomEntitiesService(BaseWorkspaceService):
     """Service for custom entities with immutable field schemas."""
 
     service_name = "custom_entities"
+    # Centralized control for nested relation creation depth
+    MAX_RELATION_CREATE_DEPTH = 2
+    # Sentinel to distinguish between "not provided" and explicit None for default_value
+    _UNSET: Any = object()
 
     def __init__(self, session: AsyncSession, role: Role | None = None):
         """Initialize service with session and role."""
@@ -69,9 +73,7 @@ class CustomEntitiesService(BaseWorkspaceService):
         # Initialize validators
         self.entity_validators = EntityValidators(session, self.workspace_id)
         self.field_validators = FieldValidators(session, self.workspace_id)
-        self.record_validators = RecordValidators(
-            session, str(self.workspace_id), self.query_builder
-        )
+        self.record_validators = RecordValidators(session, self.workspace_id)
         self.relation_validators = RelationValidators(session, self.workspace_id)
 
     # Entity Operations
@@ -542,7 +544,7 @@ class CustomEntitiesService(BaseWorkspaceService):
         display_name: str | None = None,
         description: str | None = None,
         enum_options: list[str] | None = None,
-        default_value: Any | None = None,
+        default_value: Any | None | object = _UNSET,
     ) -> FieldMetadata:
         """Update field properties.
 
@@ -551,7 +553,7 @@ class CustomEntitiesService(BaseWorkspaceService):
             display_name: New display name
             description: New description
             enum_options: New options for SELECT/MULTI_SELECT fields
-            default_value: Update default value (None to clear, use {} for empty dict)
+            default_value: Update default value. Pass None to clear (use {} for empty dict).
 
         Returns:
             Updated FieldMetadata
@@ -573,6 +575,19 @@ class CustomEntitiesService(BaseWorkspaceService):
                 FieldType.SELECT,
                 FieldType.MULTI_SELECT,
             ):
+                # If a default exists, ensure it remains valid with new options
+                if field.default_value is not None:
+                    try:
+                        validate_default_value_type(
+                            field.default_value,
+                            FieldType(field.field_type),
+                            enum_options,
+                        )
+                    except Exception as e:
+                        # Surface concise message
+                        raise ValueError(
+                            "Existing default_value is invalid for updated enum_options"
+                        ) from e
                 field.enum_options = enum_options
             else:
                 raise ValueError(
@@ -580,27 +595,31 @@ class CustomEntitiesService(BaseWorkspaceService):
                 )
 
         # Handle default value update
-        if default_value is not None:
-            # Use the validator from FieldMetadataCreate to validate
-            try:
-                FieldMetadataCreate(
-                    field_key=field.field_key,
-                    field_type=FieldType(field.field_type),
-                    display_name=field.display_name,
-                    enum_options=field.enum_options,
-                    default_value=default_value,
-                )
-            except ValidationError as e:
-                # Convert to ValueError for backward compatibility
-                # Extract the first error message for cleaner output
-                first_error = e.errors()[0] if e.errors() else {}
-                error_msg = first_error.get("msg", str(e))
-                raise ValueError(error_msg) from e
+        if default_value is not self._UNSET:
+            # Explicit clear
+            if default_value is None:
+                field.default_value = None
+            else:
+                # Use the validator from FieldMetadataCreate to validate
+                try:
+                    FieldMetadataCreate(
+                        field_key=field.field_key,
+                        field_type=FieldType(field.field_type),
+                        display_name=field.display_name,
+                        enum_options=field.enum_options,
+                        default_value=default_value,
+                    )
+                except ValidationError as e:
+                    # Convert to ValueError for backward compatibility
+                    # Extract the first error message for cleaner output
+                    first_error = e.errors()[0] if e.errors() else {}
+                    error_msg = first_error.get("msg", str(e))
+                    raise ValueError(error_msg) from e
 
-            # Serialize and store the default value
-            field.default_value = serialize_value(
-                default_value, FieldType(field.field_type)
-            )
+                # Serialize and store the default value
+                field.default_value = serialize_value(
+                    default_value, FieldType(field.field_type)
+                )
 
         await self.session.commit()
         await self.session.refresh(field)
@@ -712,7 +731,6 @@ class CustomEntitiesService(BaseWorkspaceService):
         await self.relation_validators.validate_relation_creation(
             source_entity_id=entity_id,
             target_entity_id=data.target_entity_id,
-            relation_type=data.relation_type.value,
         )
 
         # Check uniqueness of source_key within source entity
@@ -949,10 +967,9 @@ class CustomEntitiesService(BaseWorkspaceService):
             ValueError: If depth limit exceeded or validation fails
         """
         # Check depth limit to prevent excessive nesting
-        MAX_RELATION_CREATE_DEPTH = 2
-        if depth > MAX_RELATION_CREATE_DEPTH:
+        if depth > self.MAX_RELATION_CREATE_DEPTH:
             raise ValueError(
-                f"Maximum nested relation depth ({MAX_RELATION_CREATE_DEPTH}) exceeded"
+                f"Maximum nested relation depth ({self.MAX_RELATION_CREATE_DEPTH}) exceeded"
             )
 
         # Reject writes to inactive entities
@@ -1185,20 +1202,6 @@ class CustomEntitiesService(BaseWorkspaceService):
         if non_created_ids:
             await self._validate_target_records_exist(non_created_ids, target_entity_id)
 
-        return ids
-
-    def _normalize_target_ids_new(
-        self, rel_def: RelationDefinition, value: Any
-    ) -> list[UUID]:
-        rt = RelationType(rel_def.relation_type)
-        if rt in (RelationType.ONE_TO_ONE, RelationType.MANY_TO_ONE):
-            if value is None:
-                return []
-            return [UUID(value) if isinstance(value, str) else value]
-        # ONE_TO_MANY / MANY_TO_MANY
-        ids: list[UUID] = []
-        for item in value:
-            ids.append(UUID(item) if isinstance(item, str) else item)
         return ids
 
     async def _validate_target_records_exist(
@@ -1545,9 +1548,7 @@ class CustomEntitiesService(BaseWorkspaceService):
                 )
 
         # Create validator with query builder for efficiency
-        validator = NestedUpdateValidator(
-            self.session, self.workspace_id, self.query_builder
-        )
+        validator = NestedUpdateValidator(self.session, self.workspace_id)
 
         # Build and validate complete update plan upfront (with remaining updates)
         update_plan = await validator.validate_and_plan_updates(record_id, updates_copy)

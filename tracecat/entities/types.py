@@ -259,6 +259,12 @@ def validate_field_value_type(
                 "Expected list for multi-select field, got {type_name}",
                 {"type_name": type(value).__name__},
             )
+        # Guard nested arrays for clearer errors
+        if any(isinstance(item, list) for item in value):
+            raise PydanticCustomError(
+                "nested_array_not_allowed",
+                "Nested arrays are not allowed",
+            )
         if not all(isinstance(item, str) for item in value):
             raise PydanticCustomError(
                 "invalid_list_item",
@@ -280,6 +286,11 @@ def validate_field_value_type(
                 "Expected list for array field, got {type_name}",
                 {"type_name": type(value).__name__},
             )
+        if any(isinstance(item, list) for item in value):
+            raise PydanticCustomError(
+                "nested_array_not_allowed",
+                "Nested arrays are not allowed",
+            )
         if not all(isinstance(item, str) for item in value):
             raise PydanticCustomError(
                 "invalid_list_item",
@@ -292,6 +303,11 @@ def validate_field_value_type(
                 "invalid_type",
                 "Expected list for array field, got {type_name}",
                 {"type_name": type(value).__name__},
+            )
+        if any(isinstance(item, list) for item in value):
+            raise PydanticCustomError(
+                "nested_array_not_allowed",
+                "Nested arrays are not allowed",
             )
         if not all(
             isinstance(item, int) and not isinstance(item, bool) for item in value
@@ -307,6 +323,11 @@ def validate_field_value_type(
                 "invalid_type",
                 "Expected list for array field, got {type_name}",
                 {"type_name": type(value).__name__},
+            )
+        if any(isinstance(item, list) for item in value):
+            raise PydanticCustomError(
+                "nested_array_not_allowed",
+                "Nested arrays are not allowed",
             )
         if not all(
             isinstance(item, int | float) and not isinstance(item, bool)

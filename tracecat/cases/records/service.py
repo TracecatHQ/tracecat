@@ -3,7 +3,7 @@ from typing import Any
 
 from sqlmodel import select
 
-from tracecat.cases.entities.models import (
+from tracecat.cases.records.models import (
     CaseEntityRead,
     CaseRecordLinkRead,
     CaseRecordRead,
@@ -12,7 +12,6 @@ from tracecat.cases.service import CasesService
 from tracecat.db.schemas import (
     Case,
     CaseRecordLink,
-    FieldMetadata,
     Record,
     RecordRelationLink,
     RelationDefinition,
@@ -46,7 +45,6 @@ class CaseEntitiesService(BaseWorkspaceService):
     async def _resolve_relation_fields(
         self,
         record: Record,
-        fields: list[FieldMetadata],
         entity_service: CustomEntitiesService,
     ) -> tuple[dict[str, Any], list[str]]:
         """Resolve relation fields for a record.
@@ -150,16 +148,12 @@ class CaseEntitiesService(BaseWorkspaceService):
             try:
                 record = await entity_service.get_record(link.record_id)
 
-                # Get all fields for this entity (including relation fields)
-                fields = await entity_service.list_fields(
-                    link.entity_id, include_inactive=False
-                )
-
                 # Resolve relation fields
+
                 (
                     resolved_field_data,
                     relation_fields,
-                ) = await self._resolve_relation_fields(record, fields, entity_service)
+                ) = await self._resolve_relation_fields(record, entity_service)
 
                 # Create the record read model with resolved relations
                 record_read = CaseRecordRead(
@@ -222,14 +216,9 @@ class CaseEntitiesService(BaseWorkspaceService):
         entity_service = CustomEntitiesService(session=self.session, role=self.role)
         record = await entity_service.get_record(record_id)
 
-        # Get all fields for this entity (including relation fields)
-        fields = await entity_service.list_fields(
-            record.entity_id, include_inactive=False
-        )
-
         # Resolve relation fields
         resolved_field_data, relation_fields = await self._resolve_relation_fields(
-            record, fields, entity_service
+            record, entity_service
         )
 
         return CaseRecordRead(
@@ -408,15 +397,11 @@ class CaseEntitiesService(BaseWorkspaceService):
             entity_id=entity_id,
         )
 
-        # Get all fields for this entity (including relation fields)
         entity_service = CustomEntitiesService(session=self.session, role=self.role)
-        fields = await entity_service.list_fields(
-            entity_record.entity_id, include_inactive=False
-        )
 
         # Resolve relation fields
         resolved_field_data, relation_fields = await self._resolve_relation_fields(
-            entity_record, fields, entity_service
+            entity_record, entity_service
         )
 
         # Ensure record is included (avoid refetch; override with freshly created)
@@ -474,14 +459,9 @@ class CaseEntitiesService(BaseWorkspaceService):
         entity_service = CustomEntitiesService(session=self.session, role=self.role)
         updated = await entity_service.update_record(record_id, updates)
 
-        # Get all fields for this entity (including relation fields)
-        fields = await entity_service.list_fields(
-            updated.entity_id, include_inactive=False
-        )
-
         # Resolve relation fields
         resolved_field_data, relation_fields = await self._resolve_relation_fields(
-            updated, fields, entity_service
+            updated, entity_service
         )
 
         return CaseRecordRead(
@@ -515,6 +495,3 @@ class CaseEntitiesService(BaseWorkspaceService):
         # Delete the link (entity record remains)
         await self.session.delete(link)
         await self.session.commit()
-
-    # Note: Destructive record deletion is intentionally not supported in the case context.
-    # Records should be managed via entities endpoints.

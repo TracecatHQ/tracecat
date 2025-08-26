@@ -126,23 +126,25 @@ class EntityQueryBuilder:
                 )
 
         # Build JSONB path query optimized for GIN indexes
-        # Note: Direct JSONB comparison with primitives requires proper casting
-        # We use astext for consistent comparison and cast when needed
+        # Use proper casting for numerics; lowercase true/false for booleans
         if isinstance(value, bool):
-            # JSON booleans are stored as true/false (lowercase strings)
             return cast(
                 ColumnElement[bool],
                 Record.field_data[field_key].astext == ("true" if value else "false"),
             )
-        elif isinstance(value, int | float):
-            # For numbers, use astext and compare as strings
-            # This maintains GIN index optimization
+        elif isinstance(value, int) and not isinstance(value, bool):
             return cast(
                 ColumnElement[bool],
-                Record.field_data[field_key].astext == str(value),
+                Record.field_data[field_key].astext.cast(sa.Integer)
+                == sa.cast(value, sa.Integer),
+            )
+        elif isinstance(value, float):
+            return cast(
+                ColumnElement[bool],
+                Record.field_data[field_key].astext.cast(sa.Numeric)
+                == sa.cast(value, sa.Numeric),
             )
         else:
-            # For strings, use astext for consistent comparison
             return cast(
                 ColumnElement[bool],
                 Record.field_data[field_key].astext == str(value),
@@ -163,21 +165,18 @@ class EntityQueryBuilder:
         """
         await self._validate_field(entity_id, field_key)
 
-        # Build OR conditions for each value
-        # Use astext for all comparisons to maintain consistency
-        conditions = []
-        for value in values:
-            if isinstance(value, bool):
-                # Convert boolean to JSON string representation
-                conditions.append(
-                    Record.field_data[field_key].astext
-                    == ("true" if value else "false")
-                )
+        # Build a single IN with astext; normalize booleans to JSON strings
+        if not values:
+            return sa_false()
+        normalized: list[str] = []
+        for v in values:
+            if isinstance(v, bool):
+                normalized.append("true" if v else "false")
             else:
-                # All other types use string comparison
-                conditions.append(Record.field_data[field_key].astext == str(value))
-
-        return sa.or_(*conditions) if conditions else sa_false()
+                normalized.append(str(v))
+        return cast(
+            ColumnElement[bool], Record.field_data[field_key].astext.in_(normalized)
+        )
 
     async def ilike(
         self, entity_id: UUID, field_key: str, pattern: str
@@ -442,37 +441,3 @@ class EntityQueryBuilder:
             sa.func.lower(Record.field_data[slug_field].astext)
             == sa.func.lower(slug_value),
         )
-
-    async def slug_matches(
-        self, entity_id: UUID, slug_field: str, pattern: str
-    ) -> ColumnElement[bool]:
-        """Build query for slug pattern matching.
-
-        Supports case-insensitive pattern matching with wildcards.
-
-        Args:
-            entity_id: Entity metadata ID
-            slug_field: Field to use as slug
-            pattern: Pattern to match (supports % wildcards)
-
-        Returns:
-            SQLAlchemy expression for pattern matching
-
-        Raises:
-            ValueError: If field not found or not a text type
-        """
-        field = await self._validate_field(entity_id, slug_field)
-
-        field_type = FieldType(field.field_type)
-        if field_type not in (FieldType.TEXT, FieldType.SELECT):
-            raise ValueError(
-                f"Field '{slug_field}' must be a text type for slug operations"
-            )
-
-        # Use ILIKE for case-insensitive pattern matching
-        return cast(
-            ColumnElement[bool],
-            Record.field_data[slug_field].astext.ilike(pattern),
-        )
-
-    # Removed unused helper filter_by_relation

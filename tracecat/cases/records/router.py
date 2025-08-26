@@ -4,12 +4,12 @@ from fastapi import APIRouter, HTTPException, status
 from pydantic import UUID4
 
 from tracecat.auth.credentials import RoleACL
-from tracecat.cases.entities.models import (
+from tracecat.cases.records.models import (
     CaseRecordLinkCreate,
     CaseRecordLinkRead,
     CaseRecordRead,
 )
-from tracecat.cases.entities.service import CaseEntitiesService
+from tracecat.cases.records.service import CaseEntitiesService
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.entities.models import RecordUpdate
 from tracecat.types.auth import Role

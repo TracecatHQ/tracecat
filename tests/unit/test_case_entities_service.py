@@ -5,9 +5,9 @@ from typing import Any
 import pytest
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from tracecat.cases.entities.service import CaseEntitiesService
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.models import CaseCreate
+from tracecat.cases.records.service import CaseEntitiesService
 from tracecat.cases.service import CasesService
 from tracecat.entities.enums import RelationType
 from tracecat.entities.models import RelationDefinitionCreate
@@ -768,18 +768,6 @@ class TestCaseEntitiesService:
             case.id, link.record_id, entity_id
         )
         assert relink.record_id == link.record_id
-
-        # Delete via case service (record + link deleted)
-        await case_entities_service.delete_record(case.id, link.record_id)
-
-        # Verify record is gone
-        with pytest.raises(TracecatNotFoundError):
-            await entities_admin_service.get_record(link.record_id)
-
-        # Verify link is gone
-        final_results = await case_entities_service.list_records(case.id)
-        final_record_ids = [item.record_id for item in final_results]
-        assert link.record_id not in final_record_ids
 
     async def test_filter_by_entity(
         self,

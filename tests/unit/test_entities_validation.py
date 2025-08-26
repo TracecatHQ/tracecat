@@ -710,23 +710,6 @@ class TestNestedUpdateValidator:
         # Should handle circular reference gracefully by skipping infinite loop
         assert len(plan.steps) >= 1
 
-    async def test_batch_load_relation_links(
-        self, session: AsyncSession, linked_records, svc_workspace
-    ):
-        main_record, target_record, link = linked_records
-        validator = NestedUpdateValidator(session, svc_workspace.id)
-        links_map = await validator.batch_load_relation_links(
-            [main_record.id, target_record.id]
-        )
-
-        assert main_record.id in links_map
-        assert len(links_map[main_record.id]) == 1
-        assert links_map[main_record.id][0].target_record_id == target_record.id
-        assert (
-            target_record.id not in links_map
-            or len(links_map.get(target_record.id, [])) == 0
-        )
-
     async def test_validate_target_record_exists_and_matches_entity(
         self,
         record_validators: RecordValidators,

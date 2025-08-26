@@ -230,14 +230,15 @@ class TestJSONFieldService:
 
         # Try to create record with too deeply nested structure
         deep_data = {"l1": {"l2": {"l3": {"l4": "too deep"}}}}
-        with pytest.raises(TracecatValidationError, match="excessive nesting"):
+        with pytest.raises(TracecatValidationError, match="exceed"):
             await entities_service.create_record(
                 entity_id=entity.id, data={"data": deep_data}
             )
 
         # Try to create record with nested arrays
         nested_arrays = [[1, 2], [3, 4]]
-        with pytest.raises(TracecatValidationError, match="Nested arrays"):
+        # Accept both capitalized and lowercase phrasing from validator
+        with pytest.raises(TracecatValidationError, match="(?i)nested arrays"):
             await entities_service.create_record(
                 entity_id=entity.id, data={"data": nested_arrays}
             )
