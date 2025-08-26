@@ -352,7 +352,7 @@ class DSLWorkflow:
             "Running DSL task workflow",
             runtime_config=self.runtime_config,
             activity_timeout=self.start_to_close_timeout,
-            wf_exec_timeout=wf_info.execution_timeout,
+            execution_timeout=wf_info.execution_timeout,
         )
 
         self.scheduler = DSLScheduler(
