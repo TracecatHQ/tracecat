@@ -172,77 +172,79 @@ export function OrgWorkspaceSettings({
 
       <Separator />
 
-      <div className="space-y-4">
-        <div>
-          <h3 className="text-lg font-medium">SSH key management</h3>
-          <p className="text-sm text-muted-foreground">
-            Manage SSH keys for authenticating with private Git repositories.
-          </p>
-        </div>
-
-        {/* Display existing SSH keys */}
-        {sshKeysLoading ? (
-          <div className="text-sm text-muted-foreground">
-            Loading SSH keys...
+      {isFeatureEnabled("git-sync") && (
+        <div className="space-y-4">
+          <div>
+            <h3 className="text-lg font-medium">SSH key management</h3>
+            <p className="text-sm text-muted-foreground">
+              Manage SSH keys for authenticating with private Git repositories.
+            </p>
           </div>
-        ) : sshKeys && sshKeys.length > 0 ? (
-          <div className="space-y-2">
-            {sshKeys.map((sshKey) => (
-              <div
-                key={sshKey.id}
-                className="flex items-center justify-between rounded-md border p-3"
-              >
-                <div className="flex items-center space-x-3">
-                  <KeyRoundIcon className="size-4 text-muted-foreground" />
-                  <div>
-                    <div className="font-medium">{sshKey.name}</div>
-                    {sshKey.description && (
-                      <div className="text-sm text-muted-foreground">
-                        {sshKey.description}
-                      </div>
-                    )}
-                    {sshKey.environment !== "default" && (
-                      <div className="text-xs text-muted-foreground">
-                        Environment: {sshKey.environment}
-                      </div>
-                    )}
-                  </div>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setSSHKeyToDelete(sshKey)}
-                  className="text-destructive hover:text-destructive"
+
+          {/* Display existing SSH keys */}
+          {sshKeysLoading ? (
+            <div className="text-sm text-muted-foreground">
+              Loading SSH keys...
+            </div>
+          ) : sshKeys && sshKeys.length > 0 ? (
+            <div className="space-y-2">
+              {sshKeys.map((sshKey) => (
+                <div
+                  key={sshKey.id}
+                  className="flex items-center justify-between rounded-md border p-3"
                 >
-                  <TrashIcon className="size-4" />
-                </Button>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="text-sm text-muted-foreground">
-            No SSH keys configured. Create one to authenticate with private Git
-            repositories.
-          </div>
-        )}
+                  <div className="flex items-center space-x-3">
+                    <KeyRoundIcon className="size-4 text-muted-foreground" />
+                    <div>
+                      <div className="font-medium">{sshKey.name}</div>
+                      {sshKey.description && (
+                        <div className="text-sm text-muted-foreground">
+                          {sshKey.description}
+                        </div>
+                      )}
+                      {sshKey.environment !== "default" && (
+                        <div className="text-xs text-muted-foreground">
+                          Environment: {sshKey.environment}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setSSHKeyToDelete(sshKey)}
+                    className="text-destructive hover:text-destructive"
+                  >
+                    <TrashIcon className="size-4" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-sm text-muted-foreground">
+              No SSH keys configured. Create one to authenticate with private
+              Git repositories.
+            </div>
+          )}
 
-        <CreateSSHKeyDialog
-          handler={handleCreateWorkspaceSSHKey}
-          fieldConfig={{
-            name: {
-              defaultValue: "store-ssh-key",
-              disabled: true,
-            },
-          }}
-        >
-          <CreateSSHKeyDialogTrigger asChild>
-            <Button variant="outline" className="space-x-2">
-              <KeyRoundIcon className="mr-2 size-4" />
-              Create SSH key
-            </Button>
-          </CreateSSHKeyDialogTrigger>
-        </CreateSSHKeyDialog>
-      </div>
+          <CreateSSHKeyDialog
+            handler={handleCreateWorkspaceSSHKey}
+            fieldConfig={{
+              name: {
+                defaultValue: "store-ssh-key",
+                disabled: true,
+              },
+            }}
+          >
+            <CreateSSHKeyDialogTrigger asChild>
+              <Button variant="outline" className="space-x-2">
+                <KeyRoundIcon className="mr-2 size-4" />
+                Create SSH key
+              </Button>
+            </CreateSSHKeyDialogTrigger>
+          </CreateSSHKeyDialog>
+        </div>
+      )}
 
       <Separator />
 
@@ -282,12 +284,14 @@ export function OrgWorkspaceSettings({
       />
 
       {/* SSH Key Delete Confirmation Dialog */}
-      <OrgWorkspaceSSHKeyDeleteDialog
-        open={!!sshKeyToDelete}
-        onOpenChange={(open) => !open && setSSHKeyToDelete(null)}
-        sshKey={sshKeyToDelete}
-        onConfirm={handleDeleteSSHKeyWrapper}
-      />
+      {isFeatureEnabled("git-sync") && (
+        <OrgWorkspaceSSHKeyDeleteDialog
+          open={!!sshKeyToDelete}
+          onOpenChange={(open) => !open && setSSHKeyToDelete(null)}
+          sshKey={sshKeyToDelete}
+          onConfirm={handleDeleteSSHKeyWrapper}
+        />
+      )}
     </div>
   )
 }
