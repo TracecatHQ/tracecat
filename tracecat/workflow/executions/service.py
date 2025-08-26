@@ -103,8 +103,7 @@ class WorkflowExecutionsService:
         4. Otherwise → return None (unlimited)
 
         Args:
-            role: The role context to get workspace ID
-            dsl_timeout_seconds: The DSL-configured timeout in seconds
+            seconds: The timeout in seconds (from DSL config or other source)
 
         Returns:
             timedelta if timeout should be applied, None for unlimited
