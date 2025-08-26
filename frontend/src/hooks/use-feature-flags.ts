@@ -5,6 +5,7 @@ import { type FeatureFlag, featureFlagsGetFeatureFlags } from "@/client"
 // Hook for components to check feature flags
 export function useFeatureFlag(): {
   isFeatureEnabled: (flag: FeatureFlag) => boolean
+  isLoading: boolean
 } {
   const {
     data: featureFlags,
@@ -20,14 +21,13 @@ export function useFeatureFlag(): {
     refetchOnWindowFocus: false,
   })
 
-  if (isLoading || error) {
-    return {
-      isFeatureEnabled: () => false,
-    }
-  }
-
   return {
-    isFeatureEnabled: (flag: FeatureFlag) => featureFlags?.has(flag) ?? false,
+    isFeatureEnabled: (flag: FeatureFlag) => {
+      // Don't return false while loading - let components handle loading state
+      if (isLoading || error) return false
+      return featureFlags?.has(flag) ?? false
+    },
+    isLoading,
   }
 }
 

@@ -1,14 +1,30 @@
 "use client"
 
 import { useRouter } from "next/navigation"
+import { useEffect } from "react"
+
+import { CenteredSpinner } from "@/components/loading/spinner"
 import { OrgVCSSettings } from "@/components/organization/org-vcs-settings"
 import { useFeatureFlag } from "@/hooks/use-feature-flags"
 
 export default function VCSSettingsPage() {
   const router = useRouter()
-  const { isFeatureEnabled } = useFeatureFlag()
+  const { isFeatureEnabled, isLoading } = useFeatureFlag()
+
+  useEffect(() => {
+    if (!isLoading && !isFeatureEnabled("git-sync")) {
+      router.push("/not-found")
+    }
+  }, [isLoading, isFeatureEnabled, router])
+
+  // Show loading while feature flags are being fetched
+  if (isLoading) {
+    return <CenteredSpinner />
+  }
+
+  // Don't render content if feature is disabled (redirect is happening in useEffect)
   if (!isFeatureEnabled("git-sync")) {
-    return router.push("/not-found")
+    return <CenteredSpinner />
   }
 
   return (
