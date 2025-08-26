@@ -317,7 +317,7 @@ class BaseExprValidator(Visitor):
             raise ValueError("Expected a tree")
         if child.data == "literal":
             try:
-                functions.cast(child.children[0], typename)
+                functions.cast(child.children[0], str(typename))
             except ValueError as e:
                 self.add(
                     status="error",
