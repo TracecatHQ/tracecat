@@ -114,7 +114,7 @@ class EntityFieldsService(BaseWorkspaceService):
         stmt = (
             select(EntityField)
             .where(EntityField.entity_id == entity.id)
-            .options(selectinload(EntityField.options))
+            .options(selectinload(EntityField.options))  # type: ignore[arg-type]
         )
         if not include_inactive:
             stmt = stmt.where(EntityField.is_active)
@@ -128,7 +128,7 @@ class EntityFieldsService(BaseWorkspaceService):
                 EntityField.entity_id == entity.id,
                 EntityField.id == field_id,
             )
-            .options(selectinload(EntityField.options))
+            .options(selectinload(EntityField.options))  # type: ignore[arg-type]
         )
         result = await self.session.exec(stmt)
         field = result.first()
@@ -143,7 +143,7 @@ class EntityFieldsService(BaseWorkspaceService):
                 EntityField.entity_id == entity.id,
                 EntityField.key == key,
             )
-            .options(selectinload(EntityField.options))
+            .options(selectinload(EntityField.options))  # type: ignore[arg-type]
         )
         result = await self.session.exec(stmt)
         field = result.first()
@@ -182,7 +182,7 @@ class EntityFieldsService(BaseWorkspaceService):
         stmt = (
             select(EntityField)
             .where(EntityField.id == field.id)
-            .options(selectinload(EntityField.options))
+            .options(selectinload(EntityField.options))  # type: ignore[arg-type]
         )
         result = await self.session.exec(stmt)
         return result.one()
@@ -206,7 +206,7 @@ class EntityFieldsService(BaseWorkspaceService):
             reload_stmt = (
                 select(EntityField)
                 .where(EntityField.id == field.id)
-                .options(selectinload(EntityField.options))
+                .options(selectinload(EntityField.options))  # type: ignore[arg-type]
             )
             field = (await self.session.exec(reload_stmt)).one()
 
@@ -236,7 +236,7 @@ class EntityFieldsService(BaseWorkspaceService):
         stmt = (
             select(EntityField)
             .where(EntityField.id == field.id)
-            .options(selectinload(EntityField.options))
+            .options(selectinload(EntityField.options))  # type: ignore[arg-type]
         )
         result = await self.session.exec(stmt)
         return result.one()
