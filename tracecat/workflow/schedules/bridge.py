@@ -7,6 +7,7 @@ from tracecat import config
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import DSLRunArgs
 from tracecat.identifiers import ScheduleID, WorkflowID
+from tracecat.logger import logger
 from tracecat.types.auth import Role
 from tracecat.workflow.executions.enums import TriggerType
 from tracecat.workflow.schedules.models import ScheduleUpdate
@@ -79,7 +80,13 @@ async def delete_schedule(schedule_id: ScheduleID) -> None:
     try:
         await handle.delete()
     except Exception as e:
-        if "workflow execution already completed" not in str(e).lower():
+        msg = str(e).lower()
+        if "workflow not found for id" in msg:
+            logger.warning(
+                f"Temporal schedule {schedule_id} not found, skipping deletion"
+            )
+            return None
+        if "workflow execution already completed" not in msg:
             raise RuntimeError(f"Error deleting schedule: {e}") from e
     return None
 
