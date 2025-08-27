@@ -2811,6 +2811,13 @@ export const $Code = {
   title: "Code",
 } as const
 
+export const $ConflictStrategy = {
+  type: "string",
+  enum: ["skip", "overwrite", "rename"],
+  title: "ConflictStrategy",
+  description: "Strategy for handling workflow conflicts during import.",
+} as const
+
 export const $CreatedEventRead = {
   properties: {
     wf_exec_id: {
@@ -6341,6 +6348,89 @@ export const $ProviderScopes = {
   required: ["default"],
   title: "ProviderScopes",
   description: "Scope metadata for a provider.",
+} as const
+
+export const $PullDiagnostic = {
+  properties: {
+    workflow_path: {
+      type: "string",
+      title: "Workflow Path",
+    },
+    workflow_title: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workflow Title",
+    },
+    error_type: {
+      type: "string",
+      title: "Error Type",
+    },
+    message: {
+      type: "string",
+      title: "Message",
+    },
+    details: {
+      type: "object",
+      title: "Details",
+    },
+  },
+  type: "object",
+  required: [
+    "workflow_path",
+    "workflow_title",
+    "error_type",
+    "message",
+    "details",
+  ],
+  title: "PullDiagnostic",
+} as const
+
+export const $PullResult = {
+  properties: {
+    success: {
+      type: "boolean",
+      title: "Success",
+    },
+    commit_sha: {
+      type: "string",
+      title: "Commit Sha",
+    },
+    workflows_found: {
+      type: "integer",
+      title: "Workflows Found",
+    },
+    workflows_imported: {
+      type: "integer",
+      title: "Workflows Imported",
+    },
+    diagnostics: {
+      items: {
+        $ref: "#/components/schemas/PullDiagnostic",
+      },
+      type: "array",
+      title: "Diagnostics",
+    },
+    message: {
+      type: "string",
+      title: "Message",
+    },
+  },
+  type: "object",
+  required: [
+    "success",
+    "commit_sha",
+    "workflows_found",
+    "workflows_imported",
+    "diagnostics",
+    "message",
+  ],
+  title: "PullResult",
 } as const
 
 export const $ReceiveInteractionResponse = {
@@ -11795,6 +11885,40 @@ export const $WorkflowReadMinimal = {
   ],
   title: "WorkflowReadMinimal",
   description: "Minimal version of WorkflowRead model for list endpoints.",
+} as const
+
+export const $WorkflowSyncPullRequest = {
+  properties: {
+    repository_url: {
+      type: "string",
+      maxLength: 500,
+      minLength: 1,
+      title: "Repository Url",
+      description: "Git repository URL",
+    },
+    commit_sha: {
+      type: "string",
+      maxLength: 40,
+      minLength: 40,
+      title: "Commit Sha",
+      description: "Specific commit SHA to pull from",
+    },
+    conflict_strategy: {
+      $ref: "#/components/schemas/ConflictStrategy",
+      description: "Strategy for handling workflow conflicts during import",
+      default: "skip",
+    },
+    dry_run: {
+      type: "boolean",
+      title: "Dry Run",
+      description: "Validate only, don't perform actual import",
+      default: false,
+    },
+  },
+  type: "object",
+  required: ["repository_url", "commit_sha"],
+  title: "WorkflowSyncPullRequest",
+  description: "Request model for pulling workflows from a Git repository.",
 } as const
 
 export const $WorkflowTagCreate = {

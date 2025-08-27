@@ -8,6 +8,7 @@ from tracecat.contexts import ctx_role
 from tracecat.git.constants import GIT_SSH_URL_REGEX
 from tracecat.git.models import GitUrl
 from tracecat.logger import logger
+from tracecat.registry.repositories.models import GitCommitInfo
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.settings.service import get_setting_cached
 from tracecat.ssh import SshEnv
@@ -263,7 +264,7 @@ async def safe_prepare_git_url(role: Role | None = None) -> GitUrl | None:
 
 async def list_git_commits(
     repo_url: str, *, env: SshEnv, branch="main", limit=10, timeout=30.0
-):
+) -> list[GitCommitInfo]:
     async with aiofiles.tempfile.TemporaryDirectory() as repo_dir:
         # Bare repo means no working tree filesystem work.
         code, _, err = await run_git(
@@ -319,12 +320,12 @@ async def list_git_commits(
     for line in out.strip().splitlines():
         sha, msg, author, email, date = (p.strip() for p in line.split("|", 4))
         commits.append(
-            {
-                "sha": sha,
-                "message": msg,
-                "author": author,
-                "author_email": email,
-                "date": date,
-            }
+            GitCommitInfo(
+                sha=sha,
+                message=msg,
+                author=author,
+                author_email=email,
+                date=date,
+            )
         )
     return commits

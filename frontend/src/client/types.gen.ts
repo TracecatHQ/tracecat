@@ -932,6 +932,11 @@ export type Code = {
 export type lang = "yaml" | "python"
 
 /**
+ * Strategy for handling workflow conflicts during import.
+ */
+export type ConflictStrategy = "skip" | "overwrite" | "rename"
+
+/**
  * Event for when a case is created.
  */
 export type CreatedEventRead = {
@@ -2156,6 +2161,25 @@ export type ProviderScopes = {
    * Default scopes for this provider.
    */
   default: Array<string>
+}
+
+export type PullDiagnostic = {
+  workflow_path: string
+  workflow_title: string | null
+  error_type: string
+  message: string
+  details: {
+    [key: string]: unknown
+  }
+}
+
+export type PullResult = {
+  success: boolean
+  commit_sha: string
+  workflows_found: number
+  workflows_imported: number
+  diagnostics: Array<PullDiagnostic>
+  message: string
 }
 
 export type ReceiveInteractionResponse = {
@@ -3865,6 +3889,28 @@ export type WorkflowReadMinimal = {
   folder_id?: string | null
 }
 
+/**
+ * Request model for pulling workflows from a Git repository.
+ */
+export type WorkflowSyncPullRequest = {
+  /**
+   * Git repository URL
+   */
+  repository_url: string
+  /**
+   * Specific commit SHA to pull from
+   */
+  commit_sha: string
+  /**
+   * Strategy for handling workflow conflicts during import
+   */
+  conflict_strategy?: ConflictStrategy
+  /**
+   * Validate only, don't perform actual import
+   */
+  dry_run?: boolean
+}
+
 export type WorkflowTagCreate = {
   tag_id: string
 }
@@ -4337,6 +4383,31 @@ export type WorkflowsPublishWorkflowData = {
 }
 
 export type WorkflowsPublishWorkflowResponse = void
+
+export type WorkflowsListWorkflowCommitsData = {
+  /**
+   * Branch name to fetch commits from
+   */
+  branch?: string
+  /**
+   * Maximum number of commits to return
+   */
+  limit?: number
+  /**
+   * Git repository URL to fetch commits from
+   */
+  repositoryUrl: string
+  workspaceId: string
+}
+
+export type WorkflowsListWorkflowCommitsResponse = Array<GitCommitInfo>
+
+export type WorkflowsPullWorkflowsData = {
+  requestBody: WorkflowSyncPullRequest
+  workspaceId: string
+}
+
+export type WorkflowsPullWorkflowsResponse = PullResult
 
 export type SecretsSearchSecretsData = {
   environment: string
@@ -6176,6 +6247,36 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workflows/sync/commits": {
+    get: {
+      req: WorkflowsListWorkflowCommitsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<GitCommitInfo>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workflows/sync/pull": {
+    post: {
+      req: WorkflowsPullWorkflowsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: PullResult
         /**
          * Validation Error
          */

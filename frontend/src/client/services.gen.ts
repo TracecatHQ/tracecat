@@ -376,12 +376,16 @@ import type {
   WorkflowsGetWorkflowResponse,
   WorkflowsListTagsData,
   WorkflowsListTagsResponse,
+  WorkflowsListWorkflowCommitsData,
+  WorkflowsListWorkflowCommitsResponse,
   WorkflowsListWorkflowsData,
   WorkflowsListWorkflowsResponse,
   WorkflowsMoveWorkflowToFolderData,
   WorkflowsMoveWorkflowToFolderResponse,
   WorkflowsPublishWorkflowData,
   WorkflowsPublishWorkflowResponse,
+  WorkflowsPullWorkflowsData,
+  WorkflowsPullWorkflowsResponse,
   WorkflowsRemoveTagData,
   WorkflowsRemoveTagResponse,
   WorkflowsUpdateWorkflowData,
@@ -1644,6 +1648,67 @@ export const workflowsPublishWorkflow = (
     path: {
       workflow_id: data.workflowId,
     },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Workflow Commits
+ * Get commit list for workflow repository via GitHub App.
+ *
+ * Returns a list of commits from the specified repository and branch,
+ * suitable for use in workflow pull operations.
+ * @param data The data for the request.
+ * @param data.repositoryUrl Git repository URL to fetch commits from
+ * @param data.workspaceId
+ * @param data.branch Branch name to fetch commits from
+ * @param data.limit Maximum number of commits to return
+ * @returns GitCommitInfo Successful Response
+ * @throws ApiError
+ */
+export const workflowsListWorkflowCommits = (
+  data: WorkflowsListWorkflowCommitsData
+): CancelablePromise<WorkflowsListWorkflowCommitsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workflows/sync/commits",
+    query: {
+      repository_url: data.repositoryUrl,
+      branch: data.branch,
+      limit: data.limit,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Pull Workflows
+ * Pull workflows from Git repository at specific commit.
+ *
+ * Imports workflow definitions from the specified repository and commit,
+ * with configurable conflict resolution strategy.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns PullResult Successful Response
+ * @throws ApiError
+ */
+export const workflowsPullWorkflows = (
+  data: WorkflowsPullWorkflowsData
+): CancelablePromise<WorkflowsPullWorkflowsResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workflows/sync/pull",
     query: {
       workspace_id: data.workspaceId,
     },

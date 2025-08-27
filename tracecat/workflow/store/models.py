@@ -1,10 +1,11 @@
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_serializer
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
 
 from tracecat.dsl.common import DSLInput
 from tracecat.identifiers.workflow import WorkflowID, WorkflowIDShort
 from tracecat.store import Source
+from tracecat.sync import ConflictStrategy
 
 # TODO(deps): This is only supported starting pydantic 2.11+
 WorkflowSource = Source[WorkflowID]
@@ -12,6 +13,42 @@ WorkflowSource = Source[WorkflowID]
 
 class WorkflowDslPublish(BaseModel):
     message: str | None = None
+
+
+class WorkflowSyncPullRequest(BaseModel):
+    """Request model for pulling workflows from a Git repository."""
+
+    repository_url: str = Field(
+        ...,
+        description="Git repository URL",
+        min_length=1,
+        max_length=500,
+    )
+
+    commit_sha: str = Field(
+        ...,
+        description="Specific commit SHA to pull from",
+        min_length=40,
+        max_length=40,
+    )
+
+    conflict_strategy: ConflictStrategy = Field(
+        default=ConflictStrategy.SKIP,
+        description="Strategy for handling workflow conflicts during import",
+    )
+
+    dry_run: bool = Field(
+        default=False,
+        description="Validate only, don't perform actual import",
+    )
+
+    @field_validator("repository_url")
+    @classmethod
+    def validate_repository_url(cls, v: str) -> str:
+        """Validate repository URL format."""
+        if not (v.startswith("https://github.com/") or v.startswith("git+ssh://")):
+            raise ValueError("Repository URL must be a valid GitHub HTTPS or SSH URL")
+        return v
 
 
 class RemoteRegistry(BaseModel):

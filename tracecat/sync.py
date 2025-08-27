@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 from pydantic import BaseModel
 
@@ -36,9 +37,25 @@ class PushObject[T: BaseModel]:
         return str(self.path)
 
 
+class ConflictStrategy(StrEnum):
+    """Strategy for handling workflow conflicts during import."""
+
+    SKIP = "skip"
+    """Skip existing workflows, only import new ones"""
+
+    OVERWRITE = "overwrite"
+    """Overwrite existing workflows with new definitions"""
+
+    RENAME = "rename"
+    """Rename imported workflows to avoid conflicts"""
+
+
 @dataclass(frozen=True)
 class PullOptions:
     """Options controlling pull/checkout behavior."""
+
+    commit_sha: str | None = None
+    """Specific commit SHA to pull from"""
 
     paths: list[str] | None = None
     """Subset of paths, if supported"""
@@ -48,6 +65,12 @@ class PullOptions:
 
     lfs: bool = False
     """Fetch LFS objects if needed"""
+
+    conflict_strategy: ConflictStrategy = ConflictStrategy.SKIP
+    """How to handle workflow conflicts"""
+
+    dry_run: bool = False
+    """Validate only, don't perform actual import"""
 
 
 @dataclass(frozen=True)
@@ -74,6 +97,49 @@ class CommitInfo:
 
     ref: str
     """Resolved ref after push (e.g., branch)"""
+
+
+@dataclass(frozen=True)
+class PullDiagnostic:
+    """Diagnostic information about workflow import issues."""
+
+    workflow_path: str
+    """Path to the workflow file in repository"""
+
+    workflow_title: str | None
+    """Title of the workflow, if parseable"""
+
+    error_type: str
+    """Type of error: 'conflict', 'validation', 'dependency', 'parse'"""
+
+    message: str
+    """Human-readable error message"""
+
+    details: dict[str, Any]
+    """Additional error details for debugging"""
+
+
+@dataclass(frozen=True)
+class PullResult:
+    """Result of a pull operation with atomic guarantees."""
+
+    success: bool
+    """Whether the entire pull operation succeeded"""
+
+    commit_sha: str
+    """The commit SHA that was pulled from"""
+
+    workflows_found: int
+    """Total number of workflow definitions found"""
+
+    workflows_imported: int
+    """Number of workflows actually imported (0 if failed, equals found if success)"""
+
+    diagnostics: list[PullDiagnostic]
+    """List of issues found (empty if success)"""
+
+    message: str
+    """Summary message about the operation"""
 
 
 class SyncService[T: BaseModel](Protocol):

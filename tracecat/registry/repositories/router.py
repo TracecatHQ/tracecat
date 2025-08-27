@@ -268,24 +268,12 @@ async def list_repository_commits(
                 )
 
             # List commits from the repository
-            commit_data = await list_git_commits(
+            commits = await list_git_commits(
                 repo.origin,
                 env=ssh_env,
                 branch=branch,
                 limit=min(limit, 100),  # Cap at 100 commits max
             )
-
-            # Convert to response models
-            commits = [
-                GitCommitInfo(
-                    sha=commit["sha"],
-                    message=commit["message"],
-                    author=commit["author"],
-                    author_email=commit["author_email"],
-                    date=commit["date"],
-                )
-                for commit in commit_data
-            ]
 
             logger.info(
                 "Listed repository commits",

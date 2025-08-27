@@ -1,16 +1,22 @@
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, status
 
 from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.dsl.common import DSLInput
+from tracecat.git.utils import parse_git_url
 from tracecat.identifiers.workflow import AnyWorkflowIDPath
+from tracecat.logger import logger
+from tracecat.registry.repositories.models import GitCommitInfo
+from tracecat.sync import PullOptions, PullResult
 from tracecat.types.exceptions import (
     TracecatCredentialsNotFoundError,
     TracecatSettingsError,
 )
+from tracecat.vcs.github.app import GitHubAppError
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
-from tracecat.workflow.store.models import WorkflowDslPublish
+from tracecat.workflow.store.models import WorkflowDslPublish, WorkflowSyncPullRequest
 from tracecat.workflow.store.service import WorkflowStoreService
+from tracecat.workflow.store.sync import WorkflowSyncService
 
 router = APIRouter(prefix="/workflows", tags=["workflows"])
 
@@ -53,4 +59,145 @@ async def publish_workflow(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
+        ) from e
+
+
+@router.get("/sync/commits", response_model=list[GitCommitInfo])
+async def list_workflow_commits(
+    role: WorkspaceUserRole,
+    session: AsyncDBSession,
+    repository_url: str = Query(
+        ...,
+        description="Git repository URL to fetch commits from",
+        min_length=1,
+        max_length=500,
+    ),
+    branch: str = Query(
+        default="main",
+        description="Branch name to fetch commits from",
+        min_length=1,
+        max_length=255,
+    ),
+    limit: int = Query(
+        default=10,
+        description="Maximum number of commits to return",
+        ge=1,
+        le=100,
+    ),
+) -> list[GitCommitInfo]:
+    """Get commit list for workflow repository via GitHub App.
+
+    Returns a list of commits from the specified repository and branch,
+    suitable for use in workflow pull operations.
+    """
+    if not role.workspace_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Workspace ID is required",
+        )
+
+    try:
+        # Parse and validate Git URL
+        git_url = parse_git_url(repository_url)
+
+        # Initialize workflow sync service
+        sync_service = WorkflowSyncService(session=session, role=role)
+
+        # Fetch commits using GitHub App API
+        commits = await sync_service.list_commits(
+            url=git_url,
+            branch=branch,
+            limit=limit,
+        )
+
+        return commits
+
+    except ValueError as e:
+        logger.error(f"Invalid repository URL: {repository_url}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid repository URL: {str(e)}",
+        ) from e
+    except GitHubAppError as e:
+        logger.error(
+            f"GitHub App error accessing repository: {repository_url}", exc_info=True
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unable to access repository: {str(e)}",
+        ) from e
+    except Exception as e:
+        logger.error(
+            f"Error fetching commits from repository: {repository_url}", exc_info=True
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to fetch repository commits",
+        ) from e
+
+
+@router.post("/sync/pull", response_model=PullResult)
+async def pull_workflows(
+    role: WorkspaceUserRole,
+    session: AsyncDBSession,
+    params: WorkflowSyncPullRequest,
+) -> PullResult:
+    """Pull workflows from Git repository at specific commit.
+
+    Imports workflow definitions from the specified repository and commit,
+    with configurable conflict resolution strategy.
+    """
+    if not role.workspace_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Workspace ID is required",
+        )
+
+    try:
+        # Parse and validate Git URL
+        git_url = parse_git_url(params.repository_url)
+
+        # Create pull options
+        pull_options = PullOptions(
+            commit_sha=params.commit_sha,
+            conflict_strategy=params.conflict_strategy,
+            dry_run=params.dry_run,
+        )
+
+        # Initialize workflow sync service
+        sync_service = WorkflowSyncService(session=session, role=role)
+
+        # Perform the pull operation
+        result = await sync_service.pull(
+            url=git_url,
+            options=pull_options,
+        )
+
+        return result
+
+    except ValueError as e:
+        logger.error(
+            f"Invalid pull request parameters: {params.model_dump()}", exc_info=True
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid parameters: {str(e)}",
+        ) from e
+    except GitHubAppError as e:
+        logger.error(
+            f"GitHub App error during workflow pull: {params.repository_url}",
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unable to access repository: {str(e)}",
+        ) from e
+    except Exception as e:
+        logger.error(
+            f"Error pulling workflows from repository: {params.repository_url}",
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to pull workflows from repository",
         ) from e
