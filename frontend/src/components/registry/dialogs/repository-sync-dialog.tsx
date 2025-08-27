@@ -16,7 +16,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { Badge } from "@/components/ui/badge"
 import { toast } from "@/components/ui/use-toast"
 
 interface SyncRepositoryDialogProps {
@@ -103,9 +102,9 @@ export function SyncRepositoryDialog({
               {selectedRepo?.commit_sha && (
                 <span className="text-sm text-muted-foreground">
                   <span>Current SHA: </span>
-                  <Badge className="font-mono text-xs" variant="secondary">
+                  <span className="font-mono text-xs bg-secondary text-secondary-foreground px-2 py-1 rounded">
                     {selectedRepo.commit_sha}
-                  </Badge>
+                  </span>
                 </span>
               )}
               {selectedRepo?.last_synced_at && (
