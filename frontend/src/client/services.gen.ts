@@ -234,6 +234,8 @@ import type {
   RegistryRepositoriesGetRegistryRepositoryData,
   RegistryRepositoriesGetRegistryRepositoryResponse,
   RegistryRepositoriesListRegistryRepositoriesResponse,
+  RegistryRepositoriesListRepositoryCommitsData,
+  RegistryRepositoriesListRepositoryCommitsResponse,
   RegistryRepositoriesReloadRegistryRepositoriesResponse,
   RegistryRepositoriesSyncRegistryRepositoryData,
   RegistryRepositoriesSyncRegistryRepositoryResponse,
@@ -2907,12 +2909,17 @@ export const registryRepositoriesReloadRegistryRepositories =
  * Sync Registry Repository
  * Load actions from a specific registry repository.
  *
+ * Args:
+ * repository_id: The ID of the repository to sync
+ * sync_params: Optional sync parameters, including target commit SHA
+ *
  * Raises:
  * 422: If there is an error syncing the repository (validation error)
  * 404: If the repository is not found
  * 400: If there is an error syncing the repository
  * @param data The data for the request.
  * @param data.repositoryId
+ * @param data.requestBody
  * @returns void Successful Response
  * @throws ApiError
  */
@@ -2925,6 +2932,8 @@ export const registryRepositoriesSyncRegistryRepository = (
     path: {
       repository_id: data.repositoryId,
     },
+    body: data.requestBody,
+    mediaType: "application/json",
     errors: {
       400: "Cannot sync repository",
       404: "Registry repository not found",
@@ -3034,6 +3043,35 @@ export const registryRepositoriesDeleteRegistryRepository = (
     url: "/registry/repos/{repository_id}",
     path: {
       repository_id: data.repositoryId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Repository Commits
+ * List commits from a specific registry repository.
+ * @param data The data for the request.
+ * @param data.repositoryId
+ * @param data.branch
+ * @param data.limit
+ * @returns GitCommitInfo Successful Response
+ * @throws ApiError
+ */
+export const registryRepositoriesListRepositoryCommits = (
+  data: RegistryRepositoriesListRepositoryCommitsData
+): CancelablePromise<RegistryRepositoriesListRepositoryCommitsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/registry/repos/{repository_id}/commits",
+    path: {
+      repository_id: data.repositoryId,
+    },
+    query: {
+      branch: data.branch,
+      limit: data.limit,
     },
     errors: {
       422: "Validation Error",

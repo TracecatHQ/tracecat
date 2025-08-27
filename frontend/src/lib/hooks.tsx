@@ -64,6 +64,7 @@ import {
   foldersListFolders,
   foldersMoveFolder,
   foldersUpdateFolder,
+  type GitCommitInfo,
   type GitSettingsRead,
   type IntegrationRead,
   type IntegrationReadMinimal,
@@ -112,6 +113,7 @@ import {
   registryActionsUpdateRegistryAction,
   registryRepositoriesDeleteRegistryRepository,
   registryRepositoriesListRegistryRepositories,
+  registryRepositoriesListRepositoryCommits,
   registryRepositoriesReloadRegistryRepositories,
   registryRepositoriesSyncRegistryRepository,
   type SAMLSettingsRead,
@@ -1575,6 +1577,45 @@ export function useRegistryRepositories() {
     deleteRepo,
     deleteRepoIsPending,
     deleteRepoError,
+  }
+}
+
+export function useRepositoryCommits(
+  repositoryId: string | null,
+  options?: {
+    branch?: string
+    limit?: number
+    enabled?: boolean
+  }
+) {
+  const {
+    data: commits,
+    isLoading: commitsIsLoading,
+    error: commitsError,
+  } = useQuery<GitCommitInfo[]>({
+    queryKey: [
+      "repository_commits",
+      repositoryId,
+      options?.branch,
+      options?.limit,
+    ],
+    queryFn: async () => {
+      if (!repositoryId) {
+        throw new Error("Repository ID is required")
+      }
+      return await registryRepositoriesListRepositoryCommits({
+        repositoryId,
+        branch: options?.branch || "main",
+        limit: options?.limit || 50,
+      })
+    },
+    enabled: options?.enabled !== false && !!repositoryId,
+  })
+
+  return {
+    commits,
+    commitsIsLoading,
+    commitsError,
   }
 }
 

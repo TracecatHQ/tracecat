@@ -1443,6 +1443,32 @@ export type GetWorkflowDefinitionActivityInputs = {
 }
 
 /**
+ * Git commit information for repository management.
+ */
+export type GitCommitInfo = {
+  /**
+   * The commit SHA hash
+   */
+  sha: string
+  /**
+   * The commit message
+   */
+  message: string
+  /**
+   * The commit author name
+   */
+  author: string
+  /**
+   * The commit author email
+   */
+  author_email: string
+  /**
+   * The commit date in ISO format
+   */
+  date: string
+}
+
+/**
  * Request to register or update GitHub App credentials.
  */
 export type GitHubAppCredentialsRequest = {
@@ -2472,6 +2498,16 @@ export type RegistryRepositoryReadMinimal = {
   origin: string
   last_synced_at: string | null
   commit_sha: string | null
+}
+
+/**
+ * Parameters for syncing a repository to a specific commit.
+ */
+export type RegistryRepositorySync = {
+  /**
+   * The specific commit SHA to sync to. If None, syncs to HEAD.
+   */
+  target_commit_sha?: string | null
 }
 
 export type RegistryRepositoryUpdate = {
@@ -4655,6 +4691,7 @@ export type RegistryRepositoriesReloadRegistryRepositoriesResponse = void
 
 export type RegistryRepositoriesSyncRegistryRepositoryData = {
   repositoryId: string
+  requestBody?: RegistryRepositorySync | null
 }
 
 export type RegistryRepositoriesSyncRegistryRepositoryResponse = void
@@ -4689,6 +4726,15 @@ export type RegistryRepositoriesDeleteRegistryRepositoryData = {
 }
 
 export type RegistryRepositoriesDeleteRegistryRepositoryResponse = void
+
+export type RegistryRepositoriesListRepositoryCommitsData = {
+  branch?: string
+  limit?: number
+  repositoryId: string
+}
+
+export type RegistryRepositoriesListRepositoryCommitsResponse =
+  Array<GitCommitInfo>
 
 export type RegistryActionsListRegistryActionsResponse =
   Array<RegistryActionReadMinimal>
@@ -6930,6 +6976,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/registry/repos/{repository_id}/commits": {
+    get: {
+      req: RegistryRepositoriesListRepositoryCommitsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<GitCommitInfo>
         /**
          * Validation Error
          */

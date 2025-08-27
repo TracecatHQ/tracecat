@@ -6,6 +6,7 @@ import {
   ChevronDownIcon,
   CopyIcon,
   CornerDownRightIcon,
+  GitBranchIcon,
   LoaderCircleIcon,
   RefreshCcw,
   Trash2Icon,
@@ -21,6 +22,7 @@ import {
   DataTableColumnHeader,
   type DataTableToolbarProps,
 } from "@/components/data-table"
+import { CommitSelector } from "@/components/registry/commit-selector"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -39,6 +41,12 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible"
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -48,12 +56,13 @@ import { TooltipProvider } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
 import { useAuth } from "@/hooks/use-auth"
 import { getRelativeTime } from "@/lib/event-history"
-import { useRegistryRepositories } from "@/lib/hooks"
+import { useRegistryRepositories, useRepositoryCommits } from "@/lib/hooks"
 
 enum AlertAction {
   SYNC,
   DELETE,
   SYNC_EXECUTOR,
+  COMMIT_SELECT,
 }
 
 export function RegistryRepositoriesTable() {
@@ -71,6 +80,16 @@ export function RegistryRepositoriesTable() {
     useState<RegistryRepositoryReadMinimal | null>(null)
   const [alertAction, setAlertAction] = useState<AlertAction | null>(null)
   const [alertOpen, setAlertOpen] = useState(false)
+  const [commitDialogOpen, setCommitDialogOpen] = useState(false)
+  const [selectedCommitSha, setSelectedCommitSha] = useState<string | null>(
+    null
+  )
+
+  // Fetch commits for the selected repository
+  const { commits, commitsIsLoading, commitsError } = useRepositoryCommits(
+    selectedRepo?.id || null,
+    { enabled: commitDialogOpen }
+  )
   const getAlertContent = useCallback(() => {
     switch (alertAction) {
       case AlertAction.SYNC:
@@ -434,6 +453,20 @@ export function RegistryRepositoriesTable() {
                             <RefreshCcw className="mr-2 size-4" />
                             <span>Sync from remote</span>
                           </DropdownMenuItem>
+                          {row.original.origin.startsWith("git+ssh://") && (
+                            <DropdownMenuItem
+                              className="flex items-center text-xs"
+                              onClick={(e) => {
+                                e.stopPropagation() // Prevent row click
+                                setSelectedRepo(row.original)
+                                setSelectedCommitSha(row.original.commit_sha)
+                                setCommitDialogOpen(true)
+                              }}
+                            >
+                              <GitBranchIcon className="mr-2 size-4" />
+                              <span>Change commit</span>
+                            </DropdownMenuItem>
+                          )}
                           <DropdownMenuItem
                             className="flex items-center text-xs text-rose-600"
                             onClick={(e) => {
@@ -483,6 +516,147 @@ export function RegistryRepositoriesTable() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Commit Selection Dialog */}
+      <Dialog open={commitDialogOpen} onOpenChange={setCommitDialogOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Select commit to sync</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            {selectedRepo && (
+              <div>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Select a commit to sync repository:{" "}
+                  <span className="font-mono">{selectedRepo.origin}</span>
+                </p>
+                <div className="space-y-4">
+                  <CommitSelector
+                    commits={commits}
+                    currentCommitSha={selectedCommitSha}
+                    isLoading={commitsIsLoading}
+                    error={commitsError}
+                    onSelectCommit={(commitSha) => {
+                      setSelectedCommitSha(commitSha)
+                    }}
+                  />
+
+                  {/* Selected Commit Details */}
+                  {selectedCommitSha &&
+                    commits &&
+                    (() => {
+                      const selectedCommit = commits.find(
+                        (commit) => commit.sha === selectedCommitSha
+                      )
+                      if (!selectedCommit) return null
+
+                      const commitDate = new Date(selectedCommit.date)
+                      const relativeTime = getRelativeTime(commitDate)
+                      const isHead = commits[0]?.sha === selectedCommitSha
+
+                      return (
+                        <div className="rounded-lg border bg-muted/50 p-4 space-y-3">
+                          <div className="flex items-center justify-between">
+                            <h4 className="font-medium text-sm">
+                              Selected commit details
+                            </h4>
+                            <div className="flex items-center space-x-2">
+                              <Badge
+                                variant="secondary"
+                                className="font-mono text-xs"
+                              >
+                                {selectedCommit.sha.substring(0, 7)}
+                              </Badge>
+                              {isHead && (
+                                <Badge variant="default" className="text-xs">
+                                  HEAD
+                                </Badge>
+                              )}
+                            </div>
+                          </div>
+                          <div className="space-y-2">
+                            <div>
+                              <p className="text-sm font-medium text-foreground">
+                                {selectedCommit.message}
+                              </p>
+                            </div>
+                            <div className="flex items-center justify-between text-xs text-muted-foreground">
+                              <span>
+                                by {selectedCommit.author} (
+                                {selectedCommit.author_email})
+                              </span>
+                              <div className="flex items-center space-x-2">
+                                <span>{commitDate.toLocaleDateString()}</span>
+                                <span>•</span>
+                                <span>{relativeTime}</span>
+                              </div>
+                            </div>
+                            <div className="pt-1">
+                              <span className="text-xs text-muted-foreground font-mono">
+                                Full SHA: {selectedCommit.sha}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })()}
+                </div>
+              </div>
+            )}
+            <div className="flex justify-end space-x-2 pt-4">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setCommitDialogOpen(false)
+                  setSelectedCommitSha(null)
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={async () => {
+                  if (!selectedRepo || !selectedCommitSha) return
+
+                  try {
+                    await syncRepo({
+                      repositoryId: selectedRepo.id,
+                      requestBody: {
+                        target_commit_sha: selectedCommitSha,
+                      },
+                    })
+                    setCommitDialogOpen(false)
+                    setSelectedCommitSha(null)
+                    toast({
+                      title: "Successfully synced repository",
+                      description: (
+                        <span className="flex flex-col space-y-2">
+                          <span>
+                            Successfully synced{" "}
+                            <b className="inline-block">
+                              {selectedRepo.origin}
+                            </b>
+                          </span>
+                          <span className="text-xs">
+                            to commit {selectedCommitSha.substring(0, 7)}
+                          </span>
+                        </span>
+                      ),
+                    })
+                  } catch (error) {
+                    console.error(
+                      "Error syncing repository to specific commit",
+                      error
+                    )
+                  }
+                }}
+                disabled={syncRepoIsPending || !selectedCommitSha}
+              >
+                {syncRepoIsPending ? "Syncing..." : "Sync"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </TooltipProvider>
   )
 }

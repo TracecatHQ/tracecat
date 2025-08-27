@@ -4520,6 +4520,46 @@ export const $GetWorkflowDefinitionActivityInputs = {
   title: "GetWorkflowDefinitionActivityInputs",
 } as const
 
+export const $GitCommitInfo = {
+  properties: {
+    sha: {
+      type: "string",
+      maxLength: 40,
+      minLength: 40,
+      title: "Sha",
+      description: "The commit SHA hash",
+    },
+    message: {
+      type: "string",
+      maxLength: 1000,
+      title: "Message",
+      description: "The commit message",
+    },
+    author: {
+      type: "string",
+      maxLength: 255,
+      title: "Author",
+      description: "The commit author name",
+    },
+    author_email: {
+      type: "string",
+      maxLength: 255,
+      title: "Author Email",
+      description: "The commit author email",
+    },
+    date: {
+      type: "string",
+      maxLength: 50,
+      title: "Date",
+      description: "The commit date in ISO format",
+    },
+  },
+  type: "object",
+  required: ["sha", "message", "author", "author_email", "date"],
+  title: "GitCommitInfo",
+  description: "Git commit information for repository management.",
+} as const
+
 export const $GitHubAppCredentialsRequest = {
   properties: {
     app_id: {
@@ -7226,6 +7266,29 @@ export const $RegistryRepositoryReadMinimal = {
   type: "object",
   required: ["id", "origin", "last_synced_at", "commit_sha"],
   title: "RegistryRepositoryReadMinimal",
+} as const
+
+export const $RegistryRepositorySync = {
+  properties: {
+    target_commit_sha: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 40,
+          minLength: 40,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Target Commit Sha",
+      description:
+        "The specific commit SHA to sync to. If None, syncs to HEAD.",
+    },
+  },
+  type: "object",
+  title: "RegistryRepositorySync",
+  description: "Parameters for syncing a repository to a specific commit.",
 } as const
 
 export const $RegistryRepositoryUpdate = {

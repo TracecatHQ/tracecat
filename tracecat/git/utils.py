@@ -1,6 +1,8 @@
 import asyncio
 from typing import cast
 
+import aiofiles
+
 from tracecat import config
 from tracecat.contexts import ctx_role
 from tracecat.git.constants import GIT_SSH_URL_REGEX
@@ -57,7 +59,7 @@ def parse_git_url(url: str, *, allowed_domains: set[str] | None = None) -> GitUr
 
 
 async def resolve_git_ref(
-    repo_url: str, *, ref: str | None, env: dict[str, str], timeout: float = 20.0
+    repo_url: str, *, ref: str | None, env: SshEnv, timeout: float = 20.0
 ) -> str:
     """Resolve a Git reference to its SHA.
 
@@ -123,7 +125,7 @@ async def resolve_git_ref(
 async def run_git(
     args: list[str],
     *,
-    env: dict[str, str],
+    env: SshEnv,
     cwd: str | None = None,
     timeout: float = 120.0,
 ) -> tuple[int, str, str]:
@@ -148,7 +150,7 @@ async def run_git(
             *args,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            env=env,
+            env=env.to_dict(),
             cwd=cwd,
         )
 
@@ -193,7 +195,7 @@ async def get_git_repository_sha(repo_url: str, env: SshEnv) -> str:
 
     This function maintains backward compatibility with the existing API.
     """
-    return await resolve_git_ref(repo_url, ref=None, env=env.to_dict())
+    return await resolve_git_ref(repo_url, ref=None, env=env)
 
 
 async def prepare_git_url(role: Role | None = None) -> GitUrl | None:
@@ -257,3 +259,72 @@ async def safe_prepare_git_url(role: Role | None = None) -> GitUrl | None:
     except Exception as e:
         logger.error("Error preparing git URL", error=str(e))
         return None
+
+
+async def list_git_commits(
+    repo_url: str, *, env: SshEnv, branch="main", limit=10, timeout=30.0
+):
+    async with aiofiles.tempfile.TemporaryDirectory() as repo_dir:
+        # Bare repo means no working tree filesystem work.
+        code, _, err = await run_git(
+            ["git", "init", "--bare"], env=env, cwd=repo_dir, timeout=timeout
+        )
+        if code != 0:
+            raise RuntimeError(f"init failed: {err.strip()}")
+
+        # Shallow, filter-only fetch; no tags; faster negotiation.
+        fetch_args = [
+            "git",
+            # Protocol & negotiation tweaks
+            "-c",
+            "protocol.version=2",
+            "-c",
+            "fetch.negotiationAlgorithm=skipping",
+            # Avoid extra I/O; this is a throwaway repo
+            "-c",
+            "fetch.writeCommitGraph=false",
+            "-c",
+            "core.fsync=objects=0",
+            "-c",
+            "gc.auto=0",
+            "fetch",
+            "--no-tags",
+            "--no-recurse-submodules",
+            "--no-write-fetch-head",
+            f"--depth={max(1, limit)}",
+            "--filter=blob:none",  # only commits + trees
+            # If your git/server supports it, add the next line to avoid trees too:
+            # "--filter=tree:0",
+            repo_url,
+            f"+refs/heads/{branch}:refs/remotes/origin/{branch}",
+        ]
+        code, _, err = await run_git(fetch_args, env=env, cwd=repo_dir, timeout=timeout)
+        if code != 0:
+            raise RuntimeError(f"fetch failed: {err.strip()}")
+
+        fmt = "%H|%s|%an|%ae|%aI"
+        log_args = [
+            "git",
+            "log",
+            "--no-decorate",
+            f"-n{limit}",
+            f"--format={fmt}",
+            f"origin/{branch}",
+        ]
+        code, out, err = await run_git(log_args, env=env, cwd=repo_dir, timeout=timeout)
+        if code != 0:
+            raise RuntimeError(f"log failed: {err.strip()}")
+
+    commits = []
+    for line in out.strip().splitlines():
+        sha, msg, author, email, date = (p.strip() for p in line.split("|", 4))
+        commits.append(
+            {
+                "sha": sha,
+                "message": msg,
+                "author": author,
+                "author_email": email,
+                "date": date,
+            }
+        )
+    return commits

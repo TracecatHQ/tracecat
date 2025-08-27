@@ -179,7 +179,10 @@ class RegistryActionsService(BaseService):
         return action
 
     async def sync_actions_from_repository(
-        self, db_repo: RegistryRepository, pull_remote: bool = True
+        self,
+        db_repo: RegistryRepository,
+        pull_remote: bool = True,
+        target_commit_sha: str | None = None,
     ) -> str | None:
         """Sync actions from a repository.
 
@@ -190,9 +193,16 @@ class RegistryActionsService(BaseService):
         # (1) Update the API's view of the repository
         repo = Repository(origin=db_repo.origin, role=self.role)
         # Load the repository
-        # After we sync the repository with its remote
-        # None here means we're pulling the remote repository from HEAD
-        sha = None if pull_remote else db_repo.commit_sha
+        # Determine which commit SHA to use:
+        # 1. If target_commit_sha is provided, use it
+        # 2. If pull_remote is False, use the stored commit SHA
+        # 3. Otherwise use None (HEAD)
+        if target_commit_sha:
+            sha = target_commit_sha
+        elif not pull_remote:
+            sha = db_repo.commit_sha
+        else:
+            sha = None
         commit_sha = await repo.load_from_origin(commit_sha=sha)
 
         # TODO: Move this into it's own function and service it from the registry repository router
