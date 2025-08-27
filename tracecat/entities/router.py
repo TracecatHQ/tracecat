@@ -1,9 +1,10 @@
 import uuid
+from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy.exc import IntegrityError
 
-from tracecat.auth.dependencies import WorkspaceUserRole
+from tracecat.auth.credentials import RoleACL
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.schemas import EntityField
 from tracecat.entities.enums import FieldType
@@ -18,11 +19,20 @@ from tracecat.entities.models import (
     coerce_default_value,
 )
 from tracecat.entities.service import EntityService
+from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatNotFoundError
 
 router = APIRouter(prefix="/entities", tags=["entities"])
 
-WorkspaceUser = WorkspaceUserRole
+
+WorkspaceUser = Annotated[
+    Role,
+    RoleACL(
+        allow_user=True,
+        allow_service=False,
+        require_workspace="yes",
+    ),
+]
 
 
 @router.get("", response_model=list[EntityRead])

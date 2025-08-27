@@ -57,7 +57,12 @@ class TimestampMixin(BaseModel):
 class Resource(SQLModel, TimestampMixin):
     """Base class for all resources in the system."""
 
-    surrogate_id: int | None = Field(default=None, primary_key=True, exclude=True)
+    surrogate_id: int | None = Field(
+        default=None,
+        primary_key=True,
+        exclude=True,
+        sa_column_kwargs={"autoincrement": True},
+    )
     owner_id: OwnerID
 
 
@@ -852,6 +857,10 @@ class Case(Resource, table=True):
         link_model=CaseTag,
         sa_relationship_kwargs={"lazy": "selectin"},
     )
+    record_links: list["CaseRecord"] = Relationship(
+        back_populates="case",
+        sa_relationship_kwargs={"cascade": "all, delete-orphan"},
+    )
 
 
 class CaseComment(Resource, table=True):
@@ -1465,6 +1474,8 @@ class EntityRecord(Resource, table=True):
     __table_args__ = (
         # GIN index for top level fields
         Index("idx_record_gin", "data", postgresql_using="gin"),
+        Index("idx_record_entity", "entity_id"),
+        UniqueConstraint("id", name="uq_entity_record_id"),
     )
 
     id: UUID4 = Field(default_factory=uuid.uuid4, primary_key=True, nullable=False)
@@ -1485,6 +1496,7 @@ class CaseRecord(Resource, table=True):
         UniqueConstraint("case_id", "record_id", name="uq_case_record_link"),
         Index("idx_case_record_case", "case_id"),
         Index("idx_case_record_entity", "entity_id"),
+        Index("idx_case_record_case_entity", "case_id", "entity_id"),
     )
 
     id: UUID4 = Field(default_factory=uuid.uuid4, primary_key=True, nullable=False)
@@ -1495,26 +1507,23 @@ class CaseRecord(Resource, table=True):
         sa_column=Column(UUID, ForeignKey("entity.id", ondelete="CASCADE"))
     )
     record_id: UUID4 = Field(
-        sa_column=Column(UUID, ForeignKey("record.id", ondelete="CASCADE"))
+        sa_column=Column(UUID, ForeignKey("entity_record.id", ondelete="CASCADE"))
     )
 
     # Relationships
     case: Case = Relationship(
         back_populates="record_links",
         sa_relationship_kwargs={
-            "foreign_keys": "[CaseRecordLink.case_id]",
-            "cascade": "all, delete-orphan",
+            "foreign_keys": "[CaseRecord.case_id]",
         },
     )
     entity: Entity = Relationship(
         sa_relationship_kwargs={
-            "foreign_keys": "[CaseRecordLink.entity_id]",
-            "cascade": "all, delete-orphan",
+            "foreign_keys": "[CaseRecord.entity_id]",
         }
     )
     record: EntityRecord = Relationship(
         sa_relationship_kwargs={
-            "foreign_keys": "[CaseRecordLink.record_id]",
-            "cascade": "all, delete-orphan",
+            "foreign_keys": "[CaseRecord.record_id]",
         }
     )
