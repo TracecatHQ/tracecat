@@ -1353,7 +1353,7 @@ class Entity(Resource, table=True):
     - Delete
     """
 
-    __tablename__: str = "entities"
+    __tablename__: str = "entity"
     __table_args__ = (
         # Keys should be unique per workspace owner
         UniqueConstraint("owner_id", "key", name="uq_entity_owner_key"),
@@ -1389,7 +1389,7 @@ class EntityField(Resource, table=True):
     - Delete
     """
 
-    __tablename__: str = "entity_fields"
+    __tablename__: str = "entity_field"
     __table_args__ = (
         # Field keys are unique per entity (user-defined, immutable)
         UniqueConstraint("entity_id", "key", name="uq_entity_field_key"),
@@ -1402,7 +1402,7 @@ class EntityField(Resource, table=True):
     )
     entity_id: UUID4 = Field(
         sa_column=Column(
-            UUID, ForeignKey("entities.id", ondelete="CASCADE"), nullable=False
+            UUID, ForeignKey("entity.id", ondelete="CASCADE"), nullable=False
         )
     )
     # Relationship back to owning entity
@@ -1433,7 +1433,7 @@ class EntityFieldOption(SQLModel, TimestampMixin, table=True):
     - Simple to extend later (ordering, colors, i18n, metadata)
     """
 
-    __tablename__: str = "entity_field_options"
+    __tablename__: str = "entity_field_option"
     __table_args__ = (
         # Enforce no duplicate keys per field
         UniqueConstraint("field_id", "key", name="uq_field_option_key"),
@@ -1443,7 +1443,7 @@ class EntityFieldOption(SQLModel, TimestampMixin, table=True):
     field_id: UUID4 = Field(
         sa_column=Column(
             UUID,
-            ForeignKey("entity_fields.id", ondelete="CASCADE"),
+            ForeignKey("entity_field.id", ondelete="CASCADE"),
             nullable=False,
         )
     )
