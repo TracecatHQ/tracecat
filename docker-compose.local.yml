@@ -186,6 +186,8 @@ services:
     restart: unless-stopped
     networks:
       - core-db
+    ports:
+      - 5432:5432
     shm_size: 128mb
     environment:
       POSTGRES_USER: ${TRACECAT__POSTGRES_USER}
