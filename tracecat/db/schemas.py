@@ -25,6 +25,7 @@ from tracecat.db.adapter import (
     SQLModelBaseOAuthAccount,
     SQLModelBaseUserDB,
 )
+from tracecat.entities.enums import FieldType
 from tracecat.identifiers import OwnerID, action, id_factory
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.integrations.enums import IntegrationStatus, OAuthGrantType
@@ -126,6 +127,11 @@ class Workspace(Resource, table=True):
         sa_relationship_kwargs={"cascade": "all, delete"},
     )
     integrations: list["OAuthIntegration"] = Relationship(
+        back_populates="owner",
+        sa_relationship_kwargs={"cascade": "all, delete"},
+    )
+    # Custom entities owned by this workspace
+    entities: list["Entity"] = Relationship(
         back_populates="owner",
         sa_relationship_kwargs={"cascade": "all, delete"},
     )
@@ -1336,3 +1342,113 @@ class Tag(Resource, table=True):
         back_populates="tags",
         link_model=CaseTag,
     )
+
+
+class Entity(Resource, table=True):
+    """An entity defines a type of object that can be created and managed in the system.
+
+    Entities lifecycle:
+    - Create
+    - Deactivate
+    - Delete
+    """
+
+    __tablename__: str = "entity"
+    __table_args__ = (
+        # Keys should be unique per workspace owner
+        UniqueConstraint("owner_id", "key", name="uq_entity_owner_key"),
+    )
+
+    id: UUID4 = Field(
+        default_factory=uuid.uuid4,
+        nullable=False,
+        unique=True,
+    )
+    owner_id: OwnerID = Field(
+        sa_column=Column(UUID, ForeignKey("workspace.id", ondelete="CASCADE"))
+    )
+    owner: "Workspace" = Relationship(back_populates="entities")
+    key: str = Field(..., max_length=100, nullable=False)
+    """User defined immutable identifier for the entity (alphanumeric snake_case)"""
+    display_name: str = Field(..., nullable=False)
+    description: str | None = Field(default=None, max_length=1000)
+    icon: str | None = Field(default=None, max_length=100)
+    is_active: bool = Field(default=True, nullable=False)
+    fields: list["EntityField"] = Relationship(
+        back_populates="entity",
+        sa_relationship_kwargs={"cascade": "all, delete-orphan"},
+    )
+
+
+class EntityField(Resource, table=True):
+    """The entity's fields. Defines the schema of the entity.
+
+    Fields lifecycle:
+    - Create
+    - Deactivate
+    - Delete
+    """
+
+    __tablename__: str = "entity_field"
+    __table_args__ = (
+        # Field keys are unique per entity (user-defined, immutable)
+        UniqueConstraint("entity_id", "key", name="uq_entity_field_key"),
+    )
+
+    id: UUID4 = Field(
+        default_factory=uuid.uuid4,
+        nullable=False,
+        unique=True,
+    )
+    entity_id: UUID4 = Field(
+        sa_column=Column(
+            UUID, ForeignKey("entity.id", ondelete="CASCADE"), nullable=False
+        )
+    )
+    # Relationship back to owning entity
+    entity: Entity = Relationship(back_populates="fields")
+    key: str = Field(..., max_length=255, nullable=False)
+    """Immutable identifier for the field (alphanumeric snake_case)."""
+    type: FieldType = Field(..., nullable=False)
+    """Immutable type of the field after creation"""
+    display_name: str = Field(..., max_length=255, nullable=False)
+    description: str | None = Field(default=None, max_length=1000)
+    is_active: bool = Field(default=True, nullable=False)
+    default_value: Any | None = Field(
+        default=None, sa_column=Column(JSONB, nullable=True)
+    )
+    options: list["EntityFieldOption"] = Relationship(
+        back_populates="field",
+        # delete-orphan: also delete option rows when removed from this collection
+        # (in addition to deleting when the parent field is deleted)
+        sa_relationship_kwargs={"cascade": "all, delete-orphan"},
+    )
+
+
+class EntityFieldOption(SQLModel, TimestampMixin, table=True):
+    """Minimal relation table for enum choices per field.
+
+    - Enforces unique keys per field (auto-generated from label)
+    - Keys are generated at creation time and treated as immutable
+    - Simple to extend later (ordering, colors, i18n, metadata)
+    """
+
+    __tablename__: str = "entity_field_option"
+    __table_args__ = (
+        # Enforce no duplicate keys per field
+        UniqueConstraint("field_id", "key", name="uq_field_option_key"),
+    )
+
+    id: UUID4 = Field(default_factory=uuid.uuid4, primary_key=True, nullable=False)
+    field_id: UUID4 = Field(
+        sa_column=Column(
+            UUID,
+            ForeignKey("entity_field.id", ondelete="CASCADE"),
+            nullable=False,
+        )
+    )
+    key: str = Field(..., max_length=255, nullable=False)
+    """Immutable identifier derived from the label (snake_case) on creation."""
+    label: str = Field(..., max_length=255, nullable=False)
+    description: str | None = Field(default=None, max_length=1000)
+    field: EntityField = Relationship(back_populates="options")
