@@ -53,6 +53,60 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 
+/**
+ * Parses a default value string based on the field type.
+ *
+ * This function handles type conversion for different field types:
+ * - INTEGER: Parses string to integer using parseInt
+ * - NUMBER: Parses string to floating point number using parseFloat
+ * - BOOL: Converts string "true" to boolean true, anything else to false
+ * - MULTI_SELECT: Splits comma-separated string into trimmed array of strings
+ * - JSON: Attempts to parse as JSON, falls back to original value if parsing fails
+ * - Other types: Returns the value as-is
+ *
+ * @param fieldType - The type of field to parse the value for
+ * @param value - The raw value to parse (typically a string from form input)
+ * @returns The parsed value in the appropriate type, or undefined if value is empty/invalid
+ */
+function parseDefaultValue(
+  fieldType: FieldType,
+  value: string | number | boolean | undefined
+): string | number | boolean | string[] | unknown | undefined {
+  // Check if value is empty or should be ignored
+  if (value === undefined || value === "" || value === "_none") {
+    return undefined
+  }
+
+  switch (fieldType) {
+    case "INTEGER":
+      return parseInt(value as string, 10)
+
+    case "NUMBER":
+      return parseFloat(value as string)
+
+    case "BOOL":
+      return value === "true"
+
+    case "MULTI_SELECT":
+      return (value as string)
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean)
+
+    case "JSON":
+      try {
+        return JSON.parse(value as string)
+      } catch {
+        // If JSON parsing fails, return the original value
+        return value
+      }
+
+    default:
+      // For TEXT, DATE, DATETIME, SELECT, and other types
+      return value
+  }
+}
+
 const fieldTypes: {
   value: FieldType
   label: string
@@ -159,32 +213,13 @@ export function CreateFieldDialog({
         processed.description = data.description
       }
 
-      if (
-        data.default_value !== undefined &&
-        data.default_value !== "" &&
-        data.default_value !== "_none"
-      ) {
-        if (data.type === "INTEGER") {
-          processed.default_value = parseInt(data.default_value as string, 10)
-        } else if (data.type === "NUMBER") {
-          processed.default_value = parseFloat(data.default_value as string)
-        } else if (data.type === "BOOL") {
-          processed.default_value = data.default_value === "true"
-        } else if (data.type === "MULTI_SELECT") {
-          const value = data.default_value as string
-          processed.default_value = value
-            .split(",")
-            .map((s) => s.trim())
-            .filter(Boolean)
-        } else if (data.type === "JSON") {
-          try {
-            processed.default_value = JSON.parse(data.default_value as string)
-          } catch {
-            processed.default_value = data.default_value
-          }
-        }
-      } else {
-        delete processed.default_value
+      // Parse the default value based on the field type
+      const parsedDefaultValue = parseDefaultValue(
+        data.type,
+        data.default_value
+      )
+      if (parsedDefaultValue !== undefined) {
+        processed.default_value = parsedDefaultValue
       }
 
       if (isSelectField) {
