@@ -5,7 +5,9 @@ class EntityEvents {
 
   onAddField(listener: Listener) {
     this.addFieldListeners.add(listener)
-    return () => this.addFieldListeners.delete(listener)
+    return () => {
+      this.addFieldListeners.delete(listener)
+    }
   }
 
   emitAddField() {

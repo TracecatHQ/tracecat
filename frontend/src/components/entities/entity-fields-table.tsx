@@ -6,8 +6,8 @@ import {
   Calendar,
   CalendarClock,
   CheckCircle,
+  CircleDot,
   Copy,
-  DecimalsArrowRight,
   Hash,
   ListTodo,
   Pencil,
@@ -57,7 +57,7 @@ const fieldTypeConfig: Record<
 > = {
   TEXT: { label: "Text", icon: Type },
   INTEGER: { label: "Integer", icon: Hash },
-  NUMBER: { label: "Number", icon: DecimalsArrowRight },
+  NUMBER: { label: "Number", icon: CircleDot },
   BOOL: { label: "Boolean", icon: ToggleLeft },
   JSON: { label: "JSON", icon: Braces },
   DATE: { label: "Date", icon: Calendar },

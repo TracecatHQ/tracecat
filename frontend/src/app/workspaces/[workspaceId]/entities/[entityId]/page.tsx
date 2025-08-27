@@ -166,7 +166,9 @@ export default function EntityDetailPage() {
       <CreateFieldDialog
         open={createFieldOpen}
         onOpenChange={setCreateFieldOpen}
-        onSubmit={createField}
+        onSubmit={async (data) => {
+          await createField(data)
+        }}
       />
       <EditFieldDialog
         field={fieldToEdit}

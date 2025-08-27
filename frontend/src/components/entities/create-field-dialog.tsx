@@ -5,7 +5,7 @@ import {
   Braces,
   Calendar,
   CalendarClock,
-  DecimalsArrowRight,
+  CircleDot,
   Hash,
   Info,
   ListTodo,
@@ -60,7 +60,7 @@ const fieldTypes: {
 }[] = [
   { value: "TEXT", label: "Text", icon: Type },
   { value: "INTEGER", label: "Integer", icon: Hash },
-  { value: "NUMBER", label: "Number", icon: DecimalsArrowRight },
+  { value: "NUMBER", label: "Number", icon: CircleDot },
   { value: "BOOL", label: "Boolean", icon: ToggleLeft },
   { value: "JSON", label: "JSON", icon: Braces },
   { value: "DATE", label: "Date", icon: Calendar },
