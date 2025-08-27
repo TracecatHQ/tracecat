@@ -1,6 +1,7 @@
 import uuid
 
 from fastapi import APIRouter, HTTPException, Query, status
+from sqlalchemy.exc import IntegrityError
 
 from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.db.dependencies import AsyncDBSession
@@ -59,7 +60,14 @@ async def create_entity(
     params: EntityCreate,
 ) -> None:
     service = EntityService(session, role)
-    await service.create_entity(params)
+    try:
+        await service.create_entity(params)
+    except IntegrityError as e:
+        # Likely unique constraint on (owner_id, key)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Entity key already exists in this workspace",
+        ) from e
 
 
 @router.patch("/{entity_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -75,7 +83,14 @@ async def update_entity(
         entity = await service.get_entity(entity_id)
     except TracecatNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
-    await service.update_entity(entity, params)
+    try:
+        await service.update_entity(entity, params)
+    except IntegrityError as e:
+        # Catch any DB constraint errors on update (defensive)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Conflict updating entity due to database constraints",
+        ) from e
 
 
 @router.delete("/{entity_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -138,7 +153,19 @@ async def create_field(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
     # params validated via Pydantic (default_value coerced in model)
     # Extra enforcement: default must exist in options for select types is handled in model
-    await service.fields.create_field(entity, params)
+    try:
+        await service.fields.create_field(entity, params)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(e),
+        ) from e
+    except IntegrityError as e:
+        # Likely unique constraint on (entity_id, key) or option key
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Field or option key already exists",
+        ) from e
 
 
 @router.patch("/{entity_id}/fields/{field_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -206,7 +233,19 @@ async def update_field(
                     detail=f"Default values not in options: {', '.join(invalid)}",
                 )
 
-    await service.fields.update_field(field, params)
+    try:
+        await service.fields.update_field(field, params)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(e),
+        ) from e
+    except IntegrityError as e:
+        # Likely unique constraint on option keys per field
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Field or option key already exists",
+        ) from e
 
 
 @router.get("/{entity_id}/fields", response_model=list[EntityFieldRead])
