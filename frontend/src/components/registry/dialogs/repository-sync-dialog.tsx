@@ -1,7 +1,11 @@
 "use client"
 
-import { RefreshCcw } from "lucide-react"
-import type { RegistryRepositoryReadMinimal } from "@/client"
+import { AlertTriangleIcon, RefreshCcw } from "lucide-react"
+import type {
+  RegistryRepositoriesSyncRegistryRepositoryData,
+  RegistryRepositoryReadMinimal,
+} from "@/client"
+import { Spinner } from "@/components/loading/spinner"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -14,13 +18,16 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { toast } from "@/components/ui/use-toast"
-import { useRegistryRepositories } from "@/lib/hooks"
 
 interface SyncRepositoryDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   selectedRepo: RegistryRepositoryReadMinimal | null
   setSelectedRepo: (repo: RegistryRepositoryReadMinimal | null) => void
+  syncRepo: (
+    params: RegistryRepositoriesSyncRegistryRepositoryData
+  ) => Promise<void>
+  syncRepoIsPending: boolean
 }
 
 export function SyncRepositoryDialog({
@@ -28,9 +35,9 @@ export function SyncRepositoryDialog({
   onOpenChange,
   selectedRepo,
   setSelectedRepo,
+  syncRepo,
+  syncRepoIsPending,
 }: SyncRepositoryDialogProps) {
-  const { syncRepo, syncRepoIsPending } = useRegistryRepositories()
-
   const handleSync = async () => {
     if (!selectedRepo) {
       console.error("No repository selected")
@@ -38,6 +45,20 @@ export function SyncRepositoryDialog({
     }
 
     try {
+      toast({
+        title: "Syncing repository",
+        description: (
+          <span className="flex flex-col space-y-2">
+            <span className="flex items-center space-x-2">
+              <Spinner className="size-6" />
+              <span>
+                Syncing repository{" "}
+                <b className="inline-block">{selectedRepo.origin}</b>
+              </span>
+            </span>
+          </span>
+        ),
+      })
       await syncRepo({ repositoryId: selectedRepo.id })
       toast({
         title: "Successfully synced repository",
@@ -51,7 +72,16 @@ export function SyncRepositoryDialog({
         ),
       })
     } catch (error) {
-      console.error("Error reloading repository", error)
+      console.error("Error syncing repository", error)
+      toast({
+        title: "Error syncing repository",
+        description: (
+          <div className="flex items-start gap-2">
+            <AlertTriangleIcon className="size-4 fill-rose-600 text-white" />
+            <span>An error occurred while reloading the repository.</span>
+          </div>
+        ),
+      })
     } finally {
       setSelectedRepo(null)
     }
@@ -97,8 +127,10 @@ export function SyncRepositoryDialog({
           <AlertDialogCancel>Cancel</AlertDialogCancel>
           <AlertDialogAction onClick={handleSync} disabled={syncRepoIsPending}>
             <div className="flex items-center space-x-2">
-              <RefreshCcw className="size-4" />
-              <span>Sync</span>
+              <RefreshCcw
+                className={`size-4 ${syncRepoIsPending ? "animate-spin" : ""}`}
+              />
+              <span>{syncRepoIsPending ? "Syncing..." : "Sync"}</span>
             </div>
           </AlertDialogAction>
         </AlertDialogFooter>

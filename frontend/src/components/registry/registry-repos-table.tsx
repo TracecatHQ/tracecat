@@ -1,13 +1,13 @@
 "use client"
 
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
+import type { ColumnDef } from "@tanstack/react-table"
 import {
   AlertTriangleIcon,
   ChevronDownIcon,
   CornerDownRightIcon,
-  LoaderCircleIcon,
 } from "lucide-react"
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import type {
   RegistryRepositoryErrorDetail,
   RegistryRepositoryReadMinimal,
@@ -34,7 +34,6 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { TooltipProvider } from "@/components/ui/tooltip"
 import { useAuth } from "@/hooks/use-auth"
 import { getRelativeTime } from "@/lib/event-history"
 import { useRegistryRepositories } from "@/lib/hooks"
@@ -45,8 +44,9 @@ export function RegistryRepositoriesTable() {
     repos: registryRepos,
     reposIsLoading: registryReposIsLoading,
     reposError: registryReposError,
-    syncRepoError,
+    syncRepo,
     syncRepoIsPending,
+    syncRepoError,
   } = useRegistryRepositories()
 
   // Dialog state management
@@ -65,8 +65,128 @@ export function RegistryRepositoriesTable() {
     syncRepoError?.status === 422
       ? (syncRepoError?.body.detail as RegistryRepositoryErrorDetail)
       : null
+
+  const columns: ColumnDef<RegistryRepositoryReadMinimal>[] = useMemo(
+    () => [
+      {
+        accessorKey: "origin",
+        header: ({ column }) => (
+          <DataTableColumnHeader
+            className="text-xs"
+            column={column}
+            title="Origin"
+          />
+        ),
+        cell: ({ row }) => {
+          return (
+            <div className="text-xs text-foreground/80">
+              {row.getValue<RegistryRepositoryReadMinimal["origin"]>(
+                "origin"
+              ) || "-"}
+            </div>
+          )
+        },
+        enableSorting: true,
+        enableHiding: false,
+      },
+      {
+        accessorKey: "commit_sha",
+        header: ({ column }) => (
+          <DataTableColumnHeader
+            className="text-xs"
+            column={column}
+            title="Commit SHA"
+          />
+        ),
+        cell: ({ row }) => {
+          const sha =
+            row.getValue<RegistryRepositoryReadMinimal["commit_sha"]>(
+              "commit_sha"
+            )
+          if (!sha) return <div className="text-xs text-foreground/80">-</div>
+          return (
+            <Badge
+              className="font-mono text-xs font-normal"
+              variant="secondary"
+            >
+              {sha.substring(0, 7)}
+            </Badge>
+          )
+        },
+        enableHiding: false,
+      },
+      {
+        accessorKey: "last_synced_at",
+        header: ({ column }) => (
+          <DataTableColumnHeader
+            className="text-xs"
+            column={column}
+            title="Last synced"
+          />
+        ),
+        cell: ({ row }) => {
+          const lastSyncedAt =
+            row.getValue<RegistryRepositoryReadMinimal["last_synced_at"]>(
+              "last_synced_at"
+            )
+          if (!lastSyncedAt) {
+            return <div className="text-xs text-foreground/80">-</div>
+          }
+          const date = new Date(lastSyncedAt)
+          const ago = getRelativeTime(date)
+          return (
+            <div className="space-x-2 text-xs">
+              <span>{date.toLocaleString()}</span>
+              <span className="text-muted-foreground">({ago})</span>
+            </div>
+          )
+        },
+        enableSorting: true,
+        enableHiding: false,
+      },
+      {
+        id: "actions",
+        enableHiding: false,
+        cell: ({ row }) => (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                className="size-8 p-0"
+                onClick={(e) => e.stopPropagation()} // Prevent row click
+              >
+                <span className="sr-only">Open menu</span>
+                <DotsHorizontalIcon className="size-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent>
+              {user?.isOrgAdmin() && (
+                <RepositoryActions
+                  repository={row.original}
+                  onSync={() => {
+                    setSelectedRepo(row.original)
+                    setActiveDialog(ActiveDialog.RepositorySync)
+                  }}
+                  onDelete={() => {
+                    setSelectedRepo(row.original)
+                    setActiveDialog(ActiveDialog.RepositoryDelete)
+                  }}
+                  onChangeCommit={() => {
+                    setSelectedRepo(row.original)
+                    setActiveDialog(ActiveDialog.RepositoryCommit)
+                  }}
+                />
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ),
+      },
+    ],
+    [selectedRepo]
+  )
+
   return (
-    <TooltipProvider>
+    <>
       {errorDetail && (
         <div className="space-y-2 rounded-md border border-rose-400 bg-rose-100 p-2 font-mono tracking-tighter">
           <Collapsible>
@@ -131,138 +251,7 @@ export function RegistryRepositoriesTable() {
         data={registryRepos}
         emptyMessage="No actions found."
         errorMessage="Error loading workflows."
-        columns={[
-          {
-            accessorKey: "origin",
-            header: ({ column }) => (
-              <DataTableColumnHeader
-                className="text-xs"
-                column={column}
-                title="Origin"
-              />
-            ),
-            cell: ({ row }) => {
-              return (
-                <div className="text-xs text-foreground/80">
-                  {row.getValue<RegistryRepositoryReadMinimal["origin"]>(
-                    "origin"
-                  ) || "-"}
-                </div>
-              )
-            },
-            enableSorting: true,
-            enableHiding: false,
-          },
-          {
-            accessorKey: "commit_sha",
-            header: ({ column }) => (
-              <DataTableColumnHeader
-                className="text-xs"
-                column={column}
-                title="Commit SHA"
-              />
-            ),
-            cell: ({ row }) => {
-              const sha =
-                row.getValue<RegistryRepositoryReadMinimal["commit_sha"]>(
-                  "commit_sha"
-                )
-              if (!sha)
-                return <div className="text-xs text-foreground/80">-</div>
-              return (
-                <Badge
-                  className="font-mono text-xs font-normal"
-                  variant="secondary"
-                >
-                  {sha.substring(0, 7)}
-                </Badge>
-              )
-            },
-            enableHiding: false,
-          },
-          {
-            accessorKey: "last_synced_at",
-            header: ({ column }) => (
-              <DataTableColumnHeader
-                className="text-xs"
-                column={column}
-                title="Last synced"
-              />
-            ),
-            cell: ({ row }) => {
-              const lastSyncedAt =
-                row.getValue<RegistryRepositoryReadMinimal["last_synced_at"]>(
-                  "last_synced_at"
-                )
-              if (!lastSyncedAt) {
-                return <div className="text-xs text-foreground/80">-</div>
-              }
-              const date = new Date(lastSyncedAt)
-              const ago = getRelativeTime(date)
-              return (
-                <div className="space-x-2 text-xs">
-                  <span>{date.toLocaleString()}</span>
-                  <span className="text-muted-foreground">({ago})</span>
-                </div>
-              )
-            },
-            enableSorting: true,
-            enableHiding: false,
-          },
-          {
-            id: "actions",
-            enableHiding: false,
-            cell: ({ row }) => {
-              const isRepoSelected = selectedRepo?.id === row.original.id
-              const Icon = () => {
-                if (isRepoSelected && syncRepoIsPending) {
-                  return <LoaderCircleIcon className="size-4 animate-spin" />
-                }
-                const errorDetail = syncRepoError?.body
-                  .detail as RegistryRepositoryErrorDetail
-                if (errorDetail?.id === row.original.id) {
-                  return (
-                    <AlertTriangleIcon className="size-4 fill-rose-600 text-white" />
-                  )
-                }
-                return <DotsHorizontalIcon className="size-4" />
-              }
-              return (
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      className="size-8 p-0"
-                      onClick={(e) => e.stopPropagation()} // Prevent row click
-                    >
-                      <span className="sr-only">Open menu</span>
-                      <Icon />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent>
-                    {user?.isOrgAdmin() && (
-                      <RepositoryActions
-                        repository={row.original}
-                        onSync={() => {
-                          setSelectedRepo(row.original)
-                          setActiveDialog(ActiveDialog.RepositorySync)
-                        }}
-                        onDelete={() => {
-                          setSelectedRepo(row.original)
-                          setActiveDialog(ActiveDialog.RepositoryDelete)
-                        }}
-                        onChangeCommit={() => {
-                          setSelectedRepo(row.original)
-                          setActiveDialog(ActiveDialog.RepositoryCommit)
-                        }}
-                      />
-                    )}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              )
-            },
-          },
-        ]}
+        columns={columns}
         toolbarProps={defaultToolbarProps}
       />
 
@@ -272,6 +261,8 @@ export function RegistryRepositoriesTable() {
         onOpenChange={onOpenChange}
         selectedRepo={selectedRepo}
         setSelectedRepo={setSelectedRepo}
+        syncRepo={syncRepo}
+        syncRepoIsPending={syncRepoIsPending}
       />
 
       <DeleteRepositoryDialog
@@ -287,7 +278,7 @@ export function RegistryRepositoriesTable() {
         selectedRepo={selectedRepo}
         initialCommitSha={selectedRepo?.commit_sha}
       />
-    </TooltipProvider>
+    </>
   )
 }
 const defaultToolbarProps: DataTableToolbarProps<RegistryRepositoryReadMinimal> =

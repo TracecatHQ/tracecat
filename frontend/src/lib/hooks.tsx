@@ -1485,10 +1485,6 @@ export function useRegistryRepositories() {
       queryClient.invalidateQueries({
         queryKey: ["registry_actions"],
       })
-      toast({
-        title: "Synced registry repositories",
-        description: "Registry repositories synced successfully.",
-      })
     },
     onError: (error: TracecatApiError) => {
       switch (error.status) {
