@@ -224,11 +224,12 @@ class WorkflowImportService(BaseWorkspaceService):
         # 1. Add new WorkflowDefinition (versioned)
         defn_service = WorkflowDefinitionsService(session=self.session, role=self.role)
         wf_id = WorkflowUUID.new(existing_workflow.id)
-        await defn_service.create_workflow_definition(
+        defn = await defn_service.create_workflow_definition(
             wf_id, remote_workflow.definition, commit=False
         )
 
         # 2. Update workflow metadata
+        existing_workflow.version = defn.version
         existing_workflow.title = remote_workflow.definition.title
         existing_workflow.description = remote_workflow.definition.description
 
@@ -270,6 +271,13 @@ class WorkflowImportService(BaseWorkspaceService):
             dsl, workflow_id=wf_id, commit=False, workflow_alias=remote_defn.alias
         )
         await self.session.flush()
+
+        # Create WorkflowDefinition (versioned)
+        defn_service = WorkflowDefinitionsService(session=self.session, role=self.role)
+        defn = await defn_service.create_workflow_definition(wf_id, dsl, commit=False)
+
+        # Update workflow version to match definition
+        workflow.version = defn.version
 
         # Handle additional remote-specific entities
         await self._create_schedules(workflow, remote_defn.schedules)
