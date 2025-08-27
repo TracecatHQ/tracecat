@@ -40,14 +40,32 @@ class EntityFieldOptionCreate(BaseModel):
     key: str | None = Field(default=None, max_length=255)
     label: str = Field(..., min_length=1, max_length=255)
 
-    def resolve_key(self) -> str:
-        """Return the effective option key.
+    @model_validator(mode="before")
+    @classmethod
+    def set_key_from_label(cls, values: dict[str, Any]) -> dict[str, Any]:
+        # If key is None, empty, or not provided, use slugified label
+        if not values.get("key") and "label" in values:
+            values["key"] = slugify(str(values["label"]), separator="_")
+        return values
 
-        - If `key` is provided, normalize it to snake_case via slugify.
-        - If `key` is missing/empty, generate it from the label.
-        """
-        base = self.key if (self.key and self.key.strip()) else self.label
-        return slugify(str(base), separator="_")
+    @field_validator("key", mode="after")
+    @classmethod
+    def ensure_key_is_set(cls, v: str | None, info) -> str:
+        # After model validation, ensure key is always a string
+        if v is None or v == "":
+            # This shouldn't happen if model_validator worked, but as a safety net
+            if "label" in info.data:
+                return slugify(str(info.data["label"]), separator="_")
+            raise ValueError("Key cannot be None when label is not provided")
+        return v
+
+    @property
+    def resolved_key(self) -> str:
+        """Get the key, guaranteed to be a non-empty string after validation."""
+        # Type assertion - we know it's a string after validation
+        if self.key is None:
+            raise ValueError("Field key cannot be empty")
+        return self.key
 
 
 class EntityFieldCreate(BaseModel):
@@ -92,7 +110,7 @@ class EntityFieldCreate(BaseModel):
 
         # Validate unique option keys (after normalization/autogeneration)
         if self.options:
-            keys = [opt.resolve_key() for opt in self.options]
+            keys = [opt.resolved_key for opt in self.options]
             if len(keys) != len(set(keys)):
                 raise ValueError("Duplicate option key(s) found in options list")
 
@@ -108,7 +126,7 @@ class EntityFieldCreate(BaseModel):
                         "Options must be provided when setting a default for SELECT/MULTI_SELECT"
                     )
                 # Ensure keys are normalized/generated using the option model logic
-                opt_keys = {opt.resolve_key() for opt in self.options}
+                opt_keys = {opt.resolved_key for opt in self.options}
                 if self.type == FieldType.SELECT:
                     if self.default_value not in opt_keys:
                         raise ValueError(
@@ -146,7 +164,7 @@ class EntityFieldUpdate(BaseModel):
     @model_validator(mode="after")
     def validate_options_uniqueness(self) -> Self:
         if self.options:
-            keys = [opt.resolve_key() for opt in self.options]
+            keys = [opt.resolved_key for opt in self.options]
             if len(keys) != len(set(keys)):
                 raise ValueError("Duplicate option key(s) found in options list")
         return self

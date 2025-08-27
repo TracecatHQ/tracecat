@@ -761,11 +761,7 @@ class TestEntitiesServiceIntegration:
                 key="state",
                 type=FieldType.SELECT,
                 display_name="State",
-                options=[
-                    EntityFieldOptionCreate(
-                        label="In Progress"
-                    )  # key omitted to test autofill
-                ],
+                options=[EntityFieldOptionCreate(label="In Progress")],
                 default_value="in_progress",
             ),
         )

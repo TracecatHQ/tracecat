@@ -200,7 +200,10 @@ class EntityFieldsService(BaseWorkspaceService):
             # Prefer relationship assignment for clarity; include field_id for type checkers
             field.options = [
                 EntityFieldOption(
-                    field_id=field.id, field=field, key=opt.key, label=opt.label
+                    field_id=field.id,
+                    field=field,
+                    key=opt.resolved_key,
+                    label=opt.label,
                 )
                 for opt in params.options
             ]
@@ -249,7 +252,8 @@ class EntityFieldsService(BaseWorkspaceService):
             field = (await self.session.exec(reload_stmt)).one()
 
             existing_by_key = {opt.key: opt for opt in field.options}
-            new_by_key = {opt.key: opt for opt in params.options}
+            # Normalize/generated keys are ensured by the option model
+            new_by_key = {opt.resolved_key: opt for opt in params.options}
 
             # Build new relationship collection preserving existing rows when possible
             next_options: list[EntityFieldOption] = []
@@ -264,7 +268,7 @@ class EntityFieldsService(BaseWorkspaceService):
                         EntityFieldOption(
                             field_id=field.id,
                             field=field,
-                            key=new_opt.key,
+                            key=new_opt.resolved_key,
                             label=new_opt.label,
                         )
                     )
