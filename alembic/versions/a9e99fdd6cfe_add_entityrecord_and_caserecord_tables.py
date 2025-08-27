@@ -41,9 +41,9 @@ def upgrade() -> None:
     sa.Column('surrogate_id', sa.Integer(), nullable=False),
     sa.Column('owner_id', sqlmodel.sql.sqltypes.GUID(), nullable=False),
     sa.Column('id', sqlmodel.sql.sqltypes.GUID(), nullable=False),
-    sa.Column('case_id', sa.UUID(), nullable=True),
-    sa.Column('entity_id', sa.UUID(), nullable=True),
-    sa.Column('record_id', sa.UUID(), nullable=True),
+    sa.Column('case_id', sa.UUID(), nullable=False),
+    sa.Column('entity_id', sa.UUID(), nullable=False),
+    sa.Column('record_id', sa.UUID(), nullable=False),
     sa.ForeignKeyConstraint(['case_id'], ['cases.id'], ondelete='CASCADE'),
     sa.ForeignKeyConstraint(['entity_id'], ['entity.id'], ondelete='CASCADE'),
     sa.ForeignKeyConstraint(['record_id'], ['entity_record.id'], ondelete='CASCADE'),
@@ -70,7 +70,7 @@ def downgrade() -> None:
     op.drop_index('idx_case_record_case_entity', table_name='case_record')
     op.drop_index('idx_case_record_case', table_name='case_record')
     op.drop_table('case_record')
-    op.drop_index('idx_record_gin', table_name='entity_record', postgresql_using='gin')
+    op.drop_index('idx_record_gin', table_name='entity_record')
     op.drop_index('idx_record_entity', table_name='entity_record')
     op.drop_table('entity_record')
     # ### end Alembic commands ###

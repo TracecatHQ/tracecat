@@ -1501,13 +1501,19 @@ class CaseRecord(Resource, table=True):
 
     id: UUID4 = Field(default_factory=uuid.uuid4, primary_key=True, nullable=False)
     case_id: UUID4 = Field(
-        sa_column=Column(UUID, ForeignKey("cases.id", ondelete="CASCADE")),
+        sa_column=Column(
+            UUID, ForeignKey("cases.id", ondelete="CASCADE"), nullable=False
+        ),
     )
     entity_id: UUID4 = Field(
-        sa_column=Column(UUID, ForeignKey("entity.id", ondelete="CASCADE"))
+        sa_column=Column(
+            UUID, ForeignKey("entity.id", ondelete="CASCADE"), nullable=False
+        )
     )
     record_id: UUID4 = Field(
-        sa_column=Column(UUID, ForeignKey("entity_record.id", ondelete="CASCADE"))
+        sa_column=Column(
+            UUID, ForeignKey("entity_record.id", ondelete="CASCADE"), nullable=False
+        )
     )
 
     # Relationships

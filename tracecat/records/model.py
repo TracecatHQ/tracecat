@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Any
 
 import orjson
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 MAX_BYTES = 200 * 1024  # 200 KB per-field
 
@@ -19,11 +19,14 @@ class RecordCreate(BaseModel):
 
     data: dict[str, Any] = Field(default_factory=dict)
 
-    def assert_payload_sizes(self) -> None:
+    @field_validator("data")
+    @classmethod
+    def enforce_value_sizes(cls, v: dict[str, Any]) -> dict[str, Any]:
         """Basic size guard on individual values to avoid excessively large payloads."""
-        for key, value in self.data.items():
+        for key, value in v.items():
             if len(orjson.dumps(value)) > MAX_BYTES:
                 raise ValueError(f"Field '{key}' value must be less than 200 KB")
+        return v
 
 
 class RecordUpdate(BaseModel):
@@ -35,10 +38,13 @@ class RecordUpdate(BaseModel):
 
     data: dict[str, Any] = Field(default_factory=dict)
 
-    def assert_payload_sizes(self) -> None:
-        for key, value in self.data.items():
+    @field_validator("data")
+    @classmethod
+    def enforce_value_sizes(cls, v: dict[str, Any]) -> dict[str, Any]:
+        for key, value in v.items():
             if len(orjson.dumps(value)) > MAX_BYTES:
                 raise ValueError(f"Field '{key}' value must be less than 200 KB")
+        return v
 
 
 class RecordRead(BaseModel):

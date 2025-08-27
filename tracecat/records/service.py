@@ -145,24 +145,37 @@ class RecordService(BaseWorkspaceService):
         has_more = len(all_items) > params.limit
         page_items = all_items[: params.limit] if has_more else all_items
 
+        # When reverse, presentation should remain consistent (newest first)
+        if params.cursor and params.reverse:
+            page_items = list(reversed(page_items))
+
         next_cursor = None
         prev_cursor = None
         has_previous = params.cursor is not None
 
-        if has_more and page_items:
-            last_item = page_items[-1]
-            next_cursor = paginator.encode_cursor(last_item.created_at, last_item.id)
-
-        if params.cursor and page_items:
+        if page_items:
             first_item = page_items[0]
+            last_item = page_items[-1]
+
             if params.reverse:
-                next_cursor = paginator.encode_cursor(
-                    first_item.created_at, first_item.id
-                )
+                # Swap next/prev when reversing
+                if has_more:
+                    prev_cursor = paginator.encode_cursor(
+                        last_item.created_at, last_item.id
+                    )
+                if params.cursor:
+                    next_cursor = paginator.encode_cursor(
+                        first_item.created_at, first_item.id
+                    )
             else:
-                prev_cursor = paginator.encode_cursor(
-                    first_item.created_at, first_item.id
-                )
+                if has_more:
+                    next_cursor = paginator.encode_cursor(
+                        last_item.created_at, last_item.id
+                    )
+                if params.cursor:
+                    prev_cursor = paginator.encode_cursor(
+                        first_item.created_at, first_item.id
+                    )
 
         items = [
             RecordRead(
@@ -233,24 +246,35 @@ class RecordService(BaseWorkspaceService):
         has_more = len(all_items) > params.limit
         page_items = all_items[: params.limit] if has_more else all_items
 
+        if params.cursor and params.reverse:
+            page_items = list(reversed(page_items))
+
         next_cursor = None
         prev_cursor = None
         has_previous = params.cursor is not None
 
-        if has_more and page_items:
-            last_item = page_items[-1]
-            next_cursor = paginator.encode_cursor(last_item.created_at, last_item.id)
-
-        if params.cursor and page_items:
+        if page_items:
             first_item = page_items[0]
+            last_item = page_items[-1]
+
             if params.reverse:
-                next_cursor = paginator.encode_cursor(
-                    first_item.created_at, first_item.id
-                )
+                if has_more:
+                    prev_cursor = paginator.encode_cursor(
+                        last_item.created_at, last_item.id
+                    )
+                if params.cursor:
+                    next_cursor = paginator.encode_cursor(
+                        first_item.created_at, first_item.id
+                    )
             else:
-                prev_cursor = paginator.encode_cursor(
-                    first_item.created_at, first_item.id
-                )
+                if has_more:
+                    next_cursor = paginator.encode_cursor(
+                        last_item.created_at, last_item.id
+                    )
+                if params.cursor:
+                    prev_cursor = paginator.encode_cursor(
+                        first_item.created_at, first_item.id
+                    )
 
         items = [
             RecordRead(
@@ -301,9 +325,6 @@ class RecordService(BaseWorkspaceService):
         if entity.owner_id != self.workspace_id:
             raise TracecatNotFoundError("Entity not found")
 
-        # Basic per-field size checks
-        params.assert_payload_sizes()
-
         fields = await self._get_active_fields(entity)
         normalized = self._validate_and_coerce(params.data, fields)
 
@@ -327,7 +348,6 @@ class RecordService(BaseWorkspaceService):
         stmt = select(Entity).where(Entity.id == record.entity_id)
         entity = (await self.session.exec(stmt)).one()
 
-        params.assert_payload_sizes()
         fields = await self._get_active_fields(entity)
         normalized = self._validate_and_coerce(params.data, fields)
 
