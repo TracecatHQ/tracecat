@@ -145,37 +145,24 @@ class RecordService(BaseWorkspaceService):
         has_more = len(all_items) > params.limit
         page_items = all_items[: params.limit] if has_more else all_items
 
-        # When reverse, presentation should remain consistent (newest first)
-        if params.cursor and params.reverse:
-            page_items = list(reversed(page_items))
-
         next_cursor = None
         prev_cursor = None
         has_previous = params.cursor is not None
 
-        if page_items:
-            first_item = page_items[0]
+        if has_more and page_items:
             last_item = page_items[-1]
+            next_cursor = paginator.encode_cursor(last_item.created_at, last_item.id)
 
+        if params.cursor and page_items:
+            first_item = page_items[0]
             if params.reverse:
-                # Swap next/prev when reversing
-                if has_more:
-                    prev_cursor = paginator.encode_cursor(
-                        last_item.created_at, last_item.id
-                    )
-                if params.cursor:
-                    next_cursor = paginator.encode_cursor(
-                        first_item.created_at, first_item.id
-                    )
+                next_cursor = paginator.encode_cursor(
+                    first_item.created_at, first_item.id
+                )
             else:
-                if has_more:
-                    next_cursor = paginator.encode_cursor(
-                        last_item.created_at, last_item.id
-                    )
-                if params.cursor:
-                    prev_cursor = paginator.encode_cursor(
-                        first_item.created_at, first_item.id
-                    )
+                prev_cursor = paginator.encode_cursor(
+                    first_item.created_at, first_item.id
+                )
 
         items = [
             RecordRead(
@@ -246,35 +233,24 @@ class RecordService(BaseWorkspaceService):
         has_more = len(all_items) > params.limit
         page_items = all_items[: params.limit] if has_more else all_items
 
-        if params.cursor and params.reverse:
-            page_items = list(reversed(page_items))
-
         next_cursor = None
         prev_cursor = None
         has_previous = params.cursor is not None
 
-        if page_items:
-            first_item = page_items[0]
+        if has_more and page_items:
             last_item = page_items[-1]
+            next_cursor = paginator.encode_cursor(last_item.created_at, last_item.id)
 
+        if params.cursor and page_items:
+            first_item = page_items[0]
             if params.reverse:
-                if has_more:
-                    prev_cursor = paginator.encode_cursor(
-                        last_item.created_at, last_item.id
-                    )
-                if params.cursor:
-                    next_cursor = paginator.encode_cursor(
-                        first_item.created_at, first_item.id
-                    )
+                next_cursor = paginator.encode_cursor(
+                    first_item.created_at, first_item.id
+                )
             else:
-                if has_more:
-                    next_cursor = paginator.encode_cursor(
-                        last_item.created_at, last_item.id
-                    )
-                if params.cursor:
-                    prev_cursor = paginator.encode_cursor(
-                        first_item.created_at, first_item.id
-                    )
+                prev_cursor = paginator.encode_cursor(
+                    first_item.created_at, first_item.id
+                )
 
         items = [
             RecordRead(
