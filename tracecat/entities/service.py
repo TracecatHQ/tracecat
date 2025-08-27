@@ -83,6 +83,9 @@ class EntityService(BaseWorkspaceService):
         return entity
 
     async def deactivate_entity(self, entity: Entity) -> Entity:
+        # Ensure workspace ownership
+        if entity.owner_id != self.workspace_id:
+            raise TracecatNotFoundError("Entity not found")
         if not entity.is_active:
             return entity
         entity.is_active = False
@@ -91,6 +94,9 @@ class EntityService(BaseWorkspaceService):
         return entity
 
     async def activate_entity(self, entity: Entity) -> Entity:
+        # Ensure workspace ownership
+        if entity.owner_id != self.workspace_id:
+            raise TracecatNotFoundError("Entity not found")
         if entity.is_active:
             return entity
         entity.is_active = True
@@ -187,8 +193,11 @@ class EntityFieldsService(BaseWorkspaceService):
 
         # Handle options for SELECT/MULTI_SELECT
         if params.options:
+            # Prefer relationship assignment for clarity; include field_id for type checkers
             field.options = [
-                EntityFieldOption(field_id=field.id, key=opt.key, label=opt.label)
+                EntityFieldOption(
+                    field_id=field.id, field=field, key=opt.key, label=opt.label
+                )
                 for opt in params.options
             ]
 
@@ -249,7 +258,10 @@ class EntityFieldsService(BaseWorkspaceService):
                 else:
                     next_options.append(
                         EntityFieldOption(
-                            field_id=field.id, key=new_opt.key, label=new_opt.label
+                            field_id=field.id,
+                            field=field,
+                            key=new_opt.key,
+                            label=new_opt.label,
                         )
                     )
 
@@ -267,6 +279,9 @@ class EntityFieldsService(BaseWorkspaceService):
         return result.one()
 
     async def deactivate_field(self, field: EntityField) -> EntityField:
+        # Ensure workspace ownership
+        if field.owner_id != self.workspace_id:
+            raise TracecatNotFoundError("Field not found")
         if not field.is_active:
             return field
         field.is_active = False
@@ -275,6 +290,9 @@ class EntityFieldsService(BaseWorkspaceService):
         return field
 
     async def activate_field(self, field: EntityField) -> EntityField:
+        # Ensure workspace ownership
+        if field.owner_id != self.workspace_id:
+            raise TracecatNotFoundError("Field not found")
         if field.is_active:
             return field
         field.is_active = True
