@@ -45,7 +45,7 @@ export default function EntityDetailPage() {
     includeInactive
   )
 
-  const { mutateAsync: createField } = useMutation({
+  const { mutateAsync: createField, isPending: isCreatingField } = useMutation({
     mutationFn: async (data: EntityFieldCreate) =>
       await entitiesCreateField({
         workspaceId,
@@ -175,6 +175,7 @@ export default function EntityDetailPage() {
         onSubmit={async (data) => {
           await createField(data)
         }}
+        isSubmitting={isCreatingField}
       />
       <EditFieldDialog
         field={fieldToEdit}

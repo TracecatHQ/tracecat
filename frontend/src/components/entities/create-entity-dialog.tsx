@@ -1,7 +1,6 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
-import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import { IconPicker } from "@/components/form/icon-picker"
@@ -45,15 +44,15 @@ interface CreateEntityDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   onSubmit: (data: CreateEntityFormData) => Promise<void>
+  isSubmitting?: boolean
 }
 
 export function CreateEntityDialog({
   open,
   onOpenChange,
   onSubmit,
+  isSubmitting = false,
 }: CreateEntityDialogProps) {
-  const [isSubmitting, setIsSubmitting] = useState(false)
-
   const form = useForm<CreateEntityFormData>({
     resolver: zodResolver(createEntitySchema),
     defaultValues: {
@@ -65,16 +64,9 @@ export function CreateEntityDialog({
   })
 
   const handleSubmit = async (data: CreateEntityFormData) => {
-    setIsSubmitting(true)
-    try {
-      await onSubmit(data)
-      form.reset()
-      onOpenChange(false)
-    } catch (error) {
-      console.error("Failed to create entity:", error)
-    } finally {
-      setIsSubmitting(false)
-    }
+    await onSubmit(data)
+    form.reset()
+    onOpenChange(false)
   }
 
   return (

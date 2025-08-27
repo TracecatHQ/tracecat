@@ -13,12 +13,11 @@ import {
   ToggleLeft,
   Type,
 } from "lucide-react"
-import { useEffect, useMemo, useState } from "react"
+import { useMemo } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import type { EntityFieldCreate, FieldType } from "@/client"
 import { MultiTagCommandInput } from "@/components/tags-input"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -165,18 +164,15 @@ interface CreateFieldDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   onSubmit: (data: EntityFieldCreate) => Promise<void>
-  errorMessage?: string
+  isSubmitting?: boolean
 }
 
 export function CreateFieldDialog({
   open,
   onOpenChange,
   onSubmit,
-  errorMessage,
+  isSubmitting = false,
 }: CreateFieldDialogProps) {
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const [submitError, setSubmitError] = useState<string | null>(null)
-
   const form = useForm<CreateFieldFormData>({
     resolver: zodResolver(createFieldSchema),
     defaultValues: {
@@ -200,70 +196,39 @@ export function CreateFieldDialog({
   )
 
   const handleSubmit = async (data: CreateFieldFormData) => {
-    setIsSubmitting(true)
-    try {
-      setSubmitError(null)
-      const processed = {
-        key: data.key,
-        type: data.type,
-        display_name: data.display_name,
-      } as EntityFieldCreate
+    const processed = {
+      key: data.key,
+      type: data.type,
+      display_name: data.display_name,
+    } as EntityFieldCreate
 
-      if (data.description && data.description !== "") {
-        processed.description = data.description
-      }
-
-      // Parse the default value based on the field type
-      const parsedDefaultValue = parseDefaultValue(
-        data.type,
-        data.default_value
-      )
-      if (parsedDefaultValue !== undefined) {
-        processed.default_value = parsedDefaultValue
-      }
-
-      if (isSelectField) {
-        if (data.options && data.options.length > 0) {
-          processed.options = data.options.map((label) => ({ label }))
-        } else {
-          throw new Error("Please add at least one option for this field type")
-        }
-      } else {
-        delete processed.options
-      }
-
-      await onSubmit(processed)
-      form.reset()
-      onOpenChange(false)
-    } catch (error: unknown) {
-      console.error("Failed to create field:", error)
-      let message = "Failed to create the field. Please try again."
-      const err = error as {
-        body?: { detail?: string | string[]; message?: string; error?: string }
-        message?: string
-        status?: number
-        statusText?: string
-      }
-      const detail = err?.body?.detail
-      if (Array.isArray(detail)) message = detail.join("\n")
-      else
-        message =
-          (typeof detail === "string" && detail) ||
-          err?.body?.message ||
-          err?.body?.error ||
-          (err?.status && err?.statusText
-            ? `${err.status} ${err.statusText}`
-            : err?.message) ||
-          message
-      setSubmitError(message)
-    } finally {
-      setIsSubmitting(false)
+    if (data.description && data.description !== "") {
+      processed.description = data.description
     }
-  }
 
-  useEffect(() => {
-    if (!open) setSubmitError(null)
-  }, [open])
+    // Parse the default value based on the field type
+    const parsedDefaultValue = parseDefaultValue(data.type, data.default_value)
+    if (parsedDefaultValue !== undefined) {
+      processed.default_value = parsedDefaultValue
+    }
+
+    if (isSelectField) {
+      if (!data.options || data.options.length === 0) {
+        form.setError("options", {
+          type: "manual",
+          message: "Please add at least one option for this field type",
+        })
+        return
+      }
+      processed.options = data.options.map((label) => ({ label }))
+    } else {
+      delete processed.options
+    }
+
+    await onSubmit(processed)
+    form.reset()
+    onOpenChange(false)
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -277,14 +242,6 @@ export function CreateFieldDialog({
             onSubmit={form.handleSubmit(handleSubmit)}
             className="space-y-4"
           >
-            {(submitError || errorMessage) && (
-              <Alert variant="destructive">
-                <AlertTitle>Failed to create field</AlertTitle>
-                <AlertDescription>
-                  {submitError || errorMessage}
-                </AlertDescription>
-              </Alert>
-            )}
             <FormField
               control={form.control}
               name="key"

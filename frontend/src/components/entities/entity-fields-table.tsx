@@ -1,21 +1,15 @@
 "use client"
 
-import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import {
   Braces,
   Calendar,
   CalendarClock,
-  CheckCircle,
   CircleDot,
-  Copy,
   Hash,
   ListTodo,
-  Pencil,
   SquareCheck,
   ToggleLeft,
-  Trash2,
   Type,
-  XCircle,
 } from "lucide-react"
 import { useState } from "react"
 import type { EntityFieldRead, FieldType } from "@/client"
@@ -25,25 +19,12 @@ import {
   type DataTableToolbarProps,
 } from "@/components/data-table"
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog"
+  FieldArchiveAlertDialog,
+  FieldDeleteAlertDialog,
+} from "@/components/entities/field-confirm-dialog"
+import { EntityFieldActions } from "@/components/entities/table-actions"
+import { ActiveDialog } from "@/components/entities/table-common"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
 import {
   Tooltip,
   TooltipContent,
@@ -86,19 +67,10 @@ export function EntityFieldsTable({
   const [selectedField, setSelectedField] = useState<EntityFieldRead | null>(
     null
   )
-  const [actionType, setActionType] = useState<"delete" | "deactivate" | null>(
-    null
-  )
+  const [activeDialog, setActiveDialog] = useState<ActiveDialog | null>(null)
 
   return (
-    <AlertDialog
-      onOpenChange={(isOpen) => {
-        if (!isOpen) {
-          setSelectedField(null)
-          setActionType(null)
-        }
-      }}
-    >
+    <>
       <DataTable
         data={fields}
         emptyMessage="No fields found."
@@ -217,76 +189,13 @@ export function EntityFieldsTable({
             cell: ({ row }) => {
               return (
                 <div className="flex justify-end">
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" className="size-8 p-0">
-                        <span className="sr-only">Open menu</span>
-                        <DotsHorizontalIcon className="size-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem
-                        onClick={() =>
-                          navigator.clipboard.writeText(row.original.id)
-                        }
-                      >
-                        <Copy className="mr-2 h-3 w-3" />
-                        Copy field ID
-                      </DropdownMenuItem>
-                      {onEditField && (
-                        <DropdownMenuItem
-                          onClick={() => onEditField(row.original)}
-                        >
-                          <Pencil className="mr-2 h-3 w-3" />
-                          Edit field
-                        </DropdownMenuItem>
-                      )}
-                      {row.original.is_active && onDeactivateField && (
-                        <>
-                          <DropdownMenuSeparator />
-                          <AlertDialogTrigger asChild>
-                            <DropdownMenuItem
-                              className="text-rose-500 focus:text-rose-600"
-                              onClick={() => {
-                                setSelectedField(row.original)
-                                setActionType("deactivate")
-                              }}
-                            >
-                              <XCircle className="mr-2 h-3 w-3" />
-                              Archive field
-                            </DropdownMenuItem>
-                          </AlertDialogTrigger>
-                        </>
-                      )}
-                      {!row.original.is_active && onReactivateField && (
-                        <DropdownMenuItem
-                          onClick={() =>
-                            void onReactivateField(row.original.id)
-                          }
-                        >
-                          <CheckCircle className="mr-2 h-3 w-3" />
-                          Restore field
-                        </DropdownMenuItem>
-                      )}
-                      {!row.original.is_active && onDeleteField && (
-                        <>
-                          <DropdownMenuSeparator />
-                          <AlertDialogTrigger asChild>
-                            <DropdownMenuItem
-                              className="text-rose-500 focus:text-rose-600"
-                              onClick={() => {
-                                setSelectedField(row.original)
-                                setActionType("delete")
-                              }}
-                            >
-                              <Trash2 className="mr-2 h-3 w-3" />
-                              Delete field
-                            </DropdownMenuItem>
-                          </AlertDialogTrigger>
-                        </>
-                      )}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                  <EntityFieldActions
+                    field={row.original}
+                    setSelectedField={(f) => setSelectedField(f)}
+                    setActiveDialog={setActiveDialog}
+                    onReactivateField={onReactivateField}
+                    onEdit={onEditField}
+                  />
                 </div>
               )
             },
@@ -294,56 +203,28 @@ export function EntityFieldsTable({
         ]}
         toolbarProps={defaultToolbarProps}
       />
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>
-            {actionType === "delete"
-              ? "Delete field permanently"
-              : "Archive field"}
-          </AlertDialogTitle>
-          <AlertDialogDescription>
-            {actionType === "delete" ? (
-              <>
-                Are you sure you want to permanently delete the field{" "}
-                <strong>{selectedField?.display_name}</strong>? This action
-                cannot be undone and will delete all existing values for this
-                field across all records.
-              </>
-            ) : (
-              <>
-                Are you sure you want to archive the field{" "}
-                <strong>{selectedField?.display_name}</strong>? The field will
-                be hidden but data will be preserved.
-              </>
-            )}
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
-          <AlertDialogAction
-            variant={actionType === "delete" ? "destructive" : "default"}
-            onClick={async () => {
-              if (selectedField) {
-                try {
-                  if (actionType === "delete" && onDeleteField) {
-                    await onDeleteField(selectedField.id)
-                  } else if (actionType === "deactivate" && onDeactivateField) {
-                    await onDeactivateField(selectedField.id)
-                  }
-                  setSelectedField(null)
-                  setActionType(null)
-                } catch (error) {
-                  console.error(`Failed to ${actionType} field:`, error)
-                }
-              }
-            }}
-            disabled={isDeleting}
-          >
-            {actionType === "delete" ? "Delete Permanently" : "Archive"}
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+      {/* Confirmation dialogs */}
+      {onDeactivateField && (
+        <FieldArchiveAlertDialog
+          open={activeDialog === ActiveDialog.FieldArchive}
+          onOpenChange={() => setActiveDialog(null)}
+          selectedField={selectedField}
+          setSelectedField={setSelectedField}
+          onConfirm={onDeactivateField}
+          isPending={isDeleting}
+        />
+      )}
+      {onDeleteField && (
+        <FieldDeleteAlertDialog
+          open={activeDialog === ActiveDialog.FieldDelete}
+          onOpenChange={() => setActiveDialog(null)}
+          selectedField={selectedField}
+          setSelectedField={setSelectedField}
+          onConfirm={onDeleteField}
+          isPending={isDeleting}
+        />
+      )}
+    </>
   )
 }
 

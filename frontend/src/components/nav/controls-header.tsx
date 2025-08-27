@@ -1,6 +1,6 @@
 "use client"
 
-import { useQueryClient } from "@tanstack/react-query"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { format, formatDistanceToNow } from "date-fns"
 import { Calendar, PanelRight, Plus } from "lucide-react"
 import Link from "next/link"
@@ -189,35 +189,39 @@ function EntitiesActions() {
   const workspaceId = useWorkspaceId()
   const queryClient = useQueryClient()
 
-  const handleCreateEntity = async (data: {
-    key: string
-    display_name: string
-    description?: string
-    icon?: string
-  }) => {
-    try {
-      await entitiesCreateEntity({
-        workspaceId,
-        requestBody: {
-          key: data.key,
-          display_name: data.display_name,
-          description: data.description,
-          icon: data.icon,
-        },
-      })
-      queryClient.invalidateQueries({ queryKey: ["entities", workspaceId] })
-      toast({
-        title: "Entity created",
-        description: `${data.display_name} has been created successfully.`,
-      })
-    } catch (_err) {
-      toast({
-        title: "Error creating entity",
-        description: "Failed to create entity. Please try again.",
-        variant: "destructive",
-      })
-    }
-  }
+  const { mutateAsync: createEntity, isPending: isCreatingEntity } =
+    useMutation({
+      mutationFn: async (data: {
+        key: string
+        display_name: string
+        description?: string
+        icon?: string
+      }) =>
+        await entitiesCreateEntity({
+          workspaceId,
+          requestBody: {
+            key: data.key,
+            display_name: data.display_name,
+            description: data.description,
+            icon: data.icon,
+          },
+        }),
+      onSuccess: (_, data) => {
+        queryClient.invalidateQueries({ queryKey: ["entities", workspaceId] })
+        toast({
+          title: "Entity created",
+          description: `${data.display_name} has been created successfully.`,
+        })
+        setCreateEntityDialogOpen(false)
+      },
+      onError: (_err) => {
+        toast({
+          title: "Error creating entity",
+          description: "Failed to create entity. Please try again.",
+          variant: "destructive",
+        })
+      },
+    })
 
   return (
     <div className="flex items-center gap-2">
@@ -233,7 +237,10 @@ function EntitiesActions() {
       <CreateEntityDialog
         open={createEntityDialogOpen}
         onOpenChange={setCreateEntityDialogOpen}
-        onSubmit={handleCreateEntity}
+        onSubmit={async (data) => {
+          await createEntity(data)
+        }}
+        isSubmitting={isCreatingEntity}
       />
     </div>
   )
