@@ -21,8 +21,8 @@ class EntityCreate(BaseModel):
         description="Immutable entity key (snake_case)",
     )
     display_name: str = Field(..., min_length=1, max_length=255)
-    description: str | None = Field(None, max_length=1000)
-    icon: str | None = Field(None, max_length=255)
+    description: str | None = Field(default=None, max_length=1000)
+    icon: str | None = Field(default=None, max_length=255)
 
     @field_validator("key", mode="before")
     @classmethod
@@ -31,30 +31,23 @@ class EntityCreate(BaseModel):
 
 
 class EntityUpdate(BaseModel):
-    display_name: str | None = Field(None, max_length=255)
-    description: str | None = Field(None, max_length=1000)
-    icon: str | None = Field(None, max_length=255)
+    display_name: str | None = Field(default=None, max_length=255)
+    description: str | None = Field(default=None, max_length=1000)
+    icon: str | None = Field(default=None, max_length=255)
 
 
 class EntityFieldOptionCreate(BaseModel):
+    key: str | None = Field(default=None, max_length=255)
     label: str = Field(..., min_length=1, max_length=255)
-    key: str = Field(
-        ..., min_length=1, max_length=255, description="Normalized option key"
-    )
 
-    @model_validator(mode="before")
-    @classmethod
-    def ensure_key(cls, data: Any):
-        # If key is not provided, derive from label before standard field validators
-        if isinstance(data, dict):
-            if not data.get("key") and "label" in data:
-                data = {**data, "key": slugify(str(data["label"]), separator="_")}
-        return data
+    def resolve_key(self) -> str:
+        """Return the effective option key.
 
-    @field_validator("key", mode="before")
-    @classmethod
-    def normalize_key(cls, v: str) -> str:
-        return slugify(str(v), separator="_")
+        - If `key` is provided, normalize it to snake_case via slugify.
+        - If `key` is missing/empty, generate it from the label.
+        """
+        base = self.key if (self.key and self.key.strip()) else self.label
+        return slugify(str(base), separator="_")
 
 
 class EntityFieldCreate(BaseModel):
@@ -66,17 +59,20 @@ class EntityFieldCreate(BaseModel):
     )
     type: FieldType
     display_name: str = Field(..., min_length=1, max_length=255)
-    description: str | None = Field(None, max_length=1000)
-    default_value: dict[str, Any] | list[Any] | None = Field(
-        None, description="Default value for the field"
+    description: str | None = Field(default=None, max_length=1000)
+    # Allow any JSON-serializable scalar/collection or null; coercion runs in validator
+    default_value: Any | None = Field(
+        default=None, description="Default value for the field"
     )
     options: list[EntityFieldOptionCreate] | None = None
 
     @field_validator("default_value", mode="before")
     @classmethod
-    def check_default_value_size(cls, v: Any) -> dict[str, Any] | None:
+    def check_default_value_size(cls, v: Any) -> Any:
+        # Ensure we always return the input value so later validators see it
         if len(orjson.dumps(v)) > MAX_BYTES:
             raise ValueError("Default value must be less than 200 KB")
+        return v
 
     @field_validator("key", mode="before")
     @classmethod
@@ -94,9 +90,9 @@ class EntityFieldCreate(BaseModel):
                 "Options are only allowed for SELECT or MULTI_SELECT types"
             )
 
-        # Validate unique option keys
+        # Validate unique option keys (after normalization/autogeneration)
         if self.options:
-            keys = [opt.key for opt in self.options]
+            keys = [opt.resolve_key() for opt in self.options]
             if len(keys) != len(set(keys)):
                 raise ValueError("Duplicate option key(s) found in options list")
 
@@ -111,7 +107,8 @@ class EntityFieldCreate(BaseModel):
                     raise ValueError(
                         "Options must be provided when setting a default for SELECT/MULTI_SELECT"
                     )
-                opt_keys = {opt.key for opt in self.options}
+                # Ensure keys are normalized/generated using the option model logic
+                opt_keys = {opt.resolve_key() for opt in self.options}
                 if self.type == FieldType.SELECT:
                     if self.default_value not in opt_keys:
                         raise ValueError(
@@ -130,25 +127,26 @@ class EntityFieldCreate(BaseModel):
 
 
 class EntityFieldUpdate(BaseModel):
-    display_name: str | None = Field(None, max_length=255)
-    description: str | None = Field(None, max_length=1000)
+    display_name: str | None = Field(default=None, max_length=255)
+    description: str | None = Field(default=None, max_length=1000)
     # Explicitly allow setting default_value to null
-    default_value: dict[str, Any] | list[Any] | None = Field(
-        None, description="Default value for the field"
+    default_value: Any | None = Field(
+        default=None, description="Default value for the field"
     )
     # Full replacement list for enum options (optional)
     options: list[EntityFieldOptionCreate] | None = None
 
     @field_validator("default_value", mode="before")
     @classmethod
-    def check_default_value_size(cls, v: Any) -> dict[str, Any] | None:
+    def check_default_value_size(cls, v: Any) -> Any:
         if len(orjson.dumps(v)) > MAX_BYTES:
             raise ValueError("Default value must be less than 200 KB")
+        return v
 
     @model_validator(mode="after")
     def validate_options_uniqueness(self) -> Self:
         if self.options:
-            keys = [opt.key for opt in self.options]
+            keys = [opt.resolve_key() for opt in self.options]
             if len(keys) != len(set(keys)):
                 raise ValueError("Duplicate option key(s) found in options list")
         return self
@@ -182,6 +180,7 @@ def coerce_default_value(field_type: FieldType, value: Any) -> Any:
                     return bool(value)
             return bool(value)
         case FieldType.JSON:
+            # Accept only mapping or sequence (list) types for JSON defaults
             if not isinstance(value, dict | list):
                 raise ValueError(
                     f"JSON field requires dict or list, got {type(value).__name__}"
