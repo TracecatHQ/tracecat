@@ -144,7 +144,7 @@ class User(SQLModelBaseUserDB, table=True):
         back_populates="user",
         sa_relationship_kwargs={
             "cascade": "all, delete",
-            "lazy": "select",
+            "lazy": "selectin",
         },
     )
     workspaces: list["Workspace"] = Relationship(
