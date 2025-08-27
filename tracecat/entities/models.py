@@ -139,7 +139,16 @@ def coerce_default_value(field_type: FieldType, value: Any) -> Any:
         case FieldType.TEXT:
             return str(value)
         case FieldType.BOOL:
-            # Keep simple coercion consistent with prior behavior
+            # Handle string representations of boolean values
+            if isinstance(value, str):
+                value_lower = value.lower()
+                if value_lower in ("true", "1", "yes", "on"):
+                    return True
+                elif value_lower in ("false", "0", "no", "off", ""):
+                    return False
+                else:
+                    # For other strings, use Python's bool() which returns False only for empty strings
+                    return bool(value)
             return bool(value)
         case FieldType.JSON:
             if not isinstance(value, dict | list):

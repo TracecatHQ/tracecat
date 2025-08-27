@@ -334,8 +334,8 @@ class TestDefaultValueEdgeCases:
         )
         assert f1.default_value is True
         assert f2.default_value is False
-        # Current behavior: bool("0") is True
-        assert f3.default_value is True
+        # Improved behavior: "0" string is now correctly treated as False
+        assert f3.default_value is False
 
     async def test_date_and_datetime_parsing(
         self, entities_service: EntityService
@@ -762,7 +762,9 @@ class TestEntitiesServiceIntegration:
                 type=FieldType.SELECT,
                 display_name="State",
                 options=[
-                    EntityFieldOptionCreate(label="In Progress", key="in_progress")
+                    EntityFieldOptionCreate(
+                        label="In Progress"
+                    )  # key omitted to test autofill
                 ],
                 default_value="in_progress",
             ),

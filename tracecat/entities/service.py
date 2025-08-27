@@ -71,6 +71,10 @@ class EntityService(BaseWorkspaceService):
         return entity
 
     async def update_entity(self, entity: Entity, params: EntityUpdate) -> Entity:
+        # Ensure workspace ownership
+        if entity.owner_id != self.workspace_id:
+            raise TracecatNotFoundError("Entity not found")
+
         set_fields = params.model_dump(exclude_unset=True)
         for key, value in set_fields.items():
             setattr(entity, key, value)
@@ -95,6 +99,10 @@ class EntityService(BaseWorkspaceService):
         return entity
 
     async def delete_entity(self, entity: Entity) -> None:
+        # Ensure workspace ownership
+        if entity.owner_id != self.workspace_id:
+            raise TracecatNotFoundError("Entity not found")
+
         await self.session.delete(entity)
         await self.session.commit()
 
@@ -122,6 +130,10 @@ class EntityFieldsService(BaseWorkspaceService):
         return result.all()
 
     async def get_field(self, entity: Entity, field_id: uuid.UUID) -> EntityField:
+        # Ensure workspace ownership
+        if entity.owner_id != self.workspace_id:
+            raise TracecatNotFoundError("Entity not found")
+
         stmt = (
             select(EntityField)
             .where(
@@ -137,6 +149,10 @@ class EntityFieldsService(BaseWorkspaceService):
         return field
 
     async def get_field_by_key(self, entity: Entity, key: str) -> EntityField:
+        # Ensure workspace ownership
+        if entity.owner_id != self.workspace_id:
+            raise TracecatNotFoundError("Entity not found")
+
         stmt = (
             select(EntityField)
             .where(
@@ -190,6 +206,10 @@ class EntityFieldsService(BaseWorkspaceService):
     async def update_field(
         self, field: EntityField, params: EntityFieldUpdate
     ) -> EntityField:
+        # Ensure workspace ownership
+        if field.owner_id != self.workspace_id:
+            raise TracecatNotFoundError("Field not found")
+
         # Update simple fields (immutable: key, type)
         set_fields = params.model_dump(exclude_unset=True)
 
@@ -198,7 +218,12 @@ class EntityFieldsService(BaseWorkspaceService):
         if "description" in set_fields:
             field.description = set_fields["description"]
         if "default_value" in set_fields:
-            field.default_value = set_fields["default_value"]
+            # Coerce and validate default value according to field type
+            from tracecat.entities.models import coerce_default_value
+
+            field.default_value = coerce_default_value(
+                field.type, set_fields["default_value"]
+            )
 
         # Handle options update if provided (PATCH behavior: add/update/remove)
         if params.options is not None:
@@ -258,5 +283,9 @@ class EntityFieldsService(BaseWorkspaceService):
         return field
 
     async def delete_field(self, field: EntityField) -> None:
+        # Ensure workspace ownership
+        if field.owner_id != self.workspace_id:
+            raise TracecatNotFoundError("Field not found")
+
         await self.session.delete(field)
         await self.session.commit()

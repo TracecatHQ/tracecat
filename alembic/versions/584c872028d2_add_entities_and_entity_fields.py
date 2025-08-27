@@ -27,7 +27,7 @@ def upgrade() -> None:
     sa.Column('updated_at', sa.TIMESTAMP(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.Column('surrogate_id', sa.Integer(), nullable=False),
     sa.Column('id', sqlmodel.sql.sqltypes.GUID(), nullable=False),
-    sa.Column('owner_id', sa.UUID(), nullable=True),
+    sa.Column('owner_id', sa.UUID(), nullable=False),
     sa.Column('key', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
     sa.Column('display_name', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
     sa.Column('description', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
@@ -52,6 +52,7 @@ def upgrade() -> None:
     sa.Column('is_active', sa.Boolean(), nullable=False),
     sa.Column('default_value', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
     sa.ForeignKeyConstraint(['entity_id'], ['entities.id'], ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['owner_id'], ['workspace.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('surrogate_id'),
     sa.UniqueConstraint('entity_id', 'key', name='uq_entity_field_key'),
     sa.UniqueConstraint('id')
