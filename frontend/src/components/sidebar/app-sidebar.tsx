@@ -3,6 +3,7 @@
 import {
   KeyRoundIcon,
   ListTodoIcon,
+  ShapesIcon,
   SquareStackIcon,
   Table2Icon,
   UsersIcon,
@@ -65,6 +66,12 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       url: `${basePath}/tables`,
       icon: Table2Icon,
       isActive: pathname?.startsWith(`${basePath}/tables`),
+    },
+    {
+      title: "Entities",
+      url: `${basePath}/entities`,
+      icon: ShapesIcon,
+      isActive: pathname?.startsWith(`${basePath}/entities`),
     },
     {
       title: "Credentials",

@@ -1177,6 +1177,87 @@ export type EditorParamRead = {
   optional: boolean
 }
 
+export type EntityCreate = {
+  /**
+   * Immutable entity key (snake_case)
+   */
+  key: string
+  display_name: string
+  description?: string | null
+  icon?: string | null
+}
+
+export type EntityFieldCreate = {
+  /**
+   * Immutable field key (snake_case)
+   */
+  key: string
+  type: FieldType
+  display_name: string
+  description?: string | null
+  /**
+   * Default value for the field
+   */
+  default_value?: unknown | null
+  options?: Array<EntityFieldOptionCreate> | null
+}
+
+export type EntityFieldOptionCreate = {
+  key?: string | null
+  label: string
+}
+
+export type EntityFieldOptionRead = {
+  id: string
+  field_id: string
+  key: string
+  label: string
+  description?: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type EntityFieldRead = {
+  id: string
+  entity_id: string
+  key: string
+  type: FieldType
+  display_name: string
+  description?: string | null
+  is_active: boolean
+  default_value?: unknown | null
+  created_at: string
+  updated_at: string
+  options?: Array<EntityFieldOptionRead>
+}
+
+export type EntityFieldUpdate = {
+  display_name?: string | null
+  description?: string | null
+  /**
+   * Default value for the field
+   */
+  default_value?: unknown | null
+  options?: Array<EntityFieldOptionCreate> | null
+}
+
+export type EntityRead = {
+  id: string
+  key: string
+  display_name: string
+  description?: string | null
+  icon?: string | null
+  is_active: boolean
+  created_at: string
+  updated_at: string
+}
+
+export type EntityUpdate = {
+  display_name?: string | null
+  description?: string | null
+  icon?: string | null
+}
+
 export type ErrorDetails = {
   type: string
   loc: Array<number | string>
@@ -1321,6 +1402,20 @@ export type FieldDiff = {
   old: unknown
   new: unknown
 }
+
+/**
+ * Supported field types for entities.
+ */
+export type FieldType =
+  | "INTEGER"
+  | "NUMBER"
+  | "TEXT"
+  | "BOOL"
+  | "JSON"
+  | "DATETIME"
+  | "DATE"
+  | "SELECT"
+  | "MULTI_SELECT"
 
 export type Float = {
   component_id?: "float"
@@ -4298,6 +4393,113 @@ export type SchedulesSearchSchedulesData = {
 
 export type SchedulesSearchSchedulesResponse = Array<Schedule>
 
+export type EntitiesListEntitiesData = {
+  includeInactive?: boolean
+  workspaceId: string
+}
+
+export type EntitiesListEntitiesResponse = Array<EntityRead>
+
+export type EntitiesCreateEntityData = {
+  requestBody: EntityCreate
+  workspaceId: string
+}
+
+export type EntitiesCreateEntityResponse = unknown
+
+export type EntitiesGetEntityData = {
+  entityId: string
+  workspaceId: string
+}
+
+export type EntitiesGetEntityResponse = EntityRead
+
+export type EntitiesUpdateEntityData = {
+  entityId: string
+  requestBody: EntityUpdate
+  workspaceId: string
+}
+
+export type EntitiesUpdateEntityResponse = void
+
+export type EntitiesDeleteEntityData = {
+  entityId: string
+  workspaceId: string
+}
+
+export type EntitiesDeleteEntityResponse = void
+
+export type EntitiesDeactivateEntityData = {
+  entityId: string
+  workspaceId: string
+}
+
+export type EntitiesDeactivateEntityResponse = void
+
+export type EntitiesActivateEntityData = {
+  entityId: string
+  workspaceId: string
+}
+
+export type EntitiesActivateEntityResponse = void
+
+export type EntitiesCreateFieldData = {
+  entityId: string
+  requestBody: EntityFieldCreate
+  workspaceId: string
+}
+
+export type EntitiesCreateFieldResponse = unknown
+
+export type EntitiesListFieldsData = {
+  entityId: string
+  includeInactive?: boolean
+  workspaceId: string
+}
+
+export type EntitiesListFieldsResponse = Array<EntityFieldRead>
+
+export type EntitiesUpdateFieldData = {
+  entityId: string
+  fieldId: string
+  requestBody: EntityFieldUpdate
+  workspaceId: string
+}
+
+export type EntitiesUpdateFieldResponse = void
+
+export type EntitiesGetFieldData = {
+  entityId: string
+  fieldId: string
+  workspaceId: string
+}
+
+export type EntitiesGetFieldResponse = EntityFieldRead
+
+export type EntitiesDeleteFieldData = {
+  entityId: string
+  fieldId: string
+  workspaceId: string
+}
+
+export type EntitiesDeleteFieldResponse = void
+
+export type EntitiesDeactivateFieldData = {
+  entityId: string
+  fieldId: string
+  workspaceId: string
+}
+
+export type EntitiesDeactivateFieldResponse = void
+
+export type EntitiesActivateFieldData = {
+  entityId: string
+  fieldId: string
+  workspaceId: string
+}
+
+export type EntitiesActivateFieldResponse = void
+
 export type TagsListTagsData = {
   workspaceId: string
 }
@@ -5307,7 +5509,7 @@ export type PublicCheckHealthResponse = {
 
 export type $OpenApiTs = {
   "/webhooks/{workflow_id}/{secret}": {
-    get: {
+    post: {
       req: PublicIncomingWebhookData
       res: {
         /**
@@ -5320,7 +5522,7 @@ export type $OpenApiTs = {
         422: HTTPValidationError
       }
     }
-    post: {
+    get: {
       req: PublicIncomingWebhook1Data
       res: {
         /**
@@ -6088,6 +6290,204 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: Array<Schedule>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/entities": {
+    get: {
+      req: EntitiesListEntitiesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<EntityRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: EntitiesCreateEntityData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/entities/{entity_id}": {
+    get: {
+      req: EntitiesGetEntityData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: EntityRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: EntitiesUpdateEntityData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: EntitiesDeleteEntityData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/entities/{entity_id}/deactivate": {
+    patch: {
+      req: EntitiesDeactivateEntityData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/entities/{entity_id}/activate": {
+    patch: {
+      req: EntitiesActivateEntityData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/entities/{entity_id}/fields": {
+    post: {
+      req: EntitiesCreateFieldData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    get: {
+      req: EntitiesListFieldsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<EntityFieldRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/entities/{entity_id}/fields/{field_id}": {
+    patch: {
+      req: EntitiesUpdateFieldData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    get: {
+      req: EntitiesGetFieldData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: EntityFieldRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: EntitiesDeleteFieldData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/entities/{entity_id}/fields/{field_id}/deactivate": {
+    patch: {
+      req: EntitiesDeactivateFieldData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/entities/{entity_id}/fields/{field_id}/activate": {
+    patch: {
+      req: EntitiesActivateFieldData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
         /**
          * Validation Error
          */

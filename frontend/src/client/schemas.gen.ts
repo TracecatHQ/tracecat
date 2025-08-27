@@ -3465,6 +3465,425 @@ export const $EditorParamRead = {
   title: "EditorParamRead",
 } as const
 
+export const $EntityCreate = {
+  properties: {
+    key: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      title: "Key",
+      description: "Immutable entity key (snake_case)",
+    },
+    display_name: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      title: "Display Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    icon: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Icon",
+    },
+  },
+  type: "object",
+  required: ["key", "display_name"],
+  title: "EntityCreate",
+} as const
+
+export const $EntityFieldCreate = {
+  properties: {
+    key: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      title: "Key",
+      description: "Immutable field key (snake_case)",
+    },
+    type: {
+      $ref: "#/components/schemas/FieldType",
+    },
+    display_name: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      title: "Display Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    default_value: {
+      anyOf: [
+        {},
+        {
+          type: "null",
+        },
+      ],
+      title: "Default Value",
+      description: "Default value for the field",
+    },
+    options: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/EntityFieldOptionCreate",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Options",
+    },
+  },
+  type: "object",
+  required: ["key", "type", "display_name"],
+  title: "EntityFieldCreate",
+} as const
+
+export const $EntityFieldOptionCreate = {
+  properties: {
+    key: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Key",
+    },
+    label: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      title: "Label",
+    },
+  },
+  type: "object",
+  required: ["label"],
+  title: "EntityFieldOptionCreate",
+} as const
+
+export const $EntityFieldOptionRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    field_id: {
+      type: "string",
+      format: "uuid",
+      title: "Field Id",
+    },
+    key: {
+      type: "string",
+      title: "Key",
+    },
+    label: {
+      type: "string",
+      title: "Label",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: ["id", "field_id", "key", "label", "created_at", "updated_at"],
+  title: "EntityFieldOptionRead",
+} as const
+
+export const $EntityFieldRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    entity_id: {
+      type: "string",
+      format: "uuid",
+      title: "Entity Id",
+    },
+    key: {
+      type: "string",
+      title: "Key",
+    },
+    type: {
+      $ref: "#/components/schemas/FieldType",
+    },
+    display_name: {
+      type: "string",
+      title: "Display Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    is_active: {
+      type: "boolean",
+      title: "Is Active",
+    },
+    default_value: {
+      anyOf: [
+        {},
+        {
+          type: "null",
+        },
+      ],
+      title: "Default Value",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+    options: {
+      items: {
+        $ref: "#/components/schemas/EntityFieldOptionRead",
+      },
+      type: "array",
+      title: "Options",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "entity_id",
+    "key",
+    "type",
+    "display_name",
+    "is_active",
+    "created_at",
+    "updated_at",
+  ],
+  title: "EntityFieldRead",
+} as const
+
+export const $EntityFieldUpdate = {
+  properties: {
+    display_name: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Display Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    default_value: {
+      anyOf: [
+        {},
+        {
+          type: "null",
+        },
+      ],
+      title: "Default Value",
+      description: "Default value for the field",
+    },
+    options: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/EntityFieldOptionCreate",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Options",
+    },
+  },
+  type: "object",
+  title: "EntityFieldUpdate",
+} as const
+
+export const $EntityRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    key: {
+      type: "string",
+      title: "Key",
+    },
+    display_name: {
+      type: "string",
+      title: "Display Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    icon: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Icon",
+    },
+    is_active: {
+      type: "boolean",
+      title: "Is Active",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "key",
+    "display_name",
+    "is_active",
+    "created_at",
+    "updated_at",
+  ],
+  title: "EntityRead",
+} as const
+
+export const $EntityUpdate = {
+  properties: {
+    display_name: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Display Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    icon: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Icon",
+    },
+  },
+  type: "object",
+  title: "EntityUpdate",
+} as const
+
 export const $ErrorDetails = {
   properties: {
     type: {
@@ -3952,6 +4371,23 @@ export const $FieldDiff = {
   type: "object",
   required: ["field", "old", "new"],
   title: "FieldDiff",
+} as const
+
+export const $FieldType = {
+  type: "string",
+  enum: [
+    "INTEGER",
+    "NUMBER",
+    "TEXT",
+    "BOOL",
+    "JSON",
+    "DATETIME",
+    "DATE",
+    "SELECT",
+    "MULTI_SELECT",
+  ],
+  title: "FieldType",
+  description: "Supported field types for entities.",
 } as const
 
 export const $Float = {
