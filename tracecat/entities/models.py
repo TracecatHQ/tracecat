@@ -4,17 +4,25 @@ import uuid
 from datetime import datetime
 from typing import Any, Self, cast
 
+import orjson
 from pydantic import BaseModel, Field, field_validator, model_validator
 from slugify import slugify
 
 from tracecat.entities.enums import FieldType
 
+MAX_BYTES = 200 * 1024  # 200 KB
+
 
 class EntityCreate(BaseModel):
-    key: str = Field(..., min_length=1, description="Immutable entity key (snake_case)")
-    display_name: str
-    description: str | None = None
-    icon: str | None = None
+    key: str = Field(
+        ...,
+        min_length=1,
+        max_length=255,
+        description="Immutable entity key (snake_case)",
+    )
+    display_name: str = Field(..., min_length=1, max_length=255)
+    description: str | None = Field(None, max_length=1000)
+    icon: str | None = Field(None, max_length=255)
 
     @field_validator("key", mode="before")
     @classmethod
@@ -23,14 +31,16 @@ class EntityCreate(BaseModel):
 
 
 class EntityUpdate(BaseModel):
-    display_name: str | None = None
-    description: str | None = None
-    icon: str | None = None
+    display_name: str | None = Field(None, max_length=255)
+    description: str | None = Field(None, max_length=1000)
+    icon: str | None = Field(None, max_length=255)
 
 
 class EntityFieldOptionCreate(BaseModel):
-    label: str = Field(..., min_length=1)
-    key: str = Field(..., min_length=1, description="Normalized option key")
+    label: str = Field(..., min_length=1, max_length=255)
+    key: str = Field(
+        ..., min_length=1, max_length=255, description="Normalized option key"
+    )
 
     @model_validator(mode="before")
     @classmethod
@@ -48,12 +58,25 @@ class EntityFieldOptionCreate(BaseModel):
 
 
 class EntityFieldCreate(BaseModel):
-    key: str = Field(..., min_length=1, description="Immutable field key (snake_case)")
+    key: str = Field(
+        ...,
+        min_length=1,
+        max_length=255,
+        description="Immutable field key (snake_case)",
+    )
     type: FieldType
-    display_name: str
-    description: str | None = None
-    default_value: Any | None = None
+    display_name: str = Field(..., min_length=1, max_length=255)
+    description: str | None = Field(None, max_length=1000)
+    default_value: dict[str, Any] | list[Any] | None = Field(
+        None, description="Default value for the field"
+    )
     options: list[EntityFieldOptionCreate] | None = None
+
+    @field_validator("default_value", mode="before")
+    @classmethod
+    def check_default_value_size(cls, v: Any) -> dict[str, Any] | None:
+        if len(orjson.dumps(v)) > MAX_BYTES:
+            raise ValueError("Default value must be less than 200 KB")
 
     @field_validator("key", mode="before")
     @classmethod
@@ -107,12 +130,20 @@ class EntityFieldCreate(BaseModel):
 
 
 class EntityFieldUpdate(BaseModel):
-    display_name: str | None = None
-    description: str | None = None
+    display_name: str | None = Field(None, max_length=255)
+    description: str | None = Field(None, max_length=1000)
     # Explicitly allow setting default_value to null
-    default_value: Any | None = Field(default=None)
+    default_value: dict[str, Any] | list[Any] | None = Field(
+        None, description="Default value for the field"
+    )
     # Full replacement list for enum options (optional)
     options: list[EntityFieldOptionCreate] | None = None
+
+    @field_validator("default_value", mode="before")
+    @classmethod
+    def check_default_value_size(cls, v: Any) -> dict[str, Any] | None:
+        if len(orjson.dumps(v)) > MAX_BYTES:
+            raise ValueError("Default value must be less than 200 KB")
 
     @model_validator(mode="after")
     def validate_options_uniqueness(self) -> Self:
