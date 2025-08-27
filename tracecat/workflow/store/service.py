@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import cast
 
 from tracecat import __version__ as platform_version
-from tracecat.db.schemas import User, Workflow
+from tracecat.db.schemas import Workflow
 from tracecat.dsl.common import DSLInput
 from tracecat.git.utils import parse_git_url
 from tracecat.identifiers.workflow import WorkflowUUID
@@ -68,29 +68,6 @@ class WorkflowStoreService(BaseWorkspaceService):
             ) from e
         # Note: We could add ref support later if needed via params or workspace settings
 
-        # Build base message
-        base_message = params.message or f"Publish workflow: {dsl.title}"
-
-        # Default author
-        author_name = "Tracecat"
-        author_email = "noreply@tracecat.com"
-        augmented_message = base_message
-
-        # Try to get user info
-        if self.role.type == "user" and self.role.user_id:
-            db_user = await self.session.get(User, self.role.user_id)
-            if db_user and db_user.email:
-                # Build display name
-                display_name = (
-                    " ".join([p for p in [db_user.first_name, db_user.last_name] if p])
-                    or db_user.email.split("@")[0]
-                )
-                author_name = display_name
-                author_email = db_user.email
-                augmented_message = (
-                    f"{base_message}\n\nAuthored by {display_name} <{author_email}>"
-                )
-
         stable_path = get_definition_path(workflow_id)
         webhook = workflow.webhook
 
@@ -122,10 +99,9 @@ class WorkflowStoreService(BaseWorkspaceService):
         )
         push_obj = PushObject(data=defn, path=stable_path)
 
-        # Create Author and PushOptions
-        author = Author(name=author_name, email=author_email)
+        author = Author(name="Tracecat", email="noreply@tracecat.com")
         push_options = PushOptions(
-            message=augmented_message,
+            message=params.message or f"Publish workflow: {dsl.title}",
             author=author,
             create_pr=True,  # Create PR for review
         )

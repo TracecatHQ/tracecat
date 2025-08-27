@@ -55,7 +55,7 @@ class PushOptions:
     """Options controlling push/commit behavior."""
 
     message: str
-    author: Author | None = None
+    author: Author
     """Author of the commit"""
 
     create_pr: bool = False

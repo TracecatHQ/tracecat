@@ -9,7 +9,7 @@ from github.GithubException import GithubException
 from tracecat.dsl.common import DSLEntrypoint, DSLInput
 from tracecat.dsl.models import ActionStatement
 from tracecat.git.models import GitUrl
-from tracecat.sync import PushObject, PushOptions
+from tracecat.sync import Author, PushObject, PushOptions
 from tracecat.types.auth import Role
 from tracecat.workflow.store.models import RemoteRegistry, RemoteWorkflowDefinition
 from tracecat.workflow.store.sync import WorkflowSyncService
@@ -87,7 +87,10 @@ class TestWorkflowSyncService:
         push_obj = PushObject(
             data=sample_remote_workflow, path="workflows/test-workflow.yml"
         )
-        options = PushOptions(message="Update workflows", create_pr=False)
+        author = Author(name="Test User", email="test@example.com")
+        options = PushOptions(
+            message="Update workflows", author=author, create_pr=False
+        )
 
         mock_repo = Mock()
         mock_branch = Mock()
@@ -134,12 +137,15 @@ class TestWorkflowSyncService:
 
     @pytest.mark.anyio
     async def test_push_objects_with_stable_path(
-        self, workflow_sync_service, git_url, sample_workflow
+        self, workflow_sync_service, git_url, sample_remote_workflow
     ):
         """Test push with explicit stable path using PushObject."""
         stable_path = "workflows/wf_123abc.yml"
-        push_item = PushObject(data=sample_workflow, path=stable_path)
-        options = PushOptions(message="Update workflows", create_pr=False)
+        push_item = PushObject(data=sample_remote_workflow, path=stable_path)
+        author = Author(name="Test User", email="test@example.com")
+        options = PushOptions(
+            message="Update workflows", author=author, create_pr=False
+        )
 
         mock_repo = Mock()
         mock_branch = Mock()
@@ -193,7 +199,8 @@ class TestWorkflowSyncService:
         push_obj = PushObject(
             data=sample_remote_workflow, path="workflows/test-workflow.yml"
         )
-        options = PushOptions(message="Update workflows", create_pr=True)
+        author = Author(name="Test User", email="test@example.com")
+        options = PushOptions(message="Update workflows", author=author, create_pr=True)
 
         mock_repo = Mock()
         mock_branch = Mock()
@@ -221,10 +228,20 @@ class TestWorkflowSyncService:
                 "tracecat.workflow.store.sync.GitHubAppService"
             ) as mock_gh_service_class,
             patch("asyncio.to_thread") as mock_to_thread,
+            patch(
+                "tracecat.workflow.store.sync.WorkspaceService"
+            ) as mock_ws_service_class,
         ):
             mock_gh_service = AsyncMock()
             mock_gh_service.get_github_client_for_repo.return_value = mock_github_client
             mock_gh_service_class.return_value = mock_gh_service
+
+            # Mock WorkspaceService
+            mock_ws_service = AsyncMock()
+            mock_workspace = Mock()
+            mock_workspace.name = "Test Workspace"
+            mock_ws_service.get_workspace.return_value = mock_workspace
+            mock_ws_service_class.return_value = mock_ws_service
 
             # Mock asyncio.to_thread to return the direct result (not coroutine)
             async def mock_to_thread_impl(func, *args, **kwargs):
@@ -245,17 +262,23 @@ class TestWorkflowSyncService:
     @pytest.mark.anyio
     async def test_push_workflows_empty_objects(self, workflow_sync_service, git_url):
         """Test push fails with empty objects list."""
-        options = PushOptions(message="Update workflows")
+        author = Author(name="Test User", email="test@example.com")
+        options = PushOptions(message="Update workflows", author=author)
 
-        with pytest.raises(ValueError, match="No workflow objects to push"):
+        with pytest.raises(
+            ValueError, match="We only support pushing one workflow object at a time"
+        ):
             await workflow_sync_service.push(objects=[], url=git_url, options=options)
 
     @pytest.mark.anyio
     async def test_push_objects_empty_objects(self, workflow_sync_service, git_url):
         """Test push fails with empty objects list."""
-        options = PushOptions(message="Update workflows")
+        author = Author(name="Test User", email="test@example.com")
+        options = PushOptions(message="Update workflows", author=author)
 
-        with pytest.raises(ValueError, match="No workflow objects to push"):
+        with pytest.raises(
+            ValueError, match="We only support pushing one workflow object at a time"
+        ):
             await workflow_sync_service.push(objects=[], url=git_url, options=options)
 
     @pytest.mark.anyio
@@ -266,7 +289,8 @@ class TestWorkflowSyncService:
         push_obj = PushObject(
             data=sample_remote_workflow, path="workflows/test-workflow.yml"
         )
-        options = PushOptions(message="Update workflows")
+        author = Author(name="Test User", email="test@example.com")
+        options = PushOptions(message="Update workflows", author=author)
 
         with (
             patch(
@@ -310,7 +334,8 @@ class TestWorkflowSyncService:
             data=remote_workflow, path="workflows/my-test-workflow.yaml"
         )
 
-        options = PushOptions(message="Test")
+        author = Author(name="Test User", email="test@example.com")
+        options = PushOptions(message="Test", author=author)
         git_url = GitUrl(host="github.com", org="test", repo="test")
 
         mock_repo = Mock()
