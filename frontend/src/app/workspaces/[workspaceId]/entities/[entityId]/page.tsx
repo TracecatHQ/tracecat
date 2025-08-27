@@ -4,6 +4,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useParams } from "next/navigation"
 import { useEffect, useState } from "react"
 import {
+  type EntityFieldCreate,
   type EntityFieldRead,
   entitiesActivateField,
   entitiesCreateField,
@@ -36,19 +37,19 @@ export default function EntityDetailPage() {
 
   const { entity, entityIsLoading, entityError } = useEntity(
     workspaceId,
-    String(entityId)
+    entityId
   )
   const { fields, fieldsIsLoading, fieldsError } = useEntityFields(
     workspaceId,
-    String(entityId),
+    entityId,
     includeInactive
   )
 
   const { mutateAsync: createField } = useMutation({
-    mutationFn: async (data: import("@/client").EntityFieldCreate) =>
+    mutationFn: async (data: EntityFieldCreate) =>
       await entitiesCreateField({
         workspaceId,
-        entityId: String(entityId),
+        entityId: entityId,
         requestBody: data,
       }),
     onSuccess: () => {
@@ -61,8 +62,7 @@ export default function EntityDetailPage() {
       console.error("Failed to create field", error)
       toast({
         title: "Error creating field",
-        description: "Failed to create field.",
-        variant: "destructive",
+        description: "Failed to create field. Please try again.",
       })
     },
   })
@@ -72,7 +72,7 @@ export default function EntityDetailPage() {
       mutationFn: async (fieldId: string) =>
         await entitiesDeactivateField({
           workspaceId,
-          entityId: String(entityId),
+          entityId: entityId,
           fieldId,
         }),
       onSuccess: () => {
@@ -85,8 +85,7 @@ export default function EntityDetailPage() {
         console.error("Failed to archive field", error)
         toast({
           title: "Error archiving field",
-          description: "Failed to archive the field.",
-          variant: "destructive",
+          description: "Failed to archive the field. Please try again.",
         })
       },
     })
@@ -96,7 +95,7 @@ export default function EntityDetailPage() {
       mutationFn: async (fieldId: string) =>
         await entitiesActivateField({
           workspaceId,
-          entityId: String(entityId),
+          entityId: entityId,
           fieldId,
         }),
       onSuccess: () => {
@@ -109,8 +108,7 @@ export default function EntityDetailPage() {
         console.error("Failed to restore field", error)
         toast({
           title: "Error restoring field",
-          description: "Failed to restore the field.",
-          variant: "destructive",
+          description: "Failed to restore the field. Please try again.",
         })
       },
     })
@@ -120,7 +118,7 @@ export default function EntityDetailPage() {
       mutationFn: async (fieldId: string) =>
         await entitiesDeleteField({
           workspaceId,
-          entityId: String(entityId),
+          entityId: entityId,
           fieldId,
         }),
       onSuccess: () => {
@@ -133,8 +131,7 @@ export default function EntityDetailPage() {
         console.error("Failed to delete field", error)
         toast({
           title: "Error deleting field",
-          description: "Failed to delete the field.",
-          variant: "destructive",
+          description: "Failed to delete the field. Please try again.",
         })
       },
     })
@@ -181,7 +178,7 @@ export default function EntityDetailPage() {
           try {
             await entitiesUpdateField({
               workspaceId,
-              entityId: String(entityId),
+              entityId: entityId,
               fieldId,
               requestBody: data,
             })
@@ -197,7 +194,6 @@ export default function EntityDetailPage() {
             toast({
               title: "Error updating field",
               description: "Failed to update the field. Please try again.",
-              variant: "destructive",
             })
           }
         }}

@@ -88,7 +88,6 @@ export function useUpdateEntityField(workspaceId: string, entityId: string) {
         toast({
           title: "Error updating field",
           description: "Failed to update the field. Please try again.",
-          variant: "destructive",
         })
       },
     })

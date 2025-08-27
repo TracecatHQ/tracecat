@@ -6,6 +6,7 @@ import {
   entitiesActivateEntity,
   entitiesDeactivateEntity,
   entitiesDeleteEntity,
+  entitiesListFields,
   entitiesUpdateEntity,
 } from "@/client"
 import { EntitiesTable } from "@/components/entities/entities-table"
@@ -31,12 +32,11 @@ export default function EntitiesPage() {
     queryKey: ["entity-field-counts", workspaceId, entities?.length],
     queryFn: async () => {
       if (!entities || entities.length === 0) return {}
-      const services = await import("@/client")
       const counts: Record<string, number> = {}
       await Promise.all(
         entities.map(async (e) => {
           try {
-            const fields = await services.entitiesListFields({
+            const fields = await entitiesListFields({
               workspaceId,
               entityId: e.id,
               includeInactive: false,
@@ -67,8 +67,7 @@ export default function EntitiesPage() {
         console.error("Failed to archive entity", error)
         toast({
           title: "Error archiving entity",
-          description: "Failed to archive the entity.",
-          variant: "destructive",
+          description: "Failed to archive the entity. Please try again.",
         })
       },
     })
@@ -88,8 +87,7 @@ export default function EntitiesPage() {
         console.error("Failed to restore entity", error)
         toast({
           title: "Error restoring entity",
-          description: "Failed to restore the entity.",
-          variant: "destructive",
+          description: "Failed to restore the entity. Please try again.",
         })
       },
     })
@@ -108,8 +106,7 @@ export default function EntitiesPage() {
       console.error("Failed to delete entity", error)
       toast({
         title: "Error deleting entity",
-        description: "Failed to delete the entity.",
-        variant: "destructive",
+        description: "Failed to delete the entity. Please try again.",
       })
     },
   })
@@ -145,7 +142,6 @@ export default function EntitiesPage() {
         toast({
           title: "Error updating entity",
           description: "Failed to update the entity. Please try again.",
-          variant: "destructive",
         })
       },
     })
