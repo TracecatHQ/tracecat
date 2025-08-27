@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Protocol
 
 from pydantic import BaseModel
@@ -20,12 +21,33 @@ class Author:
 
 
 @dataclass(frozen=True)
+class PushObject[T: BaseModel]:
+    """A single object to push to a repository."""
+
+    data: T
+    """The model data to serialize and write"""
+
+    path: Path | str
+    """Target path in repository"""
+
+    @property
+    def path_str(self) -> str:
+        """Get path as string."""
+        return str(self.path)
+
+
+@dataclass(frozen=True)
 class PullOptions:
     """Options controlling pull/checkout behavior."""
 
-    paths: list[str] | None = None  # subset of paths, if supported
-    depth: int | None = 1  # shallow clone depth; None for full
-    lfs: bool = False  # fetch LFS objects if needed
+    paths: list[str] | None = None
+    """Subset of paths, if supported"""
+
+    depth: int | None = 1
+    """Shallow clone depth; None for full"""
+
+    lfs: bool = False
+    """Fetch LFS objects if needed"""
 
 
 @dataclass(frozen=True)
@@ -34,8 +56,13 @@ class PushOptions:
 
     message: str
     author: Author | None = None
-    create_pr: bool = False  # optional provider feature (ignored by pure Git)
-    sign: bool = False  # GPG signing if configured
+    """Author of the commit"""
+
+    create_pr: bool = False
+    """Create a pull request if supported"""
+
+    sign: bool = False
+    """GPG signing if configured"""
 
 
 @dataclass(frozen=True)
@@ -43,7 +70,10 @@ class CommitInfo:
     """Result of a push/commit operation."""
 
     sha: str
-    ref: str  # resolved ref after push (e.g., branch)
+    """SHA of the commit"""
+
+    ref: str
+    """Resolved ref after push (e.g., branch)"""
 
 
 class SyncService[T: BaseModel](Protocol):
@@ -77,7 +107,7 @@ class SyncService[T: BaseModel](Protocol):
     async def push(
         self,
         *,
-        objects: Sequence[T],
+        objects: Sequence[PushObject[T]],
         url: GitUrl,
         options: PushOptions,
     ) -> CommitInfo:

@@ -14,8 +14,9 @@ from tracecat.dsl.common import DSLInput
 from tracecat.git.utils import GitUrl
 from tracecat.logger import logger
 from tracecat.service import BaseWorkspaceService
-from tracecat.sync import CommitInfo, PullOptions, PushOptions
+from tracecat.sync import CommitInfo, PullOptions, PushObject, PushOptions
 from tracecat.vcs.github.app import GitHubAppError, GitHubAppService
+from tracecat.workflow.store.models import RemoteWorkflowDefinition
 
 
 # NOTE: Internal service called by higher level services, shouldn't use directly
@@ -56,14 +57,14 @@ class WorkflowSyncService(BaseWorkspaceService):
     async def push(
         self,
         *,
-        objects: Sequence[DSLInput],
+        objects: Sequence[PushObject[RemoteWorkflowDefinition]],
         url: GitUrl,
         options: PushOptions,
     ) -> CommitInfo:
         """Push workflow definitions using GitHub App API operations.
 
         Args:
-            objects: DSLInput workflow definitions to push
+            objects: PushObjects containing workflow definitions and target paths
             url: Git repository URL with target branch
             options: Push options including commit message and PR flag
 
@@ -103,19 +104,11 @@ class WorkflowSyncService(BaseWorkspaceService):
             )
 
             # Create/update workflow files via API
-            for dsl in objects:
-                # Generate filename from workflow title (sanitized)
-                title_slug = dsl.title.lower().replace(" ", "-")
-                # Remove special characters and limit length
-                title_slug = "".join(c for c in title_slug if c.isalnum() or c in "-_")[
-                    :50
-                ]
-                filename = f"{title_slug}.yaml"
-                file_path = f"workflows/{filename}"
+            for obj in objects:
+                file_path = obj.path_str
 
-                # Serialize to YAML
                 yaml_content = yaml.dump(
-                    dsl.model_dump(exclude_none=True, exclude_unset=True)
+                    obj.data.model_dump(mode="json"), sort_keys=False
                 )
 
                 # Set author info

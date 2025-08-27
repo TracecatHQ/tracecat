@@ -33,10 +33,17 @@ async def publish_workflow(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Workflow definition not found",
         )
+    # Load workflow relationship after initial load
+    await session.refresh(defn, ["workflow"])
     dsl = DSLInput.model_validate(defn.content)
     store_svc = WorkflowStoreService(session=session)
     try:
-        await store_svc.publish_workflow_dsl(dsl, params)
+        await store_svc.publish_workflow_dsl(
+            workflow_id=workflow_id,
+            dsl=dsl,
+            params=params,
+            workflow=defn.workflow,
+        )
     except TracecatSettingsError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

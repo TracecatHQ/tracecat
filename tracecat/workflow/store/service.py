@@ -1,11 +1,24 @@
-from tracecat.db.schemas import User
+from pathlib import Path
+from typing import cast
+
+from tracecat import __version__ as platform_version
+from tracecat.db.schemas import User, Workflow
 from tracecat.dsl.common import DSLInput
 from tracecat.git.utils import parse_git_url
+from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
 from tracecat.service import BaseWorkspaceService
-from tracecat.sync import Author, PushOptions
+from tracecat.sync import Author, PushObject, PushOptions
 from tracecat.types.exceptions import TracecatSettingsError, TracecatValidationError
-from tracecat.workflow.store.models import WorkflowDslPublish
+from tracecat.workflow.store.models import (
+    RemoteRegistry,
+    RemoteWebhook,
+    RemoteWorkflowDefinition,
+    RemoteWorkflowSchedule,
+    RemoteWorkflowTag,
+    Status,
+    WorkflowDslPublish,
+)
 from tracecat.workflow.store.sync import WorkflowSyncService
 from tracecat.workspaces.service import WorkspaceService
 
@@ -14,15 +27,18 @@ class WorkflowStoreService(BaseWorkspaceService):
     service_name = "workflow_store"
 
     async def publish_workflow_dsl(
-        self, dsl: DSLInput, params: WorkflowDslPublish
+        self,
+        *,
+        workflow_id: WorkflowUUID,
+        dsl: DSLInput,
+        params: WorkflowDslPublish,
+        workflow: Workflow,
     ) -> None:
         """Take the latest version of the workflow definition and publish it to the store."""
         # Get workspace settings for git configuration
-        if self.role.workspace_id is None:
-            raise TracecatValidationError("Workspace ID is required")
 
         workspace_service = WorkspaceService(session=self.session, role=self.role)
-        workspace = await workspace_service.get_workspace(self.role.workspace_id)
+        workspace = await workspace_service.get_workspace(self.workspace_id)
 
         if not workspace:
             raise TracecatValidationError("Workspace not found")
@@ -39,7 +55,7 @@ class WorkflowStoreService(BaseWorkspaceService):
             "Publishing workflow to store",
             workflow_title=dsl.title,
             repo_url=git_repo_url,
-            workspace_id=self.role.workspace_id,
+            workspace_id=self.workspace_id,
         )
 
         # Parse the Git URL using workspace settings
@@ -75,6 +91,37 @@ class WorkflowStoreService(BaseWorkspaceService):
                     f"{base_message}\n\nAuthored by {display_name} <{author_email}>"
                 )
 
+        stable_path = get_definition_path(workflow_id)
+        webhook = workflow.webhook
+
+        await self.session.refresh(workflow, ["tags"])
+        # Create PushObject with data and stable path
+        defn = RemoteWorkflowDefinition(
+            id=workflow_id.short(),
+            registry=RemoteRegistry(base_version=platform_version),
+            alias=workflow.alias,
+            tags=[RemoteWorkflowTag(name=t.name) for t in workflow.tags],
+            # Convert Schedule ORM objects to RemoteWorkflowSchedule, handling type conversions and missing fields.
+            schedules=[
+                RemoteWorkflowSchedule(
+                    status=cast(Status, s.status),
+                    cron=s.cron,
+                    every=s.every.total_seconds() if s.every is not None else None,
+                    offset=s.offset.total_seconds() if s.offset is not None else None,
+                    start_at=s.start_at.isoformat() if s.start_at is not None else None,
+                    end_at=s.end_at.isoformat() if s.end_at is not None else None,
+                    timeout=s.timeout,
+                )
+                for s in (workflow.schedules or [])
+            ],
+            webhook=RemoteWebhook(
+                methods=webhook.methods,
+                status=cast(Status, webhook.status),
+            ),
+            definition=dsl,
+        )
+        push_obj = PushObject(data=defn, path=stable_path)
+
         # Create Author and PushOptions
         author = Author(name=author_name, email=author_email)
         push_options = PushOptions(
@@ -83,10 +130,10 @@ class WorkflowStoreService(BaseWorkspaceService):
             create_pr=True,  # Create PR for review
         )
 
-        # Use WorkflowSyncService to push the workflow
+        # Use WorkflowSyncService to push the workflow with stable path
         sync_service = WorkflowSyncService(session=self.session, role=self.role)
         commit_info = await sync_service.push(
-            objects=[dsl],
+            objects=[push_obj],
             url=git_url,
             options=push_options,
         )
@@ -97,3 +144,8 @@ class WorkflowStoreService(BaseWorkspaceService):
             commit_sha=commit_info.sha,
             ref=commit_info.ref,
         )
+
+
+def get_definition_path(workflow_id: WorkflowUUID) -> Path:
+    """Get the path to the definition file for a workflow."""
+    return Path("workflows").joinpath(workflow_id.short(), "definition.yml")
