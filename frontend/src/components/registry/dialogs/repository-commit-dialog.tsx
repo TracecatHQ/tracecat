@@ -1,6 +1,7 @@
 "use client"
 
-import { useState } from "react"
+import { RefreshCcw } from "lucide-react"
+import { useEffect, useState } from "react"
 import type { RegistryRepositoryReadMinimal } from "@/client"
 import { CommitSelector } from "@/components/registry/commit-selector"
 import { Badge } from "@/components/ui/badge"
@@ -39,6 +40,13 @@ export function CommitSelectorDialog({
     selectedRepo?.id || null,
     { enabled: open }
   )
+
+  // Auto-select HEAD commit when commits are loaded and no commit is selected
+  useEffect(() => {
+    if (commits?.length && !selectedCommitSha && !initialCommitSha) {
+      setSelectedCommitSha(commits[0].sha)
+    }
+  }, [commits, selectedCommitSha, initialCommitSha])
 
   const handleClose = () => {
     setSelectedCommitSha(null)
@@ -100,64 +108,66 @@ export function CommitSelectorDialog({
                 />
 
                 {/* Selected Commit Details */}
-                {selectedCommitSha &&
-                  commits &&
-                  (() => {
-                    const selectedCommit = commits.find(
-                      (commit) => commit.sha === selectedCommitSha
-                    )
-                    if (!selectedCommit) return null
+                {(() => {
+                  const effectiveCommitSha =
+                    selectedCommitSha || commits?.[0]?.sha
+                  if (!effectiveCommitSha || !commits) return null
 
-                    const commitDate = new Date(selectedCommit.date)
-                    const relativeTime = getRelativeTime(commitDate)
-                    const isHead = commits[0]?.sha === selectedCommitSha
+                  const selectedCommit = commits.find(
+                    (commit) => commit.sha === effectiveCommitSha
+                  )
+                  if (!selectedCommit) return null
 
-                    return (
-                      <div className="rounded-lg border bg-muted/50 p-4 space-y-3">
-                        <div className="flex items-center justify-between">
-                          <h4 className="font-medium text-sm">
-                            Selected commit details
-                          </h4>
-                          <div className="flex items-center space-x-2">
-                            <Badge
-                              variant="secondary"
-                              className="font-mono text-xs"
-                            >
-                              {selectedCommit.sha.substring(0, 7)}
+                  const commitDate = new Date(selectedCommit.date)
+                  const relativeTime = getRelativeTime(commitDate)
+                  const isHead = commits[0]?.sha === effectiveCommitSha
+
+                  return (
+                    <div className="rounded-lg border bg-muted/50 p-4 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <h4 className="font-medium text-sm">
+                          Selected commit details
+                        </h4>
+                        <div className="flex items-center space-x-2">
+                          <Badge
+                            variant="secondary"
+                            className="font-mono text-xs"
+                          >
+                            {selectedCommit.sha.substring(0, 7)}
+                          </Badge>
+                          {isHead && (
+                            <Badge variant="default" className="text-xs">
+                              HEAD
                             </Badge>
-                            {isHead && (
-                              <Badge variant="default" className="text-xs">
-                                HEAD
-                              </Badge>
-                            )}
-                          </div>
-                        </div>
-                        <div className="space-y-2">
-                          <div>
-                            <p className="text-sm font-medium text-foreground">
-                              {selectedCommit.message}
-                            </p>
-                          </div>
-                          <div className="flex items-center justify-between text-xs text-muted-foreground">
-                            <span>
-                              by {selectedCommit.author} (
-                              {selectedCommit.author_email})
-                            </span>
-                            <div className="flex items-center space-x-2">
-                              <span>{commitDate.toLocaleDateString()}</span>
-                              <span>•</span>
-                              <span>{relativeTime}</span>
-                            </div>
-                          </div>
-                          <div className="pt-1">
-                            <span className="text-xs text-muted-foreground font-mono">
-                              Full SHA: {selectedCommit.sha}
-                            </span>
-                          </div>
+                          )}
                         </div>
                       </div>
-                    )
-                  })()}
+                      <div className="space-y-2">
+                        <div>
+                          <p className="text-sm font-medium text-foreground">
+                            {selectedCommit.message}
+                          </p>
+                        </div>
+                        <div className="flex items-center justify-between text-xs text-muted-foreground">
+                          <span>
+                            by {selectedCommit.author} (
+                            {selectedCommit.author_email})
+                          </span>
+                          <div className="flex items-center space-x-2">
+                            <span>{commitDate.toLocaleDateString()}</span>
+                            <span>•</span>
+                            <span>{relativeTime}</span>
+                          </div>
+                        </div>
+                        <div className="pt-1">
+                          <span className="text-xs text-muted-foreground font-mono">
+                            Full SHA: {selectedCommit.sha}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })()}
               </div>
             </div>
           )}
@@ -169,7 +179,12 @@ export function CommitSelectorDialog({
               onClick={handleSync}
               disabled={syncRepoIsPending || !selectedCommitSha}
             >
-              {syncRepoIsPending ? "Syncing..." : "Sync"}
+              <div className="flex items-center space-x-2">
+                <RefreshCcw
+                  className={`size-4 ${syncRepoIsPending ? "animate-spin" : ""}`}
+                />
+                <span>{syncRepoIsPending ? "Syncing..." : "Sync"}</span>
+              </div>
             </Button>
           </div>
         </div>

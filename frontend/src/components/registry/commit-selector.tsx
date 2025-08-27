@@ -35,10 +35,12 @@ export function CommitSelector({
 }: CommitSelectorProps) {
   const [isOpen, setIsOpen] = useState(false)
 
+  // If no commit is selected, default to HEAD (first commit)
+  const effectiveCurrentSha = currentCommitSha || commits?.[0]?.sha
   const currentCommit = commits?.find(
-    (commit) => commit.sha === currentCommitSha
+    (commit) => commit.sha === effectiveCurrentSha
   )
-  const isCurrentHead = commits?.[0]?.sha === currentCommitSha
+  const isCurrentHead = commits?.[0]?.sha === effectiveCurrentSha
 
   if (isLoading) {
     return (
@@ -58,7 +60,7 @@ export function CommitSelector({
   }
 
   const displayCommit = currentCommit || {
-    sha: currentCommitSha || "unknown",
+    sha: effectiveCurrentSha || "unknown",
     message: "Unknown commit",
     author: "",
     author_email: "",
@@ -81,7 +83,7 @@ export function CommitSelector({
                 HEAD
               </Badge>
             )}
-            {currentCommitSha && !isCurrentHead && (
+            {effectiveCurrentSha && !isCurrentHead && (
               <Badge variant="outline" className="text-xs">
                 Custom
               </Badge>
@@ -95,7 +97,7 @@ export function CommitSelector({
         <DropdownMenuSeparator />
         <div className="max-h-64 overflow-y-auto">
           {commits?.map((commit, index) => {
-            const isSelected = commit.sha === currentCommitSha
+            const isSelected = commit.sha === effectiveCurrentSha
             const isHead = index === 0
             const commitDate = new Date(commit.date)
             const relativeTime = getRelativeTime(commitDate)
