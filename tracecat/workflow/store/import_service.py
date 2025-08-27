@@ -2,20 +2,24 @@
 
 from __future__ import annotations
 
+import uuid
 from datetime import timedelta
-from uuid import UUID, uuid4
 
+import yaml
 from pydantic import ValidationError
-from sqlmodel import delete, select
+from sqlmodel import col, delete, select
 
-from tracecat.db.schemas import Schedule, Tag, Webhook, Workflow, WorkflowTag
+from tracecat.db.schemas import Action, Schedule, Tag, Webhook, Workflow, WorkflowTag
 from tracecat.dsl.common import DSLInput
-from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.dsl.view import RFGraph
+from tracecat.identifiers.workflow import WorkflowID, WorkflowUUID
 from tracecat.logger import logger
 from tracecat.service import BaseWorkspaceService
 from tracecat.sync import ConflictStrategy, PullDiagnostic, PullResult
 from tracecat.types.exceptions import TracecatAuthorizationError
+from tracecat.workflow.actions.models import ActionControlFlow
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
+from tracecat.workflow.management.management import WorkflowsManagementService
 from tracecat.workflow.store.models import RemoteWebhook, RemoteWorkflowDefinition
 
 
@@ -23,6 +27,10 @@ class WorkflowImportService(BaseWorkspaceService):
     """Service for importing workflows from remote definitions with atomic guarantees."""
 
     service_name = "workflow_import"
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.wf_mgmt = WorkflowsManagementService(session=self.session, role=self.role)
 
     async def import_workflows_atomic(
         self,
@@ -72,6 +80,8 @@ class WorkflowImportService(BaseWorkspaceService):
                     await self._import_single_workflow(
                         remote_workflow, conflict_strategy
                     )
+                # Show the current state of the database
+                await self.session.commit()
 
             return PullResult(
                 success=True,
@@ -145,7 +155,8 @@ class WorkflowImportService(BaseWorkspaceService):
                 return diagnostics
 
             # Check for conflicts
-            existing_workflow = await self._find_existing_workflow(remote_workflow)
+            wf_id = WorkflowUUID.new(remote_workflow.id)
+            existing_workflow = await self.wf_mgmt.get_workflow(wf_id)
 
             if existing_workflow and conflict_strategy == ConflictStrategy.SKIP:
                 # This is not an error for SKIP strategy - we'll just skip it
@@ -195,9 +206,8 @@ class WorkflowImportService(BaseWorkspaceService):
         conflict_strategy: ConflictStrategy,
     ) -> None:
         """Import a single workflow. Must be called within a transaction."""
-        existing_workflow = await self._find_existing_workflow(remote_workflow)
-
-        if existing_workflow:
+        wf_id = WorkflowUUID.new(remote_workflow.id)
+        if existing_workflow := await self.wf_mgmt.get_workflow(wf_id):
             if conflict_strategy == ConflictStrategy.SKIP:
                 return  # Skip this workflow
             elif conflict_strategy == ConflictStrategy.OVERWRITE:
@@ -207,41 +217,15 @@ class WorkflowImportService(BaseWorkspaceService):
         else:
             await self._create_new_workflow(remote_workflow)
 
-    async def _find_existing_workflow(
-        self, remote_workflow: RemoteWorkflowDefinition
-    ) -> Workflow | None:
-        """Find existing workflow by alias first, then by title."""
-        if not self.workspace_id:
-            raise TracecatAuthorizationError("Workspace ID is required")
-
-        # Check by alias if it exists
-        if remote_workflow.alias:
-            stmt = select(Workflow).where(
-                Workflow.owner_id == self.workspace_id,
-                Workflow.alias == remote_workflow.alias,
-            )
-            result = await self.session.exec(stmt)
-            workflow = result.first()
-            if workflow:
-                return workflow
-
-        # Fallback to title matching
-        stmt = select(Workflow).where(
-            Workflow.owner_id == self.workspace_id,
-            Workflow.title == remote_workflow.definition.title,
-        )
-        result = await self.session.exec(stmt)
-        return result.first()
-
     async def _update_existing_workflow(
         self, existing_workflow: Workflow, remote_workflow: RemoteWorkflowDefinition
     ) -> None:
         """Update existing workflow with new definition and related entities."""
         # 1. Add new WorkflowDefinition (versioned)
         defn_service = WorkflowDefinitionsService(session=self.session, role=self.role)
-        workflow_id = WorkflowUUID.new(existing_workflow.id)
+        wf_id = WorkflowUUID.new(existing_workflow.id)
         await defn_service.create_workflow_definition(
-            workflow_id, remote_workflow.definition, commit=False
+            wf_id, remote_workflow.definition, commit=False
         )
 
         # 2. Update workflow metadata
@@ -251,47 +235,46 @@ class WorkflowImportService(BaseWorkspaceService):
         if remote_workflow.alias:
             existing_workflow.alias = remote_workflow.alias
 
-        # 3. Update related entities
-        await self._update_schedules(existing_workflow.id, remote_workflow.schedules)
-        await self._update_webhook(existing_workflow.id, remote_workflow.webhook)
-        await self._update_tags(existing_workflow.id, remote_workflow.tags)
+        # 3. Delete existing actions and recreate from DSL
+        # (Actions are tightly coupled to the DSL definition)
+        if existing_workflow.actions:
+            for action in existing_workflow.actions:
+                await self.session.delete(action)
+            await self.session.flush()
 
-    async def _create_new_workflow(
-        self, remote_workflow: RemoteWorkflowDefinition
-    ) -> None:
+        # 4. Recreate actions from DSL
+        dsl = remote_workflow.definition
+        wf_id = WorkflowUUID.new(existing_workflow.id)
+        actions = await self._create_actions_from_dsl(dsl, wf_id)
+        existing_workflow.actions = actions
+
+        # 5. Regenerate the React Flow graph
+        base_graph = RFGraph.with_defaults(existing_workflow)
+        ref2id = {act.ref: act.id for act in actions}
+        updated_graph = dsl.to_graph(trigger_node=base_graph.trigger, ref2id=ref2id)
+        existing_workflow.object = updated_graph.model_dump(by_alias=True, mode="json")
+
+        # 6. Update related entities
+        await self._update_schedules(existing_workflow, remote_workflow.schedules)
+        await self._update_webhook(existing_workflow, remote_workflow.webhook)
+        await self._update_tags(existing_workflow, remote_workflow.tags)
+
+    async def _create_new_workflow(self, remote_defn: RemoteWorkflowDefinition) -> None:
         """Create a new workflow entity with all related entities."""
-        if not self.workspace_id:
-            raise TracecatAuthorizationError("Workspace ID is required")
+        wf_id = WorkflowUUID.new(remote_defn.id)
+        dsl = remote_defn.definition
 
-        # 1. Create base workflow entity
-        workflow_id = uuid4()
-        workflow = Workflow(
-            id=workflow_id,
-            title=remote_workflow.definition.title,
-            description=remote_workflow.definition.description,
-            alias=remote_workflow.alias,
-            status="offline",
-            owner_id=self.workspace_id,
+        # Create workflow manually to avoid transaction conflicts
+        # Similar to _create_db_workflow_from_dsl but without committing
+        workflow = await self.wf_mgmt.create_db_workflow_from_dsl(
+            dsl, workflow_id=wf_id, commit=False, workflow_alias=remote_defn.alias
         )
-        self.session.add(workflow)
+        await self.session.flush()
 
-        # 2. Create initial workflow definition
-        defn_service = WorkflowDefinitionsService(session=self.session, role=self.role)
-        workflow_id_typed = WorkflowUUID.new(workflow_id)
-        await defn_service.create_workflow_definition(
-            workflow_id_typed, remote_workflow.definition, commit=False
-        )
-
-        # 3. Create webhook (required for all workflows)
-        webhook = Webhook(
-            owner_id=self.workspace_id, workflow_id=workflow_id, status="offline"
-        )
-        self.session.add(webhook)
-
-        # 4. Create related entities
-        await self._create_schedules(workflow_id, remote_workflow.schedules)
-        await self._update_webhook_from_remote(webhook, remote_workflow.webhook)
-        await self._create_tags(workflow_id, remote_workflow.tags)
+        # Handle additional remote-specific entities
+        await self._create_schedules(workflow, remote_defn.schedules)
+        await self._update_webhook_from_remote(workflow.webhook, remote_defn.webhook)
+        await self._create_tags(workflow, remote_defn.tags)
 
     async def _create_renamed_workflow(
         self, remote_workflow: RemoteWorkflowDefinition
@@ -319,29 +302,30 @@ class WorkflowImportService(BaseWorkspaceService):
             stmt = select(Workflow).where(
                 Workflow.owner_id == self.workspace_id, Workflow.title == candidate
             )
-            result = await self.session.execute(stmt)
-            if not result.scalar_one_or_none():
+            result = await self.session.exec(stmt)
+            if not result.first():
                 return candidate
 
         return None  # Could not find unique name
 
     async def _update_schedules(
-        self, workflow_id, remote_schedules: list | None
+        self, workflow: Workflow, remote_schedules: list | None
     ) -> None:
         """Update workflow schedules - replace existing with new ones."""
         # Delete existing schedules
-        await self.session.execute(
-            delete(Schedule).where(Schedule.workflow_id == workflow_id)
-        )
+        stmt = delete(Schedule).where(col(Schedule.workflow_id) == workflow.id)
+        await self.session.execute(stmt)
+        await self.session.flush()
 
         # Create new schedules
-        await self._create_schedules(workflow_id, remote_schedules)
+        await self._create_schedules(workflow, remote_schedules)
+        await self.session.flush()
 
     async def _create_schedules(
-        self, workflow_id, remote_schedules: list | None
+        self, workflow: Workflow, remote_schedules: list | None
     ) -> None:
         """Create new schedules for workflow."""
-        if not remote_schedules or not self.workspace_id:
+        if not remote_schedules:
             return
 
         for schedule_data in remote_schedules:
@@ -359,7 +343,7 @@ class WorkflowImportService(BaseWorkspaceService):
 
             schedule = Schedule(
                 owner_id=self.workspace_id,
-                workflow_id=workflow_id,
+                workflow_id=workflow.id,
                 cron=schedule_data.cron,
                 status=schedule_data.status,
                 every=every_td,
@@ -368,22 +352,21 @@ class WorkflowImportService(BaseWorkspaceService):
                 end_at=schedule_data.end_at,
                 timeout=schedule_data.timeout,
             )
-
             self.session.add(schedule)
+        await self.session.flush()
 
     async def _update_webhook(
-        self, workflow_id: UUID, remote_webhook: RemoteWebhook | None
+        self, workflow: Workflow, remote_webhook: RemoteWebhook | None
     ) -> None:
         """Update existing webhook with remote webhook data."""
         if not remote_webhook:
             return
+        self.logger.info(f"Updating webhook {workflow.id} from remote {remote_webhook}")
 
         # Find existing webhook
-        stmt = select(Webhook).where(Webhook.workflow_id == workflow_id)
-        result = await self.session.execute(stmt)
-        webhook = result.scalar_one_or_none()
-
-        if webhook:
+        stmt = select(Webhook).where(Webhook.workflow_id == workflow.id)
+        result = await self.session.exec(stmt)
+        if webhook := result.first():
             await self._update_webhook_from_remote(webhook, remote_webhook)
 
     async def _update_webhook_from_remote(
@@ -392,21 +375,25 @@ class WorkflowImportService(BaseWorkspaceService):
         """Update webhook entity from remote webhook data."""
         if not remote_webhook:
             return
+        self.logger.info(f"Updating webhook {webhook.id} from remote {remote_webhook}")
 
         webhook.methods = getattr(remote_webhook, "methods", ["POST"])
         webhook.status = getattr(remote_webhook, "status", "offline")
 
-    async def _update_tags(self, workflow_id, remote_tags: list | None) -> None:
+    async def _update_tags(self, workflow: Workflow, remote_tags: list | None) -> None:
         """Update workflow tags - replace existing with new ones."""
         # Delete existing workflow-tag associations
-        await self.session.execute(
-            delete(WorkflowTag).where(WorkflowTag.workflow_id == workflow_id)
-        )
+        stmt = select(WorkflowTag).where(col(WorkflowTag.workflow_id) == workflow.id)
+        result = await self.session.exec(stmt)
+        for workflow_tag in result:
+            await self.session.delete(workflow_tag)
+        await self.session.flush()
 
         # Create new tag associations
-        await self._create_tags(workflow_id, remote_tags)
+        await self._create_tags(workflow, remote_tags)
+        await self.session.flush()
 
-    async def _create_tags(self, workflow_id, remote_tags: list | None) -> None:
+    async def _create_tags(self, workflow: Workflow, remote_tags: list | None) -> None:
         """Create new tags and associations for workflow."""
         if not remote_tags or not self.workspace_id:
             return
@@ -418,7 +405,7 @@ class WorkflowImportService(BaseWorkspaceService):
             tag = await self._find_or_create_tag(tag_name)
 
             # Create workflow-tag association
-            workflow_tag = WorkflowTag(workflow_id=workflow_id, tag_id=tag.id)
+            workflow_tag = WorkflowTag(workflow_id=workflow.id, tag_id=tag.id)
             self.session.add(workflow_tag)
 
     async def _find_or_create_tag(self, tag_name: str) -> Tag:
@@ -434,7 +421,7 @@ class WorkflowImportService(BaseWorkspaceService):
 
         if not tag:
             tag = Tag(
-                id=uuid4(),
+                id=uuid.uuid4(),
                 name=tag_name,
                 ref=tag_name.lower().replace(" ", "-"),
                 color=self._generate_tag_color(),
@@ -443,6 +430,33 @@ class WorkflowImportService(BaseWorkspaceService):
             self.session.add(tag)
 
         return tag
+
+    async def _create_actions_from_dsl(
+        self, dsl: DSLInput, workflow_id: WorkflowID
+    ) -> list[Action]:
+        """Create actions from DSL for a workflow."""
+        actions: list[Action] = []
+        for act_stmt in dsl.actions:
+            control_flow = ActionControlFlow(
+                run_if=act_stmt.run_if,
+                for_each=act_stmt.for_each,
+                retry_policy=act_stmt.retry_policy,
+                start_delay=act_stmt.start_delay,
+                wait_until=act_stmt.wait_until,
+                join_strategy=act_stmt.join_strategy,
+            )
+            new_action = Action(
+                owner_id=self.workspace_id,
+                workflow_id=workflow_id,
+                type=act_stmt.action,
+                inputs=yaml.dump(act_stmt.args),
+                title=act_stmt.title,
+                description=act_stmt.description,
+                control_flow=control_flow.model_dump(),
+            )
+            actions.append(new_action)
+            self.session.add(new_action)
+        return actions
 
     def _generate_tag_color(self) -> str:
         """Generate a default color for new tags."""
