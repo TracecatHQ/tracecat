@@ -13,6 +13,7 @@ from tracecat.entities.models import (
     EntityUpdate,
 )
 from tracecat.service import BaseWorkspaceService
+from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatNotFoundError
 
 
@@ -21,7 +22,7 @@ class EntityService(BaseWorkspaceService):
 
     service_name = "entities"
 
-    def __init__(self, session: AsyncSession, role=None):
+    def __init__(self, session: AsyncSession, role: Role | None = None):
         super().__init__(session, role)
         self.fields = EntityFieldsService(session=self.session, role=self.role)
 
@@ -117,6 +118,9 @@ class EntityFieldsService(BaseWorkspaceService):
     """Service for managing Entity Fields within a workspace."""
 
     service_name = "entity_fields"
+
+    def __init__(self, session: AsyncSession, role: Role | None = None):
+        super().__init__(session, role)
 
     async def list_fields(
         self, entity: Entity, *, include_inactive: bool = False
