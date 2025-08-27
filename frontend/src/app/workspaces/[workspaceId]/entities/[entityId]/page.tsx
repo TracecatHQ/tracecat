@@ -79,7 +79,10 @@ export default function EntityDetailPage() {
         queryClient.invalidateQueries({
           queryKey: ["entity-fields", workspaceId, entityId],
         })
-        toast({ title: "Field archived", description: "Field archived." })
+        toast({
+          title: "Field archived",
+          description: "Successfully archived field.",
+        })
       },
       onError: (error) => {
         console.error("Failed to archive field", error)
@@ -102,7 +105,10 @@ export default function EntityDetailPage() {
         queryClient.invalidateQueries({
           queryKey: ["entity-fields", workspaceId, entityId],
         })
-        toast({ title: "Field restored", description: "Field restored." })
+        toast({
+          title: "Field restored",
+          description: "Successfully restored field.",
+        })
       },
       onError: (error) => {
         console.error("Failed to restore field", error)
@@ -125,7 +131,10 @@ export default function EntityDetailPage() {
         queryClient.invalidateQueries({
           queryKey: ["entity-fields", workspaceId, entityId],
         })
-        toast({ title: "Field deleted", description: "Field deleted." })
+        toast({
+          title: "Field deleted",
+          description: "Successfully deleted field.",
+        })
       },
       onError: (error) => {
         console.error("Failed to delete field", error)
