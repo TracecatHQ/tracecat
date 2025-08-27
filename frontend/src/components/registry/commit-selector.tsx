@@ -1,6 +1,6 @@
 "use client"
 
-import { ChevronDownIcon, LoaderCircleIcon } from "lucide-react"
+import { ChevronDownIcon } from "lucide-react"
 import { useState } from "react"
 import type { GitCommitInfo } from "@/client"
 import { Badge } from "@/components/ui/badge"
@@ -45,8 +45,7 @@ export function CommitSelector({
   if (isLoading) {
     return (
       <div className="flex items-center space-x-2">
-        <Skeleton className="h-6 w-20" />
-        <LoaderCircleIcon className="size-4 animate-spin" />
+        <Skeleton className="h-8 w-32" />
       </div>
     )
   }

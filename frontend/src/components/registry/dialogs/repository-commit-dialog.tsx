@@ -12,6 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { Skeleton } from "@/components/ui/skeleton"
 import { toast } from "@/components/ui/use-toast"
 import { getRelativeTime } from "@/lib/event-history"
 import { useRegistryRepositories, useRepositoryCommits } from "@/lib/hooks"
@@ -108,66 +109,95 @@ export function CommitSelectorDialog({
                 />
 
                 {/* Selected Commit Details */}
-                {(() => {
-                  const effectiveCommitSha =
-                    selectedCommitSha || commits?.[0]?.sha
-                  if (!effectiveCommitSha || !commits) return null
-
-                  const selectedCommit = commits.find(
-                    (commit) => commit.sha === effectiveCommitSha
-                  )
-                  if (!selectedCommit) return null
-
-                  const commitDate = new Date(selectedCommit.date)
-                  const relativeTime = getRelativeTime(commitDate)
-                  const isHead = commits[0]?.sha === effectiveCommitSha
-
-                  return (
-                    <div className="rounded-lg border bg-muted/50 p-4 space-y-3">
-                      <div className="flex items-center justify-between">
-                        <h4 className="font-medium text-sm">
-                          Selected commit details
-                        </h4>
-                        <div className="flex items-center space-x-2">
-                          <Badge
-                            variant="secondary"
-                            className="font-mono text-xs"
-                          >
-                            {selectedCommit.sha.substring(0, 7)}
-                          </Badge>
-                          {isHead && (
-                            <Badge variant="default" className="text-xs">
-                              HEAD
-                            </Badge>
-                          )}
-                        </div>
-                      </div>
-                      <div className="space-y-2">
-                        <div>
-                          <p className="text-sm font-medium text-foreground">
-                            {selectedCommit.message}
-                          </p>
-                        </div>
-                        <div className="flex items-center justify-between text-xs text-muted-foreground">
-                          <span>
-                            by {selectedCommit.author} (
-                            {selectedCommit.author_email})
-                          </span>
-                          <div className="flex items-center space-x-2">
-                            <span>{commitDate.toLocaleDateString()}</span>
-                            <span>•</span>
-                            <span>{relativeTime}</span>
-                          </div>
-                        </div>
-                        <div className="pt-1">
-                          <span className="text-xs text-muted-foreground font-mono">
-                            Full SHA: {selectedCommit.sha}
-                          </span>
-                        </div>
+                {commitsIsLoading ? (
+                  <div className="rounded-lg border bg-muted/50 p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h4 className="font-medium text-sm">
+                        Selected commit details
+                      </h4>
+                      <div className="flex items-center space-x-2">
+                        <Skeleton className="h-5 w-16" />
+                        <Skeleton className="h-5 w-12" />
                       </div>
                     </div>
-                  )
-                })()}
+                    <div className="space-y-2">
+                      <div>
+                        <Skeleton className="h-4 w-3/4" />
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <Skeleton className="h-3 w-1/2" />
+                        <div className="flex items-center space-x-2">
+                          <Skeleton className="h-3 w-20" />
+                          <Skeleton className="h-3 w-16" />
+                        </div>
+                      </div>
+                      <div className="pt-1">
+                        <Skeleton className="h-3 w-full" />
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  (() => {
+                    const effectiveCommitSha =
+                      selectedCommitSha || commits?.[0]?.sha
+                    if (!effectiveCommitSha || !commits) return null
+
+                    const selectedCommit = commits.find(
+                      (commit) => commit.sha === effectiveCommitSha
+                    )
+                    if (!selectedCommit) return null
+
+                    const commitDate = new Date(selectedCommit.date)
+                    const relativeTime = getRelativeTime(commitDate)
+                    const isHead = commits[0]?.sha === effectiveCommitSha
+
+                    return (
+                      <div className="rounded-lg border bg-muted/50 p-4 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <h4 className="font-medium text-sm">
+                            Selected commit details
+                          </h4>
+                          <div className="flex items-center space-x-2">
+                            <Badge
+                              variant="secondary"
+                              className="font-mono text-xs"
+                            >
+                              {selectedCommit.sha.substring(0, 7)}
+                            </Badge>
+                            {isHead && (
+                              <Badge variant="default" className="text-xs">
+                                HEAD
+                              </Badge>
+                            )}
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <div>
+                            <p className="text-sm font-medium text-foreground">
+                              {selectedCommit.message}
+                            </p>
+                          </div>
+                          <div className="flex items-center justify-between text-xs text-muted-foreground">
+                            <span>
+                              by {selectedCommit.author} (
+                              {selectedCommit.author_email})
+                            </span>
+                            <div className="flex items-center space-x-2">
+                              <span>{commitDate.toLocaleDateString()}</span>
+                              <span>•</span>
+                              <span>{relativeTime}</span>
+                            </div>
+                          </div>
+                          <div className="pt-1">
+                            <span className="text-xs text-muted-foreground font-mono">
+                              Full SHA: {selectedCommit.sha}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })()
+                )}
               </div>
             </div>
           )}
