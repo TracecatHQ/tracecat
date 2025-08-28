@@ -40,7 +40,7 @@ def _set_fingerprint(
 
         # Set additional tags for the workflow from its DSLRunArgs
         if parent_run_context := arg.parent_run_context:
-            sentry.set_tag("tracecat.parent.workflow_id", parent_run_context.wf_id)
+            sentry.set_tag("tracecat.parent.workflow_id", str(parent_run_context.wf_id))
             sentry.set_tag(
                 "tracecat.parent.workflow_exec_id", parent_run_context.wf_exec_id
             )
@@ -80,6 +80,7 @@ class _SentryWorkflowInterceptor(WorkflowInboundInterceptor):
             trigger_type = get_trigger_type(info)
             if (role := ctx_role.get()) and role.workspace_id:
                 sentry.set_tag("tracecat.workspace_id", str(role.workspace_id))
+            sentry.set_tag("tracecat.trigger_type", trigger_type.value)
             # Fingerprint to each workflow ID
             _set_fingerprint(scope, input, info, trigger_type)
             try:
