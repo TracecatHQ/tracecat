@@ -12110,14 +12110,7 @@ export const $WorkspaceSettingsRead = {
       title: "Git Repo Url",
     },
     workflow_unlimited_timeout_enabled: {
-      anyOf: [
-        {
-          type: "boolean",
-        },
-        {
-          type: "null",
-        },
-      ],
+      type: "boolean",
       title: "Workflow Unlimited Timeout Enabled",
     },
     workflow_default_timeout_seconds: {
@@ -12133,6 +12126,7 @@ export const $WorkspaceSettingsRead = {
     },
   },
   type: "object",
+  required: ["workflow_unlimited_timeout_enabled"],
   title: "WorkspaceSettingsRead",
 } as const
 
@@ -12150,26 +12144,25 @@ export const $WorkspaceSettingsUpdate = {
       title: "Git Repo Url",
     },
     workflow_unlimited_timeout_enabled: {
-      anyOf: [
-        {
-          type: "boolean",
-        },
-        {
-          type: "null",
-        },
-      ],
+      type: "boolean",
       title: "Workflow Unlimited Timeout Enabled",
+      description:
+        "Allow workflows to run indefinitely without timeout constraints. When enabled, individual workflow timeout settings are ignored.",
+      default: true,
     },
     workflow_default_timeout_seconds: {
       anyOf: [
         {
           type: "integer",
+          minimum: 0,
         },
         {
           type: "null",
         },
       ],
       title: "Workflow Default Timeout Seconds",
+      description:
+        "Default timeout in seconds for workflows in this workspace. Must be greater than or equal to 0.",
     },
   },
   type: "object",

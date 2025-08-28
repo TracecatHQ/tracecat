@@ -76,7 +76,7 @@ export function OrgWorkspaceSettings({
       name: workspace.name,
       git_repo_url: workspace.settings?.git_repo_url || "",
       workflow_unlimited_timeout_enabled:
-        workspace.settings?.workflow_unlimited_timeout_enabled || false,
+        workspace.settings?.workflow_unlimited_timeout_enabled ?? true,
       workflow_default_timeout_seconds:
         workspace.settings?.workflow_default_timeout_seconds || undefined,
     },
