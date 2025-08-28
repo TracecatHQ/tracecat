@@ -59,6 +59,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { ValidationErrorView } from "@/components/validation-errors"
+import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import { useWorkspaceDetails } from "@/hooks/use-workspace"
 import type { TracecatApiError } from "@/lib/errors"
 import {
@@ -412,6 +413,7 @@ function WorkflowSaveActions({
   onSave: () => Promise<void>
   onPublish: (params: { message?: string }) => Promise<void>
 }) {
+  const { isFeatureEnabled } = useFeatureFlag()
   const [publishOpen, setPublishOpen] = React.useState(false)
   const [isPublishing, setIsPublishing] = React.useState(false)
 
@@ -433,10 +435,105 @@ function WorkflowSaveActions({
     }
   }
 
+  const gitSyncEnabled = isFeatureEnabled("git-sync")
+
   return (
     <div className="flex items-center space-x-2">
-      <div className="flex h-7 gap-px rounded-lg border border-input">
-        {/* Main Save Button */}
+      {gitSyncEnabled ? (
+        <div className="flex h-7 gap-px rounded-lg border border-input">
+          {/* Main Save Button */}
+          <ValidationErrorView
+            side="bottom"
+            validationErrors={validationErrors || []}
+            noErrorTooltip={
+              <span>
+                Save workflow v{(workflow.version || 0) + 1} with your changes.
+              </span>
+            }
+          >
+            <Button
+              variant="outline"
+              onClick={onSave}
+              className={cn(
+                "h-full rounded-r-none border-none px-3 py-0 text-xs text-muted-foreground hover:bg-emerald-500 hover:text-white",
+                validationErrors &&
+                  "border-rose-400 text-rose-400 hover:bg-transparent hover:text-rose-500"
+              )}
+            >
+              {validationErrors ? (
+                <AlertTriangleIcon className="mr-2 size-4 fill-red-500 stroke-white" />
+              ) : (
+                <SaveIcon className="mr-2 size-4" />
+              )}
+              Save
+            </Button>
+          </ValidationErrorView>
+
+          {/* Dropdown Button */}
+          <DropdownMenu open={publishOpen} onOpenChange={setPublishOpen}>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="outline"
+                className="h-full w-7 rounded-l-none border-none px-1 py-0 text-xs text-muted-foreground hover:bg-emerald-500 hover:text-white"
+              >
+                <ChevronDownIcon className="size-3" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-80">
+              <div className="p-3">
+                <Form {...publishForm}>
+                  <form onSubmit={publishForm.handleSubmit(handlePublish)}>
+                    <div className="space-y-3">
+                      <div className="flex items-center space-x-2">
+                        <GitBranchIcon className="size-4" />
+                        <span className="text-sm font-medium">
+                          Publish Workflow
+                        </span>
+                      </div>
+                      <FormField
+                        control={publishForm.control}
+                        name="message"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel className="text-xs">
+                              Commit Message (Optional)
+                            </FormLabel>
+                            <FormControl>
+                              <Input
+                                {...field}
+                                placeholder="Enter a commit message..."
+                                className="h-8 text-xs"
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <Button
+                        type="submit"
+                        disabled={isPublishing}
+                        className="w-full h-8 text-xs bg-emerald-500 hover:bg-emerald-600"
+                      >
+                        {isPublishing ? (
+                          <>
+                            <Spinner className="mr-2 size-3" />
+                            Publishing...
+                          </>
+                        ) : (
+                          <>
+                            <GitBranchIcon className="mr-2 size-4" />
+                            Publish
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  </form>
+                </Form>
+              </div>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      ) : (
         <ValidationErrorView
           side="bottom"
           validationErrors={validationErrors || []}
@@ -450,7 +547,7 @@ function WorkflowSaveActions({
             variant="outline"
             onClick={onSave}
             className={cn(
-              "h-full rounded-r-none border-none px-3 py-0 text-xs text-muted-foreground hover:bg-emerald-500 hover:text-white",
+              "h-7 px-3 py-0 text-xs text-muted-foreground hover:bg-emerald-500 hover:text-white",
               validationErrors &&
                 "border-rose-400 text-rose-400 hover:bg-transparent hover:text-rose-500"
             )}
@@ -463,71 +560,7 @@ function WorkflowSaveActions({
             Save
           </Button>
         </ValidationErrorView>
-
-        {/* Dropdown Button */}
-        <DropdownMenu open={publishOpen} onOpenChange={setPublishOpen}>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="outline"
-              className="h-full w-7 rounded-l-none border-none px-1 py-0 text-xs text-muted-foreground hover:bg-emerald-500 hover:text-white"
-            >
-              <ChevronDownIcon className="size-3" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-80">
-            <div className="p-3">
-              <Form {...publishForm}>
-                <form onSubmit={publishForm.handleSubmit(handlePublish)}>
-                  <div className="space-y-3">
-                    <div className="flex items-center space-x-2">
-                      <GitBranchIcon className="size-4" />
-                      <span className="text-sm font-medium">
-                        Publish Workflow
-                      </span>
-                    </div>
-                    <FormField
-                      control={publishForm.control}
-                      name="message"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel className="text-xs">
-                            Commit Message (Optional)
-                          </FormLabel>
-                          <FormControl>
-                            <Input
-                              {...field}
-                              placeholder="Enter a commit message..."
-                              className="h-8 text-xs"
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <Button
-                      type="submit"
-                      disabled={isPublishing}
-                      className="w-full h-8 text-xs bg-emerald-500 hover:bg-emerald-600"
-                    >
-                      {isPublishing ? (
-                        <>
-                          <Spinner className="mr-2 size-3" />
-                          Publishing...
-                        </>
-                      ) : (
-                        <>
-                          <GitBranchIcon className="mr-2 size-4" />
-                          Publish
-                        </>
-                      )}
-                    </Button>
-                  </div>
-                </form>
-              </Form>
-            </div>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
+      )}
 
       <Badge
         variant="secondary"
