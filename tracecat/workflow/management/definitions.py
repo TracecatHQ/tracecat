@@ -69,10 +69,12 @@ class WorkflowDefinitionsService(BaseService):
             content=dsl.model_dump(exclude_unset=True),
             version=version,
         )
+        self.session.add(defn)
         if commit:
-            self.session.add(defn)
             await self.session.commit()
-            await self.session.refresh(defn)
+        else:
+            await self.session.flush()
+        await self.session.refresh(defn)
         return defn
 
 

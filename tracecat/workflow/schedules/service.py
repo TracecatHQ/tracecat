@@ -55,7 +55,9 @@ class WorkflowSchedulesService(BaseService):
         schedules = result.all()
         return list(schedules)
 
-    async def create_schedule(self, params: ScheduleCreate) -> Schedule:
+    async def create_schedule(
+        self, params: ScheduleCreate, commit: bool = True
+    ) -> Schedule:
         """
         Create a schedule for a workflow.
 
@@ -135,7 +137,13 @@ class WorkflowSchedulesService(BaseService):
 
         add_after_commit_callback(self.session, _create_schedule)
 
-        await self.session.commit()
+        # Ensure the SQLAlchemy instance is persistent before refresh.
+        # Commit will implicitly flush; when commit=False we must flush explicitly
+        # or SQLAlchemy will raise "Instance is not persistent within this Session".
+        if commit:
+            await self.session.commit()
+        else:
+            await self.session.flush()
         await self.session.refresh(schedule)
         return schedule
 

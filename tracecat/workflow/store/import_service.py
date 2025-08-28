@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import uuid
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import yaml
 from pydantic import ValidationError
-from sqlmodel import col, delete, select
+from sqlmodel import select
 
-from tracecat.db.schemas import Action, Schedule, Tag, Webhook, Workflow, WorkflowTag
+from tracecat.db.schemas import Action, Tag, Webhook, Workflow, WorkflowTag
 from tracecat.dsl.common import DSLInput
 from tracecat.dsl.view import RFGraph
 from tracecat.identifiers.workflow import WorkflowID, WorkflowUUID
@@ -20,7 +20,13 @@ from tracecat.types.exceptions import TracecatAuthorizationError
 from tracecat.workflow.actions.models import ActionControlFlow
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.management import WorkflowsManagementService
-from tracecat.workflow.store.models import RemoteWebhook, RemoteWorkflowDefinition
+from tracecat.workflow.schedules.models import ScheduleCreate
+from tracecat.workflow.schedules.service import WorkflowSchedulesService
+from tracecat.workflow.store.models import (
+    RemoteWebhook,
+    RemoteWorkflowDefinition,
+    RemoteWorkflowSchedule,
+)
 
 
 class WorkflowImportService(BaseWorkspaceService):
@@ -317,12 +323,19 @@ class WorkflowImportService(BaseWorkspaceService):
         return None  # Could not find unique name
 
     async def _update_schedules(
-        self, workflow: Workflow, remote_schedules: list | None
+        self, workflow: Workflow, remote_schedules: list[RemoteWorkflowSchedule] | None
     ) -> None:
-        """Update workflow schedules - replace existing with new ones."""
-        # Delete existing schedules
-        stmt = delete(Schedule).where(col(Schedule.workflow_id) == workflow.id)
-        await self.session.execute(stmt)
+        """Update workflow schedules - replace existing with new ones using WorkflowSchedulesService."""
+        schedule_service = WorkflowSchedulesService(
+            session=self.session, role=self.role
+        )
+
+        # Delete existing schedules (both DB and Temporal)
+        wf_id = WorkflowUUID.new(workflow.id)
+        existing_schedules = await schedule_service.list_schedules(wf_id)
+
+        for schedule in existing_schedules:
+            await schedule_service.delete_schedule(schedule.id)
         await self.session.flush()
 
         # Create new schedules
@@ -330,14 +343,20 @@ class WorkflowImportService(BaseWorkspaceService):
         await self.session.flush()
 
     async def _create_schedules(
-        self, workflow: Workflow, remote_schedules: list | None
+        self,
+        workflow: Workflow,
+        remote_schedules: list[RemoteWorkflowSchedule] | None = None,
     ) -> None:
-        """Create new schedules for workflow."""
+        """Create new schedules for workflow using WorkflowSchedulesService."""
         if not remote_schedules:
             return
 
+        schedule_service = WorkflowSchedulesService(
+            session=self.session, role=self.role
+        )
+
         for schedule_data in remote_schedules:
-            # Convert RemoteWorkflowSchedule to Schedule entity
+            # Convert RemoteWorkflowSchedule to ScheduleCreate
             every_td = (
                 timedelta(seconds=schedule_data.every)
                 if schedule_data.every is not None
@@ -349,18 +368,32 @@ class WorkflowImportService(BaseWorkspaceService):
                 else None
             )
 
-            schedule = Schedule(
-                owner_id=self.workspace_id,
-                workflow_id=workflow.id,
+            # Parse ISO datetime strings if provided
+            start_at = None
+            if schedule_data.start_at:
+                start_at = datetime.fromisoformat(
+                    schedule_data.start_at.replace("Z", "+00:00")
+                )
+
+            end_at = None
+            if schedule_data.end_at:
+                end_at = datetime.fromisoformat(
+                    schedule_data.end_at.replace("Z", "+00:00")
+                )
+
+            schedule_create = ScheduleCreate(
+                workflow_id=WorkflowUUID.new(workflow.id),
                 cron=schedule_data.cron,
-                status=schedule_data.status,
                 every=every_td,
                 offset=offset_td,
-                start_at=schedule_data.start_at,
-                end_at=schedule_data.end_at,
-                timeout=schedule_data.timeout,
+                start_at=start_at,
+                end_at=end_at,
+                timeout=schedule_data.timeout or 0,
+                status=schedule_data.status,
             )
-            self.session.add(schedule)
+
+            # Create schedule using service (handles both DB and Temporal)
+            await schedule_service.create_schedule(schedule_create, commit=False)
         await self.session.flush()
 
     async def _update_webhook(
@@ -372,10 +405,7 @@ class WorkflowImportService(BaseWorkspaceService):
         self.logger.info(f"Updating webhook {workflow.id} from remote {remote_webhook}")
 
         # Find existing webhook
-        stmt = select(Webhook).where(Webhook.workflow_id == workflow.id)
-        result = await self.session.exec(stmt)
-        if webhook := result.first():
-            await self._update_webhook_from_remote(webhook, remote_webhook)
+        await self._update_webhook_from_remote(workflow.webhook, remote_webhook)
 
     async def _update_webhook_from_remote(
         self, webhook: Webhook, remote_webhook: RemoteWebhook | None
@@ -385,15 +415,15 @@ class WorkflowImportService(BaseWorkspaceService):
             return
         self.logger.info(f"Updating webhook {webhook.id} from remote {remote_webhook}")
 
-        webhook.methods = getattr(remote_webhook, "methods", ["POST"])
-        webhook.status = getattr(remote_webhook, "status", "offline")
+        # The webhook ID doesn't matter
+        webhook.methods = remote_webhook.methods
+        webhook.status = remote_webhook.status
 
     async def _update_tags(self, workflow: Workflow, remote_tags: list | None) -> None:
         """Update workflow tags - replace existing with new ones."""
         # Delete existing workflow-tag associations
-        stmt = select(WorkflowTag).where(col(WorkflowTag.workflow_id) == workflow.id)
-        result = await self.session.exec(stmt)
-        for workflow_tag in result:
+        await self.session.refresh(workflow, ["tags"])
+        for workflow_tag in workflow.tags:
             await self.session.delete(workflow_tag)
         await self.session.flush()
 
