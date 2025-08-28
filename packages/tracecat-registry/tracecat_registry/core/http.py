@@ -589,7 +589,8 @@ async def http_request(
                     data=form_data,
                     files=httpx_files_param,
                 )
-            response.raise_for_status()
+            if response.status_code >= 400:
+                response.raise_for_status()
         except httpx.HTTPStatusError as e:
             error_message = _http_status_error_to_message(e)
             logger.error(
