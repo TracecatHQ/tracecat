@@ -466,8 +466,9 @@ class DSLRunArgs(BaseModel):
     )
     timeout: timedelta = Field(
         default_factory=lambda: timedelta(minutes=5),
-        description="The maximum time to wait for the workflow to complete.",
+        description="Platform activity start-to-close timeout.",
     )
+    """Platform activity start-to-close timeout."""
     schedule_id: ScheduleID | None = Field(
         default=None,
         description="The schedule ID that triggered this workflow, if any.",

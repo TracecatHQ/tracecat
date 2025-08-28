@@ -187,9 +187,10 @@ class DSLConfig(BaseModel):
         ),
     )
     timeout: float = Field(
-        default=300,
-        description="The maximum number of seconds to wait for the workflow to complete.",
+        default=0,
+        description="Workflow timeout in seconds. If set to 0, the workflow has no timeout.",
     )
+    """Workflow timeout in seconds. If set to 0, the workflow has no timeout."""
 
 
 class Trigger(BaseModel):

@@ -1037,7 +1037,7 @@ export type DSLConfig_Input = {
    */
   environment?: string
   /**
-   * The maximum number of seconds to wait for the workflow to complete.
+   * Workflow timeout in seconds. If set to 0, the workflow has no timeout.
    */
   timeout?: number
 }
@@ -1058,7 +1058,7 @@ export type DSLConfig_Output = {
    */
   environment?: string
   /**
-   * The maximum number of seconds to wait for the workflow to complete.
+   * Workflow timeout in seconds. If set to 0, the workflow has no timeout.
    */
   timeout?: number
 }
@@ -1120,7 +1120,7 @@ export type DSLRunArgs = {
    */
   runtime_config?: DSLConfig_Output
   /**
-   * The maximum time to wait for the workflow to complete.
+   * Platform activity start-to-close timeout.
    */
   timeout?: string
   /**
@@ -3907,10 +3907,14 @@ export type WorkspaceRole = "editor" | "admin"
 
 export type WorkspaceSettingsRead = {
   git_repo_url?: string | null
+  workflow_unlimited_timeout_enabled?: boolean | null
+  workflow_default_timeout_seconds?: number | null
 }
 
 export type WorkspaceSettingsUpdate = {
   git_repo_url?: string | null
+  workflow_unlimited_timeout_enabled?: boolean | null
+  workflow_default_timeout_seconds?: number | null
 }
 
 export type WorkspaceUpdate = {

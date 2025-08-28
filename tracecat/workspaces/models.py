@@ -15,15 +15,28 @@ from tracecat.identifiers import OwnerID, UserID, WorkspaceID
 # DTO
 class WorkspaceSettings(TypedDict):
     git_repo_url: NotRequired[str | None]
+    workflow_unlimited_timeout_enabled: NotRequired[bool | None]
+    workflow_default_timeout_seconds: NotRequired[int | None]
 
 
 # Schema
 class WorkspaceSettingsRead(BaseModel):
     git_repo_url: str | None = None
+    workflow_unlimited_timeout_enabled: bool | None = None
+    workflow_default_timeout_seconds: int | None = None
 
 
 class WorkspaceSettingsUpdate(BaseModel):
     git_repo_url: str | None = None
+    workflow_unlimited_timeout_enabled: bool | None = Field(
+        default=None,
+        description="Allow workflows to run indefinitely without timeout constraints. When enabled, individual workflow timeout settings are ignored.",
+    )
+    workflow_default_timeout_seconds: int | None = Field(
+        default=None,
+        ge=0,
+        description="Default timeout in seconds for workflows in this workspace. Must be greater than or equal to 0.",
+    )
 
 
 # Params
