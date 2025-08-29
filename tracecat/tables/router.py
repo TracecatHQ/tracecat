@@ -90,18 +90,21 @@ async def create_table(
         while (cause := e.__cause__) is not None:
             e = cause
         if isinstance(e, DuplicateTableError):
+            logger.warning(f"Duplicate table error: {e}")
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail=str(e).replace("relation", "table").capitalize(),
+                detail="Table already exists",
             ) from e
         if isinstance(e, DuplicateColumnError):
+            logger.warning(f"Duplicate column error: {e}")
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail=str(e).replace("relation", "table").capitalize(),
+                detail="Column already exists",
             ) from e
+        logger.error(f"Unexpected error creating table: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Unexpected error occurred: {e}",
+            detail="An error occurred while creating the table",
         ) from e
 
 

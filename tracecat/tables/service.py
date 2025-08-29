@@ -221,8 +221,9 @@ class BaseTablesService(BaseService):
         await self.session.flush()
 
         # Create columns if specified
+        # Call base class method directly to avoid per-column commits
         for col_params in params.columns:
-            await self.create_column(table, col_params)
+            await BaseTablesService.create_column(self, table, col_params)
 
         return table
 
