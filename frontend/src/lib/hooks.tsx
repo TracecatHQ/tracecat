@@ -4143,17 +4143,6 @@ export function useCreateRecord() {
         queryClient.invalidateQueries({
           queryKey: ["records", variables.workspaceId],
         })
-        toast({
-          title: "Record created",
-          description: "The record has been created successfully.",
-        })
-      },
-      onError: (error: TracecatApiError) => {
-        console.error("Failed to create record", error)
-        toast({
-          title: "Error creating record",
-          description: error.message || "Failed to create the record.",
-        })
       },
     })
 

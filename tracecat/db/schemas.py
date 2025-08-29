@@ -1478,7 +1478,12 @@ class EntityRecord(Resource, table=True):
         UniqueConstraint("id", name="uq_entity_record_id"),
     )
 
-    id: UUID4 = Field(default_factory=uuid.uuid4, primary_key=True, nullable=False)
+    id: UUID4 = Field(
+        default_factory=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
     entity_id: UUID4 = Field(
         sa_column=Column(
             UUID, ForeignKey("entity.id", ondelete="CASCADE"), nullable=False
@@ -1499,7 +1504,12 @@ class CaseRecord(Resource, table=True):
         Index("idx_case_record_case_entity", "case_id", "entity_id"),
     )
 
-    id: UUID4 = Field(default_factory=uuid.uuid4, primary_key=True, nullable=False)
+    id: UUID4 = Field(
+        default_factory=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
     case_id: UUID4 = Field(
         sa_column=Column(
             UUID, ForeignKey("cases.id", ondelete="CASCADE"), nullable=False

@@ -1,6 +1,6 @@
 "use client"
 
-import { Loader2, RefreshCw } from "lucide-react"
+import { AlertTriangle, Loader2, RefreshCw } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { type Control, type FieldValues, useForm } from "react-hook-form"
 import type { EntityFieldRead } from "@/client"
@@ -15,6 +15,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -31,7 +32,6 @@ import {
   FormField,
   FormItem,
   FormLabel,
-  FormMessage,
 } from "@/components/ui/form"
 import { Label } from "@/components/ui/label"
 import {
@@ -84,6 +84,7 @@ export function CreateRecordDialog({
   })
 
   const yamlEditorRef = useRef<YamlStyledEditorRef | null>(null)
+  const [submissionError, setSubmissionError] = useState<string | null>(null)
 
   const { fields, fieldsIsLoading, refetchFields } = useEntityFields(
     workspaceId,
@@ -149,6 +150,7 @@ export function CreateRecordDialog({
 
   const onSubmit = async (values: FormData) => {
     try {
+      setSubmissionError(null)
       // Ensure latest buffer is committed from YAML editor to form
       yamlEditorRef.current?.commitToForm()
 
@@ -158,7 +160,10 @@ export function CreateRecordDialog({
         typeof recordData !== "object" ||
         Array.isArray(recordData)
       ) {
-        throw new Error("Invalid YAML: expected an object")
+        setSubmissionError(
+          "Invalid data format. Please provide a valid YAML object."
+        )
+        return
       }
       await createRecord({
         workspaceId,
@@ -166,13 +171,15 @@ export function CreateRecordDialog({
         data: recordData,
       })
       form.reset()
+      setSubmissionError(null)
       onOpenChange(false)
       onSuccess?.()
-    } catch (_error) {
-      form.setError("data", {
-        type: "manual",
-        message: "Invalid YAML format",
-      })
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error
+          ? error.message
+          : "Failed to create record. Please check your data and try again."
+      setSubmissionError(errorMessage)
     }
   }
 
@@ -185,6 +192,14 @@ export function CreateRecordDialog({
             Write the record payload as YAML.
           </DialogDescription>
         </DialogHeader>
+
+        {submissionError && (
+          <Alert variant="destructive">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertTitle>Error creating record</AlertTitle>
+            <AlertDescription>{submissionError}</AlertDescription>
+          </Alert>
+        )}
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
@@ -289,7 +304,6 @@ export function CreateRecordDialog({
                       </WorkflowProvider>
                     </div>
                   </FormControl>
-                  <FormMessage />
                 </FormItem>
               )}
             />
@@ -300,7 +314,10 @@ export function CreateRecordDialog({
           <Button
             type="button"
             variant="outline"
-            onClick={() => onOpenChange(false)}
+            onClick={() => {
+              setSubmissionError(null)
+              onOpenChange(false)
+            }}
             disabled={createRecordIsPending}
           >
             Cancel

@@ -392,3 +392,35 @@ class TestRecordService:
             "tags",
         ]:
             assert cleared.data.get(k) is None
+
+    async def test_record_surrogate_id_auto_generated(
+        self, records_service: RecordService, entity_with_fields, session: AsyncSession
+    ) -> None:
+        """Test that surrogate_id is auto-generated and not null.
+
+        This test catches migration issues where sequences might be missing.
+        """
+        entity = entity_with_fields
+        rec = await records_service.create_record(
+            entity, RecordCreate(data={"name": "test"})
+        )
+
+        # Refresh to ensure we have the latest from DB
+        await session.refresh(rec)
+
+        # Verify surrogate_id was auto-generated
+        assert hasattr(rec, "surrogate_id"), "EntityRecord should have surrogate_id"
+        assert rec.surrogate_id is not None, "surrogate_id should not be None"
+        assert isinstance(rec.surrogate_id, int), "surrogate_id should be an integer"
+        assert rec.surrogate_id > 0, "surrogate_id should be positive"
+
+        # Create another record to verify incrementing
+        rec2 = await records_service.create_record(
+            entity, RecordCreate(data={"name": "test2"})
+        )
+        await session.refresh(rec2)
+
+        assert rec2.surrogate_id is not None
+        assert rec2.surrogate_id > rec.surrogate_id, (
+            "surrogate_id should auto-increment"
+        )

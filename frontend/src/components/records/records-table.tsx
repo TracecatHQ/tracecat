@@ -19,6 +19,7 @@ import { useRecordsPagination } from "@/hooks/pagination/use-records-pagination"
 import { useEntities } from "@/hooks/use-entities"
 import { useDeleteRecord } from "@/lib/hooks"
 import { getIconByName } from "@/lib/icons"
+import { capitalizeFirst, shortTimeAgo } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 interface RecordsTableProps {
@@ -108,35 +109,6 @@ export function RecordsTable({ entityFilter }: RecordsTableProps) {
       enableHiding: false,
     },
     {
-      accessorKey: "data",
-      header: ({ column }) => (
-        <DataTableColumnHeader
-          className="text-xs"
-          column={column}
-          title="Record Data"
-        />
-      ),
-      cell: ({ row }) => {
-        const data = row.original.data || {}
-        if (Object.keys(data).length === 0) {
-          return <span className="text-xs text-muted-foreground">No data</span>
-        }
-
-        return (
-          <div className="max-w-md">
-            <JsonViewWithControls
-              src={data}
-              defaultExpanded={false}
-              defaultTab="nested"
-              showControls={false}
-            />
-          </div>
-        )
-      },
-      enableSorting: false,
-      enableHiding: false,
-    },
-    {
       accessorKey: "created_at",
       header: ({ column }) => (
         <DataTableColumnHeader
@@ -147,7 +119,7 @@ export function RecordsTable({ entityFilter }: RecordsTableProps) {
       ),
       cell: ({ row }) => (
         <div className="text-xs text-muted-foreground">
-          {new Date(row.original.created_at).toLocaleDateString()}
+          {capitalizeFirst(shortTimeAgo(new Date(row.original.created_at)))}
         </div>
       ),
       enableSorting: true,
@@ -164,10 +136,39 @@ export function RecordsTable({ entityFilter }: RecordsTableProps) {
       ),
       cell: ({ row }) => (
         <div className="text-xs text-muted-foreground">
-          {new Date(row.original.updated_at).toLocaleDateString()}
+          {capitalizeFirst(shortTimeAgo(new Date(row.original.updated_at)))}
         </div>
       ),
       enableSorting: true,
+      enableHiding: false,
+    },
+    {
+      accessorKey: "data",
+      header: ({ column }) => (
+        <DataTableColumnHeader
+          className="text-xs"
+          column={column}
+          title="Record"
+        />
+      ),
+      cell: ({ row }) => {
+        const data = row.original.data || {}
+        if (Object.keys(data).length === 0) {
+          return <span className="text-xs text-muted-foreground">No data</span>
+        }
+
+        return (
+          <div className="w-64">
+            <JsonViewWithControls
+              src={data}
+              defaultExpanded={false}
+              defaultTab="nested"
+              showControls={false}
+            />
+          </div>
+        )
+      },
+      enableSorting: false,
       enableHiding: false,
     },
     {

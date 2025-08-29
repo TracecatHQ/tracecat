@@ -228,13 +228,6 @@ function EntitiesActions() {
         })
         setCreateEntityDialogOpen(false)
       },
-      onError: (_err) => {
-        toast({
-          title: "Error creating entity",
-          description: "Failed to create entity. Please try again.",
-          variant: "destructive",
-        })
-      },
     })
 
   return (
