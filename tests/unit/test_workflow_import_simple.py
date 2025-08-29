@@ -1,10 +1,12 @@
 """Simplified tests for WorkflowImportService functionality."""
 
 import pytest
+import yaml
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat.dsl.common import DSLConfig, DSLEntrypoint, DSLInput
 from tracecat.dsl.models import ActionStatement
+from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.types.auth import Role
 from tracecat.workflow.store.import_service import WorkflowImportService
 from tracecat.workflow.store.models import (
@@ -74,8 +76,6 @@ class TestWorkflowImportServiceSimple:
         self, import_service: WorkflowImportService, simple_dsl: DSLInput
     ):
         """Test creating actions from DSL without database complications."""
-        from tracecat.identifiers.workflow import WorkflowUUID
-
         workflow_id = WorkflowUUID.new("wf_testactions")
         actions = await import_service._create_actions_from_dsl(simple_dsl, workflow_id)
 
@@ -87,8 +87,6 @@ class TestWorkflowImportServiceSimple:
         assert action.owner_id == import_service.workspace_id
 
         # Verify inputs are YAML serialized
-        import yaml
-
         inputs = yaml.safe_load(action.inputs)
         assert inputs == {"value": "test_value"}
 

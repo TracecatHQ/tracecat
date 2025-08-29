@@ -376,7 +376,7 @@ class WorkflowImportService(BaseWorkspaceService):
         existing_schedules = await schedule_service.list_schedules(wf_id)
 
         for schedule in existing_schedules:
-            await schedule_service.delete_schedule(schedule.id)
+            await schedule_service.delete_schedule(schedule.id, commit=False)
         await self.session.flush()
 
         # Create new schedules
