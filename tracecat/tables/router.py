@@ -84,7 +84,7 @@ async def create_table(
     """Create a new table."""
     service = TablesService(session, role=role)
     try:
-        table = await service.create_table(params)
+        await service.create_table(params)
     except ProgrammingError as e:
         # Drill down to the root cause
         while (cause := e.__cause__) is not None:
@@ -94,28 +94,15 @@ async def create_table(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=str(e).replace("relation", "table").capitalize(),
             ) from e
+        if isinstance(e, DuplicateColumnError):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=str(e).replace("relation", "table").capitalize(),
+            ) from e
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Unexpected error occurred: {e}",
         ) from e
-
-    for col_params in params.columns:
-        try:
-            await service.create_column(table, col_params)
-        except ProgrammingError as e:
-            # Drill down to the root cause
-            while (cause := e.__cause__) is not None:
-                e = cause
-            if isinstance(e, DuplicateColumnError):
-                # Format: 'column "field>" of relation "<table>" already exists'
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail=str(e).replace("relation", "table").capitalize(),
-                ) from e
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Unexpected error occurred: {e}",
-            ) from e
 
 
 @router.get("/{table_id}", response_model=TableRead)
