@@ -22,14 +22,14 @@ class WorkspaceSettings(TypedDict):
 # Schema
 class WorkspaceSettingsRead(BaseModel):
     git_repo_url: str | None = None
-    workflow_unlimited_timeout_enabled: bool | None = None
+    workflow_unlimited_timeout_enabled: bool
     workflow_default_timeout_seconds: int | None = None
 
 
 class WorkspaceSettingsUpdate(BaseModel):
     git_repo_url: str | None = None
-    workflow_unlimited_timeout_enabled: bool | None = Field(
-        default=None,
+    workflow_unlimited_timeout_enabled: bool = Field(
+        default=True,
         description="Allow workflows to run indefinitely without timeout constraints. When enabled, individual workflow timeout settings are ignored.",
     )
     workflow_default_timeout_seconds: int | None = Field(
