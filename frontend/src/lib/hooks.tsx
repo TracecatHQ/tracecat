@@ -57,6 +57,8 @@ import {
   casesRemoveTag,
   casesUpdateCase,
   casesUpdateComment,
+  entitiesCreateEntityRecord,
+  entitiesDeleteEntityRecord,
   type FolderDirectoryItem,
   foldersCreateFolder,
   foldersDeleteFolder,
@@ -4115,4 +4117,85 @@ export function useWorkspaceSettings(
     handleCreateWorkspaceSSHKey,
     handleDeleteSSHKey,
   }
+}
+
+// Records hooks
+export function useCreateRecord() {
+  const queryClient = useQueryClient()
+
+  const { mutateAsync: createRecord, isPending: createRecordIsPending } =
+    useMutation({
+      mutationFn: async ({
+        workspaceId,
+        entityId,
+        data,
+      }: {
+        workspaceId: string
+        entityId: string
+        data: Record<string, unknown>
+      }) =>
+        await entitiesCreateEntityRecord({
+          workspaceId,
+          entityId,
+          requestBody: { data },
+        }),
+      onSuccess: (_, variables) => {
+        queryClient.invalidateQueries({
+          queryKey: ["records", variables.workspaceId],
+        })
+        toast({
+          title: "Record created",
+          description: "The record has been created successfully.",
+        })
+      },
+      onError: (error: TracecatApiError) => {
+        console.error("Failed to create record", error)
+        toast({
+          title: "Error creating record",
+          description: error.message || "Failed to create the record.",
+        })
+      },
+    })
+
+  return { createRecord, createRecordIsPending }
+}
+
+export function useDeleteRecord() {
+  const queryClient = useQueryClient()
+
+  const { mutateAsync: deleteRecord, isPending: deleteRecordIsPending } =
+    useMutation({
+      mutationFn: async ({
+        workspaceId,
+        entityId,
+        recordId,
+      }: {
+        workspaceId: string
+        entityId: string
+        recordId: string
+      }) =>
+        await entitiesDeleteEntityRecord({
+          workspaceId,
+          entityId,
+          recordId,
+        }),
+      onSuccess: (_, variables) => {
+        queryClient.invalidateQueries({
+          queryKey: ["records", variables.workspaceId],
+        })
+        toast({
+          title: "Record deleted",
+          description: "The record has been deleted successfully.",
+        })
+      },
+      onError: (error: TracecatApiError) => {
+        console.error("Failed to delete record", error)
+        toast({
+          title: "Error deleting record",
+          description: error.message || "Failed to delete the record.",
+        })
+      },
+    })
+
+  return { deleteRecord, deleteRecordIsPending }
 }

@@ -20,6 +20,7 @@ import {
   ViewMode,
 } from "@/components/dashboard/folder-view-toggle"
 import { CreateEntityDialog } from "@/components/entities/create-entity-dialog"
+import { CreateRecordDialog } from "@/components/records/create-record-dialog"
 import { CreateTableDialog } from "@/components/tables/table-create-dialog"
 import { TableInsertButton } from "@/components/tables/table-insert-button"
 import { Badge } from "@/components/ui/badge"
@@ -243,6 +244,29 @@ function EntitiesActions() {
         isSubmitting={isCreatingEntity}
       />
     </div>
+  )
+}
+
+function RecordsActions() {
+  const workspaceId = useWorkspaceId()
+  const [dialogOpen, setDialogOpen] = useState(false)
+  return (
+    <>
+      <Button
+        variant="outline"
+        size="sm"
+        className="h-7 bg-white"
+        onClick={() => setDialogOpen(true)}
+      >
+        <Plus className="mr-1 h-3.5 w-3.5" />
+        Add record
+      </Button>
+      <CreateRecordDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        workspaceId={workspaceId}
+      />
+    </>
   )
 }
 
@@ -582,6 +606,13 @@ function getPageConfig(
 
     return {
       title: "Runbooks",
+    }
+  }
+
+  if (pagePath.startsWith("/records")) {
+    return {
+      title: "Records",
+      actions: <RecordsActions />,
     }
   }
 

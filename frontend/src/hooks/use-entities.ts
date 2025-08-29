@@ -46,6 +46,7 @@ export function useEntityFields(
     data: fields,
     isLoading: fieldsIsLoading,
     error: fieldsError,
+    refetch: refetchFields,
   } = useQuery({
     queryKey: ["entity-fields", workspaceId, entityId, includeInactive],
     queryFn: async () =>
@@ -53,7 +54,7 @@ export function useEntityFields(
     enabled: !!workspaceId && !!entityId,
   })
 
-  return { fields, fieldsIsLoading, fieldsError }
+  return { fields, fieldsIsLoading, fieldsError, refetchFields }
 }
 
 export function useUpdateEntityField(workspaceId: string, entityId: string) {
