@@ -1,3 +1,4 @@
+import hashlib
 import uuid
 from unittest.mock import patch
 
@@ -10,7 +11,6 @@ from tracecat.cases.enums import CaseEventType, CasePriority, CaseSeverity, Case
 from tracecat.cases.models import CaseAttachmentCreate, CaseCreate
 from tracecat.cases.service import CaseAttachmentService, CasesService
 from tracecat.db.schemas import CaseAttachment, CaseEvent, File
-from tracecat.storage import compute_sha256
 from tracecat.types.exceptions import TracecatNotFoundError
 
 pytestmark = pytest.mark.usefixtures(
@@ -104,7 +104,10 @@ class TestCaseAttachmentsIntegration:
         # Basic assertions on created attachment
         assert created_attachment.case_id == test_case.id
         assert created_attachment.file.size == len(sample_file_content)
-        assert created_attachment.file.sha256 == compute_sha256(sample_file_content)
+        assert (
+            created_attachment.file.sha256
+            == hashlib.sha256(sample_file_content).hexdigest()
+        )
 
         # 3. Listing should return exactly this attachment
         attachments = await attachments_service.list_attachments(test_case)
@@ -191,7 +194,9 @@ class TestCaseAttachmentsIntegration:
         assert attachment1.id != attachment2.id
 
         # Verify only one file record exists in database
-        stmt = select(File).where(File.sha256 == compute_sha256(sample_file_content))
+        stmt = select(File).where(
+            File.sha256 == hashlib.sha256(sample_file_content).hexdigest()
+        )
         file_result = await session.exec(stmt)
         files = file_result.all()
         assert len(files) == 1
