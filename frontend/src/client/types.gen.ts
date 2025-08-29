@@ -3907,7 +3907,7 @@ export type WorkspaceRole = "editor" | "admin"
 
 export type WorkspaceSettingsRead = {
   git_repo_url?: string | null
-  workflow_unlimited_timeout_enabled: boolean
+  workflow_unlimited_timeout_enabled?: boolean | null
   workflow_default_timeout_seconds?: number | null
 }
 
@@ -3916,7 +3916,7 @@ export type WorkspaceSettingsUpdate = {
   /**
    * Allow workflows to run indefinitely without timeout constraints. When enabled, individual workflow timeout settings are ignored.
    */
-  workflow_unlimited_timeout_enabled?: boolean
+  workflow_unlimited_timeout_enabled?: boolean | null
   /**
    * Default timeout in seconds for workflows in this workspace. Must be greater than or equal to 0.
    */
