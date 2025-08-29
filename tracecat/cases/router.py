@@ -8,6 +8,7 @@ from sqlalchemy.exc import DBAPIError, NoResultFound
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.models import UserRead
 from tracecat.auth.users import search_users
+from tracecat.authz.models import WorkspaceRole
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.models import (
     AssigneeChangedEventRead,
@@ -47,7 +48,7 @@ from tracecat.storage import (
 )
 from tracecat.tags.models import TagRead
 from tracecat.tags.service import TagsService
-from tracecat.types.auth import AccessLevel, Role
+from tracecat.types.auth import Role
 from tracecat.types.pagination import (
     CursorPaginatedResponse,
     CursorPaginationParams,
@@ -70,7 +71,7 @@ WorkspaceAdminUser = Annotated[
         allow_user=True,
         allow_service=False,
         require_workspace="yes",
-        min_access_level=AccessLevel.ADMIN,
+        require_workspace_roles=WorkspaceRole.ADMIN,
     ),
 ]
 
