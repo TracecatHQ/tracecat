@@ -10,6 +10,7 @@ from sqlmodel import select
 
 from tracecat.db.schemas import Action, Tag, Webhook, Workflow, WorkflowTag
 from tracecat.dsl.common import DSLInput
+from tracecat.dsl.enums import PlatformAction
 from tracecat.dsl.view import RFGraph
 from tracecat.identifiers.workflow import WorkflowID, WorkflowUUID
 from tracecat.logger import logger
@@ -134,6 +135,12 @@ class WorkflowImportService(BaseWorkspaceService):
             )
             diagnostics.extend(workflow_diagnostics)
 
+        # Cross-workflow integrity: validate alias references in child workflow actions
+        cross_diagnostics = await self._validate_cross_workflow_integrity(
+            remote_workflows
+        )
+        diagnostics.extend(cross_diagnostics)
+
         return diagnostics
 
     async def _validate_single_workflow(
@@ -188,6 +195,90 @@ class WorkflowImportService(BaseWorkspaceService):
                 )
             )
 
+        return diagnostics
+
+    async def _validate_cross_workflow_integrity(
+        self, remote_workflows: list[RemoteWorkflowDefinition]
+    ) -> list[PullDiagnostic]:
+        """Validate that alias-based child workflow calls reference valid workflows.
+
+        Rules
+        -----
+        - For actions with `action == "core.workflow.execute"`, if `workflow_alias` is
+          provided in `args`, it must resolve to an existing workflow in the current
+          workspace OR match the alias of a workflow included in this import batch.
+        - If the action uses `workflow_id`, skip alias validation.
+        """
+        diagnostics: list[PullDiagnostic] = []
+
+        # Gather aliases from remote workflows
+        remote_aliases: set[str] = {wf.alias for wf in remote_workflows if wf.alias}
+
+        # Cache for database alias resolutions
+        resolved_db_aliases: dict[str, bool] = {}
+
+        async def _is_alias_valid(alias: str) -> bool:
+            """Check if alias is valid (exists in remote set or database)."""
+            if alias in remote_aliases:
+                return True
+            if alias in resolved_db_aliases:
+                return resolved_db_aliases[alias]
+
+            workflow_id = await self.wf_mgmt.resolve_workflow_alias(alias)
+            is_valid = workflow_id is not None
+            resolved_db_aliases[alias] = is_valid
+            return is_valid
+
+        # Validate each workflow's child workflow references
+        for remote_workflow in remote_workflows:
+            workflow_path = f"workflows/{remote_workflow.id}/definition.yml"
+
+            for action in remote_workflow.definition.actions:
+                try:
+                    if action.action != PlatformAction.CHILD_WORKFLOW_EXECUTE:
+                        continue
+
+                    # Only validate alias-based references
+                    alias = (
+                        action.args.get("workflow_alias")
+                        if isinstance(action.args, dict)
+                        else None
+                    )
+                    if not alias:
+                        continue
+
+                    if await _is_alias_valid(alias):
+                        continue
+
+                    diagnostics.append(
+                        PullDiagnostic(
+                            workflow_path=workflow_path,
+                            workflow_title=remote_workflow.definition.title,
+                            error_type="validation",
+                            message=(
+                                f"Unknown workflow alias {alias!r} referenced by action"
+                                f" {action.ref!r} (core.workflow.execute)."
+                                " Alias must reference a workflow in this workspace or the import set."
+                            ),
+                            details={
+                                "action": action.action,
+                                "action_ref": action.ref,
+                                "workflow_alias": alias,
+                            },
+                        )
+                    )
+                except Exception as e:
+                    diagnostics.append(
+                        PullDiagnostic(
+                            workflow_path=workflow_path,
+                            workflow_title=remote_workflow.definition.title,
+                            error_type="validation",
+                            message="Error validating child workflow alias reference",
+                            details={"exception": str(e)},
+                        )
+                    )
+
+        self.logger.debug(f"Cross-workflow integrity diagnostics: {diagnostics}")
         return diagnostics
 
     async def _import_single_workflow(
