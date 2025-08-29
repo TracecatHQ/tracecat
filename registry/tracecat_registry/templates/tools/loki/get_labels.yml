@@ -1,0 +1,32 @@
+type: action
+definition:
+  title: Get label names
+  description: Retrieve a list of label names from Loki logs, optionally filtered by time range and LogQL stream selectors.
+  display_group: Loki
+  doc_url: https://grafana.com/docs/loki/latest/reference/loki-http-api/#query-labels
+  namespace: tools.loki
+  name: get_label_names
+  expects:
+    query:
+      type: str
+      description: LogQL stream selector to filter the returned label names (e.g., "{job=\"my-app\"}", "{service=~\"api.*\"}").
+      default: ""
+    base_url:
+      type: str
+      description: Loki server URL (e.g., http://localhost:3100).
+      default: "http://localhost:3100"
+  steps:
+    - ref: loki_label_names
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/loki/api/v1/labels
+        method: GET
+        params:
+          query: ${{ inputs.query }}
+    - ref: human_readable
+      action: core.transform.reshape
+      args:
+        value:
+          status: "success"
+          labels: ${{ steps.loki_label_names.result.data.data }}
+  returns: ${{ steps.human_readable.result }}

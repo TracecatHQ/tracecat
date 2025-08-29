@@ -1,0 +1,52 @@
+type: action
+definition:
+  title: Range query
+  description: Execute a Prometheus range query to evaluate an expression over a range of time.
+  display_group: Prometheus
+  doc_url: https://prometheus.io/docs/prometheus/latest/querying/api/#range-queries
+  namespace: tools.prometheus
+  name: range_query
+  secrets:
+    - name: prometheus
+      keys: ["PROMETHEUS_API_TOKEN"]
+      optional: true
+  expects:
+    query:
+      type: str
+      description: Prometheus expression query string (PromQL).
+    start_time:
+      type: datetime
+      description: Start timestamp for the query range (inclusive).
+    end_time:
+      type: datetime
+      description: End timestamp for the query range (inclusive).
+    step:
+      type: str
+      description: Query resolution step width in duration format (e.g., '15s', '1m', '5m').
+      default: "15s"
+    timeout:
+      type: str | None
+      description: Evaluation timeout in duration format (e.g., '30s', '1m').
+      default: null
+    limit:
+      type: int | None
+      description: Maximum number of returned series. 0 means disabled.
+      default: null
+    base_url:
+      type: str
+      description: Prometheus server URL (e.g., http://localhost:9090).
+      default: "http://localhost:9090"
+  steps:
+    - ref: prometheus_range_query
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/api/v1/query_range
+        method: GET
+        params:
+          query: ${{ inputs.query }}
+          start: ${{ inputs.start_time }}
+          end: ${{ inputs.end_time }}
+          step: ${{ inputs.step }}
+          timeout: ${{ inputs.timeout }}
+          limit: ${{ inputs.limit }}
+  returns: ${{ steps.prometheus_range_query.result }}
