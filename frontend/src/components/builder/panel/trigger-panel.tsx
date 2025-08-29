@@ -584,16 +584,21 @@ export function CreateScheduleDialog({ workflowId }: { workflowId: string }) {
                   </FormLabel>
                   <FormDescription className="text-xs">
                     The maximum time in seconds the workflow can run for.
+                    Default is 0 (no timeout).
                   </FormDescription>
                   <FormControl>
                     <Input
                       type="number"
                       className="text-xs capitalize"
                       placeholder="Timeout (seconds)"
-                      value={Math.max(1, Number(field.value || 300))}
-                      {...form.register("timeout", {
-                        valueAsNumber: true,
-                      })}
+                      {...field}
+                      onChange={(e) =>
+                        field.onChange(
+                          e.target.value
+                            ? parseFloat(e.target.value)
+                            : undefined
+                        )
+                      }
                     />
                   </FormControl>
                   <FormMessage />
