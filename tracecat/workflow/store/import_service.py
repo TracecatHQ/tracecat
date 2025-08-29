@@ -25,6 +25,7 @@ from tracecat.workflow.store.models import (
     RemoteWebhook,
     RemoteWorkflowDefinition,
     RemoteWorkflowSchedule,
+    RemoteWorkflowTag,
 )
 
 
@@ -166,22 +167,6 @@ class WorkflowImportService(BaseWorkspaceService):
             if existing_workflow and conflict_strategy == ConflictStrategy.SKIP:
                 # This is not an error for SKIP strategy - we'll just skip it
                 pass
-            elif existing_workflow and conflict_strategy == ConflictStrategy.RENAME:
-                # Check if we can generate a unique name
-                unique_title = await self._generate_unique_title(
-                    remote_workflow.definition.title
-                )
-                if not unique_title:
-                    diagnostics.append(
-                        PullDiagnostic(
-                            workflow_path=workflow_path,
-                            workflow_title=remote_workflow.definition.title,
-                            error_type="conflict",
-                            message="Cannot generate unique name for workflow",
-                            details={"existing_id": str(existing_workflow.id)},
-                        )
-                    )
-
         except ValidationError as e:
             diagnostics.append(
                 PullDiagnostic(
@@ -217,8 +202,8 @@ class WorkflowImportService(BaseWorkspaceService):
                 return  # Skip this workflow
             elif conflict_strategy == ConflictStrategy.OVERWRITE:
                 await self._update_existing_workflow(existing_workflow, remote_workflow)
-            elif conflict_strategy == ConflictStrategy.RENAME:
-                await self._create_renamed_workflow(remote_workflow)
+            else:
+                raise ValueError(f"Conflict strategy {conflict_strategy} not supported")
         else:
             await self._create_new_workflow(remote_workflow)
 
@@ -237,9 +222,7 @@ class WorkflowImportService(BaseWorkspaceService):
         existing_workflow.version = defn.version
         existing_workflow.title = remote_workflow.definition.title
         existing_workflow.description = remote_workflow.definition.description
-
-        if remote_workflow.alias:
-            existing_workflow.alias = remote_workflow.alias
+        existing_workflow.alias = remote_workflow.alias
 
         # 3. Delete existing actions and recreate from DSL
         # (Actions are tightly coupled to the DSL definition)
@@ -262,7 +245,7 @@ class WorkflowImportService(BaseWorkspaceService):
 
         # 6. Update related entities
         await self._update_schedules(existing_workflow, remote_workflow.schedules)
-        await self._update_webhook(existing_workflow, remote_workflow.webhook)
+        await self._update_webhook(existing_workflow.webhook, remote_workflow.webhook)
         await self._update_tags(existing_workflow, remote_workflow.tags)
 
     async def _create_new_workflow(self, remote_defn: RemoteWorkflowDefinition) -> None:
@@ -286,40 +269,8 @@ class WorkflowImportService(BaseWorkspaceService):
 
         # Handle additional remote-specific entities
         await self._create_schedules(workflow, remote_defn.schedules)
-        await self._update_webhook_from_remote(workflow.webhook, remote_defn.webhook)
+        await self._update_webhook(workflow.webhook, remote_defn.webhook)
         await self._create_tags(workflow, remote_defn.tags)
-
-    async def _create_renamed_workflow(
-        self, remote_workflow: RemoteWorkflowDefinition
-    ) -> None:
-        """Create workflow with renamed title to avoid conflicts."""
-        unique_title = await self._generate_unique_title(
-            remote_workflow.definition.title
-        )
-        if not unique_title:
-            raise ValueError(
-                f"Cannot generate unique name for workflow: {remote_workflow.definition.title}"
-            )
-
-        # Modify the remote workflow with unique title
-        remote_workflow.definition.title = unique_title
-        await self._create_new_workflow(remote_workflow)
-
-    async def _generate_unique_title(self, base_title: str) -> str | None:
-        """Generate a unique title by appending a number."""
-        if not self.workspace_id:
-            return None
-
-        for i in range(1, 100):  # Try up to 99 variations
-            candidate = f"{base_title} ({i})"
-            stmt = select(Workflow).where(
-                Workflow.owner_id == self.workspace_id, Workflow.title == candidate
-            )
-            result = await self.session.exec(stmt)
-            if not result.first():
-                return candidate
-
-        return None  # Could not find unique name
 
     async def _update_schedules(
         self, workflow: Workflow, remote_schedules: list[RemoteWorkflowSchedule] | None
@@ -371,17 +322,6 @@ class WorkflowImportService(BaseWorkspaceService):
         await self.session.flush()
 
     async def _update_webhook(
-        self, workflow: Workflow, remote_webhook: RemoteWebhook | None
-    ) -> None:
-        """Update existing webhook with remote webhook data."""
-        if not remote_webhook:
-            return
-        self.logger.info(f"Updating webhook {workflow.id} from remote {remote_webhook}")
-
-        # Find existing webhook
-        await self._update_webhook_from_remote(workflow.webhook, remote_webhook)
-
-    async def _update_webhook_from_remote(
         self, webhook: Webhook, remote_webhook: RemoteWebhook | None
     ) -> None:
         """Update webhook entity from remote webhook data."""
@@ -393,7 +333,9 @@ class WorkflowImportService(BaseWorkspaceService):
         webhook.methods = remote_webhook.methods
         webhook.status = remote_webhook.status
 
-    async def _update_tags(self, workflow: Workflow, remote_tags: list | None) -> None:
+    async def _update_tags(
+        self, workflow: Workflow, remote_tags: list[RemoteWorkflowTag] | None = None
+    ) -> None:
         """Update workflow tags - replace existing with new ones."""
         # Delete existing workflow-tag associations
         await self.session.refresh(workflow, ["tags"])
@@ -405,13 +347,15 @@ class WorkflowImportService(BaseWorkspaceService):
         await self._create_tags(workflow, remote_tags)
         await self.session.flush()
 
-    async def _create_tags(self, workflow: Workflow, remote_tags: list | None) -> None:
+    async def _create_tags(
+        self, workflow: Workflow, remote_tags: list[RemoteWorkflowTag] | None = None
+    ) -> None:
         """Create new tags and associations for workflow."""
         if not remote_tags or not self.workspace_id:
             return
 
         for tag_data in remote_tags:
-            tag_name = tag_data.name if hasattr(tag_data, "name") else str(tag_data)
+            tag_name = tag_data.name
 
             # Find or create tag in workspace
             tag = await self._find_or_create_tag(tag_name)
