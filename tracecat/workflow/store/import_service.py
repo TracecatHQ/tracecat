@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta
 
 import yaml
 from pydantic import ValidationError
@@ -356,38 +355,13 @@ class WorkflowImportService(BaseWorkspaceService):
         )
 
         for schedule_data in remote_schedules:
-            # Convert RemoteWorkflowSchedule to ScheduleCreate
-            every_td = (
-                timedelta(seconds=schedule_data.every)
-                if schedule_data.every is not None
-                else timedelta(hours=24)
-            )
-            offset_td = (
-                timedelta(seconds=schedule_data.offset)
-                if schedule_data.offset is not None
-                else None
-            )
-
-            # Parse ISO datetime strings if provided
-            start_at = None
-            if schedule_data.start_at:
-                start_at = datetime.fromisoformat(
-                    schedule_data.start_at.replace("Z", "+00:00")
-                )
-
-            end_at = None
-            if schedule_data.end_at:
-                end_at = datetime.fromisoformat(
-                    schedule_data.end_at.replace("Z", "+00:00")
-                )
-
             schedule_create = ScheduleCreate(
                 workflow_id=WorkflowUUID.new(workflow.id),
                 cron=schedule_data.cron,
-                every=every_td,
-                offset=offset_td,
-                start_at=start_at,
-                end_at=end_at,
+                every=schedule_data.every,
+                offset=schedule_data.offset,
+                start_at=schedule_data.start_at,
+                end_at=schedule_data.end_at,
                 timeout=schedule_data.timeout or 0,
                 status=schedule_data.status,
             )

@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer
@@ -107,19 +108,19 @@ class RemoteWorkflowSchedule(BaseModel):
     cron: str | None = None
     """Cron expression for the schedule, if applicable."""
 
-    every: float | None = Field(default=None, ge=0)
+    every: timedelta
     """Interval in seconds for the schedule (ISO 8601 duration string in DB, float seconds here for remote)."""
 
-    offset: float | None = Field(default=None, ge=0)
+    offset: timedelta | None = None
     """Offset in seconds before the schedule starts."""
 
-    start_at: str | None = None
+    start_at: datetime | None = None
     """ISO 8601 datetime string for when the schedule starts."""
 
-    end_at: str | None = None
+    end_at: datetime | None = None
     """ISO 8601 datetime string for when the schedule ends."""
 
-    timeout: float | None = Field(default=None, ge=0)
+    timeout: float | None = None
     """Maximum number of seconds to wait for the workflow to complete."""
 
 

@@ -83,10 +83,10 @@ class WorkflowStoreService(BaseWorkspaceService):
                 RemoteWorkflowSchedule(
                     status=cast(Status, s.status),
                     cron=s.cron,
-                    every=s.every.total_seconds() if s.every is not None else None,
-                    offset=s.offset.total_seconds() if s.offset is not None else None,
-                    start_at=s.start_at.isoformat() if s.start_at is not None else None,
-                    end_at=s.end_at.isoformat() if s.end_at is not None else None,
+                    every=s.every,
+                    offset=s.offset,
+                    start_at=s.start_at,
+                    end_at=s.end_at,
                     timeout=s.timeout,
                 )
                 for s in (workflow.schedules or [])
