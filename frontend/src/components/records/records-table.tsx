@@ -2,7 +2,7 @@
 
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import type { ColumnDef } from "@tanstack/react-table"
-import { Trash2 } from "lucide-react"
+import { Pencil, Trash2 } from "lucide-react"
 import { useMemo, useState } from "react"
 import type { EntityRead, RecordRead } from "@/client"
 import { DataTable, DataTableColumnHeader } from "@/components/data-table"
@@ -17,10 +17,11 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { useRecordsPagination } from "@/hooks/pagination/use-records-pagination"
 import { useEntities } from "@/hooks/use-entities"
-import { useDeleteRecord } from "@/lib/hooks"
 import { getIconByName } from "@/lib/icons"
 import { capitalizeFirst, shortTimeAgo } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
+import { DeleteRecordAlertDialog } from "./delete-record-dialog"
+import { EditRecordDialog } from "./edit-record-dialog"
 
 interface RecordsTableProps {
   entityFilter?: string | null
@@ -30,6 +31,9 @@ export function RecordsTable({ entityFilter }: RecordsTableProps) {
   const workspaceId = useWorkspaceId()
   const { entities } = useEntities(workspaceId)
   const [pageSize, setPageSize] = useState(20)
+  const [selectedRecord, setSelectedRecord] = useState<RecordRead | null>(null)
+  const [editDialogOpen, setEditDialogOpen] = useState(false)
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
 
   const {
     data: records,
@@ -50,20 +54,20 @@ export function RecordsTable({ entityFilter }: RecordsTableProps) {
     entityId: entityFilter,
   })
 
-  const { deleteRecord, deleteRecordIsPending } = useDeleteRecord()
-
   const entityById = useMemo(() => {
     const map = new Map<string, EntityRead>()
     entities?.forEach((entity) => map.set(entity.id, entity))
     return map
   }, [entities])
 
-  const handleDeleteRecord = async (record: RecordRead) => {
-    await deleteRecord({
-      workspaceId,
-      entityId: record.entity_id,
-      recordId: record.id,
-    })
+  const handleEditRecord = (record: RecordRead) => {
+    setSelectedRecord(record)
+    setEditDialogOpen(true)
+  }
+
+  const handleDeleteRecord = (record: RecordRead) => {
+    setSelectedRecord(record)
+    setDeleteDialogOpen(true)
   }
 
   const columns: ColumnDef<RecordRead>[] = [
@@ -190,8 +194,13 @@ export function RecordsTable({ entityFilter }: RecordsTableProps) {
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuItem
+                  onClick={() => handleEditRecord(row.original)}
+                >
+                  <Pencil className="mr-2 h-3 w-3" />
+                  <span>Edit</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem
                   onClick={() => handleDeleteRecord(row.original)}
-                  disabled={deleteRecordIsPending}
                 >
                   <Trash2 className="mr-2 h-3 w-3 text-rose-600" />
                   <span className="text-rose-600">Delete</span>
@@ -209,7 +218,7 @@ export function RecordsTable({ entityFilter }: RecordsTableProps) {
       <DataTable<RecordRead, unknown>
         data={(records || []) as RecordRead[]}
         columns={columns}
-        isLoading={recordsIsLoading || deleteRecordIsPending}
+        isLoading={recordsIsLoading}
         error={recordsError as Error | null}
         emptyMessage="No records found"
         tableId={`${workspaceId}-records`}
@@ -225,8 +234,18 @@ export function RecordsTable({ entityFilter }: RecordsTableProps) {
           onPreviousPage: goToPreviousPage,
           onFirstPage: goToFirstPage,
           onPageSizeChange: setPageSize,
-          isLoading: recordsIsLoading || deleteRecordIsPending,
+          isLoading: recordsIsLoading,
         }}
+      />
+      <EditRecordDialog
+        open={editDialogOpen}
+        onOpenChange={setEditDialogOpen}
+        record={selectedRecord}
+      />
+      <DeleteRecordAlertDialog
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        record={selectedRecord}
       />
     </div>
   )

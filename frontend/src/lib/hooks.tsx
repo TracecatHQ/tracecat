@@ -59,6 +59,7 @@ import {
   casesUpdateComment,
   entitiesCreateEntityRecord,
   entitiesDeleteEntityRecord,
+  entitiesUpdateEntityRecord,
   type FolderDirectoryItem,
   foldersCreateFolder,
   foldersDeleteFolder,
@@ -4147,6 +4148,49 @@ export function useCreateRecord() {
     })
 
   return { createRecord, createRecordIsPending }
+}
+
+export function useUpdateRecord() {
+  const queryClient = useQueryClient()
+
+  const { mutateAsync: updateRecord, isPending: updateRecordIsPending } =
+    useMutation({
+      mutationFn: async ({
+        workspaceId,
+        entityId,
+        recordId,
+        data,
+      }: {
+        workspaceId: string
+        entityId: string
+        recordId: string
+        data: Record<string, unknown>
+      }) =>
+        await entitiesUpdateEntityRecord({
+          workspaceId,
+          entityId,
+          recordId,
+          requestBody: { data },
+        }),
+      onSuccess: (_, variables) => {
+        queryClient.invalidateQueries({
+          queryKey: ["records", variables.workspaceId],
+        })
+        toast({
+          title: "Record updated",
+          description: "The record has been updated successfully.",
+        })
+      },
+      onError: (error: TracecatApiError) => {
+        console.error("Failed to update record", error)
+        toast({
+          title: "Error updating record",
+          description: error.message || "Failed to update the record.",
+        })
+      },
+    })
+
+  return { updateRecord, updateRecordIsPending }
 }
 
 export function useDeleteRecord() {
