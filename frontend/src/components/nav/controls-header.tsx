@@ -6,7 +6,7 @@ import { Calendar, PanelRight, Plus } from "lucide-react"
 import Link from "next/link"
 import { usePathname, useSearchParams } from "next/navigation"
 import { type ReactNode, useState } from "react"
-import type { OAuthGrantType } from "@/client"
+import type { EntityRead, OAuthGrantType } from "@/client"
 import { entitiesCreateEntity } from "@/client"
 import { AddCustomField } from "@/components/cases/add-custom-field"
 import { CreateCaseDialog } from "@/components/cases/case-create-dialog"
@@ -33,7 +33,20 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
 import { Button } from "@/components/ui/button"
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command"
 import { Label } from "@/components/ui/label"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 import { Switch } from "@/components/ui/switch"
 import { toast } from "@/components/ui/use-toast"
@@ -42,7 +55,7 @@ import {
   NewCredentialsDialog,
   NewCredentialsDialogTrigger,
 } from "@/components/workspaces/add-workspace-secret"
-import { useEntity } from "@/hooks/use-entities"
+import { useEntities, useEntity } from "@/hooks/use-entities"
 import { useWorkspaceDetails } from "@/hooks/use-workspace"
 import { entityEvents } from "@/lib/entity-events"
 import {
@@ -250,22 +263,75 @@ function EntitiesActions() {
 function RecordsActions() {
   const workspaceId = useWorkspaceId()
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [selectedEntityId, setSelectedEntityId] = useState<string>("")
+  const [comboboxOpen, setComboboxOpen] = useState(false)
+  const { entities } = useEntities(workspaceId)
+
+  const handleEntitySelect = (entityId: string) => {
+    setSelectedEntityId(entityId)
+    setComboboxOpen(false)
+    setDialogOpen(true)
+  }
+
   return (
     <>
-      <Button
-        variant="outline"
-        size="sm"
-        className="h-7 bg-white"
-        onClick={() => setDialogOpen(true)}
-      >
-        <Plus className="mr-1 h-3.5 w-3.5" />
-        Add record
-      </Button>
-      <CreateRecordDialog
-        open={dialogOpen}
-        onOpenChange={setDialogOpen}
-        workspaceId={workspaceId}
-      />
+      <Popover open={comboboxOpen} onOpenChange={setComboboxOpen}>
+        <PopoverTrigger asChild>
+          <Button variant="outline" size="sm" className="h-7 bg-white">
+            <Plus className="mr-1 h-3.5 w-3.5" />
+            Add record
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-[300px] p-0" align="end">
+          <Command>
+            <CommandInput placeholder="Search entities..." className="h-9" />
+            <CommandEmpty>No entity found.</CommandEmpty>
+            <CommandList>
+              <CommandGroup>
+                {entities?.map((entity: EntityRead) => {
+                  const IconComponent = entity.icon
+                    ? getIconByName(entity.icon)
+                    : null
+                  return (
+                    <CommandItem
+                      key={entity.id}
+                      value={entity.display_name}
+                      onSelect={() => handleEntitySelect(entity.id)}
+                      className="flex items-center gap-2"
+                    >
+                      {IconComponent && (
+                        <IconComponent className="h-3.5 w-3.5 text-muted-foreground" />
+                      )}
+                      <span>{entity.display_name}</span>
+                      {entity.key && (
+                        <span className="ml-auto text-xs text-muted-foreground">
+                          {entity.key}
+                        </span>
+                      )}
+                    </CommandItem>
+                  )
+                })}
+              </CommandGroup>
+            </CommandList>
+          </Command>
+        </PopoverContent>
+      </Popover>
+      {selectedEntityId && (
+        <CreateRecordDialog
+          open={dialogOpen}
+          onOpenChange={(open) => {
+            setDialogOpen(open)
+            if (!open) {
+              setSelectedEntityId("")
+            }
+          }}
+          workspaceId={workspaceId}
+          entityId={selectedEntityId}
+          onSuccess={() => {
+            setSelectedEntityId("")
+          }}
+        />
+      )}
     </>
   )
 }
@@ -459,19 +525,18 @@ function EntityBreadcrumb({
         </BreadcrumbSeparator>
         <BreadcrumbItem>
           <BreadcrumbPage className="font-semibold flex items-center gap-2">
-            <span>{entity?.display_name || entityId}</span>
+            <span className="flex items-center gap-2">
+              {entity?.icon &&
+                (() => {
+                  const IconComponent = getIconByName(entity.icon)
+                  return IconComponent ? (
+                    <IconComponent className="h-4 w-4 text-muted-foreground" />
+                  ) : null
+                })()}
+              {entity?.display_name || entityId}
+            </span>
             {entity?.key && (
-              <Badge
-                variant="secondary"
-                className="text-xs font-normal flex items-center gap-1"
-              >
-                {entity.icon &&
-                  (() => {
-                    const IconComponent = getIconByName(entity.icon)
-                    return IconComponent ? (
-                      <IconComponent className="h-3 w-3" />
-                    ) : null
-                  })()}
+              <Badge variant="secondary" className="text-xs font-normal">
                 {entity.key}
               </Badge>
             )}

@@ -5,11 +5,7 @@ import type { ColumnDef } from "@tanstack/react-table"
 import { Trash2 } from "lucide-react"
 import { useMemo, useState } from "react"
 import type { EntityRead, RecordRead } from "@/client"
-import {
-  DataTable,
-  DataTableColumnHeader,
-  type DataTableToolbarProps,
-} from "@/components/data-table"
+import { DataTable, DataTableColumnHeader } from "@/components/data-table"
 import { JsonViewWithControls } from "@/components/json-viewer"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
@@ -207,12 +203,6 @@ export function RecordsTable({ entityFilter }: RecordsTableProps) {
     },
   ]
 
-  const defaultToolbarProps = useMemo(() => {
-    return {
-      // No search bar or filter fields
-    } as DataTableToolbarProps<RecordRead>
-  }, [])
-
   return (
     <div className="space-y-4">
       <DataTable<RecordRead, unknown>
@@ -221,7 +211,6 @@ export function RecordsTable({ entityFilter }: RecordsTableProps) {
         isLoading={recordsIsLoading || deleteRecordIsPending}
         error={recordsError as Error | null}
         emptyMessage="No records found"
-        toolbarProps={defaultToolbarProps}
         tableId={`${workspaceId}-records`}
         serverSidePagination={{
           currentPage,

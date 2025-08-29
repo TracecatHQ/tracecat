@@ -3,7 +3,7 @@
 import { Loader2, RefreshCw } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { type Control, type FieldValues, useForm } from "react-hook-form"
-import type { EntityFieldRead, EntityRead } from "@/client"
+import type { EntityFieldRead } from "@/client"
 import {
   YamlStyledEditor,
   type YamlStyledEditorRef,
@@ -15,6 +15,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -32,21 +33,16 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
+import { Label } from "@/components/ui/label"
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { useEntities, useEntityFields } from "@/hooks/use-entities"
+import { useEntity, useEntityFields } from "@/hooks/use-entities"
 import { useCreateRecord } from "@/lib/hooks"
+import { getIconByName } from "@/lib/icons"
 import { cn } from "@/lib/utils"
 import { WorkflowProvider } from "@/providers/workflow"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -55,7 +51,7 @@ interface CreateRecordDialogProps {
   open?: boolean
   onOpenChange?: (open: boolean) => void
   workspaceId?: string
-  defaultEntityId?: string
+  entityId: string
   onSuccess?: () => void
 }
 
@@ -68,11 +64,11 @@ export function CreateRecordDialog({
   open: controlledOpen,
   onOpenChange: controlledOnOpenChange,
   workspaceId: propWorkspaceId,
-  defaultEntityId,
+  entityId,
   onSuccess,
 }: CreateRecordDialogProps) {
   const workspaceId = propWorkspaceId ?? useWorkspaceId()
-  const { entities } = useEntities(workspaceId)
+  const { entity } = useEntity(workspaceId, entityId)
   const { createRecord, createRecordIsPending } = useCreateRecord()
 
   const [internalOpen, setInternalOpen] = useState(false)
@@ -82,17 +78,16 @@ export function CreateRecordDialog({
 
   const form = useForm<FormData>({
     defaultValues: {
-      entityId: defaultEntityId || "",
+      entityId: entityId,
       data: {},
     },
   })
 
   const yamlEditorRef = useRef<YamlStyledEditorRef | null>(null)
 
-  const selectedEntityId = form.watch("entityId")
   const { fields, fieldsIsLoading, refetchFields } = useEntityFields(
     workspaceId,
-    selectedEntityId,
+    entityId,
     false
   )
 
@@ -139,9 +134,9 @@ export function CreateRecordDialog({
     return ex
   }, [fields])
 
-  // Prefill YAML editor with example payload when entity changes and dialog opens
+  // Prefill YAML editor with example payload when dialog opens
   useEffect(() => {
-    if (!open || !selectedEntityId) return
+    if (!open || !entityId) return
     // Only set if current data is empty to avoid clobbering user input
     const current = form.getValues("data")
     const isEmpty =
@@ -150,7 +145,7 @@ export function CreateRecordDialog({
     if (isEmpty) {
       form.setValue("data", examplePayload, { shouldDirty: false })
     }
-  }, [open, selectedEntityId, examplePayload, form])
+  }, [open, entityId, examplePayload, form])
 
   const onSubmit = async (values: FormData) => {
     try {
@@ -193,34 +188,27 @@ export function CreateRecordDialog({
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            <FormField
-              control={form.control}
-              name="entityId"
-              rules={{ required: "Please select an entity" }}
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Entity</FormLabel>
-                  <Select
-                    onValueChange={field.onChange}
-                    defaultValue={field.value}
-                  >
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select an entity" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {entities?.map((entity: EntityRead) => (
-                        <SelectItem key={entity.id} value={entity.id}>
-                          {entity.display_name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            {/* Display selected entity */}
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Entity</Label>
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                {entity?.icon &&
+                  (() => {
+                    const IconComponent = getIconByName(entity.icon)
+                    return IconComponent ? (
+                      <IconComponent className="h-4 w-4" />
+                    ) : null
+                  })()}
+                <span className="font-medium text-foreground">
+                  {entity?.display_name || "Loading..."}
+                </span>
+                {entity?.key && (
+                  <Badge variant="secondary" className="text-xs">
+                    {entity.key}
+                  </Badge>
+                )}
+              </div>
+            </div>
 
             {/* Schemas accordion with JSON viewer and controls */}
             <Accordion type="single" collapsible className="mb-3">
@@ -240,7 +228,7 @@ export function CreateRecordDialog({
                           )}
                           onClick={(e) => {
                             e.stopPropagation()
-                            if (!selectedEntityId) return
+                            if (!entityId) return
                             refetchFields().then((result) => {
                               if (result.data) {
                                 // Rebuild example payload from fresh fields
@@ -263,7 +251,7 @@ export function CreateRecordDialog({
                   </TooltipProvider>
                 </div>
                 <AccordionContent>
-                  {selectedEntityId ? (
+                  {entityId ? (
                     <div className="mb-3">
                       <JsonViewWithControls
                         src={examplePayload}
@@ -285,7 +273,7 @@ export function CreateRecordDialog({
               control={form.control}
               name="data"
               rules={{ required: "Please enter record data" }}
-              render={({ field }) => (
+              render={() => (
                 <FormItem>
                   <FormLabel>Record data</FormLabel>
                   <FormControl>
