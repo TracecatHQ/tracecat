@@ -220,6 +220,11 @@ class BaseTablesService(BaseService):
         self.session.add(table)
         await self.session.flush()
 
+        # Create columns if specified
+        # Call base class method directly to avoid per-column commits
+        for col_params in params.columns:
+            await BaseTablesService.create_column(self, table, col_params)
+
         return table
 
     @require_access_level(AccessLevel.ADMIN)

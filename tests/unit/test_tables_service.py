@@ -33,16 +33,19 @@ async def tables_service(session: AsyncSession, svc_admin_role: Role) -> TablesS
 @pytest.fixture
 async def table(tables_service: TablesService) -> Table:
     """Fixture to create a table and add two columns ('name' and 'age') for row tests."""
-    table = await tables_service.create_table(TableCreate(name="row_table"))
-    await tables_service.create_column(
-        table,
-        TableColumnCreate(name="name", type=SqlType.TEXT, nullable=True, default=None),
-    )
-    await tables_service.create_column(
-        table,
-        TableColumnCreate(
-            name="age", type=SqlType.INTEGER, nullable=True, default=None
-        ),
+    # Now create_table handles columns directly
+    table = await tables_service.create_table(
+        TableCreate(
+            name="row_table",
+            columns=[
+                TableColumnCreate(
+                    name="name", type=SqlType.TEXT, nullable=True, default=None
+                ),
+                TableColumnCreate(
+                    name="age", type=SqlType.INTEGER, nullable=True, default=None
+                ),
+            ],
+        )
     )
     return table
 
@@ -75,6 +78,63 @@ class TestTablesService:
         table_ids = {table.id for table in tables}
         assert table1.id in table_ids
         assert table2.id in table_ids
+
+    async def test_create_table_with_columns(
+        self, tables_service: TablesService
+    ) -> None:
+        """Test that create_table actually creates columns when specified.
+
+        This test ensures the bug is fixed where create_table was not
+        creating columns despite them being in the TableCreate params.
+        """
+        # Create a table with columns
+        table_create = TableCreate(
+            name="test_table_with_cols",
+            columns=[
+                TableColumnCreate(
+                    name="username",
+                    type=SqlType.TEXT,
+                    nullable=False,
+                ),
+                TableColumnCreate(
+                    name="email",
+                    type=SqlType.TEXT,
+                    nullable=True,
+                ),
+                TableColumnCreate(
+                    name="score",
+                    type=SqlType.INTEGER,
+                    nullable=True,
+                    default=0,
+                ),
+            ],
+        )
+        created_table = await tables_service.create_table(table_create)
+
+        # Retrieve the table with columns
+        retrieved_table = await tables_service.get_table(created_table.id)
+
+        # Verify all columns were created
+        assert len(retrieved_table.columns) == 3
+
+        # Check column names
+        column_names = {col.name for col in retrieved_table.columns}
+        assert "username" in column_names
+        assert "email" in column_names
+        assert "score" in column_names
+
+        # Verify column properties
+        for col in retrieved_table.columns:
+            if col.name == "username":
+                assert col.type == SqlType.TEXT.value
+                assert col.nullable is False
+            elif col.name == "email":
+                assert col.type == SqlType.TEXT.value
+                assert col.nullable is True
+            elif col.name == "score":
+                assert col.type == SqlType.INTEGER.value
+                assert col.nullable is True
+                assert col.default == "0"  # Default values are stored as strings
 
     async def test_update_table(self, tables_service: TablesService) -> None:
         """Test updating table metadata."""

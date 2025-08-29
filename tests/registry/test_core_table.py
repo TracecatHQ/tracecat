@@ -5,18 +5,24 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from sqlmodel.ext.asyncio.session import AsyncSession
 from tracecat_registry.core.table import (
     create_table,
     delete_row,
     insert_row,
     insert_rows,
+    list_tables,
     lookup,
     lookup_many,
     search_records,
     update_row,
 )
 
+from tracecat.contexts import ctx_role
+from tracecat.db.schemas import Workspace
 from tracecat.tables.enums import SqlType
+from tracecat.tables.service import TablesService
+from tracecat.types.auth import Role
 
 
 @pytest.fixture
@@ -557,6 +563,150 @@ class TestCoreInsertRows:
 
         # Verify the result
         assert result == 3
+
+
+@pytest.mark.anyio
+class TestCoreTableIntegration:
+    """Integration tests for core.table UDFs using real database."""
+
+    pytestmark = pytest.mark.usefixtures("db")
+
+    async def test_create_table_with_columns_integration(
+        self, session: AsyncSession, svc_workspace: Workspace, svc_admin_role: Role
+    ):
+        """Test that create_table UDF actually creates columns in the database.
+
+        This integration test ensures the bug is caught where create_table
+        was not creating columns despite them being specified.
+        """
+        # Set the role context for the UDF
+        token = ctx_role.set(svc_admin_role)
+        try:
+            # Define columns for the table
+            columns = [
+                {"name": "username", "type": "TEXT", "nullable": False},
+                {"name": "email", "type": "TEXT", "nullable": True},
+                {"name": "age", "type": "INTEGER", "nullable": True, "default": 0},
+                {"name": "metadata", "type": "JSONB", "nullable": True},
+            ]
+
+            # Create table using the UDF (not the service directly)
+            result = await create_table(name="integration_test_table", columns=columns)
+
+            # Verify the table was created
+            assert result["name"] == "integration_test_table"
+            assert "id" in result
+
+            # Now verify the columns were actually created in the database
+            # Use TablesService.with_session() to access the same committed data
+            async with TablesService.with_session(role=svc_admin_role) as service:
+                tables = await service.list_tables()
+
+                # Find our table
+                test_table = None
+                for table in tables:
+                    if table.name == "integration_test_table":
+                        test_table = table
+                        break
+
+                assert test_table is not None, "Table was not found in database"
+
+                # Get the table with columns
+                table_with_columns = await service.get_table(test_table.id)
+
+                # Verify all columns were created
+                assert len(table_with_columns.columns) == 4
+
+                # Check each column
+                column_names = {col.name for col in table_with_columns.columns}
+                assert "username" in column_names
+                assert "email" in column_names
+                assert "age" in column_names
+                assert "metadata" in column_names
+
+                # Verify column properties
+                for col in table_with_columns.columns:
+                    if col.name == "username":
+                        assert col.type == SqlType.TEXT.value
+                        assert col.nullable is False
+                    elif col.name == "email":
+                        assert col.type == SqlType.TEXT.value
+                        assert col.nullable is True
+                    elif col.name == "age":
+                        assert col.type == SqlType.INTEGER.value
+                        assert col.nullable is True
+                        assert (
+                            col.default == "0"
+                        )  # Default values are stored as strings
+                    elif col.name == "metadata":
+                        assert col.type == SqlType.JSONB.value
+                        assert col.nullable is True
+
+            # Test that we can insert data into the table with the created columns
+            inserted_row = await insert_row(
+                table="integration_test_table",
+                row_data={
+                    "username": "testuser",
+                    "email": "test@example.com",
+                    "age": 25,
+                    "metadata": {"key": "value"},
+                },
+            )
+
+            assert inserted_row["username"] == "testuser"
+            assert inserted_row["email"] == "test@example.com"
+            assert inserted_row["age"] == 25
+            assert inserted_row["metadata"] == {"key": "value"}
+        finally:
+            ctx_role.reset(token)
+
+    async def test_create_table_without_columns_integration(
+        self, session: AsyncSession, svc_workspace: Workspace, svc_admin_role: Role
+    ):
+        """Test creating a table without predefined columns."""
+        # Set the role context for the UDF
+        token = ctx_role.set(svc_admin_role)
+        try:
+            # Create table without columns
+            result = await create_table(name="empty_table")
+
+            # Verify the table was created
+            assert result["name"] == "empty_table"
+            assert "id" in result
+
+            # Verify in database using the same session type as the UDF
+            async with TablesService.with_session(role=svc_admin_role) as service:
+                tables = await service.list_tables()
+
+                table_names = {table.name for table in tables}
+                assert "empty_table" in table_names
+        finally:
+            ctx_role.reset(token)
+
+    async def test_list_tables_integration(
+        self, session: AsyncSession, svc_workspace: Workspace, svc_admin_role: Role
+    ):
+        """Test listing tables after creation."""
+        # Set the role context for the UDF
+        token = ctx_role.set(svc_admin_role)
+        try:
+            # Create multiple tables
+            await create_table(
+                name="list_test_1", columns=[{"name": "col1", "type": "TEXT"}]
+            )
+            await create_table(
+                name="list_test_2", columns=[{"name": "col2", "type": "INTEGER"}]
+            )
+
+            # List all tables
+            tables = await list_tables()
+
+            # Check that our tables are in the list
+            table_names = {table["name"] for table in tables}
+            assert "list_test_1" in table_names
+            assert "list_test_2" in table_names
+        finally:
+            ctx_role.reset(token)
 
     @patch("tracecat_registry.core.table.TablesService.with_session")
     async def test_insert_rows_with_upsert(self, mock_with_session, mock_table):
