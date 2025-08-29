@@ -261,7 +261,7 @@ export function CreateRecordDialog({
                           <RefreshCw className="h-3.5 w-3.5" />
                         </button>
                       </TooltipTrigger>
-                      <TooltipContent>Refresh schema</TooltipContent>
+                      <TooltipContent>Reset schema</TooltipContent>
                     </Tooltip>
                   </TooltipProvider>
                 </div>
