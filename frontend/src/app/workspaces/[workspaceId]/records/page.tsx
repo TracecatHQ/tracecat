@@ -11,6 +11,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { useEntities } from "@/hooks/use-entities"
+import { getIconByName } from "@/lib/icons"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 export default function RecordsPage() {
@@ -35,15 +36,44 @@ export default function RecordsPage() {
             }
           >
             <SelectTrigger id="entity-filter" className="h-7 w-[200px]">
-              <SelectValue placeholder="All entities" />
+              <SelectValue placeholder="All entities">
+                {entityFilter && entities
+                  ? (() => {
+                      const selectedEntity = entities.find(
+                        (e) => e.id === entityFilter
+                      )
+                      const IconComponent = selectedEntity?.icon
+                        ? getIconByName(selectedEntity.icon)
+                        : null
+                      return (
+                        <div className="flex items-center gap-2">
+                          {IconComponent && (
+                            <IconComponent className="h-3.5 w-3.5 text-muted-foreground" />
+                          )}
+                          <span>{selectedEntity?.display_name}</span>
+                        </div>
+                      )
+                    })()
+                  : "All entities"}
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All entities</SelectItem>
-              {entities?.map((entity) => (
-                <SelectItem key={entity.id} value={entity.id}>
-                  {entity.display_name}
-                </SelectItem>
-              ))}
+              {entities?.map((entity) => {
+                const IconComponent = entity.icon
+                  ? getIconByName(entity.icon)
+                  : null
+                return (
+                  <SelectItem key={entity.id} value={entity.id}>
+                    <div className="flex items-center gap-2">
+                      {IconComponent && (
+                        <IconComponent className="h-3.5 w-3.5 text-muted-foreground" />
+                      )}
+                      <span>{entity.display_name}</span>
+                    </div>
+                  </SelectItem>
+                )
+              })}
             </SelectContent>
           </Select>
         </div>
