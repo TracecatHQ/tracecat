@@ -34,7 +34,7 @@ class ScheduleCreate(BaseModel):
     end_at: datetime | None = Field(None, description="ISO 8601 datetime string")
     status: Literal["online", "offline"] = "online"
     timeout: float = Field(
-        300,
+        default=0,
         description="The maximum number of seconds to wait for the workflow to complete",
     )
 
