@@ -72,12 +72,18 @@ class TestWorkflowSyncService:
     """Tests for WorkflowSyncService."""
 
     @pytest.mark.anyio
-    async def test_pull_not_implemented(self, workflow_sync_service, git_url):
-        """Test that pull raises NotImplementedError."""
-        with pytest.raises(
-            NotImplementedError, match="Pull functionality is not yet implemented"
-        ):
-            await workflow_sync_service.pull(url=git_url)
+    async def test_pull_requires_commit_sha(self, workflow_sync_service, git_url):
+        """Test that pull returns error result when commit_sha is missing."""
+        result = await workflow_sync_service.pull(url=git_url)
+
+        assert result.success is False
+        assert result.commit_sha == ""
+        assert result.workflows_found == 0
+        assert result.workflows_imported == 0
+        assert result.message == "commit_sha is required"
+        assert len(result.diagnostics) == 1
+        assert result.diagnostics[0].error_type == "validation"
+        assert "commit_sha is required" in result.diagnostics[0].message
 
     @pytest.mark.anyio
     async def test_push_workflows_success(

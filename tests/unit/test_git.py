@@ -382,8 +382,8 @@ class TestListGitCommits:
         """Test that list_git_commits returns GitCommitInfo objects."""
         # Mock git log output
         mock_git_log_output = (
-            "abc123|Initial commit|John Doe|john@example.com|2024-01-01T10:00:00+00:00\n"
-            "def456|Second commit|Jane Smith|jane@example.com|2024-01-02T11:00:00+00:00\n"
+            "abcdef1234567890abcdef1234567890abcdef12|Initial commit|John Doe|john@example.com|2024-01-01T10:00:00+00:00\n"
+            "def4567890abcdef1234567890abcdef12345678|Second commit|Jane Smith|jane@example.com|2024-01-02T11:00:00+00:00\n"
         )
 
         # Mock run_git calls: init, fetch, log
@@ -412,7 +412,7 @@ class TestListGitCommits:
 
         # Verify the first commit data
         first_commit = commits[0]
-        assert first_commit.sha == "abc123"
+        assert first_commit.sha == "abcdef1234567890abcdef1234567890abcdef12"
         assert first_commit.message == "Initial commit"
         assert first_commit.author == "John Doe"
         assert first_commit.author_email == "john@example.com"
@@ -420,7 +420,7 @@ class TestListGitCommits:
 
         # Verify the second commit data
         second_commit = commits[1]
-        assert second_commit.sha == "def456"
+        assert second_commit.sha == "def4567890abcdef1234567890abcdef12345678"
         assert second_commit.message == "Second commit"
         assert second_commit.author == "Jane Smith"
         assert second_commit.author_email == "jane@example.com"
