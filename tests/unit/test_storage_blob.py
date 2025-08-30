@@ -25,7 +25,7 @@ class TestS3Operations:
         return mock_client
 
     @pytest.mark.anyio
-    @patch("tracecat.storage.get_storage_client")
+    @patch("tracecat.storage.blob.get_storage_client")
     async def test_ensure_bucket_exists_existing(self, mock_get_client):
         """Test ensure_bucket_exists when bucket already exists."""
         mock_client = AsyncMock()
@@ -35,7 +35,7 @@ class TestS3Operations:
         mock_client.head_bucket.assert_called_once_with(Bucket="test-bucket")
 
     @pytest.mark.anyio
-    @patch("tracecat.storage.get_storage_client")
+    @patch("tracecat.storage.blob.get_storage_client")
     async def test_ensure_bucket_exists_create_new(self, mock_get_client):
         """Test ensure_bucket_exists when bucket needs to be created."""
         mock_client = AsyncMock()
@@ -51,7 +51,7 @@ class TestS3Operations:
         mock_client.create_bucket.assert_called_once_with(Bucket="test-bucket")
 
     @pytest.mark.anyio
-    @patch("tracecat.storage.get_storage_client")
+    @patch("tracecat.storage.blob.get_storage_client")
     async def test_upload_file(self, mock_get_client):
         """Test file upload."""
         mock_client = AsyncMock()
@@ -68,7 +68,7 @@ class TestS3Operations:
         )
 
     @pytest.mark.anyio
-    @patch("tracecat.storage.get_storage_client")
+    @patch("tracecat.storage.blob.get_storage_client")
     async def test_download_file(self, mock_get_client):
         """Test file download."""
         mock_client = AsyncMock()
@@ -87,7 +87,7 @@ class TestS3Operations:
         )
 
     @pytest.mark.anyio
-    @patch("tracecat.storage.get_storage_client")
+    @patch("tracecat.storage.blob.get_storage_client")
     async def test_download_file_not_found(self, mock_get_client):
         """Test file download when file doesn't exist."""
         mock_client = AsyncMock()
@@ -101,7 +101,7 @@ class TestS3Operations:
             await download_file("nonexistent.txt", "test-bucket")
 
     @pytest.mark.anyio
-    @patch("tracecat.storage.get_storage_client")
+    @patch("tracecat.storage.blob.get_storage_client")
     async def test_delete_file(self, mock_get_client):
         """Test file deletion."""
         mock_client = AsyncMock()
@@ -114,8 +114,8 @@ class TestS3Operations:
         )
 
     @pytest.mark.anyio
-    @patch("tracecat.storage.get_storage_client")
-    @patch("tracecat.storage.config")
+    @patch("tracecat.storage.blob.get_storage_client")
+    @patch("tracecat.storage.blob.config")
     async def test_generate_presigned_download_url(self, mock_config, mock_get_client):
         """Test presigned download URL generation."""
         # Mock config
@@ -146,8 +146,8 @@ class TestS3Operations:
         )
 
     @pytest.mark.anyio
-    @patch("tracecat.storage.get_storage_client")
-    @patch("tracecat.storage.config")
+    @patch("tracecat.storage.blob.get_storage_client")
+    @patch("tracecat.storage.blob.config")
     async def test_generate_presigned_download_url_with_preview(
         self, mock_config, mock_get_client
     ):
@@ -181,8 +181,8 @@ class TestS3Operations:
         )
 
     @pytest.mark.anyio
-    @patch("tracecat.storage.get_storage_client")
-    @patch("tracecat.storage.config")
+    @patch("tracecat.storage.blob.get_storage_client")
+    @patch("tracecat.storage.blob.config")
     async def test_generate_presigned_download_url_with_content_type_override(
         self, mock_config, mock_get_client
     ):
@@ -220,7 +220,7 @@ class TestS3Operations:
         )
 
     @pytest.mark.anyio
-    @patch("tracecat.storage.get_storage_client")
+    @patch("tracecat.storage.blob.get_storage_client")
     async def test_generate_presigned_upload_url(self, mock_get_client):
         """Test presigned upload URL generation."""
         mock_client = AsyncMock()
@@ -245,8 +245,8 @@ class TestS3Operations:
         )
 
     @pytest.mark.anyio
-    @patch("tracecat.storage.get_storage_client")
-    @patch("tracecat.storage.config")
+    @patch("tracecat.storage.blob.get_storage_client")
+    @patch("tracecat.storage.blob.config")
     async def test_presigned_url_path_replacement(self, mock_config, mock_get_client):
         """Test that presigned URLs correctly include /s3 path prefix."""
         # Setup configuration
@@ -278,8 +278,8 @@ class TestS3Operations:
         assert "localhost" in result
 
     @pytest.mark.anyio
-    @patch("tracecat.storage.get_storage_client")
-    @patch("tracecat.storage.config")
+    @patch("tracecat.storage.blob.get_storage_client")
+    @patch("tracecat.storage.blob.config")
     async def test_presigned_url_no_replacement_when_not_minio(
         self, mock_config, mock_get_client
     ):
@@ -308,7 +308,7 @@ class TestS3Operations:
         assert "s3.amazonaws.com" in result
 
     @pytest.mark.anyio
-    @patch("tracecat.storage.get_storage_client")
+    @patch("tracecat.storage.blob.get_storage_client")
     async def test_presigned_url_expiry_validation(self, mock_get_client):
         """Test that presigned URLs have appropriate expiry times."""
         mock_client = AsyncMock()
@@ -337,9 +337,9 @@ class TestS3Operations:
 class TestEdgeCases:
     """Test edge cases and error conditions."""
 
-    @patch("tracecat.storage.logger")
+    @patch("tracecat.storage.blob.logger")
     @pytest.mark.anyio
-    @patch("tracecat.storage.get_storage_client")
+    @patch("tracecat.storage.blob.get_storage_client")
     async def test_logging_on_errors(self, mock_get_client, mock_logger):
         """Test that errors are properly logged."""
         mock_client = AsyncMock()
@@ -359,7 +359,7 @@ class TestEdgeCases:
         mock_logger.error.assert_called()
 
     @pytest.mark.anyio
-    @patch("tracecat.storage.get_storage_client")
+    @patch("tracecat.storage.blob.get_storage_client")
     async def test_storage_error_handling_security(self, mock_get_client):
         """Test that storage errors don't leak sensitive information."""
         mock_client = AsyncMock()

@@ -47,14 +47,14 @@ def test_invalid_raw_filenames_rejected(
     validator_basic: FileSecurityValidator, filename: str
 ) -> None:
     with pytest.raises(FileNameError):
-        validator_basic.validate(
+        validator_basic.validate_file(
             content=pdf_bytes(), filename=filename, declared_mime_type="application/pdf"
         )
 
 
 def test_empty_content_rejected(validator_basic: FileSecurityValidator) -> None:
     with pytest.raises(FileSizeError):
-        validator_basic.validate(
+        validator_basic.validate_file(
             content=b"", filename="file.pdf", declared_mime_type="application/pdf"
         )
 
@@ -62,7 +62,7 @@ def test_empty_content_rejected(validator_basic: FileSecurityValidator) -> None:
 def test_extension_not_allowed_raises(validator_basic: FileSecurityValidator) -> None:
     # Only ".txt", ".pdf", ".zip" are allowed; using .exe should fail on extension
     with pytest.raises(FileExtensionError):
-        validator_basic.validate(
+        validator_basic.validate_file(
             content=pdf_bytes(),
             filename="sample.exe",
             declared_mime_type="application/pdf",
@@ -73,11 +73,12 @@ def test_declared_mime_normalization_allows_params(
     validator_basic: FileSecurityValidator,
 ) -> None:
     # Declared MIME with parameters should be normalized and accepted
-    assert validator_basic.validate(
+    validation_result = validator_basic.validate_file(
         content=pdf_bytes(),
         filename="doc.pdf",
         declared_mime_type="application/pdf; charset=UTF-8",
     )
+    assert validation_result.content_type == "application/pdf"
 
 
 def test_mime_mismatch_raises_generic_message(
@@ -85,7 +86,7 @@ def test_mime_mismatch_raises_generic_message(
 ) -> None:
     # Content is PDF but declared is text/plain (both allowed in allowlist)
     with pytest.raises(FileMimeTypeError) as exc:
-        validator_basic.validate(
+        validator_basic.validate_file(
             content=pdf_bytes(),
             filename="doc.pdf",
             declared_mime_type="text/plain",
@@ -95,11 +96,12 @@ def test_mime_mismatch_raises_generic_message(
 
 
 def test_zip_upload_passes(validator_basic: FileSecurityValidator) -> None:
-    assert validator_basic.validate(
+    validation_result = validator_basic.validate_file(
         content=zip_bytes(),
         filename="archive.zip",
         declared_mime_type="application/zip",
     )
+    assert validation_result.content_type == "application/zip"
 
 
 @pytest.mark.parametrize(
@@ -114,8 +116,9 @@ def test_zip_upload_passes(validator_basic: FileSecurityValidator) -> None:
 def test_sanitized_filenames_validate(
     validator_basic: FileSecurityValidator, filename: str
 ) -> None:
-    assert validator_basic.validate(
+    validation_result = validator_basic.validate_file(
         content=pdf_bytes(),
         filename=filename,
         declared_mime_type="application/pdf",
     )
+    assert validation_result.filename == filename
