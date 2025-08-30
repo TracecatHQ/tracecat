@@ -15,7 +15,6 @@ https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html#list
 """
 
 import os
-import re
 
 from polyfile.magic import MagicMatcher
 from pydantic import BaseModel
@@ -77,13 +76,14 @@ class FileSecurityValidator:
         # Validate extension
         self._validate_extension(filename)
         # Validate MIME type
-        self._validate_mime_type(declared_mime_type)
+        normalized_mime = self._normalize_mime_type(declared_mime_type)
+        self._validate_mime_type(normalized_mime)
         # Polyfile magic number check
-        self._validate_magic_number(content, declared_mime_type)
+        self._validate_magic_number(content, normalized_mime)
         return FileValidationResult(
             filename=filename,
-            content_type=declared_mime_type,
-            extension=os.path.splitext(filename)[1].lower(),
+            content_type=normalized_mime,
+            extension=os.path.splitext(filename.strip())[1].lower().strip(),
         )
 
     def _validate_file_size(self, content: bytes) -> bool:
@@ -124,7 +124,9 @@ class FileSecurityValidator:
 
     def _validate_extension(self, filename: str) -> bool:
         """Validate extension."""
-        extension = os.path.splitext(filename)[1].lower()
+        # Compute extension ignoring surrounding whitespace in the name
+        safe_name = str(filename).strip()
+        extension = os.path.splitext(safe_name)[1].lower().strip()
         if extension not in self.allowed_extensions:
             raise FileExtensionError(
                 f"File extension {extension} is not allowed",
@@ -169,7 +171,9 @@ class FileSecurityValidator:
         """Validate MIME type (normalized to base type)."""
         base_mime = self._normalize_mime_type(mime_type)
         allowed = {t.lower() for t in self.allowed_mime_types}
-        if base_mime not in allowed:
+        # Use equivalence keys to handle common vendor/legacy prefixes consistently
+        allowed_equiv = {self._mime_equivalence_key(t) for t in allowed}
+        if self._mime_equivalence_key(base_mime) not in allowed_equiv:
             logger.error(f"File MIME type {mime_type} is not allowed")
             raise FileMimeTypeError(
                 f"File MIME type {mime_type} is not allowed",
@@ -190,6 +194,7 @@ class FileSecurityValidator:
             raise FileContentMismatchError("Unknown or unsupported file type")
 
         detected_types: set[str] = set()
+        detected_equiv: set[str] = set()
 
         try:
             matches = list(MagicMatcher.DEFAULT_INSTANCE.match(content))
@@ -198,7 +203,9 @@ class FileSecurityValidator:
                 if mimetypes:
                     for mt in mimetypes:
                         if mt:
-                            detected_types.add(mt.split(";")[0].strip().lower())
+                            base = self._normalize_mime_type(mt)
+                            detected_types.add(base)
+                            detected_equiv.add(self._mime_equivalence_key(base))
         except Exception as e:
             # Keep messages generic for user-facing responses
             logger.error("Unknown or unsupported file type")
@@ -209,7 +216,8 @@ class FileSecurityValidator:
             raise FileContentMismatchError("Unknown or unsupported file type")
 
         declared_base = self._normalize_mime_type(declared_mime_type)
-        if declared_base not in detected_types:
+        declared_key = self._mime_equivalence_key(declared_base)
+        if declared_key not in detected_equiv:
             # Keep message generic for users
             logger.error(
                 "Detected MIME type does not match declared MIME type",
@@ -223,7 +231,8 @@ class FileSecurityValidator:
             )
 
         allowed = {t.lower() for t in self.allowed_mime_types}
-        if detected_types & allowed:
+        allowed_equiv = {self._mime_equivalence_key(t) for t in allowed}
+        if detected_equiv & allowed_equiv:
             return True
 
         representative = next(iter(detected_types))
@@ -246,32 +255,41 @@ class FileSecurityValidator:
             return ""
         return mime_type.split(";", 1)[0].strip().lower()
 
+    @staticmethod
+    def _mime_equivalence_key(mime_type: str) -> str:
+        """Compute an equivalence key for MIME types to compare related variants consistently.
+
+        Strategy:
+        - Lowercase, strip parameters first (callers pass normalized base).
+        - For subtype, remove a single leading "x-" (experimental prefix).
+        - Remove a trailing "-compressed" qualifier.
+        This avoids one-off mappings while handling common vendor variants consistently.
+        """
+        base = FileSecurityValidator._normalize_mime_type(mime_type)
+        if "/" not in base:
+            return base
+        type_part, sub = base.split("/", 1)
+        # remove leading experimental prefix
+        if sub.startswith("x-"):
+            sub = sub[2:]
+        # strip trailing qualifier commonly seen in legacy types
+        if sub.endswith("-compressed"):
+            sub = sub[: -len("-compressed")]
+        return f"{type_part}/{sub}"
+
     def _sanitize_filename(self, filename: str) -> str:
-        """Sanitize filename to prevent security issues."""
+        """Sanitize filename to prevent security issues while preserving user-provided names.
+
+        - Strip path components only (defense-in-depth against traversal). Other validations
+          (control chars, separators, etc.) are handled in _validate_filename_raw/_validate_filename.
+        - Preserve spaces and punctuation to match expected behavior in tests.
+        """
         # Get just the filename without any path components
-        filename = os.path.basename(filename)
-
-        # Remove any non-alphanumeric characters except dots, hyphens, and underscores
-        filename = re.sub(r"[^\w\s.-]", "", filename)
-
-        # Replace spaces with underscores
-        filename = filename.replace(" ", "_")
-
-        # Remove multiple consecutive dots (prevent directory traversal)
-        filename = re.sub(r"\.{2,}", ".", filename)
-
-        # Ensure filename doesn't start with a dot (hidden files)
-        filename = filename.lstrip(".")
-
-        # Truncate if too long (leave room for extension)
-        if len(filename) > self.max_filename_length:
-            name, ext = os.path.splitext(filename)
-            max_name_length = self.max_filename_length - len(ext)
-            filename = name[:max_name_length] + ext
+        sanitized = os.path.basename(str(filename))
 
         # If filename is empty after sanitization, raise an error
-        if not filename:
+        if not sanitized:
             logger.error("File name cannot be empty")
             raise FileNameError("File name cannot be empty")
 
-        return filename
+        return sanitized

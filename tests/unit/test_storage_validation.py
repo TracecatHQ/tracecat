@@ -1,3 +1,6 @@
+import io
+import zipfile
+
 import pytest
 
 from tracecat.storage.exceptions import (
@@ -25,8 +28,10 @@ def pdf_bytes() -> bytes:
 
 
 def zip_bytes() -> bytes:
-    # Minimal ZIP local header signature + padding
-    return b"PK\x03\x04" + b"0" * 64
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("a.txt", "hello")
+    return buf.getvalue()
 
 
 @pytest.mark.parametrize(
@@ -122,3 +127,74 @@ def test_sanitized_filenames_validate(
         declared_mime_type="application/pdf",
     )
     assert validation_result.filename == filename
+
+
+def office_bytes() -> bytes:
+    # Office Open XML formats are ZIP containers; minimal header is fine for extension checks
+    return b"PK\x03\x04" + b"0" * 128
+
+
+@pytest.mark.parametrize(
+    "filename,declared",
+    [
+        (
+            "doc.docx",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ),
+        (
+            "sheet.xlsx",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        ),
+        (
+            "slides.pptx",
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        ),
+    ],
+)
+def test_office_docs_rejected_by_extension(
+    validator_basic: FileSecurityValidator, filename: str, declared: str
+) -> None:
+    # Only .pdf, .zip, .txt are allowed; Office docs should fail on extension.
+    with pytest.raises(FileExtensionError):
+        validator_basic.validate_file(
+            content=office_bytes(), filename=filename, declared_mime_type=declared
+        )
+
+
+@pytest.mark.parametrize(
+    "filename,declared",
+    [
+        (
+            "macro.docm",
+            "application/vnd.ms-word.document.macroEnabled.12",
+        ),
+        (
+            "macro.xlsm",
+            "application/vnd.ms-excel.sheet.macroEnabled.12",
+        ),
+        (
+            "macro.pptm",
+            "application/vnd.ms-powerpoint.presentation.macroEnabled.12",
+        ),
+    ],
+)
+def test_macro_enabled_office_docs_rejected_by_extension(
+    validator_basic: FileSecurityValidator, filename: str, declared: str
+) -> None:
+    # Macro-enabled Office docs should be rejected by extension under the basic allowlist.
+    with pytest.raises(FileExtensionError):
+        validator_basic.validate_file(
+            content=office_bytes(), filename=filename, declared_mime_type=declared
+        )
+
+
+def test_vbscript_rejected_by_extension(
+    validator_basic: FileSecurityValidator,
+) -> None:
+    # VBScript should be rejected by extension under the basic allowlist.
+    with pytest.raises(FileExtensionError):
+        validator_basic.validate_file(
+            content=b'WScript.Echo "hello"',
+            filename="script.vbs",
+            declared_mime_type="application/vbscript",
+        )

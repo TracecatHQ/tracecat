@@ -561,7 +561,7 @@ export function CaseAttachmentsSection({
             <span className="text-xs text-muted-foreground group-hover:text-foreground transition-colors">
               {isUploading || uploadMutation.isPending
                 ? "Uploading..."
-                : "Add new attachment (max 20MB) • pdf, doc, xls, txt, csv, png, jpeg, gif, webp, zip"}
+                : "Add new attachment (max 20MB) • pdf, docx, xlsx, pptx, txt, csv, png, jpeg, gif, webp"}
             </span>
           </div>
 
@@ -679,7 +679,7 @@ export function CaseAttachmentsSection({
             type="file"
             onChange={handleFileSelect}
             className="hidden"
-            accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,.csv,.jpg,.jpeg,.png,.gif,.webp,.zip,.7z"
+            // TODO: Get allowed extensions from the API (workspace settings)
           />
 
           {/* Image Preview Modal */}
