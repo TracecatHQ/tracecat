@@ -1,11 +1,24 @@
-from tracecat.db.schemas import User
+from pathlib import Path
+from typing import cast
+
+from tracecat import __version__ as platform_version
+from tracecat.db.schemas import Workflow
 from tracecat.dsl.common import DSLInput
 from tracecat.git.utils import parse_git_url
+from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
 from tracecat.service import BaseWorkspaceService
-from tracecat.sync import Author, PushOptions
+from tracecat.sync import Author, PushObject, PushOptions
 from tracecat.types.exceptions import TracecatSettingsError, TracecatValidationError
-from tracecat.workflow.store.models import WorkflowDslPublish
+from tracecat.workflow.store.models import (
+    RemoteRegistry,
+    RemoteWebhook,
+    RemoteWorkflowDefinition,
+    RemoteWorkflowSchedule,
+    RemoteWorkflowTag,
+    Status,
+    WorkflowDslPublish,
+)
 from tracecat.workflow.store.sync import WorkflowSyncService
 from tracecat.workspaces.service import WorkspaceService
 
@@ -14,15 +27,24 @@ class WorkflowStoreService(BaseWorkspaceService):
     service_name = "workflow_store"
 
     async def publish_workflow_dsl(
-        self, dsl: DSLInput, params: WorkflowDslPublish
+        self,
+        *,
+        workflow_id: WorkflowUUID,
+        dsl: DSLInput,
+        params: WorkflowDslPublish,
+        workflow: Workflow,
     ) -> None:
         """Take the latest version of the workflow definition and publish it to the store."""
+        # Validate that workflow_id matches the provided workflow object
+        if workflow.id != workflow_id:
+            raise TracecatValidationError(
+                f"Workflow ID mismatch: provided {workflow_id} but workflow object has ID {workflow.id}"
+            )
+
         # Get workspace settings for git configuration
-        if self.role.workspace_id is None:
-            raise TracecatValidationError("Workspace ID is required")
 
         workspace_service = WorkspaceService(session=self.session, role=self.role)
-        workspace = await workspace_service.get_workspace(self.role.workspace_id)
+        workspace = await workspace_service.get_workspace(self.workspace_id)
 
         if not workspace:
             raise TracecatValidationError("Workspace not found")
@@ -39,7 +61,7 @@ class WorkflowStoreService(BaseWorkspaceService):
             "Publishing workflow to store",
             workflow_title=dsl.title,
             repo_url=git_repo_url,
-            workspace_id=self.role.workspace_id,
+            workspace_id=self.workspace_id,
         )
 
         # Parse the Git URL using workspace settings
@@ -52,41 +74,48 @@ class WorkflowStoreService(BaseWorkspaceService):
             ) from e
         # Note: We could add ref support later if needed via params or workspace settings
 
-        # Build base message
-        base_message = params.message or f"Publish workflow: {dsl.title}"
+        stable_path = get_definition_path(workflow_id)
+        webhook = workflow.webhook
 
-        # Default author
-        author_name = "Tracecat"
-        author_email = "noreply@tracecat.com"
-        augmented_message = base_message
-
-        # Try to get user info
-        if self.role.type == "user" and self.role.user_id:
-            db_user = await self.session.get(User, self.role.user_id)
-            if db_user and db_user.email:
-                # Build display name
-                display_name = (
-                    " ".join([p for p in [db_user.first_name, db_user.last_name] if p])
-                    or db_user.email.split("@")[0]
+        await self.session.refresh(workflow, ["tags"])
+        # Create PushObject with data and stable path
+        defn = RemoteWorkflowDefinition(
+            id=workflow_id.short(),
+            registry=RemoteRegistry(base_version=platform_version),
+            alias=workflow.alias,
+            tags=[RemoteWorkflowTag(name=t.name) for t in workflow.tags],
+            # Convert Schedule ORM objects to RemoteWorkflowSchedule, handling type conversions and missing fields.
+            schedules=[
+                RemoteWorkflowSchedule(
+                    status=cast(Status, s.status),
+                    cron=s.cron,
+                    every=s.every,
+                    offset=s.offset,
+                    start_at=s.start_at,
+                    end_at=s.end_at,
+                    timeout=s.timeout,
                 )
-                author_name = display_name
-                author_email = db_user.email
-                augmented_message = (
-                    f"{base_message}\n\nAuthored by {display_name} <{author_email}>"
-                )
+                for s in (workflow.schedules or [])
+            ],
+            webhook=RemoteWebhook(
+                methods=webhook.methods,
+                status=cast(Status, webhook.status),
+            ),
+            definition=dsl,
+        )
+        push_obj = PushObject(data=defn, path=stable_path)
 
-        # Create Author and PushOptions
-        author = Author(name=author_name, email=author_email)
+        author = Author(name="Tracecat", email="noreply@tracecat.com")
         push_options = PushOptions(
-            message=augmented_message,
+            message=params.message or f"Publish workflow: {dsl.title}",
             author=author,
             create_pr=True,  # Create PR for review
         )
 
-        # Use WorkflowSyncService to push the workflow
+        # Use WorkflowSyncService to push the workflow with stable path
         sync_service = WorkflowSyncService(session=self.session, role=self.role)
         commit_info = await sync_service.push(
-            objects=[dsl],
+            objects=[push_obj],
             url=git_url,
             options=push_options,
         )
@@ -97,3 +126,8 @@ class WorkflowStoreService(BaseWorkspaceService):
             commit_sha=commit_info.sha,
             ref=commit_info.ref,
         )
+
+
+def get_definition_path(workflow_id: WorkflowUUID) -> Path:
+    """Get the path to the definition file for a workflow."""
+    return Path("workflows").joinpath(workflow_id.short(), "definition.yml")

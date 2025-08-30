@@ -2811,6 +2811,13 @@ export const $Code = {
   title: "Code",
 } as const
 
+export const $ConflictStrategy = {
+  type: "string",
+  enum: ["skip", "overwrite", "rename"],
+  title: "ConflictStrategy",
+  description: "Strategy for handling workflow conflicts during import.",
+} as const
+
 export const $CreatedEventRead = {
   properties: {
     wf_exec_id: {
@@ -4518,6 +4525,46 @@ export const $GetWorkflowDefinitionActivityInputs = {
   type: "object",
   required: ["role", "workflow_id"],
   title: "GetWorkflowDefinitionActivityInputs",
+} as const
+
+export const $GitCommitInfo = {
+  properties: {
+    sha: {
+      type: "string",
+      maxLength: 40,
+      minLength: 40,
+      title: "Sha",
+      description: "The commit SHA hash",
+    },
+    message: {
+      type: "string",
+      maxLength: 1000,
+      title: "Message",
+      description: "The commit message",
+    },
+    author: {
+      type: "string",
+      maxLength: 255,
+      title: "Author",
+      description: "The commit author name",
+    },
+    author_email: {
+      type: "string",
+      maxLength: 255,
+      title: "Author Email",
+      description: "The commit author email",
+    },
+    date: {
+      type: "string",
+      maxLength: 50,
+      title: "Date",
+      description: "The commit date in ISO format",
+    },
+  },
+  type: "object",
+  required: ["sha", "message", "author", "author_email", "date"],
+  title: "GitCommitInfo",
+  description: "Git commit information for repository management.",
 } as const
 
 export const $GitHubAppCredentialsRequest = {
@@ -6303,6 +6350,89 @@ export const $ProviderScopes = {
   description: "Scope metadata for a provider.",
 } as const
 
+export const $PullDiagnostic = {
+  properties: {
+    workflow_path: {
+      type: "string",
+      title: "Workflow Path",
+    },
+    workflow_title: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Workflow Title",
+    },
+    error_type: {
+      type: "string",
+      title: "Error Type",
+    },
+    message: {
+      type: "string",
+      title: "Message",
+    },
+    details: {
+      type: "object",
+      title: "Details",
+    },
+  },
+  type: "object",
+  required: [
+    "workflow_path",
+    "workflow_title",
+    "error_type",
+    "message",
+    "details",
+  ],
+  title: "PullDiagnostic",
+} as const
+
+export const $PullResult = {
+  properties: {
+    success: {
+      type: "boolean",
+      title: "Success",
+    },
+    commit_sha: {
+      type: "string",
+      title: "Commit Sha",
+    },
+    workflows_found: {
+      type: "integer",
+      title: "Workflows Found",
+    },
+    workflows_imported: {
+      type: "integer",
+      title: "Workflows Imported",
+    },
+    diagnostics: {
+      items: {
+        $ref: "#/components/schemas/PullDiagnostic",
+      },
+      type: "array",
+      title: "Diagnostics",
+    },
+    message: {
+      type: "string",
+      title: "Message",
+    },
+  },
+  type: "object",
+  required: [
+    "success",
+    "commit_sha",
+    "workflows_found",
+    "workflows_imported",
+    "diagnostics",
+    "message",
+  ],
+  title: "PullResult",
+} as const
+
 export const $ReceiveInteractionResponse = {
   properties: {
     message: {
@@ -7226,6 +7356,29 @@ export const $RegistryRepositoryReadMinimal = {
   type: "object",
   required: ["id", "origin", "last_synced_at", "commit_sha"],
   title: "RegistryRepositoryReadMinimal",
+} as const
+
+export const $RegistryRepositorySync = {
+  properties: {
+    target_commit_sha: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 40,
+          minLength: 40,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Target Commit Sha",
+      description:
+        "The specific commit SHA to sync to. If None, syncs to HEAD.",
+    },
+  },
+  type: "object",
+  title: "RegistryRepositorySync",
+  description: "Parameters for syncing a repository to a specific commit.",
 } as const
 
 export const $RegistryRepositoryUpdate = {
@@ -11732,6 +11885,40 @@ export const $WorkflowReadMinimal = {
   ],
   title: "WorkflowReadMinimal",
   description: "Minimal version of WorkflowRead model for list endpoints.",
+} as const
+
+export const $WorkflowSyncPullRequest = {
+  properties: {
+    repository_url: {
+      type: "string",
+      maxLength: 500,
+      minLength: 1,
+      title: "Repository Url",
+      description: "Git repository URL",
+    },
+    commit_sha: {
+      type: "string",
+      maxLength: 40,
+      minLength: 40,
+      title: "Commit Sha",
+      description: "Specific commit SHA to pull from",
+    },
+    conflict_strategy: {
+      $ref: "#/components/schemas/ConflictStrategy",
+      description: "Strategy for handling workflow conflicts during import",
+      default: "skip",
+    },
+    dry_run: {
+      type: "boolean",
+      title: "Dry Run",
+      description: "Validate only, don't perform actual import",
+      default: false,
+    },
+  },
+  type: "object",
+  required: ["repository_url", "commit_sha"],
+  title: "WorkflowSyncPullRequest",
+  description: "Request model for pulling workflows from a Git repository.",
 } as const
 
 export const $WorkflowTagCreate = {

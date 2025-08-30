@@ -455,7 +455,7 @@ class WorkflowsManagementService(BaseService):
 
         self.logger.info("Creating workflow from DSL", dsl=dsl)
         try:
-            workflow = await self._create_db_workflow_from_dsl(dsl)
+            workflow = await self.create_db_workflow_from_dsl(dsl)
             return WorkflowDSLCreateResponse(workflow=workflow)
         except Exception as e:
             # Rollback the transaction on error
@@ -534,7 +534,7 @@ class WorkflowsManagementService(BaseService):
         # 2. The owner of the workflow
         # 3. The ID of the workflow
 
-        workflow = await self._create_db_workflow_from_dsl(
+        workflow = await self.create_db_workflow_from_dsl(
             dsl,
             workflow_id=external_defn.workflow_id if use_workflow_id else None,
             created_at=external_defn.created_at,
@@ -542,13 +542,15 @@ class WorkflowsManagementService(BaseService):
         )
         return workflow
 
-    async def _create_db_workflow_from_dsl(
+    async def create_db_workflow_from_dsl(
         self,
         dsl: DSLInput,
         *,
         workflow_id: WorkflowID | None = None,
+        workflow_alias: str | None = None,
         created_at: datetime | None = None,
         updated_at: datetime | None = None,
+        commit: bool = True,
     ) -> Workflow:
         """Create a new workflow and associated actions in the database from a DSLInput."""
         self.logger.info("Creating workflow from DSL", dsl=dsl)
@@ -570,6 +572,8 @@ class WorkflowsManagementService(BaseService):
             workflow_kwargs["created_at"] = created_at
         if updated_at:
             workflow_kwargs["updated_at"] = updated_at
+        if workflow_alias:
+            workflow_kwargs["alias"] = workflow_alias
         workflow = Workflow(**workflow_kwargs)
 
         # Add the Workflow to the session first to generate an ID
@@ -618,8 +622,9 @@ class WorkflowsManagementService(BaseService):
         workflow.object = updated_graph.model_dump(by_alias=True, mode="json")
 
         # Commit the transaction
-        await self.session.commit()
-        await self.session.refresh(workflow)
+        if commit:
+            await self.session.commit()
+            await self.session.refresh(workflow)
         return workflow
 
     async def _synchronize_graph_with_db_actions(

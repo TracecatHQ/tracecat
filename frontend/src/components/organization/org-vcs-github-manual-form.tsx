@@ -162,7 +162,6 @@ export function GitHubAppManualForm({
                       {...field}
                       placeholder="123456"
                       className="max-w-md"
-                      disabled={!!existingAppId}
                     />
                   </FormControl>
                   <p className="text-sm text-muted-foreground">

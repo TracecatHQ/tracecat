@@ -86,6 +86,48 @@ class RegistryRepositoryUpdate(BaseModel):
     )
 
 
+class GitCommitInfo(BaseModel):
+    """Git commit information for repository management."""
+
+    sha: str = Field(
+        ...,
+        description="The commit SHA hash",
+        min_length=40,
+        max_length=40,
+    )
+    message: str = Field(
+        ...,
+        description="The commit message",
+        max_length=1000,
+    )
+    author: str = Field(
+        ...,
+        description="The commit author name",
+        max_length=255,
+    )
+    author_email: str = Field(
+        ...,
+        description="The commit author email",
+        max_length=255,
+    )
+    date: str = Field(
+        ...,
+        description="The commit date in ISO format",
+        max_length=50,
+    )
+
+
+class RegistryRepositorySync(BaseModel):
+    """Parameters for syncing a repository to a specific commit."""
+
+    target_commit_sha: str | None = Field(
+        default=None,
+        description="The specific commit SHA to sync to. If None, syncs to HEAD.",
+        min_length=40,
+        max_length=40,
+    )
+
+
 class RegistryRepositoryErrorDetail(BaseModel):
     """Error response model for registry sync failures."""
 
