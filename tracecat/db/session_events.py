@@ -73,11 +73,10 @@ def _run_after_commit(session: sqlalchemy.orm.Session) -> None:
         loop = asyncio.new_event_loop()
     for cb in callbacks:
         try:
-            coro = cb()
-            # Ensure we have a coroutine before creating task
-            if asyncio.iscoroutine(coro):
-                loop.create_task(coro)
+            if (coro := cb()) and asyncio.iscoroutine(coro):
+                logger.debug("Running after_commit callback", callback=coro)
+                asyncio.run_coroutine_threadsafe(coro, loop)
             else:
-                logger.debug("Callback did not return a coroutine", callback=cb)
+                logger.warning("Callback did not return a coroutine", callback=cb)
         except Exception as e:
-            logger.exception("after_commit callback failed", error=e)
+            logger.error("after_commit callback failed", error=str(e))
