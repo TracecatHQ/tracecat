@@ -67,10 +67,10 @@ def _run_after_commit(session: sqlalchemy.orm.Session) -> None:
     logger.debug("Running after_commit callbacks", session=session, callbacks=callbacks)
     if not callbacks:
         return
-    if _EVENT_LOOP_KEY in session.info:
-        loop = session.info[_EVENT_LOOP_KEY]
-    else:
-        loop = asyncio.new_event_loop()
+    if _EVENT_LOOP_KEY not in session.info:
+        logger.error("Expected event loop not found in session info", session=session)
+        return
+    loop = session.info[_EVENT_LOOP_KEY]
     for cb in callbacks:
         try:
             if (coro := cb()) and asyncio.iscoroutine(coro):
