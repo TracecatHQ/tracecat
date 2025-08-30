@@ -1,688 +1,250 @@
-import hashlib
+"""File security validator.
+
+For all files:
+- Check size
+- Sanitize file name
+- Check extension against allowlist
+- Check MIME (via magic number) against allowlist
+
+For images:
+- Randomized bits
+
+Allowlist for extensions, content types, and MIME types via a config.
+The defaults are based on OWASP recommendations:
+https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html#list-allowed-extensions
+"""
+
 import os
 import re
 
 from polyfile.magic import MagicMatcher
+from pydantic import BaseModel
 
 from tracecat import config
 from tracecat.logger import logger
 from tracecat.storage.exceptions import (
     FileContentMismatchError,
-    FileContentTypeError,
     FileExtensionError,
+    FileMimeTypeError,
     FileNameError,
-    FileSecurityError,
     FileSizeError,
 )
 
-# Security configuration based on OWASP recommendations
-# Limited set of allowed MIME types for case management
-ALLOWED_CONTENT_TYPES = {
-    # Documents
-    "application/pdf",
-    "application/msword",  # .doc
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",  # .docx
-    "application/vnd.ms-excel",  # .xls
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",  # .xlsx
-    "text/plain",
-    "text/csv",
-    # Images
-    "image/jpeg",
-    "image/png",
-    "image/gif",
-    "image/webp",
-    # Archives (with caution)
-    "application/zip",
-    "application/x-7z-compressed",
-}
 
-# Explicitly blocked dangerous types
-BLOCKED_CONTENT_TYPES = {
-    "application/x-executable",
-    "application/x-sharedlib",
-    "application/x-httpd-php",
-    "application/javascript",
-    "application/x-sh",
-    "application/x-csh",
-    "text/html",
-    "text/x-python",
-    "text/x-perl",
-    "text/x-ruby",
-    "application/x-msdownload",  # .exe, .dll
-    "application/x-msdos-program",
-}
+class FileValidationResult(BaseModel):
+    """Result of file validation."""
 
-# File size limits - using config values
-MAX_FILE_SIZE = config.TRACECAT__MAX_ATTACHMENT_SIZE_BYTES
-MAX_FILENAME_LENGTH = config.TRACECAT__MAX_ATTACHMENT_FILENAME_LENGTH
-
-# Magic number signatures for file type validation
-# Based on https://en.wikipedia.org/wiki/List_of_file_signatures
-MAGIC_SIGNATURES = {
-    # PDF
-    b"\x25\x50\x44\x46": "application/pdf",
-    # JPEG
-    b"\xff\xd8\xff": "image/jpeg",
-    # PNG
-    b"\x89\x50\x4e\x47\x0d\x0a\x1a\x0a": "image/png",
-    # GIF87a
-    b"\x47\x49\x46\x38\x37\x61": "image/gif",
-    # GIF89a
-    b"\x47\x49\x46\x38\x39\x61": "image/gif",
-    # WebP
-    b"\x52\x49\x46\x46": "image/webp",  # Note: needs additional validation
-    # ZIP (includes DOCX, XLSX)
-    b"\x50\x4b\x03\x04": "application/zip",
-    b"\x50\x4b\x05\x06": "application/zip",  # Empty ZIP
-    b"\x50\x4b\x07\x08": "application/zip",  # Spanned ZIP
-    # 7-Zip
-    b"\x37\x7a\xbc\xaf\x27\x1c": "application/x-7z-compressed",
-    # MS Office (legacy)
-    b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1": "application/msword",  # Also XLS
-}
-
-# Allowed file extensions mapped to content types
-ALLOWED_EXTENSIONS = {
-    ".pdf": "application/pdf",
-    ".doc": "application/msword",
-    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    ".xls": "application/vnd.ms-excel",
-    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    ".txt": "text/plain",
-    ".csv": "text/csv",
-    ".jpg": "image/jpeg",
-    ".jpeg": "image/jpeg",
-    ".png": "image/png",
-    ".gif": "image/gif",
-    ".webp": "image/webp",
-    ".zip": "application/zip",
-    ".7z": "application/x-7z-compressed",
-    # Note: SVG is intentionally excluded due to XSS risks
-}
-
-# Dangerous extensions that should never be allowed
-BLOCKED_EXTENSIONS = {
-    ".exe",
-    ".bat",
-    ".cmd",
-    ".com",
-    ".pif",
-    ".scr",
-    ".vbs",
-    ".js",
-    ".jar",
-    ".php",
-    ".php3",
-    ".php4",
-    ".php5",
-    ".pl",
-    ".py",
-    ".rb",
-    ".sh",
-    ".cgi",
-    ".asp",
-    ".aspx",
-    ".jsp",
-    ".war",
-    ".ear",
-    ".dll",
-    ".so",
-    ".dylib",
-    ".app",
-    ".deb",
-    ".rpm",
-    ".dmg",
-    ".pkg",
-    ".msi",
-    ".apk",
-    ".ipa",
-    ".html",
-    ".htm",
-    ".svg",  # Blocked due to XSS risk via embedded scripts
-    ".xml",
-    ".xsl",
-    ".xslt",
-}
+    filename: str
+    content_type: str
+    extension: str
 
 
 class FileSecurityValidator:
     """Comprehensive file security validator implementing OWASP recommendations with polyfile integration."""
 
-    def __init__(self):
-        self.max_file_size = config.TRACECAT__MAX_ATTACHMENT_SIZE_BYTES
-        self.max_filename_length = config.TRACECAT__MAX_ATTACHMENT_FILENAME_LENGTH
-
-    def validate_file(
+    def __init__(
         self,
-        content: bytes,
-        filename: str,
-        declared_content_type: str,
-    ) -> dict[str, str]:
-        """Perform comprehensive file validation with polyfile analysis.
-
-        Args:
-            content: File content as bytes
-            filename: Original filename
-            declared_content_type: Content-Type header from upload
-
-        Returns:
-            Dict with validated filename and content_type
-
-        Raises:
-            ValueError: If any validation fails
-        """
-        # 1. Basic validations
-        self._validate_file_size(len(content))
-        self._validate_filename_safety(filename)
-
-        # 2. Extension validation
-        extension = self._extract_extension(filename)
-        self._validate_extension(extension)
-
-        # 3. Content-Type validation
-        self._validate_declared_content_type(declared_content_type)
-
-        # 4. Magic number validation
-        detected_type = self._detect_file_type_by_magic(content)
-
-        # 5. Cross-validation between extension, declared type, and magic number
-        validated_type = self._cross_validate_file_type(
-            extension, declared_content_type, detected_type
+        max_file_size: int | None = None,
+        max_filename_length: int | None = None,
+        allowed_extensions: set[str] | None = None,
+        allowed_mime_types: set[str] | None = None,
+    ):
+        self.max_file_size = max_file_size or config.TRACECAT__MAX_ATTACHMENT_SIZE_BYTES
+        self.max_filename_length = (
+            max_filename_length or config.TRACECAT__MAX_ATTACHMENT_FILENAME_LENGTH
+        )
+        self.allowed_extensions = list(
+            allowed_extensions or config.TRACECAT__ALLOWED_ATTACHMENT_EXTENSIONS
+        )
+        self.allowed_mime_types = list(
+            allowed_mime_types or config.TRACECAT__ALLOWED_ATTACHMENT_MIME_TYPES
         )
 
-        # 6. Enhanced polyfile analysis
-        self._analyze_with_polyfile(content, validated_type, filename)
+    def validate_file(
+        self, content: bytes, filename: str, declared_mime_type: str
+    ) -> FileValidationResult:
+        """Validate a file."""
+        # Harden: validate raw filename before sanitization
+        self._validate_filename_raw(filename)
 
-        # 7. Content analysis for additional security
-        self._analyze_file_content(content, validated_type)
+        # Sanitize filename
+        filename = self._sanitize_filename(filename)
 
-        # 8. Sanitize filename
-        sanitized_filename = self._sanitize_filename(filename)
+        # Validate file size
+        self._validate_file_size(content)
+        # Validate filename
+        self._validate_filename(filename)
+        # Validate extension
+        self._validate_extension(filename)
+        # Validate MIME type
+        self._validate_mime_type(declared_mime_type)
+        # Polyfile magic number check
+        self._validate_magic_number(content, declared_mime_type)
+        return FileValidationResult(
+            filename=filename,
+            content_type=declared_mime_type,
+            extension=os.path.splitext(filename)[1].lower(),
+        )
 
-        return {
-            "filename": sanitized_filename,
-            "content_type": validated_type,
-        }
-
-    def _validate_file_size(self, size: int) -> None:
-        """Validate file size constraints."""
-        if size <= 0:
+    def _validate_file_size(self, content: bytes) -> bool:
+        """Validate file size."""
+        if len(content) == 0:
+            logger.error("File cannot be empty")
             raise FileSizeError("File cannot be empty")
-
-        if size > self.max_file_size:
+        if len(content) > self.max_file_size:
+            logger.error(
+                f"File exceeds maximum allowed size of {self.max_file_size} bytes"
+            )
             raise FileSizeError(
-                f"File size ({size / 1024 / 1024:.1f}MB) exceeds maximum allowed size "
-                f"({self.max_file_size / 1024 / 1024}MB)"
+                f"File exceeds maximum allowed size of {self.max_file_size} bytes"
             )
+        return True
 
-    def _validate_filename_safety(self, filename: str) -> None:
-        """Validate filename for security issues."""
+    def _validate_filename(self, filename: str) -> bool:
+        """Validate filename (post-sanitization)."""
         if not filename or not filename.strip():
-            raise FileNameError("Filename cannot be empty")
-
+            logger.error("File name cannot be empty")
+            raise FileNameError("File name cannot be empty")
         if len(filename) > self.max_filename_length:
+            logger.error(
+                f"File name exceeds maximum allowed length of {self.max_filename_length} characters"
+            )
             raise FileNameError(
-                f"Filename too long (max {self.max_filename_length} characters)"
+                f"File name exceeds maximum allowed length of {self.max_filename_length} characters"
             )
+        # Control characters should not be present
+        if any(ord(c) < 32 for c in filename):
+            logger.error("Invalid file name")
+            raise FileNameError("Invalid file name")
+        # Basic path separator defense-in-depth
+        if "/" in filename or "\\" in filename:
+            logger.error("Invalid file name")
+            raise FileNameError("Invalid file name")
+        return True
 
-        # Check for directory traversal attempts (but allow multiple dots in filename)
+    def _validate_extension(self, filename: str) -> bool:
+        """Validate extension."""
+        extension = os.path.splitext(filename)[1].lower()
+        if extension not in self.allowed_extensions:
+            raise FileExtensionError(
+                f"File extension {extension} is not allowed",
+                extension,
+                self.allowed_extensions,
+            )
+        return True
+
+    def _validate_filename_raw(self, filename: str) -> bool:
+        """Pre-sanitization filename validation to catch unsafe inputs early."""
+        if filename is None:
+            logger.error("File name cannot be empty")
+            raise FileNameError("File name cannot be empty")
+
+        if not str(filename).strip():
+            logger.error("File name cannot be empty")
+            raise FileNameError("File name cannot be empty")
+
+        # Null byte and control characters
+        if "\x00" in filename or any(ord(c) < 32 for c in filename):
+            logger.error("Invalid file name")
+            raise FileNameError("Invalid file name")
+
+        # Path separators and traversal indicators
         if (
-            "../" in filename
-            or "..\\" in filename
-            or "/" in filename
+            "/" in filename
             or "\\" in filename
+            or "../" in filename
+            or "..\\" in filename
         ):
-            raise FileNameError("Filename contains invalid path characters")
+            logger.error("Invalid file name")
+            raise FileNameError("Invalid file name")
 
-        # Check for null bytes and control characters
-        if any(ord(c) < 32 for c in filename if c != "\t"):
-            raise FileNameError("Filename contains invalid control characters")
+        # Disallow reserved dot-only names
+        if filename in {".", ".."}:
+            logger.error("Invalid file name")
+            raise FileNameError("Invalid file name")
 
-    def _extract_extension(self, filename: str) -> str:
-        """Extract and normalize file extension."""
-        _, ext = os.path.splitext(filename.lower())
-        return ext
+        return True
 
-    def _validate_extension(self, extension: str) -> None:
-        """Validate file extension against allow/block lists."""
-        if extension in BLOCKED_EXTENSIONS:
-            raise FileExtensionError(
-                f"File extension '{extension}' is not allowed for security reasons",
-                extension=extension,
-                allowed_extensions=list(ALLOWED_EXTENSIONS.keys()),
+    def _validate_mime_type(self, mime_type: str) -> bool:
+        """Validate MIME type (normalized to base type)."""
+        base_mime = self._normalize_mime_type(mime_type)
+        allowed = {t.lower() for t in self.allowed_mime_types}
+        if base_mime not in allowed:
+            logger.error(f"File MIME type {mime_type} is not allowed")
+            raise FileMimeTypeError(
+                f"File MIME type {mime_type} is not allowed",
+                base_mime,
+                self.allowed_mime_types,
             )
+        return True
 
-        if extension not in ALLOWED_EXTENSIONS:
-            allowed_exts = sorted(ALLOWED_EXTENSIONS.keys())
-            raise FileExtensionError(
-                f"File extension '{extension}' is not supported. Allowed: {', '.join(allowed_exts)}",
-                extension=extension,
-                allowed_extensions=allowed_exts,
-            )
+    def _validate_magic_number(self, content: bytes, declared_mime_type: str) -> bool:
+        """Validate file type via polyfile magic matching with generic errors.
 
-    def _validate_declared_content_type(self, content_type: str) -> None:
-        """Validate the declared Content-Type header."""
-        if not content_type:
-            raise FileContentTypeError(
-                "Content-Type header is required",
-                content_type="",
-                allowed_types=list(ALLOWED_CONTENT_TYPES),
-            )
-
-        # Normalize content type (remove parameters like charset)
-        base_content_type = content_type.split(";")[0].strip().lower()
-
-        if base_content_type in BLOCKED_CONTENT_TYPES:
-            raise FileContentTypeError(
-                f"Content type '{base_content_type}' is not allowed for security reasons",
-                content_type=base_content_type,
-                allowed_types=list(ALLOWED_CONTENT_TYPES),
-            )
-
-        if base_content_type not in ALLOWED_CONTENT_TYPES:
-            allowed_types = sorted(ALLOWED_CONTENT_TYPES)
-            raise FileContentTypeError(
-                f"Content type '{base_content_type}' is not supported. Allowed: {', '.join(allowed_types)}",
-                content_type=base_content_type,
-                allowed_types=allowed_types,
-            )
-
-    def _detect_file_type_by_magic(self, content: bytes) -> str | None:
-        """Detect file type using magic number signatures."""
-        if len(content) < 8:
-            return None
-
-        # Check magic signatures
-        for signature, content_type in MAGIC_SIGNATURES.items():
-            if content.startswith(signature):
-                # Special case for WebP - needs additional validation
-                if content_type == "image/webp":
-                    if len(content) >= 12 and content[8:12] == b"WEBP":
-                        return content_type
-                    # If RIFF but not WEBP, it's not a valid WebP
-                    elif signature == b"\x52\x49\x46\x46":
-                        continue
-                return content_type
-
-        # Additional checks for Office documents (ZIP-based)
-        if content.startswith(b"\x50\x4b"):
-            return self._detect_office_format(content)
-
-        return None
-
-    def _detect_office_format(self, content: bytes) -> str:
-        """Detect specific Office format from ZIP-based files."""
-        # This is a simplified detection - in production, you might want
-        # to use a proper ZIP parser to check internal structure
-        if b"word/" in content[:1024]:
-            return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        elif b"xl/" in content[:1024]:
-            return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        else:
-            return "application/zip"
-
-    def _cross_validate_file_type(
-        self, extension: str, declared_type: str, detected_type: str | None
-    ) -> str:
-        """Cross-validate file type from multiple sources."""
-        # Get expected type from extension
-        expected_from_ext = ALLOWED_EXTENSIONS.get(extension)
-        if not expected_from_ext:
-            raise FileExtensionError(
-                f"Unsupported file extension: {extension}",
-                extension=extension,
-                allowed_extensions=list(ALLOWED_EXTENSIONS.keys()),
-            )
-
-        # Normalize declared type
-        declared_base = declared_type.split(";")[0].strip().lower()
-
-        # If we detected a type via magic numbers, validate consistency
-        if detected_type:
-            # Special handling for Office documents
-            if extension in [".docx", ".xlsx"] and detected_type in [
-                "application/zip",
-                expected_from_ext,
-            ]:
-                return expected_from_ext
-
-            # For other files, magic number should match expected type
-            if detected_type != expected_from_ext:
-                raise FileContentMismatchError(
-                    f"File content (detected: {detected_type}) does not match "
-                    f"extension {extension} (expected: {expected_from_ext})"
-                )
-
-        # Validate declared type matches extension
-        if declared_base != expected_from_ext:
-            # Allow some flexibility for common variations
-            if not self._is_compatible_type(declared_base, expected_from_ext):
-                raise FileContentMismatchError(
-                    f"Declared content type '{declared_base}' does not match "
-                    f"file extension {extension} (expected: {expected_from_ext})"
-                )
-
-        return expected_from_ext
-
-    def _is_compatible_type(self, declared: str, expected: str) -> bool:
-        """Check if declared type is compatible with expected type."""
-        # Allow some common variations
-        compatible_types = {
-            "text/csv": ["text/plain"],
-            "image/jpeg": ["image/jpg"],
-        }
-
-        return declared in compatible_types.get(expected, [])
-
-    def _analyze_with_polyfile(
-        self, content: bytes, content_type: str, filename: str
-    ) -> None:
-        """Perform advanced file analysis using polyfile.
-
-        Args:
-            content: File content as bytes
-            content_type: Validated content type
-            filename: Original filename
-
-        Raises:
-            ValueError: If polyfile detects security issues
+        We trust polyfile's detection and intentionally avoid custom fallbacks
+        or leaking detailed types in error messages.
         """
+        if not content:
+            # Generic user-facing message
+            logger.error("Unknown or unsupported file type")
+            raise FileContentMismatchError("Unknown or unsupported file type")
+
+        detected_types: set[str] = set()
+
         try:
-            # Analyze the file content directly with polyfile's MagicMatcher
             matches = list(MagicMatcher.DEFAULT_INSTANCE.match(content))
-
-            # Check for polyglot files (files that are valid in multiple formats)
-            self._check_polyglot_threats(matches, content_type)
-
-            # Analyze file structure for anomalies
-            self._analyze_file_structure(matches, content_type)
-
-            # Check for embedded files or suspicious content
-            self._check_embedded_content(matches, content)
-
+            for match in matches:
+                mimetypes = getattr(match, "mimetypes", None)
+                if mimetypes:
+                    for mt in mimetypes:
+                        if mt:
+                            detected_types.add(mt.split(";")[0].strip().lower())
         except Exception as e:
-            # Log the error but don't fail validation unless it's a security issue
-            logger.warning(
-                "Polyfile analysis failed",
-                filename=filename,
-                content_type=content_type,
-                error=str(e),
+            # Keep messages generic for user-facing responses
+            logger.error("Unknown or unsupported file type")
+            raise FileContentMismatchError("Unknown or unsupported file type") from e
+
+        if not detected_types:
+            logger.error("Unknown or unsupported file type")
+            raise FileContentMismatchError("Unknown or unsupported file type")
+
+        declared_base = self._normalize_mime_type(declared_mime_type)
+        if declared_base not in detected_types:
+            # Keep message generic for users
+            logger.error(
+                "Detected MIME type does not match declared MIME type",
+                declared_mime_type=declared_base,
+                detected_types=list(detected_types),
             )
-            # If polyfile fails, we still have our other security checks
-
-    def _check_polyglot_threats(self, matches: list, expected_type: str) -> None:
-        """Check for polyglot file threats using polyfile analysis.
-
-        Args:
-            matches: List of polyfile match objects
-            expected_type: Expected MIME type
-
-        Raises:
-            ValueError: If polyglot threats are detected
-        """
-        try:
-            # Get all detected MIME types
-            detected_types = set()
-
-            # Iterate through polyfile's analysis results
-            for match in matches:
-                if hasattr(match, "mimetypes") and match.mimetypes:
-                    for mimetype in match.mimetypes:
-                        detected_types.add(mimetype)
-
-            # Remove the expected type from detected types
-            detected_types.discard(expected_type)
-
-            # Check for dangerous polyglot combinations
-            dangerous_types = {
-                "text/html",
-                "application/javascript",
-                "application/x-httpd-php",
-                "application/x-executable",
-                "application/x-sharedlib",
-                "application/x-shellscript",
-                "text/x-python",
-                "text/x-perl",
-            }
-
-            dangerous_detected = detected_types.intersection(dangerous_types)
-            if dangerous_detected:
-                raise FileSecurityError(
-                    f"File appears to be a polyglot containing dangerous formats: {', '.join(dangerous_detected)}"
-                )
-
-            # If multiple non-dangerous types detected, log warning but allow
-            if len(detected_types) > 0:
-                logger.warning(
-                    "Polyglot file detected",
-                    expected_type=expected_type,
-                    detected_types=list(detected_types),
-                )
-
-        except Exception as e:
-            # Handle any unexpected errors in polyfile analysis
-            logger.debug("Polyfile polyglot analysis failed", error=str(e))
-
-    def _analyze_file_structure(self, matches: list, expected_type: str) -> None:
-        """Analyze file structure for anomalies.
-
-        Args:
-            matches: List of polyfile match objects
-            expected_type: Expected MIME type
-
-        Raises:
-            ValueError: If structural anomalies are detected
-        """
-        try:
-            # Check for suspicious file structure patterns
-            for match in matches:
-                match_str = str(match).lower()
-
-                # Check for executable signatures in non-executable files
-                if expected_type != "application/x-executable":
-                    dangerous_signatures = ["executable", "elf", "pe32", "mach-o"]
-                    if any(sig in match_str for sig in dangerous_signatures):
-                        raise FileSecurityError(
-                            f"File contains executable signature '{match}' but is not an executable type"
-                        )
-
-                # Check for script signatures in non-script files
-                if not expected_type.startswith("text/"):
-                    script_signatures = [
-                        "javascript",
-                        "php",
-                        "python",
-                        "shell script",
-                        "batch",
-                    ]
-                    if any(sig in match_str for sig in script_signatures):
-                        raise FileSecurityError(
-                            f"File contains script signature '{match}' in non-text file"
-                        )
-
-        except Exception as e:
-            # Handle any unexpected errors in polyfile analysis
-            logger.debug("Polyfile structure analysis failed", error=str(e))
-
-    def _check_embedded_content(self, matches: list, content: bytes) -> None:
-        """Check for suspicious embedded content.
-
-        Args:
-            matches: List of polyfile match objects
-            content: File content as bytes
-
-        Raises:
-            ValueError: If suspicious embedded content is detected
-        """
-        try:
-            # Look for multiple file format matches which might indicate embedded content
-            if len(matches) > 1:
-                match_strings = [str(match).lower() for match in matches]
-
-                # Check for dangerous embedded content patterns
-                dangerous_patterns = [
-                    "executable",
-                    "script",
-                    "html",
-                    "javascript",
-                    "php",
-                ]
-                for pattern in dangerous_patterns:
-                    matching_patterns = [m for m in match_strings if pattern in m]
-                    if matching_patterns:
-                        # Additional check: ensure this isn't just a false positive
-                        # by checking if the content actually contains suspicious patterns
-                        content_lower = content.lower()
-                        if pattern.encode() in content_lower:
-                            raise FileSecurityError(
-                                f"File contains suspicious embedded content: {pattern} (detected: {matching_patterns[0]})"
-                            )
-
-        except Exception as e:
-            # Handle any unexpected errors in polyfile analysis
-            logger.debug("Polyfile embedded content analysis failed", error=str(e))
-
-    def _analyze_file_content(self, content: bytes, content_type: str) -> None:
-        """Perform additional content analysis for security."""
-        # Only check for text-based embedded threats in non-binary file types
-        if not content_type.startswith("image/"):
-            self._check_for_embedded_threats(content, content_type)
-
-        # Perform type-specific validation
-        if content_type == "application/pdf":
-            self._validate_pdf_content(content)
-        elif content_type.startswith("image/"):
-            self._validate_image_content(content)
-        elif content_type in ["text/plain", "text/csv"]:
-            self._validate_text_content(content)
-
-    def _check_for_embedded_threats(self, content: bytes, content_type: str) -> None:
-        """Check for common embedded threats based on content type."""
-        # For binary formats, only check for executable signatures
-        if content_type.startswith("image/") or content_type == "application/pdf":
-            # Only check for executable signatures in binary files
-            executable_signatures = [
-                b"MZ",  # PE executable
-                b"\x7fELF",  # ELF executable
-                b"\xfe\xed\xfa",  # Mach-O executable
-            ]
-
-            for signature in executable_signatures:
-                if content.startswith(signature):
-                    raise FileSecurityError("File contains executable content")
-            return
-
-        # For text-based or document formats, check for script content
-        dangerous_signatures = [
-            b"MZ",  # PE executable
-            b"\x7fELF",  # ELF executable
-            b"\xfe\xed\xfa",  # Mach-O executable
-            b"<script",  # JavaScript
-            b"<?php",  # PHP
-            b"#!/bin/sh",  # Shell script
-            b"#!/bin/bash",  # Bash script
-        ]
-
-        content_lower = content.lower()
-        for signature in dangerous_signatures:
-            if signature.lower() in content_lower:
-                raise FileSecurityError(
-                    "File contains potentially dangerous embedded content"
-                )
-
-    def _validate_pdf_content(self, content: bytes) -> None:
-        """Validate PDF-specific content with targeted JavaScript detection."""
-        if not content.startswith(b"%PDF-"):
-            raise FileContentMismatchError("Invalid PDF file structure")
-
-        dangerous_patterns = [
-            (b"/OpenAction", "auto-execute actions"),
-            (b"/AA", "additional actions"),
-            (b"/Launch", "external application launch"),
-            (b"/SubmitForm", "form submission"),
-            (b"/ImportData", "data import"),
-            (b"/GoToR", "remote goto actions"),
-        ]
-
-        has_javascript = b"/JavaScript" in content or b"/JS" in content
-
-        for pattern, description in dangerous_patterns:
-            if pattern in content:
-                if has_javascript:
-                    # Only block if both JavaScript AND dangerous action present
-                    raise FileSecurityError(
-                        f"PDF contains JavaScript action {description} in blocklist"
-                    )
-                elif pattern in [b"/Launch", b"/SubmitForm", b"/GoToR"]:
-                    # Block these even without explicit JavaScript (they're inherently risky)
-                    raise FileSecurityError(
-                        f"PDF contains JavaScript action {description} in blocklist"
-                    )
-
-        if has_javascript:
-            logger.warning(
-                "PDF contains JavaScript references but no actions in blocklist detected",
-                content_hash=hashlib.sha256(content).hexdigest()[:16],
+            raise FileMimeTypeError(
+                "Unknown or unsupported file type",
+                declared_base,
+                self.allowed_mime_types,
             )
 
-    def _validate_image_content(self, content: bytes) -> None:
-        """Validate image-specific content."""
-        # Check for SVG content (which should already be blocked by extension)
-        if content.startswith(b"<?xml") or b"<svg" in content[:1024]:
-            # SVG detected - check for dangerous content
-            content_lower = content.lower()
-            svg_dangerous_patterns = [
-                b"<script",
-                b"javascript:",
-                b"onclick",
-                b"onload",
-                b"onerror",
-                b"onmouseover",
-                b"<iframe",
-                b"<embed",
-                b"<object",
-                b"<link",
-                b"<meta",
-                b"<foreignobject",
-            ]
-            for pattern in svg_dangerous_patterns:
-                if pattern in content_lower:
-                    raise FileSecurityError(
-                        f"SVG file contains potentially dangerous content: {pattern.decode('utf-8', errors='ignore')}"
-                    )
+        allowed = {t.lower() for t in self.allowed_mime_types}
+        if detected_types & allowed:
+            return True
 
-        # For other images, we rely on magic number validation and polyfile analysis
-        # Avoid checking for text patterns in binary image data as it causes false positives
+        representative = next(iter(detected_types))
+        logger.error(
+            "Detected MIME type is not allowed",
+            declared_mime_type=declared_base,
+            detected_type=representative,
+            allowed_types=self.allowed_mime_types,
+        )
+        raise FileMimeTypeError(
+            "Unknown or unsupported file type",
+            representative,
+            self.allowed_mime_types,
+        )
 
-    def _validate_text_content(self, content: bytes) -> None:
-        """Validate text file content."""
-        try:
-            # Ensure it's valid UTF-8 or ASCII
-            text = content.decode("utf-8")
-
-            # Check for script tags or other dangerous content
-            dangerous_patterns = [
-                "<script",
-                "javascript:",
-                "vbscript:",
-                "data:text/html",
-                "<?php",
-                "<%",
-                "<jsp:",
-                "#!/",
-            ]
-
-            text_lower = text.lower()
-            for pattern in dangerous_patterns:
-                if pattern in text_lower:
-                    raise FileSecurityError(
-                        f"Text file contains potentially dangerous content: {pattern}"
-                    )
-
-        except UnicodeDecodeError as e:
-            raise FileContentMismatchError(
-                "Text file contains invalid UTF-8 encoding"
-            ) from e
+    @staticmethod
+    def _normalize_mime_type(mime_type: str) -> str:
+        """Normalize a MIME type to its base form (lowercased, parameters stripped)."""
+        if not mime_type:
+            return ""
+        return mime_type.split(";", 1)[0].strip().lower()
 
     def _sanitize_filename(self, filename: str) -> str:
         """Sanitize filename to prevent security issues."""
@@ -707,8 +269,9 @@ class FileSecurityValidator:
             max_name_length = self.max_filename_length - len(ext)
             filename = name[:max_name_length] + ext
 
-        # If filename is empty after sanitization, generate a default
+        # If filename is empty after sanitization, raise an error
         if not filename:
-            filename = "unnamed_file"
+            logger.error("File name cannot be empty")
+            raise FileNameError("File name cannot be empty")
 
         return filename
