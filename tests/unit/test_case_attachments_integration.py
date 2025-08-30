@@ -7,9 +7,10 @@ from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import config
+from tracecat.cases.attachments import CaseAttachmentCreate, CaseAttachmentService
 from tracecat.cases.enums import CaseEventType, CasePriority, CaseSeverity, CaseStatus
-from tracecat.cases.models import CaseAttachmentCreate, CaseCreate
-from tracecat.cases.service import CaseAttachmentService, CasesService
+from tracecat.cases.models import CaseCreate
+from tracecat.cases.service import CasesService
 from tracecat.db.schemas import CaseAttachment, CaseEvent, File
 from tracecat.types.exceptions import TracecatNotFoundError
 

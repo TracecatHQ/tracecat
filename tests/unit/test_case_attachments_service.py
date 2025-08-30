@@ -6,9 +6,8 @@ import pytest
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from tracecat.cases.attachments import CaseAttachmentCreate, CaseAttachmentService
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
-from tracecat.cases.models import CaseAttachmentCreate
-from tracecat.cases.service import CaseAttachmentService
 from tracecat.db.schemas import Case, File
 from tracecat.types.auth import AccessLevel, Role
 from tracecat.types.exceptions import TracecatAuthorizationError, TracecatException
@@ -94,11 +93,14 @@ class TestCaseAttachmentService:
         # Patch storage functions that interact with external systems
         with (
             patch(
-                "tracecat.storage.upload_file", new_callable=AsyncMock
+                "tracecat.storage.blob.upload_file", new_callable=AsyncMock
             ) as mock_upload,
-            patch("tracecat.storage.compute_sha256", return_value="fakehash"),
             patch(
-                "tracecat.storage.FileSecurityValidator.validate_file",
+                "tracecat.cases.attachments.service.CaseAttachmentService._compute_sha256",
+                return_value="fakehash",
+            ),
+            patch(
+                "tracecat.storage.validation.FileSecurityValidator.validate_file",
                 return_value={
                     "filename": attachment_params.file_name,
                     "content_type": attachment_params.content_type,
@@ -123,16 +125,19 @@ class TestCaseAttachmentService:
         """Test that database rollback occurs when storage upload fails."""
 
         with (
-            patch("tracecat.storage.compute_sha256", return_value="fakehash"),
             patch(
-                "tracecat.storage.FileSecurityValidator.validate_file",
+                "tracecat.cases.attachments.service.CaseAttachmentService._compute_sha256",
+                return_value="fakehash",
+            ),
+            patch(
+                "tracecat.storage.validation.FileSecurityValidator.validate_file",
                 return_value={
                     "filename": attachment_params.file_name,
                     "content_type": attachment_params.content_type,
                 },
             ),
             patch(
-                "tracecat.storage.upload_file",
+                "tracecat.storage.blob.upload_file",
                 new_callable=AsyncMock,
                 side_effect=Exception("Storage upload failed"),
             ),
@@ -163,11 +168,14 @@ class TestCaseAttachmentService:
         mock_delete = AsyncMock()
 
         with (
-            patch("tracecat.storage.upload_file", mock_upload),
+            patch("tracecat.storage.blob.upload_file", mock_upload),
             patch("tracecat.storage.delete_file", mock_delete),
-            patch("tracecat.storage.compute_sha256", return_value=original_hash),
             patch(
-                "tracecat.storage.FileSecurityValidator.validate_file",
+                "tracecat.cases.attachments.service.CaseAttachmentService._compute_sha256",
+                return_value=original_hash,
+            ),
+            patch(
+                "tracecat.storage.validation.FileSecurityValidator.validate_file",
                 return_value={
                     "filename": attachment_params.file_name,
                     "content_type": attachment_params.content_type,
@@ -253,11 +261,14 @@ class TestCaseAttachmentService:
         mock_delete = AsyncMock()
 
         with (
-            patch("tracecat.storage.upload_file", mock_upload),
+            patch("tracecat.storage.blob.upload_file", mock_upload),
             patch("tracecat.storage.delete_file", mock_delete),
-            patch("tracecat.storage.compute_sha256", return_value=original_hash),
             patch(
-                "tracecat.storage.FileSecurityValidator.validate_file",
+                "tracecat.cases.attachments.service.CaseAttachmentService._compute_sha256",
+                return_value=original_hash,
+            ),
+            patch(
+                "tracecat.storage.validation.FileSecurityValidator.validate_file",
                 return_value={
                     "filename": attachment_params.file_name,
                     "content_type": attachment_params.content_type,
@@ -295,10 +306,13 @@ class TestCaseAttachmentService:
         original_hash = "png_file_hash"
 
         with (
-            patch("tracecat.storage.upload_file", new_callable=AsyncMock),
-            patch("tracecat.storage.compute_sha256", return_value=original_hash),
+            patch("tracecat.storage.blob.upload_file", new_callable=AsyncMock),
             patch(
-                "tracecat.storage.FileSecurityValidator.validate_file",
+                "tracecat.cases.attachments.service.CaseAttachmentService._compute_sha256",
+                return_value=original_hash,
+            ),
+            patch(
+                "tracecat.storage.validation.FileSecurityValidator.validate_file",
                 return_value={
                     "filename": png_attachment_params.file_name,
                     "content_type": png_attachment_params.content_type,
@@ -317,7 +331,10 @@ class TestCaseAttachmentService:
                 new_callable=AsyncMock,
                 return_value=original_content,
             ),
-            patch("tracecat.storage.compute_sha256", return_value=original_hash),
+            patch(
+                "tracecat.cases.attachments.service.CaseAttachmentService._compute_sha256",
+                return_value=original_hash,
+            ),
         ):
             # Download and verify integrity
             (
@@ -352,10 +369,13 @@ class TestCaseAttachmentService:
         )
 
         with (
-            patch("tracecat.storage.upload_file", new_callable=AsyncMock),
-            patch("tracecat.storage.compute_sha256", return_value=large_hash),
+            patch("tracecat.storage.blob.upload_file", new_callable=AsyncMock),
             patch(
-                "tracecat.storage.FileSecurityValidator.validate_file",
+                "tracecat.cases.attachments.service.CaseAttachmentService._compute_sha256",
+                return_value=large_hash,
+            ),
+            patch(
+                "tracecat.storage.validation.FileSecurityValidator.validate_file",
                 return_value={
                     "filename": params.file_name,
                     "content_type": params.content_type,
@@ -371,7 +391,10 @@ class TestCaseAttachmentService:
                 new_callable=AsyncMock,
                 return_value=large_content,
             ),
-            patch("tracecat.storage.compute_sha256", return_value=large_hash),
+            patch(
+                "tracecat.cases.attachments.service.CaseAttachmentService._compute_sha256",
+                return_value=large_hash,
+            ),
         ):
             (
                 downloaded_content,
@@ -398,10 +421,13 @@ class TestCaseAttachmentService:
         corrupted_hash = "corrupted_hash"
 
         with (
-            patch("tracecat.storage.upload_file", new_callable=AsyncMock),
-            patch("tracecat.storage.compute_sha256", return_value=original_hash),
+            patch("tracecat.storage.blob.upload_file", new_callable=AsyncMock),
             patch(
-                "tracecat.storage.FileSecurityValidator.validate_file",
+                "tracecat.cases.attachments.service.CaseAttachmentService._compute_sha256",
+                return_value=original_hash,
+            ),
+            patch(
+                "tracecat.storage.validation.FileSecurityValidator.validate_file",
                 return_value={
                     "filename": attachment_params.file_name,
                     "content_type": attachment_params.content_type,
@@ -420,7 +446,10 @@ class TestCaseAttachmentService:
                 new_callable=AsyncMock,
                 return_value=corrupted_content,
             ),
-            patch("tracecat.storage.compute_sha256", return_value=corrupted_hash),
+            patch(
+                "tracecat.cases.attachments.service.CaseAttachmentService._compute_sha256",
+                return_value=corrupted_hash,
+            ),
         ):
             with pytest.raises(TracecatException, match="File integrity check failed"):
                 await attachments_service.download_attachment(test_case, attachment.id)
@@ -437,10 +466,13 @@ class TestCaseAttachmentService:
         mock_upload = AsyncMock()
 
         with (
-            patch("tracecat.storage.upload_file", mock_upload),
-            patch("tracecat.storage.compute_sha256", return_value=same_hash),
+            patch("tracecat.storage.blob.upload_file", mock_upload),
             patch(
-                "tracecat.storage.FileSecurityValidator.validate_file",
+                "tracecat.cases.attachments.service.CaseAttachmentService._compute_sha256",
+                return_value=same_hash,
+            ),
+            patch(
+                "tracecat.storage.validation.FileSecurityValidator.validate_file",
                 return_value={
                     "filename": attachment_params.file_name,
                     "content_type": attachment_params.content_type,
@@ -477,10 +509,13 @@ class TestCaseAttachmentService:
     ) -> None:
         """Ensure list_attachments excludes soft-deleted files."""
         with (
-            patch("tracecat.storage.upload_file", new_callable=AsyncMock),
-            patch("tracecat.storage.compute_sha256", return_value="fakehash"),
+            patch("tracecat.storage.blob.upload_file", new_callable=AsyncMock),
             patch(
-                "tracecat.storage.FileSecurityValidator.validate_file",
+                "tracecat.cases.attachments.service.CaseAttachmentService._compute_sha256",
+                return_value="fakehash",
+            ),
+            patch(
+                "tracecat.storage.validation.FileSecurityValidator.validate_file",
                 return_value={
                     "filename": attachment_params.file_name,
                     "content_type": attachment_params.content_type,
@@ -512,10 +547,13 @@ class TestCaseAttachmentService:
     ) -> None:
         """Test that get_attachment returns None for soft-deleted files."""
         with (
-            patch("tracecat.storage.upload_file", new_callable=AsyncMock),
-            patch("tracecat.storage.compute_sha256", return_value="fakehash"),
+            patch("tracecat.storage.blob.upload_file", new_callable=AsyncMock),
             patch(
-                "tracecat.storage.FileSecurityValidator.validate_file",
+                "tracecat.cases.attachments.service.CaseAttachmentService._compute_sha256",
+                return_value="fakehash",
+            ),
+            patch(
+                "tracecat.storage.validation.FileSecurityValidator.validate_file",
                 return_value={
                     "filename": attachment_params.file_name,
                     "content_type": attachment_params.content_type,
@@ -550,10 +588,13 @@ class TestCaseAttachmentService:
         """Test that file creator can delete their attachment."""
 
         with (
-            patch("tracecat.storage.upload_file", new_callable=AsyncMock),
-            patch("tracecat.storage.compute_sha256", return_value="fakehash"),
+            patch("tracecat.storage.blob.upload_file", new_callable=AsyncMock),
             patch(
-                "tracecat.storage.FileSecurityValidator.validate_file",
+                "tracecat.cases.attachments.service.CaseAttachmentService._compute_sha256",
+                return_value="fakehash",
+            ),
+            patch(
+                "tracecat.storage.validation.FileSecurityValidator.validate_file",
                 return_value={
                     "filename": attachment_params.file_name,
                     "content_type": attachment_params.content_type,
@@ -588,10 +629,13 @@ class TestCaseAttachmentService:
 
         # Create attachment with regular user
         with (
-            patch("tracecat.storage.upload_file", new_callable=AsyncMock),
-            patch("tracecat.storage.compute_sha256", return_value="fakehash"),
+            patch("tracecat.storage.blob.upload_file", new_callable=AsyncMock),
             patch(
-                "tracecat.storage.FileSecurityValidator.validate_file",
+                "tracecat.cases.attachments.service.CaseAttachmentService._compute_sha256",
+                return_value="fakehash",
+            ),
+            patch(
+                "tracecat.storage.validation.FileSecurityValidator.validate_file",
                 return_value={
                     "filename": attachment_params.file_name,
                     "content_type": attachment_params.content_type,
@@ -633,10 +677,13 @@ class TestCaseAttachmentService:
         creator_service = CaseAttachmentService(session=session, role=creator_role)
 
         with (
-            patch("tracecat.storage.upload_file", new_callable=AsyncMock),
-            patch("tracecat.storage.compute_sha256", return_value="fakehash"),
+            patch("tracecat.storage.blob.upload_file", new_callable=AsyncMock),
             patch(
-                "tracecat.storage.FileSecurityValidator.validate_file",
+                "tracecat.cases.attachments.service.CaseAttachmentService._compute_sha256",
+                return_value="fakehash",
+            ),
+            patch(
+                "tracecat.storage.validation.FileSecurityValidator.validate_file",
                 return_value={
                     "filename": attachment_params.file_name,
                     "content_type": attachment_params.content_type,
@@ -675,10 +722,13 @@ class TestCaseAttachmentService:
         """Test that download fails when file integrity check fails."""
 
         with (
-            patch("tracecat.storage.upload_file", new_callable=AsyncMock),
-            patch("tracecat.storage.compute_sha256", return_value="original_hash"),
+            patch("tracecat.storage.blob.upload_file", new_callable=AsyncMock),
             patch(
-                "tracecat.storage.FileSecurityValidator.validate_file",
+                "tracecat.cases.attachments.service.CaseAttachmentService._compute_sha256",
+                return_value="original_hash",
+            ),
+            patch(
+                "tracecat.storage.validation.FileSecurityValidator.validate_file",
                 return_value={
                     "filename": attachment_params.file_name,
                     "content_type": attachment_params.content_type,
@@ -697,7 +747,7 @@ class TestCaseAttachmentService:
                 return_value=b"corrupted content",
             ),
             patch(
-                "tracecat.storage.compute_sha256",
+                "tracecat.cases.attachments.service.CaseAttachmentService._compute_sha256",
                 return_value="different_hash",  # Different hash indicates corruption
             ),
         ):
@@ -731,10 +781,13 @@ class TestCaseAttachmentService:
         )
 
         with (
-            patch("tracecat.storage.upload_file", new_callable=AsyncMock),
-            patch("tracecat.storage.compute_sha256", side_effect=["hash1", "hash2"]),
+            patch("tracecat.storage.blob.upload_file", new_callable=AsyncMock),
             patch(
-                "tracecat.storage.FileSecurityValidator.validate_file",
+                "tracecat.cases.attachments.service.CaseAttachmentService._compute_sha256",
+                side_effect=["hash1", "hash2"],
+            ),
+            patch(
+                "tracecat.storage.validation.FileSecurityValidator.validate_file",
                 side_effect=[
                     {"filename": "file1.txt", "content_type": "text/plain"},
                     {"filename": "file2.txt", "content_type": "text/plain"},
