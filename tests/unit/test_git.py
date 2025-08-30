@@ -396,7 +396,7 @@ class TestListGitCommits:
         )
 
         with patch("tracecat.git.utils.run_git", mock_run_git):
-            with patch("aiofiles.tempfile.TemporaryDirectory"):
+            with patch("aiofiles.tempfile.TemporaryDirectory", new_callable=AsyncMock):
                 commits = await list_git_commits(
                     "git+ssh://git@github.com/myorg/myrepo.git",
                     env=SshEnv(ssh_agent_pid="123456", ssh_auth_sock="/tmp/auth.sock"),

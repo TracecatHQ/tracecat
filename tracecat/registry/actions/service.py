@@ -197,7 +197,7 @@ class RegistryActionsService(BaseService):
         # 1. If target_commit_sha is provided, use it
         # 2. If pull_remote is False, use the stored commit SHA
         # 3. Otherwise use None (HEAD)
-        if target_commit_sha:
+        if target_commit_sha is not None:
             sha = target_commit_sha
         elif not pull_remote:
             sha = db_repo.commit_sha

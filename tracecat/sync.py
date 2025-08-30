@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel
 
@@ -109,8 +109,16 @@ class PullDiagnostic:
     workflow_title: str | None
     """Title of the workflow, if parseable"""
 
-    error_type: str
-    """Type of error: 'conflict', 'validation', 'dependency', 'parse'"""
+    error_type: Literal[
+        "conflict",
+        "validation",
+        "dependency",
+        "parse",
+        "github",
+        "system",
+        "transaction",
+    ]
+    """Type of error: 'conflict', 'validation', 'dependency', 'parse', 'github', 'system', 'transaction'"""
 
     message: str
     """Human-readable error message"""
@@ -154,7 +162,7 @@ class SyncService[T: BaseModel](Protocol):
         *,
         url: GitUrl,
         options: PullOptions | None = None,
-    ) -> list[T]:
+    ) -> PullResult:
         """Pull objects from a repository at the given ref.
 
         Args:

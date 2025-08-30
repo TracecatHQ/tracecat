@@ -23,7 +23,7 @@ class WorkflowSyncPullRequest(BaseModel):
         ...,
         description="Specific commit SHA to pull from",
         min_length=40,
-        max_length=40,
+        max_length=64,
     )
 
     conflict_strategy: ConflictStrategy = Field(

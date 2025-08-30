@@ -402,7 +402,7 @@ class WorkflowSyncService(BaseWorkspaceService):
                         path=file_path,
                         branch=branch_name,
                     )
-                else:
+                    ws_svc = WorkspaceService(session=self.session, role=self.role)
                     raise
 
             # Get the latest commit SHA from the branch
@@ -432,15 +432,14 @@ class WorkflowSyncService(BaseWorkspaceService):
                     except Exception:
                         current_user = None
 
-                    published_by = (
-                        current_user.email if current_user else options.author.name
-                    )
+                    published_by = current_user.email if current_user else "<unknown>"
 
                     pr = await asyncio.to_thread(
                         repo.create_pull,
                         title=options.message,
                         body=(
-                            f"Automated workflow sync from Tracecat workspace {workspace.name}\n\n"
+                            f"Automated workflow sync from Tracecat\n\n"
+                            f"**Workspace:** {workspace.name}\n"
                             f"**Published by:** {published_by}\n"
                             f"**Workflow Title:** {title}\n"
                             f"**Workflow Description:** {description}"

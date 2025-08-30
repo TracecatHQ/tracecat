@@ -87,8 +87,6 @@ class WorkflowImportService(BaseWorkspaceService):
                     await self._import_single_workflow(
                         remote_workflow, conflict_strategy
                     )
-                # Show the current state of the database
-                await self.session.commit()
 
             return PullResult(
                 success=True,
@@ -100,10 +98,7 @@ class WorkflowImportService(BaseWorkspaceService):
             )
 
         except Exception as e:
-            import traceback
-
-            traceback.print_exc()
-            logger.error(f"Failed to import workflows: {e}", exc_info=True)
+            logger.error(f"Failed to import workflows: {e}")
             return PullResult(
                 success=False,
                 commit_sha=commit_sha,

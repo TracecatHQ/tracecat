@@ -1,4 +1,5 @@
 import asyncio
+import os
 from typing import cast
 
 import aiofiles
@@ -151,7 +152,7 @@ async def run_git(
             *args,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            env=env.to_dict(),
+            env=os.environ.copy() | env.to_dict(),
             cwd=cwd,
         )
 
@@ -303,7 +304,7 @@ async def list_git_commits(
         if code != 0:
             raise RuntimeError(f"fetch failed: {err.strip()}")
 
-        fmt = "%H|%s|%an|%ae|%aI"
+        fmt = "%H%x1f%s%x1f%an%x1f%ae%x1f%aI"
         log_args = [
             "git",
             "log",
@@ -318,7 +319,7 @@ async def list_git_commits(
 
     commits = []
     for line in out.strip().splitlines():
-        sha, msg, author, email, date = (p.strip() for p in line.split("|", 4))
+        sha, msg, author, email, date = (p.strip() for p in line.split("\x1f", 4))
         commits.append(
             GitCommitInfo(
                 sha=sha,
