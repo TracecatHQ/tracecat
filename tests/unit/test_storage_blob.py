@@ -1,6 +1,7 @@
 """Tests for the storage module."""
 
 from unittest.mock import AsyncMock, patch
+from urllib.parse import urlparse
 
 import pytest
 from botocore.exceptions import ClientError
@@ -386,7 +387,8 @@ class TestS3Operations:
 
         # URL should remain unchanged since it's not from MinIO
         assert result == original_url
-        assert "s3.amazonaws.com" in result
+        parsed = urlparse(result)
+        assert parsed.hostname == "s3.amazonaws.com"
 
     @pytest.mark.anyio
     @patch("tracecat.storage.blob.get_storage_client")
