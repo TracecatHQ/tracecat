@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import config
+from tracecat.db import session_events  # noqa: F401 - ensure listeners are registered
 
 # Global so we don't create more than one engine per process.
 # Outside of being best practice, this is needed so we can properly pool
