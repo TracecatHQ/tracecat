@@ -79,7 +79,9 @@ class CaseAttachmentService(BaseWorkspaceService):
             await self.session.rollback()
             raise TracecatException(f"Failed to upload file: {str(e)}") from e
 
-    async def _emit_case_event(self, case: Case, event: AttachmentCreatedEvent | AttachmentDeletedEvent) -> None:
+    async def _emit_case_event(
+        self, case: Case, event: AttachmentCreatedEvent | AttachmentDeletedEvent
+    ) -> None:
         """Emit a case event with run context, avoiding circular imports at module import time."""
         run_ctx = ctx_run.get()
         # Import here to avoid circular dependency
@@ -101,9 +103,7 @@ class CaseAttachmentService(BaseWorkspaceService):
         count_stmt = (
             select(func.count())
             .select_from(CaseAttachment)
-            .join(
-                File, cast(CaseAttachment.file_id, sa.UUID) == cast(File.id, sa.UUID)
-            )
+            .join(File, cast(CaseAttachment.file_id, sa.UUID) == cast(File.id, sa.UUID))
             .where(CaseAttachment.case_id == case.id, col(File.deleted_at).is_(None))
         )
         count_result = await self.session.exec(count_stmt)
@@ -169,9 +169,7 @@ class CaseAttachmentService(BaseWorkspaceService):
         # Single query join to ensure file not soft-deleted; eager-load relationship
         statement = (
             select(CaseAttachment)
-            .join(
-                File, cast(CaseAttachment.file_id, sa.UUID) == cast(File.id, sa.UUID)
-            )
+            .join(File, cast(CaseAttachment.file_id, sa.UUID) == cast(File.id, sa.UUID))
             .where(
                 CaseAttachment.case_id == case.id,
                 CaseAttachment.id == attachment_id,
@@ -182,7 +180,9 @@ class CaseAttachmentService(BaseWorkspaceService):
         result = await self.session.exec(statement)
         return result.first()
 
-    async def _require_attachment(self, case: Case, attachment_id: uuid.UUID) -> CaseAttachment:
+    async def _require_attachment(
+        self, case: Case, attachment_id: uuid.UUID
+    ) -> CaseAttachment:
         attachment = await self.get_attachment(case, attachment_id)
         if not attachment:
             raise TracecatNotFoundError(f"Attachment {attachment_id} not found")
@@ -234,7 +234,9 @@ class CaseAttachmentService(BaseWorkspaceService):
         )
 
         # Check if file already exists (deduplication)
-        existing_file = await self.session.exec(select(File).where(File.sha256 == sha256))
+        existing_file = await self.session.exec(
+            select(File).where(File.sha256 == sha256)
+        )
         file = existing_file.first()
 
         restored = False
@@ -282,7 +284,11 @@ class CaseAttachmentService(BaseWorkspaceService):
         if attachment:
             # Attachment already exists and is active - return it
             # (If the underlying file was restored above, emit restoration event)
-            if not restored and file.deleted_at is None and getattr(attachment.file, "deleted_at", None) is None:
+            if (
+                not restored
+                and file.deleted_at is None
+                and getattr(attachment.file, "deleted_at", None) is None
+            ):
                 return attachment
             # Ensure relationship is consistent
             attachment.file = file
