@@ -20,7 +20,7 @@ import {
 import { CommitSelectorDialog } from "@/components/registry/dialogs/repository-commit-dialog"
 import { DeleteRepositoryDialog } from "@/components/registry/dialogs/repository-delete-dialog"
 import { SyncRepositoryDialog } from "@/components/registry/dialogs/repository-sync-dialog"
-import { ActiveDialog } from "@/components/registry/registry-common"
+import { RegistryTableActiveDialog } from "@/components/registry/registry-common"
 import { RepositoryActions } from "@/components/registry/table-actions"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -50,7 +50,8 @@ export function RegistryRepositoriesTable() {
   } = useRegistryRepositories()
 
   // Dialog state management
-  const [activeDialog, setActiveDialog] = useState<ActiveDialog | null>(null)
+  const [activeDialog, setActiveDialog] =
+    useState<RegistryTableActiveDialog | null>(null)
   const [selectedRepo, setSelectedRepo] =
     useState<RegistryRepositoryReadMinimal | null>(null)
 
@@ -165,15 +166,15 @@ export function RegistryRepositoriesTable() {
                   repository={row.original}
                   onSync={() => {
                     setSelectedRepo(row.original)
-                    setActiveDialog(ActiveDialog.RepositorySync)
+                    setActiveDialog(RegistryTableActiveDialog.RepositorySync)
                   }}
                   onDelete={() => {
                     setSelectedRepo(row.original)
-                    setActiveDialog(ActiveDialog.RepositoryDelete)
+                    setActiveDialog(RegistryTableActiveDialog.RepositoryDelete)
                   }}
                   onChangeCommit={() => {
                     setSelectedRepo(row.original)
-                    setActiveDialog(ActiveDialog.RepositoryCommit)
+                    setActiveDialog(RegistryTableActiveDialog.RepositoryCommit)
                   }}
                 />
               )}
@@ -182,7 +183,7 @@ export function RegistryRepositoriesTable() {
         ),
       },
     ],
-    [selectedRepo]
+    [user]
   )
 
   return (
@@ -249,7 +250,7 @@ export function RegistryRepositoriesTable() {
         isLoading={registryReposIsLoading}
         error={registryReposError ?? undefined}
         data={registryRepos}
-        emptyMessage="No actions found."
+        emptyMessage="No repositories found."
         errorMessage="Error loading workflows."
         columns={columns}
         toolbarProps={defaultToolbarProps}
@@ -257,7 +258,7 @@ export function RegistryRepositoriesTable() {
 
       {/* Dialog Components */}
       <SyncRepositoryDialog
-        open={activeDialog === ActiveDialog.RepositorySync}
+        open={activeDialog === RegistryTableActiveDialog.RepositorySync}
         onOpenChange={onOpenChange}
         selectedRepo={selectedRepo}
         setSelectedRepo={setSelectedRepo}
@@ -266,14 +267,14 @@ export function RegistryRepositoriesTable() {
       />
 
       <DeleteRepositoryDialog
-        open={activeDialog === ActiveDialog.RepositoryDelete}
+        open={activeDialog === RegistryTableActiveDialog.RepositoryDelete}
         onOpenChange={onOpenChange}
         selectedRepo={selectedRepo}
         setSelectedRepo={setSelectedRepo}
       />
 
       <CommitSelectorDialog
-        open={activeDialog === ActiveDialog.RepositoryCommit}
+        open={activeDialog === RegistryTableActiveDialog.RepositoryCommit}
         onOpenChange={onOpenChange}
         selectedRepo={selectedRepo}
         initialCommitSha={selectedRepo?.commit_sha}

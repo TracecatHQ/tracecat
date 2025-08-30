@@ -102,6 +102,17 @@ class WorkflowSyncService(BaseWorkspaceService):
                 )
 
             # 3. Import workflows atomically
+            if options.dry_run:
+                # For dry run, skip import and return validation-only result
+                return PullResult(
+                    success=True,
+                    commit_sha=options.commit_sha,
+                    workflows_found=len(remote_workflows),
+                    workflows_imported=0,
+                    diagnostics=[],
+                    message="Dry run completed - workflows validated but not imported",
+                )
+
             import_service = WorkflowImportService(session=self.session, role=self.role)
 
             return await import_service.import_workflows_atomic(

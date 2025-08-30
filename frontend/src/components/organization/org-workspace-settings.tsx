@@ -424,7 +424,7 @@ export function OrgWorkspaceSettings({
         open={pullDialogOpen}
         onOpenChange={setPullDialogOpen}
         workspaceId={workspace.id}
-        gitRepoUrl={workspace.settings?.git_repo_url || undefined}
+        gitRepoUrl={form.watch("git_repo_url") || undefined}
         onPullSuccess={() => {
           // Refresh workspace data or show success message
           console.log("Workflows pulled successfully")

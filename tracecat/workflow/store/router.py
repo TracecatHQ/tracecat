@@ -91,6 +91,7 @@ async def list_workflow_commits(
             detail="Workspace ID is required",
         )
 
+    repository_url = None  # Initialize to avoid UnboundLocalError in exception handlers
     try:
         # Get workspace and repository URL from settings
         workspace_service = WorkspaceService(session=session, role=role)
@@ -167,6 +168,7 @@ async def pull_workflows(
             detail="Workspace ID is required",
         )
 
+    repository_url = None  # Initialize to avoid UnboundLocalError in exception handlers
     try:
         # Get workspace and repository URL from settings
         workspace_service = WorkspaceService(session=session, role=role)

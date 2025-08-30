@@ -27,12 +27,12 @@ import {
 } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { toast } from "@/components/ui/use-toast"
-import { getRelativeTime } from "@/lib/event-history"
 import {
   type PullResult,
   useRepositoryCommits,
   useWorkflowSync,
-} from "@/lib/hooks/workspace-sync"
+} from "@/hooks/use-workspace-sync"
+import { getRelativeTime } from "@/lib/event-history"
 
 interface WorkflowPullDialogProps {
   open: boolean

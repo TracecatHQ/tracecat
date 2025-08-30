@@ -7,6 +7,7 @@ import {
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu"
 import { toast } from "@/components/ui/use-toast"
+import { copyToClipboard } from "@/lib/utils"
 
 interface RepositoryActionsProps {
   repository: RegistryRepositoryReadMinimal
@@ -21,32 +22,50 @@ export function RepositoryActions({
   onDelete,
   onChangeCommit,
 }: RepositoryActionsProps) {
-  const handleCopyOrigin = (e: React.MouseEvent) => {
+  const handleCopyOrigin = async (e: React.MouseEvent) => {
     e.stopPropagation()
-    navigator.clipboard.writeText(repository.origin)
-    toast({
-      title: "Repository origin copied",
-      description: (
-        <span className="flex flex-col space-y-2">
-          <span className="inline-block">{repository.origin}</span>
-        </span>
-      ),
-    })
+    try {
+      await copyToClipboard({ value: repository.origin })
+      toast({
+        title: "Repository origin copied",
+        description: (
+          <span className="flex flex-col space-y-2">
+            <span className="inline-block">{repository.origin}</span>
+          </span>
+        ),
+      })
+    } catch (error) {
+      console.error(error)
+      toast({
+        title: "Failed to copy repository origin",
+        description: "Please try again or copy manually",
+        variant: "destructive",
+      })
+    }
   }
 
-  const handleCopyCommitSha = (e: React.MouseEvent) => {
+  const handleCopyCommitSha = async (e: React.MouseEvent) => {
     e.stopPropagation()
     if (!repository.commit_sha) return
 
-    navigator.clipboard.writeText(repository.commit_sha)
-    toast({
-      title: "Commit SHA copied",
-      description: (
-        <span className="flex flex-col space-y-2">
-          <span className="inline-block">{repository.commit_sha}</span>
-        </span>
-      ),
-    })
+    try {
+      await copyToClipboard({ value: repository.commit_sha })
+      toast({
+        title: "Commit SHA copied",
+        description: (
+          <span className="flex flex-col space-y-2">
+            <span className="inline-block">{repository.commit_sha}</span>
+          </span>
+        ),
+      })
+    } catch (error) {
+      console.error(error)
+      toast({
+        title: "Failed to copy commit SHA",
+        description: "Please try again or copy manually",
+        variant: "destructive",
+      })
+    }
   }
 
   const handleSyncClick = (e: React.MouseEvent) => {

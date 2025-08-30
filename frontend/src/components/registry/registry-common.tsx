@@ -1,4 +1,4 @@
-export enum ActiveDialog {
+export enum RegistryTableActiveDialog {
   RepositorySync,
   RepositoryDelete,
   RepositoryCommit,

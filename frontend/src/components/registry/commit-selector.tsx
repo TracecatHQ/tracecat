@@ -104,7 +104,7 @@ export function CommitSelector({
             return (
               <DropdownMenuItem
                 key={commit.sha}
-                onClick={() => {
+                onSelect={() => {
                   onSelectCommit(commit.sha)
                   setIsOpen(false)
                 }}

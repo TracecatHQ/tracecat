@@ -82,8 +82,8 @@ export function useRepositoryCommits(
       "repository_commits",
       gitRepoUrl,
       workspaceId,
-      options?.branch,
-      options?.limit,
+      options?.branch ?? "main",
+      options?.limit ?? 10,
     ],
     queryFn: async (): Promise<GitCommitInfo[]> => {
       if (!gitRepoUrl || !workspaceId) {

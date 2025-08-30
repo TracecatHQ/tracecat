@@ -13,7 +13,8 @@ export default function VCSSettingsPage() {
 
   useEffect(() => {
     if (!isLoading && !isFeatureEnabled("git-sync")) {
-      router.push("/not-found")
+      // Use replace to avoid adding a history entry and prevent back navigation to this page
+      router.replace("/not-found")
     }
   }, [isLoading, isFeatureEnabled, router])
 
