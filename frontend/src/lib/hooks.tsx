@@ -57,6 +57,9 @@ import {
   casesRemoveTag,
   casesUpdateCase,
   casesUpdateComment,
+  entitiesCreateEntityRecord,
+  entitiesDeleteEntityRecord,
+  entitiesUpdateEntityRecord,
   type FolderDirectoryItem,
   foldersCreateFolder,
   foldersDeleteFolder,
@@ -4115,4 +4118,117 @@ export function useWorkspaceSettings(
     handleCreateWorkspaceSSHKey,
     handleDeleteSSHKey,
   }
+}
+
+// Records hooks
+export function useCreateRecord() {
+  const queryClient = useQueryClient()
+
+  const { mutateAsync: createRecord, isPending: createRecordIsPending } =
+    useMutation({
+      mutationFn: async ({
+        workspaceId,
+        entityId,
+        data,
+      }: {
+        workspaceId: string
+        entityId: string
+        data: Record<string, unknown>
+      }) =>
+        await entitiesCreateEntityRecord({
+          workspaceId,
+          entityId,
+          requestBody: { data },
+        }),
+      onSuccess: (_, variables) => {
+        queryClient.invalidateQueries({
+          queryKey: ["records", variables.workspaceId],
+        })
+      },
+    })
+
+  return { createRecord, createRecordIsPending }
+}
+
+export function useUpdateRecord() {
+  const queryClient = useQueryClient()
+
+  const { mutateAsync: updateRecord, isPending: updateRecordIsPending } =
+    useMutation({
+      mutationFn: async ({
+        workspaceId,
+        entityId,
+        recordId,
+        data,
+      }: {
+        workspaceId: string
+        entityId: string
+        recordId: string
+        data: Record<string, unknown>
+      }) =>
+        await entitiesUpdateEntityRecord({
+          workspaceId,
+          entityId,
+          recordId,
+          requestBody: { data },
+        }),
+      onSuccess: (_, variables) => {
+        queryClient.invalidateQueries({
+          queryKey: ["records", variables.workspaceId],
+        })
+        toast({
+          title: "Record updated",
+          description: "The record has been updated successfully.",
+        })
+      },
+      onError: (error: TracecatApiError) => {
+        console.error("Failed to update record", error)
+        toast({
+          title: "Error updating record",
+          description: error.message || "Failed to update the record.",
+        })
+      },
+    })
+
+  return { updateRecord, updateRecordIsPending }
+}
+
+export function useDeleteRecord() {
+  const queryClient = useQueryClient()
+
+  const { mutateAsync: deleteRecord, isPending: deleteRecordIsPending } =
+    useMutation({
+      mutationFn: async ({
+        workspaceId,
+        entityId,
+        recordId,
+      }: {
+        workspaceId: string
+        entityId: string
+        recordId: string
+      }) =>
+        await entitiesDeleteEntityRecord({
+          workspaceId,
+          entityId,
+          recordId,
+        }),
+      onSuccess: (_, variables) => {
+        queryClient.invalidateQueries({
+          queryKey: ["records", variables.workspaceId],
+        })
+        toast({
+          title: "Record deleted",
+          description: "The record has been deleted successfully.",
+        })
+      },
+      onError: (error: TracecatApiError) => {
+        console.error("Failed to delete record", error)
+        toast({
+          title: "Error deleting record",
+          description: error.message || "Failed to delete the record.",
+        })
+      },
+    })
+
+  return { deleteRecord, deleteRecordIsPending }
 }

@@ -13,6 +13,11 @@ export default function OrganizationWorkspaceSettingsPage() {
   const params = useParams<{ workspaceId: string }>()
   const router = useRouter()
   const { user } = useAuth()
+
+  if (!params) {
+    return <AlertNotification level="error" message="Invalid workspace ID." />
+  }
+
   const workspaceId = params.workspaceId
   const { role } = useCurrentUserRole(workspaceId)
 
@@ -24,10 +29,6 @@ export default function OrganizationWorkspaceSettingsPage() {
     queryKey: ["workspace", workspaceId],
     queryFn: async () => await workspacesGetWorkspace({ workspaceId }),
   })
-
-  if (!params) {
-    return <AlertNotification level="error" message="Invalid workspace ID." />
-  }
 
   if (workspaceLoading) {
     return <CenteredSpinner />

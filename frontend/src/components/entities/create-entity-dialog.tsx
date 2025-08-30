@@ -1,9 +1,12 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
+import { AlertTriangle } from "lucide-react"
+import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import { IconPicker } from "@/components/form/icon-picker"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -53,6 +56,7 @@ export function CreateEntityDialog({
   onSubmit,
   isSubmitting = false,
 }: CreateEntityDialogProps) {
+  const [error, setError] = useState<string | null>(null)
   const form = useForm<CreateEntityFormData>({
     resolver: zodResolver(createEntitySchema),
     defaultValues: {
@@ -64,13 +68,30 @@ export function CreateEntityDialog({
   })
 
   const handleSubmit = async (data: CreateEntityFormData) => {
-    await onSubmit(data)
-    form.reset()
-    onOpenChange(false)
+    try {
+      setError(null)
+      await onSubmit(data)
+      form.reset()
+      onOpenChange(false)
+    } catch (err) {
+      const errorMessage =
+        err instanceof Error
+          ? err.message
+          : "Failed to create entity. Please try again."
+      setError(errorMessage)
+    }
+  }
+
+  const handleOpenChange = (newOpen: boolean) => {
+    if (!newOpen) {
+      setError(null)
+      form.reset()
+    }
+    onOpenChange(newOpen)
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
           <DialogTitle>Create custom entity</DialogTitle>
@@ -78,6 +99,12 @@ export function CreateEntityDialog({
             Create an entity to model your data.
           </DialogDescription>
         </DialogHeader>
+        {error && (
+          <Alert variant="destructive">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
         <Form {...form}>
           <form
             onSubmit={form.handleSubmit(handleSubmit)}
@@ -160,7 +187,7 @@ export function CreateEntityDialog({
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => onOpenChange(false)}
+                onClick={() => handleOpenChange(false)}
                 disabled={isSubmitting}
               >
                 Cancel

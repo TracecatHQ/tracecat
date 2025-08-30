@@ -4,7 +4,6 @@ import { CheckCheckIcon, CopyIcon } from "lucide-react"
 import React from "react"
 import JsonView from "react18-json-view"
 import type { NodeMeta } from "react18-json-view/dist/types"
-import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
@@ -12,7 +11,6 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { toast } from "@/components/ui/use-toast"
 import { cn } from "@/lib/utils"
 
 import "react18-json-view/src/style.css"
@@ -213,18 +211,6 @@ export function JsonViewWithControls({
               ) => {
                 const { currentPath } = nodeMeta || {}
                 const copyValue = buildJsonPath(currentPath || [], copyPrefix)
-
-                toast({
-                  title: "Copied JSONPath to clipboard",
-                  description: (
-                    <Badge
-                      variant="secondary"
-                      className="bg-muted-foreground/10 font-mono text-xs font-normal tracking-tight"
-                    >
-                      {copyValue}
-                    </Badge>
-                  ),
-                })
                 return copyValue
               }}
             />

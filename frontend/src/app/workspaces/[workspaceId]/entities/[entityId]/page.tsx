@@ -24,7 +24,13 @@ import { useLocalStorage } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 export default function EntityDetailPage() {
-  const { entityId } = useParams<{ entityId: string }>()
+  const params = useParams<{ entityId: string }>()
+
+  if (!params) {
+    return <AlertNotification level="error" message="Invalid entity ID." />
+  }
+
+  const { entityId } = params
   const workspaceId = useWorkspaceId()
   const queryClient = useQueryClient()
   const [includeInactive] = useLocalStorage("entities-include-inactive", false)

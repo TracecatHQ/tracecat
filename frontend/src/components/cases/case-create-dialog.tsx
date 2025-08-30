@@ -156,7 +156,7 @@ export function CreateCaseDialog({
                   <FormControl>
                     <Textarea
                       placeholder="Detailed description of the case..."
-                      className="min-h-[100px]"
+                      className="min-h-[100px] text-xs"
                       {...field}
                       value={field.value ?? ""}
                     />
