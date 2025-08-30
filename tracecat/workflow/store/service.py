@@ -35,6 +35,12 @@ class WorkflowStoreService(BaseWorkspaceService):
         workflow: Workflow,
     ) -> None:
         """Take the latest version of the workflow definition and publish it to the store."""
+        # Validate that workflow_id matches the provided workflow object
+        if workflow.id != workflow_id:
+            raise TracecatValidationError(
+                f"Workflow ID mismatch: provided {workflow_id} but workflow object has ID {workflow.id}"
+            )
+
         # Get workspace settings for git configuration
 
         workspace_service = WorkspaceService(session=self.session, role=self.role)

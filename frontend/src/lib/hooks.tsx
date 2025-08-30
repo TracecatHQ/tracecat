@@ -1592,8 +1592,8 @@ export function useRepositoryCommits(
     queryKey: [
       "repository_commits",
       repositoryId,
-      options?.branch,
-      options?.limit,
+      options?.branch ?? "main",
+      options?.limit ?? 50,
     ],
     queryFn: async () => {
       if (!repositoryId) {

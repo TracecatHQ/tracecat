@@ -23,6 +23,7 @@ export function useFeatureFlag(): {
 
   return {
     isFeatureEnabled: (flag: FeatureFlag) => {
+      // Returns false while loading or on error; components should use isLoading to handle loading state
       if (isLoading || error) return false
       return featureFlags?.has(flag) ?? false
     },
