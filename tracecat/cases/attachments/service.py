@@ -1,0 +1,458 @@
+"""Service for managing case attachments."""
+
+from __future__ import annotations
+
+import hashlib
+import uuid
+from collections.abc import Sequence
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING
+
+import sqlalchemy as sa
+from sqlalchemy.orm import selectinload
+from sqlmodel import cast, col, desc, func, select
+from sqlmodel.ext.asyncio.session import AsyncSession
+
+from tracecat import config
+from tracecat.cases.attachments.models import (
+    AttachmentCreatedEvent,
+    AttachmentDeletedEvent,
+    CaseAttachmentCreate,
+)
+from tracecat.contexts import ctx_run
+from tracecat.db.schemas import Case, CaseAttachment, File
+from tracecat.logger import logger
+from tracecat.service import BaseWorkspaceService
+from tracecat.storage import blob
+from tracecat.storage.exceptions import (
+    FileSizeError,
+    MaxAttachmentsExceededError,
+    StorageLimitExceededError,
+)
+from tracecat.storage.validation import FileSecurityValidator
+from tracecat.types.auth import AccessLevel, Role
+from tracecat.types.exceptions import (
+    TracecatAuthorizationError,
+    TracecatException,
+    TracecatNotFoundError,
+)
+
+if TYPE_CHECKING:
+    pass
+
+
+class CaseAttachmentService(BaseWorkspaceService):
+    """Service for managing case attachments."""
+
+    service_name = "case_attachments"
+
+    def __init__(self, session: AsyncSession, role: Role | None = None):
+        super().__init__(session, role)
+
+    @staticmethod
+    def _compute_sha256(content: bytes) -> str:
+        return hashlib.sha256(content).hexdigest()
+
+    async def list_attachments(self, case: Case) -> Sequence[CaseAttachment]:
+        """List all attachments for a case.
+
+        Args:
+            case: The case to list attachments for
+
+        Returns:
+            List of case attachments
+        """
+        statement = (
+            select(CaseAttachment)
+            .join(File, cast(CaseAttachment.file_id, sa.UUID) == cast(File.id, sa.UUID))
+            .where(CaseAttachment.case_id == case.id, col(File.deleted_at).is_(None))
+            .options(selectinload(CaseAttachment.file))  # type: ignore
+            .order_by(desc(col(CaseAttachment.created_at)))
+        )
+        result = await self.session.exec(statement)
+        return result.all()
+
+    async def get_attachment(
+        self, case: Case, attachment_id: uuid.UUID
+    ) -> CaseAttachment | None:
+        """Get a specific attachment for a case.
+
+        Args:
+            case: The case the attachment belongs to
+            attachment_id: The attachment ID
+
+        Returns:
+            The attachment if found, None otherwise
+        """
+        # First find the attachment
+        attachment_statement = select(CaseAttachment).where(
+            CaseAttachment.case_id == case.id,
+            CaseAttachment.id == attachment_id,
+        )
+        attachment_result = await self.session.exec(attachment_statement)
+        attachment = attachment_result.first()
+
+        if not attachment:
+            return None
+
+        # Check if the associated file is not deleted
+        file_statement = select(File).where(
+            File.id == attachment.file_id, col(File.deleted_at).is_(None)
+        )
+        file_result = await self.session.exec(file_statement)
+        file_record = file_result.first()
+
+        if file_record:
+            # Eagerly load the file relationship
+            attachment.file = file_record
+            return attachment
+
+        return None
+
+    async def create_attachment(
+        self, case: Case, params: CaseAttachmentCreate
+    ) -> CaseAttachment:
+        """Create a new attachment for a case with security validations.
+
+        Args:
+            case: The case to attach the file to
+            params: The attachment parameters
+
+        Returns:
+            The created attachment
+
+        Raises:
+            ValueError: If validation fails
+            TracecatException: If storage operation fails
+        """
+
+        # Validate file size limits
+        if params.size > config.TRACECAT__MAX_ATTACHMENT_SIZE_BYTES:
+            raise FileSizeError(
+                f"File size ({params.size / 1024 / 1024:.1f}MB) exceeds maximum allowed size "
+                f"({config.TRACECAT__MAX_ATTACHMENT_SIZE_BYTES / 1024 / 1024}MB)"
+            )
+
+        # Check maximum number of attachments per case
+        current_attachment_count = len(await self.list_attachments(case))
+        if current_attachment_count >= config.TRACECAT__MAX_ATTACHMENTS_PER_CASE:
+            raise MaxAttachmentsExceededError(
+                f"Case already has {current_attachment_count} attachments. "
+                f"Maximum allowed is {config.TRACECAT__MAX_ATTACHMENTS_PER_CASE}",
+                current_count=current_attachment_count,
+                max_count=config.TRACECAT__MAX_ATTACHMENTS_PER_CASE,
+            )
+
+        # Check total storage usage per case
+        current_storage = await self.get_total_storage_used(case)
+        if current_storage + params.size > config.TRACECAT__MAX_CASE_STORAGE_BYTES:
+            current_mb = current_storage / 1024 / 1024
+            new_mb = params.size / 1024 / 1024
+            max_mb = config.TRACECAT__MAX_CASE_STORAGE_BYTES / 1024 / 1024
+            raise StorageLimitExceededError(
+                f"Adding this file ({new_mb:.1f}MB) would exceed the case storage limit. "
+                f"Current usage: {current_mb:.1f}MB, Maximum allowed: {max_mb:.1f}MB",
+                current_size=current_storage,
+                new_file_size=params.size,
+                max_size=config.TRACECAT__MAX_CASE_STORAGE_BYTES,
+            )
+
+        # Comprehensive security validation using the new validator
+        validator = FileSecurityValidator()
+        # Strip "Content-Type" from the declared MIME type
+        declared_mime_type = params.content_type.split(";")[0].strip()
+        validation_result = validator.validate_file(
+            content=params.content,
+            filename=params.file_name,
+            declared_mime_type=declared_mime_type,
+        )
+
+        # Compute content hash for deduplication and integrity
+        sha256 = self._compute_sha256(params.content)
+
+        # Determine uploader ID (may be None for workflow/service uploads)
+        creator_id: uuid.UUID | None = (
+            self.role.user_id if self.role.type == "user" else None
+        )
+
+        # Check if file already exists (deduplication)
+        existing_file = await self.session.exec(
+            select(File).where(File.sha256 == sha256)
+        )
+        file = existing_file.first()
+
+        if not file:
+            # Create new file record
+            file = File(
+                owner_id=self.workspace_id,
+                sha256=sha256,
+                name=validation_result.filename,
+                content_type=validation_result.content_type,
+                size=params.size,
+                creator_id=creator_id,
+            )
+            self.session.add(file)
+            await self.session.flush()
+
+            # Upload to blob storage
+            storage_key = f"attachments/{sha256}"
+            try:
+                await blob.upload_file(
+                    content=params.content,
+                    key=storage_key,
+                    bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS,
+                    content_type=validation_result.content_type,
+                )
+            except Exception as e:
+                # Rollback the database transaction if storage fails
+                await self.session.rollback()
+                raise TracecatException(f"Failed to upload file: {str(e)}") from e
+
+        # Check if attachment already exists for this case and file
+        existing_attachment = await self.session.exec(
+            select(CaseAttachment)
+            .where(
+                CaseAttachment.case_id == case.id,
+                CaseAttachment.file_id == file.id,
+            )
+            .options(selectinload(CaseAttachment.file))  # type: ignore[arg-type]
+        )
+        attachment = existing_attachment.first()
+
+        should_create_event = False
+        if attachment:
+            # If attachment exists but file was soft-deleted, restore it
+            if attachment.file.deleted_at is not None:
+                attachment.file.deleted_at = None
+                # Re-upload to blob storage since it was deleted
+                storage_key = f"attachments/{sha256}"
+                try:
+                    await blob.upload_file(
+                        content=params.content,
+                        key=storage_key,
+                        bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS,
+                        content_type=validation_result.content_type,
+                    )
+                except Exception as e:
+                    # Rollback the database transaction if storage fails
+                    await self.session.rollback()
+                    raise TracecatException(f"Failed to upload file: {str(e)}") from e
+
+                should_create_event = True  # Restoration event
+                # Eagerly link the file relationship to avoid lazy loading in async contexts
+                attachment.file = file
+            else:
+                # Attachment already exists and is active - return it
+                return attachment
+        else:
+            # Create new attachment link
+            attachment = CaseAttachment(
+                case_id=case.id,
+                file_id=file.id,
+            )
+            # Eagerly link the file relationship to avoid lazy loading in async contexts
+            attachment.file = file
+            self.session.add(attachment)
+            should_create_event = True  # New attachment event
+
+        # Flush to ensure the attachment gets an ID
+        await self.session.flush()
+
+        # Record attachment event (for new attachments or restorations)
+        if should_create_event:
+            run_ctx = ctx_run.get()
+            # Import here to avoid circular dependency
+            from tracecat.cases.service import CaseEventsService
+
+            await CaseEventsService(self.session, self.role).create_event(
+                case=case,
+                event=AttachmentCreatedEvent(
+                    attachment_id=attachment.id,
+                    file_name=file.name,
+                    content_type=file.content_type,
+                    size=file.size,
+                    wf_exec_id=run_ctx.wf_exec_id if run_ctx else None,
+                ),
+            )
+
+        await self.session.commit()
+        # Reload attachment with the file relationship eagerly loaded
+        await self.session.refresh(attachment, attribute_names=["file"])
+        return attachment
+
+    async def download_attachment(
+        self, case: Case, attachment_id: uuid.UUID
+    ) -> tuple[bytes, str, str]:
+        """Download an attachment's content.
+
+        Args:
+            case: The case the attachment belongs to
+            attachment_id: The attachment ID
+
+        Returns:
+            Tuple of (content, filename, content_type)
+
+        Raises:
+            TracecatNotFoundError: If attachment not found
+            TracecatException: If download fails
+        """
+
+        attachment = await self.get_attachment(case, attachment_id)
+        if not attachment:
+            raise TracecatNotFoundError(f"Attachment {attachment_id} not found")
+
+        # Download from blob storage
+        storage_key = attachment.storage_path
+        try:
+            content = await blob.download_file(
+                key=storage_key,
+                bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS,
+            )
+
+            # Verify integrity
+            computed_hash = self._compute_sha256(content)
+            if computed_hash != attachment.file.sha256:
+                raise TracecatException("File integrity check failed")
+
+            return content, attachment.file.name, attachment.file.content_type
+        except FileNotFoundError as e:
+            raise TracecatNotFoundError("Attachment file not found in storage") from e
+        except Exception as e:
+            raise TracecatException(f"Failed to download attachment: {str(e)}") from e
+
+    async def get_attachment_download_url(
+        self,
+        case: Case,
+        attachment_id: uuid.UUID,
+        preview: bool = False,
+        expiry: int | None = None,
+    ) -> tuple[str, str, str]:
+        """Generate a presigned URL for downloading an attachment.
+
+        Args:
+            case: The case the attachment belongs to
+            attachment_id: The attachment ID
+            preview: If true, allows inline preview for safe image types (deprecated, kept for compatibility)
+            expiry: URL expiry time in seconds (defaults to config value)
+
+        Returns:
+            Tuple of (presigned_url, filename, content_type)
+
+        Raises:
+            TracecatNotFoundError: If attachment not found
+            TracecatException: If URL generation fails
+        """
+
+        attachment = await self.get_attachment(case, attachment_id)
+        if not attachment:
+            raise TracecatNotFoundError(f"Attachment {attachment_id} not found")
+
+        # Generate presigned URL for blob storage
+        storage_key = attachment.storage_path
+
+        # Security: Always force download for attachments (no preview)
+        force_download = True
+        override_content_type = "application/octet-stream"
+
+        try:
+            presigned_url = await blob.generate_presigned_download_url(
+                key=storage_key,
+                bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS,
+                expiry=expiry,
+                force_download=force_download,
+                override_content_type=override_content_type,
+            )
+            return presigned_url, attachment.file.name, attachment.file.content_type
+        except Exception as e:
+            raise TracecatException(f"Failed to generate download URL: {str(e)}") from e
+
+    async def delete_attachment(self, case: Case, attachment_id: uuid.UUID) -> None:
+        """Soft delete an attachment.
+
+        Implements soft deletion where the file is removed from blob storage
+        but the database record is preserved with a deletion timestamp.
+
+        Args:
+            case: The case the attachment belongs to
+            attachment_id: The attachment ID
+
+        Raises:
+            TracecatNotFoundError: If attachment not found
+            TracecatAuthorizationError: If user lacks permission
+        """
+
+        attachment = await self.get_attachment(case, attachment_id)
+        if not attachment:
+            raise TracecatNotFoundError(f"Attachment {attachment_id} not found")
+
+        # Check if user has permission (must be creator or admin)
+        # Service roles with admin access can delete any attachment
+        # TODO: This is a hack to allow service roles to delete attachments
+        # We should use API endpoint level permissions instead
+        if (
+            self.role.type == "user"
+            and attachment.file.creator_id != self.role.user_id
+            and self.role.access_level < AccessLevel.ADMIN
+        ):
+            raise TracecatAuthorizationError(
+                "You don't have permission to delete this attachment"
+            )
+
+        # Soft delete the file
+        attachment.file.deleted_at = datetime.now(UTC)
+
+        # Delete from blob storage
+        storage_key = attachment.storage_path
+        try:
+            await blob.delete_file(
+                key=storage_key,
+                bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS,
+            )
+        except Exception as e:
+            # Log but don't fail - we've already marked as deleted
+            logger.error(
+                "Failed to delete file from blob storage",
+                attachment_id=attachment_id,
+                storage_key=storage_key,
+                error=str(e),
+            )
+
+        # Record deletion event
+        run_ctx = ctx_run.get()
+        # Import here to avoid circular dependency
+        from tracecat.cases.service import CaseEventsService
+
+        await CaseEventsService(self.session, self.role).create_event(
+            case=case,
+            event=AttachmentDeletedEvent(
+                attachment_id=attachment_id,
+                file_name=attachment.file.name,
+                wf_exec_id=run_ctx.wf_exec_id if run_ctx else None,
+            ),
+        )
+
+        await self.session.commit()
+
+    async def get_total_storage_used(self, case: Case) -> int:
+        """Get total storage used by a case's attachments.
+
+        Args:
+            case: The case to check
+
+        Returns:
+            Total bytes used
+        """
+        statement = (
+            select(func.sum(File.size))
+            .select_from(File)
+            .join(
+                CaseAttachment,
+                cast(File.id, sa.UUID) == cast(CaseAttachment.file_id, sa.UUID),
+            )
+            .where(
+                CaseAttachment.case_id == case.id,
+                col(File.deleted_at).is_(None),
+            )
+        )
+        result = await self.session.exec(statement)
+        return result.one() or 0

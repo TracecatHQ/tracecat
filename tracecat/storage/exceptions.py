@@ -19,19 +19,13 @@ class FileExtensionError(FileValidationError):
         self.allowed_extensions = allowed_extensions
 
 
-class FileContentTypeError(FileValidationError):
+class FileMimeTypeError(FileValidationError):
     """Raised when file content type is not allowed."""
 
-    def __init__(self, message: str, content_type: str, allowed_types: list[str]):
+    def __init__(self, message: str, mime_type: str, allowed_types: list[str]):
         super().__init__(message)
-        self.content_type = content_type
+        self.mime_type = mime_type
         self.allowed_types = allowed_types
-
-
-class FileSecurityError(FileValidationError):
-    """Raised when file contains security threats."""
-
-    pass
 
 
 class FileContentMismatchError(FileValidationError):
