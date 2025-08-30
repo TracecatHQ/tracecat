@@ -21,10 +21,9 @@ from tracecat.db.dependencies import AsyncDBSession
 from tracecat.logger import logger
 from tracecat.storage.exceptions import (
     FileContentMismatchError,
-    FileContentTypeError,
     FileExtensionError,
+    FileMimeTypeError,
     FileNameError,
-    FileSecurityError,
     FileSizeError,
     MaxAttachmentsExceededError,
     StorageLimitExceededError,
@@ -208,12 +207,12 @@ async def create_attachment(
                 "allowed_extensions": e.allowed_extensions,
             },
         ) from e
-    except FileContentTypeError as e:
+    except FileMimeTypeError as e:
         logger.error(
             "Content type validation error",
             case_id=case_id,
             filename=file.filename,
-            content_type=e.content_type,
+            content_type=e.mime_type,
             allowed_types=e.allowed_types,
             error=str(e),
         )
@@ -222,7 +221,7 @@ async def create_attachment(
             detail={
                 "error": "unsupported_content_type",
                 "message": str(e),
-                "content_type": e.content_type,
+                "content_type": e.mime_type,
                 "allowed_types": e.allowed_types,
             },
         ) from e
@@ -237,20 +236,6 @@ async def create_attachment(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             detail={
                 "error": "file_too_large",
-                "message": str(e),
-            },
-        ) from e
-    except FileSecurityError as e:
-        logger.error(
-            "File security validation error",
-            case_id=case_id,
-            filename=file.filename,
-            error=str(e),
-        )
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail={
-                "error": "security_threat_detected",
                 "message": str(e),
             },
         ) from e

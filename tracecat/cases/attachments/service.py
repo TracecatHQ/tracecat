@@ -53,6 +53,88 @@ class CaseAttachmentService(BaseWorkspaceService):
     def _compute_sha256(content: bytes) -> str:
         return hashlib.sha256(content).hexdigest()
 
+    @property
+    def attachments_bucket(self) -> str:
+        """Centralized accessor for the attachments blob bucket."""
+        return config.TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS
+
+    @staticmethod
+    def _storage_key_for(sha256: str) -> str:
+        """Build the canonical storage key for an attachment content hash."""
+        return f"attachments/{sha256}"
+
+    async def _upload_to_attachments_bucket(
+        self, *, content: bytes, sha256: str, content_type: str
+    ) -> None:
+        """Upload file bytes to the attachments bucket with standard error handling."""
+        try:
+            await blob.upload_file(
+                content=content,
+                key=self._storage_key_for(sha256),
+                bucket=self.attachments_bucket,
+                content_type=content_type,
+            )
+        except Exception as e:
+            # Rollback the database transaction if storage fails to keep DB/storage in sync
+            await self.session.rollback()
+            raise TracecatException(f"Failed to upload file: {str(e)}") from e
+
+    async def _emit_case_event(self, case: Case, event: AttachmentCreatedEvent | AttachmentDeletedEvent) -> None:
+        """Emit a case event with run context, avoiding circular imports at module import time."""
+        run_ctx = ctx_run.get()
+        # Import here to avoid circular dependency
+        from tracecat.cases.service import CaseEventsService
+
+        # Attach workflow execution id if available
+        if hasattr(event, "wf_exec_id"):
+            # type: ignore[attr-defined]
+            event.wf_exec_id = run_ctx.wf_exec_id if run_ctx else None  # pyright: ignore
+
+        await CaseEventsService(self.session, self.role).create_event(
+            case=case,
+            event=event,
+        )
+
+    async def _assert_case_limits(self, case: Case, new_size: int) -> None:
+        """Validate case-level constraints for attachments (count and total storage)."""
+        # Use COUNT(*) with join on non-deleted files (matches list_attachments semantics)
+        count_stmt = (
+            select(func.count())
+            .select_from(CaseAttachment)
+            .join(
+                File, cast(CaseAttachment.file_id, sa.UUID) == cast(File.id, sa.UUID)
+            )
+            .where(CaseAttachment.case_id == case.id, col(File.deleted_at).is_(None))
+        )
+        count_result = await self.session.exec(count_stmt)
+        current_attachment_count = int(count_result.one() or 0)
+        if current_attachment_count >= config.TRACECAT__MAX_ATTACHMENTS_PER_CASE:
+            raise MaxAttachmentsExceededError(
+                f"Case already has {current_attachment_count} attachments. "
+                f"Maximum allowed is {config.TRACECAT__MAX_ATTACHMENTS_PER_CASE}",
+                current_count=current_attachment_count,
+                max_count=config.TRACECAT__MAX_ATTACHMENTS_PER_CASE,
+            )
+
+        current_storage = await self.get_total_storage_used(case)
+        if current_storage + new_size > config.TRACECAT__MAX_CASE_STORAGE_BYTES:
+            current_mb = current_storage / 1024 / 1024
+            new_mb = new_size / 1024 / 1024
+            max_mb = config.TRACECAT__MAX_CASE_STORAGE_BYTES / 1024 / 1024
+            raise StorageLimitExceededError(
+                f"Adding this file ({new_mb:.1f}MB) would exceed the case storage limit. "
+                f"Current usage: {current_mb:.1f}MB, Maximum allowed: {max_mb:.1f}MB",
+                current_size=current_storage,
+                new_file_size=new_size,
+                max_size=config.TRACECAT__MAX_CASE_STORAGE_BYTES,
+            )
+
+    @staticmethod
+    def _verify_integrity(content: bytes, expected_sha256: str) -> None:
+        computed_hash = hashlib.sha256(content).hexdigest()
+        if computed_hash != expected_sha256:
+            raise TracecatException("File integrity check failed")
+
     async def list_attachments(self, case: Case) -> Sequence[CaseAttachment]:
         """List all attachments for a case.
 
@@ -84,30 +166,27 @@ class CaseAttachmentService(BaseWorkspaceService):
         Returns:
             The attachment if found, None otherwise
         """
-        # First find the attachment
-        attachment_statement = select(CaseAttachment).where(
-            CaseAttachment.case_id == case.id,
-            CaseAttachment.id == attachment_id,
+        # Single query join to ensure file not soft-deleted; eager-load relationship
+        statement = (
+            select(CaseAttachment)
+            .join(
+                File, cast(CaseAttachment.file_id, sa.UUID) == cast(File.id, sa.UUID)
+            )
+            .where(
+                CaseAttachment.case_id == case.id,
+                CaseAttachment.id == attachment_id,
+                col(File.deleted_at).is_(None),
+            )
+            .options(selectinload(CaseAttachment.file))  # type: ignore[arg-type]
         )
-        attachment_result = await self.session.exec(attachment_statement)
-        attachment = attachment_result.first()
+        result = await self.session.exec(statement)
+        return result.first()
 
+    async def _require_attachment(self, case: Case, attachment_id: uuid.UUID) -> CaseAttachment:
+        attachment = await self.get_attachment(case, attachment_id)
         if not attachment:
-            return None
-
-        # Check if the associated file is not deleted
-        file_statement = select(File).where(
-            File.id == attachment.file_id, col(File.deleted_at).is_(None)
-        )
-        file_result = await self.session.exec(file_statement)
-        file_record = file_result.first()
-
-        if file_record:
-            # Eagerly load the file relationship
-            attachment.file = file_record
-            return attachment
-
-        return None
+            raise TracecatNotFoundError(f"Attachment {attachment_id} not found")
+        return attachment
 
     async def create_attachment(
         self, case: Case, params: CaseAttachmentCreate
@@ -133,29 +212,8 @@ class CaseAttachmentService(BaseWorkspaceService):
                 f"({config.TRACECAT__MAX_ATTACHMENT_SIZE_BYTES / 1024 / 1024}MB)"
             )
 
-        # Check maximum number of attachments per case
-        current_attachment_count = len(await self.list_attachments(case))
-        if current_attachment_count >= config.TRACECAT__MAX_ATTACHMENTS_PER_CASE:
-            raise MaxAttachmentsExceededError(
-                f"Case already has {current_attachment_count} attachments. "
-                f"Maximum allowed is {config.TRACECAT__MAX_ATTACHMENTS_PER_CASE}",
-                current_count=current_attachment_count,
-                max_count=config.TRACECAT__MAX_ATTACHMENTS_PER_CASE,
-            )
-
-        # Check total storage usage per case
-        current_storage = await self.get_total_storage_used(case)
-        if current_storage + params.size > config.TRACECAT__MAX_CASE_STORAGE_BYTES:
-            current_mb = current_storage / 1024 / 1024
-            new_mb = params.size / 1024 / 1024
-            max_mb = config.TRACECAT__MAX_CASE_STORAGE_BYTES / 1024 / 1024
-            raise StorageLimitExceededError(
-                f"Adding this file ({new_mb:.1f}MB) would exceed the case storage limit. "
-                f"Current usage: {current_mb:.1f}MB, Maximum allowed: {max_mb:.1f}MB",
-                current_size=current_storage,
-                new_file_size=params.size,
-                max_size=config.TRACECAT__MAX_CASE_STORAGE_BYTES,
-            )
+        # Validate case-level limits (count + storage) efficiently
+        await self._assert_case_limits(case, params.size)
 
         # Comprehensive security validation using the new validator
         validator = FileSecurityValidator()
@@ -176,11 +234,10 @@ class CaseAttachmentService(BaseWorkspaceService):
         )
 
         # Check if file already exists (deduplication)
-        existing_file = await self.session.exec(
-            select(File).where(File.sha256 == sha256)
-        )
+        existing_file = await self.session.exec(select(File).where(File.sha256 == sha256))
         file = existing_file.first()
 
+        restored = False
         if not file:
             # Create new file record
             file = File(
@@ -193,20 +250,22 @@ class CaseAttachmentService(BaseWorkspaceService):
             )
             self.session.add(file)
             await self.session.flush()
-
             # Upload to blob storage
-            storage_key = f"attachments/{sha256}"
-            try:
-                await blob.upload_file(
+            await self._upload_to_attachments_bucket(
+                content=params.content,
+                sha256=sha256,
+                content_type=validation_result.content_type,
+            )
+        else:
+            # If the file entity exists but has been soft deleted, restore and re-upload
+            if file.deleted_at is not None:
+                file.deleted_at = None
+                restored = True
+                await self._upload_to_attachments_bucket(
                     content=params.content,
-                    key=storage_key,
-                    bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS,
+                    sha256=sha256,
                     content_type=validation_result.content_type,
                 )
-            except Exception as e:
-                # Rollback the database transaction if storage fails
-                await self.session.rollback()
-                raise TracecatException(f"Failed to upload file: {str(e)}") from e
 
         # Check if attachment already exists for this case and file
         existing_attachment = await self.session.exec(
@@ -221,29 +280,13 @@ class CaseAttachmentService(BaseWorkspaceService):
 
         should_create_event = False
         if attachment:
-            # If attachment exists but file was soft-deleted, restore it
-            if attachment.file.deleted_at is not None:
-                attachment.file.deleted_at = None
-                # Re-upload to blob storage since it was deleted
-                storage_key = f"attachments/{sha256}"
-                try:
-                    await blob.upload_file(
-                        content=params.content,
-                        key=storage_key,
-                        bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS,
-                        content_type=validation_result.content_type,
-                    )
-                except Exception as e:
-                    # Rollback the database transaction if storage fails
-                    await self.session.rollback()
-                    raise TracecatException(f"Failed to upload file: {str(e)}") from e
-
-                should_create_event = True  # Restoration event
-                # Eagerly link the file relationship to avoid lazy loading in async contexts
-                attachment.file = file
-            else:
-                # Attachment already exists and is active - return it
+            # Attachment already exists and is active - return it
+            # (If the underlying file was restored above, emit restoration event)
+            if not restored and file.deleted_at is None and getattr(attachment.file, "deleted_at", None) is None:
                 return attachment
+            # Ensure relationship is consistent
+            attachment.file = file
+            should_create_event = True
         else:
             # Create new attachment link
             attachment = CaseAttachment(
@@ -260,18 +303,14 @@ class CaseAttachmentService(BaseWorkspaceService):
 
         # Record attachment event (for new attachments or restorations)
         if should_create_event:
-            run_ctx = ctx_run.get()
-            # Import here to avoid circular dependency
-            from tracecat.cases.service import CaseEventsService
-
-            await CaseEventsService(self.session, self.role).create_event(
-                case=case,
-                event=AttachmentCreatedEvent(
+            await self._emit_case_event(
+                case,
+                AttachmentCreatedEvent(
                     attachment_id=attachment.id,
                     file_name=file.name,
                     content_type=file.content_type,
                     size=file.size,
-                    wf_exec_id=run_ctx.wf_exec_id if run_ctx else None,
+                    wf_exec_id=None,  # populated by _emit_case_event if run context available
                 ),
             )
 
@@ -297,22 +336,18 @@ class CaseAttachmentService(BaseWorkspaceService):
             TracecatException: If download fails
         """
 
-        attachment = await self.get_attachment(case, attachment_id)
-        if not attachment:
-            raise TracecatNotFoundError(f"Attachment {attachment_id} not found")
+        attachment = await self._require_attachment(case, attachment_id)
 
         # Download from blob storage
         storage_key = attachment.storage_path
         try:
             content = await blob.download_file(
                 key=storage_key,
-                bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS,
+                bucket=self.attachments_bucket,
             )
 
             # Verify integrity
-            computed_hash = self._compute_sha256(content)
-            if computed_hash != attachment.file.sha256:
-                raise TracecatException("File integrity check failed")
+            self._verify_integrity(content, attachment.file.sha256)
 
             return content, attachment.file.name, attachment.file.content_type
         except FileNotFoundError as e:
@@ -343,21 +378,19 @@ class CaseAttachmentService(BaseWorkspaceService):
             TracecatException: If URL generation fails
         """
 
-        attachment = await self.get_attachment(case, attachment_id)
-        if not attachment:
-            raise TracecatNotFoundError(f"Attachment {attachment_id} not found")
+        attachment = await self._require_attachment(case, attachment_id)
 
         # Generate presigned URL for blob storage
         storage_key = attachment.storage_path
 
-        # Security: Always force download for attachments (no preview)
+        # Security: Always force download for attachments (no preview; param retained for compatibility)
         force_download = True
         override_content_type = "application/octet-stream"
 
         try:
             presigned_url = await blob.generate_presigned_download_url(
                 key=storage_key,
-                bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS,
+                bucket=self.attachments_bucket,
                 expiry=expiry,
                 force_download=force_download,
                 override_content_type=override_content_type,
@@ -381,9 +414,7 @@ class CaseAttachmentService(BaseWorkspaceService):
             TracecatAuthorizationError: If user lacks permission
         """
 
-        attachment = await self.get_attachment(case, attachment_id)
-        if not attachment:
-            raise TracecatNotFoundError(f"Attachment {attachment_id} not found")
+        attachment = await self._require_attachment(case, attachment_id)
 
         # Check if user has permission (must be creator or admin)
         # Service roles with admin access can delete any attachment
@@ -406,7 +437,7 @@ class CaseAttachmentService(BaseWorkspaceService):
         try:
             await blob.delete_file(
                 key=storage_key,
-                bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS,
+                bucket=self.attachments_bucket,
             )
         except Exception as e:
             # Log but don't fail - we've already marked as deleted
@@ -418,16 +449,12 @@ class CaseAttachmentService(BaseWorkspaceService):
             )
 
         # Record deletion event
-        run_ctx = ctx_run.get()
-        # Import here to avoid circular dependency
-        from tracecat.cases.service import CaseEventsService
-
-        await CaseEventsService(self.session, self.role).create_event(
-            case=case,
-            event=AttachmentDeletedEvent(
+        await self._emit_case_event(
+            case,
+            AttachmentDeletedEvent(
                 attachment_id=attachment_id,
                 file_name=attachment.file.name,
-                wf_exec_id=run_ctx.wf_exec_id if run_ctx else None,
+                wf_exec_id=None,  # populated by _emit_case_event if run context available
             ),
         )
 
