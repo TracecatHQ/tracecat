@@ -268,7 +268,7 @@ async def download_file(key: str, bucket: str) -> bytes:
                 key=key,
                 bucket=bucket,
             )
-            raise FileNotFoundError(f"File {key} not found in bucket {bucket}") from e
+            raise FileNotFoundError from e
         logger.error(
             "Failed to download file",
             key=key,
