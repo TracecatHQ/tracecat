@@ -58,7 +58,7 @@ from tracecat.secrets.router import org_router as org_secrets_router
 from tracecat.secrets.router import router as secrets_router
 from tracecat.settings.router import router as org_settings_router
 from tracecat.settings.service import SettingsService, get_setting_override
-from tracecat.storage import ensure_bucket_exists
+from tracecat.storage.blob import ensure_bucket_exists
 from tracecat.tables.router import router as tables_router
 from tracecat.tags.router import router as tags_router
 from tracecat.types.auth import Role

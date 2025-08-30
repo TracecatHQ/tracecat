@@ -8,11 +8,13 @@ from typing_extensions import Doc
 
 from tracecat.auth.models import UserRead
 from tracecat.config import TRACECAT__MAX_ROWS_CLIENT_POSTGRES
-from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
-from tracecat.cases.models import (
+from tracecat.cases.attachments import (
     CaseAttachmentCreate,
     CaseAttachmentDownloadData,
     CaseAttachmentRead,
+)
+from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
+from tracecat.cases.models import (
     CaseCommentCreate,
     CaseCommentRead,
     CaseCommentUpdate,

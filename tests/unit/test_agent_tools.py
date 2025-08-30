@@ -265,23 +265,3 @@ class TestFindAndReplace:
         long_pattern = "a" * 1001
         with pytest.raises(ValueError, match="Pattern too long"):
             tools["find_and_replace"]("file.txt", long_pattern, "replacement")
-
-
-class TestApplyPythonLambda:
-    def test_apply_python_lambda_success(self, secure_tools):
-        tools, _ = secure_tools
-        result = tools["apply_python_lambda"]("5", "lambda x: int(x) * 2")
-        assert result == 10
-
-    def test_apply_python_lambda_string_operation(self, secure_tools):
-        tools, _ = secure_tools
-        result = tools["apply_python_lambda"]("hello", "lambda x: x.upper()")
-        assert result == "HELLO"
-
-    def test_apply_python_lambda_complex_operation(self, secure_tools):
-        tools, _ = secure_tools
-        result = tools["apply_python_lambda"](
-            "hello world",
-            "lambda x: ' '.join(word.capitalize() for word in x.split())",
-        )
-        assert result == "Hello World"
