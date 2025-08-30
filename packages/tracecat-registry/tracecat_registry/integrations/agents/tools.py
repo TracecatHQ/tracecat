@@ -10,6 +10,8 @@ Inspired by: https://docs.cursor.com/chat/tools
 - find_and_replace: find and replace text in a file
 - jsonpath_find: given a JSONPath expression, search JSON files for matches
 - jsonpath_find_and_replace: given a JSONPath expression, find and replace all matches
+
+Note: files are all read and write only. Strictly block execution permissions for any user-provided file.
 """
 
 import orjson
