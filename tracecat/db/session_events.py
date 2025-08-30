@@ -22,8 +22,8 @@ def add_after_commit_callback(session: AsyncSession, callback: AsyncCallback) ->
     the event loop captured during registration.
 
     Args:
-        async_session: The async SQLModel session to register the callback with.
-        fn: The callable function to execute after commit. Should return an awaitable.
+        session: The async SQLModel session to register the callback with.
+        callback: The callable function to execute after commit. Should return an awaitable.
 
     Returns:
         None
