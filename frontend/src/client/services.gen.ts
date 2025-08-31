@@ -435,7 +435,7 @@ export const publicIncomingWebhook = (
   data: PublicIncomingWebhookData
 ): CancelablePromise<PublicIncomingWebhookResponse> => {
   return __request(OpenAPI, {
-    method: "POST",
+    method: "GET",
     url: "/webhooks/{workflow_id}/{secret}",
     path: {
       secret: data.secret,
@@ -475,7 +475,7 @@ export const publicIncomingWebhook1 = (
   data: PublicIncomingWebhook1Data
 ): CancelablePromise<PublicIncomingWebhook1Response> => {
   return __request(OpenAPI, {
-    method: "GET",
+    method: "POST",
     url: "/webhooks/{workflow_id}/{secret}",
     path: {
       secret: data.secret,
@@ -1663,10 +1663,9 @@ export const workflowsPublishWorkflow = (
  * List Workflow Commits
  * Get commit list for workflow repository via GitHub App.
  *
- * Returns a list of commits from the specified repository and branch,
+ * Returns a list of commits from the repository configured in workspace settings,
  * suitable for use in workflow pull operations.
  * @param data The data for the request.
- * @param data.repositoryUrl Git repository URL to fetch commits from
  * @param data.workspaceId
  * @param data.branch Branch name to fetch commits from
  * @param data.limit Maximum number of commits to return
@@ -1680,7 +1679,6 @@ export const workflowsListWorkflowCommits = (
     method: "GET",
     url: "/workflows/sync/commits",
     query: {
-      repository_url: data.repositoryUrl,
       branch: data.branch,
       limit: data.limit,
       workspace_id: data.workspaceId,
@@ -1696,7 +1694,8 @@ export const workflowsListWorkflowCommits = (
  * Pull workflows from Git repository at specific commit.
  *
  * Imports workflow definitions from the specified repository and commit,
- * with configurable conflict resolution strategy.
+ * with configurable conflict resolution strategy. Repository URL is retrieved
+ * from workspace settings.
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.requestBody

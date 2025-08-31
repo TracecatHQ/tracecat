@@ -141,7 +141,7 @@ async def list_workflow_commits(
             detail=f"Unable to access repository: {str(e)}",
         ) from e
     except Exception as e:
-        logger.error(
+        logger.exception(
             f"Error fetching commits from repository: {repository_url}", exc_info=True
         )
         raise HTTPException(

@@ -1471,6 +1471,10 @@ export type GitCommitInfo = {
    * The commit date in ISO format
    */
   date: string
+  /**
+   * List of tags associated with this commit
+   */
+  tags?: Array<string>
 }
 
 /**
@@ -2166,12 +2170,28 @@ export type ProviderScopes = {
 export type PullDiagnostic = {
   workflow_path: string
   workflow_title: string | null
-  error_type: string
+  error_type:
+    | "conflict"
+    | "validation"
+    | "dependency"
+    | "parse"
+    | "github"
+    | "system"
+    | "transaction"
   message: string
   details: {
     [key: string]: unknown
   }
 }
+
+export type error_type =
+  | "conflict"
+  | "validation"
+  | "dependency"
+  | "parse"
+  | "github"
+  | "system"
+  | "transaction"
 
 export type PullResult = {
   success: boolean
@@ -3894,10 +3914,6 @@ export type WorkflowReadMinimal = {
  */
 export type WorkflowSyncPullRequest = {
   /**
-   * Git repository URL
-   */
-  repository_url: string
-  /**
    * Specific commit SHA to pull from
    */
   commit_sha: string
@@ -4393,10 +4409,6 @@ export type WorkflowsListWorkflowCommitsData = {
    * Maximum number of commits to return
    */
   limit?: number
-  /**
-   * Git repository URL to fetch commits from
-   */
-  repositoryUrl: string
   workspaceId: string
 }
 
@@ -5636,7 +5648,7 @@ export type PublicCheckHealthResponse = {
 
 export type $OpenApiTs = {
   "/webhooks/{workflow_id}/{secret}": {
-    post: {
+    get: {
       req: PublicIncomingWebhookData
       res: {
         /**
@@ -5649,7 +5661,7 @@ export type $OpenApiTs = {
         422: HTTPValidationError
       }
     }
-    get: {
+    post: {
       req: PublicIncomingWebhook1Data
       res: {
         /**

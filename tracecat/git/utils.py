@@ -274,7 +274,7 @@ async def list_git_commits(
         if code != 0:
             raise RuntimeError(f"init failed: {err.strip()}")
 
-        # Shallow, filter-only fetch; no tags; faster negotiation.
+        # Fetch commits with tags - removed --no-tags to include tag information
         fetch_args = [
             "git",
             # Protocol & negotiation tweaks
@@ -290,7 +290,6 @@ async def list_git_commits(
             "-c",
             "gc.auto=0",
             "fetch",
-            "--no-tags",
             "--no-recurse-submodules",
             "--no-write-fetch-head",
             f"--depth={max(1, limit)}",
@@ -299,10 +298,34 @@ async def list_git_commits(
             # "--filter=tree:0",
             repo_url,
             f"+refs/heads/{branch}:refs/remotes/origin/{branch}",
+            "+refs/tags/*:refs/tags/*",  # Fetch tags as well
         ]
         code, _, err = await run_git(fetch_args, env=env, cwd=repo_dir, timeout=timeout)
         if code != 0:
             raise RuntimeError(f"fetch failed: {err.strip()}")
+
+        # Fetch tag information
+        tag_args = [
+            "git",
+            "for-each-ref",
+            "--format=%(objectname) %(refname:strip=2)",
+            "refs/tags",
+        ]
+        code, tag_out, _ = await run_git(
+            tag_args, env=env, cwd=repo_dir, timeout=timeout
+        )
+
+        # Build mapping of commit SHA to tags
+        sha_to_tags: dict[str, list[str]] = {}
+        if code == 0:  # Only process if command succeeded
+            for line in tag_out.strip().splitlines():
+                if line.strip():
+                    parts = line.strip().split(" ", 1)
+                    if len(parts) == 2:
+                        tag_sha, tag_name = parts
+                        if tag_sha not in sha_to_tags:
+                            sha_to_tags[tag_sha] = []
+                        sha_to_tags[tag_sha].append(tag_name)
 
         fmt = "%H%x1f%s%x1f%an%x1f%ae%x1f%aI"
         log_args = [
@@ -320,6 +343,8 @@ async def list_git_commits(
     commits = []
     for line in out.strip().splitlines():
         sha, msg, author, email, date = (p.strip() for p in line.split("\x1f", 4))
+        # Get tags for this commit SHA, default to empty list
+        tags = sha_to_tags.get(sha, [])
         commits.append(
             GitCommitInfo(
                 sha=sha,
@@ -327,6 +352,7 @@ async def list_git_commits(
                 author=author,
                 author_email=email,
                 date=date,
+                tags=tags,
             )
         )
     return commits

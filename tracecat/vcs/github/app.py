@@ -379,10 +379,14 @@ class GitHubAppService(BaseService):
         """
         credentials = await self.get_github_app_credentials()
 
+        # Normalize private key format to handle common formatting issues
+        raw_private_key = credentials.private_key.get_secret_value()
+        normalized_private_key = self._normalize_private_key(raw_private_key)
+
         # Create GithubIntegration
         auth = Auth.AppAuth(
             app_id=int(credentials.app_id),
-            private_key=credentials.private_key.get_secret_value(),
+            private_key=normalized_private_key,
         )
         gh_integration = GithubIntegration(auth=auth)
 
@@ -420,3 +424,42 @@ class GitHubAppService(BaseService):
             raise GitHubAppError(f"GitHub API error: {e.status} - {e.data}") from e
         finally:
             gh_integration.close()
+
+    def _normalize_private_key(self, private_key: str) -> str:
+        """Normalize private key format to handle common formatting issues.
+
+        Args:
+            private_key: Raw private key string from secret storage
+
+        Returns:
+            Normalized private key string
+        """
+        # Remove any leading/trailing whitespace
+        normalized = private_key.strip()
+
+        # Convert Windows line endings to Unix
+        normalized = normalized.replace("\r\n", "\n")
+
+        # Remove any extra whitespace from individual lines while preserving structure
+        lines = normalized.split("\n")
+        cleaned_lines = []
+
+        for line in lines:
+            # Only strip whitespace, don't remove empty lines as they may be significant
+            cleaned_lines.append(line.rstrip())
+
+        # Rejoin with Unix line endings
+        normalized = "\n".join(cleaned_lines)
+
+        # Ensure the key ends with a newline (some parsers expect this)
+        if not normalized.endswith("\n"):
+            normalized += "\n"
+
+        self.logger.debug(
+            "Normalized private key format",
+            original_length=len(private_key),
+            normalized_length=len(normalized),
+            has_crlf="\\r\\n" in private_key,
+        )
+
+        return normalized
