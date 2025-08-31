@@ -65,7 +65,7 @@ export function WorkflowPullDialog({
     commits,
     commitsIsLoading: commitsLoading,
     commitsError,
-  } = useRepositoryCommits(gitRepoUrl || null, workspaceId, { enabled: open })
+  } = useRepositoryCommits(workspaceId, { enabled: open })
 
   // Auto-select HEAD commit when commits are loaded
   useEffect(() => {
@@ -81,13 +81,12 @@ export function WorkflowPullDialog({
   }
 
   const handlePull = async () => {
-    if (!selectedCommitSha || !gitRepoUrl) return
+    if (!selectedCommitSha) return
 
     setPullResult(null)
 
     try {
       const pullOptions = {
-        repository_url: gitRepoUrl,
         commit_sha: selectedCommitSha,
         conflict_strategy: conflictStrategy,
       }
