@@ -4,7 +4,15 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from tracecat.git.utils import GitUrl, parse_git_url, resolve_git_ref, run_git
+from tracecat.git.utils import (
+    GitUrl,
+    list_git_commits,
+    parse_git_url,
+    resolve_git_ref,
+    run_git,
+)
+from tracecat.registry.repositories.models import GitCommitInfo
+from tracecat.ssh import SshEnv
 
 
 class TestGitUrl:
@@ -186,13 +194,13 @@ class TestResolveGitRef:
             sha = await resolve_git_ref(
                 "git+ssh://git@github.com/myorg/myrepo.git",
                 ref=None,
-                env={"ENV": "test"},
+                env=SshEnv(ssh_agent_pid="123456", ssh_auth_sock="/tmp/auth.sock"),
             )
 
         assert sha == "abc123"
         mock_run_git.assert_called_once_with(
             ["git", "ls-remote", "git+ssh://git@github.com/myorg/myrepo.git", "HEAD"],
-            env={"ENV": "test"},
+            env=SshEnv(ssh_agent_pid="123456", ssh_auth_sock="/tmp/auth.sock"),
             timeout=20.0,
         )
 
@@ -205,7 +213,7 @@ class TestResolveGitRef:
             sha = await resolve_git_ref(
                 "git+ssh://git@github.com/myorg/myrepo.git",
                 ref="main",
-                env={"ENV": "test"},
+                env=SshEnv(ssh_agent_pid="123456", ssh_auth_sock="/tmp/auth.sock"),
             )
 
         assert sha == "def456"
@@ -216,7 +224,7 @@ class TestResolveGitRef:
                 "git+ssh://git@github.com/myorg/myrepo.git",
                 "refs/heads/main",
             ],
-            env={"ENV": "test"},
+            env=SshEnv(ssh_agent_pid="123456", ssh_auth_sock="/tmp/auth.sock"),
             timeout=20.0,
         )
 
@@ -235,7 +243,7 @@ class TestResolveGitRef:
             sha = await resolve_git_ref(
                 "git+ssh://git@github.com/myorg/myrepo.git",
                 ref="v1.0",
-                env={"ENV": "test"},
+                env=SshEnv(ssh_agent_pid="123456", ssh_auth_sock="/tmp/auth.sock"),
             )
 
         assert sha == "ghi789"
@@ -258,7 +266,7 @@ class TestResolveGitRef:
                 await resolve_git_ref(
                     "git+ssh://git@github.com/myorg/myrepo.git",
                     ref="nonexistent",
-                    env={"ENV": "test"},
+                    env=SshEnv(ssh_agent_pid="123456", ssh_auth_sock="/tmp/auth.sock"),
                 )
 
     @pytest.mark.anyio
@@ -271,7 +279,7 @@ class TestResolveGitRef:
                 await resolve_git_ref(
                     "git+ssh://git@github.com/myorg/nonexistent.git",
                     ref=None,
-                    env={"ENV": "test"},
+                    env=SshEnv(ssh_agent_pid="123456", ssh_auth_sock="/tmp/auth.sock"),
                 )
 
     @pytest.mark.anyio
@@ -284,7 +292,7 @@ class TestResolveGitRef:
                 await resolve_git_ref(
                     "git+ssh://git@github.com/myorg/myrepo.git",
                     ref=None,
-                    env={"ENV": "test"},
+                    env=SshEnv(ssh_agent_pid="123456", ssh_auth_sock="/tmp/auth.sock"),
                 )
 
 
@@ -302,7 +310,7 @@ class TestRunGit:
         with patch("asyncio.create_subprocess_exec", return_value=mock_process):
             code, stdout, stderr = await run_git(
                 ["git", "version"],
-                env={"ENV": "test"},
+                env=SshEnv(ssh_agent_pid="123456", ssh_auth_sock="/tmp/auth.sock"),
             )
 
         assert code == 0
@@ -319,7 +327,7 @@ class TestRunGit:
         with patch("asyncio.create_subprocess_exec", return_value=mock_process):
             code, stdout, stderr = await run_git(
                 ["git", "invalid-command"],
-                env={"ENV": "test"},
+                env=SshEnv(ssh_agent_pid="123456", ssh_auth_sock="/tmp/auth.sock"),
             )
 
         assert code == 1
@@ -338,7 +346,7 @@ class TestRunGit:
             with pytest.raises(RuntimeError, match="Git command timed out"):
                 await run_git(
                     ["git", "clone", "huge-repo"],
-                    env={"ENV": "test"},
+                    env=SshEnv(ssh_agent_pid="123456", ssh_auth_sock="/tmp/auth.sock"),
                     timeout=0.1,
                 )
 
@@ -357,10 +365,113 @@ class TestRunGit:
         ) as mock_create:
             await run_git(
                 ["git", "status"],
-                env={"ENV": "test"},
+                env=SshEnv(ssh_agent_pid="123456", ssh_auth_sock="/tmp/auth.sock"),
                 cwd="/tmp/repo",
             )
 
         mock_create.assert_called_once()
         _, kwargs = mock_create.call_args
         assert kwargs["cwd"] == "/tmp/repo"
+
+
+class TestListGitCommits:
+    """Test list_git_commits function."""
+
+    @pytest.mark.anyio
+    async def test_list_git_commits_returns_typed_objects(self):
+        """Test that list_git_commits returns GitCommitInfo objects."""
+        # Mock git log output (using ASCII record separator \x1f)
+        sep = "\x1f"
+        mock_git_log_output = sep.join(
+            [
+                "abcdef1234567890abcdef1234567890abcdef12",
+                "Initial commit",
+                "John Doe",
+                "john@example.com",
+                "2024-01-01T10:00:00+00:00\n",
+            ]
+        ) + sep.join(
+            [
+                "def4567890abcdef1234567890abcdef12345678",
+                "Second commit",
+                "Jane Smith",
+                "jane@example.com",
+                "2024-01-02T11:00:00+00:00\n",
+            ]
+        )
+
+        # Mock run_git calls: init, fetch, log
+        mock_run_git = AsyncMock(
+            side_effect=[
+                (0, "", ""),  # git init --bare
+                (0, "", ""),  # git fetch
+                (0, mock_git_log_output, ""),  # git log
+            ]
+        )
+
+        with patch("tracecat.git.utils.run_git", mock_run_git):
+            # Create a proper async context manager mock
+            mock_temp_dir = AsyncMock()
+            mock_temp_dir.__aenter__ = AsyncMock(return_value="/tmp/test_repo")
+            mock_temp_dir.__aexit__ = AsyncMock(return_value=None)
+
+            with patch(
+                "aiofiles.tempfile.TemporaryDirectory", return_value=mock_temp_dir
+            ):
+                commits = await list_git_commits(
+                    "git+ssh://git@github.com/myorg/myrepo.git",
+                    env=SshEnv(ssh_agent_pid="123456", ssh_auth_sock="/tmp/auth.sock"),
+                    branch="main",
+                    limit=2,
+                )
+
+        # Verify we get the correct number of commits
+        assert len(commits) == 2
+
+        # Verify all returned objects are GitCommitInfo instances
+        assert all(isinstance(commit, GitCommitInfo) for commit in commits)
+
+        # Verify the first commit data
+        first_commit = commits[0]
+        assert first_commit.sha == "abcdef1234567890abcdef1234567890abcdef12"
+        assert first_commit.message == "Initial commit"
+        assert first_commit.author == "John Doe"
+        assert first_commit.author_email == "john@example.com"
+        assert first_commit.date == "2024-01-01T10:00:00+00:00"
+
+        # Verify the second commit data
+        second_commit = commits[1]
+        assert second_commit.sha == "def4567890abcdef1234567890abcdef12345678"
+        assert second_commit.message == "Second commit"
+        assert second_commit.author == "Jane Smith"
+        assert second_commit.author_email == "jane@example.com"
+        assert second_commit.date == "2024-01-02T11:00:00+00:00"
+
+    @pytest.mark.anyio
+    async def test_list_git_commits_empty_output(self):
+        """Test list_git_commits with empty git log output."""
+        # Mock run_git calls: init, fetch, empty log
+        mock_run_git = AsyncMock(
+            side_effect=[
+                (0, "", ""),  # git init --bare
+                (0, "", ""),  # git fetch
+                (0, "", ""),  # git log (empty)
+            ]
+        )
+
+        with patch("tracecat.git.utils.run_git", mock_run_git):
+            # Create a proper async context manager mock
+            mock_temp_dir = AsyncMock()
+            mock_temp_dir.__aenter__ = AsyncMock(return_value="/tmp/test_repo")
+            mock_temp_dir.__aexit__ = AsyncMock(return_value=None)
+
+            with patch(
+                "aiofiles.tempfile.TemporaryDirectory", return_value=mock_temp_dir
+            ):
+                commits = await list_git_commits(
+                    "git+ssh://git@github.com/myorg/myrepo.git",
+                    env=SshEnv(ssh_agent_pid="123456", ssh_auth_sock="/tmp/auth.sock"),
+                )
+
+        # Should return empty list
+        assert commits == []

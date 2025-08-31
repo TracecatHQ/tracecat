@@ -6,7 +6,6 @@ from sqlalchemy.exc import NoResultFound
 from sqlmodel import select
 from temporalio import activity
 
-from tracecat.contexts import ctx_role
 from tracecat.db.schemas import Schedule
 from tracecat.db.session_events import add_after_commit_callback
 from tracecat.identifiers import ScheduleID, WorkflowID
@@ -55,7 +54,9 @@ class WorkflowSchedulesService(BaseService):
         schedules = result.all()
         return list(schedules)
 
-    async def create_schedule(self, params: ScheduleCreate) -> Schedule:
+    async def create_schedule(
+        self, params: ScheduleCreate, commit: bool = True
+    ) -> Schedule:
         """
         Create a schedule for a workflow.
 
@@ -92,7 +93,7 @@ class WorkflowSchedulesService(BaseService):
         )
         self.session.add(schedule)
 
-        role = ctx_role.get().model_copy(
+        role = self.role.model_copy(
             update={
                 "type": "service",
                 "service_id": "tracecat-schedule-runner",
@@ -135,7 +136,13 @@ class WorkflowSchedulesService(BaseService):
 
         add_after_commit_callback(self.session, _create_schedule)
 
-        await self.session.commit()
+        # Ensure the SQLAlchemy instance is persistent before refresh.
+        # Commit will implicitly flush; when commit=False we must flush explicitly
+        # or SQLAlchemy will raise "Instance is not persistent within this Session".
+        if commit:
+            await self.session.commit()
+        else:
+            await self.session.flush()
         await self.session.refresh(schedule)
         return schedule
 
@@ -223,7 +230,9 @@ class WorkflowSchedulesService(BaseService):
         await self.session.refresh(schedule)
         return schedule
 
-    async def delete_schedule(self, schedule_id: ScheduleID) -> None:
+    async def delete_schedule(
+        self, schedule_id: ScheduleID, commit: bool = True
+    ) -> None:
         """
         Delete a schedule.
 
@@ -266,7 +275,10 @@ class WorkflowSchedulesService(BaseService):
 
         add_after_commit_callback(self.session, _delete_schedule)
 
-        await self.session.commit()
+        if commit:
+            await self.session.commit()
+        else:
+            await self.session.flush()
 
     @staticmethod
     @activity.defn

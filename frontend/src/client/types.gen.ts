@@ -932,6 +932,11 @@ export type Code = {
 export type lang = "yaml" | "python"
 
 /**
+ * Strategy for handling workflow conflicts during import.
+ */
+export type ConflictStrategy = "skip" | "overwrite" | "rename"
+
+/**
  * Event for when a case is created.
  */
 export type CreatedEventRead = {
@@ -1440,6 +1445,32 @@ export type GetWorkflowDefinitionActivityInputs = {
   workflow_id: string
   version?: number | null
   task?: ActionStatement | null
+}
+
+/**
+ * Git commit information for repository management.
+ */
+export type GitCommitInfo = {
+  /**
+   * The commit SHA hash
+   */
+  sha: string
+  /**
+   * The commit message
+   */
+  message: string
+  /**
+   * The commit author name
+   */
+  author: string
+  /**
+   * The commit author email
+   */
+  author_email: string
+  /**
+   * The commit date in ISO format
+   */
+  date: string
 }
 
 /**
@@ -2132,6 +2163,25 @@ export type ProviderScopes = {
   default: Array<string>
 }
 
+export type PullDiagnostic = {
+  workflow_path: string
+  workflow_title: string | null
+  error_type: string
+  message: string
+  details: {
+    [key: string]: unknown
+  }
+}
+
+export type PullResult = {
+  success: boolean
+  commit_sha: string
+  workflows_found: number
+  workflows_imported: number
+  diagnostics: Array<PullDiagnostic>
+  message: string
+}
+
 export type ReceiveInteractionResponse = {
   message: string
 }
@@ -2472,6 +2522,16 @@ export type RegistryRepositoryReadMinimal = {
   origin: string
   last_synced_at: string | null
   commit_sha: string | null
+}
+
+/**
+ * Parameters for syncing a repository to a specific commit.
+ */
+export type RegistryRepositorySync = {
+  /**
+   * The specific commit SHA to sync to. If None, syncs to HEAD.
+   */
+  target_commit_sha?: string | null
 }
 
 export type RegistryRepositoryUpdate = {
@@ -3829,6 +3889,28 @@ export type WorkflowReadMinimal = {
   folder_id?: string | null
 }
 
+/**
+ * Request model for pulling workflows from a Git repository.
+ */
+export type WorkflowSyncPullRequest = {
+  /**
+   * Git repository URL
+   */
+  repository_url: string
+  /**
+   * Specific commit SHA to pull from
+   */
+  commit_sha: string
+  /**
+   * Strategy for handling workflow conflicts during import
+   */
+  conflict_strategy?: ConflictStrategy
+  /**
+   * Validate only, don't perform actual import
+   */
+  dry_run?: boolean
+}
+
 export type WorkflowTagCreate = {
   tag_id: string
 }
@@ -4302,6 +4384,31 @@ export type WorkflowsPublishWorkflowData = {
 
 export type WorkflowsPublishWorkflowResponse = void
 
+export type WorkflowsListWorkflowCommitsData = {
+  /**
+   * Branch name to fetch commits from
+   */
+  branch?: string
+  /**
+   * Maximum number of commits to return
+   */
+  limit?: number
+  /**
+   * Git repository URL to fetch commits from
+   */
+  repositoryUrl: string
+  workspaceId: string
+}
+
+export type WorkflowsListWorkflowCommitsResponse = Array<GitCommitInfo>
+
+export type WorkflowsPullWorkflowsData = {
+  requestBody: WorkflowSyncPullRequest
+  workspaceId: string
+}
+
+export type WorkflowsPullWorkflowsResponse = PullResult
+
 export type SecretsSearchSecretsData = {
   environment: string
   /**
@@ -4655,6 +4762,7 @@ export type RegistryRepositoriesReloadRegistryRepositoriesResponse = void
 
 export type RegistryRepositoriesSyncRegistryRepositoryData = {
   repositoryId: string
+  requestBody?: RegistryRepositorySync | null
 }
 
 export type RegistryRepositoriesSyncRegistryRepositoryResponse = void
@@ -4689,6 +4797,15 @@ export type RegistryRepositoriesDeleteRegistryRepositoryData = {
 }
 
 export type RegistryRepositoriesDeleteRegistryRepositoryResponse = void
+
+export type RegistryRepositoriesListRepositoryCommitsData = {
+  branch?: string
+  limit?: number
+  repositoryId: string
+}
+
+export type RegistryRepositoriesListRepositoryCommitsResponse =
+  Array<GitCommitInfo>
 
 export type RegistryActionsListRegistryActionsResponse =
   Array<RegistryActionReadMinimal>
@@ -6137,6 +6254,36 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/workflows/sync/commits": {
+    get: {
+      req: WorkflowsListWorkflowCommitsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<GitCommitInfo>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workflows/sync/pull": {
+    post: {
+      req: WorkflowsPullWorkflowsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: PullResult
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/secrets/search": {
     get: {
       req: SecretsSearchSecretsData
@@ -6930,6 +7077,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/registry/repos/{repository_id}/commits": {
+    get: {
+      req: RegistryRepositoriesListRepositoryCommitsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<GitCommitInfo>
         /**
          * Validation Error
          */

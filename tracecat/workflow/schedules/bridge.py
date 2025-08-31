@@ -2,11 +2,13 @@ from datetime import datetime, timedelta
 
 import temporalio.client
 from temporalio.common import TypedSearchAttributes
+from temporalio.exceptions import TemporalError
 
 from tracecat import config
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import DSLRunArgs
 from tracecat.identifiers import ScheduleID, WorkflowID
+from tracecat.logger import logger
 from tracecat.types.auth import Role
 from tracecat.workflow.executions.enums import TriggerType
 from tracecat.workflow.schedules.models import ScheduleUpdate
@@ -78,8 +80,18 @@ async def delete_schedule(schedule_id: ScheduleID) -> None:
     handle = await _get_handle(schedule_id)
     try:
         await handle.delete()
-    except Exception as e:
-        if "workflow execution already completed" not in str(e).lower():
+    except TemporalError as e:
+        msg = str(e).lower()
+        # Check for schedule-specific not found conditions
+        if any(
+            phrase in msg
+            for phrase in ["schedule not found", "not found", "does not exist"]
+        ):
+            logger.warning(
+                f"Temporal schedule {schedule_id} not found, skipping deletion"
+            )
+            return None
+        if "workflow execution already completed" not in msg:
             raise RuntimeError(f"Error deleting schedule: {e}") from e
     return None
 
