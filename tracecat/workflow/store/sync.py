@@ -402,8 +402,6 @@ class WorkflowSyncService(BaseWorkspaceService):
                         path=file_path,
                         branch=branch_name,
                     )
-                    ws_svc = WorkspaceService(session=self.session, role=self.role)
-                    raise
 
             # Get the latest commit SHA from the branch
             branch = await asyncio.to_thread(repo.get_branch, branch_name)

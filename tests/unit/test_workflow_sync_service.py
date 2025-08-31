@@ -121,7 +121,9 @@ class TestWorkflowSyncService:
             patch("asyncio.to_thread") as mock_to_thread,
         ):
             mock_gh_service = AsyncMock()
-            mock_gh_service.get_github_client_for_repo.return_value = mock_github_client
+            mock_gh_service.get_github_client_for_repo = AsyncMock(
+                return_value=mock_github_client
+            )
             mock_gh_service_class.return_value = mock_gh_service
 
             # Mock asyncio.to_thread to return the direct result (not coroutine)
@@ -176,7 +178,9 @@ class TestWorkflowSyncService:
             patch("asyncio.to_thread") as mock_to_thread,
         ):
             mock_gh_service = AsyncMock()
-            mock_gh_service.get_github_client_for_repo.return_value = mock_github_client
+            mock_gh_service.get_github_client_for_repo = AsyncMock(
+                return_value=mock_github_client
+            )
             mock_gh_service_class.return_value = mock_gh_service
 
             # Mock asyncio.to_thread to return the direct result (not coroutine)
@@ -239,7 +243,9 @@ class TestWorkflowSyncService:
             ) as mock_ws_service_class,
         ):
             mock_gh_service = AsyncMock()
-            mock_gh_service.get_github_client_for_repo.return_value = mock_github_client
+            mock_gh_service.get_github_client_for_repo = AsyncMock(
+                return_value=mock_github_client
+            )
             mock_gh_service_class.return_value = mock_gh_service
 
             # Mock WorkspaceService
@@ -367,7 +373,9 @@ class TestWorkflowSyncService:
             patch("asyncio.to_thread") as mock_to_thread,
         ):
             mock_gh_service = AsyncMock()
-            mock_gh_service.get_github_client_for_repo.return_value = mock_github_client
+            mock_gh_service.get_github_client_for_repo = AsyncMock(
+                return_value=mock_github_client
+            )
             mock_gh_service_class.return_value = mock_gh_service
 
             # Mock asyncio.to_thread to return the direct result (not coroutine)

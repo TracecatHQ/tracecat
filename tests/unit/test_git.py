@@ -380,10 +380,24 @@ class TestListGitCommits:
     @pytest.mark.anyio
     async def test_list_git_commits_returns_typed_objects(self):
         """Test that list_git_commits returns GitCommitInfo objects."""
-        # Mock git log output
-        mock_git_log_output = (
-            "abcdef1234567890abcdef1234567890abcdef12|Initial commit|John Doe|john@example.com|2024-01-01T10:00:00+00:00\n"
-            "def4567890abcdef1234567890abcdef12345678|Second commit|Jane Smith|jane@example.com|2024-01-02T11:00:00+00:00\n"
+        # Mock git log output (using ASCII record separator \x1f)
+        sep = "\x1f"
+        mock_git_log_output = sep.join(
+            [
+                "abcdef1234567890abcdef1234567890abcdef12",
+                "Initial commit",
+                "John Doe",
+                "john@example.com",
+                "2024-01-01T10:00:00+00:00\n",
+            ]
+        ) + sep.join(
+            [
+                "def4567890abcdef1234567890abcdef12345678",
+                "Second commit",
+                "Jane Smith",
+                "jane@example.com",
+                "2024-01-02T11:00:00+00:00\n",
+            ]
         )
 
         # Mock run_git calls: init, fetch, log
@@ -396,7 +410,14 @@ class TestListGitCommits:
         )
 
         with patch("tracecat.git.utils.run_git", mock_run_git):
-            with patch("aiofiles.tempfile.TemporaryDirectory", new_callable=AsyncMock):
+            # Create a proper async context manager mock
+            mock_temp_dir = AsyncMock()
+            mock_temp_dir.__aenter__ = AsyncMock(return_value="/tmp/test_repo")
+            mock_temp_dir.__aexit__ = AsyncMock(return_value=None)
+
+            with patch(
+                "aiofiles.tempfile.TemporaryDirectory", return_value=mock_temp_dir
+            ):
                 commits = await list_git_commits(
                     "git+ssh://git@github.com/myorg/myrepo.git",
                     env=SshEnv(ssh_agent_pid="123456", ssh_auth_sock="/tmp/auth.sock"),
@@ -439,7 +460,14 @@ class TestListGitCommits:
         )
 
         with patch("tracecat.git.utils.run_git", mock_run_git):
-            with patch("aiofiles.tempfile.TemporaryDirectory"):
+            # Create a proper async context manager mock
+            mock_temp_dir = AsyncMock()
+            mock_temp_dir.__aenter__ = AsyncMock(return_value="/tmp/test_repo")
+            mock_temp_dir.__aexit__ = AsyncMock(return_value=None)
+
+            with patch(
+                "aiofiles.tempfile.TemporaryDirectory", return_value=mock_temp_dir
+            ):
                 commits = await list_git_commits(
                     "git+ssh://git@github.com/myorg/myrepo.git",
                     env=SshEnv(ssh_agent_pid="123456", ssh_auth_sock="/tmp/auth.sock"),
