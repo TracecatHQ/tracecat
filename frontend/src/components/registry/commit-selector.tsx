@@ -1,6 +1,6 @@
 "use client"
 
-import { ChevronDownIcon } from "lucide-react"
+import { ChevronDownIcon, TagIcon } from "lucide-react"
 import { useState } from "react"
 import type { GitCommitInfo } from "@/client"
 import { Badge } from "@/components/ui/badge"
@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Skeleton } from "@/components/ui/skeleton"
 import { getRelativeTime } from "@/lib/event-history"
+import { cn } from "@/lib/utils"
 
 interface CommitSelectorProps {
   commits: GitCommitInfo[] | undefined
@@ -87,6 +88,11 @@ export function CommitSelector({
                 Custom
               </Badge>
             )}
+            {currentCommit?.tags?.map((tag) => (
+              <Badge key={tag} variant="outline" className="text-xs">
+                {tag}
+              </Badge>
+            ))}
           </div>
           <ChevronDownIcon className="size-4" />
         </Button>
@@ -108,34 +114,51 @@ export function CommitSelector({
                   onSelectCommit(commit.sha)
                   setIsOpen(false)
                 }}
-                className={`flex flex-col items-start space-y-1 p-3 ${
-                  isSelected ? "bg-accent" : ""
-                }`}
+                className={cn(
+                  "flex flex-col items-start space-y-1 p-3",
+                  isSelected && "bg-accent"
+                )}
               >
-                <div className="flex w-full items-center justify-between">
-                  <div className="flex items-center space-x-2">
-                    <span className="font-mono text-sm font-medium">
-                      {commit.sha.substring(0, 7)}
+                <div className="flex w-full flex-col space-y-1">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                      <span className="font-mono text-sm font-medium">
+                        {commit.sha.substring(0, 7)}
+                      </span>
+                      {isHead && (
+                        <Badge variant="secondary" className="text-xs">
+                          HEAD
+                        </Badge>
+                      )}
+                      {isSelected && !isHead && (
+                        <Badge variant="default" className="text-xs">
+                          Current
+                        </Badge>
+                      )}
+                      {isSelected && isHead && (
+                        <Badge variant="default" className="text-xs">
+                          Current • HEAD
+                        </Badge>
+                      )}
+                    </div>
+                    <span className="text-xs text-muted-foreground">
+                      {relativeTime}
                     </span>
-                    {isHead && (
-                      <Badge variant="secondary" className="text-xs">
-                        HEAD
-                      </Badge>
-                    )}
-                    {isSelected && !isHead && (
-                      <Badge variant="default" className="text-xs">
-                        Current
-                      </Badge>
-                    )}
-                    {isSelected && isHead && (
-                      <Badge variant="default" className="text-xs">
-                        Current • HEAD
-                      </Badge>
-                    )}
                   </div>
-                  <span className="text-xs text-muted-foreground">
-                    {relativeTime}
-                  </span>
+                  {commit.tags && commit.tags.length > 0 && (
+                    <div className="flex items-center space-x-1">
+                      {commit.tags.map((tag) => (
+                        <Badge
+                          key={tag}
+                          variant="outline"
+                          className="text-xs flex items-center gap-1"
+                        >
+                          <TagIcon className="size-2.5" />
+                          {tag}
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <div className="w-full text-left">
                   <p className="line-clamp-1 text-sm text-foreground">

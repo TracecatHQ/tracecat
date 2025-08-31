@@ -26,11 +26,8 @@ export function useWorkflowSync(workspaceId: string) {
     isPending: pullWorkflowsIsPending,
     error: pullWorkflowsError,
   } = useMutation({
-    mutationFn: async (
-      options: WorkflowPullOptions & { repository_url: string }
-    ): Promise<PullResult> => {
+    mutationFn: async (options: WorkflowPullOptions): Promise<PullResult> => {
       const requestBody: WorkflowSyncPullRequest = {
-        repository_url: options.repository_url,
         commit_sha: options.commit_sha,
         conflict_strategy: options.conflict_strategy,
         dry_run: options.dry_run ?? false,
@@ -65,7 +62,6 @@ export function useWorkflowSync(workspaceId: string) {
  * Hook for fetching Git repository commits
  */
 export function useRepositoryCommits(
-  gitRepoUrl: string | null,
   workspaceId: string,
   options?: {
     branch?: string
@@ -80,18 +76,16 @@ export function useRepositoryCommits(
   } = useQuery<GitCommitInfo[]>({
     queryKey: [
       "repository_commits",
-      gitRepoUrl,
       workspaceId,
       options?.branch ?? "main",
       options?.limit ?? 10,
     ],
     queryFn: async (): Promise<GitCommitInfo[]> => {
-      if (!gitRepoUrl || !workspaceId) {
-        throw new Error("Git repository URL and workspace ID are required")
+      if (!workspaceId) {
+        throw new Error("Workspace ID is required")
       }
 
       const response = await workflowsListWorkflowCommits({
-        repositoryUrl: gitRepoUrl,
         branch: options?.branch ?? "main",
         limit: options?.limit ?? 10,
         workspaceId,
@@ -99,7 +93,7 @@ export function useRepositoryCommits(
 
       return response
     },
-    enabled: !!(gitRepoUrl && workspaceId && options?.enabled !== false),
+    enabled: !!(workspaceId && options?.enabled !== false),
     staleTime: 5 * 60 * 1000, // 5 minutes
   })
 

@@ -518,12 +518,31 @@ class WorkflowSyncService(BaseWorkspaceService):
                     repo.get_commits, sha=branch
                 )
 
+                # Get all tags to build SHA-to-tags mapping
+                tags_paginated = await asyncio.to_thread(repo.get_tags)
+                sha_to_tags: dict[str, list[str]] = {}
+
+                # Build mapping of commit SHA to tag names in thread to avoid blocking
+                def build_tag_mapping():
+                    result_map = {}
+                    for tag in tags_paginated:
+                        tag_sha = tag.commit.sha
+                        if tag_sha not in result_map:
+                            result_map[tag_sha] = []
+                        result_map[tag_sha].append(tag.name)
+                    return result_map
+
+                sha_to_tags = await asyncio.to_thread(build_tag_mapping)
+
                 # Convert to GitCommitInfo objects
                 commits = []
                 count = 0
                 for commit in commits_paginated:
                     if count >= limit:
                         break
+
+                    # Get tags for this commit SHA, default to empty list
+                    tags = sha_to_tags.get(commit.sha, [])
 
                     commits.append(
                         GitCommitInfo(
@@ -532,6 +551,7 @@ class WorkflowSyncService(BaseWorkspaceService):
                             author=commit.commit.author.name or "Unknown",
                             author_email=commit.commit.author.email or "",
                             date=commit.commit.author.date.isoformat(),
+                            tags=tags,
                         )
                     )
                     count += 1

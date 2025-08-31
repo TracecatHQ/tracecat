@@ -4560,6 +4560,14 @@ export const $GitCommitInfo = {
       title: "Date",
       description: "The commit date in ISO format",
     },
+    tags: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Tags",
+      description: "List of tags associated with this commit",
+    },
   },
   type: "object",
   required: ["sha", "message", "author", "author_email", "date"],
@@ -6369,6 +6377,15 @@ export const $PullDiagnostic = {
     },
     error_type: {
       type: "string",
+      enum: [
+        "conflict",
+        "validation",
+        "dependency",
+        "parse",
+        "github",
+        "system",
+        "transaction",
+      ],
       title: "Error Type",
     },
     message: {
@@ -11889,16 +11906,9 @@ export const $WorkflowReadMinimal = {
 
 export const $WorkflowSyncPullRequest = {
   properties: {
-    repository_url: {
-      type: "string",
-      maxLength: 500,
-      minLength: 1,
-      title: "Repository Url",
-      description: "Git repository URL",
-    },
     commit_sha: {
       type: "string",
-      maxLength: 40,
+      maxLength: 64,
       minLength: 40,
       title: "Commit Sha",
       description: "Specific commit SHA to pull from",
@@ -11916,7 +11926,7 @@ export const $WorkflowSyncPullRequest = {
     },
   },
   type: "object",
-  required: ["repository_url", "commit_sha"],
+  required: ["commit_sha"],
   title: "WorkflowSyncPullRequest",
   description: "Request model for pulling workflows from a Git repository.",
 } as const

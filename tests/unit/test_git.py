@@ -400,11 +400,12 @@ class TestListGitCommits:
             ]
         )
 
-        # Mock run_git calls: init, fetch, log
+        # Mock run_git calls: init, fetch, for-each-ref (tags), log
         mock_run_git = AsyncMock(
             side_effect=[
                 (0, "", ""),  # git init --bare
                 (0, "", ""),  # git fetch
+                (0, "", ""),  # git for-each-ref tags (no tags)
                 (0, mock_git_log_output, ""),  # git log
             ]
         )
@@ -438,6 +439,7 @@ class TestListGitCommits:
         assert first_commit.author == "John Doe"
         assert first_commit.author_email == "john@example.com"
         assert first_commit.date == "2024-01-01T10:00:00+00:00"
+        assert first_commit.tags == []  # No tags in this test
 
         # Verify the second commit data
         second_commit = commits[1]
@@ -446,15 +448,17 @@ class TestListGitCommits:
         assert second_commit.author == "Jane Smith"
         assert second_commit.author_email == "jane@example.com"
         assert second_commit.date == "2024-01-02T11:00:00+00:00"
+        assert second_commit.tags == []  # No tags in this test
 
     @pytest.mark.anyio
     async def test_list_git_commits_empty_output(self):
         """Test list_git_commits with empty git log output."""
-        # Mock run_git calls: init, fetch, empty log
+        # Mock run_git calls: init, fetch, for-each-ref (tags), empty log
         mock_run_git = AsyncMock(
             side_effect=[
                 (0, "", ""),  # git init --bare
                 (0, "", ""),  # git fetch
+                (0, "", ""),  # git for-each-ref tags (no tags)
                 (0, "", ""),  # git log (empty)
             ]
         )
@@ -475,3 +479,168 @@ class TestListGitCommits:
 
         # Should return empty list
         assert commits == []
+
+    @pytest.mark.anyio
+    async def test_list_git_commits_with_tags(self):
+        """Test that list_git_commits includes tag information."""
+        # Mock git log output (using ASCII record separator \x1f)
+        sep = "\x1f"
+        mock_git_log_output = sep.join(
+            [
+                "abcdef1234567890abcdef1234567890abcdef12",
+                "Release v1.0.0",
+                "John Doe",
+                "john@example.com",
+                "2024-01-01T10:00:00+00:00\n",
+            ]
+        ) + sep.join(
+            [
+                "def4567890abcdef1234567890abcdef12345678",
+                "Patch release",
+                "Jane Smith",
+                "jane@example.com",
+                "2024-01-02T11:00:00+00:00\n",
+            ]
+        )
+
+        # Mock tag output
+        mock_tag_output = (
+            "abcdef1234567890abcdef1234567890abcdef12 v1.0.0\n"
+            "abcdef1234567890abcdef1234567890abcdef12 1.0.0\n"
+            "def4567890abcdef1234567890abcdef12345678 v1.0.1"
+        )
+
+        # Mock run_git calls: init, fetch, for-each-ref (tags), log
+        mock_run_git = AsyncMock(
+            side_effect=[
+                (0, "", ""),  # git init --bare
+                (0, "", ""),  # git fetch
+                (0, mock_tag_output, ""),  # git for-each-ref tags
+                (0, mock_git_log_output, ""),  # git log
+            ]
+        )
+
+        with patch("tracecat.git.utils.run_git", mock_run_git):
+            # Create a proper async context manager mock
+            mock_temp_dir = AsyncMock()
+            mock_temp_dir.__aenter__ = AsyncMock(return_value="/tmp/test_repo")
+            mock_temp_dir.__aexit__ = AsyncMock(return_value=None)
+
+            with patch(
+                "aiofiles.tempfile.TemporaryDirectory", return_value=mock_temp_dir
+            ):
+                commits = await list_git_commits(
+                    "git+ssh://git@github.com/myorg/myrepo.git",
+                    env=SshEnv(ssh_agent_pid="123456", ssh_auth_sock="/tmp/auth.sock"),
+                    branch="main",
+                    limit=2,
+                )
+
+        # Verify we get the correct number of commits
+        assert len(commits) == 2
+
+        # Verify the first commit has multiple tags
+        first_commit = commits[0]
+        assert first_commit.sha == "abcdef1234567890abcdef1234567890abcdef12"
+        assert first_commit.message == "Release v1.0.0"
+        assert sorted(first_commit.tags) == ["1.0.0", "v1.0.0"]
+
+        # Verify the second commit has one tag
+        second_commit = commits[1]
+        assert second_commit.sha == "def4567890abcdef1234567890abcdef12345678"
+        assert second_commit.message == "Patch release"
+        assert second_commit.tags == ["v1.0.1"]
+
+    @pytest.mark.anyio
+    async def test_list_git_commits_no_tags(self):
+        """Test that list_git_commits handles repositories without tags gracefully."""
+        # Mock git log output
+        sep = "\x1f"
+        mock_git_log_output = sep.join(
+            [
+                "abcdef1234567890abcdef1234567890abcdef12",
+                "Initial commit",
+                "John Doe",
+                "john@example.com",
+                "2024-01-01T10:00:00+00:00\n",
+            ]
+        )
+
+        # Mock run_git calls: init, fetch, for-each-ref (no tags), log
+        mock_run_git = AsyncMock(
+            side_effect=[
+                (0, "", ""),  # git init --bare
+                (0, "", ""),  # git fetch
+                (0, "", ""),  # git for-each-ref tags (empty)
+                (0, mock_git_log_output, ""),  # git log
+            ]
+        )
+
+        with patch("tracecat.git.utils.run_git", mock_run_git):
+            # Create a proper async context manager mock
+            mock_temp_dir = AsyncMock()
+            mock_temp_dir.__aenter__ = AsyncMock(return_value="/tmp/test_repo")
+            mock_temp_dir.__aexit__ = AsyncMock(return_value=None)
+
+            with patch(
+                "aiofiles.tempfile.TemporaryDirectory", return_value=mock_temp_dir
+            ):
+                commits = await list_git_commits(
+                    "git+ssh://git@github.com/myorg/myrepo.git",
+                    env=SshEnv(ssh_agent_pid="123456", ssh_auth_sock="/tmp/auth.sock"),
+                    branch="main",
+                    limit=1,
+                )
+
+        # Verify commit has empty tags list
+        assert len(commits) == 1
+        first_commit = commits[0]
+        assert first_commit.sha == "abcdef1234567890abcdef1234567890abcdef12"
+        assert first_commit.tags == []
+
+    @pytest.mark.anyio
+    async def test_list_git_commits_tag_command_failure(self):
+        """Test that list_git_commits handles tag command failure gracefully."""
+        # Mock git log output
+        sep = "\x1f"
+        mock_git_log_output = sep.join(
+            [
+                "abcdef1234567890abcdef1234567890abcdef12",
+                "Initial commit",
+                "John Doe",
+                "john@example.com",
+                "2024-01-01T10:00:00+00:00\n",
+            ]
+        )
+
+        # Mock run_git calls: init, fetch, for-each-ref (fails), log
+        mock_run_git = AsyncMock(
+            side_effect=[
+                (0, "", ""),  # git init --bare
+                (0, "", ""),  # git fetch
+                (1, "", "Failed to list tags"),  # git for-each-ref tags (fails)
+                (0, mock_git_log_output, ""),  # git log
+            ]
+        )
+
+        with patch("tracecat.git.utils.run_git", mock_run_git):
+            # Create a proper async context manager mock
+            mock_temp_dir = AsyncMock()
+            mock_temp_dir.__aenter__ = AsyncMock(return_value="/tmp/test_repo")
+            mock_temp_dir.__aexit__ = AsyncMock(return_value=None)
+
+            with patch(
+                "aiofiles.tempfile.TemporaryDirectory", return_value=mock_temp_dir
+            ):
+                commits = await list_git_commits(
+                    "git+ssh://git@github.com/myorg/myrepo.git",
+                    env=SshEnv(ssh_agent_pid="123456", ssh_auth_sock="/tmp/auth.sock"),
+                    branch="main",
+                    limit=1,
+                )
+
+        # Should still work, just without tags
+        assert len(commits) == 1
+        first_commit = commits[0]
+        assert first_commit.sha == "abcdef1234567890abcdef1234567890abcdef12"
+        assert first_commit.tags == []

@@ -115,6 +115,10 @@ class GitCommitInfo(BaseModel):
         description="The commit date in ISO format",
         max_length=50,
     )
+    tags: list[str] = Field(
+        default_factory=list,
+        description="List of tags associated with this commit",
+    )
 
 
 class RegistryRepositorySync(BaseModel):
