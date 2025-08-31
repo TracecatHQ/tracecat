@@ -308,7 +308,7 @@ async def list_git_commits(
         tag_args = [
             "git",
             "for-each-ref",
-            "--format=%(objectname) %(refname:strip=2)",
+            "--format=%(if)%(*objectname)%(then)%(*objectname)%(else)%(objectname)%(end) %(refname:strip=2)",
             "refs/tags",
         ]
         code, tag_out, _ = await run_git(

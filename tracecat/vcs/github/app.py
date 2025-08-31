@@ -459,7 +459,7 @@ class GitHubAppService(BaseService):
             "Normalized private key format",
             original_length=len(private_key),
             normalized_length=len(normalized),
-            has_crlf="\\r\\n" in private_key,
+            has_crlf="\r\n" in private_key,
         )
 
         return normalized

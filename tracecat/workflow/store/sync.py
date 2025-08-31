@@ -522,18 +522,17 @@ class WorkflowSyncService(BaseWorkspaceService):
                 tags_paginated = await asyncio.to_thread(repo.get_tags)
                 sha_to_tags: dict[str, list[str]] = {}
 
-                # Build mapping of commit SHA to tag names
-                # Note: Only process first 100 tags for performance
-                tag_count = 0
-                for tag in tags_paginated:
-                    if tag_count >= 100:  # Reasonable limit for tags
-                        break
+                # Build mapping of commit SHA to tag names in thread to avoid blocking
+                def build_tag_mapping():
+                    result_map = {}
+                    for tag in tags_paginated:
+                        tag_sha = tag.commit.sha
+                        if tag_sha not in result_map:
+                            result_map[tag_sha] = []
+                        result_map[tag_sha].append(tag.name)
+                    return result_map
 
-                    tag_sha = tag.commit.sha
-                    if tag_sha not in sha_to_tags:
-                        sha_to_tags[tag_sha] = []
-                    sha_to_tags[tag_sha].append(tag.name)
-                    tag_count += 1
+                sha_to_tags = await asyncio.to_thread(build_tag_mapping)
 
                 # Convert to GitCommitInfo objects
                 commits = []
