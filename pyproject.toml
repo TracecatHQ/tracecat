@@ -51,7 +51,7 @@ dependencies = [
     "psycopg[binary]==3.1.19",
     "pyarrow==16.1.0",
     "pydantic-extra-types==2.10.2",
-    "pydantic==2.10.6",
+    "pydantic>=2.11.7,<3.0.0",
     "pysaml2==7.5.0",
     "python-slugify==8.0.4",
     "ray[default]==2.40.0",
