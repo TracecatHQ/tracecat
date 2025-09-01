@@ -64,9 +64,9 @@ def _run_after_commit(session: sqlalchemy.orm.Session) -> None:
         a new event loop is created.
     """
     callbacks = cast(list[AsyncCallback], session.info.pop(_AFTER_COMMIT_KEY, []))
-    logger.debug("Running after_commit callbacks", session=session, callbacks=callbacks)
     if not callbacks:
         return
+    logger.debug("Running after_commit callbacks", session=session, callbacks=callbacks)
     if _EVENT_LOOP_KEY not in session.info:
         logger.error("Expected event loop not found in session info", session=session)
         return
