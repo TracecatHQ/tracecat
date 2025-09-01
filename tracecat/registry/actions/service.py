@@ -477,7 +477,8 @@ async def validate_action_template(
     for expr in extract_expressions(defn.returns):
         expr.validate(validator, loc=("returns",))
     expr_errs = set(validator.errors())
-    log.warning("Expression validation errors", errors=expr_errs)
+    if expr_errs:
+        log.warning("Expression validation errors", errors=expr_errs)
     val_errs.extend(
         RegistryActionValidationErrorInfo.from_validation_result(
             e, is_template=action.is_template
