@@ -78,9 +78,12 @@ services:
     volumes:
       - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
     depends_on:
-      - temporal
-      - minio
-      - redis
+      temporal:
+        condition: service_healthy
+      minio:
+        condition: service_started
+      redis:
+        condition: service_started
 
   worker:
     build:
@@ -224,6 +227,13 @@ services:
       - POSTGRES_PWD=${TEMPORAL__POSTGRES_PASSWORD} # Sensitive
       - POSTGRES_SEEDS=temporal_postgres_db
       - LOG_LEVEL=warn
+      - BIND_ON_IP=0.0.0.0
+      - TEMPORAL_BROADCAST_ADDRESS=127.0.0.1
+    healthcheck:
+      test: ['CMD', 'tctl', '--address', '127.0.0.1:7233', 'cluster', 'health']
+      interval: 1s
+      timeout: 5s
+      start_period: 2s
     depends_on:
       - temporal_postgres_db
 

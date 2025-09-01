@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Request, status
@@ -81,7 +82,9 @@ from tracecat.workspaces.service import WorkspaceService
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Temporal
-    await add_temporal_search_attributes()
+    # Run in background to avoid blocking startup
+    asyncio.create_task(add_temporal_search_attributes())
+    logger.debug("Spawned lifespan task to add temporal search attributes")
 
     # Storage
     await ensure_bucket_exists(config.TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS)
