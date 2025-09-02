@@ -176,7 +176,7 @@ class RecordService(BaseWorkspaceService):
         ]
 
         return CursorPaginatedResponse(
-            items=items,  # type: ignore[arg-type]
+            items=items,
             next_cursor=next_cursor,
             prev_cursor=prev_cursor,
             has_more=has_more,
@@ -264,7 +264,7 @@ class RecordService(BaseWorkspaceService):
         ]
 
         return CursorPaginatedResponse(
-            items=items,  # type: ignore[arg-type]
+            items=items,
             next_cursor=next_cursor,
             prev_cursor=prev_cursor,
             has_more=has_more,
