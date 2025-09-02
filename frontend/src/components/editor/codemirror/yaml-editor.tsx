@@ -71,7 +71,7 @@ export const YamlStyledEditor = React.forwardRef<
     forEachExpressions?: string | string[] | null | undefined
   }
 >(({ name, control, forEachExpressions }, ref) => {
-  const { field } = useController<FieldValues>({
+  const { field, fieldState } = useController<FieldValues>({
     name: name,
     control,
   })
@@ -364,6 +364,11 @@ export const YamlStyledEditor = React.forwardRef<
   return (
     <div className="relative">
       <div className="no-scrollbar max-h-[800px] overflow-auto rounded-md border-[0.5px] border-border shadow-sm">
+        {fieldState.error && (
+          <p className="mt-1 text-sm text-red-500">
+            {fieldState.error.message ?? "Invalid YAML"}
+          </p>
+        )}
         <CodeMirror
           value={buffer}
           height="auto"
