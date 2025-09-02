@@ -7,6 +7,7 @@ import json
 import os
 import re
 import sys
+import threading
 from collections.abc import Callable
 from pathlib import Path
 from timeit import default_timer
@@ -743,13 +744,26 @@ class Repository:
         raise NotImplementedError("Template actions has no direct implementation")
 
 
+_import_reload_lock = threading.RLock()
+
+
 def import_and_reload(module_name: str) -> ModuleType:
-    """Import and reload a module."""
-    sys.modules.pop(module_name, None)
-    module = importlib.import_module(module_name)
-    reloaded_module = importlib.reload(module)
-    sys.modules[module_name] = reloaded_module
-    return reloaded_module
+    """Safely import and reload a module.
+
+    Uses a process-wide lock and avoids removing entries from sys.modules to
+    prevent races with concurrent imports. Invalidates caches before import.
+    """
+    with _import_reload_lock:
+        importlib.invalidate_caches()
+        module = sys.modules.get(module_name)
+        if module is None:
+            # Skip reload on first import
+            loaded_module = importlib.import_module(module_name)
+        else:
+            # Reload in-place to refresh definitions without dropping parent package
+            loaded_module = importlib.reload(module)
+        sys.modules[module_name] = loaded_module
+        return loaded_module
 
 
 def attach_validators(func: F, *validators: Any):

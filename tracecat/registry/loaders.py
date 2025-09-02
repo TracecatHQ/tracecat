@@ -113,8 +113,32 @@ def load_udf_impl(impl: RegistryActionUDFImpl) -> F:
         )
         mod = import_and_reload(module_path)
     else:
-        mod = importlib.import_module(module_path)
-    fn = getattr(mod, function_name)
+        try:
+            mod = importlib.import_module(module_path)
+        except ModuleNotFoundError as e:
+            # Defensive fallback: if a concurrent reload temporarily disrupted imports,
+            # safely reload the target module and retry.
+            if module_path.startswith("tracecat_registry"):
+                logger.warning(
+                    "Recovering from module import error; attempting safe reload",
+                    module=module_path,
+                    error=str(e),
+                )
+                mod = import_and_reload(module_path)
+            else:
+                raise
+    try:
+        fn = getattr(mod, function_name)
+    except AttributeError as e:
+        # Rare race if module was mid-reload; try one safe reload before failing
+        logger.warning(
+            "Function not found after import; attempting safe reload",
+            module=module_path,
+            function=function_name,
+            error=str(e),
+        )
+        mod = import_and_reload(module_path)
+        fn = getattr(mod, function_name)
     return fn
 
 
