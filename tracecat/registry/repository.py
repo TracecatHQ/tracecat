@@ -757,11 +757,13 @@ def import_and_reload(module_name: str) -> ModuleType:
         importlib.invalidate_caches()
         module = sys.modules.get(module_name)
         if module is None:
-            module = importlib.import_module(module_name)
-        # Reload in-place to refresh definitions without dropping parent package
-        reloaded_module = importlib.reload(module)
-        sys.modules[module_name] = reloaded_module
-        return reloaded_module
+            # Skip reload on first import
+            loaded_module = importlib.import_module(module_name)
+        else:
+            # Reload in-place to refresh definitions without dropping parent package
+            loaded_module = importlib.reload(module)
+        sys.modules[module_name] = loaded_module
+        return loaded_module
 
 
 def attach_validators(func: F, *validators: Any):

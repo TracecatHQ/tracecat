@@ -3,13 +3,12 @@ Reproduction harness for the historical import/reload race around `tracecat_regi
 
 This file contains two tests:
 
-1) test_import_reload_race_old_behavior (SKIPPED by default)
+1) test_import_reload_race_old_behavior
    - Monkeypatches `import_and_reload` to the old, unsafe strategy
      (removing the package from `sys.modules` and sleeping) to widen
      the race window, then drives concurrent imports and reloads.
-   - When enabled (set TRACECAT_RUN_RACE_TESTS=1), it should reliably
-     produce intermittent ModuleNotFoundError/KeyError on affected
-     environments, demonstrating the race.
+   - This test should reliably produce intermittent ModuleNotFoundError/KeyError
+     on affected environments, demonstrating the race.
 
 2) test_import_reload_no_race_with_lock
    - Uses the current, safe implementation of `import_and_reload`
