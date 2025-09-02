@@ -87,6 +87,8 @@ class WorkflowImportService(BaseWorkspaceService):
                     await self._import_single_workflow(
                         remote_workflow, conflict_strategy
                     )
+                # XXX: We need to commit here to ensure that the transaction is committed
+                await self.session.commit()
 
             return PullResult(
                 success=True,
