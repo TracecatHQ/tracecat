@@ -91,7 +91,7 @@ def _create_async_db_engine() -> AsyncEngine:
         "max_overflow": config.TRACECAT__DB_MAX_OVERFLOW,
         "pool_recycle": config.TRACECAT__DB_POOL_RECYCLE,
         "pool_size": config.TRACECAT__DB_POOL_SIZE,
-        "pool_pre_ping" : True,
+        "pool_pre_ping": True,
         "pool_use_lifo": True,  # Better for burst workloads
     }
     uri = _get_db_uri(driver="asyncpg")
