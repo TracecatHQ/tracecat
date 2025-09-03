@@ -15,6 +15,7 @@ https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html#list
 """
 
 import os
+from collections.abc import Sequence
 
 from polyfile.magic import MagicMatcher
 from pydantic import BaseModel
@@ -45,8 +46,8 @@ class FileSecurityValidator:
         self,
         max_file_size: int | None = None,
         max_filename_length: int | None = None,
-        allowed_extensions: set[str] | None = None,
-        allowed_mime_types: set[str] | None = None,
+        allowed_extensions: Sequence[str] | None = None,
+        allowed_mime_types: Sequence[str] | None = None,
         validate_magic_number: bool = True,
     ):
         self.max_file_size = max_file_size or config.TRACECAT__MAX_ATTACHMENT_SIZE_BYTES
@@ -96,10 +97,11 @@ class FileSecurityValidator:
             raise FileSizeError("File cannot be empty")
         if len(content) > self.max_file_size:
             logger.error(
-                f"File exceeds maximum allowed size of {self.max_file_size} bytes"
+                "File exceeds maximum allowed size",
+                max_file_size=self.max_file_size,
             )
             raise FileSizeError(
-                f"File exceeds maximum allowed size of {self.max_file_size} bytes"
+                "File exceeds maximum allowed size",
             )
         return True
 

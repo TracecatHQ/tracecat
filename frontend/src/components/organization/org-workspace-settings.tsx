@@ -109,6 +109,7 @@ export function OrgWorkspaceSettings({
         workspace.settings?.workflow_unlimited_timeout_enabled ?? false,
       workflow_default_timeout_seconds:
         workspace.settings?.workflow_default_timeout_seconds || undefined,
+      // If no explicit overrides exist, leave unset to preserve inheritance
       allowed_attachment_extensions: workspace.settings
         ?.allowed_attachment_extensions?.length
         ? workspace.settings.allowed_attachment_extensions.map(
@@ -117,10 +118,7 @@ export function OrgWorkspaceSettings({
               text: ext,
             })
           )
-        : systemDefaultExtensions.map((ext, index) => ({
-            id: `ext-default-${index}`,
-            text: ext,
-          })),
+        : undefined,
       // If no explicit overrides exist, leave unset to preserve inheritance
       allowed_attachment_mime_types: workspace.settings
         ?.allowed_attachment_mime_types?.length

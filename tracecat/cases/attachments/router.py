@@ -343,15 +343,6 @@ async def download_attachment(
             attachment_id,
             preview=preview,
         )
-
-        logger.info(
-            "Generated presigned download URL",
-            case_id=case_id,
-            attachment_id=attachment_id,
-            filename=filename,
-            content_type=content_type,
-        )
-
         return CaseAttachmentDownloadResponse(
             download_url=presigned_url,
             file_name=filename,

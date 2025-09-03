@@ -37,7 +37,7 @@ class WorkspaceSettingsRead(BaseModel):
         """Returns workspace-specific extensions if set, otherwise system defaults."""
         if self.allowed_attachment_extensions:
             return self.allowed_attachment_extensions
-        return list(config.TRACECAT__ALLOWED_ATTACHMENT_EXTENSIONS)
+        return sorted(config.TRACECAT__ALLOWED_ATTACHMENT_EXTENSIONS)
 
     @computed_field
     @property
@@ -45,7 +45,7 @@ class WorkspaceSettingsRead(BaseModel):
         """Returns workspace-specific MIME types if set, otherwise system defaults."""
         if self.allowed_attachment_mime_types:
             return self.allowed_attachment_mime_types
-        return list(config.TRACECAT__ALLOWED_ATTACHMENT_MIME_TYPES)
+        return sorted(config.TRACECAT__ALLOWED_ATTACHMENT_MIME_TYPES)
 
 
 class WorkspaceSettingsUpdate(BaseModel):

@@ -249,9 +249,14 @@ class CaseAttachmentService(BaseWorkspaceService):
             validate_magic_number = True
 
         # Comprehensive security validation using the new validator
+        # Ensure allowed lists are Sequences for type checking
         validator = FileSecurityValidator(
-            allowed_extensions=allowed_extensions,
-            allowed_mime_types=allowed_mime_types,
+            allowed_extensions=(
+                list(allowed_extensions) if allowed_extensions else None
+            ),
+            allowed_mime_types=(
+                list(allowed_mime_types) if allowed_mime_types else None
+            ),
             validate_magic_number=validate_magic_number,
         )
         # Strip "Content-Type" from the declared MIME type
