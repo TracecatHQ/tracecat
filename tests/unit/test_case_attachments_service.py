@@ -368,7 +368,7 @@ async def test_delete_authorization_basic_vs_admin(
         type="user",
         access_level=AccessLevel.BASIC,
         workspace_id=attachments_service.role.workspace_id,
-        user_id=uuid.uuid4(),  # any different UUID
+        user_id=uuid.uuid4(),
         service_id="tracecat-api",
     )
     other_svc = CaseAttachmentService(session=session, role=other_role)
