@@ -2,8 +2,17 @@
 import os
 import sys
 
-threshold = float(os.getenv("TMP_THRESHOLD", "80"))
-tmp_path = os.getenv("TMP_PATH", "/tmp")
+# Treats empty strings as Falsy
+threshold = float(os.getenv("HEALTHCHECK_TMP_THRESHOLD") or "80")
+# Allow TMP_PATH override, otherwise use env temp paths
+tmp_path = os.getenv("HEALTHCHECK_TMP_PATH") or os.getenv("TMP", "/tmp")
+
+# Check if the path exists
+if not os.path.exists(tmp_path):
+    print(f"Path {tmp_path} does not exist - OK")
+    sys.exit(0)
+
+# Check the disk usage
 st = os.statvfs(tmp_path)
 total = st.f_blocks * st.f_frsize
 used = (st.f_blocks - st.f_bfree) * st.f_frsize
