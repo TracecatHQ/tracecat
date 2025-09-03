@@ -14,7 +14,7 @@ import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { toast } from "@/components/ui/use-toast"
 import { useEntities } from "@/hooks/use-entities"
-import { useLocalStorage } from "@/lib/hooks"
+import { useLocalStorage } from "@/hooks/use-local-storage"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 export default function EntitiesPage() {

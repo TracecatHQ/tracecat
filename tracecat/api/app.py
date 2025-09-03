@@ -52,6 +52,7 @@ from tracecat.middleware import (
 from tracecat.middleware.security import SecurityHeadersMiddleware
 from tracecat.organization.router import router as org_router
 from tracecat.prompt.router import router as prompt_router
+from tracecat.records.router import router as records_router
 from tracecat.registry.actions.router import router as registry_actions_router
 from tracecat.registry.common import reload_registry
 from tracecat.registry.repositories.router import router as registry_repos_router
@@ -204,6 +205,7 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(schedules_router)
     app.include_router(entities_router)
     app.include_router(tags_router)
+    app.include_router(records_router)
     app.include_router(users_router)
     app.include_router(org_router)
     app.include_router(agent_router)

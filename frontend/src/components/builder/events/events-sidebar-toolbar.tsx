@@ -10,7 +10,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { useLocalStorage } from "@/lib/hooks"
+import { useLocalStorage } from "@/hooks/use-local-storage"
 
 const AVAILABLE_TRIGGER_TYPES: readonly TriggerType[] = $TriggerType.enum
 export function EventsSidebarToolbar() {

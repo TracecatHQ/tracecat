@@ -979,6 +979,30 @@ export type CursorPaginatedResponse_CaseReadMinimal_ = {
   total_estimate?: number | null
 }
 
+export type CursorPaginatedResponse_RecordRead_ = {
+  items: Array<RecordRead>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
 export type CursorPaginatedResponse_TableRowRead_ = {
   items: Array<TableRowRead>
   /**
@@ -2204,6 +2228,40 @@ export type PullResult = {
 
 export type ReceiveInteractionResponse = {
   message: string
+}
+
+/**
+ * Create payload for an entity record.
+ *
+ * Data is a free-form JSON object whose keys correspond to entity field keys.
+ * Values are validated and coerced by the service using the entity's schema.
+ */
+export type RecordCreate = {
+  data?: {
+    [key: string]: unknown
+  }
+}
+
+export type RecordRead = {
+  id: string
+  entity_id: string
+  data: {
+    [key: string]: unknown
+  }
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * Partial update for a record's data map.
+ *
+ * Any keys provided will be merged into the existing record data after
+ * validation/coercion. Keys not present remain unchanged.
+ */
+export type RecordUpdate = {
+  data?: {
+    [key: string]: unknown
+  }
 }
 
 /**
@@ -4629,6 +4687,59 @@ export type EntitiesActivateFieldData = {
 
 export type EntitiesActivateFieldResponse = void
 
+export type EntitiesListEntityRecordsData = {
+  /**
+   * Cursor for pagination
+   */
+  cursor?: string | null
+  entityId: string
+  /**
+   * Maximum items per page
+   */
+  limit?: number
+  /**
+   * Reverse pagination direction
+   */
+  reverse?: boolean
+  workspaceId: string
+}
+
+export type EntitiesListEntityRecordsResponse =
+  CursorPaginatedResponse_RecordRead_
+
+export type EntitiesCreateEntityRecordData = {
+  entityId: string
+  requestBody: RecordCreate
+  workspaceId: string
+}
+
+export type EntitiesCreateEntityRecordResponse = unknown
+
+export type EntitiesGetEntityRecordData = {
+  entityId: string
+  recordId: string
+  workspaceId: string
+}
+
+export type EntitiesGetEntityRecordResponse = RecordRead
+
+export type EntitiesUpdateEntityRecordData = {
+  entityId: string
+  recordId: string
+  requestBody: RecordUpdate
+  workspaceId: string
+}
+
+export type EntitiesUpdateEntityRecordResponse = void
+
+export type EntitiesDeleteEntityRecordData = {
+  entityId: string
+  recordId: string
+  workspaceId: string
+}
+
+export type EntitiesDeleteEntityRecordResponse = void
+
 export type TagsListTagsData = {
   workspaceId: string
 }
@@ -4663,6 +4774,32 @@ export type TagsDeleteTagData = {
 }
 
 export type TagsDeleteTagResponse = unknown
+
+export type RecordsListRecordsData = {
+  /**
+   * Cursor for pagination
+   */
+  cursor?: string | null
+  entityId?: string | null
+  /**
+   * Maximum items per page
+   */
+  limit?: number
+  /**
+   * Reverse pagination direction
+   */
+  reverse?: boolean
+  workspaceId: string
+}
+
+export type RecordsListRecordsResponse = CursorPaginatedResponse_RecordRead_
+
+export type RecordsGetRecordData = {
+  recordId: string
+  workspaceId: string
+}
+
+export type RecordsGetRecordResponse = RecordRead
 
 export type UsersSearchUserData = {
   email?: string | null
@@ -6664,6 +6801,75 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/entities/{entity_id}/records": {
+    get: {
+      req: EntitiesListEntityRecordsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_RecordRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: EntitiesCreateEntityRecordData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/entities/{entity_id}/records/{record_id}": {
+    get: {
+      req: EntitiesGetEntityRecordData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: RecordRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: EntitiesUpdateEntityRecordData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: EntitiesDeleteEntityRecordData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/tags": {
     get: {
       req: TagsListTagsData
@@ -6726,6 +6932,36 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/records/records": {
+    get: {
+      req: RecordsListRecordsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_RecordRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/records/records/{record_id}": {
+    get: {
+      req: RecordsGetRecordData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: RecordRead
         /**
          * Validation Error
          */

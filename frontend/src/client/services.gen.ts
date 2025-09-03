@@ -119,6 +119,8 @@ import type {
   EntitiesActivateFieldData,
   EntitiesActivateFieldResponse,
   EntitiesCreateEntityData,
+  EntitiesCreateEntityRecordData,
+  EntitiesCreateEntityRecordResponse,
   EntitiesCreateEntityResponse,
   EntitiesCreateFieldData,
   EntitiesCreateFieldResponse,
@@ -127,18 +129,26 @@ import type {
   EntitiesDeactivateFieldData,
   EntitiesDeactivateFieldResponse,
   EntitiesDeleteEntityData,
+  EntitiesDeleteEntityRecordData,
+  EntitiesDeleteEntityRecordResponse,
   EntitiesDeleteEntityResponse,
   EntitiesDeleteFieldData,
   EntitiesDeleteFieldResponse,
   EntitiesGetEntityData,
+  EntitiesGetEntityRecordData,
+  EntitiesGetEntityRecordResponse,
   EntitiesGetEntityResponse,
   EntitiesGetFieldData,
   EntitiesGetFieldResponse,
   EntitiesListEntitiesData,
   EntitiesListEntitiesResponse,
+  EntitiesListEntityRecordsData,
+  EntitiesListEntityRecordsResponse,
   EntitiesListFieldsData,
   EntitiesListFieldsResponse,
   EntitiesUpdateEntityData,
+  EntitiesUpdateEntityRecordData,
+  EntitiesUpdateEntityRecordResponse,
   EntitiesUpdateEntityResponse,
   EntitiesUpdateFieldData,
   EntitiesUpdateFieldResponse,
@@ -218,6 +228,10 @@ import type {
   PublicIncomingWebhookWaitResponse,
   PublicReceiveInteractionData,
   PublicReceiveInteractionResponse,
+  RecordsGetRecordData,
+  RecordsGetRecordResponse,
+  RecordsListRecordsData,
+  RecordsListRecordsResponse,
   RegistryActionsCreateRegistryActionData,
   RegistryActionsCreateRegistryActionResponse,
   RegistryActionsDeleteRegistryActionData,
@@ -2428,6 +2442,154 @@ export const entitiesActivateField = (
 }
 
 /**
+ * List Entity Records
+ * @param data The data for the request.
+ * @param data.entityId
+ * @param data.workspaceId
+ * @param data.limit Maximum items per page
+ * @param data.cursor Cursor for pagination
+ * @param data.reverse Reverse pagination direction
+ * @returns CursorPaginatedResponse_RecordRead_ Successful Response
+ * @throws ApiError
+ */
+export const entitiesListEntityRecords = (
+  data: EntitiesListEntityRecordsData
+): CancelablePromise<EntitiesListEntityRecordsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/entities/{entity_id}/records",
+    path: {
+      entity_id: data.entityId,
+    },
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+      reverse: data.reverse,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Entity Record
+ * @param data The data for the request.
+ * @param data.entityId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns unknown Successful Response
+ * @throws ApiError
+ */
+export const entitiesCreateEntityRecord = (
+  data: EntitiesCreateEntityRecordData
+): CancelablePromise<EntitiesCreateEntityRecordResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/entities/{entity_id}/records",
+    path: {
+      entity_id: data.entityId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Entity Record
+ * @param data The data for the request.
+ * @param data.entityId
+ * @param data.recordId
+ * @param data.workspaceId
+ * @returns RecordRead Successful Response
+ * @throws ApiError
+ */
+export const entitiesGetEntityRecord = (
+  data: EntitiesGetEntityRecordData
+): CancelablePromise<EntitiesGetEntityRecordResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/entities/{entity_id}/records/{record_id}",
+    path: {
+      entity_id: data.entityId,
+      record_id: data.recordId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Entity Record
+ * @param data The data for the request.
+ * @param data.entityId
+ * @param data.recordId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const entitiesUpdateEntityRecord = (
+  data: EntitiesUpdateEntityRecordData
+): CancelablePromise<EntitiesUpdateEntityRecordResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/entities/{entity_id}/records/{record_id}",
+    path: {
+      entity_id: data.entityId,
+      record_id: data.recordId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Entity Record
+ * @param data The data for the request.
+ * @param data.entityId
+ * @param data.recordId
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const entitiesDeleteEntityRecord = (
+  data: EntitiesDeleteEntityRecordData
+): CancelablePromise<EntitiesDeleteEntityRecordResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/entities/{entity_id}/records/{record_id}",
+    path: {
+      entity_id: data.entityId,
+      record_id: data.recordId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * List Tags
  * List all tags for the current workspace.
  * @param data The data for the request.
@@ -2550,6 +2712,62 @@ export const tagsDeleteTag = (
     url: "/tags/{tag_id}",
     path: {
       tag_id: data.tagId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Records
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.entityId
+ * @param data.limit Maximum items per page
+ * @param data.cursor Cursor for pagination
+ * @param data.reverse Reverse pagination direction
+ * @returns CursorPaginatedResponse_RecordRead_ Successful Response
+ * @throws ApiError
+ */
+export const recordsListRecords = (
+  data: RecordsListRecordsData
+): CancelablePromise<RecordsListRecordsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/records/records",
+    query: {
+      entity_id: data.entityId,
+      limit: data.limit,
+      cursor: data.cursor,
+      reverse: data.reverse,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Record
+ * @param data The data for the request.
+ * @param data.recordId
+ * @param data.workspaceId
+ * @returns RecordRead Successful Response
+ * @throws ApiError
+ */
+export const recordsGetRecord = (
+  data: RecordsGetRecordData
+): CancelablePromise<RecordsGetRecordResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/records/records/{record_id}",
+    path: {
+      record_id: data.recordId,
     },
     query: {
       workspace_id: data.workspaceId,
