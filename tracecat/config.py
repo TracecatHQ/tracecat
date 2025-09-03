@@ -64,13 +64,13 @@ TRACECAT__DB_SSLMODE = os.environ.get("TRACECAT__DB_SSLMODE", "require")
 TRACECAT__DB_PASS__ARN = os.environ.get("TRACECAT__DB_PASS__ARN")
 """(AWS only) ARN of the secret to connect to the database with."""
 
-TRACECAT__DB_MAX_OVERFLOW = int(os.environ.get("TRACECAT__DB_MAX_OVERFLOW", 30))
+TRACECAT__DB_MAX_OVERFLOW = int(os.environ.get("TRACECAT__DB_MAX_OVERFLOW", 60))
 """The maximum number of connections to allow in the pool."""
-TRACECAT__DB_POOL_SIZE = int(os.environ.get("TRACECAT__DB_POOL_SIZE", 30))
+TRACECAT__DB_POOL_SIZE = int(os.environ.get("TRACECAT__DB_POOL_SIZE", 10))
 """The size of the connection pool."""
 TRACECAT__DB_POOL_TIMEOUT = int(os.environ.get("TRACECAT__DB_POOL_TIMEOUT", 30))
 """The timeout for the connection pool."""
-TRACECAT__DB_POOL_RECYCLE = int(os.environ.get("TRACECAT__DB_POOL_RECYCLE", 1800))
+TRACECAT__DB_POOL_RECYCLE = int(os.environ.get("TRACECAT__DB_POOL_RECYCLE", 600))
 """The time to recycle the connection pool."""
 
 # === Auth config === #
