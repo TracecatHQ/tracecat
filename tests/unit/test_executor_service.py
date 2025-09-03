@@ -1,4 +1,5 @@
 import uuid
+from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -132,7 +133,18 @@ async def test_dispatch_action_with_foreach(
 
 @pytest.mark.anyio
 async def test_dispatch_action_with_git_url(mock_session, basic_task_input):
+    """Test dispatch_action_on_cluster with a git url, patching get_async_session_context_manager."""
+
+    # Patch the async session context manager to yield a mock session
+    @asynccontextmanager
+    async def mock_session_cm():
+        yield mock_session
+
     with (
+        patch(
+            "tracecat.executor.service.get_async_session_context_manager",
+            return_value=mock_session_cm(),
+        ),
         patch("tracecat.executor.service.safe_prepare_git_url") as mock_git_url,
         patch("tracecat.executor.service._dispatch_action") as mock_dispatch,
         patch("tracecat.executor.service.get_ssh_command") as mock_ssh_cmd,
@@ -143,9 +155,7 @@ async def test_dispatch_action_with_git_url(mock_session, basic_task_input):
         mock_ssh_cmd.return_value = "ssh -i /tmp/key"
         mock_dispatch.return_value = {"result": "success"}
 
-        result = await dispatch_action_on_cluster(
-            input=basic_task_input, session=mock_session
-        )
+        result = await dispatch_action_on_cluster(input=basic_task_input)
 
         assert result == {"result": "success"}
         mock_git_url.assert_called_once()
