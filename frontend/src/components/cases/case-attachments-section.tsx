@@ -168,7 +168,6 @@ export function CaseAttachmentsSection({
       })
     },
     onError: (error: ApiError, file) => {
-      console.error("Failed to upload attachment:", error)
       setIsUploading(false)
 
       // Handle structured error responses with specific HTTP status codes
