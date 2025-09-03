@@ -47,6 +47,7 @@ class FileSecurityValidator:
         max_filename_length: int | None = None,
         allowed_extensions: set[str] | None = None,
         allowed_mime_types: set[str] | None = None,
+        validate_magic_number: bool = True,
     ):
         self.max_file_size = max_file_size or config.TRACECAT__MAX_ATTACHMENT_SIZE_BYTES
         self.max_filename_length = (
@@ -58,6 +59,7 @@ class FileSecurityValidator:
         self.allowed_mime_types = list(
             allowed_mime_types or config.TRACECAT__ALLOWED_ATTACHMENT_MIME_TYPES
         )
+        self.validate_magic_number = validate_magic_number
 
     def validate_file(
         self, content: bytes, filename: str, declared_mime_type: str
@@ -78,8 +80,9 @@ class FileSecurityValidator:
         # Validate MIME type
         normalized_mime = self._normalize_mime_type(declared_mime_type)
         self._validate_mime_type(normalized_mime)
-        # Polyfile magic number check
-        self._validate_magic_number(content, normalized_mime)
+        # Polyfile magic number check (if enabled)
+        if self.validate_magic_number:
+            self._validate_magic_number(content, normalized_mime)
         return FileValidationResult(
             filename=filename,
             content_type=normalized_mime,

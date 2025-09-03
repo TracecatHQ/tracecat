@@ -59,6 +59,7 @@ const workspaceSettingsSchema = z.object({
       })
     )
     .optional(),
+  validate_attachment_magic_number: z.boolean().optional(),
 })
 
 type WorkspaceSettingsForm = z.infer<typeof workspaceSettingsSchema>
@@ -125,6 +126,8 @@ export function OrgWorkspaceSettings({
             id: `mime-default-${index}`,
             text: mime,
           })),
+      validate_attachment_magic_number:
+        workspace.settings?.validate_attachment_magic_number ?? true,
     },
   })
 
@@ -145,6 +148,8 @@ export function OrgWorkspaceSettings({
           ?.length
           ? values.allowed_attachment_mime_types.map((mime) => mime.text)
           : undefined,
+        validate_attachment_magic_number:
+          values.validate_attachment_magic_number,
       },
     })
   }
@@ -362,6 +367,29 @@ export function OrgWorkspaceSettings({
                     application/pdf, image/jpeg)
                   </FormDescription>
                   <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="validate_attachment_magic_number"
+              render={({ field }) => (
+                <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                  <div className="space-y-0.5">
+                    <FormLabel>Validate file content</FormLabel>
+                    <FormDescription>
+                      Verify that uploaded files match their declared type by
+                      checking file signatures (magic numbers). Disabling this
+                      may allow malicious files disguised as other formats.
+                    </FormDescription>
+                  </div>
+                  <FormControl>
+                    <Switch
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                    />
+                  </FormControl>
                 </FormItem>
               )}
             />

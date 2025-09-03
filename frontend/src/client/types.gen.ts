@@ -3905,6 +3905,7 @@ export type WorkspaceSettingsRead = {
   workflow_default_timeout_seconds?: number | null
   allowed_attachment_extensions?: Array<string> | null
   allowed_attachment_mime_types?: Array<string> | null
+  validate_attachment_magic_number?: boolean | null
   /**
    * Returns workspace-specific extensions if set, otherwise system defaults.
    */
@@ -3933,6 +3934,10 @@ export type WorkspaceSettingsUpdate = {
    * Allowed MIME types for attachments (e.g., ['application/pdf', 'image/jpeg']). Overrides global defaults.
    */
   allowed_attachment_mime_types?: Array<string> | null
+  /**
+   * Whether to validate file content matches declared MIME type using magic number detection. Defaults to true for security.
+   */
+  validate_attachment_magic_number?: boolean | null
 }
 
 export type WorkspaceUpdate = {

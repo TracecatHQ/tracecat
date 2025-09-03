@@ -188,7 +188,7 @@ export function CaseAttachmentsSection({
         ) {
           toast({
             title: "Content type not supported",
-            description: `${file.name} has an unsupported content type. ${detail.message || "Please try a different file type."}`,
+            description: `${file.name} has an unsupported content type. Please try a different file type.`,
           })
           return
         }
@@ -293,7 +293,7 @@ export function CaseAttachmentsSection({
         ) {
           toast({
             title: "File validation failed",
-            description: `${file.name} failed validation. ${detail.message || "Please check the file and try again."}`,
+            description: `${file.name} failed validation. Please check the file and try again.`,
           })
           return
         }
@@ -366,7 +366,6 @@ export function CaseAttachmentsSection({
       toast({
         title: "File too large",
         description: `${file.name} is ${formatFileSize(file.size)}. Maximum file size is 20MB.`,
-        variant: "destructive",
       })
       return false
     }
@@ -461,7 +460,6 @@ export function CaseAttachmentsSection({
       toast({
         title: "Download failed",
         description: `Failed to download ${attachment.file_name}`,
-        variant: "destructive",
       })
     }
   }
@@ -489,7 +487,6 @@ export function CaseAttachmentsSection({
       toast({
         title: "Preview failed",
         description: `Failed to preview ${attachment.file_name}`,
-        variant: "destructive",
       })
     }
   }
@@ -561,7 +558,7 @@ export function CaseAttachmentsSection({
             <span className="text-xs text-muted-foreground group-hover:text-foreground transition-colors">
               {isUploading || uploadMutation.isPending
                 ? "Uploading..."
-                : "Add new attachment (max 20MB) • pdf, docx, xlsx, pptx, txt, csv, png, jpeg, gif, webp"}
+                : "Add new attachment (max 20MB)"}
             </span>
           </div>
 
@@ -734,7 +731,6 @@ export function CaseAttachmentsSection({
                         title: "Image preview failed",
                         description:
                           "Try downloading the attachment or checking the original file for issues.",
-                        variant: "destructive",
                       })
                     }}
                     onLoad={() => {

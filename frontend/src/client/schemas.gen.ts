@@ -12157,6 +12157,17 @@ export const $WorkspaceSettingsRead = {
       ],
       title: "Allowed Attachment Mime Types",
     },
+    validate_attachment_magic_number: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Validate Attachment Magic Number",
+    },
     effective_allowed_attachment_extensions: {
       items: {
         type: "string",
@@ -12257,6 +12268,19 @@ export const $WorkspaceSettingsUpdate = {
       title: "Allowed Attachment Mime Types",
       description:
         "Allowed MIME types for attachments (e.g., ['application/pdf', 'image/jpeg']). Overrides global defaults.",
+    },
+    validate_attachment_magic_number: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Validate Attachment Magic Number",
+      description:
+        "Whether to validate file content matches declared MIME type using magic number detection. Defaults to true for security.",
     },
   },
   type: "object",

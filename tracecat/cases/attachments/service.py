@@ -241,10 +241,18 @@ class CaseAttachmentService(BaseWorkspaceService):
         if allowed_mime_types:
             allowed_mime_types = set(allowed_mime_types)
 
+        # Get magic number validation setting (default to True for security)
+        validate_magic_number = workspace_settings.get(
+            "validate_attachment_magic_number"
+        )
+        if validate_magic_number is None:
+            validate_magic_number = True
+
         # Comprehensive security validation using the new validator
         validator = FileSecurityValidator(
             allowed_extensions=allowed_extensions,
             allowed_mime_types=allowed_mime_types,
+            validate_magic_number=validate_magic_number,
         )
         # Strip "Content-Type" from the declared MIME type
         declared_mime_type = params.content_type.split(";")[0].strip()

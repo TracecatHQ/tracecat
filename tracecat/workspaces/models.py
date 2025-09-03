@@ -19,6 +19,7 @@ class WorkspaceSettings(TypedDict):
     workflow_default_timeout_seconds: NotRequired[int | None]
     allowed_attachment_extensions: NotRequired[list[str] | None]
     allowed_attachment_mime_types: NotRequired[list[str] | None]
+    validate_attachment_magic_number: NotRequired[bool | None]
 
 
 # Schema
@@ -28,6 +29,7 @@ class WorkspaceSettingsRead(BaseModel):
     workflow_default_timeout_seconds: int | None = None
     allowed_attachment_extensions: list[str] | None = None
     allowed_attachment_mime_types: list[str] | None = None
+    validate_attachment_magic_number: bool | None = None
 
     @computed_field
     @property
@@ -64,6 +66,10 @@ class WorkspaceSettingsUpdate(BaseModel):
     allowed_attachment_mime_types: list[str] | None = Field(
         default=None,
         description="Allowed MIME types for attachments (e.g., ['application/pdf', 'image/jpeg']). Overrides global defaults.",
+    )
+    validate_attachment_magic_number: bool | None = Field(
+        default=None,
+        description="Whether to validate file content matches declared MIME type using magic number detection. Defaults to true for security.",
     )
 
 
