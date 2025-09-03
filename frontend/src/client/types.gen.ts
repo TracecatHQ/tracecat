@@ -7891,23 +7891,6 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/cases/{case_id}/attachments../storage-usage": {
-    get: {
-      req: CasesGetStorageUsageData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: {
-          [key: string]: number
-        }
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
   "/cases": {
     get: {
       req: CasesListCasesData

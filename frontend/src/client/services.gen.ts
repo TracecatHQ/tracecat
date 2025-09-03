@@ -4320,33 +4320,6 @@ export const casesDeleteAttachment = (
 }
 
 /**
- * Get Storage Usage
- * Get total storage used by a case's attachments.
- * @param data The data for the request.
- * @param data.caseId
- * @param data.workspaceId
- * @returns number Successful Response
- * @throws ApiError
- */
-export const casesGetStorageUsage = (
-  data: CasesGetStorageUsageData
-): CancelablePromise<CasesGetStorageUsageResponse> => {
-  return __request(OpenAPI, {
-    method: "GET",
-    url: "/cases/{case_id}/attachments../storage-usage",
-    path: {
-      case_id: data.caseId,
-    },
-    query: {
-      workspace_id: data.workspaceId,
-    },
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
  * List Cases
  * List cases with cursor-based pagination and tag filtering.
  * @param data The data for the request.

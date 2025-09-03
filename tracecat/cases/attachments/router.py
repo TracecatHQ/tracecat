@@ -447,31 +447,3 @@ async def delete_attachment(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to delete attachment: {str(e)}",
         ) from e
-
-
-@attachments_router.get("../storage-usage")
-async def get_storage_usage(
-    *,
-    role: WorkspaceUser,
-    session: AsyncDBSession,
-    case_id: uuid.UUID,
-) -> dict[str, float]:
-    """Get total storage used by a case's attachments."""
-    from tracecat.cases.service import CasesService
-
-    service = CasesService(session, role)
-    case = await service.get_case(case_id)
-    if case is None:
-        logger.warning("Case not found", case_id=case_id)
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Case with ID {case_id} not found",
-        )
-
-    total_bytes = await service.attachments.get_total_storage_used(case)
-    total_mb = round(total_bytes / (1024 * 1024), 2)
-
-    return {
-        "total_bytes": float(total_bytes),
-        "total_mb": total_mb,
-    }
