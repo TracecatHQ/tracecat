@@ -19,6 +19,14 @@ definition:
       description: Filter incidents by status.
       enum: ["triggered", "acknowledged", "resolved"]
       default: null
+    since:
+      type: datetime | None
+      description: The start of the date range over which you want to search. Maximum range is 6 months and default is 1 month.
+      default: null
+    until:
+      type: datetime | None
+      description: The end of the date range over which you want to search. Maximum range is 6 months and default is 1 month.
+      default: null
   steps:
     - ref: get_incidents
       action: core.http_request
@@ -31,4 +39,6 @@ definition:
         params:
           incident_key: ${{ inputs.incident_key }}
           statuses[]: ${{ inputs.status }}
+          since: ${{ inputs.since }}
+          until: ${{ inputs.until }}
   returns: ${{ steps.get_incidents.result.data }}
