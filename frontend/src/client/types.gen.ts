@@ -932,11 +932,6 @@ export type Code = {
 export type lang = "yaml" | "python"
 
 /**
- * Strategy for handling workflow conflicts during import.
- */
-export type ConflictStrategy = "skip" | "overwrite" | "rename"
-
-/**
  * Event for when a case is created.
  */
 export type CreatedEventRead = {
@@ -3917,10 +3912,6 @@ export type WorkflowSyncPullRequest = {
    * Specific commit SHA to pull from
    */
   commit_sha: string
-  /**
-   * Strategy for handling workflow conflicts during import
-   */
-  conflict_strategy?: ConflictStrategy
   /**
    * Validate only, don't perform actual import
    */

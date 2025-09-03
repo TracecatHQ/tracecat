@@ -6,7 +6,6 @@ from pydantic import BaseModel, ConfigDict, Field, field_serializer
 from tracecat.dsl.common import DSLInput
 from tracecat.identifiers.workflow import WorkflowID, WorkflowIDShort
 from tracecat.store import Source
-from tracecat.sync import ConflictStrategy
 
 # TODO(deps): This is only supported starting pydantic 2.11+
 WorkflowSource = Source[WorkflowID]
@@ -24,11 +23,6 @@ class WorkflowSyncPullRequest(BaseModel):
         description="Specific commit SHA to pull from",
         min_length=40,
         max_length=64,
-    )
-
-    conflict_strategy: ConflictStrategy = Field(
-        default=ConflictStrategy.SKIP,
-        description="Strategy for handling workflow conflicts during import",
     )
 
     dry_run: bool = Field(

@@ -15,7 +15,7 @@ from tracecat.dsl.view import RFGraph
 from tracecat.identifiers.workflow import WorkflowID, WorkflowUUID
 from tracecat.logger import logger
 from tracecat.service import BaseWorkspaceService
-from tracecat.sync import ConflictStrategy, PullDiagnostic, PullResult
+from tracecat.sync import PullDiagnostic, PullResult
 from tracecat.types.exceptions import TracecatAuthorizationError
 from tracecat.workflow.actions.models import ActionControlFlow
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
@@ -47,14 +47,14 @@ class WorkflowImportService(BaseWorkspaceService):
         self,
         remote_workflows: list[RemoteWorkflowDefinition],
         commit_sha: str,
-        conflict_strategy: ConflictStrategy = ConflictStrategy.SKIP,
     ) -> PullResult:
         """Import workflows atomically - either all succeed or all fail.
+
+        Existing workflows will be overwritten with new definitions.
 
         Args:
             remote_workflows: List of remote workflow definitions to import
             commit_sha: The commit SHA these workflows came from
-            conflict_strategy: How to handle conflicts with existing workflows
 
         Returns:
             PullResult with success status and diagnostics
@@ -70,9 +70,7 @@ class WorkflowImportService(BaseWorkspaceService):
             )
 
         # Phase 1: Validation - check everything before touching database
-        diagnostics = await self._validate_all_workflows(
-            remote_workflows, conflict_strategy
-        )
+        diagnostics = await self._validate_all_workflows(remote_workflows)
 
         if diagnostics:
             return PullResult(
@@ -88,9 +86,7 @@ class WorkflowImportService(BaseWorkspaceService):
         try:
             async with self.session.begin_nested():
                 for remote_workflow in remote_workflows:
-                    await self._import_single_workflow(
-                        remote_workflow, conflict_strategy
-                    )
+                    await self._import_single_workflow(remote_workflow)
                 # XXX: We need to commit here to ensure that the transaction is committed
                 await self.session.commit()
 
@@ -125,15 +121,12 @@ class WorkflowImportService(BaseWorkspaceService):
     async def _validate_all_workflows(
         self,
         remote_workflows: list[RemoteWorkflowDefinition],
-        conflict_strategy: ConflictStrategy,
     ) -> list[PullDiagnostic]:
         """Validate all workflows before import. Returns list of diagnostics."""
         diagnostics: list[PullDiagnostic] = []
 
         for remote_workflow in remote_workflows:
-            workflow_diagnostics = await self._validate_single_workflow(
-                remote_workflow, conflict_strategy
-            )
+            workflow_diagnostics = await self._validate_single_workflow(remote_workflow)
             diagnostics.extend(workflow_diagnostics)
 
         # Cross-workflow integrity: validate alias references in child workflow actions
@@ -147,7 +140,6 @@ class WorkflowImportService(BaseWorkspaceService):
     async def _validate_single_workflow(
         self,
         remote_workflow: RemoteWorkflowDefinition,
-        conflict_strategy: ConflictStrategy,
     ) -> list[PullDiagnostic]:
         """Validate a single workflow. Returns list of diagnostics."""
         diagnostics: list[PullDiagnostic] = []
@@ -170,11 +162,8 @@ class WorkflowImportService(BaseWorkspaceService):
 
             # Check for conflicts
             wf_id = WorkflowUUID.new(remote_workflow.id)
-            existing_workflow = await self.wf_mgmt.get_workflow(wf_id)
+            await self.wf_mgmt.get_workflow(wf_id)
 
-            if existing_workflow and conflict_strategy == ConflictStrategy.SKIP:
-                # This is not an error for SKIP strategy - we'll just skip it
-                pass
         except ValidationError as e:
             diagnostics.append(
                 PullDiagnostic(
@@ -285,17 +274,14 @@ class WorkflowImportService(BaseWorkspaceService):
     async def _import_single_workflow(
         self,
         remote_workflow: RemoteWorkflowDefinition,
-        conflict_strategy: ConflictStrategy,
     ) -> None:
-        """Import a single workflow. Must be called within a transaction."""
+        """Import a single workflow. Must be called within a transaction.
+
+        Existing workflows will be overwritten with new definitions.
+        """
         wf_id = WorkflowUUID.new(remote_workflow.id)
         if existing_workflow := await self.wf_mgmt.get_workflow(wf_id):
-            if conflict_strategy == ConflictStrategy.SKIP:
-                return  # Skip this workflow
-            elif conflict_strategy == ConflictStrategy.OVERWRITE:
-                await self._update_existing_workflow(existing_workflow, remote_workflow)
-            else:
-                raise ValueError(f"Conflict strategy {conflict_strategy} not supported")
+            await self._update_existing_workflow(existing_workflow, remote_workflow)
         else:
             await self._create_new_workflow(remote_workflow)
 

@@ -1,6 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
-  type ConflictStrategy,
   type GitCommitInfo,
   type PullResult,
   type WorkflowSyncPullRequest,
@@ -10,7 +9,6 @@ import {
 
 interface WorkflowPullOptions {
   commit_sha: string
-  conflict_strategy: ConflictStrategy
   dry_run?: boolean
 }
 
@@ -29,7 +27,6 @@ export function useWorkflowSync(workspaceId: string) {
     mutationFn: async (options: WorkflowPullOptions): Promise<PullResult> => {
       const requestBody: WorkflowSyncPullRequest = {
         commit_sha: options.commit_sha,
-        conflict_strategy: options.conflict_strategy,
         dry_run: options.dry_run ?? false,
       }
 
@@ -103,12 +100,3 @@ export function useRepositoryCommits(
     commitsError,
   }
 }
-
-// Re-export types from the generated client
-export type {
-  GitCommitInfo,
-  PullResult,
-  WorkflowSyncPullRequest,
-  ConflictStrategy,
-}
-export type { WorkflowPullOptions }
