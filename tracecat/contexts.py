@@ -16,6 +16,7 @@ __all__ = [
     "ctx_logger",
     "ctx_interaction",
     "ctx_stream_id",
+    "ctx_session",
     "get_env",
 ]
 
@@ -32,6 +33,7 @@ ctx_session: ContextVar[AsyncSession | None] = ContextVar("session", default=Non
 
 @asynccontextmanager
 async def with_session(session: AsyncSession):
+    """Set the session in the context."""
     token = ctx_session.set(session)
     try:
         yield
