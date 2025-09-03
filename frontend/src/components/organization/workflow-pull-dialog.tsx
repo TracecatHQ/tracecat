@@ -9,6 +9,7 @@ import {
 import { useEffect, useState } from "react"
 import type { PullResult } from "@/client"
 import { CommitSelector } from "@/components/registry/commit-selector"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -131,12 +132,6 @@ export function WorkflowPullDialog({
           <DialogDescription>
             Select a commit to pull workflow definitions from:{" "}
             <span className="font-mono text-xs">{gitRepoUrl}</span>
-            <br />
-            <br />
-            <strong className="text-amber-600">
-              Warning: This will overwrite any existing workflows, schedules,
-              and configurations with the same ID.
-            </strong>
           </DialogDescription>
         </DialogHeader>
 
@@ -276,7 +271,10 @@ export function WorkflowPullDialog({
                     <div className="space-y-2 max-h-32 overflow-y-auto">
                       {pullResult.diagnostics.map((diagnostic, index) => (
                         <div
-                          key={index}
+                          key={
+                            diagnostic.workflow_title ||
+                            diagnostic.workflow_path
+                          }
                           className="flex items-start space-x-2 text-xs p-2 bg-muted rounded"
                         >
                           <AlertTriangleIcon className="size-3 text-amber-500 mt-0.5 flex-shrink-0" />
@@ -300,7 +298,15 @@ export function WorkflowPullDialog({
               </div>
             </div>
           )}
-
+          <Alert variant="warning">
+            <div className="flex items-center space-x-2">
+              <AlertTriangleIcon className="size-3 text-amber-500 mt-0.5 flex-shrink-0" />
+              <AlertDescription>
+                This will overwrite any existing workflows, schedules, and
+                configurations with the same ID.
+              </AlertDescription>
+            </div>
+          </Alert>
           {/* Action Buttons */}
           <div className="flex justify-end space-x-3 pt-4">
             <Button
