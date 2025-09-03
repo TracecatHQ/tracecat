@@ -395,11 +395,13 @@ ALLOWED_ATTACHMENT_EXTENSIONS = ",".join(
         ".webp",
     ]
 )
-TRACECAT__ALLOWED_ATTACHMENT_EXTENSIONS = set(
-    os.environ.get(
+TRACECAT__ALLOWED_ATTACHMENT_EXTENSIONS = {
+    ext.strip()
+    for ext in os.environ.get(
         "TRACECAT__ALLOWED_ATTACHMENT_EXTENSIONS", ALLOWED_ATTACHMENT_EXTENSIONS
     ).split(",")
-)
+    if ext.strip()
+}
 """The allowed extensions for case attachment files."""
 
 ALLOWED_ATTACHMENT_MIME_TYPES = ",".join(
@@ -416,11 +418,13 @@ ALLOWED_ATTACHMENT_MIME_TYPES = ",".join(
         "image/webp",
     ]
 )
-TRACECAT__ALLOWED_ATTACHMENT_MIME_TYPES = set(
-    os.environ.get(
+TRACECAT__ALLOWED_ATTACHMENT_MIME_TYPES = {
+    mime_type.strip()
+    for mime_type in os.environ.get(
         "TRACECAT__ALLOWED_ATTACHMENT_MIME_TYPES", ALLOWED_ATTACHMENT_MIME_TYPES
     ).split(",")
-)
+    if mime_type.strip()
+}
 """The allowed MIME types for case attachment files."""
 
 # === Enterprise Edition === #
