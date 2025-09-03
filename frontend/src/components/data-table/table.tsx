@@ -37,7 +37,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { useLocalStorage } from "@/lib/hooks"
+import { useLocalStorage } from "@/hooks/use-local-storage"
 import { cn } from "@/lib/utils"
 
 import type { DataTableToolbarProps } from "./toolbar"

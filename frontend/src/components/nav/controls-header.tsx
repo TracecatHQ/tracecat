@@ -56,6 +56,7 @@ import {
   NewCredentialsDialogTrigger,
 } from "@/components/workspaces/add-workspace-secret"
 import { useEntities, useEntity } from "@/hooks/use-entities"
+import { useLocalStorage } from "@/hooks/use-local-storage"
 import { useWorkspaceDetails } from "@/hooks/use-workspace"
 import { entityEvents } from "@/lib/entity-events"
 import {
@@ -63,7 +64,6 @@ import {
   useGetPrompt,
   useGetTable,
   useIntegrationProvider,
-  useLocalStorage,
 } from "@/lib/hooks"
 import { getIconByName } from "@/lib/icons"
 import { useWorkspaceId } from "@/providers/workspace-id"

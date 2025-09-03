@@ -6,14 +6,12 @@ from typing import Any
 
 from sqlalchemy.orm import selectinload
 from sqlmodel import and_, col, or_, select
-from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat.db.schemas import Entity, EntityField, EntityRecord
 from tracecat.entities.enums import FieldType
 from tracecat.entities.models import coerce_default_value
 from tracecat.records.model import RecordCreate, RecordRead, RecordUpdate
 from tracecat.service import BaseWorkspaceService
-from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatNotFoundError
 from tracecat.types.pagination import (
     BaseCursorPaginator,
@@ -26,9 +24,6 @@ class RecordService(BaseWorkspaceService):
     """Service for managing records (instances) of an entity within a workspace."""
 
     service_name = "records"
-
-    def __init__(self, session: AsyncSession, role: Role | None = None):
-        super().__init__(session, role)
 
     async def _get_active_fields(self, entity: Entity) -> Sequence[EntityField]:
         if entity.owner_id != self.workspace_id:

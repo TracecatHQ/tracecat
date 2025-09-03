@@ -14,7 +14,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { useUpdateRecord } from "@/lib/hooks"
+import { useUpdateRecord } from "@/hooks/use-records"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 interface EditRecordDialogProps {

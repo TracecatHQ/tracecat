@@ -11,7 +11,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { useDeleteRecord } from "@/lib/hooks"
+import { useDeleteRecord } from "@/hooks/use-records"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 interface DeleteRecordAlertDialogProps {

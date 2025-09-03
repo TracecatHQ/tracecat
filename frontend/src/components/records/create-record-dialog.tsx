@@ -41,7 +41,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { useEntity, useEntityFields } from "@/hooks/use-entities"
-import { useCreateRecord } from "@/lib/hooks"
+import { useCreateRecord } from "@/hooks/use-records"
 import { getIconByName } from "@/lib/icons"
 import { cn } from "@/lib/utils"
 import { WorkflowProvider } from "@/providers/workflow"
@@ -241,21 +241,20 @@ export function CreateRecordDialog({
                             "text-muted-foreground hover:text-foreground",
                             fieldsIsLoading && "animate-spin"
                           )}
-                          onClick={(e) => {
+                          onClick={async (e) => {
                             e.stopPropagation()
                             if (!entityId) return
-                            refetchFields().then((result) => {
-                              if (result.data) {
-                                // Rebuild example payload from fresh fields
-                                const freshPayload: Record<string, unknown> = {}
-                                for (const f of result.data as EntityFieldRead[]) {
-                                  freshPayload[f.key] = placeholderForField(f)
-                                }
-                                form.setValue("data", freshPayload, {
-                                  shouldDirty: true,
-                                })
+                            const result = await refetchFields()
+                            if (result.data) {
+                              // Rebuild example payload from fresh fields
+                              const freshPayload: Record<string, unknown> = {}
+                              for (const f of result.data as EntityFieldRead[]) {
+                                freshPayload[f.key] = placeholderForField(f)
                               }
-                            })
+                              form.setValue("data", freshPayload, {
+                                shouldDirty: true,
+                              })
+                            }
                           }}
                         >
                           <RefreshCw className="h-3.5 w-3.5" />

@@ -30,9 +30,9 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Switch } from "@/components/ui/switch"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
+import { useLocalStorage } from "@/hooks/use-local-storage"
 import {
   useCreateManualWorkflowExecution,
-  useLocalStorage,
   useWorkflowManager,
 } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"

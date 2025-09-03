@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import Cookies from "js-cookie"
 import { AlertTriangleIcon, CircleCheck } from "lucide-react"
 import { useRouter } from "next/navigation"
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useRef, useState } from "react"
 import {
   type ActionRead,
   type ActionsDeleteActionData,
@@ -57,9 +57,6 @@ import {
   casesRemoveTag,
   casesUpdateCase,
   casesUpdateComment,
-  entitiesCreateEntityRecord,
-  entitiesDeleteEntityRecord,
-  entitiesUpdateEntityRecord,
   type FolderDirectoryItem,
   foldersCreateFolder,
   foldersDeleteFolder,
@@ -263,75 +260,6 @@ export function useAppInfo() {
     },
   })
   return { appInfo, appInfoIsLoading, appInfoError }
-}
-
-export function useLocalStorage<T>(
-  key: string,
-  defaultValue: T
-): [T, (value: T) => void] {
-  const [value, setValue] = useState<T>(() => {
-    if (typeof window === "undefined") {
-      return defaultValue
-    }
-    const storedValue = localStorage.getItem(key)
-    return storedValue ? JSON.parse(storedValue) : defaultValue
-  })
-
-  // Listen for changes from other tabs or components
-  useEffect(() => {
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === key) {
-        if (e.newValue === null) {
-          // Storage was removed, reset to default value
-          setValue(defaultValue)
-        } else if (e.newValue) {
-          try {
-            setValue(JSON.parse(e.newValue))
-          } catch (error) {
-            console.error("Failed to parse localStorage value:", error)
-          }
-        }
-      }
-    }
-
-    // Custom event for same-tab updates
-    const handleCustomStorageChange = ((e: CustomEvent) => {
-      if (e.detail.key === key && e.detail.value !== undefined) {
-        setValue(e.detail.value)
-      }
-    }) as EventListener
-
-    window.addEventListener("storage", handleStorageChange)
-    window.addEventListener("localStorage-update", handleCustomStorageChange)
-
-    return () => {
-      window.removeEventListener("storage", handleStorageChange)
-      window.removeEventListener(
-        "localStorage-update",
-        handleCustomStorageChange
-      )
-    }
-  }, [key])
-
-  const setValueAndBroadcast = useCallback(
-    (newValue: T) => {
-      // Update localStorage first
-      localStorage.setItem(key, JSON.stringify(newValue))
-
-      // Update local state
-      setValue(newValue)
-
-      // Dispatch custom event for other same-tab instances
-      window.dispatchEvent(
-        new CustomEvent("localStorage-update", {
-          detail: { key, value: newValue },
-        })
-      )
-    },
-    [key]
-  )
-
-  return [value, setValueAndBroadcast]
 }
 
 export function useAction(
@@ -4118,117 +4046,4 @@ export function useWorkspaceSettings(
     handleCreateWorkspaceSSHKey,
     handleDeleteSSHKey,
   }
-}
-
-// Records hooks
-export function useCreateRecord() {
-  const queryClient = useQueryClient()
-
-  const { mutateAsync: createRecord, isPending: createRecordIsPending } =
-    useMutation({
-      mutationFn: async ({
-        workspaceId,
-        entityId,
-        data,
-      }: {
-        workspaceId: string
-        entityId: string
-        data: Record<string, unknown>
-      }) =>
-        await entitiesCreateEntityRecord({
-          workspaceId,
-          entityId,
-          requestBody: { data },
-        }),
-      onSuccess: (_, variables) => {
-        queryClient.invalidateQueries({
-          queryKey: ["records", variables.workspaceId],
-        })
-      },
-    })
-
-  return { createRecord, createRecordIsPending }
-}
-
-export function useUpdateRecord() {
-  const queryClient = useQueryClient()
-
-  const { mutateAsync: updateRecord, isPending: updateRecordIsPending } =
-    useMutation({
-      mutationFn: async ({
-        workspaceId,
-        entityId,
-        recordId,
-        data,
-      }: {
-        workspaceId: string
-        entityId: string
-        recordId: string
-        data: Record<string, unknown>
-      }) =>
-        await entitiesUpdateEntityRecord({
-          workspaceId,
-          entityId,
-          recordId,
-          requestBody: { data },
-        }),
-      onSuccess: (_, variables) => {
-        queryClient.invalidateQueries({
-          queryKey: ["records", variables.workspaceId],
-        })
-        toast({
-          title: "Record updated",
-          description: "The record has been updated successfully.",
-        })
-      },
-      onError: (error: TracecatApiError) => {
-        console.error("Failed to update record", error)
-        toast({
-          title: "Error updating record",
-          description: error.message || "Failed to update the record.",
-        })
-      },
-    })
-
-  return { updateRecord, updateRecordIsPending }
-}
-
-export function useDeleteRecord() {
-  const queryClient = useQueryClient()
-
-  const { mutateAsync: deleteRecord, isPending: deleteRecordIsPending } =
-    useMutation({
-      mutationFn: async ({
-        workspaceId,
-        entityId,
-        recordId,
-      }: {
-        workspaceId: string
-        entityId: string
-        recordId: string
-      }) =>
-        await entitiesDeleteEntityRecord({
-          workspaceId,
-          entityId,
-          recordId,
-        }),
-      onSuccess: (_, variables) => {
-        queryClient.invalidateQueries({
-          queryKey: ["records", variables.workspaceId],
-        })
-        toast({
-          title: "Record deleted",
-          description: "The record has been deleted successfully.",
-        })
-      },
-      onError: (error: TracecatApiError) => {
-        console.error("Failed to delete record", error)
-        toast({
-          title: "Error deleting record",
-          description: error.message || "Failed to delete the record.",
-        })
-      },
-    })
-
-  return { deleteRecord, deleteRecordIsPending }
 }
