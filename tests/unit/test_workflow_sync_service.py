@@ -11,6 +11,7 @@ from tracecat.dsl.models import ActionStatement
 from tracecat.git.models import GitUrl
 from tracecat.sync import Author, PushObject, PushOptions
 from tracecat.types.auth import Role
+from tracecat.workflow.store.import_service import WorkflowImportService
 from tracecat.workflow.store.models import RemoteRegistry, RemoteWorkflowDefinition
 from tracecat.workflow.store.sync import WorkflowSyncService
 
@@ -56,6 +57,18 @@ def sample_remote_workflow(sample_workflow):
 
 
 @pytest.fixture
+def sample_remote_workflow_with_folder(sample_workflow):
+    """Sample RemoteWorkflowDefinition with folder_path."""
+    return RemoteWorkflowDefinition(
+        id="wf_folder123",
+        registry=RemoteRegistry(base_version="0.1.0"),
+        alias="test-workflow-with-folder",
+        folder_path="/security/detections/",
+        definition=sample_workflow,
+    )
+
+
+@pytest.fixture
 def workflow_sync_service(workspace_id):
     """WorkflowSyncService instance for testing."""
     # Use a mock session for unit tests
@@ -66,6 +79,19 @@ def workflow_sync_service(workspace_id):
         workspace_id=workspace_id,
     )
     return WorkflowSyncService(session=mock_session, role=role)
+
+
+@pytest.fixture
+def workflow_import_service(workspace_id):
+    """WorkflowImportService instance for testing."""
+    # Use a mock session for unit tests
+    mock_session = AsyncMock()
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=workspace_id,
+    )
+    return WorkflowImportService(session=mock_session, role=role)
 
 
 class TestWorkflowSyncService:
@@ -393,3 +419,156 @@ class TestWorkflowSyncService:
             call_args = mock_repo.create_file.call_args
             file_path = call_args.kwargs["path"]
             assert file_path == "workflows/my-test-workflow.yaml"
+
+
+class TestWorkflowImportServiceFolders:
+    """Tests for WorkflowImportService folder functionality."""
+
+    @pytest.mark.anyio
+    async def test_ensure_folder_exists_creates_nested_folders(
+        self, workflow_import_service
+    ):
+        """Test that _ensure_folder_exists creates nested folder structure."""
+        # Mock folder service
+        mock_folder_service = AsyncMock()
+        workflow_import_service.folder_service = mock_folder_service
+
+        # Mock that no folders exist initially
+        mock_folder_service.get_folder_by_path.side_effect = [
+            None,  # /security/ doesn't exist
+            None,  # /security/detections/ doesn't exist
+            Mock(id=uuid.uuid4()),  # final folder exists after creation
+        ]
+
+        # Mock folder creation
+        mock_security_folder = Mock(id=uuid.uuid4())
+        mock_detections_folder = Mock(id=uuid.uuid4())
+        mock_folder_service.create_folder.side_effect = [
+            mock_security_folder,
+            mock_detections_folder,
+        ]
+
+        await workflow_import_service._ensure_folder_exists("/security/detections/")
+
+        # Verify folders were created in correct order
+        assert mock_folder_service.create_folder.call_count == 2
+
+        # First call creates 'security' folder at root
+        first_call = mock_folder_service.create_folder.call_args_list[0]
+        assert first_call.kwargs["name"] == "security"
+        assert first_call.kwargs["parent_path"] == "/"
+
+        # Second call creates 'detections' folder under /security/
+        second_call = mock_folder_service.create_folder.call_args_list[1]
+        assert second_call.kwargs["name"] == "detections"
+        assert second_call.kwargs["parent_path"] == "/security/"
+
+        # Final get_folder_by_path call to return created folder
+        mock_folder_service.get_folder_by_path.assert_called_with(
+            "/security/detections/"
+        )
+
+    @pytest.mark.anyio
+    async def test_ensure_folder_exists_with_existing_folders(
+        self, workflow_import_service
+    ):
+        """Test that _ensure_folder_exists handles existing folders."""
+        # Mock folder service
+        mock_folder_service = AsyncMock()
+        workflow_import_service.folder_service = mock_folder_service
+
+        # Mock that security folder exists but detections doesn't
+        mock_security_folder = Mock(id=uuid.uuid4())
+        mock_detections_folder = Mock(id=uuid.uuid4())
+
+        mock_folder_service.get_folder_by_path.side_effect = [
+            mock_security_folder,  # /security/ exists
+            None,  # /security/detections/ doesn't exist
+            mock_detections_folder,  # final folder exists after creation
+        ]
+
+        mock_folder_service.create_folder.return_value = mock_detections_folder
+
+        await workflow_import_service._ensure_folder_exists("/security/detections/")
+
+        # Verify only detections folder was created
+        assert mock_folder_service.create_folder.call_count == 1
+        call_args = mock_folder_service.create_folder.call_args
+        assert call_args.kwargs["name"] == "detections"
+        assert call_args.kwargs["parent_path"] == "/security/"
+
+    @pytest.mark.anyio
+    async def test_create_new_workflow_with_folder_path(
+        self, workflow_import_service, sample_remote_workflow_with_folder
+    ):
+        """Test creating a new workflow with folder_path sets folder_id."""
+        # Mock dependencies
+        mock_wf_mgmt = AsyncMock()
+        mock_workflow = Mock()
+        mock_workflow.id = uuid.uuid4()
+        mock_wf_mgmt.create_db_workflow_from_dsl.return_value = mock_workflow
+        workflow_import_service.wf_mgmt = mock_wf_mgmt
+
+        mock_defn_service = AsyncMock()
+        mock_defn = Mock(version=1)
+        mock_defn_service.create_workflow_definition.return_value = mock_defn
+
+        # Mock session and flush
+        workflow_import_service.session.flush = AsyncMock()
+
+        # Mock folder creation
+        test_folder_id = uuid.uuid4()
+        workflow_import_service._ensure_folder_exists = AsyncMock(
+            return_value=test_folder_id
+        )
+        workflow_import_service._create_schedules = AsyncMock()
+        workflow_import_service._update_webhook = AsyncMock()
+        workflow_import_service._create_tags = AsyncMock()
+
+        with patch(
+            "tracecat.workflow.store.import_service.WorkflowDefinitionsService",
+            return_value=mock_defn_service,
+        ):
+            await workflow_import_service._create_new_workflow(
+                sample_remote_workflow_with_folder
+            )
+
+        # Verify folder was created and workflow.folder_id was set
+        workflow_import_service._ensure_folder_exists.assert_called_once_with(
+            "/security/detections/"
+        )
+        assert mock_workflow.folder_id == test_folder_id
+
+    @pytest.mark.anyio
+    async def test_create_new_workflow_without_folder_path(
+        self, workflow_import_service, sample_remote_workflow
+    ):
+        """Test creating a new workflow without folder_path leaves folder_id as None."""
+        # Mock dependencies
+        mock_wf_mgmt = AsyncMock()
+        mock_workflow = Mock()
+        mock_workflow.id = uuid.uuid4()
+        mock_wf_mgmt.create_db_workflow_from_dsl.return_value = mock_workflow
+        workflow_import_service.wf_mgmt = mock_wf_mgmt
+
+        mock_defn_service = AsyncMock()
+        mock_defn = Mock(version=1)
+        mock_defn_service.create_workflow_definition.return_value = mock_defn
+
+        # Mock session and flush
+        workflow_import_service.session.flush = AsyncMock()
+
+        workflow_import_service._ensure_folder_exists = AsyncMock()
+        workflow_import_service._create_schedules = AsyncMock()
+        workflow_import_service._update_webhook = AsyncMock()
+        workflow_import_service._create_tags = AsyncMock()
+
+        with patch(
+            "tracecat.workflow.store.import_service.WorkflowDefinitionsService",
+            return_value=mock_defn_service,
+        ):
+            await workflow_import_service._create_new_workflow(sample_remote_workflow)
+
+        # Verify folder creation was not called and folder_id was not set
+        workflow_import_service._ensure_folder_exists.assert_not_called()
+        # folder_id should not be set (remains None by default)

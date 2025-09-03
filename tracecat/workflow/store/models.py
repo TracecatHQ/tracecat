@@ -142,6 +142,12 @@ class RemoteWorkflowDefinition(BaseModel):
     alias: str | None = None
     """The alias of the workflow in the remote store."""
 
+    folder_path: str | None = Field(
+        default=None,
+        description="Folder path in workspace using materialized path format, e.g. '/security/detections/'",
+    )
+    """Folder path where this workflow should be placed in the workspace."""
+
     tags: list[RemoteWorkflowTag] | None = None
     """Tags for the workflow."""
 

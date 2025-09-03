@@ -19,6 +19,7 @@ from tracecat.sync import ConflictStrategy, PullDiagnostic, PullResult
 from tracecat.types.exceptions import TracecatAuthorizationError
 from tracecat.workflow.actions.models import ActionControlFlow
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
+from tracecat.workflow.management.folders.service import WorkflowFolderService
 from tracecat.workflow.management.management import WorkflowsManagementService
 from tracecat.workflow.schedules.models import ScheduleCreate
 from tracecat.workflow.schedules.service import WorkflowSchedulesService
@@ -38,6 +39,9 @@ class WorkflowImportService(BaseWorkspaceService):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.wf_mgmt = WorkflowsManagementService(session=self.session, role=self.role)
+        self.folder_service = WorkflowFolderService(
+            session=self.session, role=self.role
+        )
 
     async def import_workflows_atomic(
         self,
@@ -331,7 +335,15 @@ class WorkflowImportService(BaseWorkspaceService):
         updated_graph = dsl.to_graph(trigger_node=base_graph.trigger, ref2id=ref2id)
         existing_workflow.object = updated_graph.model_dump(by_alias=True, mode="json")
 
-        # 6. Update related entities
+        # 6. Update folder if specified
+        if remote_workflow.folder_path:
+            folder_id = await self._ensure_folder_exists(remote_workflow.folder_path)
+            existing_workflow.folder_id = folder_id
+        elif remote_workflow.folder_path is None:
+            # If folder_path is explicitly None, remove from folder
+            existing_workflow.folder_id = None
+
+        # 7. Update related entities
         await self._update_schedules(existing_workflow, remote_workflow.schedules)
         await self._update_webhook(existing_workflow.webhook, remote_workflow.webhook)
         await self._update_tags(existing_workflow, remote_workflow.tags)
@@ -341,11 +353,21 @@ class WorkflowImportService(BaseWorkspaceService):
         wf_id = WorkflowUUID.new(remote_defn.id)
         dsl = remote_defn.definition
 
+        # Ensure folder exists if folder_path is specified
+        folder_id = None
+        if remote_defn.folder_path:
+            folder_id = await self._ensure_folder_exists(remote_defn.folder_path)
+
         # Create workflow manually to avoid transaction conflicts
         # Similar to _create_db_workflow_from_dsl but without committing
         workflow = await self.wf_mgmt.create_db_workflow_from_dsl(
             dsl, workflow_id=wf_id, commit=False, workflow_alias=remote_defn.alias
         )
+
+        # Set folder if specified
+        if folder_id:
+            workflow.folder_id = folder_id
+
         await self.session.flush()
 
         # Create WorkflowDefinition (versioned)
@@ -505,3 +527,46 @@ class WorkflowImportService(BaseWorkspaceService):
     def _generate_tag_color(self) -> str:
         """Generate a default color for new tags."""
         return "#6B7280"  # Default gray color
+
+    async def _ensure_folder_exists(self, folder_path: str) -> uuid.UUID:
+        """Ensure folder path exists, creating any missing folders.
+
+        Args:
+            folder_path: Materialized path format, e.g. '/security/detections/'
+
+        Returns:
+            UUID of the folder at the specified path
+        """
+        if not folder_path or folder_path == "/":
+            raise ValueError("Invalid folder path")
+
+        # Remove leading/trailing slashes and split into segments
+        path_segments = folder_path.strip("/").split("/")
+        current_path = "/"
+
+        for segment in path_segments:
+            if not segment:  # Skip empty segments
+                continue
+
+            parent_path = current_path
+            current_path = (
+                f"{current_path}{segment}/"
+                if current_path == "/"
+                else f"{current_path}{segment}/"
+            )
+
+            # Check if folder exists at current path
+            existing_folder = await self.folder_service.get_folder_by_path(current_path)
+
+            if not existing_folder:
+                # Create the folder
+                existing_folder = await self.folder_service.create_folder(
+                    name=segment, parent_path=parent_path, commit=False
+                )
+
+        # Return the final folder's ID
+        final_folder = await self.folder_service.get_folder_by_path(folder_path)
+        if not final_folder:
+            raise ValueError(f"Failed to create or find folder at path: {folder_path}")
+
+        return final_folder.id
