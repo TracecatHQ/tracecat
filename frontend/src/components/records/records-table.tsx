@@ -6,7 +6,7 @@ import { Pencil, Trash2 } from "lucide-react"
 import { useMemo, useState } from "react"
 import type { EntityRead, RecordRead } from "@/client"
 import { DataTable, DataTableColumnHeader } from "@/components/data-table"
-import { JsonViewWithControls } from "@/components/json-viewer"
+import { CompactJsonViewer } from "@/components/json-viewer-compact"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import {
@@ -157,18 +157,9 @@ export function RecordsTable({ entityFilter }: RecordsTableProps) {
       ),
       cell: ({ row }) => {
         const data = row.original.data || {}
-        if (Object.keys(data).length === 0) {
-          return <span className="text-xs text-muted-foreground">No data</span>
-        }
-
         return (
-          <div className="w-64">
-            <JsonViewWithControls
-              src={data}
-              defaultExpanded={false}
-              defaultTab="nested"
-              showControls={false}
-            />
+          <div className="max-w-xs">
+            <CompactJsonViewer src={data} />
           </div>
         )
       },
