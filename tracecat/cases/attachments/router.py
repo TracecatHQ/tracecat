@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Annotated
 
 from fastapi import APIRouter, HTTPException, Query, Request, UploadFile, status
 
+from tracecat import config
 from tracecat.auth.credentials import RoleACL
 from tracecat.cases.attachments.models import (
     CaseAttachmentCreate,
@@ -100,11 +101,48 @@ async def create_attachment(
             detail=f"Case with ID {case_id} not found",
         )
 
-    # Read file content
+    # Read file content with bounded memory to avoid DoS via large uploads
     try:
+        max_size = config.TRACECAT__MAX_ATTACHMENT_SIZE_BYTES
+        chunk_size = 1024 * 1024  # 1 MB chunks
+
         # Reset file pointer to beginning to ensure we read the full content
         await file.seek(0)
-        content = await file.read()
+
+        content_buf = bytearray()
+        hasher = hashlib.sha256()
+        total_read = 0
+
+        while True:
+            chunk = await file.read(chunk_size)
+            if not chunk:
+                break
+            total_read += len(chunk)
+            if total_read > max_size:
+                logger.warning(
+                    "Upload exceeds maximum attachment size",
+                    case_id=case_id,
+                    filename=file.filename,
+                    max_size=max_size,
+                )
+                # Raise domain error to preserve existing error mapping/structure
+                raise FileSizeError("File exceeds maximum allowed size")
+            hasher.update(chunk)
+            content_buf.extend(chunk)
+
+        # Validate that we actually read content
+        if total_read == 0:
+            raise ValueError("File appears to be empty or unreadable")
+
+        # Validate size consistency if available
+        if hasattr(file, "size") and file.size and total_read != file.size:
+            logger.warning(
+                "File size mismatch during upload",
+                case_id=case_id,
+                filename=file.filename,
+                declared_size=file.size,
+                actual_size=total_read,
+            )
 
         # Comprehensive debugging for upload
         logger.info(
@@ -113,26 +151,14 @@ async def create_attachment(
             filename=file.filename,
             declared_content_type=file.content_type,
             declared_size=getattr(file, "size", "unknown"),
-            actual_size=len(content),
-            content_hash=hashlib.sha256(content).hexdigest()[:16]
-            if content
-            else "empty",
+            actual_size=total_read,
+            content_hash=hasher.hexdigest()[:16] if total_read else "empty",
         )
+        content = bytes(content_buf)
 
-        # Validate that we actually read content
-        if not content:
-            raise ValueError("File appears to be empty or unreadable")
-
-        # Validate size consistency if available
-        if hasattr(file, "size") and file.size and len(content) != file.size:
-            logger.warning(
-                "File size mismatch during upload",
-                case_id=case_id,
-                filename=file.filename,
-                declared_size=file.size,
-                actual_size=len(content),
-            )
-
+    except HTTPException:
+        # Re-raise HTTPExceptions without wrapping
+        raise
     except Exception as e:
         logger.error(
             "Failed to read file content",
