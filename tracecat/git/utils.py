@@ -3,6 +3,7 @@ import os
 from typing import cast
 
 import aiofiles
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import config
 from tracecat.contexts import ctx_role
@@ -200,7 +201,9 @@ async def get_git_repository_sha(repo_url: str, env: SshEnv) -> str:
     return await resolve_git_ref(repo_url, ref=None, env=env)
 
 
-async def prepare_git_url(role: Role | None = None) -> GitUrl | None:
+async def prepare_git_url(
+    session: AsyncSession, role: Role | None = None
+) -> GitUrl | None:
     """Construct the runtime environment
     Deps:
     In the new pull-model registry, the execution environment is ALL the registries
@@ -217,6 +220,7 @@ async def prepare_git_url(role: Role | None = None) -> GitUrl | None:
     # Handle the git repo
     url = await get_setting_cached(
         "git_repo_url",
+        session=session,
     )
     if not url or not isinstance(url, str):
         logger.debug("No git URL found")
@@ -226,6 +230,7 @@ async def prepare_git_url(role: Role | None = None) -> GitUrl | None:
 
     allowed_domains_setting = await get_setting_cached(
         "git_allowed_domains",
+        session=session,
         # TODO: Deprecate in future version
         # Must be hashable
         default=frozenset(config.TRACECAT__ALLOWED_GIT_DOMAINS),
@@ -235,9 +240,9 @@ async def prepare_git_url(role: Role | None = None) -> GitUrl | None:
     # Grab the sha
     # Find the repository that has the same origin
     sha = None
-    async with RegistryReposService.with_session(role=role) as service:
-        repo = await service.get_repository(origin=url)
-        sha = repo.commit_sha if repo else None
+    rr_svc = RegistryReposService(role=role, session=session)
+    repo = await rr_svc.get_repository(origin=url)
+    sha = repo.commit_sha if repo else None
 
     try:
         # Validate and parse URL
@@ -254,10 +259,12 @@ async def prepare_git_url(role: Role | None = None) -> GitUrl | None:
     return git_url
 
 
-async def safe_prepare_git_url(role: Role | None = None) -> GitUrl | None:
+async def safe_prepare_git_url(
+    session: AsyncSession, role: Role | None = None
+) -> GitUrl | None:
     """Prepare the git URL, but return None if there's an error or the url doesn't exist."""
     try:
-        return await prepare_git_url(role)
+        return await prepare_git_url(session=session, role=role)
     except Exception as e:
         logger.error("Error preparing git URL", error=str(e))
         return None
