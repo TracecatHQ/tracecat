@@ -57,12 +57,7 @@ class TimestampMixin(BaseModel):
 class Resource(SQLModel, TimestampMixin):
     """Base class for all resources in the system."""
 
-    surrogate_id: int | None = Field(
-        default=None,
-        primary_key=True,
-        exclude=True,
-        sa_column_kwargs={"autoincrement": True},
-    )
+    surrogate_id: int | None = Field(default=None, primary_key=True, exclude=True)
     owner_id: OwnerID
 
 
