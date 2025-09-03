@@ -37,6 +37,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
+import { useWorkspaceDetails } from "@/hooks/use-workspace"
 import { cn } from "@/lib/utils"
 
 interface CaseAttachmentsSectionProps {
@@ -124,6 +125,14 @@ export function CaseAttachmentsSection({
   const fileInputRef = useRef<HTMLInputElement>(null)
   const queryClient = useQueryClient()
 
+  // Get workspace settings for allowed file extensions
+  const { workspace } = useWorkspaceDetails()
+
+  // Create accept attribute from workspace settings
+  const acceptedExtensions =
+    workspace?.settings?.effective_allowed_attachment_extensions
+  const acceptAttribute = acceptedExtensions?.join(",") || undefined
+
   // Fetch attachments from API
   const {
     data: attachments = [],
@@ -145,7 +154,7 @@ export function CaseAttachmentsSection({
         },
       })
     },
-    onSuccess: (data, file) => {
+    onSuccess: (_, file) => {
       queryClient.invalidateQueries({
         queryKey: ["case-attachments", caseId, workspaceId],
       })
@@ -676,7 +685,7 @@ export function CaseAttachmentsSection({
             type="file"
             onChange={handleFileSelect}
             className="hidden"
-            // TODO: Get allowed extensions from the API (workspace settings)
+            accept={acceptAttribute}
           />
 
           {/* Image Preview Modal */}

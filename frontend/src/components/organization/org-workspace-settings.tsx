@@ -121,6 +121,7 @@ export function OrgWorkspaceSettings({
             id: `ext-default-${index}`,
             text: ext,
           })),
+      // If no explicit overrides exist, leave unset to preserve inheritance
       allowed_attachment_mime_types: workspace.settings
         ?.allowed_attachment_mime_types?.length
         ? workspace.settings.allowed_attachment_mime_types.map(
@@ -129,10 +130,7 @@ export function OrgWorkspaceSettings({
               text: mime,
             })
           )
-        : systemDefaultMimeTypes.map((mime, index) => ({
-            id: `mime-default-${index}`,
-            text: mime,
-          })),
+        : undefined,
       validate_attachment_magic_number:
         workspace.settings?.validate_attachment_magic_number ?? true,
     },
