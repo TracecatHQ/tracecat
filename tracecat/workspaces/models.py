@@ -35,7 +35,7 @@ class WorkspaceSettingsRead(BaseModel):
     @property
     def effective_allowed_attachment_extensions(self) -> list[str]:
         """Returns workspace-specific extensions if set, otherwise system defaults."""
-        if self.allowed_attachment_extensions:
+        if self.allowed_attachment_extensions is not None:
             return self.allowed_attachment_extensions
         return sorted(config.TRACECAT__ALLOWED_ATTACHMENT_EXTENSIONS)
 
@@ -43,7 +43,7 @@ class WorkspaceSettingsRead(BaseModel):
     @property
     def effective_allowed_attachment_mime_types(self) -> list[str]:
         """Returns workspace-specific MIME types if set, otherwise system defaults."""
-        if self.allowed_attachment_mime_types:
+        if self.allowed_attachment_mime_types is not None:
             return self.allowed_attachment_mime_types
         return sorted(config.TRACECAT__ALLOWED_ATTACHMENT_MIME_TYPES)
 
