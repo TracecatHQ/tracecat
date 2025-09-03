@@ -146,7 +146,7 @@ services:
       REDIS_PORT: ${REDIS_PORT}
       REDIS_URL: ${REDIS_URL}
       # TMP
-      TMP_THRESHOLD: ${TMP_THRESHOLD}
+      HEALTHCHECK_TMP_THRESHOLD: ${HEALTHCHECK_TMP_THRESHOLD}
     volumes:
       - ./tracecat:/app/tracecat
       - ./packages/tracecat-registry:/app/packages/tracecat-registry
