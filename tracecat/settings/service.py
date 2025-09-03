@@ -12,7 +12,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from tracecat import config
 from tracecat.authz.controls import require_access_level
 from tracecat.common import UNSET
-from tracecat.contexts import ctx_role
+from tracecat.contexts import ctx_role, ctx_session
 from tracecat.db.schemas import OrganizationSetting
 from tracecat.logger import logger
 from tracecat.secrets.encryption import decrypt_value, encrypt_value
@@ -335,7 +335,8 @@ async def get_setting_cached(
         The setting value or None if not found
     """
     logger.debug("Cache miss", key=key)
-    return await get_setting(key, role=role, session=session, default=default)
+    sess = session or ctx_session.get(None)
+    return await get_setting(key, role=role, session=sess, default=default)
 
 
 def get_setting_override(key: str) -> Any | None:

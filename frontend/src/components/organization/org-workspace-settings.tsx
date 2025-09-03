@@ -1,7 +1,7 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
-import { KeyRoundIcon, RefreshCwIcon, TrashIcon } from "lucide-react"
+import { GitPullRequestIcon, RefreshCwIcon, KeyRoundIcon, TrashIcon } from "lucide-react"
 import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
@@ -28,6 +28,7 @@ import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import { useWorkspaceSettings } from "@/lib/hooks"
 import { OrgWorkspaceDeleteDialog } from "./org-workspace-delete-dialog"
 import { OrgWorkspaceSSHKeyDeleteDialog } from "./org-workspace-ssh-key-delete-dialog"
+import { WorkflowPullDialog } from "./workflow-pull-dialog"
 
 const workspaceSettingsSchema = z.object({
   name: z.string().min(1, "Workspace name is required"),
@@ -82,6 +83,7 @@ export function OrgWorkspaceSettings({
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [sshKeyToDelete, setSSHKeyToDelete] =
     useState<SecretReadMinimal | null>(null)
+  const [pullDialogOpen, setPullDialogOpen] = useState(false)
   const {
     sshKeys,
     sshKeysLoading,
@@ -229,6 +231,48 @@ export function OrgWorkspaceSettings({
                       </FormItem>
                     )}
                   />
+
+                  {/* Workflow Sync Section */}
+                  {form.watch("git_repo_url") && (
+                    <div className="mt-6 p-4 border rounded-lg bg-muted/30">
+                      <div className="flex items-center justify-between mb-4">
+                        <div>
+                          <h5 className="text-sm font-medium">
+                            Workflow synchronization
+                          </h5>
+                          <p className="text-xs text-muted-foreground">
+                            Pull workflow definitions from your Git repository
+                            into this workspace
+                          </p>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setPullDialogOpen(true)}
+                          className="flex items-center space-x-2"
+                        >
+                          <GitPullRequestIcon className="size-4" />
+                          <span>Pull workflows</span>
+                        </Button>
+                      </div>
+
+                      <div className="text-xs text-muted-foreground">
+                        <p>
+                          • Select a commit SHA to pull specific workflow
+                          versions
+                        </p>
+                        <p>
+                          • Choose how to handle conflicts with existing
+                          workflows
+                        </p>
+                        <p>
+                          • All changes are atomic - either all workflows import
+                          or none do
+                        </p>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -521,6 +565,18 @@ export function OrgWorkspaceSettings({
         onOpenChange={(open) => !open && setSSHKeyToDelete(null)}
         sshKey={sshKeyToDelete}
         onConfirm={handleDeleteSSHKeyWrapper}
+      />
+
+      {/* Workflow Pull Dialog */}
+      <WorkflowPullDialog
+        open={pullDialogOpen}
+        onOpenChange={setPullDialogOpen}
+        workspaceId={workspace.id}
+        gitRepoUrl={form.watch("git_repo_url") || undefined}
+        onPullSuccess={() => {
+          // Refresh workspace data or show success message
+          console.log("Workflows pulled successfully")
+        }}
       />
     </div>
   )

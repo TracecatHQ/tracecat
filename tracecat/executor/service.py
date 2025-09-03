@@ -11,15 +11,20 @@ import ray
 import uvloop
 from ray.exceptions import RayTaskError
 from ray.runtime_env import RuntimeEnv
-from sqlmodel.ext.asyncio.session import AsyncSession
 from tracecat_registry import RegistrySecretType
 from tracecat_registry._internal.models import RegistryOAuthSecret
 
 from tracecat import config
 from tracecat.auth.sandbox import AuthSandbox
 from tracecat.concurrency import GatheringTaskGroup
-from tracecat.contexts import ctx_interaction, ctx_logger, ctx_role, ctx_run
-from tracecat.db.engine import get_async_engine
+from tracecat.contexts import (
+    ctx_interaction,
+    ctx_logger,
+    ctx_role,
+    ctx_run,
+    with_session,
+)
+from tracecat.db.engine import get_async_engine, get_async_session_context_manager
 from tracecat.dsl.common import context_locator, create_default_execution_context
 from tracecat.dsl.models import (
     ActionStatement,
@@ -470,10 +475,7 @@ async def run_action_on_ray_cluster(
     return exec_result
 
 
-async def dispatch_action_on_cluster(
-    input: RunActionInput,
-    session: AsyncSession,
-) -> Any:
+async def dispatch_action_on_cluster(input: RunActionInput) -> Any:
     """Schedule actions on the ray cluster.
 
     This function handles dispatching actions to be executed on a Ray cluster. It supports
@@ -495,10 +497,18 @@ async def dispatch_action_on_cluster(
     role = ctx_role.get()
     ctx = DispatchActionContext(role=role)
 
-    if git_url := await safe_prepare_git_url():
-        sh_cmd = await get_ssh_command(git_url=git_url, session=session, role=role)
-        ctx.ssh_command = sh_cmd
-        ctx.git_url = git_url
+    # XXX(perf): Handle the session ourselves.
+    # Not sure if it's the root cause but according to https://github.com/fastapi/fastapi/discussions/10450
+    # FastAPI DI session might cause unreleased connections.
+    async with (
+        get_async_session_context_manager() as session,
+        with_session(session=session),  # Set the session in the context
+    ):
+        if git_url := await safe_prepare_git_url(session=session):
+            sh_cmd = await get_ssh_command(git_url=git_url, session=session, role=role)
+            ctx.ssh_command = sh_cmd
+            ctx.git_url = git_url
+    # XXX(perf): We do *not* hold the session open for the duration of the action.
     return await _dispatch_action(input=input, ctx=ctx)
 
 

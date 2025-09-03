@@ -1,11 +1,16 @@
 import asyncio
+import os
 from typing import cast
+
+import aiofiles
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import config
 from tracecat.contexts import ctx_role
 from tracecat.git.constants import GIT_SSH_URL_REGEX
 from tracecat.git.models import GitUrl
 from tracecat.logger import logger
+from tracecat.registry.repositories.models import GitCommitInfo
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.settings.service import get_setting_cached
 from tracecat.ssh import SshEnv
@@ -57,7 +62,7 @@ def parse_git_url(url: str, *, allowed_domains: set[str] | None = None) -> GitUr
 
 
 async def resolve_git_ref(
-    repo_url: str, *, ref: str | None, env: dict[str, str], timeout: float = 20.0
+    repo_url: str, *, ref: str | None, env: SshEnv, timeout: float = 20.0
 ) -> str:
     """Resolve a Git reference to its SHA.
 
@@ -123,7 +128,7 @@ async def resolve_git_ref(
 async def run_git(
     args: list[str],
     *,
-    env: dict[str, str],
+    env: SshEnv,
     cwd: str | None = None,
     timeout: float = 120.0,
 ) -> tuple[int, str, str]:
@@ -148,7 +153,7 @@ async def run_git(
             *args,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            env=env,
+            env=os.environ.copy() | env.to_dict(),
             cwd=cwd,
         )
 
@@ -193,10 +198,12 @@ async def get_git_repository_sha(repo_url: str, env: SshEnv) -> str:
 
     This function maintains backward compatibility with the existing API.
     """
-    return await resolve_git_ref(repo_url, ref=None, env=env.to_dict())
+    return await resolve_git_ref(repo_url, ref=None, env=env)
 
 
-async def prepare_git_url(role: Role | None = None) -> GitUrl | None:
+async def prepare_git_url(
+    session: AsyncSession, role: Role | None = None
+) -> GitUrl | None:
     """Construct the runtime environment
     Deps:
     In the new pull-model registry, the execution environment is ALL the registries
@@ -210,10 +217,11 @@ async def prepare_git_url(role: Role | None = None) -> GitUrl | None:
     """
     role = role or ctx_role.get()
 
+    # NOTE(perf): We retrieve the session from the contextvar inside
+    # to preserve cache affinity
+
     # Handle the git repo
-    url = await get_setting_cached(
-        "git_repo_url",
-    )
+    url = await get_setting_cached("git_repo_url")
     if not url or not isinstance(url, str):
         logger.debug("No git URL found")
         return None
@@ -231,9 +239,9 @@ async def prepare_git_url(role: Role | None = None) -> GitUrl | None:
     # Grab the sha
     # Find the repository that has the same origin
     sha = None
-    async with RegistryReposService.with_session(role=role) as service:
-        repo = await service.get_repository(origin=url)
-        sha = repo.commit_sha if repo else None
+    rr_svc = RegistryReposService(role=role, session=session)
+    repo = await rr_svc.get_repository(origin=url)
+    sha = repo.commit_sha if repo else None
 
     try:
         # Validate and parse URL
@@ -250,10 +258,107 @@ async def prepare_git_url(role: Role | None = None) -> GitUrl | None:
     return git_url
 
 
-async def safe_prepare_git_url(role: Role | None = None) -> GitUrl | None:
+async def safe_prepare_git_url(
+    session: AsyncSession, role: Role | None = None
+) -> GitUrl | None:
     """Prepare the git URL, but return None if there's an error or the url doesn't exist."""
     try:
-        return await prepare_git_url(role)
+        return await prepare_git_url(session=session, role=role)
     except Exception as e:
         logger.error("Error preparing git URL", error=str(e))
         return None
+
+
+async def list_git_commits(
+    repo_url: str, *, env: SshEnv, branch="main", limit=10, timeout=30.0
+) -> list[GitCommitInfo]:
+    async with aiofiles.tempfile.TemporaryDirectory() as repo_dir:
+        # Bare repo means no working tree filesystem work.
+        code, _, err = await run_git(
+            ["git", "init", "--bare"], env=env, cwd=repo_dir, timeout=timeout
+        )
+        if code != 0:
+            raise RuntimeError(f"init failed: {err.strip()}")
+
+        # Fetch commits with tags - removed --no-tags to include tag information
+        fetch_args = [
+            "git",
+            # Protocol & negotiation tweaks
+            "-c",
+            "protocol.version=2",
+            "-c",
+            "fetch.negotiationAlgorithm=skipping",
+            # Avoid extra I/O; this is a throwaway repo
+            "-c",
+            "fetch.writeCommitGraph=false",
+            "-c",
+            "core.fsync=objects=0",
+            "-c",
+            "gc.auto=0",
+            "fetch",
+            "--no-recurse-submodules",
+            "--no-write-fetch-head",
+            f"--depth={max(1, limit)}",
+            "--filter=blob:none",  # only commits + trees
+            # If your git/server supports it, add the next line to avoid trees too:
+            # "--filter=tree:0",
+            repo_url,
+            f"+refs/heads/{branch}:refs/remotes/origin/{branch}",
+            "+refs/tags/*:refs/tags/*",  # Fetch tags as well
+        ]
+        code, _, err = await run_git(fetch_args, env=env, cwd=repo_dir, timeout=timeout)
+        if code != 0:
+            raise RuntimeError(f"fetch failed: {err.strip()}")
+
+        # Fetch tag information
+        tag_args = [
+            "git",
+            "for-each-ref",
+            "--format=%(if)%(*objectname)%(then)%(*objectname)%(else)%(objectname)%(end) %(refname:strip=2)",
+            "refs/tags",
+        ]
+        code, tag_out, _ = await run_git(
+            tag_args, env=env, cwd=repo_dir, timeout=timeout
+        )
+
+        # Build mapping of commit SHA to tags
+        sha_to_tags: dict[str, list[str]] = {}
+        if code == 0:  # Only process if command succeeded
+            for line in tag_out.strip().splitlines():
+                if line.strip():
+                    parts = line.strip().split(" ", 1)
+                    if len(parts) == 2:
+                        tag_sha, tag_name = parts
+                        if tag_sha not in sha_to_tags:
+                            sha_to_tags[tag_sha] = []
+                        sha_to_tags[tag_sha].append(tag_name)
+
+        fmt = "%H%x1f%s%x1f%an%x1f%ae%x1f%aI"
+        log_args = [
+            "git",
+            "log",
+            "--no-decorate",
+            f"-n{limit}",
+            f"--format={fmt}",
+            f"origin/{branch}",
+        ]
+        code, out, err = await run_git(log_args, env=env, cwd=repo_dir, timeout=timeout)
+        if code != 0:
+            raise RuntimeError(f"log failed: {err.strip()}")
+
+    commits = []
+    for line in out.strip().splitlines():
+        sha, msg, author, email, date = (p.strip() for p in line.split("\x1f", 4))
+        # Get tags for this commit SHA, default to empty list
+        tags = sha_to_tags.get(sha, [])
+        commits.append(
+            GitCommitInfo(
+                sha=sha,
+                message=msg,
+                author=author,
+                author_email=email,
+                date=date,
+                tags=tags,
+            )
+        )
+    return commits

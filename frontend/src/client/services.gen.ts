@@ -119,6 +119,8 @@ import type {
   EntitiesActivateFieldData,
   EntitiesActivateFieldResponse,
   EntitiesCreateEntityData,
+  EntitiesCreateEntityRecordData,
+  EntitiesCreateEntityRecordResponse,
   EntitiesCreateEntityResponse,
   EntitiesCreateFieldData,
   EntitiesCreateFieldResponse,
@@ -127,18 +129,26 @@ import type {
   EntitiesDeactivateFieldData,
   EntitiesDeactivateFieldResponse,
   EntitiesDeleteEntityData,
+  EntitiesDeleteEntityRecordData,
+  EntitiesDeleteEntityRecordResponse,
   EntitiesDeleteEntityResponse,
   EntitiesDeleteFieldData,
   EntitiesDeleteFieldResponse,
   EntitiesGetEntityData,
+  EntitiesGetEntityRecordData,
+  EntitiesGetEntityRecordResponse,
   EntitiesGetEntityResponse,
   EntitiesGetFieldData,
   EntitiesGetFieldResponse,
   EntitiesListEntitiesData,
   EntitiesListEntitiesResponse,
+  EntitiesListEntityRecordsData,
+  EntitiesListEntityRecordsResponse,
   EntitiesListFieldsData,
   EntitiesListFieldsResponse,
   EntitiesUpdateEntityData,
+  EntitiesUpdateEntityRecordData,
+  EntitiesUpdateEntityRecordResponse,
   EntitiesUpdateEntityResponse,
   EntitiesUpdateFieldData,
   EntitiesUpdateFieldResponse,
@@ -218,6 +228,10 @@ import type {
   PublicIncomingWebhookWaitResponse,
   PublicReceiveInteractionData,
   PublicReceiveInteractionResponse,
+  RecordsGetRecordData,
+  RecordsGetRecordResponse,
+  RecordsListRecordsData,
+  RecordsListRecordsResponse,
   RegistryActionsCreateRegistryActionData,
   RegistryActionsCreateRegistryActionResponse,
   RegistryActionsDeleteRegistryActionData,
@@ -234,6 +248,8 @@ import type {
   RegistryRepositoriesGetRegistryRepositoryData,
   RegistryRepositoriesGetRegistryRepositoryResponse,
   RegistryRepositoriesListRegistryRepositoriesResponse,
+  RegistryRepositoriesListRepositoryCommitsData,
+  RegistryRepositoriesListRepositoryCommitsResponse,
   RegistryRepositoriesReloadRegistryRepositoriesResponse,
   RegistryRepositoriesSyncRegistryRepositoryData,
   RegistryRepositoriesSyncRegistryRepositoryResponse,
@@ -374,12 +390,16 @@ import type {
   WorkflowsGetWorkflowResponse,
   WorkflowsListTagsData,
   WorkflowsListTagsResponse,
+  WorkflowsListWorkflowCommitsData,
+  WorkflowsListWorkflowCommitsResponse,
   WorkflowsListWorkflowsData,
   WorkflowsListWorkflowsResponse,
   WorkflowsMoveWorkflowToFolderData,
   WorkflowsMoveWorkflowToFolderResponse,
   WorkflowsPublishWorkflowData,
   WorkflowsPublishWorkflowResponse,
+  WorkflowsPullWorkflowsData,
+  WorkflowsPullWorkflowsResponse,
   WorkflowsRemoveTagData,
   WorkflowsRemoveTagResponse,
   WorkflowsUpdateWorkflowData,
@@ -1654,6 +1674,66 @@ export const workflowsPublishWorkflow = (
 }
 
 /**
+ * List Workflow Commits
+ * Get commit list for workflow repository via GitHub App.
+ *
+ * Returns a list of commits from the repository configured in workspace settings,
+ * suitable for use in workflow pull operations.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.branch Branch name to fetch commits from
+ * @param data.limit Maximum number of commits to return
+ * @returns GitCommitInfo Successful Response
+ * @throws ApiError
+ */
+export const workflowsListWorkflowCommits = (
+  data: WorkflowsListWorkflowCommitsData
+): CancelablePromise<WorkflowsListWorkflowCommitsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workflows/sync/commits",
+    query: {
+      branch: data.branch,
+      limit: data.limit,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Pull Workflows
+ * Pull workflows from Git repository at specific commit.
+ *
+ * Imports workflow definitions from the specified repository and commit,
+ * with configurable conflict resolution strategy. Repository URL is retrieved
+ * from workspace settings.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns PullResult Successful Response
+ * @throws ApiError
+ */
+export const workflowsPullWorkflows = (
+  data: WorkflowsPullWorkflowsData
+): CancelablePromise<WorkflowsPullWorkflowsResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workflows/sync/pull",
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * Search Secrets
  * Search secrets.
  * @param data The data for the request.
@@ -2362,6 +2442,154 @@ export const entitiesActivateField = (
 }
 
 /**
+ * List Entity Records
+ * @param data The data for the request.
+ * @param data.entityId
+ * @param data.workspaceId
+ * @param data.limit Maximum items per page
+ * @param data.cursor Cursor for pagination
+ * @param data.reverse Reverse pagination direction
+ * @returns CursorPaginatedResponse_RecordRead_ Successful Response
+ * @throws ApiError
+ */
+export const entitiesListEntityRecords = (
+  data: EntitiesListEntityRecordsData
+): CancelablePromise<EntitiesListEntityRecordsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/entities/{entity_id}/records",
+    path: {
+      entity_id: data.entityId,
+    },
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+      reverse: data.reverse,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Entity Record
+ * @param data The data for the request.
+ * @param data.entityId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns unknown Successful Response
+ * @throws ApiError
+ */
+export const entitiesCreateEntityRecord = (
+  data: EntitiesCreateEntityRecordData
+): CancelablePromise<EntitiesCreateEntityRecordResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/entities/{entity_id}/records",
+    path: {
+      entity_id: data.entityId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Entity Record
+ * @param data The data for the request.
+ * @param data.entityId
+ * @param data.recordId
+ * @param data.workspaceId
+ * @returns RecordRead Successful Response
+ * @throws ApiError
+ */
+export const entitiesGetEntityRecord = (
+  data: EntitiesGetEntityRecordData
+): CancelablePromise<EntitiesGetEntityRecordResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/entities/{entity_id}/records/{record_id}",
+    path: {
+      entity_id: data.entityId,
+      record_id: data.recordId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Entity Record
+ * @param data The data for the request.
+ * @param data.entityId
+ * @param data.recordId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const entitiesUpdateEntityRecord = (
+  data: EntitiesUpdateEntityRecordData
+): CancelablePromise<EntitiesUpdateEntityRecordResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/entities/{entity_id}/records/{record_id}",
+    path: {
+      entity_id: data.entityId,
+      record_id: data.recordId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Entity Record
+ * @param data The data for the request.
+ * @param data.entityId
+ * @param data.recordId
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const entitiesDeleteEntityRecord = (
+  data: EntitiesDeleteEntityRecordData
+): CancelablePromise<EntitiesDeleteEntityRecordResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/entities/{entity_id}/records/{record_id}",
+    path: {
+      entity_id: data.entityId,
+      record_id: data.recordId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * List Tags
  * List all tags for the current workspace.
  * @param data The data for the request.
@@ -2484,6 +2712,62 @@ export const tagsDeleteTag = (
     url: "/tags/{tag_id}",
     path: {
       tag_id: data.tagId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Records
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.entityId
+ * @param data.limit Maximum items per page
+ * @param data.cursor Cursor for pagination
+ * @param data.reverse Reverse pagination direction
+ * @returns CursorPaginatedResponse_RecordRead_ Successful Response
+ * @throws ApiError
+ */
+export const recordsListRecords = (
+  data: RecordsListRecordsData
+): CancelablePromise<RecordsListRecordsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/records/records",
+    query: {
+      entity_id: data.entityId,
+      limit: data.limit,
+      cursor: data.cursor,
+      reverse: data.reverse,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Record
+ * @param data The data for the request.
+ * @param data.recordId
+ * @param data.workspaceId
+ * @returns RecordRead Successful Response
+ * @throws ApiError
+ */
+export const recordsGetRecord = (
+  data: RecordsGetRecordData
+): CancelablePromise<RecordsGetRecordResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/records/records/{record_id}",
+    path: {
+      record_id: data.recordId,
     },
     query: {
       workspace_id: data.workspaceId,
@@ -2907,12 +3191,17 @@ export const registryRepositoriesReloadRegistryRepositories =
  * Sync Registry Repository
  * Load actions from a specific registry repository.
  *
+ * Args:
+ * repository_id: The ID of the repository to sync
+ * sync_params: Optional sync parameters, including target commit SHA
+ *
  * Raises:
  * 422: If there is an error syncing the repository (validation error)
  * 404: If the repository is not found
  * 400: If there is an error syncing the repository
  * @param data The data for the request.
  * @param data.repositoryId
+ * @param data.requestBody
  * @returns void Successful Response
  * @throws ApiError
  */
@@ -2925,6 +3214,8 @@ export const registryRepositoriesSyncRegistryRepository = (
     path: {
       repository_id: data.repositoryId,
     },
+    body: data.requestBody,
+    mediaType: "application/json",
     errors: {
       400: "Cannot sync repository",
       404: "Registry repository not found",
@@ -3034,6 +3325,35 @@ export const registryRepositoriesDeleteRegistryRepository = (
     url: "/registry/repos/{repository_id}",
     path: {
       repository_id: data.repositoryId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Repository Commits
+ * List commits from a specific registry repository.
+ * @param data The data for the request.
+ * @param data.repositoryId
+ * @param data.branch
+ * @param data.limit
+ * @returns GitCommitInfo Successful Response
+ * @throws ApiError
+ */
+export const registryRepositoriesListRepositoryCommits = (
+  data: RegistryRepositoriesListRepositoryCommitsData
+): CancelablePromise<RegistryRepositoriesListRepositoryCommitsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/registry/repos/{repository_id}/commits",
+    path: {
+      repository_id: data.repositoryId,
+    },
+    query: {
+      branch: data.branch,
+      limit: data.limit,
     },
     errors: {
       422: "Validation Error",

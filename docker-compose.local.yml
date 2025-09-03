@@ -46,6 +46,7 @@ services:
       OAUTH_CLIENT_SECRET: ${OAUTH_CLIENT_SECRET}
       USER_AUTH_SECRET: ${USER_AUTH_SECRET}
       RUN_MIGRATIONS: "true"
+      TRACECAT__FEATURE_FLAGS: ${TRACECAT__FEATURE_FLAGS}
       # SAML SSO
       SAML_IDP_METADATA_URL: ${SAML_IDP_METADATA_URL}
       SAML_ALLOW_UNSOLICITED: ${SAML_ALLOW_UNSOLICITED}
@@ -78,9 +79,12 @@ services:
     volumes:
       - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
     depends_on:
-      - temporal
-      - minio
-      - redis
+      temporal:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
   worker:
     build:
@@ -103,6 +107,7 @@ services:
       TRACECAT__EXECUTOR_URL: ${INTERNAL_EXECUTOR_URL}
       TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY} # Sensitive
       TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET} # Sensitive
+      TRACECAT__FEATURE_FLAGS: ${TRACECAT__FEATURE_FLAGS}
       # Temporal
       TEMPORAL__CLUSTER_URL: ${TEMPORAL__CLUSTER_URL}
       TEMPORAL__CLUSTER_QUEUE: ${TEMPORAL__CLUSTER_QUEUE}
@@ -137,6 +142,7 @@ services:
       TRACECAT__DB_SSLMODE: ${TRACECAT__DB_SSLMODE}
       TRACECAT__DB_URI: ${TRACECAT__DB_URI} # Sensitive
       TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY} # Sensitive
+      TRACECAT__FEATURE_FLAGS: ${TRACECAT__FEATURE_FLAGS}
       # Local registry
       TRACECAT__LOCAL_REPOSITORY_PATH: ${TRACECAT__LOCAL_REPOSITORY_PATH}
       TRACECAT__LOCAL_REPOSITORY_ENABLED: ${TRACECAT__LOCAL_REPOSITORY_ENABLED}
@@ -224,6 +230,13 @@ services:
       - POSTGRES_PWD=${TEMPORAL__POSTGRES_PASSWORD} # Sensitive
       - POSTGRES_SEEDS=temporal_postgres_db
       - LOG_LEVEL=warn
+      - BIND_ON_IP=0.0.0.0
+      - TEMPORAL_BROADCAST_ADDRESS=127.0.0.1
+    healthcheck:
+      test: ['CMD', 'tctl', '--address', '127.0.0.1:7233', 'cluster', 'health']
+      interval: 1s
+      timeout: 5s
+      start_period: 2s
     depends_on:
       - temporal_postgres_db
 
@@ -234,8 +247,8 @@ services:
     networks:
       - temporal
       - core
-    # ports:
-    #   - 8081:8080
+    ports:
+      - 8081:8080
     environment:
       - TEMPORAL_ADDRESS=temporal:7233
       - TEMPORAL_CORS_ORIGINS=http://localhost:8080
@@ -248,9 +261,9 @@ services:
     restart: unless-stopped
     networks:
       - core
-    # ports:
-    #   - 9000:9000
-    #   - 9001:9001
+    ports:
+      - 9000:9000
+      - 9001:9001
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
@@ -269,8 +282,8 @@ services:
     restart: unless-stopped
     networks:
       - core
-    # ports:
-    #   - 6379:6379
+    ports:
+      - 6379:6379
     volumes:
       - redis-data:/data
     command: redis-server --appendonly yes

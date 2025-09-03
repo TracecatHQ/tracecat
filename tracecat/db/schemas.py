@@ -855,6 +855,10 @@ class Case(Resource, table=True):
         link_model=CaseTag,
         sa_relationship_kwargs={"lazy": "selectin"},
     )
+    record_links: list["CaseRecord"] = Relationship(
+        back_populates="case",
+        sa_relationship_kwargs={"cascade": "all, delete-orphan"},
+    )
 
 
 class CaseComment(Resource, table=True):
@@ -1381,6 +1385,10 @@ class Entity(Resource, table=True):
         back_populates="entity",
         sa_relationship_kwargs={"cascade": "all, delete-orphan"},
     )
+    records: list["EntityRecord"] = Relationship(
+        back_populates="entity",
+        sa_relationship_kwargs={"cascade": "all, delete-orphan"},
+    )
 
 
 class EntityField(Resource, table=True):
@@ -1455,3 +1463,81 @@ class EntityFieldOption(SQLModel, TimestampMixin, table=True):
     label: str = Field(..., max_length=255, nullable=False)
     description: str | None = Field(default=None, max_length=1000)
     field: EntityField = Relationship(back_populates="options")
+
+
+class EntityRecord(Resource, table=True):
+    """A record (aka instance) of an entity backed by JSONB data."""
+
+    __tablename__: str = "entity_record"
+    __table_args__ = (
+        # GIN index for top level fields
+        Index("idx_record_gin", "data", postgresql_using="gin"),
+        Index("idx_record_entity", "entity_id"),
+        UniqueConstraint("id", name="uq_entity_record_id"),
+    )
+
+    id: UUID4 = Field(
+        default_factory=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    entity_id: UUID4 = Field(
+        sa_column=Column(
+            UUID, ForeignKey("entity.id", ondelete="CASCADE"), nullable=False
+        )
+    )
+    data: Any = Field(..., sa_column=Column(JSONB))
+    entity: Entity = Relationship(back_populates="records")
+
+
+class CaseRecord(Resource, table=True):
+    """Link table between cases and records."""
+
+    __tablename__: str = "case_record"
+    __table_args__ = (
+        UniqueConstraint("case_id", "record_id", name="uq_case_record_link"),
+        Index("idx_case_record_case", "case_id"),
+        Index("idx_case_record_entity", "entity_id"),
+        Index("idx_case_record_case_entity", "case_id", "entity_id"),
+    )
+
+    id: UUID4 = Field(
+        default_factory=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    case_id: UUID4 = Field(
+        sa_column=Column(
+            UUID, ForeignKey("cases.id", ondelete="CASCADE"), nullable=False
+        ),
+    )
+    entity_id: UUID4 = Field(
+        sa_column=Column(
+            UUID, ForeignKey("entity.id", ondelete="CASCADE"), nullable=False
+        )
+    )
+    record_id: UUID4 = Field(
+        sa_column=Column(
+            UUID, ForeignKey("entity_record.id", ondelete="CASCADE"), nullable=False
+        )
+    )
+
+    # Relationships
+    case: Case = Relationship(
+        back_populates="record_links",
+        sa_relationship_kwargs={
+            "foreign_keys": "[CaseRecord.case_id]",
+        },
+    )
+    entity: Entity = Relationship(
+        sa_relationship_kwargs={
+            "foreign_keys": "[CaseRecord.entity_id]",
+        }
+    )
+    record: EntityRecord = Relationship(
+        sa_relationship_kwargs={
+            "foreign_keys": "[CaseRecord.record_id]",
+        }
+    )

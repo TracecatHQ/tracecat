@@ -926,6 +926,11 @@ export type Code = {
 export type lang = "yaml" | "python"
 
 /**
+ * Strategy for handling workflow conflicts during import.
+ */
+export type ConflictStrategy = "skip" | "overwrite" | "rename"
+
+/**
  * Event for when a case is created.
  */
 export type CreatedEventRead = {
@@ -946,6 +951,30 @@ export type CreatedEventRead = {
 
 export type CursorPaginatedResponse_CaseReadMinimal_ = {
   items: Array<CaseReadMinimal>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
+export type CursorPaginatedResponse_RecordRead_ = {
+  items: Array<RecordRead>
   /**
    * Cursor for next page
    */
@@ -1434,6 +1463,36 @@ export type GetWorkflowDefinitionActivityInputs = {
   workflow_id: string
   version?: number | null
   task?: ActionStatement | null
+}
+
+/**
+ * Git commit information for repository management.
+ */
+export type GitCommitInfo = {
+  /**
+   * The commit SHA hash
+   */
+  sha: string
+  /**
+   * The commit message
+   */
+  message: string
+  /**
+   * The commit author name
+   */
+  author: string
+  /**
+   * The commit author email
+   */
+  author_email: string
+  /**
+   * The commit date in ISO format
+   */
+  date: string
+  /**
+   * List of tags associated with this commit
+   */
+  tags?: Array<string>
 }
 
 /**
@@ -2126,8 +2185,77 @@ export type ProviderScopes = {
   default: Array<string>
 }
 
+export type PullDiagnostic = {
+  workflow_path: string
+  workflow_title: string | null
+  error_type:
+    | "conflict"
+    | "validation"
+    | "dependency"
+    | "parse"
+    | "github"
+    | "system"
+    | "transaction"
+  message: string
+  details: {
+    [key: string]: unknown
+  }
+}
+
+export type error_type =
+  | "conflict"
+  | "validation"
+  | "dependency"
+  | "parse"
+  | "github"
+  | "system"
+  | "transaction"
+
+export type PullResult = {
+  success: boolean
+  commit_sha: string
+  workflows_found: number
+  workflows_imported: number
+  diagnostics: Array<PullDiagnostic>
+  message: string
+}
+
 export type ReceiveInteractionResponse = {
   message: string
+}
+
+/**
+ * Create payload for an entity record.
+ *
+ * Data is a free-form JSON object whose keys correspond to entity field keys.
+ * Values are validated and coerced by the service using the entity's schema.
+ */
+export type RecordCreate = {
+  data?: {
+    [key: string]: unknown
+  }
+}
+
+export type RecordRead = {
+  id: string
+  entity_id: string
+  data: {
+    [key: string]: unknown
+  }
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * Partial update for a record's data map.
+ *
+ * Any keys provided will be merged into the existing record data after
+ * validation/coercion. Keys not present remain unchanged.
+ */
+export type RecordUpdate = {
+  data?: {
+    [key: string]: unknown
+  }
 }
 
 /**
@@ -2466,6 +2594,16 @@ export type RegistryRepositoryReadMinimal = {
   origin: string
   last_synced_at: string | null
   commit_sha: string | null
+}
+
+/**
+ * Parameters for syncing a repository to a specific commit.
+ */
+export type RegistryRepositorySync = {
+  /**
+   * The specific commit SHA to sync to. If None, syncs to HEAD.
+   */
+  target_commit_sha?: string | null
 }
 
 export type RegistryRepositoryUpdate = {
@@ -3823,6 +3961,24 @@ export type WorkflowReadMinimal = {
   folder_id?: string | null
 }
 
+/**
+ * Request model for pulling workflows from a Git repository.
+ */
+export type WorkflowSyncPullRequest = {
+  /**
+   * Specific commit SHA to pull from
+   */
+  commit_sha: string
+  /**
+   * Strategy for handling workflow conflicts during import
+   */
+  conflict_strategy?: ConflictStrategy
+  /**
+   * Validate only, don't perform actual import
+   */
+  dry_run?: boolean
+}
+
 export type WorkflowTagCreate = {
   tag_id: string
 }
@@ -4319,6 +4475,27 @@ export type WorkflowsPublishWorkflowData = {
 
 export type WorkflowsPublishWorkflowResponse = void
 
+export type WorkflowsListWorkflowCommitsData = {
+  /**
+   * Branch name to fetch commits from
+   */
+  branch?: string
+  /**
+   * Maximum number of commits to return
+   */
+  limit?: number
+  workspaceId: string
+}
+
+export type WorkflowsListWorkflowCommitsResponse = Array<GitCommitInfo>
+
+export type WorkflowsPullWorkflowsData = {
+  requestBody: WorkflowSyncPullRequest
+  workspaceId: string
+}
+
+export type WorkflowsPullWorkflowsResponse = PullResult
+
 export type SecretsSearchSecretsData = {
   environment: string
   /**
@@ -4527,6 +4704,59 @@ export type EntitiesActivateFieldData = {
 
 export type EntitiesActivateFieldResponse = void
 
+export type EntitiesListEntityRecordsData = {
+  /**
+   * Cursor for pagination
+   */
+  cursor?: string | null
+  entityId: string
+  /**
+   * Maximum items per page
+   */
+  limit?: number
+  /**
+   * Reverse pagination direction
+   */
+  reverse?: boolean
+  workspaceId: string
+}
+
+export type EntitiesListEntityRecordsResponse =
+  CursorPaginatedResponse_RecordRead_
+
+export type EntitiesCreateEntityRecordData = {
+  entityId: string
+  requestBody: RecordCreate
+  workspaceId: string
+}
+
+export type EntitiesCreateEntityRecordResponse = unknown
+
+export type EntitiesGetEntityRecordData = {
+  entityId: string
+  recordId: string
+  workspaceId: string
+}
+
+export type EntitiesGetEntityRecordResponse = RecordRead
+
+export type EntitiesUpdateEntityRecordData = {
+  entityId: string
+  recordId: string
+  requestBody: RecordUpdate
+  workspaceId: string
+}
+
+export type EntitiesUpdateEntityRecordResponse = void
+
+export type EntitiesDeleteEntityRecordData = {
+  entityId: string
+  recordId: string
+  workspaceId: string
+}
+
+export type EntitiesDeleteEntityRecordResponse = void
+
 export type TagsListTagsData = {
   workspaceId: string
 }
@@ -4561,6 +4791,32 @@ export type TagsDeleteTagData = {
 }
 
 export type TagsDeleteTagResponse = unknown
+
+export type RecordsListRecordsData = {
+  /**
+   * Cursor for pagination
+   */
+  cursor?: string | null
+  entityId?: string | null
+  /**
+   * Maximum items per page
+   */
+  limit?: number
+  /**
+   * Reverse pagination direction
+   */
+  reverse?: boolean
+  workspaceId: string
+}
+
+export type RecordsListRecordsResponse = CursorPaginatedResponse_RecordRead_
+
+export type RecordsGetRecordData = {
+  recordId: string
+  workspaceId: string
+}
+
+export type RecordsGetRecordResponse = RecordRead
 
 export type UsersSearchUserData = {
   email?: string | null
@@ -4672,6 +4928,7 @@ export type RegistryRepositoriesReloadRegistryRepositoriesResponse = void
 
 export type RegistryRepositoriesSyncRegistryRepositoryData = {
   repositoryId: string
+  requestBody?: RegistryRepositorySync | null
 }
 
 export type RegistryRepositoriesSyncRegistryRepositoryResponse = void
@@ -4706,6 +4963,15 @@ export type RegistryRepositoriesDeleteRegistryRepositoryData = {
 }
 
 export type RegistryRepositoriesDeleteRegistryRepositoryResponse = void
+
+export type RegistryRepositoriesListRepositoryCommitsData = {
+  branch?: string
+  limit?: number
+  repositoryId: string
+}
+
+export type RegistryRepositoriesListRepositoryCommitsResponse =
+  Array<GitCommitInfo>
 
 export type RegistryActionsListRegistryActionsResponse =
   Array<RegistryActionReadMinimal>
@@ -6154,6 +6420,36 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/workflows/sync/commits": {
+    get: {
+      req: WorkflowsListWorkflowCommitsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<GitCommitInfo>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workflows/sync/pull": {
+    post: {
+      req: WorkflowsPullWorkflowsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: PullResult
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/secrets/search": {
     get: {
       req: SecretsSearchSecretsData
@@ -6522,6 +6818,75 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/entities/{entity_id}/records": {
+    get: {
+      req: EntitiesListEntityRecordsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_RecordRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: EntitiesCreateEntityRecordData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/entities/{entity_id}/records/{record_id}": {
+    get: {
+      req: EntitiesGetEntityRecordData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: RecordRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: EntitiesUpdateEntityRecordData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: EntitiesDeleteEntityRecordData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/tags": {
     get: {
       req: TagsListTagsData
@@ -6584,6 +6949,36 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/records/records": {
+    get: {
+      req: RecordsListRecordsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_RecordRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/records/records/{record_id}": {
+    get: {
+      req: RecordsGetRecordData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: RecordRead
         /**
          * Validation Error
          */
@@ -6947,6 +7342,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/registry/repos/{repository_id}/commits": {
+    get: {
+      req: RegistryRepositoriesListRepositoryCommitsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<GitCommitInfo>
         /**
          * Validation Error
          */

@@ -6,7 +6,8 @@ import { WorkflowsTagsDashboardTable } from "@/components/dashboard/dashboard-ta
 import { ViewMode } from "@/components/dashboard/folder-view-toggle"
 import { WorkflowFoldersTable } from "@/components/dashboard/workflow-folders-table"
 import { WorkflowTagsSidebar } from "@/components/dashboard/workflow-tags-sidebar"
-import { useLocalStorage, useTags } from "@/lib/hooks"
+import { useLocalStorage } from "@/hooks/use-local-storage"
+import { useTags } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 export function WorkflowsDashboard() {
