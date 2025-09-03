@@ -1,7 +1,7 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
-import { KeyRoundIcon, TrashIcon } from "lucide-react"
+import { KeyRoundIcon, RefreshCwIcon, TrashIcon } from "lucide-react"
 import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
@@ -10,6 +10,7 @@ import {
   CreateSSHKeyDialog,
   CreateSSHKeyDialogTrigger,
 } from "@/components/ssh-keys/ssh-key-create-dialog"
+import { CustomTagInput } from "@/components/tags-input"
 import { Button } from "@/components/ui/button"
 import {
   Form,
@@ -42,6 +43,22 @@ const workspaceSettingsSchema = z.object({
     .number()
     .min(1, "Timeout must be at least 1 second")
     .optional(),
+  allowed_attachment_extensions: z
+    .array(
+      z.object({
+        id: z.string(),
+        text: z.string().min(1, "Cannot be empty"),
+      })
+    )
+    .optional(),
+  allowed_attachment_mime_types: z
+    .array(
+      z.object({
+        id: z.string(),
+        text: z.string().min(1, "Cannot be empty"),
+      })
+    )
+    .optional(),
 })
 
 type WorkspaceSettingsForm = z.infer<typeof workspaceSettingsSchema>
@@ -55,6 +72,11 @@ export function OrgWorkspaceSettings({
   workspace,
   onWorkspaceDeleted,
 }: OrgWorkspaceSettingsProps) {
+  // Get the system defaults from the workspace response
+  const systemDefaultExtensions =
+    workspace.settings?.effective_allowed_attachment_extensions || []
+  const systemDefaultMimeTypes =
+    workspace.settings?.effective_allowed_attachment_mime_types || []
   const { isFeatureEnabled } = useFeatureFlag()
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [sshKeyToDelete, setSSHKeyToDelete] =
@@ -79,6 +101,30 @@ export function OrgWorkspaceSettings({
         workspace.settings?.workflow_unlimited_timeout_enabled ?? false,
       workflow_default_timeout_seconds:
         workspace.settings?.workflow_default_timeout_seconds || undefined,
+      allowed_attachment_extensions: workspace.settings
+        ?.allowed_attachment_extensions?.length
+        ? workspace.settings.allowed_attachment_extensions.map(
+            (ext, index) => ({
+              id: `ext-${index}`,
+              text: ext,
+            })
+          )
+        : systemDefaultExtensions.map((ext, index) => ({
+            id: `ext-default-${index}`,
+            text: ext,
+          })),
+      allowed_attachment_mime_types: workspace.settings
+        ?.allowed_attachment_mime_types?.length
+        ? workspace.settings.allowed_attachment_mime_types.map(
+            (mime, index) => ({
+              id: `mime-${index}`,
+              text: mime,
+            })
+          )
+        : systemDefaultMimeTypes.map((mime, index) => ({
+            id: `mime-default-${index}`,
+            text: mime,
+          })),
     },
   })
 
@@ -91,6 +137,14 @@ export function OrgWorkspaceSettings({
           values.workflow_unlimited_timeout_enabled,
         workflow_default_timeout_seconds:
           values.workflow_default_timeout_seconds,
+        allowed_attachment_extensions: values.allowed_attachment_extensions
+          ?.length
+          ? values.allowed_attachment_extensions.map((ext) => ext.text)
+          : undefined,
+        allowed_attachment_mime_types: values.allowed_attachment_mime_types
+          ?.length
+          ? values.allowed_attachment_mime_types.map((mime) => mime.text)
+          : undefined,
       },
     })
   }
@@ -113,12 +167,6 @@ export function OrgWorkspaceSettings({
   return (
     <div className="space-y-8">
       <div className="space-y-4">
-        <div>
-          <h3 className="text-lg font-medium">Workspace name</h3>
-          <p className="text-sm text-muted-foreground">
-            Change the name of this workspace.
-          </p>
-        </div>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
             <FormField
@@ -126,7 +174,7 @@ export function OrgWorkspaceSettings({
               name="name"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Name</FormLabel>
+                  <FormLabel>Workspace name</FormLabel>
                   <FormControl>
                     <Input
                       {...field}
@@ -134,6 +182,9 @@ export function OrgWorkspaceSettings({
                       className="max-w-md"
                     />
                   </FormControl>
+                  <FormDescription>
+                    Change the name of this workspace.
+                  </FormDescription>
                   <FormMessage />
                 </FormItem>
               )}
@@ -177,80 +228,146 @@ export function OrgWorkspaceSettings({
               </div>
             )}
 
-            <div>
-              <h4 className="text-md font-medium mb-4">
-                Workflow timeout settings
-              </h4>
-              <p className="text-sm text-muted-foreground mb-4">
-                Configure default timeout behavior for all workflows in this
-                workspace.
-              </p>
-              <div className="space-y-4">
-                <FormField
-                  control={form.control}
-                  name="workflow_unlimited_timeout_enabled"
-                  render={({ field }) => (
-                    <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
-                      <div className="space-y-0.5">
-                        <FormLabel className="text-base">
-                          Unlimited workflow timeout
-                        </FormLabel>
-                        <FormDescription>
-                          Allow workflows to run indefinitely without timeout
-                          constraints. When enabled, individual workflow timeout
-                          settings are ignored.
-                        </FormDescription>
-                      </div>
-                      <FormControl>
-                        <Switch
-                          checked={field.value}
-                          onCheckedChange={field.onChange}
-                        />
-                      </FormControl>
-                    </FormItem>
-                  )}
-                />
+            <FormField
+              control={form.control}
+              name="workflow_unlimited_timeout_enabled"
+              render={({ field }) => (
+                <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                  <div className="space-y-0.5">
+                    <FormLabel>Unlimited workflow timeout</FormLabel>
+                    <FormDescription>
+                      Force all workflows to run indefinitely without timeout
+                      constraints.
+                    </FormDescription>
+                  </div>
+                  <FormControl>
+                    <Switch
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                    />
+                  </FormControl>
+                </FormItem>
+              )}
+            />
 
-                <FormField
-                  control={form.control}
-                  name="workflow_default_timeout_seconds"
-                  render={({ field }) => (
-                    <FormItem className="flex flex-col">
-                      <FormLabel>Default workflow timeout (seconds)</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="number"
-                          placeholder="300"
-                          {...field}
-                          value={field.value ?? ""}
-                          onChange={(e) =>
-                            field.onChange(
-                              e.target.value
-                                ? Number(e.target.value)
-                                : undefined
-                            )
-                          }
-                          disabled={form.watch(
-                            "workflow_unlimited_timeout_enabled"
-                          )}
-                          className="max-w-md"
-                        />
-                      </FormControl>
-                      <FormDescription>
-                        Default timeout in seconds for workflows in this
-                        workspace. Individual workflow settings will fall back
-                        to this value. Leave empty to use per-workflow timeout
-                        settings.
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-            </div>
+            <FormField
+              control={form.control}
+              name="workflow_default_timeout_seconds"
+              render={({ field }) => (
+                <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                  <div className="space-y-0.5">
+                    <FormLabel>Default workflow timeout</FormLabel>
+                    <FormDescription>
+                      Default timeout in seconds for workflows in this
+                      workspace. Disabled if unlimited timeout is enabled.
+                    </FormDescription>
+                  </div>
+                  <FormControl>
+                    <Input
+                      type="number"
+                      min={1}
+                      placeholder="300"
+                      {...field}
+                      value={field.value ?? ""}
+                      onChange={(e) =>
+                        field.onChange(
+                          e.target.value ? Number(e.target.value) : undefined
+                        )
+                      }
+                      disabled={form.watch(
+                        "workflow_unlimited_timeout_enabled"
+                      )}
+                      className="w-24"
+                    />
+                  </FormControl>
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="allowed_attachment_extensions"
+              render={({ field }) => (
+                <FormItem>
+                  <div className="flex items-center justify-between">
+                    <FormLabel>Allowed file extensions</FormLabel>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        field.onChange(
+                          systemDefaultExtensions.map((ext, index) => ({
+                            id: `ext-default-${index}`,
+                            text: ext,
+                          }))
+                        )
+                      }}
+                      className="h-auto p-1"
+                    >
+                      <RefreshCwIcon className="h-3 w-3" />
+                    </Button>
+                  </div>
+                  <FormControl>
+                    <CustomTagInput
+                      {...field}
+                      placeholder="Enter an extension..."
+                      tags={field.value || []}
+                      setTags={field.onChange}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    Add file extensions that users can upload as attachments
+                    (e.g., .pdf, .docx, .png)
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="allowed_attachment_mime_types"
+              render={({ field }) => (
+                <FormItem>
+                  <div className="flex items-center justify-between">
+                    <FormLabel>Allowed MIME types</FormLabel>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        field.onChange(
+                          systemDefaultMimeTypes.map((mime, index) => ({
+                            id: `mime-default-${index}`,
+                            text: mime,
+                          }))
+                        )
+                      }}
+                      className="h-auto p-1"
+                    >
+                      <RefreshCwIcon className="h-3 w-3" />
+                    </Button>
+                  </div>
+                  <FormControl>
+                    <CustomTagInput
+                      {...field}
+                      placeholder="Enter a MIME type..."
+                      tags={field.value || []}
+                      setTags={field.onChange}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    Add MIME types that are allowed for attachments (e.g.,
+                    application/pdf, image/jpeg)
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
 
             <Button type="submit" disabled={isUpdating}>
-              {isUpdating ? "Saving..." : "Save changes"}
+              {isUpdating ? "Saving..." : "Update workspace settings"}
             </Button>
           </form>
         </Form>
@@ -260,7 +377,7 @@ export function OrgWorkspaceSettings({
 
       <div className="space-y-4">
         <div>
-          <h3 className="text-lg font-medium">SSH key management</h3>
+          <h3 className="text-lg font-medium">Workflow Git sync</h3>
           <p className="text-sm text-muted-foreground">
             Manage SSH keys for authenticating with private Git repositories.
           </p>
@@ -281,9 +398,9 @@ export function OrgWorkspaceSettings({
                 <div className="flex items-center space-x-3">
                   <KeyRoundIcon className="size-4 text-muted-foreground" />
                   <div>
-                    <div className="font-medium">{sshKey.name}</div>
+                    <div className="text-sm">{sshKey.name}</div>
                     {sshKey.description && (
-                      <div className="text-sm text-muted-foreground">
+                      <div className="text-xs text-muted-foreground">
                         {sshKey.description}
                       </div>
                     )}
@@ -305,29 +422,32 @@ export function OrgWorkspaceSettings({
               </div>
             ))}
           </div>
-        ) : (
-          <div className="text-sm text-muted-foreground">
-            No SSH keys configured. Create one to authenticate with private Git
-            repositories.
-          </div>
-        )}
+        ) : null}
 
-        <CreateSSHKeyDialog
-          handler={handleCreateWorkspaceSSHKey}
-          fieldConfig={{
-            name: {
-              defaultValue: "store-ssh-key",
-              disabled: true,
-            },
-          }}
-        >
-          <CreateSSHKeyDialogTrigger asChild>
-            <Button variant="outline" className="space-x-2">
-              <KeyRoundIcon className="mr-2 size-4" />
-              Create SSH key
-            </Button>
-          </CreateSSHKeyDialogTrigger>
-        </CreateSSHKeyDialog>
+        <div className="space-y-2">
+          <CreateSSHKeyDialog
+            handler={handleCreateWorkspaceSSHKey}
+            fieldConfig={{
+              name: {
+                defaultValue: "store-ssh-key",
+                disabled: true,
+              },
+            }}
+          >
+            <CreateSSHKeyDialogTrigger asChild>
+              <Button variant="outline" className="space-x-2">
+                <KeyRoundIcon className="mr-2 size-4" />
+                Create SSH key
+              </Button>
+            </CreateSSHKeyDialogTrigger>
+          </CreateSSHKeyDialog>
+          {!sshKeysLoading && (!sshKeys || sshKeys.length === 0) && (
+            <div className="text-xs text-muted-foreground">
+              No SSH keys configured. Create one to authenticate with private
+              Git repositories.
+            </div>
+          )}
+        </div>
       </div>
 
       <Separator />

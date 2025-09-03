@@ -305,15 +305,12 @@ export type AssigneeChangedEventRead = {
  * Event for when an attachment is created for a case.
  */
 export type AttachmentCreatedEventRead = {
-  /**
-   * The execution ID of the workflow that triggered the event.
-   */
-  wf_exec_id?: string | null
   type?: "attachment_created"
   attachment_id: string
   file_name: string
   content_type: string
   size: number
+  wf_exec_id?: string | null
   /**
    * The user who performed the action.
    */
@@ -328,13 +325,10 @@ export type AttachmentCreatedEventRead = {
  * Event for when an attachment is deleted from a case.
  */
 export type AttachmentDeletedEventRead = {
-  /**
-   * The execution ID of the workflow that triggered the event.
-   */
-  wf_exec_id?: string | null
   type?: "attachment_deleted"
   attachment_id: string
   file_name: string
+  wf_exec_id?: string | null
   /**
    * The user who performed the action.
    */
@@ -3909,6 +3903,16 @@ export type WorkspaceSettingsRead = {
   git_repo_url?: string | null
   workflow_unlimited_timeout_enabled?: boolean | null
   workflow_default_timeout_seconds?: number | null
+  allowed_attachment_extensions?: Array<string> | null
+  allowed_attachment_mime_types?: Array<string> | null
+  /**
+   * Returns workspace-specific extensions if set, otherwise system defaults.
+   */
+  readonly effective_allowed_attachment_extensions: Array<string>
+  /**
+   * Returns workspace-specific MIME types if set, otherwise system defaults.
+   */
+  readonly effective_allowed_attachment_mime_types: Array<string>
 }
 
 export type WorkspaceSettingsUpdate = {
@@ -3921,6 +3925,14 @@ export type WorkspaceSettingsUpdate = {
    * Default timeout in seconds for workflows in this workspace. Must be greater than or equal to 0.
    */
   workflow_default_timeout_seconds?: number | null
+  /**
+   * Allowed file extensions for attachments (e.g., ['.pdf', '.docx']). Overrides global defaults.
+   */
+  allowed_attachment_extensions?: Array<string> | null
+  /**
+   * Allowed MIME types for attachments (e.g., ['application/pdf', 'image/jpeg']). Overrides global defaults.
+   */
+  allowed_attachment_mime_types?: Array<string> | null
 }
 
 export type WorkspaceUpdate = {
@@ -4911,6 +4923,50 @@ export type TablesImportCsvData = {
 
 export type TablesImportCsvResponse = TableRowInsertBatchResponse
 
+export type CasesListAttachmentsData = {
+  caseId: string
+  workspaceId: string
+}
+
+export type CasesListAttachmentsResponse = Array<CaseAttachmentRead>
+
+export type CasesCreateAttachmentData = {
+  caseId: string
+  formData: Body_cases_create_attachment
+  workspaceId: string
+}
+
+export type CasesCreateAttachmentResponse = CaseAttachmentRead
+
+export type CasesDownloadAttachmentData = {
+  attachmentId: string
+  caseId: string
+  /**
+   * If true, allows inline preview for safe image types
+   */
+  preview?: boolean
+  workspaceId: string
+}
+
+export type CasesDownloadAttachmentResponse = CaseAttachmentDownloadResponse
+
+export type CasesDeleteAttachmentData = {
+  attachmentId: string
+  caseId: string
+  workspaceId: string
+}
+
+export type CasesDeleteAttachmentResponse = void
+
+export type CasesGetStorageUsageData = {
+  caseId: string
+  workspaceId: string
+}
+
+export type CasesGetStorageUsageResponse = {
+  [key: string]: number
+}
+
 export type CasesListCasesData = {
   /**
    * Cursor for pagination
@@ -5044,50 +5100,6 @@ export type CasesListEventsWithUsersData = {
 }
 
 export type CasesListEventsWithUsersResponse = CaseEventsWithUsers
-
-export type CasesListAttachmentsData = {
-  caseId: string
-  workspaceId: string
-}
-
-export type CasesListAttachmentsResponse = Array<CaseAttachmentRead>
-
-export type CasesCreateAttachmentData = {
-  caseId: string
-  formData: Body_cases_create_attachment
-  workspaceId: string
-}
-
-export type CasesCreateAttachmentResponse = CaseAttachmentRead
-
-export type CasesDownloadAttachmentData = {
-  attachmentId: string
-  caseId: string
-  /**
-   * If true, allows inline preview for safe image types
-   */
-  preview?: boolean
-  workspaceId: string
-}
-
-export type CasesDownloadAttachmentResponse = CaseAttachmentDownloadResponse
-
-export type CasesDeleteAttachmentData = {
-  attachmentId: string
-  caseId: string
-  workspaceId: string
-}
-
-export type CasesDeleteAttachmentResponse = void
-
-export type CasesGetStorageUsageData = {
-  caseId: string
-  workspaceId: string
-}
-
-export type CasesGetStorageUsageResponse = {
-  [key: string]: number
-}
 
 export type CasesListFieldsData = {
   workspaceId: string
@@ -5519,7 +5531,7 @@ export type PublicCheckHealthResponse = {
 
 export type $OpenApiTs = {
   "/webhooks/{workflow_id}/{secret}": {
-    post: {
+    get: {
       req: PublicIncomingWebhookData
       res: {
         /**
@@ -5532,7 +5544,7 @@ export type $OpenApiTs = {
         422: HTTPValidationError
       }
     }
-    get: {
+    post: {
       req: PublicIncomingWebhook1Data
       res: {
         /**
@@ -7408,6 +7420,79 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/cases/{case_id}/attachments": {
+    get: {
+      req: CasesListAttachmentsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<CaseAttachmentRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: CasesCreateAttachmentData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: CaseAttachmentRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases/{case_id}/attachments/{attachment_id}": {
+    get: {
+      req: CasesDownloadAttachmentData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseAttachmentDownloadResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: CasesDeleteAttachmentData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases/{case_id}/attachments../storage-usage": {
+    get: {
+      req: CasesGetStorageUsageData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: {
+          [key: string]: number
+        }
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/cases": {
     get: {
       req: CasesListCasesData
@@ -7556,79 +7641,6 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: CaseEventsWithUsers
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/cases/{case_id}/attachments": {
-    get: {
-      req: CasesListAttachmentsData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: Array<CaseAttachmentRead>
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-    post: {
-      req: CasesCreateAttachmentData
-      res: {
-        /**
-         * Successful Response
-         */
-        201: CaseAttachmentRead
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/cases/{case_id}/attachments/{attachment_id}": {
-    get: {
-      req: CasesDownloadAttachmentData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: CaseAttachmentDownloadResponse
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-    delete: {
-      req: CasesDeleteAttachmentData
-      res: {
-        /**
-         * Successful Response
-         */
-        204: void
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/cases/{case_id}/storage-usage": {
-    get: {
-      req: CasesGetStorageUsageData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: {
-          [key: string]: number
-        }
         /**
          * Validation Error
          */

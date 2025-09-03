@@ -20,7 +20,7 @@ from tracecat.cases.attachments.models import (
     CaseAttachmentCreate,
 )
 from tracecat.contexts import ctx_run
-from tracecat.db.schemas import Case, CaseAttachment, File
+from tracecat.db.schemas import Case, CaseAttachment, File, Workspace
 from tracecat.logger import logger
 from tracecat.service import BaseWorkspaceService
 from tracecat.storage import blob
@@ -48,6 +48,7 @@ class CaseAttachmentService(BaseWorkspaceService):
 
     def __init__(self, session: AsyncSession, role: Role | None = None):
         super().__init__(session, role)
+        self._workspace_cache: Workspace | None = None
 
     @staticmethod
     def _compute_sha256(content: bytes) -> str:
@@ -96,6 +97,18 @@ class CaseAttachmentService(BaseWorkspaceService):
             case=case,
             event=event,
         )
+
+    async def _get_workspace(self) -> Workspace:
+        """Get the workspace for the current context, with caching."""
+        if self._workspace_cache is None:
+            result = await self.session.exec(
+                select(Workspace).where(Workspace.id == self.workspace_id)
+            )
+            workspace = result.one_or_none()
+            if not workspace:
+                raise TracecatException(f"Workspace {self.workspace_id} not found")
+            self._workspace_cache = workspace
+        return self._workspace_cache
 
     async def _assert_case_limits(self, case: Case, new_size: int) -> None:
         """Validate case-level constraints for attachments (count and total storage)."""
@@ -215,8 +228,24 @@ class CaseAttachmentService(BaseWorkspaceService):
         # Validate case-level limits (count + storage) efficiently
         await self._assert_case_limits(case, params.size)
 
+        # Get workspace settings for attachment validation
+        workspace = await self._get_workspace()
+        workspace_settings = workspace.settings or {}
+
+        # Use workspace-specific allowed extensions/MIME types if configured, otherwise use defaults
+        allowed_extensions = workspace_settings.get("allowed_attachment_extensions")
+        if allowed_extensions:
+            allowed_extensions = set(allowed_extensions)
+
+        allowed_mime_types = workspace_settings.get("allowed_attachment_mime_types")
+        if allowed_mime_types:
+            allowed_mime_types = set(allowed_mime_types)
+
         # Comprehensive security validation using the new validator
-        validator = FileSecurityValidator()
+        validator = FileSecurityValidator(
+            allowed_extensions=allowed_extensions,
+            allowed_mime_types=allowed_mime_types,
+        )
         # Strip "Content-Type" from the declared MIME type
         declared_mime_type = params.content_type.split(";")[0].strip()
         validation_result = validator.validate_file(
