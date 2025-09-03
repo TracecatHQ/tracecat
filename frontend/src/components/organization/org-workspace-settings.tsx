@@ -207,10 +207,6 @@ export function OrgWorkspaceSettings({
                           versions
                         </p>
                         <p>
-                          • Choose how to handle conflicts with existing
-                          workflows
-                        </p>
-                        <p>
                           • All changes are atomic - either all workflows import
                           or none do
                         </p>
