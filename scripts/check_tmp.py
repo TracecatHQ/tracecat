@@ -4,7 +4,7 @@ import sys
 
 # Treats empty strings as Falsy
 threshold = float(os.getenv("HEALTHCHECK_TMP_THRESHOLD") or "80")
-# Allow TMP_PATH override, otherwise use env temp paths
+# Allow HEALTHCHECK_TMP_PATH override, otherwise use env temp paths
 tmp_path = os.getenv("HEALTHCHECK_TMP_PATH") or os.getenv("TMP", "/tmp")
 
 # Check if the path exists
