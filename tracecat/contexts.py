@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from contextvars import ContextVar
 
 import loguru
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat.dsl.models import ROOT_STREAM, RunContext, StreamID
 from tracecat.interactions.models import InteractionContext
@@ -25,6 +27,16 @@ ctx_interaction: ContextVar[InteractionContext | None] = ContextVar(
 )
 ctx_stream_id: ContextVar[StreamID] = ContextVar("stream-id", default=ROOT_STREAM)
 ctx_env: ContextVar[dict[str, str] | None] = ContextVar("env", default=None)
+ctx_session: ContextVar[AsyncSession | None] = ContextVar("session", default=None)
+
+
+@asynccontextmanager
+async def with_session(session: AsyncSession):
+    token = ctx_session.set(session)
+    try:
+        yield
+    finally:
+        ctx_session.reset(token)
 
 
 def get_env() -> dict[str, str]:

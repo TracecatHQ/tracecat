@@ -217,11 +217,11 @@ async def prepare_git_url(
     """
     role = role or ctx_role.get()
 
+    # NOTE(perf): We retrieve the session from the contextvar inside
+    # to preserve cache affinity
+
     # Handle the git repo
-    url = await get_setting_cached(
-        "git_repo_url",
-        session=session,
-    )
+    url = await get_setting_cached("git_repo_url")
     if not url or not isinstance(url, str):
         logger.debug("No git URL found")
         return None
@@ -230,7 +230,6 @@ async def prepare_git_url(
 
     allowed_domains_setting = await get_setting_cached(
         "git_allowed_domains",
-        session=session,
         # TODO: Deprecate in future version
         # Must be hashable
         default=frozenset(config.TRACECAT__ALLOWED_GIT_DOMAINS),
