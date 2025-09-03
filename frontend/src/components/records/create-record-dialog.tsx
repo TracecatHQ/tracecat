@@ -4,6 +4,7 @@ import { AlertTriangle, Loader2, RefreshCw } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { type Control, type FieldValues, useForm } from "react-hook-form"
 import type { EntityFieldRead } from "@/client"
+import { ApiError } from "@/client"
 import {
   YamlStyledEditor,
   type YamlStyledEditorRef,
@@ -175,10 +176,21 @@ export function CreateRecordDialog({
       onOpenChange(false)
       onSuccess?.()
     } catch (error) {
+      let detail: string | undefined
+      if (error instanceof ApiError) {
+        const body: unknown = error.body
+        if (body && typeof body === "object" && "detail" in body) {
+          const d = (body as { detail?: unknown }).detail
+          if (typeof d === "string") {
+            detail = d
+          }
+        }
+      }
       const errorMessage =
-        error instanceof Error
+        detail ||
+        (error instanceof Error && error.message
           ? error.message
-          : "Failed to create record. Please check your data and try again."
+          : "Failed to create record. Please check your data and try again.")
       setSubmissionError(errorMessage)
     }
   }

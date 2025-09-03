@@ -3,8 +3,9 @@
 import { AlertTriangle } from "lucide-react"
 import { useEffect, useState } from "react"
 import type { RecordRead } from "@/client"
+import { ApiError } from "@/client"
 import { CodeEditor } from "@/components/editor/codemirror/code-editor"
-import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -29,7 +30,7 @@ export function EditRecordDialog({
   record,
 }: EditRecordDialogProps) {
   const workspaceId = useWorkspaceId()
-  const [error, setError] = useState<string | null>(null)
+  const [submissionError, setSubmissionError] = useState<string | null>(null)
   const [jsonValue, setJsonValue] = useState<string>("")
   const [isValidJson, setIsValidJson] = useState(true)
   const { updateRecord, updateRecordIsPending } = useUpdateRecord()
@@ -38,7 +39,7 @@ export function EditRecordDialog({
     if (record?.data) {
       setJsonValue(JSON.stringify(record.data, null, 2))
       setIsValidJson(true)
-      setError(null)
+      setSubmissionError(null)
     }
   }, [record])
 
@@ -47,7 +48,7 @@ export function EditRecordDialog({
     try {
       JSON.parse(value)
       setIsValidJson(true)
-      setError(null)
+      setSubmissionError(null)
     } catch {
       setIsValidJson(false)
     }
@@ -65,18 +66,29 @@ export function EditRecordDialog({
         data: parsedData,
       })
       onOpenChange(false)
-    } catch (err) {
+    } catch (error) {
+      let detail: string | undefined
+      if (error instanceof ApiError) {
+        const body: unknown = error.body
+        if (body && typeof body === "object" && "detail" in body) {
+          const d = (body as { detail?: unknown }).detail
+          if (typeof d === "string") {
+            detail = d
+          }
+        }
+      }
       const errorMessage =
-        err instanceof Error
-          ? err.message
-          : "Failed to update record. Please try again."
-      setError(errorMessage)
+        detail ||
+        (error instanceof Error && error.message
+          ? error.message
+          : "Failed to update record. Please try again.")
+      setSubmissionError(errorMessage)
     }
   }
 
   const handleOpenChange = (newOpen: boolean) => {
     if (!newOpen) {
-      setError(null)
+      setSubmissionError(null)
       setJsonValue("")
       setIsValidJson(true)
     }
@@ -92,10 +104,11 @@ export function EditRecordDialog({
             Modify the record data in JSON format.
           </DialogDescription>
         </DialogHeader>
-        {error && (
+        {submissionError && (
           <Alert variant="destructive">
             <AlertTriangle className="h-4 w-4" />
-            <AlertDescription>{error}</AlertDescription>
+            <AlertTitle>Error updating record</AlertTitle>
+            <AlertDescription>{submissionError}</AlertDescription>
           </Alert>
         )}
         <div className="flex-1 overflow-auto min-h-[300px]">

@@ -4611,32 +4611,6 @@ export type EntitiesDeleteEntityRecordData = {
 
 export type EntitiesDeleteEntityRecordResponse = void
 
-export type EntitiesListRecordsData = {
-  /**
-   * Cursor for pagination
-   */
-  cursor?: string | null
-  entityId?: string | null
-  /**
-   * Maximum items per page
-   */
-  limit?: number
-  /**
-   * Reverse pagination direction
-   */
-  reverse?: boolean
-  workspaceId: string
-}
-
-export type EntitiesListRecordsResponse = CursorPaginatedResponse_RecordRead_
-
-export type EntitiesGetRecordData = {
-  recordId: string
-  workspaceId: string
-}
-
-export type EntitiesGetRecordResponse = RecordRead
-
 export type TagsListTagsData = {
   workspaceId: string
 }
@@ -4671,6 +4645,32 @@ export type TagsDeleteTagData = {
 }
 
 export type TagsDeleteTagResponse = unknown
+
+export type RecordsListRecordsData = {
+  /**
+   * Cursor for pagination
+   */
+  cursor?: string | null
+  entityId?: string | null
+  /**
+   * Maximum items per page
+   */
+  limit?: number
+  /**
+   * Reverse pagination direction
+   */
+  reverse?: boolean
+  workspaceId: string
+}
+
+export type RecordsListRecordsResponse = CursorPaginatedResponse_RecordRead_
+
+export type RecordsGetRecordData = {
+  recordId: string
+  workspaceId: string
+}
+
+export type RecordsGetRecordResponse = RecordRead
 
 export type UsersSearchUserData = {
   email?: string | null
@@ -6701,36 +6701,6 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/entities/records": {
-    get: {
-      req: EntitiesListRecordsData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: CursorPaginatedResponse_RecordRead_
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/entities/records/{record_id}": {
-    get: {
-      req: EntitiesGetRecordData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: RecordRead
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
   "/tags": {
     get: {
       req: TagsListTagsData
@@ -6793,6 +6763,36 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/records/records": {
+    get: {
+      req: RecordsListRecordsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_RecordRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/records/records/{record_id}": {
+    get: {
+      req: RecordsGetRecordData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: RecordRead
         /**
          * Validation Error
          */
