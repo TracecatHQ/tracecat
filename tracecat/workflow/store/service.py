@@ -1,7 +1,6 @@
 from pathlib import Path
 from typing import cast
 
-from tracecat import __version__ as platform_version
 from tracecat.db.schemas import Workflow
 from tracecat.dsl.common import DSLInput
 from tracecat.git.utils import parse_git_url
@@ -11,7 +10,6 @@ from tracecat.service import BaseWorkspaceService
 from tracecat.sync import Author, PushObject, PushOptions
 from tracecat.types.exceptions import TracecatSettingsError, TracecatValidationError
 from tracecat.workflow.store.models import (
-    RemoteRegistry,
     RemoteWebhook,
     RemoteWorkflowDefinition,
     RemoteWorkflowSchedule,
@@ -87,7 +85,6 @@ class WorkflowStoreService(BaseWorkspaceService):
         # Create PushObject with data and stable path
         defn = RemoteWorkflowDefinition(
             id=workflow_id.short(),
-            registry=RemoteRegistry(base_version=platform_version),
             alias=workflow.alias,
             folder_path=folder_path,
             tags=[RemoteWorkflowTag(name=t.name) for t in workflow.tags],

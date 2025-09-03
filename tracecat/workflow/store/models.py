@@ -37,27 +37,6 @@ class WorkflowSyncPullRequest(BaseModel):
     )
 
 
-class RemoteRegistry(BaseModel):
-    """Represents a remote registry."""
-
-    base_version: str
-    """Base Tracecat registry version. This should be a semver tag (tied to the Tracecat version)."""
-
-    repositories: list[str] | None = None
-    """List of Git repository URLs for Tracecat custom registries with `ref` (commit hash).
-
-    Example:
-    ```
-    - "git+ssh://git@github.com/TracecatHQ/custom-registry.git#<commit-hash>"
-    ```
-    """
-
-    def model_dump(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
-        """Dump the model as a dictionary."""
-        kwargs.update(exclude_none=True, exclude_unset=True, mode="json")
-        return super().model_dump(*args, **kwargs)
-
-
 _SER_DSL_KEY_ORDER = (
     "title",
     "description",
@@ -134,9 +113,6 @@ class RemoteWorkflowDefinition(BaseModel):
 
     id: WorkflowIDShort
     """Stable short ID of the workflow in the remote store."""
-
-    registry: RemoteRegistry
-    """Action registry dependencies required for this workflow."""
 
     # version: int // We don't really need version
     alias: str | None = None

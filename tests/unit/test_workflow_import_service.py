@@ -16,7 +16,6 @@ from tracecat.sync import ConflictStrategy
 from tracecat.types.auth import Role
 from tracecat.workflow.store.import_service import WorkflowImportService
 from tracecat.workflow.store.models import (
-    RemoteRegistry,
     RemoteWebhook,
     RemoteWorkflowDefinition,
     RemoteWorkflowSchedule,
@@ -66,10 +65,6 @@ def remote_workflow_definition(sample_dsl: DSLInput) -> RemoteWorkflowDefinition
     """Create a remote workflow definition for testing."""
     return RemoteWorkflowDefinition(
         id="wf_testworkflow001",
-        registry=RemoteRegistry(
-            base_version="0.1.0",
-            repositories=["git+ssh://git@github.com/test/registry.git#main"],
-        ),
         alias="test-import-workflow",
         tags=[RemoteWorkflowTag(name="test"), RemoteWorkflowTag(name="import")],
         schedules=[
@@ -474,7 +469,6 @@ class TestWorkflowImportService:
         try:
             RemoteWorkflowDefinition(
                 id="invalid-workflow",  # This should fail validation due to pattern mismatch
-                registry=RemoteRegistry(base_version="0.1.0"),
                 definition=DSLInput(
                     title="Valid Title",
                     description="Valid description",
@@ -531,14 +525,12 @@ class TestWorkflowImportService:
 
         valid_remote = RemoteWorkflowDefinition(
             id="wf_valid001",
-            registry=RemoteRegistry(base_version="0.1.0"),
             alias="valid-workflow",
             definition=valid_dsl,
         )
 
         invalid_remote = RemoteWorkflowDefinition(
             id="wf_invalid001",
-            registry=RemoteRegistry(base_version="0.1.0"),
             alias="invalid-workflow",
             definition=invalid_dsl,
         )
@@ -585,7 +577,6 @@ class TestWorkflowImportService:
 
         second_remote = RemoteWorkflowDefinition(
             id="wf_testworkflow002",
-            registry=RemoteRegistry(base_version="0.1.0"),
             definition=second_dsl,
         )
 
@@ -705,14 +696,12 @@ class TestWorkflowImportService:
 
         parent_remote = RemoteWorkflowDefinition(
             id="wf_parent001",
-            registry=RemoteRegistry(base_version="0.1.0"),
             alias="parent-workflow",
             definition=parent_dsl,
         )
 
         child_remote = RemoteWorkflowDefinition(
             id="wf_child001",
-            registry=RemoteRegistry(base_version="0.1.0"),
             alias="child-workflow",  # This alias matches the reference
             definition=child_dsl,
         )
@@ -750,7 +739,6 @@ class TestWorkflowImportService:
 
         parent_remote = RemoteWorkflowDefinition(
             id="wf_parent001",
-            registry=RemoteRegistry(base_version="0.1.0"),
             alias="parent-workflow",
             definition=parent_dsl,
         )
@@ -794,7 +782,6 @@ class TestWorkflowImportService:
 
         existing_remote = RemoteWorkflowDefinition(
             id="wf_existing001",
-            registry=RemoteRegistry(base_version="0.1.0"),
             alias="existing-workflow",
             definition=existing_dsl,
         )
@@ -823,7 +810,6 @@ class TestWorkflowImportService:
 
         new_remote = RemoteWorkflowDefinition(
             id="wf_new001",
-            registry=RemoteRegistry(base_version="0.1.0"),
             alias="new-workflow",
             definition=new_dsl,
         )
@@ -861,7 +847,6 @@ class TestWorkflowImportService:
 
         parent_remote = RemoteWorkflowDefinition(
             id="wf_parent001",
-            registry=RemoteRegistry(base_version="0.1.0"),
             alias="parent-workflow",
             definition=parent_dsl,
         )
@@ -942,21 +927,18 @@ class TestWorkflowImportService:
 
         parent_remote = RemoteWorkflowDefinition(
             id="wf_parent001",
-            registry=RemoteRegistry(base_version="0.1.0"),
             alias="parent-workflow",
             definition=parent_dsl,
         )
 
         child_one_remote = RemoteWorkflowDefinition(
             id="wf_child001",
-            registry=RemoteRegistry(base_version="0.1.0"),
             alias="child-one",
             definition=child_one_dsl,
         )
 
         child_two_remote = RemoteWorkflowDefinition(
             id="wf_child002",
-            registry=RemoteRegistry(base_version="0.1.0"),
             alias="child-two",
             definition=child_two_dsl,
         )
@@ -1000,7 +982,6 @@ class TestWorkflowImportService:
 
         parent_remote = RemoteWorkflowDefinition(
             id="wf_malformed001",
-            registry=RemoteRegistry(base_version="0.1.0"),
             alias="malformed-workflow",
             definition=parent_dsl,
         )

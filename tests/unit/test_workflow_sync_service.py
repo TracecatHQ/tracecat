@@ -12,7 +12,7 @@ from tracecat.git.models import GitUrl
 from tracecat.sync import Author, PushObject, PushOptions
 from tracecat.types.auth import Role
 from tracecat.workflow.store.import_service import WorkflowImportService
-from tracecat.workflow.store.models import RemoteRegistry, RemoteWorkflowDefinition
+from tracecat.workflow.store.models import RemoteWorkflowDefinition
 from tracecat.workflow.store.sync import WorkflowSyncService
 
 
@@ -50,7 +50,6 @@ def sample_remote_workflow(sample_workflow):
     """Sample RemoteWorkflowDefinition."""
     return RemoteWorkflowDefinition(
         id="wf_123abc",
-        registry=RemoteRegistry(base_version="0.1.0"),
         alias="test-workflow",
         definition=sample_workflow,
     )
@@ -61,7 +60,6 @@ def sample_remote_workflow_with_folder(sample_workflow):
     """Sample RemoteWorkflowDefinition with folder_path."""
     return RemoteWorkflowDefinition(
         id="wf_folder123",
-        registry=RemoteRegistry(base_version="0.1.0"),
         alias="test-workflow-with-folder",
         folder_path="/security/detections/",
         definition=sample_workflow,
@@ -362,7 +360,6 @@ class TestWorkflowSyncService:
         # Create remote workflow definition
         remote_workflow = RemoteWorkflowDefinition(
             id="wf_test123",
-            registry=RemoteRegistry(base_version="0.1.0"),
             alias="my-test-workflow",
             definition=workflow1,
         )
