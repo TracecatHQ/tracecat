@@ -36,7 +36,8 @@ COPY ./alembic.ini /app/alembic.ini
 COPY ./alembic /app/alembic
 
 COPY scripts/entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh
+COPY scripts/check_tmp.py /usr/local/bin/check_tmp.py
+RUN chmod +x /app/entrypoint.sh && chmod +x /usr/local/bin/check_tmp.py
 
 # Install packages from lock file with dev dependencies and EE features for hot reloading
 RUN uv sync --frozen --no-dev

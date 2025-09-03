@@ -8,10 +8,11 @@ st = os.statvfs(tmp_path)
 total = st.f_blocks * st.f_frsize
 used = (st.f_blocks - st.f_bfree) * st.f_frsize
 pct = (used / total) * 100 if total else 0
-# fail if >= threshold for healthcheck
-if pct >= threshold:
-    print(f"TMP usage is {pct}% which is greater than the threshold of {threshold}%")
-    sys.exit(1)
-else:
-    print(f"TMP usage is {pct}% which is less than the threshold of {threshold}%")
+if pct < threshold:
+    # OK
+    print(f"Usage for {tmp_path} is {pct:.2f}% < {threshold}%")
     sys.exit(0)
+else:
+    # Not OK
+    print(f"Usage for {tmp_path} is {pct:.2f}% >= {threshold}%")
+    sys.exit(1)

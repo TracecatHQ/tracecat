@@ -163,6 +163,12 @@ services:
         "--port",
         "8000",
       ]
+    healthcheck:
+      test: ["CMD-SHELL", "check_tmp.py"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
     depends_on:
       - temporal
       - redis
