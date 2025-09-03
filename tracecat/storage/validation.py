@@ -54,9 +54,13 @@ class FileSecurityValidator:
         self.max_filename_length = (
             max_filename_length or config.TRACECAT__MAX_ATTACHMENT_FILENAME_LENGTH
         )
-        self.allowed_extensions = list(
+        # Normalize extensions: trim whitespace and lowercase for robust comparison
+        raw_exts = list(
             allowed_extensions or config.TRACECAT__ALLOWED_ATTACHMENT_EXTENSIONS
         )
+        self.allowed_extensions = [
+            e.strip().lower() for e in raw_exts if str(e).strip()
+        ]
         self.allowed_mime_types = list(
             allowed_mime_types or config.TRACECAT__ALLOWED_ATTACHMENT_MIME_TYPES
         )
@@ -132,6 +136,7 @@ class FileSecurityValidator:
         # Compute extension ignoring surrounding whitespace in the name
         safe_name = str(filename).strip()
         extension = os.path.splitext(safe_name)[1].lower().strip()
+        # Compare against normalized allowlist (case/whitespace-insensitive)
         if extension not in self.allowed_extensions:
             raise FileExtensionError(
                 f"File extension {extension} is not allowed",
