@@ -140,12 +140,16 @@ import type {
   EntitiesGetEntityResponse,
   EntitiesGetFieldData,
   EntitiesGetFieldResponse,
+  EntitiesGetRecordData,
+  EntitiesGetRecordResponse,
   EntitiesListEntitiesData,
   EntitiesListEntitiesResponse,
   EntitiesListEntityRecordsData,
   EntitiesListEntityRecordsResponse,
   EntitiesListFieldsData,
   EntitiesListFieldsResponse,
+  EntitiesListRecordsData,
+  EntitiesListRecordsResponse,
   EntitiesUpdateEntityData,
   EntitiesUpdateEntityRecordData,
   EntitiesUpdateEntityRecordResponse,
@@ -228,10 +232,6 @@ import type {
   PublicIncomingWebhookWaitResponse,
   PublicReceiveInteractionData,
   PublicReceiveInteractionResponse,
-  RecordsGetRecordData,
-  RecordsGetRecordResponse,
-  RecordsListRecordsData,
-  RecordsListRecordsResponse,
   RegistryActionsCreateRegistryActionData,
   RegistryActionsCreateRegistryActionResponse,
   RegistryActionsDeleteRegistryActionData,
@@ -2534,12 +2534,12 @@ export const entitiesDeleteEntityRecord = (
  * @returns CursorPaginatedResponse_RecordRead_ Successful Response
  * @throws ApiError
  */
-export const recordsListRecords = (
-  data: RecordsListRecordsData
-): CancelablePromise<RecordsListRecordsResponse> => {
+export const entitiesListRecords = (
+  data: EntitiesListRecordsData
+): CancelablePromise<EntitiesListRecordsResponse> => {
   return __request(OpenAPI, {
     method: "GET",
-    url: "/records",
+    url: "/entities/records",
     query: {
       entity_id: data.entityId,
       limit: data.limit,
@@ -2561,12 +2561,12 @@ export const recordsListRecords = (
  * @returns RecordRead Successful Response
  * @throws ApiError
  */
-export const recordsGetRecord = (
-  data: RecordsGetRecordData
-): CancelablePromise<RecordsGetRecordResponse> => {
+export const entitiesGetRecord = (
+  data: EntitiesGetRecordData
+): CancelablePromise<EntitiesGetRecordResponse> => {
   return __request(OpenAPI, {
     method: "GET",
-    url: "/records/{record_id}",
+    url: "/entities/records/{record_id}",
     path: {
       record_id: data.recordId,
     },

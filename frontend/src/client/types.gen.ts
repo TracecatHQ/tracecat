@@ -4611,7 +4611,7 @@ export type EntitiesDeleteEntityRecordData = {
 
 export type EntitiesDeleteEntityRecordResponse = void
 
-export type RecordsListRecordsData = {
+export type EntitiesListRecordsData = {
   /**
    * Cursor for pagination
    */
@@ -4628,14 +4628,14 @@ export type RecordsListRecordsData = {
   workspaceId: string
 }
 
-export type RecordsListRecordsResponse = CursorPaginatedResponse_RecordRead_
+export type EntitiesListRecordsResponse = CursorPaginatedResponse_RecordRead_
 
-export type RecordsGetRecordData = {
+export type EntitiesGetRecordData = {
   recordId: string
   workspaceId: string
 }
 
-export type RecordsGetRecordResponse = RecordRead
+export type EntitiesGetRecordResponse = RecordRead
 
 export type TagsListTagsData = {
   workspaceId: string
@@ -6701,9 +6701,9 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/records": {
+  "/entities/records": {
     get: {
-      req: RecordsListRecordsData
+      req: EntitiesListRecordsData
       res: {
         /**
          * Successful Response
@@ -6716,9 +6716,9 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/records/{record_id}": {
+  "/entities/records/{record_id}": {
     get: {
-      req: RecordsGetRecordData
+      req: EntitiesGetRecordData
       res: {
         /**
          * Successful Response
