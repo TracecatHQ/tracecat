@@ -38,7 +38,9 @@ class WorkflowFolderService(BaseService):
             raise TracecatAuthorizationError("Workspace ID is required")
         self.workspace_id = self.role.workspace_id
 
-    async def create_folder(self, name: str, parent_path: str = "/") -> WorkflowFolder:
+    async def create_folder(
+        self, name: str, parent_path: str = "/", commit: bool = True
+    ) -> WorkflowFolder:
         """Create a new workflow folder.
 
         Args:
@@ -77,7 +79,10 @@ class WorkflowFolderService(BaseService):
             owner_id=self.workspace_id,
         )
         self.session.add(folder)
-        await self.session.commit()
+        if commit:
+            await self.session.commit()
+        else:
+            await self.session.flush()
         await self.session.refresh(folder)
         return folder
 

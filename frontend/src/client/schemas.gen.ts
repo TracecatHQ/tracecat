@@ -2811,13 +2811,6 @@ export const $Code = {
   title: "Code",
 } as const
 
-export const $ConflictStrategy = {
-  type: "string",
-  enum: ["skip", "overwrite", "rename"],
-  title: "ConflictStrategy",
-  description: "Strategy for handling workflow conflicts during import.",
-} as const
-
 export const $CreatedEventRead = {
   properties: {
     wf_exec_id: {
@@ -2925,6 +2918,69 @@ export const $CursorPaginatedResponse_CaseReadMinimal_ = {
   type: "object",
   required: ["items"],
   title: "CursorPaginatedResponse[CaseReadMinimal]",
+} as const
+
+export const $CursorPaginatedResponse_RecordRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/RecordRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[RecordRead]",
 } as const
 
 export const $CursorPaginatedResponse_TableRowRead_ = {
@@ -6460,6 +6516,68 @@ export const $ReceiveInteractionResponse = {
   type: "object",
   required: ["message"],
   title: "ReceiveInteractionResponse",
+} as const
+
+export const $RecordCreate = {
+  properties: {
+    data: {
+      type: "object",
+      title: "Data",
+    },
+  },
+  type: "object",
+  title: "RecordCreate",
+  description: `Create payload for an entity record.
+
+Data is a free-form JSON object whose keys correspond to entity field keys.
+Values are validated and coerced by the service using the entity's schema.`,
+} as const
+
+export const $RecordRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    entity_id: {
+      type: "string",
+      format: "uuid",
+      title: "Entity Id",
+    },
+    data: {
+      type: "object",
+      title: "Data",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: ["id", "entity_id", "data", "created_at", "updated_at"],
+  title: "RecordRead",
+} as const
+
+export const $RecordUpdate = {
+  properties: {
+    data: {
+      type: "object",
+      title: "Data",
+    },
+  },
+  type: "object",
+  title: "RecordUpdate",
+  description: `Partial update for a record's data map.
+
+Any keys provided will be merged into the existing record data after
+validation/coercion. Keys not present remain unchanged.`,
 } as const
 
 export const $RegistryActionCreate = {
@@ -11912,11 +12030,6 @@ export const $WorkflowSyncPullRequest = {
       minLength: 40,
       title: "Commit Sha",
       description: "Specific commit SHA to pull from",
-    },
-    conflict_strategy: {
-      $ref: "#/components/schemas/ConflictStrategy",
-      description: "Strategy for handling workflow conflicts during import",
-      default: "skip",
     },
     dry_run: {
       type: "boolean",

@@ -19,12 +19,13 @@ import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { toast } from "@/components/ui/use-toast"
 import { useEntity, useEntityFields } from "@/hooks/use-entities"
+import { useLocalStorage } from "@/hooks/use-local-storage"
 import { entityEvents } from "@/lib/entity-events"
-import { useLocalStorage } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 export default function EntityDetailPage() {
-  const { entityId } = useParams<{ entityId: string }>()
+  const params = useParams<{ entityId: string }>()
+  const entityId = params?.entityId
   const workspaceId = useWorkspaceId()
   const queryClient = useQueryClient()
   const [includeInactive] = useLocalStorage("entities-include-inactive", false)
@@ -37,13 +38,17 @@ export default function EntityDetailPage() {
 
   const { entity, entityIsLoading, entityError } = useEntity(
     workspaceId,
-    entityId
+    entityId ?? ""
   )
   const { fields, fieldsIsLoading, fieldsError } = useEntityFields(
     workspaceId,
-    entityId,
+    entityId ?? "",
     includeInactive
   )
+
+  if (!params || !entityId) {
+    return <AlertNotification level="error" message="Invalid entity ID." />
+  }
 
   const { mutateAsync: createField, isPending: isCreatingField } = useMutation({
     mutationFn: async (data: EntityFieldCreate) =>

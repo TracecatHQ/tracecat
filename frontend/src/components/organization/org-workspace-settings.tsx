@@ -1,15 +1,11 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
-import { GitPullRequestIcon, KeyRoundIcon, TrashIcon } from "lucide-react"
+import { GitPullRequestIcon } from "lucide-react"
 import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
-import type { SecretReadMinimal, WorkspaceRead } from "@/client"
-import {
-  CreateSSHKeyDialog,
-  CreateSSHKeyDialogTrigger,
-} from "@/components/ssh-keys/ssh-key-create-dialog"
+import type { WorkspaceRead } from "@/client"
 import { Button } from "@/components/ui/button"
 import {
   Form,
@@ -26,7 +22,6 @@ import { Switch } from "@/components/ui/switch"
 import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import { useWorkspaceSettings } from "@/lib/hooks"
 import { OrgWorkspaceDeleteDialog } from "./org-workspace-delete-dialog"
-import { OrgWorkspaceSSHKeyDeleteDialog } from "./org-workspace-ssh-key-delete-dialog"
 import { WorkflowPullDialog } from "./workflow-pull-dialog"
 
 const workspaceSettingsSchema = z.object({
@@ -58,19 +53,9 @@ export function OrgWorkspaceSettings({
 }: OrgWorkspaceSettingsProps) {
   const { isFeatureEnabled } = useFeatureFlag()
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
-  const [sshKeyToDelete, setSSHKeyToDelete] =
-    useState<SecretReadMinimal | null>(null)
   const [pullDialogOpen, setPullDialogOpen] = useState(false)
-  const {
-    sshKeys,
-    sshKeysLoading,
-    updateWorkspace,
-    isUpdating,
-    deleteWorkspace,
-    isDeleting,
-    handleCreateWorkspaceSSHKey,
-    handleDeleteSSHKey,
-  } = useWorkspaceSettings(workspace.id, onWorkspaceDeleted)
+  const { updateWorkspace, isUpdating, deleteWorkspace, isDeleting } =
+    useWorkspaceSettings(workspace.id, onWorkspaceDeleted)
 
   const form = useForm<WorkspaceSettingsForm>({
     resolver: zodResolver(workspaceSettingsSchema),
@@ -100,16 +85,6 @@ export function OrgWorkspaceSettings({
   const handleDeleteWorkspace = async () => {
     await deleteWorkspace()
     setDeleteDialogOpen(false)
-  }
-
-  const handleDeleteSSHKeyWrapper = async () => {
-    if (!sshKeyToDelete) return
-    try {
-      await handleDeleteSSHKey(sshKeyToDelete)
-      setSSHKeyToDelete(null)
-    } catch (error) {
-      console.error("Failed to delete SSH key:", error)
-    }
   }
 
   return (
@@ -207,10 +182,6 @@ export function OrgWorkspaceSettings({
                           versions
                         </p>
                         <p>
-                          • Choose how to handle conflicts with existing
-                          workflows
-                        </p>
-                        <p>
                           • All changes are atomic - either all workflows import
                           or none do
                         </p>
@@ -304,80 +275,6 @@ export function OrgWorkspaceSettings({
 
       <div className="space-y-4">
         <div>
-          <h3 className="text-lg font-medium">SSH key management</h3>
-          <p className="text-sm text-muted-foreground">
-            Manage SSH keys for authenticating with private Git repositories.
-          </p>
-        </div>
-
-        {/* Display existing SSH keys */}
-        {sshKeysLoading ? (
-          <div className="text-sm text-muted-foreground">
-            Loading SSH keys...
-          </div>
-        ) : sshKeys && sshKeys.length > 0 ? (
-          <div className="space-y-2">
-            {sshKeys.map((sshKey) => (
-              <div
-                key={sshKey.id}
-                className="flex items-center justify-between rounded-md border p-3"
-              >
-                <div className="flex items-center space-x-3">
-                  <KeyRoundIcon className="size-4 text-muted-foreground" />
-                  <div>
-                    <div className="font-medium">{sshKey.name}</div>
-                    {sshKey.description && (
-                      <div className="text-sm text-muted-foreground">
-                        {sshKey.description}
-                      </div>
-                    )}
-                    {sshKey.environment !== "default" && (
-                      <div className="text-xs text-muted-foreground">
-                        Environment: {sshKey.environment}
-                      </div>
-                    )}
-                  </div>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setSSHKeyToDelete(sshKey)}
-                  className="text-destructive hover:text-destructive"
-                >
-                  <TrashIcon className="size-4" />
-                </Button>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="text-sm text-muted-foreground">
-            No SSH keys configured. Create one to authenticate with private Git
-            repositories.
-          </div>
-        )}
-
-        <CreateSSHKeyDialog
-          handler={handleCreateWorkspaceSSHKey}
-          fieldConfig={{
-            name: {
-              defaultValue: "store-ssh-key",
-              disabled: true,
-            },
-          }}
-        >
-          <CreateSSHKeyDialogTrigger asChild>
-            <Button variant="outline" className="space-x-2">
-              <KeyRoundIcon className="mr-2 size-4" />
-              Create SSH key
-            </Button>
-          </CreateSSHKeyDialogTrigger>
-        </CreateSSHKeyDialog>
-      </div>
-
-      <Separator />
-
-      <div className="space-y-4">
-        <div>
           <h3 className="text-lg font-medium text-destructive">Danger zone</h3>
           <p className="text-sm text-muted-foreground">
             Permanently delete this workspace and all of its data.
@@ -409,14 +306,6 @@ export function OrgWorkspaceSettings({
         workspaceName={workspace.name}
         onConfirm={handleDeleteWorkspace}
         isDeleting={isDeleting}
-      />
-
-      {/* SSH Key Delete Confirmation Dialog */}
-      <OrgWorkspaceSSHKeyDeleteDialog
-        open={!!sshKeyToDelete}
-        onOpenChange={(open) => !open && setSSHKeyToDelete(null)}
-        sshKey={sshKeyToDelete}
-        onConfirm={handleDeleteSSHKeyWrapper}
       />
 
       {/* Workflow Pull Dialog */}

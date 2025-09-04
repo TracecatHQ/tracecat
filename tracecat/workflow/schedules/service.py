@@ -263,7 +263,7 @@ class WorkflowSchedulesService(BaseService):
             try:
                 await bridge.delete_schedule(schedule_id)
                 logger.info(
-                    "Deleted schedule",
+                    "Deleted Temporal schedule",
                     schedule_id=schedule_id,
                 )
             except RuntimeError as e:

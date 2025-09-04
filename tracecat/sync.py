@@ -40,14 +40,8 @@ class PushObject[T: BaseModel]:
 class ConflictStrategy(StrEnum):
     """Strategy for handling workflow conflicts during import."""
 
-    SKIP = "skip"
-    """Skip existing workflows, only import new ones"""
-
     OVERWRITE = "overwrite"
     """Overwrite existing workflows with new definitions"""
-
-    RENAME = "rename"
-    """Rename imported workflows to avoid conflicts"""
 
 
 @dataclass(frozen=True)
@@ -65,9 +59,6 @@ class PullOptions:
 
     lfs: bool = False
     """Fetch LFS objects if needed"""
-
-    conflict_strategy: ConflictStrategy = ConflictStrategy.SKIP
-    """How to handle workflow conflicts"""
 
     dry_run: bool = False
     """Validate only, don't perform actual import"""

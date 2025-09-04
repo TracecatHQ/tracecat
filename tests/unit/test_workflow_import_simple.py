@@ -10,7 +10,6 @@ from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.types.auth import Role
 from tracecat.workflow.store.import_service import WorkflowImportService
 from tracecat.workflow.store.models import (
-    RemoteRegistry,
     RemoteWorkflowDefinition,
 )
 
@@ -49,7 +48,6 @@ def simple_remote_workflow(simple_dsl: DSLInput) -> RemoteWorkflowDefinition:
     """Create a simple remote workflow definition for testing."""
     return RemoteWorkflowDefinition(
         id="wf_simpleworkflow",
-        registry=RemoteRegistry(base_version="0.1.0"),
         definition=simple_dsl,
     )
 
@@ -97,7 +95,6 @@ class TestWorkflowImportServiceSimple:
         try:
             RemoteWorkflowDefinition(
                 id="invalid-id-format",  # Should fail pattern validation
-                registry=RemoteRegistry(base_version="0.1.0"),
                 definition=DSLInput(
                     title="Test",
                     description="Test",
