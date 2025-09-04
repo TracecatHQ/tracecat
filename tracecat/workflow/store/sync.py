@@ -118,7 +118,6 @@ class WorkflowSyncService(BaseWorkspaceService):
             return await import_service.import_workflows_atomic(
                 remote_workflows=remote_workflows,
                 commit_sha=options.commit_sha,
-                conflict_strategy=options.conflict_strategy,
             )
 
         except GitHubAppError as e:

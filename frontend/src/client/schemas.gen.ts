@@ -2811,13 +2811,6 @@ export const $Code = {
   title: "Code",
 } as const
 
-export const $ConflictStrategy = {
-  type: "string",
-  enum: ["skip", "overwrite", "rename"],
-  title: "ConflictStrategy",
-  description: "Strategy for handling workflow conflicts during import.",
-} as const
-
 export const $CreatedEventRead = {
   properties: {
     wf_exec_id: {
@@ -12037,11 +12030,6 @@ export const $WorkflowSyncPullRequest = {
       minLength: 40,
       title: "Commit Sha",
       description: "Specific commit SHA to pull from",
-    },
-    conflict_strategy: {
-      $ref: "#/components/schemas/ConflictStrategy",
-      description: "Strategy for handling workflow conflicts during import",
-      default: "skip",
     },
     dry_run: {
       type: "boolean",
