@@ -10,17 +10,12 @@ import {
 import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
-import type { SecretReadMinimal, WorkspaceRead } from "@/client"
+import type { SecretCreate, SecretReadMinimal, WorkspaceRead } from "@/client"
 import {
   CreateSSHKeyDialog,
   CreateSSHKeyDialogTrigger,
 } from "@/components/ssh-keys/ssh-key-create-dialog"
 import { CustomTagInput } from "@/components/tags-input"
-import { GitPullRequestIcon } from "lucide-react"
-import { useState } from "react"
-import { useForm } from "react-hook-form"
-import { z } from "zod"
-import type { WorkspaceRead } from "@/client"
 import { Button } from "@/components/ui/button"
 import {
   Form,
@@ -35,8 +30,9 @@ import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
 import { Switch } from "@/components/ui/switch"
 import { useFeatureFlag } from "@/hooks/use-feature-flags"
-import { useWorkspaceSettings } from "@/lib/hooks"
+import { useOrgSecrets, useWorkspaceSettings } from "@/lib/hooks"
 import { OrgWorkspaceDeleteDialog } from "./org-workspace-delete-dialog"
+import { OrgWorkspaceSSHKeyDeleteDialog } from "./org-workspace-ssh-key-delete-dialog"
 import { WorkflowPullDialog } from "./workflow-pull-dialog"
 
 const workspaceSettingsSchema = z.object({
@@ -91,8 +87,16 @@ export function OrgWorkspaceSettings({
   const { isFeatureEnabled } = useFeatureFlag()
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [pullDialogOpen, setPullDialogOpen] = useState(false)
+  const [sshKeyToDelete, setSSHKeyToDelete] =
+    useState<SecretReadMinimal | null>(null)
   const { updateWorkspace, isUpdating, deleteWorkspace, isDeleting } =
     useWorkspaceSettings(workspace.id, onWorkspaceDeleted)
+  const {
+    orgSSHKeys: sshKeys,
+    orgSSHKeysIsLoading: sshKeysLoading,
+    createSecret,
+    deleteSecretById,
+  } = useOrgSecrets()
 
   const form = useForm<WorkspaceSettingsForm>({
     resolver: zodResolver(workspaceSettingsSchema),
@@ -154,6 +158,14 @@ export function OrgWorkspaceSettings({
   const handleDeleteWorkspace = async () => {
     await deleteWorkspace()
     setDeleteDialogOpen(false)
+  }
+
+  const handleCreateWorkspaceSSHKey = async (data: SecretCreate) => {
+    await createSecret({
+      ...data,
+      type: "ssh-key",
+      name: "store-ssh-key",
+    })
   }
 
   return (
@@ -538,6 +550,19 @@ export function OrgWorkspaceSettings({
         workspaceName={workspace.name}
         onConfirm={handleDeleteWorkspace}
         isDeleting={isDeleting}
+      />
+
+      {/* SSH Key Delete Dialog */}
+      <OrgWorkspaceSSHKeyDeleteDialog
+        open={!!sshKeyToDelete}
+        onOpenChange={(open) => !open && setSSHKeyToDelete(null)}
+        sshKey={sshKeyToDelete}
+        onConfirm={async () => {
+          if (sshKeyToDelete) {
+            await deleteSecretById(sshKeyToDelete)
+            setSSHKeyToDelete(null)
+          }
+        }}
       />
 
       {/* Workflow Pull Dialog */}
