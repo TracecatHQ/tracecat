@@ -154,8 +154,8 @@ class TestCreateToolFromRegistry:
         assert tool.function.__name__ == "core__cases__create_case"
 
         # Verify the tool has the correct schema properties
-        assert hasattr(tool, "_base_parameters_json_schema")
-        schema = tool._base_parameters_json_schema
+        assert hasattr(tool, "function_schema")
+        schema = tool.function_schema.json_schema
         assert "properties" in schema
 
         # Check that required parameters are present in schema
@@ -178,8 +178,8 @@ class TestCreateToolFromRegistry:
         assert tool.function.__name__ == "tools__slack__post_message"
 
         # Verify the tool has the correct schema properties
-        assert hasattr(tool, "_base_parameters_json_schema")
-        schema = tool._base_parameters_json_schema
+        assert hasattr(tool, "function_schema")
+        schema = tool.function_schema.json_schema
         assert "properties" in schema
 
         # Check that required parameters are present in schema
