@@ -66,22 +66,7 @@ class CaseAttachmentDownloadData(BaseModel):
     content_base64: str
 
 
-class FileRead(BaseModel):
-    """Model for reading file metadata."""
-
-    id: uuid.UUID
-    sha256: str
-    name: str
-    content_type: str
-    size: int
-    creator_id: uuid.UUID | None
-    created_at: datetime
-    updated_at: datetime
-    deleted_at: datetime | None = None
-    is_deleted: bool
-
-
-# Attachment Event Models
+# Event models
 
 
 class AttachmentCreatedEvent(BaseModel):
