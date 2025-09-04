@@ -277,7 +277,10 @@ class CaseAttachmentService(BaseWorkspaceService):
 
         # Check if file already exists (deduplication)
         existing_file = await self.session.exec(
-            select(File).where(File.sha256 == sha256)
+            select(File).where(
+                File.sha256 == sha256,
+                File.owner_id == self.workspace_id,
+            )
         )
         file = existing_file.first()
 
