@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import uuid
-from typing import TYPE_CHECKING, Annotated
+from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, Request, UploadFile, status
 
@@ -15,9 +15,6 @@ from tracecat.cases.attachments.models import (
     CaseAttachmentDownloadResponse,
     CaseAttachmentRead,
 )
-
-if TYPE_CHECKING:
-    pass
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.logger import logger
 from tracecat.storage.exceptions import (

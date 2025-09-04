@@ -6,7 +6,6 @@ import hashlib
 import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
 
 import sqlalchemy as sa
 from sqlalchemy.orm import selectinload
@@ -36,9 +35,6 @@ from tracecat.types.exceptions import (
     TracecatException,
     TracecatNotFoundError,
 )
-
-if TYPE_CHECKING:
-    pass
 
 
 class CaseAttachmentService(BaseWorkspaceService):
