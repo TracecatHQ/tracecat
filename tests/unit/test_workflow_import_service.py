@@ -12,11 +12,9 @@ from tracecat.dsl.enums import PlatformAction
 from tracecat.dsl.models import ActionStatement
 from tracecat.dsl.view import RFGraph
 from tracecat.identifiers.workflow import WorkflowUUID
-from tracecat.sync import ConflictStrategy
 from tracecat.types.auth import Role
 from tracecat.workflow.store.import_service import WorkflowImportService
 from tracecat.workflow.store.models import (
-    RemoteRegistry,
     RemoteWebhook,
     RemoteWorkflowDefinition,
     RemoteWorkflowSchedule,
@@ -66,10 +64,6 @@ def remote_workflow_definition(sample_dsl: DSLInput) -> RemoteWorkflowDefinition
     """Create a remote workflow definition for testing."""
     return RemoteWorkflowDefinition(
         id="wf_testworkflow001",
-        registry=RemoteRegistry(
-            base_version="0.1.0",
-            repositories=["git+ssh://git@github.com/test/registry.git#main"],
-        ),
         alias="test-import-workflow",
         tags=[RemoteWorkflowTag(name="test"), RemoteWorkflowTag(name="import")],
         schedules=[
@@ -115,7 +109,6 @@ class TestWorkflowImportService:
         result = await import_service.import_workflows_atomic(
             remote_workflows=[remote_workflow_definition],
             commit_sha="abc123",
-            conflict_strategy=ConflictStrategy.SKIP,
         )
 
         assert result.success is True
@@ -189,27 +182,25 @@ class TestWorkflowImportService:
         assert tag_names == {"test", "import"}
 
     @pytest.mark.anyio
-    async def test_import_workflow_skip_existing(
+    async def test_import_workflow_overwrite_behavior(
         self,
         import_service: WorkflowImportService,
         remote_workflow_definition: RemoteWorkflowDefinition,
         session: AsyncSession,
     ):
-        """Test that existing workflows are skipped with SKIP strategy."""
+        """Test that existing workflows are overwritten on re-import."""
         # First import
         result1 = await import_service.import_workflows_atomic(
             remote_workflows=[remote_workflow_definition],
             commit_sha="abc123",
-            conflict_strategy=ConflictStrategy.SKIP,
         )
         assert result1.success is True
         assert result1.workflows_imported == 1
 
-        # Second import with same workflow - should be skipped
+        # Second import with same workflow - should overwrite
         result2 = await import_service.import_workflows_atomic(
             remote_workflows=[remote_workflow_definition],
             commit_sha="def456",
-            conflict_strategy=ConflictStrategy.SKIP,
         )
         assert result2.success is True
         assert result2.workflows_imported == 1  # Still reports imported
@@ -234,7 +225,6 @@ class TestWorkflowImportService:
         await import_service.import_workflows_atomic(
             remote_workflows=[remote_workflow_definition],
             commit_sha="abc123",
-            conflict_strategy=ConflictStrategy.SKIP,
         )
 
         # Modify the remote workflow
@@ -257,11 +247,10 @@ class TestWorkflowImportService:
         modified_remote.definition = modified_dsl
         modified_remote.alias = "updated-workflow"
 
-        # Second import with OVERWRITE strategy
+        # Second import - should overwrite existing workflow
         result = await import_service.import_workflows_atomic(
             remote_workflows=[modified_remote],
             commit_sha="def456",
-            conflict_strategy=ConflictStrategy.OVERWRITE,
         )
         assert result.success is True
 
@@ -301,37 +290,31 @@ class TestWorkflowImportService:
         assert definitions[0].version == 2  # Latest version
 
     @pytest.mark.anyio
-    async def test_import_workflow_unsupported_conflict_strategy(
+    async def test_import_workflow_overwrite_default_behavior(
         self,
         import_service: WorkflowImportService,
         remote_workflow_definition: RemoteWorkflowDefinition,
     ):
-        """Test that unsupported conflict strategies are handled properly."""
+        """Test that re-importing workflows uses overwrite behavior by default."""
         # First import
-        await import_service.import_workflows_atomic(
+        result1 = await import_service.import_workflows_atomic(
             remote_workflows=[remote_workflow_definition],
             commit_sha="abc123",
-            conflict_strategy=ConflictStrategy.SKIP,
         )
+        assert result1.success is True
+        assert result1.workflows_imported == 1
 
-        # Create a custom unsupported strategy for testing
-        class UnsupportedStrategy:
-            def __str__(self):
-                return "UNSUPPORTED"
-
-        # Second import with unsupported strategy should fail during transaction
-        result = await import_service.import_workflows_atomic(
+        # Second import with same workflow - should succeed with overwrite behavior
+        result2 = await import_service.import_workflows_atomic(
             remote_workflows=[remote_workflow_definition],
             commit_sha="def456",
-            conflict_strategy=UnsupportedStrategy(),  # type: ignore
         )
 
-        # Should fail with transaction error
-        assert result.success is False
-        assert result.workflows_imported == 0
-        assert len(result.diagnostics) == 1
-        assert result.diagnostics[0].error_type == "transaction"
-        assert "Transaction failed" in result.diagnostics[0].message
+        # Should succeed as import service uses overwrite behavior by default
+        assert result2.success is True
+        assert result2.workflows_imported == 1
+        assert len(result2.diagnostics) == 0
+        assert "Successfully imported 1 workflows" in result2.message
 
     @pytest.mark.anyio
     async def test_create_actions_from_dsl(
@@ -387,7 +370,6 @@ class TestWorkflowImportService:
         result = await import_service.import_workflows_atomic(
             remote_workflows=[remote_workflow_definition],
             commit_sha="abc123",
-            conflict_strategy=ConflictStrategy.SKIP,
         )
         assert result.success is True
 
@@ -422,7 +404,6 @@ class TestWorkflowImportService:
         result = await import_service.import_workflows_atomic(
             remote_workflows=[updated_remote],
             commit_sha="def456",
-            conflict_strategy=ConflictStrategy.OVERWRITE,
         )
         assert result.success is True
 
@@ -455,7 +436,6 @@ class TestWorkflowImportService:
         result = await import_service.import_workflows_atomic(
             remote_workflows=[no_schedule_remote],
             commit_sha="abc123",
-            conflict_strategy=ConflictStrategy.SKIP,
         )
         assert result.success is True
 
@@ -474,7 +454,6 @@ class TestWorkflowImportService:
         try:
             RemoteWorkflowDefinition(
                 id="invalid-workflow",  # This should fail validation due to pattern mismatch
-                registry=RemoteRegistry(base_version="0.1.0"),
                 definition=DSLInput(
                     title="Valid Title",
                     description="Valid description",
@@ -531,14 +510,12 @@ class TestWorkflowImportService:
 
         valid_remote = RemoteWorkflowDefinition(
             id="wf_valid001",
-            registry=RemoteRegistry(base_version="0.1.0"),
             alias="valid-workflow",
             definition=valid_dsl,
         )
 
         invalid_remote = RemoteWorkflowDefinition(
             id="wf_invalid001",
-            registry=RemoteRegistry(base_version="0.1.0"),
             alias="invalid-workflow",
             definition=invalid_dsl,
         )
@@ -547,7 +524,6 @@ class TestWorkflowImportService:
         result = await import_service.import_workflows_atomic(
             remote_workflows=[valid_remote, invalid_remote],
             commit_sha="abc123",
-            conflict_strategy=ConflictStrategy.SKIP,
         )
 
         assert result.success is False
@@ -585,7 +561,6 @@ class TestWorkflowImportService:
 
         second_remote = RemoteWorkflowDefinition(
             id="wf_testworkflow002",
-            registry=RemoteRegistry(base_version="0.1.0"),
             definition=second_dsl,
         )
 
@@ -593,7 +568,6 @@ class TestWorkflowImportService:
         result = await import_service.import_workflows_atomic(
             remote_workflows=[remote_workflow_definition, second_remote],
             commit_sha="abc123",
-            conflict_strategy=ConflictStrategy.SKIP,
         )
 
         assert result.success is True
@@ -628,7 +602,6 @@ class TestWorkflowImportService:
         await import_service.import_workflows_atomic(
             remote_workflows=[remote_workflow_definition],
             commit_sha="abc123",
-            conflict_strategy=ConflictStrategy.SKIP,
         )
 
         # Create second workflow with overlapping tags
@@ -647,7 +620,6 @@ class TestWorkflowImportService:
         await import_service.import_workflows_atomic(
             remote_workflows=[second_remote],
             commit_sha="def456",
-            conflict_strategy=ConflictStrategy.SKIP,
         )
 
         # Verify tags in database
@@ -705,14 +677,12 @@ class TestWorkflowImportService:
 
         parent_remote = RemoteWorkflowDefinition(
             id="wf_parent001",
-            registry=RemoteRegistry(base_version="0.1.0"),
             alias="parent-workflow",
             definition=parent_dsl,
         )
 
         child_remote = RemoteWorkflowDefinition(
             id="wf_child001",
-            registry=RemoteRegistry(base_version="0.1.0"),
             alias="child-workflow",  # This alias matches the reference
             definition=child_dsl,
         )
@@ -721,7 +691,6 @@ class TestWorkflowImportService:
         result = await import_service.import_workflows_atomic(
             remote_workflows=[parent_remote, child_remote],
             commit_sha="abc123",
-            conflict_strategy=ConflictStrategy.SKIP,
         )
 
         assert result.success is True
@@ -750,7 +719,6 @@ class TestWorkflowImportService:
 
         parent_remote = RemoteWorkflowDefinition(
             id="wf_parent001",
-            registry=RemoteRegistry(base_version="0.1.0"),
             alias="parent-workflow",
             definition=parent_dsl,
         )
@@ -759,7 +727,6 @@ class TestWorkflowImportService:
         result = await import_service.import_workflows_atomic(
             remote_workflows=[parent_remote],
             commit_sha="abc123",
-            conflict_strategy=ConflictStrategy.SKIP,
         )
 
         assert result.success is False
@@ -794,7 +761,6 @@ class TestWorkflowImportService:
 
         existing_remote = RemoteWorkflowDefinition(
             id="wf_existing001",
-            registry=RemoteRegistry(base_version="0.1.0"),
             alias="existing-workflow",
             definition=existing_dsl,
         )
@@ -803,7 +769,6 @@ class TestWorkflowImportService:
         await import_service.import_workflows_atomic(
             remote_workflows=[existing_remote],
             commit_sha="setup123",
-            conflict_strategy=ConflictStrategy.SKIP,
         )
 
         # Now create a new workflow that references the existing one
@@ -823,7 +788,6 @@ class TestWorkflowImportService:
 
         new_remote = RemoteWorkflowDefinition(
             id="wf_new001",
-            registry=RemoteRegistry(base_version="0.1.0"),
             alias="new-workflow",
             definition=new_dsl,
         )
@@ -832,7 +796,6 @@ class TestWorkflowImportService:
         result = await import_service.import_workflows_atomic(
             remote_workflows=[new_remote],
             commit_sha="abc123",
-            conflict_strategy=ConflictStrategy.SKIP,
         )
 
         assert result.success is True
@@ -861,7 +824,6 @@ class TestWorkflowImportService:
 
         parent_remote = RemoteWorkflowDefinition(
             id="wf_parent001",
-            registry=RemoteRegistry(base_version="0.1.0"),
             alias="parent-workflow",
             definition=parent_dsl,
         )
@@ -870,7 +832,6 @@ class TestWorkflowImportService:
         result = await import_service.import_workflows_atomic(
             remote_workflows=[parent_remote],
             commit_sha="abc123",
-            conflict_strategy=ConflictStrategy.SKIP,
         )
 
         assert result.success is True
@@ -942,21 +903,18 @@ class TestWorkflowImportService:
 
         parent_remote = RemoteWorkflowDefinition(
             id="wf_parent001",
-            registry=RemoteRegistry(base_version="0.1.0"),
             alias="parent-workflow",
             definition=parent_dsl,
         )
 
         child_one_remote = RemoteWorkflowDefinition(
             id="wf_child001",
-            registry=RemoteRegistry(base_version="0.1.0"),
             alias="child-one",
             definition=child_one_dsl,
         )
 
         child_two_remote = RemoteWorkflowDefinition(
             id="wf_child002",
-            registry=RemoteRegistry(base_version="0.1.0"),
             alias="child-two",
             definition=child_two_dsl,
         )
@@ -965,7 +923,6 @@ class TestWorkflowImportService:
         result = await import_service.import_workflows_atomic(
             remote_workflows=[parent_remote, child_one_remote, child_two_remote],
             commit_sha="abc123",
-            conflict_strategy=ConflictStrategy.SKIP,
         )
 
         assert result.success is False
@@ -1000,7 +957,6 @@ class TestWorkflowImportService:
 
         parent_remote = RemoteWorkflowDefinition(
             id="wf_malformed001",
-            registry=RemoteRegistry(base_version="0.1.0"),
             alias="malformed-workflow",
             definition=parent_dsl,
         )
@@ -1009,7 +965,6 @@ class TestWorkflowImportService:
         result = await import_service.import_workflows_atomic(
             remote_workflows=[parent_remote],
             commit_sha="abc123",
-            conflict_strategy=ConflictStrategy.SKIP,
         )
 
         # Should succeed because validation gracefully handles non-dict args

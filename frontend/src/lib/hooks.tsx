@@ -3982,46 +3982,6 @@ export function useWorkspaceSettings(
 ) {
   const queryClient = useQueryClient()
 
-  // Fetch SSH keys for this workspace
-  const { data: sshKeys, isLoading: sshKeysLoading } = useQuery<
-    SecretReadMinimal[]
-  >({
-    queryKey: ["workspace-ssh-keys", workspaceId],
-    queryFn: async () =>
-      await secretsListSecrets({
-        workspaceId,
-        type: ["ssh-key"],
-      }),
-  })
-
-  // SSH key operations
-  const handleCreateWorkspaceSSHKey = async (secret: SecretCreate) => {
-    await secretsCreateSecret({
-      workspaceId,
-      requestBody: secret,
-    })
-    // Invalidate SSH keys query to refresh the list
-    queryClient.invalidateQueries({
-      queryKey: ["workspace-ssh-keys", workspaceId],
-    })
-  }
-
-  const handleDeleteSSHKey = async (sshKey: SecretReadMinimal) => {
-    try {
-      await secretsDeleteSecretById({
-        workspaceId,
-        secretId: sshKey.id,
-      })
-      // Invalidate SSH keys query to refresh the list
-      queryClient.invalidateQueries({
-        queryKey: ["workspace-ssh-keys", workspaceId],
-      })
-    } catch (error) {
-      console.error("Failed to delete SSH key:", error)
-      throw error
-    }
-  }
-
   // Update workspace
   const { mutateAsync: updateWorkspace, isPending: isUpdating } = useMutation({
     mutationFn: async (params: WorkspaceUpdate) => {
@@ -4074,13 +4034,9 @@ export function useWorkspaceSettings(
   })
 
   return {
-    sshKeys,
-    sshKeysLoading,
     updateWorkspace,
     isUpdating,
     deleteWorkspace,
     isDeleting,
-    handleCreateWorkspaceSSHKey,
-    handleDeleteSSHKey,
   }
 }

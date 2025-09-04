@@ -16,6 +16,11 @@ import {
   CreateSSHKeyDialogTrigger,
 } from "@/components/ssh-keys/ssh-key-create-dialog"
 import { CustomTagInput } from "@/components/tags-input"
+import { GitPullRequestIcon } from "lucide-react"
+import { useState } from "react"
+import { useForm } from "react-hook-form"
+import { z } from "zod"
+import type { WorkspaceRead } from "@/client"
 import { Button } from "@/components/ui/button"
 import {
   Form,
@@ -32,7 +37,6 @@ import { Switch } from "@/components/ui/switch"
 import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import { useWorkspaceSettings } from "@/lib/hooks"
 import { OrgWorkspaceDeleteDialog } from "./org-workspace-delete-dialog"
-import { OrgWorkspaceSSHKeyDeleteDialog } from "./org-workspace-ssh-key-delete-dialog"
 import { WorkflowPullDialog } from "./workflow-pull-dialog"
 
 const workspaceSettingsSchema = z.object({
@@ -86,19 +90,9 @@ export function OrgWorkspaceSettings({
     workspace.settings?.effective_allowed_attachment_mime_types || []
   const { isFeatureEnabled } = useFeatureFlag()
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
-  const [sshKeyToDelete, setSSHKeyToDelete] =
-    useState<SecretReadMinimal | null>(null)
   const [pullDialogOpen, setPullDialogOpen] = useState(false)
-  const {
-    sshKeys,
-    sshKeysLoading,
-    updateWorkspace,
-    isUpdating,
-    deleteWorkspace,
-    isDeleting,
-    handleCreateWorkspaceSSHKey,
-    handleDeleteSSHKey,
-  } = useWorkspaceSettings(workspace.id, onWorkspaceDeleted)
+  const { updateWorkspace, isUpdating, deleteWorkspace, isDeleting } =
+    useWorkspaceSettings(workspace.id, onWorkspaceDeleted)
 
   const form = useForm<WorkspaceSettingsForm>({
     resolver: zodResolver(workspaceSettingsSchema),
@@ -160,16 +154,6 @@ export function OrgWorkspaceSettings({
   const handleDeleteWorkspace = async () => {
     await deleteWorkspace()
     setDeleteDialogOpen(false)
-  }
-
-  const handleDeleteSSHKeyWrapper = async () => {
-    if (!sshKeyToDelete) return
-    try {
-      await handleDeleteSSHKey(sshKeyToDelete)
-      setSSHKeyToDelete(null)
-    } catch (error) {
-      console.error("Failed to delete SSH key:", error)
-    }
   }
 
   return (
@@ -262,10 +246,6 @@ export function OrgWorkspaceSettings({
                         <p>
                           • Select a commit SHA to pull specific workflow
                           versions
-                        </p>
-                        <p>
-                          • Choose how to handle conflicts with existing
-                          workflows
                         </p>
                         <p>
                           • All changes are atomic - either all workflows import
@@ -558,14 +538,6 @@ export function OrgWorkspaceSettings({
         workspaceName={workspace.name}
         onConfirm={handleDeleteWorkspace}
         isDeleting={isDeleting}
-      />
-
-      {/* SSH Key Delete Confirmation Dialog */}
-      <OrgWorkspaceSSHKeyDeleteDialog
-        open={!!sshKeyToDelete}
-        onOpenChange={(open) => !open && setSSHKeyToDelete(null)}
-        sshKey={sshKeyToDelete}
-        onConfirm={handleDeleteSSHKeyWrapper}
       />
 
       {/* Workflow Pull Dialog */}

@@ -7,7 +7,9 @@ import {
   XCircleIcon,
 } from "lucide-react"
 import { useEffect, useState } from "react"
+import type { PullResult } from "@/client"
 import { CommitSelector } from "@/components/registry/commit-selector"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -18,17 +20,9 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { toast } from "@/components/ui/use-toast"
 import {
-  type PullResult,
   useRepositoryCommits,
   useWorkflowSync,
 } from "@/hooks/use-workspace-sync"
@@ -52,9 +46,6 @@ export function WorkflowPullDialog({
   const [selectedCommitSha, setSelectedCommitSha] = useState<string | null>(
     null
   )
-  const [conflictStrategy, setConflictStrategy] = useState<
-    "skip" | "overwrite" | "rename"
-  >("skip")
   const [pullResult, setPullResult] = useState<PullResult | null>(null)
 
   // Use hooks for workflow sync operations
@@ -88,7 +79,6 @@ export function WorkflowPullDialog({
     try {
       const pullOptions = {
         commit_sha: selectedCommitSha,
-        conflict_strategy: conflictStrategy,
       }
 
       const result = await pullWorkflows(pullOptions)
@@ -236,54 +226,6 @@ export function WorkflowPullDialog({
             )}
           </div>
 
-          {/* Conflict Strategy */}
-          <div className="space-y-3">
-            <div>
-              <Label className="text-sm font-medium">Conflict resolution</Label>
-              <p className="text-xs text-muted-foreground">
-                Choose how to handle workflows that already exist in this
-                workspace
-              </p>
-            </div>
-
-            <Select
-              value={conflictStrategy}
-              onValueChange={(value: "skip" | "overwrite" | "rename") =>
-                setConflictStrategy(value)
-              }
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="skip">
-                  <div className="flex flex-col items-start">
-                    <span className="font-medium">Skip existing</span>
-                    <span className="text-xs text-muted-foreground">
-                      Skip workflows that already exist
-                    </span>
-                  </div>
-                </SelectItem>
-                <SelectItem value="overwrite">
-                  <div className="flex flex-col items-start">
-                    <span className="font-medium">Overwrite existing</span>
-                    <span className="text-xs text-muted-foreground">
-                      Update existing workflows with new versions
-                    </span>
-                  </div>
-                </SelectItem>
-                <SelectItem value="rename">
-                  <div className="flex flex-col items-start">
-                    <span className="font-medium">Rename conflicts</span>
-                    <span className="text-xs text-muted-foreground">
-                      Create new workflows with modified names
-                    </span>
-                  </div>
-                </SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
           {/* Pull Results */}
           {pullResult && (
             <div className="space-y-4">
@@ -329,7 +271,10 @@ export function WorkflowPullDialog({
                     <div className="space-y-2 max-h-32 overflow-y-auto">
                       {pullResult.diagnostics.map((diagnostic, index) => (
                         <div
-                          key={index}
+                          key={
+                            diagnostic.workflow_title ||
+                            diagnostic.workflow_path
+                          }
                           className="flex items-start space-x-2 text-xs p-2 bg-muted rounded"
                         >
                           <AlertTriangleIcon className="size-3 text-amber-500 mt-0.5 flex-shrink-0" />
@@ -353,7 +298,15 @@ export function WorkflowPullDialog({
               </div>
             </div>
           )}
-
+          <Alert variant="warning">
+            <div className="flex items-center space-x-2">
+              <AlertTriangleIcon className="size-3 text-amber-500 mt-0.5 flex-shrink-0" />
+              <AlertDescription>
+                This will overwrite any existing workflows, schedules, and
+                configurations with the same ID.
+              </AlertDescription>
+            </div>
+          </Alert>
           {/* Action Buttons */}
           <div className="flex justify-end space-x-3 pt-4">
             <Button

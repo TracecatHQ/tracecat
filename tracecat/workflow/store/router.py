@@ -194,7 +194,6 @@ async def pull_workflows(
         # Create pull options
         pull_options = PullOptions(
             commit_sha=params.commit_sha,
-            conflict_strategy=params.conflict_strategy,
             dry_run=params.dry_run,
         )
 

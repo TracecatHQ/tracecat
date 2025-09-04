@@ -6,7 +6,6 @@ from pydantic import BaseModel, ConfigDict, Field, field_serializer
 from tracecat.dsl.common import DSLInput
 from tracecat.identifiers.workflow import WorkflowID, WorkflowIDShort
 from tracecat.store import Source
-from tracecat.sync import ConflictStrategy
 
 # TODO(deps): This is only supported starting pydantic 2.11+
 WorkflowSource = Source[WorkflowID]
@@ -26,36 +25,10 @@ class WorkflowSyncPullRequest(BaseModel):
         max_length=64,
     )
 
-    conflict_strategy: ConflictStrategy = Field(
-        default=ConflictStrategy.SKIP,
-        description="Strategy for handling workflow conflicts during import",
-    )
-
     dry_run: bool = Field(
         default=False,
         description="Validate only, don't perform actual import",
     )
-
-
-class RemoteRegistry(BaseModel):
-    """Represents a remote registry."""
-
-    base_version: str
-    """Base Tracecat registry version. This should be a semver tag (tied to the Tracecat version)."""
-
-    repositories: list[str] | None = None
-    """List of Git repository URLs for Tracecat custom registries with `ref` (commit hash).
-
-    Example:
-    ```
-    - "git+ssh://git@github.com/TracecatHQ/custom-registry.git#<commit-hash>"
-    ```
-    """
-
-    def model_dump(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
-        """Dump the model as a dictionary."""
-        kwargs.update(exclude_none=True, exclude_unset=True, mode="json")
-        return super().model_dump(*args, **kwargs)
 
 
 _SER_DSL_KEY_ORDER = (
@@ -135,12 +108,15 @@ class RemoteWorkflowDefinition(BaseModel):
     id: WorkflowIDShort
     """Stable short ID of the workflow in the remote store."""
 
-    registry: RemoteRegistry
-    """Action registry dependencies required for this workflow."""
-
     # version: int // We don't really need version
     alias: str | None = None
     """The alias of the workflow in the remote store."""
+
+    folder_path: str | None = Field(
+        default=None,
+        description="Folder path in workspace using materialized path format, e.g. '/security/detections/'",
+    )
+    """Folder path where this workflow should be placed in the workspace."""
 
     tags: list[RemoteWorkflowTag] | None = None
     """Tags for the workflow."""
