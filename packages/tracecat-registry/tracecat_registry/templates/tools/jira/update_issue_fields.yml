@@ -17,11 +17,8 @@ definition:
       type: list[dict[str, Any]]
       description: >-
         List of fields to update in the issue.
-        Each field is an object with the following keys:
-        - `customfield_10000`: The Jira custom field ID.
-        - `value`: The field value.
 
-        For example:
+        For example usage:
         ```
         [
           {"customfield_10000": "New value"},
