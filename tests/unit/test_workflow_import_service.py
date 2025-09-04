@@ -290,35 +290,31 @@ class TestWorkflowImportService:
         assert definitions[0].version == 2  # Latest version
 
     @pytest.mark.anyio
-    async def test_import_workflow_unsupported_conflict_strategy(
+    async def test_import_workflow_overwrite_default_behavior(
         self,
         import_service: WorkflowImportService,
         remote_workflow_definition: RemoteWorkflowDefinition,
     ):
-        """Test that unsupported conflict strategies are handled properly."""
+        """Test that re-importing workflows uses overwrite behavior by default."""
         # First import
-        await import_service.import_workflows_atomic(
+        result1 = await import_service.import_workflows_atomic(
             remote_workflows=[remote_workflow_definition],
             commit_sha="abc123",
         )
+        assert result1.success is True
+        assert result1.workflows_imported == 1
 
-        # Create a custom unsupported strategy for testing
-        class UnsupportedStrategy:
-            def __str__(self):
-                return "UNSUPPORTED"
-
-        # Second import with unsupported strategy should fail during transaction
-        result = await import_service.import_workflows_atomic(
+        # Second import with same workflow - should succeed with overwrite behavior
+        result2 = await import_service.import_workflows_atomic(
             remote_workflows=[remote_workflow_definition],
             commit_sha="def456",
         )
 
-        # Should fail with transaction error
-        assert result.success is False
-        assert result.workflows_imported == 0
-        assert len(result.diagnostics) == 1
-        assert result.diagnostics[0].error_type == "transaction"
-        assert "Transaction failed" in result.diagnostics[0].message
+        # Should succeed as import service uses overwrite behavior by default
+        assert result2.success is True
+        assert result2.workflows_imported == 1
+        assert len(result2.diagnostics) == 0
+        assert "Successfully imported 1 workflows" in result2.message
 
     @pytest.mark.anyio
     async def test_create_actions_from_dsl(
