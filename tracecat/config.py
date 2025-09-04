@@ -378,6 +378,55 @@ TRACECAT__MAX_ATTACHMENTS_PER_CASE = int(
 )
 """The maximum number of attachments allowed per case. Defaults to 10."""
 
+# === File security === #
+
+ALLOWED_ATTACHMENT_EXTENSIONS = ",".join(
+    [
+        ".pdf",
+        ".docx",
+        ".xlsx",
+        ".pptx",
+        ".txt",
+        ".csv",
+        ".jpg",
+        ".jpeg",
+        ".png",
+        ".gif",
+        ".webp",
+    ]
+)
+TRACECAT__ALLOWED_ATTACHMENT_EXTENSIONS = {
+    ext.strip()
+    for ext in os.environ.get(
+        "TRACECAT__ALLOWED_ATTACHMENT_EXTENSIONS", ALLOWED_ATTACHMENT_EXTENSIONS
+    ).split(",")
+    if ext.strip()
+}
+"""The allowed extensions for case attachment files."""
+
+ALLOWED_ATTACHMENT_MIME_TYPES = ",".join(
+    [
+        "application/pdf",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "text/plain",
+        "text/csv",
+        "image/jpeg",
+        "image/png",
+        "image/gif",
+        "image/webp",
+    ]
+)
+TRACECAT__ALLOWED_ATTACHMENT_MIME_TYPES = {
+    mime_type.strip()
+    for mime_type in os.environ.get(
+        "TRACECAT__ALLOWED_ATTACHMENT_MIME_TYPES", ALLOWED_ATTACHMENT_MIME_TYPES
+    ).split(",")
+    if mime_type.strip()
+}
+"""The allowed MIME types for case attachment files."""
+
 # === Enterprise Edition === #
 ENTERPRISE_EDITION = os.environ.get("ENTERPRISE_EDITION", "false").lower() in (
     "true",

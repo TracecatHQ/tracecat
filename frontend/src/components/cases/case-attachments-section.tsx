@@ -37,6 +37,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
+import { useWorkspaceDetails } from "@/hooks/use-workspace"
 import { cn } from "@/lib/utils"
 
 interface CaseAttachmentsSectionProps {
@@ -124,6 +125,14 @@ export function CaseAttachmentsSection({
   const fileInputRef = useRef<HTMLInputElement>(null)
   const queryClient = useQueryClient()
 
+  // Get workspace settings for allowed file extensions
+  const { workspace } = useWorkspaceDetails()
+
+  // Create accept attribute from workspace settings
+  const acceptedExtensions =
+    workspace?.settings?.effective_allowed_attachment_extensions
+  const acceptAttribute = acceptedExtensions?.join(",") || undefined
+
   // Fetch attachments from API
   const {
     data: attachments = [],
@@ -145,7 +154,7 @@ export function CaseAttachmentsSection({
         },
       })
     },
-    onSuccess: (data, file) => {
+    onSuccess: (_, file) => {
       queryClient.invalidateQueries({
         queryKey: ["case-attachments", caseId, workspaceId],
       })
@@ -159,7 +168,6 @@ export function CaseAttachmentsSection({
       })
     },
     onError: (error: ApiError, file) => {
-      console.error("Failed to upload attachment:", error)
       setIsUploading(false)
 
       // Handle structured error responses with specific HTTP status codes
@@ -188,7 +196,7 @@ export function CaseAttachmentsSection({
         ) {
           toast({
             title: "Content type not supported",
-            description: `${file.name} has an unsupported content type. ${detail.message || "Please try a different file type."}`,
+            description: `${file.name} has an unsupported content type. Please try a different file type.`,
           })
           return
         }
@@ -293,7 +301,7 @@ export function CaseAttachmentsSection({
         ) {
           toast({
             title: "File validation failed",
-            description: `${file.name} failed validation. ${detail.message || "Please check the file and try again."}`,
+            description: `${file.name} failed validation. Please check the file and try again.`,
           })
           return
         }
@@ -366,7 +374,6 @@ export function CaseAttachmentsSection({
       toast({
         title: "File too large",
         description: `${file.name} is ${formatFileSize(file.size)}. Maximum file size is 20MB.`,
-        variant: "destructive",
       })
       return false
     }
@@ -461,7 +468,6 @@ export function CaseAttachmentsSection({
       toast({
         title: "Download failed",
         description: `Failed to download ${attachment.file_name}`,
-        variant: "destructive",
       })
     }
   }
@@ -489,7 +495,6 @@ export function CaseAttachmentsSection({
       toast({
         title: "Preview failed",
         description: `Failed to preview ${attachment.file_name}`,
-        variant: "destructive",
       })
     }
   }
@@ -561,7 +566,7 @@ export function CaseAttachmentsSection({
             <span className="text-xs text-muted-foreground group-hover:text-foreground transition-colors">
               {isUploading || uploadMutation.isPending
                 ? "Uploading..."
-                : "Add new attachment (max 20MB) • pdf, doc, xls, txt, csv, png, jpeg, gif, webp, zip"}
+                : "Add new attachment (max 20MB)"}
             </span>
           </div>
 
@@ -679,7 +684,7 @@ export function CaseAttachmentsSection({
             type="file"
             onChange={handleFileSelect}
             className="hidden"
-            accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,.csv,.jpg,.jpeg,.png,.gif,.webp,.zip,.7z"
+            accept={acceptAttribute}
           />
 
           {/* Image Preview Modal */}
@@ -734,7 +739,6 @@ export function CaseAttachmentsSection({
                         title: "Image preview failed",
                         description:
                           "Try downloading the attachment or checking the original file for issues.",
-                        variant: "destructive",
                       })
                     }}
                     onLoad={() => {

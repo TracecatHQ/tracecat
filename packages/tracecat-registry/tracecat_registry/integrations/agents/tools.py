@@ -10,7 +10,8 @@ Inspired by: https://docs.cursor.com/chat/tools
 - find_and_replace: find and replace text in a file
 - jsonpath_find: given a JSONPath expression, search JSON files for matches
 - jsonpath_find_and_replace: given a JSONPath expression, find and replace all matches
-- apply_python_lambda: run a Python lambda function (given as a string)
+
+Note: files are all read and write only. Strictly block execution permissions for any user-provided file.
 """
 
 import orjson
@@ -36,7 +37,6 @@ from tracecat_registry.integrations.grep import (
     jsonpath_find as _jsonpath_find,
     jsonpath_find_and_replace as _jsonpath_find_and_replace,
 )
-from tracecat_registry.core.transform import apply
 
 
 def _is_text_file(file_path: Path) -> bool:
@@ -500,21 +500,6 @@ def create_secure_file_tools(temp_dir: str) -> list[Tool]:
         except jsonpath_ng.exceptions.JsonPathParserError as e:
             raise ModelRetry(f"Unable to parse JSONPath expression: {e}") from e
 
-    def apply_python_lambda(
-        value: str,
-        lambda_function: str,
-    ) -> str:
-        """Run a Python lambda function, given as a string, on a value.
-
-        Args:
-            value: Value to run the lambda function on.
-            lambda_function: Python lambda function (e.g. lambda x: x + 1) to run.
-
-        Returns:
-            The result of the Python code.
-        """
-        return apply(value, lambda_function)
-
     # Return secure tools
     return [
         Tool(
@@ -557,11 +542,6 @@ def create_secure_file_tools(temp_dir: str) -> list[Tool]:
             description="Find and replace JSONPath matches in a file within the temporary directory.",
             function=jsonpath_find_and_replace,
         ),
-        Tool(
-            name="apply_python_lambda",
-            description="Run a Python lambda function, given as a string, on a value.",
-            function=apply_python_lambda,
-        ),
     ]
 
 
@@ -588,7 +568,6 @@ When the user requests file modifications, use the file modification tools to ac
    - `create_file` - Create new files
    - `jsonpath_find` - Search JSON files using JSONPath expressions
    - `jsonpath_find_and_replace` - Modify JSON files
-   - `apply_python_lambda` - Transform data with Python functions
 
 2. For file modifications:
    - Use `find_and_replace` to change existing files
@@ -606,7 +585,6 @@ When the user requests file modifications, use the file modification tools to ac
 <best_practices>
 - Use `grep_search` to find function definitions, imports, or specific patterns
 - Use `jsonpath_find` for JSON/YAML files, `grep_search` for other formats
-- Use `apply_python_lambda` to process and transform file contents
 - Use `search_files` when you need to locate files by partial names
 - Verify changes with `read_file` after modifications
 </best_practices>
@@ -622,7 +600,6 @@ You have access to file manipulation tools:
 - `grep_search` - Search for patterns in files
 - `find_and_replace` - Modify file contents
 - `jsonpath_find` - Query JSON files
-- `apply_python_lambda` - Transform data
 
 When working with files, use these tools to interact with the file system directly.
 </file_interaction_guidelines>"""

@@ -1057,18 +1057,6 @@ export const $AssigneeChangedEventRead = {
 
 export const $AttachmentCreatedEventRead = {
   properties: {
-    wf_exec_id: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Wf Exec Id",
-      description: "The execution ID of the workflow that triggered the event.",
-    },
     type: {
       type: "string",
       const: "attachment_created",
@@ -1091,6 +1079,17 @@ export const $AttachmentCreatedEventRead = {
     size: {
       type: "integer",
       title: "Size",
+    },
+    wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wf Exec Id",
     },
     user_id: {
       anyOf: [
@@ -1126,18 +1125,6 @@ export const $AttachmentCreatedEventRead = {
 
 export const $AttachmentDeletedEventRead = {
   properties: {
-    wf_exec_id: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Wf Exec Id",
-      description: "The execution ID of the workflow that triggered the event.",
-    },
     type: {
       type: "string",
       const: "attachment_deleted",
@@ -1152,6 +1139,17 @@ export const $AttachmentDeletedEventRead = {
     file_name: {
       type: "string",
       title: "File Name",
+    },
+    wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wf Exec Id",
     },
     user_id: {
       anyOf: [
@@ -12441,8 +12439,71 @@ export const $WorkspaceSettingsRead = {
       ],
       title: "Workflow Default Timeout Seconds",
     },
+    allowed_attachment_extensions: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Allowed Attachment Extensions",
+    },
+    allowed_attachment_mime_types: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Allowed Attachment Mime Types",
+    },
+    validate_attachment_magic_number: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Validate Attachment Magic Number",
+    },
+    effective_allowed_attachment_extensions: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Effective Allowed Attachment Extensions",
+      description:
+        "Returns workspace-specific extensions if set, otherwise system defaults.",
+      readOnly: true,
+    },
+    effective_allowed_attachment_mime_types: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Effective Allowed Attachment Mime Types",
+      description:
+        "Returns workspace-specific MIME types if set, otherwise system defaults.",
+      readOnly: true,
+    },
   },
   type: "object",
+  required: [
+    "effective_allowed_attachment_extensions",
+    "effective_allowed_attachment_mime_types",
+  ],
   title: "WorkspaceSettingsRead",
 } as const
 
@@ -12485,6 +12546,51 @@ export const $WorkspaceSettingsUpdate = {
       title: "Workflow Default Timeout Seconds",
       description:
         "Default timeout in seconds for workflows in this workspace. Must be greater than or equal to 0.",
+    },
+    allowed_attachment_extensions: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Allowed Attachment Extensions",
+      description:
+        "Allowed file extensions for attachments (e.g., ['.pdf', '.docx']). Overrides global defaults.",
+    },
+    allowed_attachment_mime_types: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Allowed Attachment Mime Types",
+      description:
+        "Allowed MIME types for attachments (e.g., ['application/pdf', 'image/jpeg']). Overrides global defaults.",
+    },
+    validate_attachment_magic_number: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Validate Attachment Magic Number",
+      description:
+        "Whether to validate file content matches declared MIME type using magic number detection. Defaults to true for security.",
     },
   },
   type: "object",

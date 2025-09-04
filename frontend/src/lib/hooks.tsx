@@ -3995,7 +3995,7 @@ export function useWorkspaceSettings(
       queryClient.invalidateQueries({ queryKey: ["workspaces"] })
       toast({
         title: "Workspace updated",
-        description: "The workspace name has been updated successfully.",
+        description: "Workspace settings updated successfully.",
       })
     },
     onError: (error) => {

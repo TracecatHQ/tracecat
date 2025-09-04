@@ -4203,6 +4203,123 @@ export const tablesImportCsv = (
 }
 
 /**
+ * List Attachments
+ * List all attachments for a case.
+ * @param data The data for the request.
+ * @param data.caseId
+ * @param data.workspaceId
+ * @returns CaseAttachmentRead Successful Response
+ * @throws ApiError
+ */
+export const casesListAttachments = (
+  data: CasesListAttachmentsData
+): CancelablePromise<CasesListAttachmentsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/cases/{case_id}/attachments",
+    path: {
+      case_id: data.caseId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Attachment
+ * Upload a new attachment to a case.
+ * @param data The data for the request.
+ * @param data.caseId
+ * @param data.workspaceId
+ * @param data.formData
+ * @returns CaseAttachmentRead Successful Response
+ * @throws ApiError
+ */
+export const casesCreateAttachment = (
+  data: CasesCreateAttachmentData
+): CancelablePromise<CasesCreateAttachmentResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/cases/{case_id}/attachments",
+    path: {
+      case_id: data.caseId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    formData: data.formData,
+    mediaType: "multipart/form-data",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Download Attachment
+ * Download an attachment.
+ * @param data The data for the request.
+ * @param data.caseId
+ * @param data.attachmentId
+ * @param data.workspaceId
+ * @param data.preview If true, allows inline preview for safe image types
+ * @returns CaseAttachmentDownloadResponse Successful Response
+ * @throws ApiError
+ */
+export const casesDownloadAttachment = (
+  data: CasesDownloadAttachmentData
+): CancelablePromise<CasesDownloadAttachmentResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/cases/{case_id}/attachments/{attachment_id}",
+    path: {
+      case_id: data.caseId,
+      attachment_id: data.attachmentId,
+    },
+    query: {
+      preview: data.preview,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Attachment
+ * Delete an attachment (soft delete).
+ * @param data The data for the request.
+ * @param data.caseId
+ * @param data.attachmentId
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const casesDeleteAttachment = (
+  data: CasesDeleteAttachmentData
+): CancelablePromise<CasesDeleteAttachmentResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/cases/{case_id}/attachments/{attachment_id}",
+    path: {
+      case_id: data.caseId,
+      attachment_id: data.attachmentId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * List Cases
  * List cases with cursor-based pagination and tag filtering.
  * @param data The data for the request.
@@ -4515,150 +4632,6 @@ export const casesListEventsWithUsers = (
   return __request(OpenAPI, {
     method: "GET",
     url: "/cases/{case_id}/events",
-    path: {
-      case_id: data.caseId,
-    },
-    query: {
-      workspace_id: data.workspaceId,
-    },
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * List Attachments
- * List all attachments for a case.
- * @param data The data for the request.
- * @param data.caseId
- * @param data.workspaceId
- * @returns CaseAttachmentRead Successful Response
- * @throws ApiError
- */
-export const casesListAttachments = (
-  data: CasesListAttachmentsData
-): CancelablePromise<CasesListAttachmentsResponse> => {
-  return __request(OpenAPI, {
-    method: "GET",
-    url: "/cases/{case_id}/attachments",
-    path: {
-      case_id: data.caseId,
-    },
-    query: {
-      workspace_id: data.workspaceId,
-    },
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * Create Attachment
- * Upload a new attachment to a case.
- * @param data The data for the request.
- * @param data.caseId
- * @param data.workspaceId
- * @param data.formData
- * @returns CaseAttachmentRead Successful Response
- * @throws ApiError
- */
-export const casesCreateAttachment = (
-  data: CasesCreateAttachmentData
-): CancelablePromise<CasesCreateAttachmentResponse> => {
-  return __request(OpenAPI, {
-    method: "POST",
-    url: "/cases/{case_id}/attachments",
-    path: {
-      case_id: data.caseId,
-    },
-    query: {
-      workspace_id: data.workspaceId,
-    },
-    formData: data.formData,
-    mediaType: "multipart/form-data",
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * Download Attachment
- * Download an attachment.
- * @param data The data for the request.
- * @param data.caseId
- * @param data.attachmentId
- * @param data.workspaceId
- * @param data.preview If true, allows inline preview for safe image types
- * @returns CaseAttachmentDownloadResponse Successful Response
- * @throws ApiError
- */
-export const casesDownloadAttachment = (
-  data: CasesDownloadAttachmentData
-): CancelablePromise<CasesDownloadAttachmentResponse> => {
-  return __request(OpenAPI, {
-    method: "GET",
-    url: "/cases/{case_id}/attachments/{attachment_id}",
-    path: {
-      case_id: data.caseId,
-      attachment_id: data.attachmentId,
-    },
-    query: {
-      preview: data.preview,
-      workspace_id: data.workspaceId,
-    },
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * Delete Attachment
- * Delete an attachment (soft delete).
- * @param data The data for the request.
- * @param data.caseId
- * @param data.attachmentId
- * @param data.workspaceId
- * @returns void Successful Response
- * @throws ApiError
- */
-export const casesDeleteAttachment = (
-  data: CasesDeleteAttachmentData
-): CancelablePromise<CasesDeleteAttachmentResponse> => {
-  return __request(OpenAPI, {
-    method: "DELETE",
-    url: "/cases/{case_id}/attachments/{attachment_id}",
-    path: {
-      case_id: data.caseId,
-      attachment_id: data.attachmentId,
-    },
-    query: {
-      workspace_id: data.workspaceId,
-    },
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * Get Storage Usage
- * Get total storage used by a case's attachments.
- * @param data The data for the request.
- * @param data.caseId
- * @param data.workspaceId
- * @returns number Successful Response
- * @throws ApiError
- */
-export const casesGetStorageUsage = (
-  data: CasesGetStorageUsageData
-): CancelablePromise<CasesGetStorageUsageResponse> => {
-  return __request(OpenAPI, {
-    method: "GET",
-    url: "/cases/{case_id}/storage-usage",
     path: {
       case_id: data.caseId,
     },
