@@ -14,14 +14,11 @@ from tracecat.cases.attachments.models import (
     AttachmentDeletedEvent,
     AttachmentDeletedEventRead,
 )
+from tracecat.cases.constants import RESERVED_CASE_FIELDS
 from tracecat.cases.enums import CaseEventType, CasePriority, CaseSeverity, CaseStatus
 from tracecat.tables.enums import SqlType
 from tracecat.tables.models import TableColumnCreate, TableColumnUpdate
 from tracecat.tags.models import TagRead
-
-# Case Management
-
-RESERVED_CASE_FIELDS = ["id", "created_at", "updated_at", "case_id"]
 
 
 class CaseReadMinimal(BaseModel):
