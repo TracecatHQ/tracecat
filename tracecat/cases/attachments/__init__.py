@@ -1,10 +1,6 @@
 """Case attachments module."""
 
 from tracecat.cases.attachments.models import (
-    AttachmentCreatedEvent,
-    AttachmentCreatedEventRead,
-    AttachmentDeletedEvent,
-    AttachmentDeletedEventRead,
     CaseAttachmentCreate,
     CaseAttachmentDownloadData,
     CaseAttachmentDownloadResponse,
@@ -18,10 +14,6 @@ __all__ = [
     "CaseAttachmentRead",
     "CaseAttachmentDownloadResponse",
     "CaseAttachmentDownloadData",
-    "AttachmentCreatedEvent",
-    "AttachmentDeletedEvent",
-    "AttachmentCreatedEventRead",
-    "AttachmentDeletedEventRead",
     # Service
     "CaseAttachmentService",
 ]

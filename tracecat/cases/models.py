@@ -8,12 +8,6 @@ import sqlalchemy as sa
 from pydantic import BaseModel, Field, RootModel
 
 from tracecat.auth.models import UserRead
-from tracecat.cases.attachments.models import (
-    AttachmentCreatedEvent,
-    AttachmentCreatedEventRead,
-    AttachmentDeletedEvent,
-    AttachmentDeletedEventRead,
-)
 from tracecat.cases.constants import RESERVED_CASE_FIELDS
 from tracecat.cases.enums import CaseEventType, CasePriority, CaseSeverity, CaseStatus
 from tracecat.tables.enums import SqlType
@@ -257,6 +251,28 @@ class AssigneeChangedEventRead(CaseEventReadBase, AssigneeChangedEvent):
 
 class PayloadChangedEventRead(CaseEventReadBase, PayloadChangedEvent):
     """Event for when a case payload is changed."""
+
+
+class AttachmentCreatedEvent(CaseEventBase):
+    type: Literal[CaseEventType.ATTACHMENT_CREATED] = CaseEventType.ATTACHMENT_CREATED
+    attachment_id: uuid.UUID
+    file_name: str
+    content_type: str
+    size: int
+
+
+class AttachmentDeletedEvent(CaseEventBase):
+    type: Literal[CaseEventType.ATTACHMENT_DELETED] = CaseEventType.ATTACHMENT_DELETED
+    attachment_id: uuid.UUID
+    file_name: str
+
+
+class AttachmentCreatedEventRead(CaseEventReadBase, AttachmentCreatedEvent):
+    """Event for when an attachment is created for a case."""
+
+
+class AttachmentDeletedEventRead(CaseEventReadBase, AttachmentDeletedEvent):
+    """Event for when an attachment is deleted from a case."""
 
 
 # Type unions

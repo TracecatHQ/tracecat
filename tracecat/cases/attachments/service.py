@@ -13,11 +13,8 @@ from sqlmodel import cast, col, desc, func, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import config
-from tracecat.cases.attachments.models import (
-    AttachmentCreatedEvent,
-    AttachmentDeletedEvent,
-    CaseAttachmentCreate,
-)
+from tracecat.cases.attachments.models import CaseAttachmentCreate
+from tracecat.cases.models import AttachmentCreatedEvent, AttachmentDeletedEvent
 from tracecat.contexts import ctx_run
 from tracecat.db.schemas import Case, CaseAttachment, File, Workspace
 from tracecat.logger import logger
