@@ -31,7 +31,7 @@ from tracecat.storage.exceptions import (
 )
 from tracecat.types.auth import Role
 
-attachments_router = APIRouter(tags=["case-attachments"])
+router = APIRouter(tags=["case-attachments"], prefix="/cases/{case_id}/attachments")
 
 WorkspaceUser = Annotated[
     Role,
@@ -43,7 +43,7 @@ WorkspaceUser = Annotated[
 ]
 
 
-@attachments_router.get("")
+@router.get("")
 async def list_attachments(
     *,
     role: WorkspaceUser,
@@ -81,7 +81,7 @@ async def list_attachments(
     ]
 
 
-@attachments_router.post("", status_code=status.HTTP_201_CREATED)
+@router.post("", status_code=status.HTTP_201_CREATED)
 async def create_attachment(
     *,
     role: WorkspaceUser,
@@ -335,7 +335,7 @@ async def create_attachment(
         ) from e
 
 
-@attachments_router.get("/{attachment_id}")
+@router.get("/{attachment_id}")
 async def download_attachment(
     *,
     role: WorkspaceUser,
@@ -402,7 +402,7 @@ async def download_attachment(
         ) from e
 
 
-@attachments_router.delete(
+@router.delete(
     "/{attachment_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None
 )
 async def delete_attachment(

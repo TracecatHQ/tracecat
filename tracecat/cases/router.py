@@ -8,7 +8,6 @@ from tracecat.auth.credentials import RoleACL
 from tracecat.auth.models import UserRead
 from tracecat.auth.users import search_users
 from tracecat.authz.models import WorkspaceRole
-from tracecat.cases.attachments.router import attachments_router
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.models import (
     AssigneeChangedEventRead,
@@ -44,8 +43,6 @@ from tracecat.types.pagination import (
 cases_router = APIRouter(prefix="/cases", tags=["cases"])
 case_fields_router = APIRouter(prefix="/case-fields", tags=["cases"])
 
-# Mount attachment routes under cases
-cases_router.include_router(attachments_router, prefix="/{case_id}/attachments")
 
 WorkspaceUser = Annotated[
     Role,
