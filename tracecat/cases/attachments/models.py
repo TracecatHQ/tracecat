@@ -4,14 +4,13 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 
+import annotated_types
 from pydantic import BaseModel, Field
 
 from tracecat import config
 from tracecat.cases.enums import CaseEventType
-
-# Attachment Models
 
 
 class CaseAttachmentCreate(BaseModel):
@@ -22,14 +21,19 @@ class CaseAttachmentCreate(BaseModel):
         max_length=config.TRACECAT__MAX_ATTACHMENT_FILENAME_LENGTH,
         description="Original filename",
     )
-    content_type: str = Field(..., max_length=100, description="MIME type of the file")
+    content_type: str = Field(..., max_length=255, description="MIME type of the file")
     size: int = Field(
         ...,
         gt=0,
         le=config.TRACECAT__MAX_ATTACHMENT_SIZE_BYTES,
         description="File size in bytes",
     )
-    content: bytes = Field(..., description="File content")
+    content: Annotated[
+        bytes,
+        annotated_types.Len(
+            min_length=1, max_length=config.TRACECAT__MAX_ATTACHMENT_SIZE_BYTES
+        ),
+    ] = Field(..., description="File content")
 
 
 class CaseAttachmentRead(BaseModel):

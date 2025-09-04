@@ -1003,7 +1003,7 @@ class File(Resource, table=True):
     )
     content_type: str = Field(
         ...,
-        max_length=100,
+        max_length=255,
         description="MIME type of the file",
     )
     size: int = Field(
