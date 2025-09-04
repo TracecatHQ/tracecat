@@ -218,15 +218,32 @@ class CaseAttachmentService(BaseWorkspaceService):
             TracecatException: If storage operation fails
         """
 
-        # Validate file size limits
-        if params.size > config.TRACECAT__MAX_ATTACHMENT_SIZE_BYTES:
+        # Calculate actual size from content to prevent client-controlled size bypass
+        actual_size = len(params.content)
+
+        # Security check: Verify declared size matches actual content size
+        if params.size != actual_size:
+            logger.warning(
+                "Size mismatch detected in attachment upload",
+                case_id=case.id,
+                declared_size=params.size,
+                actual_size=actual_size,
+                filename=params.file_name,
+                user_id=self.role.user_id
+                if self.role and self.role.type == "user"
+                else None,
+            )
+            # Use actual size for all validations to prevent bypass
+
+        # Validate file size limits using actual content size
+        if actual_size > config.TRACECAT__MAX_ATTACHMENT_SIZE_BYTES:
             raise FileSizeError(
-                f"File size ({params.size / 1024 / 1024:.1f}MB) exceeds maximum allowed size "
+                f"File size ({actual_size / 1024 / 1024:.1f}MB) exceeds maximum allowed size "
                 f"({config.TRACECAT__MAX_ATTACHMENT_SIZE_BYTES / 1024 / 1024}MB)"
             )
 
-        # Validate case-level limits (count + storage) efficiently
-        await self._assert_case_limits(case, params.size)
+        # Validate case-level limits (count + storage) efficiently using actual size
+        await self._assert_case_limits(case, actual_size)
 
         # Get workspace settings for attachment validation
         workspace = await self._get_workspace()
@@ -292,7 +309,7 @@ class CaseAttachmentService(BaseWorkspaceService):
                 sha256=sha256,
                 name=validation_result.filename,
                 content_type=validation_result.content_type,
-                size=params.size,
+                size=actual_size,
                 creator_id=creator_id,
             )
             self.session.add(file)
@@ -304,6 +321,20 @@ class CaseAttachmentService(BaseWorkspaceService):
                 content_type=validation_result.content_type,
             )
         else:
+            # Verify existing file's recorded size matches actual content
+            if file.size != actual_size:
+                logger.error(
+                    "Security: Existing file size mismatch detected",
+                    case_id=case.id,
+                    file_id=file.id,
+                    sha256=sha256,
+                    recorded_size=file.size,
+                    actual_size=actual_size,
+                    filename=params.file_name,
+                )
+                # Update the file record with correct size
+                file.size = actual_size
+
             # If the file entity exists but has been soft deleted, restore and re-upload
             if file.deleted_at is not None:
                 file.deleted_at = None
@@ -360,7 +391,7 @@ class CaseAttachmentService(BaseWorkspaceService):
                     attachment_id=attachment.id,
                     file_name=file.name,
                     content_type=file.content_type,
-                    size=file.size,
+                    size=file.size,  # This now uses the actual size from the File record
                     wf_exec_id=None,  # populated by _emit_case_event if run context available
                 ),
             )
