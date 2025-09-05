@@ -706,7 +706,7 @@ export function ToolCallPartComponent({
                   <td className="px-2 py-1 text-left align-top font-semibold text-foreground/80">
                     {key}
                   </td>
-                  <td className="px-2 py-1 text-left align-top text-foreground/90">
+                  <td className="break-all px-2 py-1 text-left align-top text-foreground/90">
                     {typeof value === "string"
                       ? value
                       : JSON.stringify(value, null, 2)}
@@ -771,7 +771,7 @@ export function ToolCallPartComponent({
                   <td className="px-2 py-1 text-left align-top font-semibold text-foreground/80">
                     {key}
                   </td>
-                  <td className="px-2 py-1 text-left align-top text-foreground/90">
+                  <td className="break-all px-2 py-1 text-left align-top text-foreground/90">
                     {typeof value === "string"
                       ? value
                       : JSON.stringify(value, null, 2)}
