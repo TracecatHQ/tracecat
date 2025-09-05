@@ -1042,10 +1042,10 @@ async def run_agent(
 
         try:
             message_nodes: list[ModelMessage] = []
-            message_history: list[ModelMessage] | None = None
-            # Pass conversation history if non empty
-            if len(conversation_history) > 0:
-                message_history = [
+            # Pass conversation history to the agent
+            async with agent.iter(
+                user_prompt=user_prompt,
+                message_history=[
                     ModelResponse(
                         parts=[
                             TextPart(
@@ -1053,10 +1053,7 @@ async def run_agent(
                             )
                         ]
                     ),
-                ]
-            async with agent.iter(
-                user_prompt=user_prompt,
-                message_history=message_history,
+                ],
             ) as run:
                 async for node in run:
                     curr: ModelMessage
