@@ -7,6 +7,7 @@ from pydantic_core import to_jsonable_python
 from tracecat.auth.credentials import RoleACL
 from tracecat.config import TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES
 from tracecat.contexts import ctx_logger
+from tracecat.db.engine import get_async_engine
 from tracecat.dsl.models import RunActionInput
 from tracecat.executor.models import ExecutorActionErrorInfo
 from tracecat.executor.service import dispatch_action_on_cluster
@@ -88,4 +89,38 @@ async def run_action(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=err_info_dict,
+        ) from e
+
+
+@router.get("/health/db-pool", tags=["health"])
+def get_database_pool_metrics() -> dict[str, Any]:
+    """Get SQLAlchemy QueuePool metrics for health monitoring.
+
+    Returns connection pool statistics including:
+    - pool_size: Current pool size
+    - checked_out: Number of checked out connections
+    - checked_in: Number of connections in the pool
+    - overflow: Current overflow count
+    - status: Formatted pool status string
+    """
+    try:
+        engine = get_async_engine()
+        pool = engine.pool
+
+        return {
+            "pool_size": pool.size(),  # type: ignore
+            "checked_out": pool.checkedout(),  # type: ignore
+            "checked_in": pool.checkedin(),  # type: ignore
+            "overflow": pool.overflow(),  # type: ignore
+            "status": pool.status(),
+            "healthy": True,
+        }
+    except Exception as e:
+        logger.error("Error retrieving database pool metrics", exc_info=e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "message": "Failed to retrieve database pool metrics",
+                "error": str(e),
+            },
         ) from e
