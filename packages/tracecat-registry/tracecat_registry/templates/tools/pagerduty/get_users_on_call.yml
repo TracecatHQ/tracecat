@@ -13,6 +13,14 @@ definition:
     schedule_ids:
       type: list[str]
       description: The ID of the schedule(s).
+    since:
+      type: datetime | None
+      description: The start of the time range over which you want to search. Defaults to current time.
+      default: null
+    until:
+      type: datetime | None
+      description: The end of the time range over which you want to search. Defaults to current time.
+      default: null
   steps:
     - ref: get_users_on_call
       action: core.http_request
@@ -25,4 +33,6 @@ definition:
         params:
           include[]: users
           schedule_ids[]: ${{ inputs.schedule_ids }}
+          since: ${{ inputs.since }}
+          until: ${{ inputs.until }}
   returns: ${{ steps.get_users_on_call.result.data }}
