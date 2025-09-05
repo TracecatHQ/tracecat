@@ -46,6 +46,10 @@ from tracecat.expressions.functions import (
     get_year,
     greater_than,
     greater_than_or_equal,
+    hash_md5,
+    hash_sha1,
+    hash_sha256,
+    hash_sha512,
     hours_between,
     index_by_key,
     intersection,
@@ -177,6 +181,30 @@ def test_bool(input_val: Any, expected: bool) -> None:
 )
 def test_format_string(template: str, values: list[Any], expected: str) -> None:
     assert format_string(template, *values) == expected
+
+
+@pytest.mark.parametrize(
+    "input_str,expected",
+    [
+        ("SGVsbG8sIFdvcmxkIQ==", "Hello, World!"),
+        ("", ""),
+        ("U2VjcmV0IGNoYXJzOiAhQCMkJSUsJiooKQ==", "Special chars: !@#$%^&*()"),
+    ],
+)
+def test_base64_to_str(input_str: str, expected: str) -> None:
+    assert b64_to_str(input_str) == expected
+
+
+@pytest.mark.parametrize(
+    "input_str,expected",
+    [
+        ("SGVsbG8sIFdvcmxkIQ==", "Hello, World!"),
+        ("", ""),
+        ("U2VjcmV0IGNoYXJzOiAhQCMkJSUsJiooKQ==", "Special chars: !@#$%^&*()"),
+    ],
+)
+def test_b64url_to_str(input_str: str, expected: str) -> None:
+    assert b64url_to_str(input_str) == expected
 
 
 @pytest.mark.parametrize(
@@ -1505,3 +1533,35 @@ def test_to_time_errors(input_val: Any, expected_error: type[Exception]) -> None
     """Test that to_time raises appropriate errors for invalid inputs."""
     with pytest.raises(expected_error):
         to_time(input_val)
+
+
+def test_hash_md5() -> None:
+    assert hash_md5("test") == "098f6bcd4621d373cade4e832627b4f6"
+    assert hash_md5(b"test") == "098f6bcd4621d373cade4e832627b4f6"
+
+
+def test_hash_sha1() -> None:
+    assert hash_sha1("test") == "a94a8fe5ccb19ba61c4c0873d391e987982fbbd3"
+    assert hash_sha1(b"test") == "a94a8fe5ccb19ba61c4c0873d391e987982fbbd3"
+
+
+def test_hash_sha256() -> None:
+    assert (
+        hash_sha256("test")
+        == "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+    )
+    assert (
+        hash_sha256(b"test")
+        == "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+    )
+
+
+def test_hash_sha512() -> None:
+    assert (
+        hash_sha512("test")
+        == "ee26b0dd4af7e749aa1a8ee3c10ae9923f618980772e473f8819a5d4940e0db27ac185f8a0e1d5f84f88bc887fd67b143732c304cc5fa9ad8e6f57f50028a8ff"
+    )
+    assert (
+        hash_sha512(b"test")
+        == "ee26b0dd4af7e749aa1a8ee3c10ae9923f618980772e473f8819a5d4940e0db27ac185f8a0e1d5f84f88bc887fd67b143732c304cc5fa9ad8e6f57f50028a8ff"
+    )

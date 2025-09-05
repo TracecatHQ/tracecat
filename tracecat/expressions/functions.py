@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import csv
+import hashlib
 import ipaddress
 import itertools
 import json
@@ -154,7 +155,7 @@ def str_to_b64(x: str) -> str:
 
 def b64_to_str(x: str) -> str:
     """Decode base64 string to string."""
-    return base64.b64decode(x).decode()
+    return base64.b64decode(x.encode("utf-8")).decode()
 
 
 def str_to_b64url(x: str) -> str:
@@ -164,7 +165,38 @@ def str_to_b64url(x: str) -> str:
 
 def b64url_to_str(x: str) -> str:
     """Decode URL-safe base64 string to string."""
-    return base64.urlsafe_b64decode(x).decode()
+    return base64.urlsafe_b64decode(x.encode("utf-8")).decode()
+
+
+# Hash functions
+
+
+def hash_md5(x: str | bytes) -> str:
+    """Generate MD5 hash of input string or bytes."""
+    if isinstance(x, str):
+        x = x.encode()
+    return hashlib.md5(x).hexdigest()
+
+
+def hash_sha1(x: str | bytes) -> str:
+    """Generate SHA1 hash of input string or bytes."""
+    if isinstance(x, str):
+        x = x.encode()
+    return hashlib.sha1(x).hexdigest()
+
+
+def hash_sha256(x: str | bytes) -> str:
+    """Generate SHA256 hash of input string or bytes."""
+    if isinstance(x, str):
+        x = x.encode()
+    return hashlib.sha256(x).hexdigest()
+
+
+def hash_sha512(x: str | bytes) -> str:
+    """Generate SHA512 hash of input string or bytes."""
+    if isinstance(x, str):
+        x = x.encode()
+    return hashlib.sha512(x).hexdigest()
 
 
 def replace(x: str, old: str, new: str) -> str:
@@ -1064,6 +1096,11 @@ _FUNCTION_MAPPING = {
     "from_base64": b64_to_str,
     "to_base64url": str_to_b64url,
     "from_base64url": b64url_to_str,
+    # Hash functions
+    "hash_md5": hash_md5,
+    "hash_sha1": hash_sha1,
+    "hash_sha256": hash_sha256,
+    "hash_sha512": hash_sha512,
     # IP addresses
     "ipv4_in_subnet": ipv4_in_subnet,
     "ipv6_in_subnet": ipv6_in_subnet,
