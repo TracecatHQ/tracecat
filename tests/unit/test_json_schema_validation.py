@@ -316,6 +316,49 @@ def test_enum_fields():
     assert set(get_args(SeverityLiteralType)) == {1, 2, 3, 4}
 
 
+def test_ref_to_enum_in_defs():
+    """Ensure $ref to an enum schema in $defs creates a Literal of values.
+
+    Reproduces schema shape saved for template actions where properties reference
+    an enum via $ref to #/$defs/EnumModel.
+    """
+    schema = {
+        "type": "object",
+        "title": "llm__anthropic__call",
+        "properties": {
+            "model": {
+                "$ref": "#/$defs/EnumModel",
+                "description": "Model to use.",
+            }
+        },
+        "required": ["model"],
+        "$defs": {
+            "EnumModel": {
+                "type": "string",
+                "enum": [
+                    "claude-3-5-sonnet-20240620",
+                    "claude-3-5-haiku-20240307",
+                    "claude-3-5-opus-20240229",
+                ],
+                "title": "EnumModel",
+            }
+        },
+    }
+
+    Model = json_schema_to_pydantic(schema)
+
+    # model is Annotated[Literal[...], ...] because it's required and refs an enum
+    model_type_annotation = Model.__annotations__["model"]
+    assert get_origin(model_type_annotation) is Annotated
+    LiteralType = get_args(model_type_annotation)[0]
+    assert get_origin(LiteralType) is Literal
+    assert set(get_args(LiteralType)) == {
+        "claude-3-5-sonnet-20240620",
+        "claude-3-5-haiku-20240307",
+        "claude-3-5-opus-20240229",
+    }
+
+
 def test_array_of_objects():
     schema = {
         "type": "object",
