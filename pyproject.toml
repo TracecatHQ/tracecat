@@ -58,7 +58,7 @@ dependencies = [
     "redis[hiredis]>=5.0.0",
     "sentry-sdk==2.24.1",
     "sqlmodel==0.0.18",
-    "temporalio==1.9.0",
+    "temporalio==1.17.0",
     "tenacity==8.3.0",
     "tomli==2.2.1",
     "tracecat-ee",
