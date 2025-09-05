@@ -25,7 +25,7 @@ from timeit import timeit
 import orjson
 
 from pydantic_ai.tools import RunContext
-from pydantic_ai.usage import Usage
+from pydantic_ai.usage import RunUsage
 from pydantic_ai import Agent, ModelRetry
 from pydantic_ai.messages import (
     FunctionToolCallEvent,
@@ -626,7 +626,7 @@ async def build_agent_tool_definitions(
     run_context = RunContext(
         deps=None,
         model=None,  # type: ignore
-        usage=Usage(),
+        usage=RunUsage(),
         prompt=None,
         messages=[],
         run_step=0,
@@ -756,7 +756,7 @@ class AgentOutput(BaseModel):
     files: dict[str, str] | None = None
     message_history: list[ModelMessage]
     duration: float
-    usage: Usage | None = None
+    usage: RunUsage | None = None
 
 
 @registry.register(
@@ -1077,7 +1077,7 @@ async def run_agent(
                                     )
                                     message = create_tool_call(
                                         tool_name=event.part.tool_name,
-                                        tool_args=event.part.args,
+                                        tool_args=event.part.args or {},
                                         tool_call_id=event.part.tool_call_id,
                                         fixed_args=tool_fixed_args,
                                     )
