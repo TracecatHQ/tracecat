@@ -73,7 +73,7 @@ COPY --chown=apiuser:apiuser ./alembic /app/alembic
 
 # Copy the entrypoint script and health check script
 COPY --chown=apiuser:apiuser scripts/entrypoint.sh /app/entrypoint.sh
-COPY --chown=apiuser:apiuser scripts/check_tmp.py /usr/local/bin/check_tmp.py
+COPY scripts/check_tmp.py /usr/local/bin/check_tmp.py
 RUN chmod +x /app/entrypoint.sh && chmod +x /usr/local/bin/check_tmp.py
 
 # Install the project with EE features
