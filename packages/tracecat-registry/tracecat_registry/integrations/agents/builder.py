@@ -355,7 +355,11 @@ async def create_tool_from_registry(
 
         # Merge fixed arguments with runtime arguments
         merged_args = {**fixed_args, **remapped_kwargs}
-        return await call_tracecat_action(action_name, merged_args, service=service)
+        # Important: Do not reuse the builder's service/session for execution.
+        # Each tool invocation should create its own short-lived DB session to
+        # avoid concurrent operations on a shared AsyncSession when multiple
+        # tools are called in parallel by the agent.
+        return await call_tracecat_action(action_name, merged_args)
 
     # Set function name
     tool_func.__name__ = _generate_tool_function_name(
@@ -537,7 +541,9 @@ async def create_single_tool(
 
         # Get fixed arguments for this specific action
         action_fixed_args = fixed_arguments.get(action_name)
-        tool = await create_tool_from_registry(action_name, action_fixed_args)
+        tool = await create_tool_from_registry(
+            action_name, action_fixed_args, service=service
+        )
 
         return CreateToolResult(
             tool=tool,
