@@ -635,7 +635,7 @@ async def http_poll(
     poll_retry_codes: Annotated[
         int | list[int] | None,
         Doc(
-            "Status codes on which the action will retry. If not specified, `poll_condition` must be provided."
+            "Status codes on which the action will retry. Ignored if `poll_condition` is provided. If neither are specified, an error will be raised."
         ),
     ] = None,
     poll_interval: Annotated[
@@ -653,7 +653,7 @@ async def http_poll(
     poll_condition: Annotated[
         str | None,
         Doc(
-            "User defined condition that determines whether to retry. The condition is a Python lambda function string. If not specified, `poll_retry_codes` must be provided."
+            "User defined condition that determines when polling should STOP. The condition is a Python lambda function string that receives the response JSON and should return True when the desired state is reached (polling will stop) or False to continue polling. This is evaluated for ALL responses including 200 status. Example: `lambda x: x.get('status') == 'completed'` will poll until status becomes 'completed'. If not specified, `poll_retry_codes` must be provided."
         ),
     ] = None,
 ) -> HTTPResponse:
@@ -667,8 +667,10 @@ async def http_poll(
 
     predicate = build_safe_lambda(poll_condition) if poll_condition else None
 
-    if not retry_codes and not predicate:
-        raise ValueError("At least one of retry_codes or predicate must be specified")
+    if not poll_condition and not retry_codes:
+        raise ValueError(
+            "At least one of poll_condition or poll_retry_codes must be specified"
+        )
 
     # Retry based on HTTP status codes
     def retry_status_code(response: httpx.Response) -> bool:
@@ -681,22 +683,27 @@ async def http_poll(
         if not predicate:
             return False
         data = _try_parse_response_data(response)
-        args = PredicateArgs(
-            headers=dict(response.headers.items()),
-            data=data,
-            status_code=response.status_code,
-        )
-        return predicate(args)
+        # Invert the result: retry when condition is NOT met (poll until condition is true)
+        return not predicate(data)
+
+    # Use poll_condition if defined, otherwise use retry_codes
+    if poll_condition:
+        retry_condition = retry_if_result(user_defined_predicate)
+    else:
+        retry_condition = retry_if_result(retry_status_code)
 
     @retry(
         stop=stop_after_attempt(poll_max_attempts)
         if poll_max_attempts > 0
         else stop_never,
-        wait=wait_fixed(poll_interval) if poll_interval else wait_exponential(),
-        retry=(
-            retry_if_result(retry_status_code) | retry_if_result(user_defined_predicate)
+        wait=wait_fixed(poll_interval)
+        if poll_interval
+        else wait_exponential(
+            multiplier=2,
+            min=1,
+            max=60,
         ),
-        # Stop retrying immediately on critical errors (e.g., timeouts)
+        retry=retry_condition,
         reraise=True,
     )
     async def call() -> httpx.Response:

@@ -319,7 +319,7 @@ async def test_http_poll_condition() -> None:
     result = await http_poll(
         url="https://api.example.com",
         method="GET",
-        poll_condition="lambda x: x['data']['status'] == 'pending'",
+        poll_condition="lambda x: x['data']['status'] == 'completed'",
         poll_interval=0.1,
         poll_max_attempts=3,
     )
@@ -359,7 +359,7 @@ async def test_http_poll_jsonpath_condition() -> None:
         url="https://api.example.com",
         method="GET",
         # Retry while status.state is 'pending'
-        poll_condition="lambda x: jsonpath('$.data.status.state', x) == 'pending'",
+        poll_condition="lambda x: jsonpath('$.data.status.state', x) == 'completed'",
         poll_interval=0.1,
         poll_max_attempts=3,
     )
@@ -505,7 +505,7 @@ async def test_http_poll_complex_condition() -> None:
     result = await http_poll(
         url="https://api.example.com",
         method="GET",
-        poll_condition="lambda x: x['headers'].get('x-status') == 'pending'",
+        poll_condition="lambda x: x['headers'].get('x-status') == 'completed'",
         poll_interval=0.1,
         poll_max_attempts=3,
     )
