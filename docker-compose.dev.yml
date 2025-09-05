@@ -145,6 +145,8 @@ services:
       REDIS_HOST: ${REDIS_HOST}
       REDIS_PORT: ${REDIS_PORT}
       REDIS_URL: ${REDIS_URL}
+      # TMP
+      HEALTHCHECK_TMP_THRESHOLD: ${HEALTHCHECK_TMP_THRESHOLD}
     volumes:
       - ./tracecat:/app/tracecat
       - ./packages/tracecat-registry:/app/packages/tracecat-registry
@@ -161,6 +163,12 @@ services:
         "8000",
         "--reload",
       ]
+    healthcheck:
+      test: ["CMD-SHELL", "check_tmp.py"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
     depends_on:
       - temporal
       - redis
