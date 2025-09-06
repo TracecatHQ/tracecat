@@ -8,7 +8,10 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 from unittest.mock import patch
 
+import aioboto3
 import pytest
+import tracecat_registry.integrations.aws_boto3 as boto3_module
+from dotenv import load_dotenv
 from minio import Minio
 from minio.error import S3Error
 from pydantic import SecretStr
@@ -272,8 +275,6 @@ async def session() -> AsyncGenerator[AsyncSession, None]:
 
 @pytest.fixture(autouse=True, scope="session")
 def env_sandbox(monkeysession: pytest.MonkeyPatch):
-    from dotenv import load_dotenv
-
     load_dotenv()
     logger.info("Setting up environment variables")
     monkeysession.setattr(config, "TRACECAT__APP_ENV", "development")
@@ -697,8 +698,6 @@ def mock_s3_secrets():
 @pytest.fixture
 async def aioboto3_minio_client(monkeypatch):
     """Fixture that mocks aioboto3 to use MinIO endpoint."""
-    import aioboto3
-    import tracecat_registry.integrations.aws_boto3 as boto3_module
 
     # Mock get_session to return session with MinIO credentials
     async def mock_get_session():
