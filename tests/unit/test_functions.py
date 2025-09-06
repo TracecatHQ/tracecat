@@ -188,7 +188,7 @@ def test_format_string(template: str, values: list[Any], expected: str) -> None:
     [
         ("SGVsbG8sIFdvcmxkIQ==", "Hello, World!"),
         ("", ""),
-        ("U2VjcmV0IGNoYXJzOiAhQCMkJSUsJiooKQ==", "Special chars: !@#$%^&*()"),
+        ("U3BlY2lhbCBjaGFyczogIUAjJCVeJiooKQ==", "Special chars: !@#$%^&*()"),
     ],
 )
 def test_base64_to_str(input_str: str, expected: str) -> None:
@@ -200,7 +200,7 @@ def test_base64_to_str(input_str: str, expected: str) -> None:
     [
         ("SGVsbG8sIFdvcmxkIQ==", "Hello, World!"),
         ("", ""),
-        ("U2VjcmV0IGNoYXJzOiAhQCMkJSUsJiooKQ==", "Special chars: !@#$%^&*()"),
+        ("U3BlY2lhbCBjaGFyczogIUAjJCVeJiooKQ==", "Special chars: !@#$%^&*()"),
     ],
 )
 def test_b64url_to_str(input_str: str, expected: str) -> None:
