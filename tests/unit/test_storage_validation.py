@@ -17,8 +17,8 @@ def validator_basic() -> FileSecurityValidator:
     return FileSecurityValidator(
         max_file_size=1024 * 1024,  # 1 MB
         max_filename_length=128,
-        allowed_extensions={".pdf", ".zip", ".txt"},
-        allowed_mime_types={"application/pdf", "application/zip", "text/plain"},
+        allowed_extensions={".pdf", ".zip", ".txt"},  # pyright: ignore[reportArgumentType]
+        allowed_mime_types={"application/pdf", "application/zip", "text/plain"},  # pyright: ignore[reportArgumentType]
     )
 
 
