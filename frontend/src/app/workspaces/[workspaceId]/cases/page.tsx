@@ -20,7 +20,7 @@ export default function CasesPage() {
   return (
     <>
       {view === CasesViewMode.Cases ? (
-        <div className="p-6 space-y-6">
+        <div className="size-full overflow-auto p-6 space-y-6">
           <CaseTable />
         </div>
       ) : (
