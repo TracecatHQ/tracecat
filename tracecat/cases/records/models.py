@@ -6,9 +6,11 @@ import uuid
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+import orjson
+from pydantic import BaseModel, Field, field_validator
 
 from tracecat import config
+from tracecat.records.model import MAX_BYTES
 
 
 class CaseRecordCreate(BaseModel):
@@ -24,6 +26,15 @@ class CaseRecordCreate(BaseModel):
         default_factory=dict,
         description="Entity record data",
     )
+
+    @field_validator("data")
+    @classmethod
+    def enforce_value_sizes(cls, v: dict[str, Any]) -> dict[str, Any]:
+        """Match record model: limit each field's serialized size to 200KB."""
+        for key, value in v.items():
+            if len(orjson.dumps(value)) > MAX_BYTES:
+                raise ValueError(f"Field '{key}' value must be less than 200 KB")
+        return v
 
 
 class CaseRecordLink(BaseModel):
@@ -42,6 +53,14 @@ class CaseRecordUpdate(BaseModel):
         ...,
         description="Updated entity record data",
     )
+
+    @field_validator("data")
+    @classmethod
+    def enforce_value_sizes(cls, v: dict[str, Any]) -> dict[str, Any]:
+        for key, value in v.items():
+            if len(orjson.dumps(value)) > MAX_BYTES:
+                raise ValueError(f"Field '{key}' value must be less than 200 KB")
+        return v
 
 
 class CaseRecordRead(BaseModel):
