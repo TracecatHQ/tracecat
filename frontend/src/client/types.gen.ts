@@ -4398,7 +4398,7 @@ export type login = {
   client_secret?: string | null
 }
 
-export type PublicIncomingWebhookData = {
+export type PublicIncomingWebhookPostData = {
   contentType?: string | null
   /**
    * Echo back to the caller
@@ -4416,9 +4416,9 @@ export type PublicIncomingWebhookData = {
   workflowId: string
 }
 
-export type PublicIncomingWebhookResponse = unknown
+export type PublicIncomingWebhookPostResponse = unknown
 
-export type PublicIncomingWebhook1Data = {
+export type PublicIncomingWebhookGetData = {
   contentType?: string | null
   /**
    * Echo back to the caller
@@ -4436,7 +4436,7 @@ export type PublicIncomingWebhook1Data = {
   workflowId: string
 }
 
-export type PublicIncomingWebhook1Response = unknown
+export type PublicIncomingWebhookGetResponse = unknown
 
 export type PublicIncomingWebhookWaitData = {
   contentType?: string | null
@@ -6162,7 +6162,7 @@ export type PublicCheckHealthResponse = {
 export type $OpenApiTs = {
   "/webhooks/{workflow_id}/{secret}": {
     post: {
-      req: PublicIncomingWebhookData
+      req: PublicIncomingWebhookPostData
       res: {
         /**
          * Successful Response
@@ -6175,7 +6175,7 @@ export type $OpenApiTs = {
       }
     }
     get: {
-      req: PublicIncomingWebhook1Data
+      req: PublicIncomingWebhookGetData
       res: {
         /**
          * Successful Response

@@ -232,10 +232,10 @@ import type {
   ProvidersListProvidersData,
   ProvidersListProvidersResponse,
   PublicCheckHealthResponse,
-  PublicIncomingWebhook1Data,
-  PublicIncomingWebhook1Response,
-  PublicIncomingWebhookData,
-  PublicIncomingWebhookResponse,
+  PublicIncomingWebhookGetData,
+  PublicIncomingWebhookGetResponse,
+  PublicIncomingWebhookPostData,
+  PublicIncomingWebhookPostResponse,
   PublicIncomingWebhookWaitData,
   PublicIncomingWebhookWaitResponse,
   PublicReceiveInteractionData,
@@ -444,7 +444,7 @@ import type {
 } from "./types.gen"
 
 /**
- * Incoming Webhook
+ * Incoming Webhook Post
  * Webhook endpoint to trigger a workflow.
  *
  * This is an external facing endpoint is used to trigger a workflow by sending a webhook request.
@@ -459,9 +459,9 @@ import type {
  * @returns unknown Successful Response
  * @throws ApiError
  */
-export const publicIncomingWebhook = (
-  data: PublicIncomingWebhookData
-): CancelablePromise<PublicIncomingWebhookResponse> => {
+export const publicIncomingWebhookPost = (
+  data: PublicIncomingWebhookPostData
+): CancelablePromise<PublicIncomingWebhookPostResponse> => {
   return __request(OpenAPI, {
     method: "POST",
     url: "/webhooks/{workflow_id}/{secret}",
@@ -484,7 +484,7 @@ export const publicIncomingWebhook = (
 }
 
 /**
- * Incoming Webhook
+ * Incoming Webhook Get
  * Webhook endpoint to trigger a workflow.
  *
  * This is an external facing endpoint is used to trigger a workflow by sending a webhook request.
@@ -499,9 +499,9 @@ export const publicIncomingWebhook = (
  * @returns unknown Successful Response
  * @throws ApiError
  */
-export const publicIncomingWebhook1 = (
-  data: PublicIncomingWebhook1Data
-): CancelablePromise<PublicIncomingWebhook1Response> => {
+export const publicIncomingWebhookGet = (
+  data: PublicIncomingWebhookGetData
+): CancelablePromise<PublicIncomingWebhookGetResponse> => {
   return __request(OpenAPI, {
     method: "GET",
     url: "/webhooks/{workflow_id}/{secret}",
