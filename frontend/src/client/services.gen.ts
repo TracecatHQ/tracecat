@@ -372,6 +372,8 @@ import type {
   WorkflowExecutionsTerminateWorkflowExecutionResponse,
   WorkflowsAddTagData,
   WorkflowsAddTagResponse,
+  WorkflowsApplyDslToWorkflowData,
+  WorkflowsApplyDslToWorkflowResponse,
   WorkflowsCommitWorkflowData,
   WorkflowsCommitWorkflowResponse,
   WorkflowsCreateWorkflowData,
@@ -1156,6 +1158,38 @@ export const workflowsCreateWorkflowDefinition = (
     query: {
       workspace_id: data.workspaceId,
     },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Apply Dsl To Workflow
+ * Validate DSL, create a new workflow definition version, and synchronize actions + graph.
+ *
+ * Returns the updated workflow read model.
+ * @param data The data for the request.
+ * @param data.workflowId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns unknown Successful Response
+ * @throws ApiError
+ */
+export const workflowsApplyDslToWorkflow = (
+  data: WorkflowsApplyDslToWorkflowData
+): CancelablePromise<WorkflowsApplyDslToWorkflowResponse> => {
+  return __request(OpenAPI, {
+    method: "PUT",
+    url: "/workflows/{workflow_id}/dsl",
+    path: {
+      workflow_id: data.workflowId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
     errors: {
       422: "Validation Error",
     },

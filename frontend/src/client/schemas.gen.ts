@@ -336,7 +336,160 @@ export const $ActionRetryPolicy = {
   title: "ActionRetryPolicy",
 } as const
 
-export const $ActionStatement = {
+export const $ActionStatement_Input = {
+  properties: {
+    id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Id",
+      description:
+        "The action ID. If this is populated means there is a corresponding actionin the database `Action` table.",
+    },
+    ref: {
+      type: "string",
+      pattern: "^[a-z0-9_]+$",
+      title: "Ref",
+      description: "Unique reference for the task",
+    },
+    description: {
+      type: "string",
+      title: "Description",
+      default: "",
+    },
+    action: {
+      type: "string",
+      pattern: "^[a-z0-9_.]+$",
+      title: "Action",
+      description: "Action type. Equivalent to the UDF key.",
+    },
+    args: {
+      additionalProperties: true,
+      type: "object",
+      title: "Args",
+      description: "Arguments for the action",
+    },
+    depends_on: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Depends On",
+      description: "Task dependencies",
+    },
+    interaction: {
+      anyOf: [
+        {
+          oneOf: [
+            {
+              $ref: "#/components/schemas/ResponseInteraction",
+            },
+            {
+              $ref: "#/components/schemas/ApprovalInteraction",
+            },
+          ],
+          description: "An interaction configuration",
+          discriminator: {
+            propertyName: "type",
+            mapping: {
+              approval: "#/components/schemas/ApprovalInteraction",
+              response: "#/components/schemas/ResponseInteraction",
+            },
+          },
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Interaction",
+      description: "Whether the action is interactive.",
+    },
+    run_if: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Run If",
+      description: "Condition to run the task",
+    },
+    for_each: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "For Each",
+      description:
+        "Iterate over a list of items and run the task for each item.",
+    },
+    retry_policy: {
+      $ref: "#/components/schemas/ActionRetryPolicy",
+      description: "Retry policy for the action.",
+    },
+    start_delay: {
+      type: "number",
+      title: "Start Delay",
+      description:
+        "Delay before starting the action in seconds. If `wait_until` is also provided, the `wait_until` timer will take precedence.",
+      default: 0,
+    },
+    wait_until: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wait Until",
+      description:
+        "Wait until a specific date and time before starting. Overrides `start_delay` if both are provided.",
+    },
+    join_strategy: {
+      $ref: "#/components/schemas/JoinStrategy",
+      description:
+        "The strategy to use when joining on this task. By default, all branches must complete successfully before the join task can complete.",
+      default: "all",
+    },
+    environment: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Environment",
+      description:
+        "Override environment for this action's execution. Can be a template expression.",
+    },
+  },
+  type: "object",
+  required: ["ref", "action"],
+  title: "ActionStatement",
+} as const
+
+export const $ActionStatement_Output = {
   properties: {
     ref: {
       type: "string",
@@ -2596,7 +2749,7 @@ export const $ChatCreate = {
 
 export const $ChatEntity = {
   type: "string",
-  enum: ["case"],
+  enum: ["case", "workflow"],
   title: "ChatEntity",
   description: "The type of entity associated with a chat.",
 } as const
@@ -3362,7 +3515,7 @@ export const $DSLEntrypoint = {
   title: "DSLEntrypoint",
 } as const
 
-export const $DSLInput = {
+export const $DSLInput_Input = {
   properties: {
     title: {
       type: "string",
@@ -3377,7 +3530,79 @@ export const $DSLInput = {
     },
     actions: {
       items: {
-        $ref: "#/components/schemas/ActionStatement",
+        $ref: "#/components/schemas/ActionStatement-Input",
+      },
+      type: "array",
+      title: "Actions",
+    },
+    config: {
+      $ref: "#/components/schemas/DSLConfig-Input",
+    },
+    triggers: {
+      items: {
+        $ref: "#/components/schemas/Trigger",
+      },
+      type: "array",
+      title: "Triggers",
+    },
+    inputs: {
+      additionalProperties: true,
+      type: "object",
+      title: "Inputs",
+      description: "Static input parameters",
+    },
+    returns: {
+      anyOf: [
+        {},
+        {
+          type: "null",
+        },
+      ],
+      title: "Returns",
+      description: "The action ref or value to return.",
+    },
+    error_handler: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Error Handler",
+      description: "The action ref to handle errors.",
+    },
+  },
+  type: "object",
+  required: ["title", "description", "entrypoint", "actions"],
+  title: "DSLInput",
+  description: `DSL definition for a workflow.
+
+The difference between this and a normal workflow engine is that here,
+our workflow execution order is defined by the DSL itself, independent
+of a workflow scheduler.
+
+With a traditional
+This allows the execution of the workflow to be fully deterministic.`,
+} as const
+
+export const $DSLInput_Output = {
+  properties: {
+    title: {
+      type: "string",
+      title: "Title",
+    },
+    description: {
+      type: "string",
+      title: "Description",
+    },
+    entrypoint: {
+      $ref: "#/components/schemas/DSLEntrypoint",
+    },
+    actions: {
+      items: {
+        $ref: "#/components/schemas/ActionStatement-Output",
       },
       type: "array",
       title: "Actions",
@@ -3442,7 +3667,7 @@ export const $DSLRunArgs = {
     dsl: {
       anyOf: [
         {
-          $ref: "#/components/schemas/DSLInput",
+          $ref: "#/components/schemas/DSLInput-Output",
         },
         {
           type: "null",
@@ -4776,7 +5001,7 @@ export const $GetWorkflowDefinitionActivityInputs = {
     task: {
       anyOf: [
         {
-          $ref: "#/components/schemas/ActionStatement",
+          $ref: "#/components/schemas/ActionStatement-Output",
         },
         {
           type: "null",
@@ -8237,7 +8462,7 @@ Service roles
 export const $RunActionInput = {
   properties: {
     task: {
-      $ref: "#/components/schemas/ActionStatement",
+      $ref: "#/components/schemas/ActionStatement-Output",
     },
     exec_context: {
       additionalProperties: true,

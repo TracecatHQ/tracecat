@@ -73,7 +73,65 @@ export type ActionRetryPolicy = {
   retry_until?: string | null
 }
 
-export type ActionStatement = {
+export type ActionStatement_Input = {
+  /**
+   * The action ID. If this is populated means there is a corresponding actionin the database `Action` table.
+   */
+  id?: string | null
+  /**
+   * Unique reference for the task
+   */
+  ref: string
+  description?: string
+  /**
+   * Action type. Equivalent to the UDF key.
+   */
+  action: string
+  /**
+   * Arguments for the action
+   */
+  args?: {
+    [key: string]: unknown
+  }
+  /**
+   * Task dependencies
+   */
+  depends_on?: Array<string>
+  /**
+   * Whether the action is interactive.
+   */
+  interaction?: ResponseInteraction | ApprovalInteraction | null
+  /**
+   * Condition to run the task
+   */
+  run_if?: string | null
+  /**
+   * Iterate over a list of items and run the task for each item.
+   */
+  for_each?: string | Array<string> | null
+  /**
+   * Retry policy for the action.
+   */
+  retry_policy?: ActionRetryPolicy
+  /**
+   * Delay before starting the action in seconds. If `wait_until` is also provided, the `wait_until` timer will take precedence.
+   */
+  start_delay?: number
+  /**
+   * Wait until a specific date and time before starting. Overrides `start_delay` if both are provided.
+   */
+  wait_until?: string | null
+  /**
+   * The strategy to use when joining on this task. By default, all branches must complete successfully before the join task can complete.
+   */
+  join_strategy?: JoinStrategy
+  /**
+   * Override environment for this action's execution. Can be a template expression.
+   */
+  environment?: string | null
+}
+
+export type ActionStatement_Output = {
   /**
    * Unique reference for the task
    */
@@ -799,7 +857,7 @@ export type ChatCreate = {
 /**
  * The type of entity associated with a chat.
  */
-export type ChatEntity = "case"
+export type ChatEntity = "case" | "workflow"
 
 /**
  * Model for chat metadata with a single message.
@@ -1162,11 +1220,44 @@ export type DSLEntrypoint = {
  * With a traditional
  * This allows the execution of the workflow to be fully deterministic.
  */
-export type DSLInput = {
+export type DSLInput_Input = {
   title: string
   description: string
   entrypoint: DSLEntrypoint
-  actions: Array<ActionStatement>
+  actions: Array<ActionStatement_Input>
+  config?: DSLConfig_Input
+  triggers?: Array<Trigger>
+  /**
+   * Static input parameters
+   */
+  inputs?: {
+    [key: string]: unknown
+  }
+  /**
+   * The action ref or value to return.
+   */
+  returns?: unknown | null
+  /**
+   * The action ref to handle errors.
+   */
+  error_handler?: string | null
+}
+
+/**
+ * DSL definition for a workflow.
+ *
+ * The difference between this and a normal workflow engine is that here,
+ * our workflow execution order is defined by the DSL itself, independent
+ * of a workflow scheduler.
+ *
+ * With a traditional
+ * This allows the execution of the workflow to be fully deterministic.
+ */
+export type DSLInput_Output = {
+  title: string
+  description: string
+  entrypoint: DSLEntrypoint
+  actions: Array<ActionStatement_Output>
   config?: DSLConfig_Output
   triggers?: Array<Trigger>
   /**
@@ -1187,7 +1278,7 @@ export type DSLInput = {
 
 export type DSLRunArgs = {
   role: Role
-  dsl?: DSLInput | null
+  dsl?: DSLInput_Output | null
   wf_id: string
   trigger_inputs?: unknown | null
   parent_run_context?: RunContext | null
@@ -1528,7 +1619,7 @@ export type GetWorkflowDefinitionActivityInputs = {
   role: Role
   workflow_id: string
   version?: number | null
-  task?: ActionStatement | null
+  task?: ActionStatement_Output | null
 }
 
 /**
@@ -2855,7 +2946,7 @@ export type service_id =
  * This object contains all the information needed to execute an action.
  */
 export type RunActionInput = {
-  task: ActionStatement
+  task: ActionStatement_Output
   exec_context: {
     [key: string]: unknown
   }
@@ -4499,6 +4590,14 @@ export type WorkflowsCreateWorkflowDefinitionData = {
 }
 
 export type WorkflowsCreateWorkflowDefinitionResponse = WorkflowDefinition
+
+export type WorkflowsApplyDslToWorkflowData = {
+  requestBody: DSLInput_Input
+  workflowId: string
+  workspaceId: string
+}
+
+export type WorkflowsApplyDslToWorkflowResponse = unknown
 
 export type TriggersCreateWebhookData = {
   requestBody: WebhookCreate
@@ -6323,6 +6422,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: WorkflowDefinition
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workflows/{workflow_id}/dsl": {
+    put: {
+      req: WorkflowsApplyDslToWorkflowData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: unknown
         /**
          * Validation Error
          */
