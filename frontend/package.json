@@ -16,7 +16,7 @@
     "prepare": "cd .. && husky frontend/.husky || true",
     "preview": "next build && next start",
     "start": "next start",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit --incremental",
     "test": "jest",
     "generate-client": "openapi-ts --input http://localhost:8000/openapi.json --output ./src/client --client axios",
     "upgrade:next": "pnpm add next@14 react@18 react-dom@18 && pnpm add -D eslint-config-next@14 eslint@8"
