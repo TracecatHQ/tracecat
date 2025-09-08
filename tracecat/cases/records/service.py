@@ -6,7 +6,7 @@ import uuid
 from collections.abc import Sequence
 
 from sqlalchemy.orm import selectinload
-from sqlmodel import func, select
+from sqlmodel import col, func, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import config
@@ -70,7 +70,7 @@ class CaseRecordService(BaseWorkspaceService):
                 selectinload(CaseRecord.entity),  # type: ignore
                 selectinload(CaseRecord.record),  # type: ignore
             )
-            .order_by(CaseRecord.created_at.desc())
+            .order_by(col(CaseRecord.created_at).desc())
         )
         result = await self.session.exec(stmt)
         return result.all()
