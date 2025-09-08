@@ -25,6 +25,7 @@ import {
   type WorkflowUpdate,
 } from "@/client"
 import { ControlledYamlField } from "@/components/builder/panel/action-panel-fields"
+import { WorkflowAgentPanel } from "@/components/builder/panel/workflow-agent-panel"
 import { CopyButton } from "@/components/copy-button"
 import {
   Accordion,
@@ -219,6 +220,13 @@ export function WorkflowPanel({
                   >
                     <FileInputIcon className="mr-2 size-4" />
                     <span>Static inputs</span>
+                  </TabsTrigger>
+                  <TabsTrigger
+                    className="h-full min-w-28 rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                    value="workflow-agent"
+                  >
+                    <Redo2Icon className="mr-2 size-4" />
+                    <span>AI</span>
                   </TabsTrigger>
                 </TabsList>
               </div>
@@ -653,6 +661,9 @@ export function WorkflowPanel({
                       </AccordionContent>
                     </AccordionItem>
                   </Accordion>
+                </TabsContent>
+                <TabsContent value="workflow-agent">
+                  <WorkflowAgentPanel />
                 </TabsContent>
               </div>
             </div>
