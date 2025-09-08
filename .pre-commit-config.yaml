@@ -52,6 +52,6 @@ repos:
         name: typecheck frontend
         entry: pnpm -C frontend typecheck
         language: system
-        files: ^frontend/
+        files: ^(frontend/|tracecat|packages)
         require_serial: true
         pass_filenames: false
