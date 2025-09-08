@@ -22,8 +22,10 @@ from sqlmodel import select
 from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.db.common import DBConstraints
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.db.schemas import Webhook, Workflow, WorkflowDefinition
+from tracecat.db.schemas import Action, Webhook, Workflow, WorkflowDefinition
+from tracecat.dsl.common import DSLInput
 from tracecat.dsl.models import DSLConfig
+from tracecat.dsl.view import RFGraph
 from tracecat.identifiers.workflow import AnyWorkflowIDPath, WorkflowUUID
 from tracecat.logger import logger
 from tracecat.settings.service import get_setting
@@ -37,7 +39,7 @@ from tracecat.validation.models import (
 )
 from tracecat.validation.service import validate_dsl
 from tracecat.webhooks.models import WebhookCreate, WebhookRead, WebhookUpdate
-from tracecat.workflow.actions.models import ActionRead
+from tracecat.workflow.actions.models import ActionControlFlow, ActionRead
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.folders.service import WorkflowFolderService
 from tracecat.workflow.management.management import WorkflowsManagementService
@@ -525,6 +527,121 @@ async def create_workflow_definition(
 ) -> WorkflowDefinition:
     """Get the latest version of a workflow definition."""
     raise NotImplementedError
+
+
+@router.put("/{workflow_id}/dsl", tags=["workflows"])
+async def apply_dsl_to_workflow(
+    role: WorkspaceUserRole,
+    session: AsyncDBSession,
+    workflow_id: AnyWorkflowIDPath,
+    dsl: DSLInput,
+):
+    """Validate DSL, create a new workflow definition version, and synchronize actions + graph.
+
+    Returns the updated workflow read model.
+    """
+    # Load workflow
+    mgmt_service = WorkflowsManagementService(session, role=role)
+    workflow = await mgmt_service.get_workflow(workflow_id)
+    if not workflow:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found"
+        )
+
+    # Validate DSL
+    if val_errors := await validate_dsl(session=session, dsl=dsl):
+        # Mirror commit endpoint style: return structured error info
+        return Response(
+            content=orjson.dumps(
+                {
+                    "workflow_id": WorkflowUUID.new(workflow.id).short(),
+                    "status": "failure",
+                    "message": f"{len(val_errors)} validation error(s)",
+                    "errors": [e.model_dump(mode="json") for e in val_errors],
+                }
+            ),
+            media_type="application/json",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    # Create new versioned WorkflowDefinition (commit=False; we'll commit together)
+    defn_service = WorkflowDefinitionsService(session, role=role)
+    defn = await defn_service.create_workflow_definition(workflow_id, dsl, commit=False)
+
+    # Synchronize actions and graph to match DSL
+    # 1) Delete existing actions
+    if workflow.actions:
+        for action in workflow.actions:
+            await session.delete(action)
+        await session.flush()
+
+    # 2) Recreate actions from DSL
+    actions: list[Action] = []
+    if role.workspace_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Workspace ID is required"
+        )
+    for act_stmt in dsl.actions:
+        control_flow = ActionControlFlow(
+            run_if=act_stmt.run_if,
+            for_each=act_stmt.for_each,
+            retry_policy=act_stmt.retry_policy,
+            start_delay=act_stmt.start_delay,
+            wait_until=act_stmt.wait_until,
+            join_strategy=act_stmt.join_strategy,
+        )
+        new_action = Action(
+            owner_id=role.workspace_id,
+            workflow_id=workflow.id,
+            type=act_stmt.action,
+            inputs=yaml.dump(act_stmt.args),
+            title=act_stmt.title,
+            description=act_stmt.description,
+            control_flow=control_flow.model_dump(),
+        )
+        actions.append(new_action)
+        session.add(new_action)
+    workflow.actions = actions
+
+    # 3) Regenerate the React Flow graph
+    base_graph = RFGraph.with_defaults(workflow)
+    ref2id = {act.ref: act.id for act in actions}
+    updated_graph = dsl.to_graph(trigger_node=base_graph.trigger, ref2id=ref2id)
+    workflow.object = updated_graph.model_dump(by_alias=True, mode="json")
+
+    # 4) Update workflow metadata and version
+    workflow.title = dsl.title
+    workflow.description = dsl.description
+    workflow.version = defn.version
+
+    # Persist changes
+    session.add(workflow)
+    session.add(defn)
+    await session.commit()
+    await session.refresh(workflow)
+
+    # Build response (reuse the shape of get_workflow)
+    actions_map = {a.id: ActionRead(**a.model_dump()) for a in (workflow.actions or [])}
+    await session.refresh(workflow, ["webhook"])
+    return WorkflowRead(
+        id=WorkflowUUID.new(workflow.id).short(),
+        owner_id=workflow.owner_id,
+        title=workflow.title,
+        description=workflow.description,
+        status=workflow.status,
+        version=workflow.version,
+        expects=workflow.expects,
+        returns=workflow.returns,
+        entrypoint=workflow.entrypoint,
+        object=workflow.object,
+        static_inputs=workflow.static_inputs,
+        config=DSLConfig(**workflow.config),
+        actions=actions_map,
+        webhook=WebhookRead.model_validate(workflow.webhook, from_attributes=True),
+        schedules=workflow.schedules or [],
+        alias=workflow.alias,
+        error_handler=workflow.error_handler,
+    )
 
 
 # ----- Workflow Webhooks ----- #

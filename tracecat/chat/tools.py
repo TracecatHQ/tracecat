@@ -9,6 +9,8 @@ TOOL_DEFAULTS = {
         "core.cases.create_comment",
         "core.cases.list_comments",
     ],
+    # Default to no tools for workflow; UI can provide a constrained set
+    ChatEntity.WORKFLOW: [],
 }
 
 
