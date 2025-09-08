@@ -22,10 +22,10 @@ import Image from "next/image"
 import { useCallback, useRef, useState } from "react"
 import type { ApiError, CaseAttachmentRead } from "@/client"
 import {
-  casesCreateAttachment,
-  casesDeleteAttachment,
-  casesDownloadAttachment,
-  casesListAttachments,
+  caseAttachmentsCreateAttachment,
+  caseAttachmentsDeleteAttachment,
+  caseAttachmentsDownloadAttachment,
+  caseAttachmentsListAttachments,
 } from "@/client"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
@@ -140,13 +140,14 @@ export function CaseAttachmentsSection({
     error: attachmentsError,
   } = useQuery<CaseAttachmentRead[], ApiError>({
     queryKey: ["case-attachments", caseId, workspaceId],
-    queryFn: async () => await casesListAttachments({ caseId, workspaceId }),
+    queryFn: async () =>
+      await caseAttachmentsListAttachments({ caseId, workspaceId }),
   })
 
   // Upload attachment mutation
   const uploadMutation = useMutation({
     mutationFn: async (file: File) => {
-      return await casesCreateAttachment({
+      return await caseAttachmentsCreateAttachment({
         caseId,
         workspaceId,
         formData: {
@@ -329,7 +330,7 @@ export function CaseAttachmentsSection({
   // Delete attachment mutation
   const deleteMutation = useMutation({
     mutationFn: async (attachmentId: string) =>
-      await casesDeleteAttachment({
+      await caseAttachmentsDeleteAttachment({
         caseId,
         workspaceId,
         attachmentId,
@@ -440,7 +441,7 @@ export function CaseAttachmentsSection({
 
   const handleDownload = async (attachment: CaseAttachmentRead) => {
     try {
-      const response = (await casesDownloadAttachment({
+      const response = (await caseAttachmentsDownloadAttachment({
         caseId,
         workspaceId,
         attachmentId: attachment.id,
@@ -474,7 +475,7 @@ export function CaseAttachmentsSection({
 
   const handlePreview = async (attachment: CaseAttachmentRead) => {
     try {
-      const response = (await casesDownloadAttachment({
+      const response = (await caseAttachmentsDownloadAttachment({
         caseId,
         workspaceId,
         attachmentId: attachment.id,
