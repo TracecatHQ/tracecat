@@ -70,7 +70,7 @@ export function useCasesPagination({
       priority ?? null,
       severity ?? null,
       assigneeId ?? null,
-      tags?.join(",") ?? null,
+      tags ? [...tags].sort().join(",") : null,
     ],
     queryFn: adaptedCasesListCases,
   })

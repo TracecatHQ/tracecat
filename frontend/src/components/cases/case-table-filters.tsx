@@ -131,7 +131,7 @@ export function CaseTableFilters({
       </Select>
 
       <Select
-        value={assigneeFilter || ""}
+        value={assigneeFilter || undefined}
         onValueChange={(value) => onAssigneeChange(value || null)}
       >
         <SelectTrigger className="h-8 w-[160px] text-xs">
