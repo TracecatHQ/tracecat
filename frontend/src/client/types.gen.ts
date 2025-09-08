@@ -5370,6 +5370,10 @@ export type TablesImportCsvResponse = TableRowInsertBatchResponse
 
 export type CasesListCasesData = {
   /**
+   * Filter by assignee ID or 'unassigned'
+   */
+  assigneeId?: string | null
+  /**
    * Cursor for pagination
    */
   cursor?: string | null
@@ -5378,9 +5382,25 @@ export type CasesListCasesData = {
    */
   limit?: number
   /**
+   * Filter by case priority
+   */
+  priority?: CasePriority | null
+  /**
    * Reverse pagination direction
    */
   reverse?: boolean
+  /**
+   * Text to search for in case summary and description
+   */
+  searchTerm?: string | null
+  /**
+   * Filter by case severity
+   */
+  severity?: CaseSeverity | null
+  /**
+   * Filter by case status
+   */
+  status?: CaseStatus | null
   /**
    * Filter by tag IDs or slugs (AND logic)
    */

@@ -74,11 +74,20 @@ async def list_cases(
     limit: int = Query(20, ge=1, le=100, description="Maximum items per page"),
     cursor: str | None = Query(None, description="Cursor for pagination"),
     reverse: bool = Query(False, description="Reverse pagination direction"),
+    search_term: str | None = Query(
+        None, description="Text to search for in case summary and description"
+    ),
+    status: CaseStatus | None = Query(None, description="Filter by case status"),
+    priority: CasePriority | None = Query(None, description="Filter by case priority"),
+    severity: CaseSeverity | None = Query(None, description="Filter by case severity"),
+    assignee_id: str | None = Query(
+        None, description="Filter by assignee ID or 'unassigned'"
+    ),
     tags: list[str] | None = Query(
         None, description="Filter by tag IDs or slugs (AND logic)"
     ),
 ) -> CursorPaginatedResponse[CaseReadMinimal]:
-    """List cases with cursor-based pagination and tag filtering."""
+    """List cases with cursor-based pagination and filtering."""
     service = CasesService(session, role)
 
     # Convert tag identifiers to IDs
@@ -98,9 +107,29 @@ async def list_cases(
         cursor=cursor,
         reverse=reverse,
     )
+
+    # Parse assignee_id - handle special "unassigned" value
+    parsed_assignee_id = None
+    if assignee_id == "unassigned":
+        parsed_assignee_id = "unassigned"  # Special marker for null assignees
+    elif assignee_id:
+        try:
+            parsed_assignee_id = uuid.UUID(assignee_id)
+        except ValueError as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid assignee_id: {assignee_id}",
+            ) from e
+
     try:
         cases = await service.list_cases_paginated(
-            pagination_params, tag_ids=tag_ids if tag_ids else None
+            pagination_params,
+            search_term=search_term,
+            status=status,
+            priority=priority,
+            severity=severity,
+            assignee_id=parsed_assignee_id,
+            tag_ids=tag_ids if tag_ids else None,
         )
     except Exception as e:
         logger.error(f"Failed to list cases: {e}")
