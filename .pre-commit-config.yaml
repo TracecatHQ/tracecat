@@ -41,15 +41,9 @@ repos:
       - id: uv-export
   - repo: local
     hooks:
-      - id: biome-check
-        name: biome check
-        entry: bash -c 'cd frontend && npx biome check --write .'
-        language: system
-        files: ^frontend/
-        require_serial: true
       - id: gen-client
-        name: generate frontend client
-        entry: bash -c 'cd frontend && pnpm generate-client && pnpm check'
+        name: update frontend client
+        entry: bash -c "pnpm -C frontend generate-client && pnpm -C frontend check"
         language: system
         files: ^(tracecat/api/|packages/tracecat-registry/)
         require_serial: true
