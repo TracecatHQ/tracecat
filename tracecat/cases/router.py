@@ -1,8 +1,16 @@
 import uuid
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy.exc import DBAPIError, NoResultFound
+from starlette.status import (
+    HTTP_200_OK,
+    HTTP_201_CREATED,
+    HTTP_204_NO_CONTENT,
+    HTTP_400_BAD_REQUEST,
+    HTTP_404_NOT_FOUND,
+    HTTP_500_INTERNAL_SERVER_ERROR,
+)
 
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.models import UserRead
@@ -117,7 +125,7 @@ async def list_cases(
             parsed_assignee_id = uuid.UUID(assignee_id)
         except ValueError as e:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
+                status_code=HTTP_400_BAD_REQUEST,
                 detail=f"Invalid assignee_id: {assignee_id}",
             ) from e
 
@@ -133,7 +141,10 @@ async def list_cases(
         )
     except Exception as e:
         logger.error(f"Failed to list cases: {e}")
-        raise HTTPException(status_code=500, detail="Failed to retrieve cases") from e
+        raise HTTPException(
+            status_code=HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve cases",
+        ) from e
     return cases
 
 
@@ -223,7 +234,7 @@ async def get_case(
     case = await service.get_case(case_id)
     if case is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
+            status_code=HTTP_404_NOT_FOUND,
             detail=f"Case with ID {case_id} not found",
         )
     fields = await service.fields.get_fields(case) or {}
@@ -266,7 +277,7 @@ async def get_case(
     )
 
 
-@cases_router.post("", status_code=status.HTTP_201_CREATED)
+@cases_router.post("", status_code=HTTP_201_CREATED)
 async def create_case(
     *,
     role: WorkspaceUser,
@@ -278,7 +289,7 @@ async def create_case(
     await service.create_case(params)
 
 
-@cases_router.patch("/{case_id}", status_code=status.HTTP_204_NO_CONTENT)
+@cases_router.patch("/{case_id}", status_code=HTTP_204_NO_CONTENT)
 async def update_case(
     *,
     role: WorkspaceUser,
@@ -291,7 +302,7 @@ async def update_case(
     case = await service.get_case(case_id)
     if case is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
+            status_code=HTTP_404_NOT_FOUND,
             detail=f"Case with ID {case_id} not found",
         )
     try:
@@ -300,12 +311,12 @@ async def update_case(
         while (cause := e.__cause__) is not None:
             e = cause
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e),
         ) from e
 
 
-@cases_router.delete("/{case_id}", status_code=status.HTTP_204_NO_CONTENT)
+@cases_router.delete("/{case_id}", status_code=HTTP_204_NO_CONTENT)
 async def delete_case(
     *,
     role: WorkspaceAdminUser,
@@ -317,7 +328,7 @@ async def delete_case(
     case = await service.get_case(case_id)
     if case is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
+            status_code=HTTP_404_NOT_FOUND,
             detail=f"Case with ID {case_id} not found",
         )
     await service.delete_case(case)
@@ -326,7 +337,7 @@ async def delete_case(
 # Case Comments
 # Support comments as a first class activity type.
 # We anticipate having other complex comment functionality in the future.
-@cases_router.get("/{case_id}/comments", status_code=status.HTTP_200_OK)
+@cases_router.get("/{case_id}/comments", status_code=HTTP_200_OK)
 async def list_comments(
     *,
     role: WorkspaceUser,
@@ -339,7 +350,7 @@ async def list_comments(
     case = await service.get_case(case_id)
     if case is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
+            status_code=HTTP_404_NOT_FOUND,
             detail=f"Case with ID {case_id} not found",
         )
     # Execute join query directly in the endpoint
@@ -353,7 +364,7 @@ async def list_comments(
     return res
 
 
-@cases_router.post("/{case_id}/comments", status_code=status.HTTP_201_CREATED)
+@cases_router.post("/{case_id}/comments", status_code=HTTP_201_CREATED)
 async def create_comment(
     *,
     role: WorkspaceUser,
@@ -366,7 +377,7 @@ async def create_comment(
     case = await cases_svc.get_case(case_id)
     if case is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
+            status_code=HTTP_404_NOT_FOUND,
             detail=f"Case with ID {case_id} not found",
         )
     comments_svc = CaseCommentsService(session, role)
@@ -375,7 +386,7 @@ async def create_comment(
 
 @cases_router.patch(
     "/{case_id}/comments/{comment_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
+    status_code=HTTP_204_NO_CONTENT,
 )
 async def update_comment(
     *,
@@ -390,21 +401,21 @@ async def update_comment(
     case = await cases_svc.get_case(case_id)
     if case is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
+            status_code=HTTP_404_NOT_FOUND,
             detail=f"Case with ID {case_id} not found",
         )
     comments_svc = CaseCommentsService(session, role)
     comment = await comments_svc.get_comment(comment_id)
     if comment is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
+            status_code=HTTP_404_NOT_FOUND,
             detail=f"Comment with ID {comment_id} not found",
         )
     await comments_svc.update_comment(comment, params)
 
 
 @cases_router.delete(
-    "/{case_id}/comments/{comment_id}", status_code=status.HTTP_204_NO_CONTENT
+    "/{case_id}/comments/{comment_id}", status_code=HTTP_204_NO_CONTENT
 )
 async def delete_comment(
     *,
@@ -418,14 +429,14 @@ async def delete_comment(
     case = await cases_svc.get_case(case_id)
     if case is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
+            status_code=HTTP_404_NOT_FOUND,
             detail=f"Case with ID {case_id} not found",
         )
     comments_svc = CaseCommentsService(session, role)
     comment = await comments_svc.get_comment(comment_id)
     if comment is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
+            status_code=HTTP_404_NOT_FOUND,
             detail=f"Comment with ID {comment_id} not found",
         )
     await comments_svc.delete_comment(comment)
@@ -446,7 +457,7 @@ async def list_fields(
     return [CaseFieldRead.from_sa(column) for column in columns]
 
 
-@case_fields_router.post("", status_code=status.HTTP_201_CREATED)
+@case_fields_router.post("", status_code=HTTP_201_CREATED)
 async def create_field(
     *,
     role: WorkspaceAdminUser,
@@ -458,7 +469,7 @@ async def create_field(
     await service.create_field(params)
 
 
-@case_fields_router.patch("/{field_id}", status_code=status.HTTP_204_NO_CONTENT)
+@case_fields_router.patch("/{field_id}", status_code=HTTP_204_NO_CONTENT)
 async def update_field(
     *,
     role: WorkspaceAdminUser,
@@ -471,7 +482,7 @@ async def update_field(
     await service.update_field(field_id, params)
 
 
-@case_fields_router.delete("/{field_id}", status_code=status.HTTP_204_NO_CONTENT)
+@case_fields_router.delete("/{field_id}", status_code=HTTP_204_NO_CONTENT)
 async def delete_field(
     *,
     role: WorkspaceAdminUser,
@@ -488,7 +499,7 @@ async def delete_field(
 
 @cases_router.get(
     "/{case_id}/events",
-    status_code=status.HTTP_200_OK,
+    status_code=HTTP_200_OK,
     response_model_exclude_none=True,
 )
 async def list_events_with_users(
@@ -502,7 +513,7 @@ async def list_events_with_users(
     case = await service.get_case(case_id)
     if case is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
+            status_code=HTTP_404_NOT_FOUND,
             detail=f"Case with ID {case_id} not found",
         )
     db_events = await service.events.list_events(case)
@@ -540,7 +551,3 @@ async def list_events_with_users(
     )
 
     return CaseEventsWithUsers(events=events, users=users)
-
-
-# Case Attachments
-# The attachment routes are mounted under the cases router
