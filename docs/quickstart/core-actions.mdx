@@ -208,6 +208,30 @@ Perform an HTTP request to a given URL with polling.
 
 `HTTPResponse` (dict) - same as `core.http_request`.
 
+### Poll condition
+
+The `poll_condition` parameter is a Python lambda function string that determines whether to retry.
+The function receives a dict with `headers`, `data`, and `status_code` fields.
+The function should return `True` if the polling should stop, and `False` if the polling should continue.
+
+Examples:
+
+<CodeGroup>
+  ```python Poll until the `x-status` header is `completed`
+  lambda x: x['headers'].get('x-status') == 'completed'
+  ```
+
+  ```python Poll until the `progress` field is `100`
+  lambda x: x['data'].get('progress') == 100
+  ```
+
+  ```python Poll until the status code is `204`
+  lambda x: x['status_code'] == 204
+  ```
+```
+</CodeGroup>
+
+
 ## Tutorial: URLScan
 
 URLScan uses a two-step process to get a threat intelligence report on a URL:
