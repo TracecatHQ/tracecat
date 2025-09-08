@@ -18,7 +18,7 @@
     "start": "next start",
     "typecheck": "tsc --noEmit --incremental",
     "test": "jest",
-    "generate-client": "openapi-ts --input ${TRACECAT__PUBLIC_API_URL:-http://localhost:8000/api}/openapi.json --output ./src/client --client axios",
+    "generate-client": "openapi-ts --input ${TRACECAT__PUBLIC_API_URL:-http://localhost/api}/openapi.json --output ./src/client --client axios",
     "upgrade:next": "pnpm add next@14 react@18 react-dom@18 && pnpm add -D eslint-config-next@14 eslint@8"
   },
   "dependencies": {
