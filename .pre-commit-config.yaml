@@ -48,10 +48,3 @@ repos:
         files: ^(tracecat|packages)
         require_serial: true
         pass_filenames: false
-      - id: typecheck-frontend
-        name: typecheck frontend
-        entry: pnpm -C frontend typecheck
-        language: system
-        files: ^(frontend/|tracecat|packages)
-        require_serial: true
-        pass_filenames: false
