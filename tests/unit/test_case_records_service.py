@@ -3,6 +3,7 @@ import uuid
 import pytest
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from tracecat import config
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.models import CaseCreate
 from tracecat.cases.records.models import (
@@ -12,7 +13,6 @@ from tracecat.cases.records.models import (
 )
 from tracecat.cases.records.service import CaseRecordService
 from tracecat.cases.service import CasesService
-from tracecat.config import config
 from tracecat.entities.enums import FieldType
 from tracecat.entities.models import EntityCreate, EntityFieldCreate
 from tracecat.entities.service import EntityService
