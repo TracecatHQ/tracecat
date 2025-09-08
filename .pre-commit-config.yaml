@@ -45,7 +45,7 @@ repos:
         name: update frontend client
         entry: bash -c "pnpm -C frontend generate-client && pnpm -C frontend check"
         language: system
-        files: ^(tracecat/api/|packages/tracecat-registry/)
+        files: ^(tracecat|packages)
         require_serial: true
         pass_filenames: false
       - id: typecheck-frontend
