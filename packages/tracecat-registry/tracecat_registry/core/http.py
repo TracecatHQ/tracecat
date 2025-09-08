@@ -702,7 +702,7 @@ async def http_poll(
         if poll_max_attempts > 0
         else stop_never,
         wait=wait_fixed(poll_interval)
-        if poll_interval
+        if poll_interval is not None
         else wait_exponential(
             multiplier=2,
             min=1,
