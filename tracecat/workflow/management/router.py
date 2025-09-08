@@ -540,6 +540,10 @@ async def apply_dsl_to_workflow(
 
     Returns the updated workflow read model.
     """
+    if role.workspace_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Workspace ID is required"
+        )
     # Load workflow
     mgmt_service = WorkflowsManagementService(session, role=role)
     workflow = await mgmt_service.get_workflow(workflow_id)
@@ -577,10 +581,6 @@ async def apply_dsl_to_workflow(
 
     # 2) Recreate actions from DSL
     actions: list[Action] = []
-    if role.workspace_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="Workspace ID is required"
-        )
     for act_stmt in dsl.actions:
         control_flow = ActionControlFlow(
             run_if=act_stmt.run_if,
