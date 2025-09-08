@@ -6,10 +6,11 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from pydantic import UUID4, BaseModel, Field
+from pydantic import UUID4, BaseModel, Field, ValidationInfo, field_validator
 from pydantic_ai.messages import ModelMessage
 
 from tracecat.chat.enums import ChatEntity
+from tracecat.chat.utils import ENTITY_ID_CONVERTER
 
 
 class ChatRequest(BaseModel):
@@ -68,6 +69,16 @@ class ChatCreate(BaseModel):
         description="Tools available to the agent for this chat",
         max_length=50,
     )
+
+    @field_validator("entity_id", mode="before")
+    @classmethod
+    def validate_entity_id(cls, v: UUID4 | str, info: ValidationInfo) -> UUID4:
+        """Convert entity_id to UUID based on entity_type."""
+        if isinstance(v, str):
+            # Get entity_type from the data being validated
+            entity_type = info.data["entity_type"]
+            return ENTITY_ID_CONVERTER[entity_type](v)
+        return v
 
 
 class ChatRead(BaseModel):

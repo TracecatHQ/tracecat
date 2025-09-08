@@ -15,6 +15,7 @@ from tracecat_registry.integrations.agents.tokens import (
 from tracecat.cases.service import CasesService
 from tracecat.chat.models import ChatMessage
 from tracecat.chat.tools import get_default_tools
+from tracecat.chat.utils import ENTITY_ID_CONVERTER
 from tracecat.db.schemas import Chat
 from tracecat.identifiers import UserID
 from tracecat.logger import logger
@@ -45,8 +46,12 @@ class ChatService(BaseWorkspaceService):
             stmt = stmt.where(Chat.entity_type == entity_type)
 
         if entity_id:
-            stmt = stmt.where(Chat.entity_id == entity_id)
-
+            # Convert entity_id to UUID based on entity_type if both are provided
+            if not entity_type:
+                raise ValueError("entity_type is required when entity_id is provided")
+            stmt = stmt.where(
+                Chat.entity_id == ENTITY_ID_CONVERTER[entity_type](entity_id)
+            )
         stmt = stmt.order_by(col(Chat.created_at).desc()).limit(limit)
 
         result = await self.session.exec(stmt)
