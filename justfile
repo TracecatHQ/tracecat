@@ -32,12 +32,12 @@ build:
 	docker compose build --no-cache
 
 lint-ui:
-	cd frontend && pnpm lint:fix && cd ..
+	pnpm -C frontend lint:fix
 lint-app:
 	ruff check
 
 lint-fix-ui:
-	cd frontend && pnpm check && cd ..
+	pnpm -C frontend check
 lint-fix-app:
 	ruff check . && ruff format .
 
@@ -48,7 +48,7 @@ fix: lint-fix
 mypy path:
 	mypy --ignore-missing-imports {{path}}
 gen-client:
-	cd frontend && pnpm generate-client && cd ..
+	pnpm -C frontend generate-client
 	just lint-fix
 # Update version number. If no version is provided, increments patch version.
 update-version *after='':
