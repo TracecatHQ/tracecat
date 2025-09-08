@@ -730,7 +730,7 @@ export type CaseRecordDeleteResponse = {
   /**
    * Action (unlink or delete)
    */
-  action: string
+  action: "unlink" | "delete"
   /**
    * Case ID
    */
@@ -746,13 +746,18 @@ export type CaseRecordDeleteResponse = {
 }
 
 /**
+ * Action (unlink or delete)
+ */
+export type action = "unlink" | "delete"
+
+/**
  * Model for linking an existing entity record to a case.
  */
 export type CaseRecordLink = {
   /**
    * ID of the existing entity record to link
    */
-  record_id: string
+  entity_record_id: string
 }
 
 /**

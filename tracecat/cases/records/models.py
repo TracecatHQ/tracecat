@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -29,7 +29,7 @@ class CaseRecordCreate(BaseModel):
 class CaseRecordLink(BaseModel):
     """Model for linking an existing entity record to a case."""
 
-    record_id: uuid.UUID = Field(
+    entity_record_id: uuid.UUID = Field(
         ...,
         description="ID of the existing entity record to link",
     )
@@ -68,6 +68,7 @@ class CaseRecordListResponse(BaseModel):
     total: int = Field(
         ...,
         description="Total number of records",
+        ge=0,
         le=config.TRACECAT__MAX_RECORDS_PER_CASE,
     )
 
@@ -75,7 +76,7 @@ class CaseRecordListResponse(BaseModel):
 class CaseRecordDeleteResponse(BaseModel):
     """Response model for unlinking a case record."""
 
-    action: str = Field(
+    action: Literal["unlink", "delete"] = Field(
         ...,
         description="Action (unlink or delete)",
     )

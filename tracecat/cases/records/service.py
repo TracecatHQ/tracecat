@@ -169,21 +169,23 @@ class CaseRecordService(BaseWorkspaceService):
 
         # Verify the entity record exists and belongs to this workspace
         try:
-            entity_record = await self.record_service.get_record_by_id(params.record_id)
+            entity_record = await self.record_service.get_record_by_id(
+                params.entity_record_id
+            )
         except TracecatNotFoundError as err:
             raise TracecatNotFoundError(
-                f"Entity record {params.record_id} not found"
+                f"Entity record {params.entity_record_id} not found"
             ) from err
 
         # Check if already linked
         existing_stmt = select(CaseRecord).where(
             CaseRecord.case_id == case.id,
-            CaseRecord.record_id == params.record_id,
+            CaseRecord.record_id == params.entity_record_id,
         )
         existing = await self.session.exec(existing_stmt)
         if existing.first():
             raise TracecatValidationError(
-                f"Record {params.record_id} is already linked to this case"
+                f"Record {params.entity_record_id} is already linked to this case"
             )
 
         # Get entity for the record
@@ -207,7 +209,7 @@ class CaseRecordService(BaseWorkspaceService):
         logger.info(
             "Linked entity record to case",
             case_id=case.id,
-            record_id=params.record_id,
+            record_id=entity_record.id,
             link_id=case_record.id,
         )
 

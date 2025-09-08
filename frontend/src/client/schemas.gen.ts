@@ -2387,6 +2387,7 @@ export const $CaseRecordDeleteResponse = {
   properties: {
     action: {
       type: "string",
+      enum: ["unlink", "delete"],
       title: "Action",
       description: "Action (unlink or delete)",
     },
@@ -2417,15 +2418,15 @@ export const $CaseRecordDeleteResponse = {
 
 export const $CaseRecordLink = {
   properties: {
-    record_id: {
+    entity_record_id: {
       type: "string",
       format: "uuid",
-      title: "Record Id",
+      title: "Entity Record Id",
       description: "ID of the existing entity record to link",
     },
   },
   type: "object",
-  required: ["record_id"],
+  required: ["entity_record_id"],
   title: "CaseRecordLink",
   description: "Model for linking an existing entity record to a case.",
 } as const
@@ -2443,6 +2444,7 @@ export const $CaseRecordListResponse = {
     total: {
       type: "integer",
       maximum: 50,
+      minimum: 0,
       title: "Total",
       description: "Total number of records",
     },

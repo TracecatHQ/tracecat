@@ -216,7 +216,7 @@ async def link_entity_record(
         logger.warning(
             "Entity record not found",
             case_id=case_id,
-            record_id=params.record_id,
+            record_id=params.entity_record_id,
             error=str(e),
         )
         raise HTTPException(
@@ -227,7 +227,7 @@ async def link_entity_record(
         logger.warning(
             "Validation error linking record",
             case_id=case_id,
-            record_id=params.record_id,
+            record_id=params.entity_record_id,
             error=str(e),
         )
         raise HTTPException(
@@ -238,7 +238,7 @@ async def link_entity_record(
         logger.error(
             "Failed to link entity record",
             case_id=case_id,
-            record_id=params.record_id,
+            record_id=params.entity_record_id,
             error=str(e),
             error_type=type(e).__name__,
         )
@@ -373,7 +373,7 @@ async def unlink_case_record(
     return CaseRecordDeleteResponse(
         action="unlink",
         case_id=case_id,
-        record_id=case_record_id,
+        record_id=record.record_id,
         case_record_id=case_record_id,
     )
 
@@ -430,6 +430,6 @@ async def delete_case_record(
     return CaseRecordDeleteResponse(
         action="delete",
         case_id=case_id,
-        record_id=case_record_id,
+        record_id=record.record_id,
         case_record_id=case_record_id,
     )

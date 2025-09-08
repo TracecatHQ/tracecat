@@ -140,7 +140,7 @@ async def test_link_entity_record_and_duplicate_check(
 
     # Link existing record to case
     link = await case_records_service.link_entity_record(
-        test_case, CaseRecordLink(record_id=rec.id)
+        test_case, CaseRecordLink(entity_record_id=rec.id)
     )
     assert link.record_id == rec.id
     assert link.case_id == test_case.id
@@ -148,13 +148,13 @@ async def test_link_entity_record_and_duplicate_check(
     # Linking the same record again should raise validation error
     with pytest.raises(TracecatValidationError):
         await case_records_service.link_entity_record(
-            test_case, CaseRecordLink(record_id=rec.id)
+            test_case, CaseRecordLink(entity_record_id=rec.id)
         )
 
     # Linking a non-existent record should raise not found
     with pytest.raises(TracecatNotFoundError):
         await case_records_service.link_entity_record(
-            test_case, CaseRecordLink(record_id=uuid.uuid4())
+            test_case, CaseRecordLink(entity_record_id=uuid.uuid4())
         )
 
 
