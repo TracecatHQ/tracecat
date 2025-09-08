@@ -47,3 +47,17 @@ repos:
         language: system
         files: ^frontend/
         require_serial: true
+      - id: gen-client
+        name: generate frontend client
+        entry: just gen-client
+        language: system
+        files: ^(tracecat/api/|packages/tracecat-registry/)
+        require_serial: true
+        pass_filenames: false
+      - id: just-fix
+        name: just fix
+        entry: just fix
+        language: system
+        files: ^(tracecat/api/|packages/tracecat-registry/)
+        require_serial: true
+        pass_filenames: false
