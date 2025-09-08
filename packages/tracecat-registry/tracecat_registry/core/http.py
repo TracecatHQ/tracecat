@@ -686,7 +686,7 @@ async def http_poll(
         args = PredicateArgs(
             headers=dict(response.headers.items()),
             data=data,
-            status_code= response.status_code
+            status_code=response.status_code,
         )
         # Invert the result: retry when condition is NOT met (poll until condition is true)
         return not predicate(args)
