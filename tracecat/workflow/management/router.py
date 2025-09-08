@@ -484,10 +484,10 @@ async def export_workflow(
         )
 
 
-# ----- Workflow Definitions ----- #
+# ----- Workflow Definitione ----- #
 
 
-@router.get("/{workflow_id}/definition", tags=["workflows"])
+@router.get("/{workflow_id}/definitions", tags=["workflows"])
 async def list_workflow_definitions(
     role: WorkspaceUserRole,
     session: AsyncDBSession,

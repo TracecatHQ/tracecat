@@ -390,6 +390,8 @@ import type {
   WorkflowsListTagsResponse,
   WorkflowsListWorkflowCommitsData,
   WorkflowsListWorkflowCommitsResponse,
+  WorkflowsListWorkflowDefinitionsData,
+  WorkflowsListWorkflowDefinitionsResponse,
   WorkflowsListWorkflowsData,
   WorkflowsListWorkflowsResponse,
   WorkflowsMoveWorkflowToFolderData,
@@ -1069,6 +1071,33 @@ export const workflowsExportWorkflow = (
     query: {
       format: data.format,
       version: data.version,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Workflow Definitions
+ * List all workflow definitions for a Workflow.
+ * @param data The data for the request.
+ * @param data.workflowId
+ * @param data.workspaceId
+ * @returns WorkflowDefinition Successful Response
+ * @throws ApiError
+ */
+export const workflowsListWorkflowDefinitions = (
+  data: WorkflowsListWorkflowDefinitionsData
+): CancelablePromise<WorkflowsListWorkflowDefinitionsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workflows/{workflow_id}/definitions",
+    path: {
+      workflow_id: data.workflowId,
+    },
+    query: {
       workspace_id: data.workspaceId,
     },
     errors: {

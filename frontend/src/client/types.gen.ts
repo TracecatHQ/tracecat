@@ -4478,6 +4478,13 @@ export type WorkflowsExportWorkflowData = {
 
 export type WorkflowsExportWorkflowResponse = unknown
 
+export type WorkflowsListWorkflowDefinitionsData = {
+  workflowId: string
+  workspaceId: string
+}
+
+export type WorkflowsListWorkflowDefinitionsResponse = Array<WorkflowDefinition>
+
 export type WorkflowsGetWorkflowDefinitionData = {
   version?: number | null
   workflowId: string
@@ -6273,6 +6280,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workflows/{workflow_id}/definitions": {
+    get: {
+      req: WorkflowsListWorkflowDefinitionsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<WorkflowDefinition>
         /**
          * Validation Error
          */
