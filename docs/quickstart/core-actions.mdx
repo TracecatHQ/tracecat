@@ -202,7 +202,7 @@ Perform an HTTP request to a given URL with polling.
 - `poll_retry_codes` (int | list[int], optional): Status codes on which the action will retry. If not specified, `poll_condition` must be provided.
 - `poll_interval` (float, optional): Interval in seconds between polling attempts. If not specified, defaults to polling with exponential wait.
 - `poll_max_attempts` (int, optional, default: 10): Maximum number of polling attempts. If set to 0, the action will poll indefinitely (until timeout).
-- `poll_condition` (str, optional): User defined condition that determines whether to retry. The condition is a Python lambda function string. If not specified, `poll_retry_codes` must be provided.
+- `poll_condition` (str, optional): User defined Python lambda function. If returns a truthy value, stops polling. If not specified, `poll_retry_codes` must be provided.
 
 **Returns**
 
