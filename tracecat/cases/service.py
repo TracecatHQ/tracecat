@@ -153,14 +153,12 @@ class CasesService(BaseWorkspaceService):
         if assignee_id is not None:
             # Special handling for unassigned cases
             if assignee_id == "unassigned":
-                stmt = stmt.where(Case.assignee_id.is_(None))
+                stmt = stmt.where(col(Case.assignee_id).is_(None))
             else:
                 stmt = stmt.where(Case.assignee_id == assignee_id)
 
         # Apply tag filtering if tag_ids provided (AND logic - case must have all tags)
         if tag_ids:
-            from tracecat.db.schemas import CaseTag
-
             for tag_id in tag_ids:
                 stmt = stmt.where(
                     col(Case.id).in_(
