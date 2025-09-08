@@ -57,6 +57,20 @@ import type {
   CaseAttachmentsDownloadAttachmentResponse,
   CaseAttachmentsListAttachmentsData,
   CaseAttachmentsListAttachmentsResponse,
+  CaseRecordsCreateCaseRecordData,
+  CaseRecordsCreateCaseRecordResponse,
+  CaseRecordsDeleteCaseRecordData,
+  CaseRecordsDeleteCaseRecordResponse,
+  CaseRecordsGetCaseRecordData,
+  CaseRecordsGetCaseRecordResponse,
+  CaseRecordsLinkEntityRecordData,
+  CaseRecordsLinkEntityRecordResponse,
+  CaseRecordsListCaseRecordsData,
+  CaseRecordsListCaseRecordsResponse,
+  CaseRecordsUnlinkCaseRecordData,
+  CaseRecordsUnlinkCaseRecordResponse,
+  CaseRecordsUpdateCaseRecordData,
+  CaseRecordsUpdateCaseRecordResponse,
   CasesAddTagData,
   CasesAddTagResponse,
   CasesCreateCaseData,
@@ -449,7 +463,7 @@ export const publicIncomingWebhook = (
   data: PublicIncomingWebhookData
 ): CancelablePromise<PublicIncomingWebhookResponse> => {
   return __request(OpenAPI, {
-    method: "GET",
+    method: "POST",
     url: "/webhooks/{workflow_id}/{secret}",
     path: {
       secret: data.secret,
@@ -489,7 +503,7 @@ export const publicIncomingWebhook1 = (
   data: PublicIncomingWebhook1Data
 ): CancelablePromise<PublicIncomingWebhook1Response> => {
   return __request(OpenAPI, {
-    method: "POST",
+    method: "GET",
     url: "/webhooks/{workflow_id}/{secret}",
     path: {
       secret: data.secret,
@@ -4853,6 +4867,212 @@ export const caseAttachmentsDeleteAttachment = (
     path: {
       case_id: data.caseId,
       attachment_id: data.attachmentId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Case Records
+ * List all records for a case.
+ * @param data The data for the request.
+ * @param data.caseId
+ * @param data.workspaceId
+ * @returns CaseRecordListResponse Successful Response
+ * @throws ApiError
+ */
+export const caseRecordsListCaseRecords = (
+  data: CaseRecordsListCaseRecordsData
+): CancelablePromise<CaseRecordsListCaseRecordsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/cases/{case_id}/records",
+    path: {
+      case_id: data.caseId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Case Record
+ * Create a new entity record and link it to the case.
+ * @param data The data for the request.
+ * @param data.caseId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns CaseRecordRead Successful Response
+ * @throws ApiError
+ */
+export const caseRecordsCreateCaseRecord = (
+  data: CaseRecordsCreateCaseRecordData
+): CancelablePromise<CaseRecordsCreateCaseRecordResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/cases/{case_id}/records",
+    path: {
+      case_id: data.caseId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Case Record
+ * Get a specific case record.
+ * @param data The data for the request.
+ * @param data.caseId
+ * @param data.caseRecordId
+ * @param data.workspaceId
+ * @returns CaseRecordRead Successful Response
+ * @throws ApiError
+ */
+export const caseRecordsGetCaseRecord = (
+  data: CaseRecordsGetCaseRecordData
+): CancelablePromise<CaseRecordsGetCaseRecordResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/cases/{case_id}/records/{case_record_id}",
+    path: {
+      case_id: data.caseId,
+      case_record_id: data.caseRecordId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Case Record
+ * Update the entity record data for a case record.
+ * @param data The data for the request.
+ * @param data.caseId
+ * @param data.caseRecordId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns CaseRecordRead Successful Response
+ * @throws ApiError
+ */
+export const caseRecordsUpdateCaseRecord = (
+  data: CaseRecordsUpdateCaseRecordData
+): CancelablePromise<CaseRecordsUpdateCaseRecordResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/cases/{case_id}/records/{case_record_id}",
+    path: {
+      case_id: data.caseId,
+      case_record_id: data.caseRecordId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Case Record
+ * Delete a case record and its entity record (hard delete).
+ * @param data The data for the request.
+ * @param data.caseId
+ * @param data.caseRecordId
+ * @param data.workspaceId
+ * @returns CaseRecordDeleteResponse Successful Response
+ * @throws ApiError
+ */
+export const caseRecordsDeleteCaseRecord = (
+  data: CaseRecordsDeleteCaseRecordData
+): CancelablePromise<CaseRecordsDeleteCaseRecordResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/cases/{case_id}/records/{case_record_id}",
+    path: {
+      case_id: data.caseId,
+      case_record_id: data.caseRecordId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Link Entity Record
+ * Link an existing entity record to the case.
+ * @param data The data for the request.
+ * @param data.caseId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns CaseRecordRead Successful Response
+ * @throws ApiError
+ */
+export const caseRecordsLinkEntityRecord = (
+  data: CaseRecordsLinkEntityRecordData
+): CancelablePromise<CaseRecordsLinkEntityRecordResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/cases/{case_id}/records/link",
+    path: {
+      case_id: data.caseId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Unlink Case Record
+ * Unlink a record from a case (soft delete - removes link only).
+ * @param data The data for the request.
+ * @param data.caseId
+ * @param data.caseRecordId
+ * @param data.workspaceId
+ * @returns CaseRecordDeleteResponse Successful Response
+ * @throws ApiError
+ */
+export const caseRecordsUnlinkCaseRecord = (
+  data: CaseRecordsUnlinkCaseRecordData
+): CancelablePromise<CaseRecordsUnlinkCaseRecordResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/cases/{case_id}/records/{case_record_id}/unlink",
+    path: {
+      case_id: data.caseId,
+      case_record_id: data.caseRecordId,
     },
     query: {
       workspace_id: data.workspaceId,
