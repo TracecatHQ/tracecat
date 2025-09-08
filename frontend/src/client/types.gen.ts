@@ -8569,13 +8569,13 @@ export type $OpenApiTs = {
     }
   }
   "/cases/{case_id}/records/link": {
-    post: {
+    patch: {
       req: CaseRecordsLinkEntityRecordData
       res: {
         /**
          * Successful Response
          */
-        201: CaseRecordRead
+        200: CaseRecordRead
         /**
          * Validation Error
          */
@@ -8584,7 +8584,7 @@ export type $OpenApiTs = {
     }
   }
   "/cases/{case_id}/records/{case_record_id}/unlink": {
-    delete: {
+    patch: {
       req: CaseRecordsUnlinkCaseRecordData
       res: {
         /**

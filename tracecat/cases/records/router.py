@@ -189,9 +189,7 @@ async def create_case_record(
     )
 
 
-@router.post(
-    "/link", status_code=status.HTTP_201_CREATED, response_model=CaseRecordRead
-)
+@router.patch("/link", status_code=status.HTTP_200_OK, response_model=CaseRecordRead)
 async def link_entity_record(
     *,
     role: WorkspaceUser,
@@ -321,7 +319,7 @@ async def update_case_record(
     )
 
 
-@router.delete(
+@router.patch(
     "/{case_record_id}/unlink",
     status_code=status.HTTP_200_OK,
 )

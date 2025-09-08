@@ -5038,7 +5038,7 @@ export const caseRecordsLinkEntityRecord = (
   data: CaseRecordsLinkEntityRecordData
 ): CancelablePromise<CaseRecordsLinkEntityRecordResponse> => {
   return __request(OpenAPI, {
-    method: "POST",
+    method: "PATCH",
     url: "/cases/{case_id}/records/link",
     path: {
       case_id: data.caseId,
@@ -5068,7 +5068,7 @@ export const caseRecordsUnlinkCaseRecord = (
   data: CaseRecordsUnlinkCaseRecordData
 ): CancelablePromise<CaseRecordsUnlinkCaseRecordResponse> => {
   return __request(OpenAPI, {
-    method: "DELETE",
+    method: "PATCH",
     url: "/cases/{case_id}/records/{case_record_id}/unlink",
     path: {
       case_id: data.caseId,
