@@ -378,6 +378,11 @@ TRACECAT__MAX_ATTACHMENTS_PER_CASE = int(
 )
 """The maximum number of attachments allowed per case. Defaults to 10."""
 
+TRACECAT__MAX_RECORDS_PER_CASE = int(
+    os.environ.get("TRACECAT__MAX_RECORDS_PER_CASE", 50)
+)
+"""The maximum number of entity records allowed per case. Defaults to 50."""
+
 # === File security === #
 
 ALLOWED_ATTACHMENT_EXTENSIONS = ",".join(

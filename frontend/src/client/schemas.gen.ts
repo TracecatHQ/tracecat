@@ -2360,6 +2360,185 @@ export const $CaseReadMinimal = {
   title: "CaseReadMinimal",
 } as const
 
+export const $CaseRecordCreate = {
+  properties: {
+    entity_key: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      title: "Entity Key",
+      description: "Key of the entity type",
+    },
+    data: {
+      additionalProperties: true,
+      type: "object",
+      title: "Data",
+      description: "Entity record data",
+    },
+  },
+  type: "object",
+  required: ["entity_key"],
+  title: "CaseRecordCreate",
+  description:
+    "Model for creating a new entity record and linking it to a case.",
+} as const
+
+export const $CaseRecordDeleteResponse = {
+  properties: {
+    action: {
+      type: "string",
+      enum: ["unlink", "delete"],
+      title: "Action",
+      description: "Action (unlink or delete)",
+    },
+    case_id: {
+      type: "string",
+      format: "uuid",
+      title: "Case Id",
+      description: "Case ID",
+    },
+    record_id: {
+      type: "string",
+      format: "uuid",
+      title: "Record Id",
+      description: "Record ID",
+    },
+    case_record_id: {
+      type: "string",
+      format: "uuid",
+      title: "Case Record Id",
+      description: "Case record ID",
+    },
+  },
+  type: "object",
+  required: ["action", "case_id", "record_id", "case_record_id"],
+  title: "CaseRecordDeleteResponse",
+  description: "Response model for unlinking a case record.",
+} as const
+
+export const $CaseRecordLink = {
+  properties: {
+    entity_record_id: {
+      type: "string",
+      format: "uuid",
+      title: "Entity Record Id",
+      description: "ID of the existing entity record to link",
+    },
+  },
+  type: "object",
+  required: ["entity_record_id"],
+  title: "CaseRecordLink",
+  description: "Model for linking an existing entity record to a case.",
+} as const
+
+export const $CaseRecordListResponse = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/CaseRecordRead",
+      },
+      type: "array",
+      title: "Items",
+      description: "List of case records",
+    },
+    total: {
+      type: "integer",
+      maximum: 50,
+      minimum: 0,
+      title: "Total",
+      description: "Total number of records",
+    },
+  },
+  type: "object",
+  required: ["total"],
+  title: "CaseRecordListResponse",
+  description: "Response model for listing case records.",
+} as const
+
+export const $CaseRecordRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+      description: "Case record link ID",
+    },
+    case_id: {
+      type: "string",
+      format: "uuid",
+      title: "Case Id",
+      description: "Case ID",
+    },
+    entity_id: {
+      type: "string",
+      format: "uuid",
+      title: "Entity Id",
+      description: "Entity type ID",
+    },
+    record_id: {
+      type: "string",
+      format: "uuid",
+      title: "Record Id",
+      description: "Entity record ID",
+    },
+    entity_key: {
+      type: "string",
+      title: "Entity Key",
+      description: "Entity type key",
+    },
+    entity_display_name: {
+      type: "string",
+      title: "Entity Display Name",
+      description: "Entity display name",
+    },
+    data: {
+      additionalProperties: true,
+      type: "object",
+      title: "Data",
+      description: "Entity record data",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "case_id",
+    "entity_id",
+    "record_id",
+    "entity_key",
+    "entity_display_name",
+    "data",
+    "created_at",
+    "updated_at",
+  ],
+  title: "CaseRecordRead",
+  description: "Model for reading a case record with full details.",
+} as const
+
+export const $CaseRecordUpdate = {
+  properties: {
+    data: {
+      additionalProperties: true,
+      type: "object",
+      title: "Data",
+      description: "Updated entity record data",
+    },
+  },
+  type: "object",
+  required: ["data"],
+  title: "CaseRecordUpdate",
+  description: "Model for updating a case record's entity data.",
+} as const
+
 export const $CaseSeverity = {
   type: "string",
   enum: [

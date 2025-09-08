@@ -708,6 +708,123 @@ export type CaseReadMinimal = {
 }
 
 /**
+ * Model for creating a new entity record and linking it to a case.
+ */
+export type CaseRecordCreate = {
+  /**
+   * Key of the entity type
+   */
+  entity_key: string
+  /**
+   * Entity record data
+   */
+  data?: {
+    [key: string]: unknown
+  }
+}
+
+/**
+ * Response model for unlinking a case record.
+ */
+export type CaseRecordDeleteResponse = {
+  /**
+   * Action (unlink or delete)
+   */
+  action: "unlink" | "delete"
+  /**
+   * Case ID
+   */
+  case_id: string
+  /**
+   * Record ID
+   */
+  record_id: string
+  /**
+   * Case record ID
+   */
+  case_record_id: string
+}
+
+/**
+ * Action (unlink or delete)
+ */
+export type action = "unlink" | "delete"
+
+/**
+ * Model for linking an existing entity record to a case.
+ */
+export type CaseRecordLink = {
+  /**
+   * ID of the existing entity record to link
+   */
+  entity_record_id: string
+}
+
+/**
+ * Response model for listing case records.
+ */
+export type CaseRecordListResponse = {
+  /**
+   * List of case records
+   */
+  items?: Array<CaseRecordRead>
+  /**
+   * Total number of records
+   */
+  total: number
+}
+
+/**
+ * Model for reading a case record with full details.
+ */
+export type CaseRecordRead = {
+  /**
+   * Case record link ID
+   */
+  id: string
+  /**
+   * Case ID
+   */
+  case_id: string
+  /**
+   * Entity type ID
+   */
+  entity_id: string
+  /**
+   * Entity record ID
+   */
+  record_id: string
+  /**
+   * Entity type key
+   */
+  entity_key: string
+  /**
+   * Entity display name
+   */
+  entity_display_name: string
+  /**
+   * Entity record data
+   */
+  data: {
+    [key: string]: unknown
+  }
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * Model for updating a case record's entity data.
+ */
+export type CaseRecordUpdate = {
+  /**
+   * Updated entity record data
+   */
+  data: {
+    [key: string]: unknown
+  }
+}
+
+/**
  * Case severity values aligned with OCSF severity values.
  *
  * Values:
@@ -5589,6 +5706,62 @@ export type CaseAttachmentsDeleteAttachmentData = {
 
 export type CaseAttachmentsDeleteAttachmentResponse = void
 
+export type CaseRecordsListCaseRecordsData = {
+  caseId: string
+  workspaceId: string
+}
+
+export type CaseRecordsListCaseRecordsResponse = CaseRecordListResponse
+
+export type CaseRecordsCreateCaseRecordData = {
+  caseId: string
+  requestBody: CaseRecordCreate
+  workspaceId: string
+}
+
+export type CaseRecordsCreateCaseRecordResponse = CaseRecordRead
+
+export type CaseRecordsGetCaseRecordData = {
+  caseId: string
+  caseRecordId: string
+  workspaceId: string
+}
+
+export type CaseRecordsGetCaseRecordResponse = CaseRecordRead
+
+export type CaseRecordsUpdateCaseRecordData = {
+  caseId: string
+  caseRecordId: string
+  requestBody: CaseRecordUpdate
+  workspaceId: string
+}
+
+export type CaseRecordsUpdateCaseRecordResponse = CaseRecordRead
+
+export type CaseRecordsDeleteCaseRecordData = {
+  caseId: string
+  caseRecordId: string
+  workspaceId: string
+}
+
+export type CaseRecordsDeleteCaseRecordResponse = CaseRecordDeleteResponse
+
+export type CaseRecordsLinkEntityRecordData = {
+  caseId: string
+  requestBody: CaseRecordLink
+  workspaceId: string
+}
+
+export type CaseRecordsLinkEntityRecordResponse = CaseRecordRead
+
+export type CaseRecordsUnlinkCaseRecordData = {
+  caseId: string
+  caseRecordId: string
+  workspaceId: string
+}
+
+export type CaseRecordsUnlinkCaseRecordResponse = CaseRecordDeleteResponse
+
 export type ChatCreateChatData = {
   requestBody: ChatCreate
   workspaceId: string
@@ -5968,7 +6141,7 @@ export type PublicCheckHealthResponse = {
 
 export type $OpenApiTs = {
   "/webhooks/{workflow_id}/{secret}": {
-    get: {
+    post: {
       req: PublicIncomingWebhookData
       res: {
         /**
@@ -5981,7 +6154,7 @@ export type $OpenApiTs = {
         422: HTTPValidationError
       }
     }
-    post: {
+    get: {
       req: PublicIncomingWebhook1Data
       res: {
         /**
@@ -8319,6 +8492,105 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases/{case_id}/records": {
+    get: {
+      req: CaseRecordsListCaseRecordsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseRecordListResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: CaseRecordsCreateCaseRecordData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: CaseRecordRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases/{case_id}/records/{case_record_id}": {
+    get: {
+      req: CaseRecordsGetCaseRecordData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseRecordRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: CaseRecordsUpdateCaseRecordData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseRecordRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: CaseRecordsDeleteCaseRecordData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseRecordDeleteResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases/{case_id}/records/link": {
+    patch: {
+      req: CaseRecordsLinkEntityRecordData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseRecordRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/cases/{case_id}/records/{case_record_id}/unlink": {
+    patch: {
+      req: CaseRecordsUnlinkCaseRecordData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseRecordDeleteResponse
         /**
          * Validation Error
          */
