@@ -356,6 +356,7 @@ export const $ActionStatement = {
       description: "Action type. Equivalent to the UDF key.",
     },
     args: {
+      additionalProperties: true,
       type: "object",
       title: "Args",
       description: "Arguments for the action",
@@ -487,6 +488,7 @@ export const $ActionStep = {
       title: "Action",
     },
     args: {
+      additionalProperties: true,
       type: "object",
       title: "Args",
     },
@@ -661,6 +663,7 @@ export const $ActionValidationResult = {
     validated_args: {
       anyOf: [
         {
+          additionalProperties: true,
           type: "object",
         },
         {
@@ -723,7 +726,7 @@ export const $AgentOutput = {
     usage: {
       anyOf: [
         {
-          $ref: "#/components/schemas/Usage",
+          $ref: "#/components/schemas/RunUsage",
         },
         {
           type: "null",
@@ -1057,6 +1060,18 @@ export const $AssigneeChangedEventRead = {
 
 export const $AttachmentCreatedEventRead = {
   properties: {
+    wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
+    },
     type: {
       type: "string",
       const: "attachment_created",
@@ -1079,17 +1094,6 @@ export const $AttachmentCreatedEventRead = {
     size: {
       type: "integer",
       title: "Size",
-    },
-    wf_exec_id: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Wf Exec Id",
     },
     user_id: {
       anyOf: [
@@ -1125,6 +1129,18 @@ export const $AttachmentCreatedEventRead = {
 
 export const $AttachmentDeletedEventRead = {
   properties: {
+    wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
+    },
     type: {
       type: "string",
       const: "attachment_deleted",
@@ -1139,17 +1155,6 @@ export const $AttachmentDeletedEventRead = {
     file_name: {
       type: "string",
       title: "File Name",
-    },
-    wf_exec_id: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Wf Exec Id",
     },
     user_id: {
       anyOf: [
@@ -1183,16 +1188,52 @@ export const $AudioUrl = {
       type: "string",
       title: "Url",
     },
+    force_download: {
+      type: "boolean",
+      title: "Force Download",
+      default: false,
+    },
+    vendor_metadata: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Vendor Metadata",
+    },
+    identifier: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Identifier",
+    },
     kind: {
       type: "string",
       const: "audio-url",
       title: "Kind",
       default: "audio-url",
     },
+    media_type: {
+      type: "string",
+      title: "Media Type",
+      description:
+        "Return the media type of the file, based on the URL or the provided `media_type`.",
+      readOnly: true,
+    },
   },
   type: "object",
-  required: ["url"],
+  required: ["url", "media_type"],
   title: "AudioUrl",
+  description: "A URL to an audio file.",
 } as const
 
 export const $AuthSettingsRead = {
@@ -1283,7 +1324,14 @@ export const $BinaryContent = {
       anyOf: [
         {
           type: "string",
-          enum: ["audio/wav", "audio/mpeg"],
+          enum: [
+            "audio/wav",
+            "audio/mpeg",
+            "audio/ogg",
+            "audio/flac",
+            "audio/aiff",
+            "audio/aac",
+          ],
         },
         {
           type: "string",
@@ -1308,6 +1356,22 @@ export const $BinaryContent = {
       ],
       title: "Media Type",
     },
+    identifier: {
+      type: "string",
+      title: "Identifier",
+    },
+    vendor_metadata: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Vendor Metadata",
+    },
     kind: {
       type: "string",
       const: "binary",
@@ -1316,8 +1380,9 @@ export const $BinaryContent = {
     },
   },
   type: "object",
-  required: ["data", "media_type"],
+  required: ["data", "media_type", "identifier"],
   title: "BinaryContent",
+  description: "Binary content, e.g. an audio or image file.",
 } as const
 
 export const $Body_auth_reset_forgot_password = {
@@ -1390,7 +1455,7 @@ export const $Body_auth_verify_verify = {
   title: "Body_auth-verify:verify",
 } as const
 
-export const $Body_cases_create_attachment = {
+export const $Body_case_attachments_create_attachment = {
   properties: {
     file: {
       type: "string",
@@ -1400,7 +1465,7 @@ export const $Body_cases_create_attachment = {
   },
   type: "object",
   required: ["file"],
-  title: "Body_cases-create_attachment",
+  title: "Body_case-attachments-create_attachment",
 } as const
 
 export const $Body_tables_import_csv = {
@@ -1468,6 +1533,100 @@ export const $Body_workflows_create_workflow = {
   },
   type: "object",
   title: "Body_workflows-create_workflow",
+} as const
+
+export const $BuiltinToolCallPart = {
+  properties: {
+    tool_name: {
+      type: "string",
+      title: "Tool Name",
+    },
+    args: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Args",
+    },
+    tool_call_id: {
+      type: "string",
+      title: "Tool Call Id",
+    },
+    provider_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Provider Name",
+    },
+    part_kind: {
+      type: "string",
+      const: "builtin-tool-call",
+      title: "Part Kind",
+      default: "builtin-tool-call",
+    },
+  },
+  type: "object",
+  required: ["tool_name"],
+  title: "BuiltinToolCallPart",
+  description: "A tool call to a built-in tool.",
+} as const
+
+export const $BuiltinToolReturnPart = {
+  properties: {
+    tool_name: {
+      type: "string",
+      title: "Tool Name",
+    },
+    content: {
+      title: "Content",
+    },
+    tool_call_id: {
+      type: "string",
+      title: "Tool Call Id",
+    },
+    metadata: {
+      title: "Metadata",
+    },
+    timestamp: {
+      type: "string",
+      format: "date-time",
+      title: "Timestamp",
+    },
+    provider_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Provider Name",
+    },
+    part_kind: {
+      type: "string",
+      const: "builtin-tool-return",
+      title: "Part Kind",
+      default: "builtin-tool-return",
+    },
+  },
+  type: "object",
+  required: ["tool_name", "content", "tool_call_id"],
+  title: "BuiltinToolReturnPart",
+  description: "A tool return message from a built-in tool.",
 } as const
 
 export const $CaseAttachmentDownloadResponse = {
@@ -1712,6 +1871,7 @@ export const $CaseCreate = {
     fields: {
       anyOf: [
         {
+          additionalProperties: true,
           type: "object",
         },
         {
@@ -1735,6 +1895,7 @@ export const $CaseCreate = {
     payload: {
       anyOf: [
         {
+          additionalProperties: true,
           type: "object",
         },
         {
@@ -2099,6 +2260,7 @@ export const $CaseRead = {
     payload: {
       anyOf: [
         {
+          additionalProperties: true,
           type: "object",
         },
         {
@@ -2352,6 +2514,7 @@ export const $CaseUpdate = {
     fields: {
       anyOf: [
         {
+          additionalProperties: true,
           type: "object",
         },
         {
@@ -2375,6 +2538,7 @@ export const $CaseUpdate = {
     payload: {
       anyOf: [
         {
+          additionalProperties: true,
           type: "object",
         },
         {
@@ -2577,6 +2741,7 @@ export const $ChatRequest = {
     context: {
       anyOf: [
         {
+          additionalProperties: true,
           type: "object",
         },
         {
@@ -3228,6 +3393,7 @@ export const $DSLInput = {
       title: "Triggers",
     },
     inputs: {
+      additionalProperties: true,
       type: "object",
       title: "Inputs",
       description: "Static input parameters",
@@ -3392,16 +3558,52 @@ export const $DocumentUrl = {
       type: "string",
       title: "Url",
     },
+    force_download: {
+      type: "boolean",
+      title: "Force Download",
+      default: false,
+    },
+    vendor_metadata: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Vendor Metadata",
+    },
+    identifier: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Identifier",
+    },
     kind: {
       type: "string",
       const: "document-url",
       title: "Kind",
       default: "document-url",
     },
+    media_type: {
+      type: "string",
+      title: "Media Type",
+      description:
+        "Return the media type of the file, based on the URL or the provided `media_type`.",
+      readOnly: true,
+    },
   },
   type: "object",
-  required: ["url"],
+  required: ["url", "media_type"],
   title: "DocumentUrl",
+  description: "The URL of the document.",
 } as const
 
 export const $EditorActionRead = {
@@ -3973,8 +4175,13 @@ export const $ErrorDetails = {
       title: "Input",
     },
     ctx: {
+      additionalProperties: true,
       type: "object",
       title: "Ctx",
+    },
+    url: {
+      type: "string",
+      title: "Url",
     },
   },
   type: "object",
@@ -4013,6 +4220,7 @@ export const $EventFailure = {
     cause: {
       anyOf: [
         {
+          additionalProperties: true,
           type: "object",
         },
         {
@@ -4936,16 +5144,52 @@ export const $ImageUrl = {
       type: "string",
       title: "Url",
     },
+    force_download: {
+      type: "boolean",
+      title: "Force Download",
+      default: false,
+    },
+    vendor_metadata: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Vendor Metadata",
+    },
+    identifier: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Identifier",
+    },
     kind: {
       type: "string",
       const: "image-url",
       title: "Kind",
       default: "image-url",
     },
+    media_type: {
+      type: "string",
+      title: "Media Type",
+      description:
+        "Return the media type of the file, based on the URL or the provided `media_type`.",
+      readOnly: true,
+    },
   },
   type: "object",
-  required: ["url"],
+  required: ["url", "media_type"],
   title: "ImageUrl",
+  description: "A URL to an image.",
 } as const
 
 export const $Integer = {
@@ -5066,6 +5310,7 @@ export const $IntegrationRead = {
       title: "Provider Id",
     },
     provider_config: {
+      additionalProperties: true,
       type: "object",
       title: "Provider Config",
     },
@@ -5256,6 +5501,7 @@ export const $IntegrationUpdate = {
     provider_config: {
       anyOf: [
         {
+          additionalProperties: true,
           type: "object",
         },
         {
@@ -5335,6 +5581,7 @@ export const $InteractionInput = {
       title: "Action Ref",
     },
     data: {
+      additionalProperties: true,
       type: "object",
       title: "Data",
     },
@@ -5372,6 +5619,7 @@ export const $InteractionRead = {
     request_payload: {
       anyOf: [
         {
+          additionalProperties: true,
           type: "object",
         },
         {
@@ -5383,6 +5631,7 @@ export const $InteractionRead = {
     response_payload: {
       anyOf: [
         {
+          additionalProperties: true,
           type: "object",
         },
         {
@@ -5617,6 +5866,8 @@ export const $ModelRequest = {
   type: "object",
   required: ["parts"],
   title: "ModelRequest",
+  description:
+    "A request generated by Pydantic AI and sent to a model, e.g. a message from the Pydantic AI app to the model.",
 } as const
 
 export const $ModelResponse = {
@@ -5630,11 +5881,23 @@ export const $ModelResponse = {
           {
             $ref: "#/components/schemas/ToolCallPart",
           },
+          {
+            $ref: "#/components/schemas/BuiltinToolCallPart",
+          },
+          {
+            $ref: "#/components/schemas/BuiltinToolReturnPart",
+          },
+          {
+            $ref: "#/components/schemas/ThinkingPart",
+          },
         ],
         discriminator: {
           propertyName: "part_kind",
           mapping: {
+            "builtin-tool-call": "#/components/schemas/BuiltinToolCallPart",
+            "builtin-tool-return": "#/components/schemas/BuiltinToolReturnPart",
             text: "#/components/schemas/TextPart",
+            thinking: "#/components/schemas/ThinkingPart",
             "tool-call": "#/components/schemas/ToolCallPart",
           },
         },
@@ -5643,7 +5906,7 @@ export const $ModelResponse = {
       title: "Parts",
     },
     usage: {
-      $ref: "#/components/schemas/Usage",
+      $ref: "#/components/schemas/RequestUsage",
     },
     model_name: {
       anyOf: [
@@ -5667,10 +5930,46 @@ export const $ModelResponse = {
       title: "Kind",
       default: "response",
     },
+    provider_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Provider Name",
+    },
+    provider_details: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Provider Details",
+    },
+    provider_response_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Provider Response Id",
+    },
   },
   type: "object",
   required: ["parts"],
   title: "ModelResponse",
+  description:
+    "A response from a model, e.g. a message from the model to the Pydantic AI app.",
 } as const
 
 export const $ModelSecretConfig = {
@@ -5926,6 +6225,7 @@ export const $PromptCreate = {
     meta: {
       anyOf: [
         {
+          additionalProperties: true,
           type: "object",
         },
         {
@@ -5982,6 +6282,7 @@ export const $PromptRead = {
       description: "When the prompt was created",
     },
     meta: {
+      additionalProperties: true,
       type: "object",
       title: "Meta",
       description: "Metadata including schema version, tool SHA, token count",
@@ -6385,6 +6686,7 @@ export const $ProviderReadMinimal = {
 export const $ProviderSchema = {
   properties: {
     json_schema: {
+      additionalProperties: true,
       type: "object",
       title: "Json Schema",
     },
@@ -6447,6 +6749,7 @@ export const $PullDiagnostic = {
       title: "Message",
     },
     details: {
+      additionalProperties: true,
       type: "object",
       title: "Details",
     },
@@ -6519,6 +6822,7 @@ export const $ReceiveInteractionResponse = {
 export const $RecordCreate = {
   properties: {
     data: {
+      additionalProperties: true,
       type: "object",
       title: "Data",
     },
@@ -6544,6 +6848,7 @@ export const $RecordRead = {
       title: "Entity Id",
     },
     data: {
+      additionalProperties: true,
       type: "object",
       title: "Data",
     },
@@ -6566,6 +6871,7 @@ export const $RecordRead = {
 export const $RecordUpdate = {
   properties: {
     data: {
+      additionalProperties: true,
       type: "object",
       title: "Data",
     },
@@ -6746,6 +7052,7 @@ export const $RegistryActionCreate = {
 export const $RegistryActionInterface = {
   properties: {
     expects: {
+      additionalProperties: true,
       type: "object",
       title: "Expects",
     },
@@ -7703,6 +8010,55 @@ export const $ReopenedEventRead = {
   description: "Event for when a case is reopened.",
 } as const
 
+export const $RequestUsage = {
+  properties: {
+    input_tokens: {
+      type: "integer",
+      title: "Input Tokens",
+      default: 0,
+    },
+    cache_write_tokens: {
+      type: "integer",
+      title: "Cache Write Tokens",
+      default: 0,
+    },
+    cache_read_tokens: {
+      type: "integer",
+      title: "Cache Read Tokens",
+      default: 0,
+    },
+    output_tokens: {
+      type: "integer",
+      title: "Output Tokens",
+      default: 0,
+    },
+    input_audio_tokens: {
+      type: "integer",
+      title: "Input Audio Tokens",
+      default: 0,
+    },
+    cache_audio_read_tokens: {
+      type: "integer",
+      title: "Cache Audio Read Tokens",
+      default: 0,
+    },
+    output_audio_tokens: {
+      type: "integer",
+      title: "Output Audio Tokens",
+      default: 0,
+    },
+    details: {
+      additionalProperties: {
+        type: "integer",
+      },
+      type: "object",
+      title: "Details",
+    },
+  },
+  type: "object",
+  title: "RequestUsage",
+} as const
+
 export const $ResponseInteraction = {
   properties: {
     type: {
@@ -7775,6 +8131,18 @@ export const $RetryPromptPart = {
   type: "object",
   required: ["content"],
   title: "RetryPromptPart",
+  description: `A message back to a model asking it to try again.
+
+This can be sent for a number of reasons:
+
+* Pydantic validation of tool arguments failed, here content is derived from a Pydantic
+  [\`ValidationError\`][pydantic_core.ValidationError]
+* a tool raised a [\`ModelRetry\`][pydantic_ai.exceptions.ModelRetry] exception
+* no tool was found for the tool name
+* the model returned plain text when a structured response was expected
+* Pydantic validation of a structured response failed, here content is derived from a Pydantic
+  [\`ValidationError\`][pydantic_core.ValidationError]
+* an output validator raised a [\`ModelRetry\`][pydantic_ai.exceptions.ModelRetry] exception`,
 } as const
 
 export const $Role = {
@@ -7872,6 +8240,7 @@ export const $RunActionInput = {
       $ref: "#/components/schemas/ActionStatement",
     },
     exec_context: {
+      additionalProperties: true,
       propertyNames: {
         $ref: "#/components/schemas/ExprContext",
       },
@@ -7931,6 +8300,65 @@ export const $RunContext = {
   title: "RunContext",
   description:
     "This is the runtime context model for a workflow run. Passed into activities.",
+} as const
+
+export const $RunUsage = {
+  properties: {
+    input_tokens: {
+      type: "integer",
+      title: "Input Tokens",
+      default: 0,
+    },
+    cache_write_tokens: {
+      type: "integer",
+      title: "Cache Write Tokens",
+      default: 0,
+    },
+    cache_read_tokens: {
+      type: "integer",
+      title: "Cache Read Tokens",
+      default: 0,
+    },
+    output_tokens: {
+      type: "integer",
+      title: "Output Tokens",
+      default: 0,
+    },
+    input_audio_tokens: {
+      type: "integer",
+      title: "Input Audio Tokens",
+      default: 0,
+    },
+    cache_audio_read_tokens: {
+      type: "integer",
+      title: "Cache Audio Read Tokens",
+      default: 0,
+    },
+    output_audio_tokens: {
+      type: "integer",
+      title: "Output Audio Tokens",
+      default: 0,
+    },
+    details: {
+      additionalProperties: {
+        type: "integer",
+      },
+      type: "object",
+      title: "Details",
+    },
+    requests: {
+      type: "integer",
+      title: "Requests",
+      default: 0,
+    },
+    tool_calls: {
+      type: "integer",
+      title: "Tool Calls",
+      default: 0,
+    },
+  },
+  type: "object",
+  title: "RunUsage",
 } as const
 
 export const $SAMLDatabaseLoginResponse = {
@@ -8045,6 +8473,7 @@ export const $Schedule = {
       title: "Cron",
     },
     inputs: {
+      additionalProperties: true,
       type: "object",
       title: "Inputs",
     },
@@ -8135,6 +8564,7 @@ export const $ScheduleCreate = {
     inputs: {
       anyOf: [
         {
+          additionalProperties: true,
           type: "object",
         },
         {
@@ -8287,6 +8717,7 @@ export const $ScheduleUpdate = {
     inputs: {
       anyOf: [
         {
+          additionalProperties: true,
           type: "object",
         },
         {
@@ -8985,6 +9416,9 @@ export const $SystemPromptPart = {
   type: "object",
   required: ["content"],
   title: "SystemPromptPart",
+  description: `A system prompt, generally written by the application developer.
+
+This gives the model context and guidance on how to respond.`,
 } as const
 
 export const $TableColumnCreate = {
@@ -9202,6 +9636,7 @@ export const $TableReadMinimal = {
 export const $TableRowInsert = {
   properties: {
     data: {
+      additionalProperties: true,
       type: "object",
       title: "Data",
     },
@@ -9221,6 +9656,7 @@ export const $TableRowInsertBatch = {
   properties: {
     rows: {
       items: {
+        additionalProperties: true,
         type: "object",
       },
       type: "array",
@@ -9550,6 +9986,7 @@ export const $TemplateActionDefinition_Input = {
           type: "array",
         },
         {
+          additionalProperties: true,
           type: "object",
         },
       ],
@@ -9677,6 +10114,7 @@ export const $TemplateActionDefinition_Output = {
           type: "array",
         },
         {
+          additionalProperties: true,
           type: "object",
         },
       ],
@@ -9838,6 +10276,48 @@ export const $TextPart = {
   type: "object",
   required: ["content"],
   title: "TextPart",
+  description: "A plain text response from a model.",
+} as const
+
+export const $ThinkingPart = {
+  properties: {
+    content: {
+      type: "string",
+      title: "Content",
+    },
+    id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Id",
+    },
+    signature: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Signature",
+    },
+    part_kind: {
+      type: "string",
+      const: "thinking",
+      title: "Part Kind",
+      default: "thinking",
+    },
+  },
+  type: "object",
+  required: ["content"],
+  title: "ThinkingPart",
+  description: "A thinking response from a model.",
 } as const
 
 export const $Toggle = {
@@ -9875,7 +10355,11 @@ export const $ToolCallPart = {
           type: "string",
         },
         {
+          additionalProperties: true,
           type: "object",
+        },
+        {
+          type: "null",
         },
       ],
       title: "Args",
@@ -9892,8 +10376,9 @@ export const $ToolCallPart = {
     },
   },
   type: "object",
-  required: ["tool_name", "args"],
+  required: ["tool_name"],
   title: "ToolCallPart",
+  description: "A tool call from a model.",
 } as const
 
 export const $ToolReturnPart = {
@@ -9908,6 +10393,9 @@ export const $ToolReturnPart = {
     tool_call_id: {
       type: "string",
       title: "Tool Call Id",
+    },
+    metadata: {
+      title: "Metadata",
     },
     timestamp: {
       type: "string",
@@ -9924,6 +10412,8 @@ export const $ToolReturnPart = {
   type: "object",
   required: ["tool_name", "content", "tool_call_id"],
   title: "ToolReturnPart",
+  description:
+    "A tool return message, this encodes the result of running a tool.",
 } as const
 
 export const $Trigger = {
@@ -9939,6 +10429,7 @@ export const $Trigger = {
       title: "Ref",
     },
     args: {
+      additionalProperties: true,
       type: "object",
       title: "Args",
     },
@@ -10026,65 +10517,6 @@ export const $UpdatedEventRead = {
   required: ["field", "old", "new", "created_at"],
   title: "UpdatedEventRead",
   description: "Event for when a case is updated.",
-} as const
-
-export const $Usage = {
-  properties: {
-    requests: {
-      type: "integer",
-      title: "Requests",
-      default: 0,
-    },
-    request_tokens: {
-      anyOf: [
-        {
-          type: "integer",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Request Tokens",
-    },
-    response_tokens: {
-      anyOf: [
-        {
-          type: "integer",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Response Tokens",
-    },
-    total_tokens: {
-      anyOf: [
-        {
-          type: "integer",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Total Tokens",
-    },
-    details: {
-      anyOf: [
-        {
-          additionalProperties: {
-            type: "integer",
-          },
-          type: "object",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Details",
-    },
-  },
-  type: "object",
-  title: "Usage",
 } as const
 
 export const $UserCreate = {
@@ -10212,6 +10644,10 @@ export const $UserPromptPart = {
   type: "object",
   required: ["content"],
   title: "UserPromptPart",
+  description: `A user prompt, generally written by the end user.
+
+Content comes from the \`user_prompt\` parameter of [\`Agent.run\`][pydantic_ai.agent.AbstractAgent.run],
+[\`Agent.run_sync\`][pydantic_ai.agent.AbstractAgent.run_sync], and [\`Agent.run_stream\`][pydantic_ai.agent.AbstractAgent.run_stream].`,
 } as const
 
 export const $UserRead = {
@@ -10267,6 +10703,7 @@ export const $UserRead = {
       title: "Last Name",
     },
     settings: {
+      additionalProperties: true,
       type: "object",
       title: "Settings",
     },
@@ -10375,6 +10812,7 @@ export const $UserUpdate = {
     settings: {
       anyOf: [
         {
+          additionalProperties: true,
           type: "object",
         },
         {
@@ -10493,16 +10931,52 @@ export const $VideoUrl = {
       type: "string",
       title: "Url",
     },
+    force_download: {
+      type: "boolean",
+      title: "Force Download",
+      default: false,
+    },
+    vendor_metadata: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Vendor Metadata",
+    },
+    identifier: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Identifier",
+    },
     kind: {
       type: "string",
       const: "video-url",
       title: "Kind",
       default: "video-url",
     },
+    media_type: {
+      type: "string",
+      title: "Media Type",
+      description:
+        "Return the media type of the file, based on the URL or the provided `media_type`.",
+      readOnly: true,
+    },
   },
   type: "object",
-  required: ["url"],
+  required: ["url", "media_type"],
   title: "VideoUrl",
+  description: "A URL to a video.",
 } as const
 
 export const $WaitStrategy = {
@@ -10586,6 +11060,7 @@ export const $WebhookRead = {
       title: "Entrypoint Ref",
     },
     filters: {
+      additionalProperties: true,
       type: "object",
       title: "Filters",
     },
@@ -10712,6 +11187,7 @@ export const $WorkflowCommitResponse = {
     metadata: {
       anyOf: [
         {
+          additionalProperties: true,
           type: "object",
         },
         {
@@ -10758,6 +11234,7 @@ export const $WorkflowDefinition = {
       title: "Workflow Id",
     },
     content: {
+      additionalProperties: true,
       type: "object",
       title: "Content",
     },
@@ -11777,6 +12254,7 @@ export const $WorkflowRead = {
     object: {
       anyOf: [
         {
+          additionalProperties: true,
           type: "object",
         },
         {
@@ -11823,6 +12301,7 @@ export const $WorkflowRead = {
       title: "Entrypoint",
     },
     static_inputs: {
+      additionalProperties: true,
       type: "object",
       title: "Static Inputs",
     },
@@ -12099,6 +12578,7 @@ export const $WorkflowUpdate = {
     object: {
       anyOf: [
         {
+          additionalProperties: true,
           type: "object",
         },
         {
@@ -12143,6 +12623,7 @@ export const $WorkflowUpdate = {
     static_inputs: {
       anyOf: [
         {
+          additionalProperties: true,
           type: "object",
         },
         {
