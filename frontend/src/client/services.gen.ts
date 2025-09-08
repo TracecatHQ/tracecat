@@ -4245,12 +4245,17 @@ export const tablesImportCsv = (
 
 /**
  * List Cases
- * List cases with cursor-based pagination and tag filtering.
+ * List cases with cursor-based pagination and filtering.
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.limit Maximum items per page
  * @param data.cursor Cursor for pagination
  * @param data.reverse Reverse pagination direction
+ * @param data.searchTerm Text to search for in case summary and description
+ * @param data.status Filter by case status
+ * @param data.priority Filter by case priority
+ * @param data.severity Filter by case severity
+ * @param data.assigneeId Filter by assignee ID or 'unassigned'
  * @param data.tags Filter by tag IDs or slugs (AND logic)
  * @returns CursorPaginatedResponse_CaseReadMinimal_ Successful Response
  * @throws ApiError
@@ -4265,6 +4270,11 @@ export const casesListCases = (
       limit: data.limit,
       cursor: data.cursor,
       reverse: data.reverse,
+      search_term: data.searchTerm,
+      status: data.status,
+      priority: data.priority,
+      severity: data.severity,
+      assignee_id: data.assigneeId,
       tags: data.tags,
       workspace_id: data.workspaceId,
     },

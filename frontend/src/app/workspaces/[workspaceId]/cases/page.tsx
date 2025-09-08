@@ -20,10 +20,8 @@ export default function CasesPage() {
   return (
     <>
       {view === CasesViewMode.Cases ? (
-        <div className="size-full overflow-auto">
-          <div className="container flex h-full flex-col space-y-12 py-8">
-            <CaseTable />
-          </div>
+        <div className="size-full overflow-auto p-6 space-y-6">
+          <CaseTable />
         </div>
       ) : (
         <CustomFieldsView />

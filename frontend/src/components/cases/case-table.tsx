@@ -3,22 +3,22 @@
 import type { Row } from "@tanstack/react-table"
 import { useRouter } from "next/navigation"
 import { useCallback, useMemo, useState } from "react"
-import type { CaseReadMinimal } from "@/client"
-import {
-  PRIORITIES,
-  SEVERITIES,
-  STATUSES,
-} from "@/components/cases/case-categories"
+import type {
+  CasePriority,
+  CaseReadMinimal,
+  CaseSeverity,
+  CaseStatus,
+} from "@/client"
 import { UNASSIGNED } from "@/components/cases/case-panel-selectors"
 import { createColumns } from "@/components/cases/case-table-columns"
+import { CaseTableFilters } from "@/components/cases/case-table-filters"
 import { DeleteCaseAlertDialog } from "@/components/cases/delete-case-dialog"
-import { DataTable, type DataTableToolbarProps } from "@/components/data-table"
+import { DataTable } from "@/components/data-table"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { useToast } from "@/components/ui/use-toast"
 import { useCasesPagination } from "@/hooks"
 import { useAuth } from "@/hooks/use-auth"
-import { useWorkspaceMembers } from "@/hooks/use-workspace"
-import { getDisplayName } from "@/lib/auth"
+import { useDebounce } from "@/hooks/use-debounce"
 import { useDeleteCase } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -28,7 +28,21 @@ export default function CaseTable() {
   const [pageSize, setPageSize] = useState(20)
   const [selectedCase, setSelectedCase] = useState<CaseReadMinimal | null>(null)
   const router = useRouter()
-  const { members } = useWorkspaceMembers(workspaceId)
+
+  // Server-side filter states
+  const [searchTerm, setSearchTerm] = useState<string>("")
+  const [statusFilter, setStatusFilter] = useState<CaseStatus | null>(null)
+  const [priorityFilter, setPriorityFilter] = useState<CasePriority | null>(
+    null
+  )
+  const [severityFilter, setSeverityFilter] = useState<CaseSeverity | null>(
+    null
+  )
+  const [assigneeFilter, setAssigneeFilter] = useState<string | null>(null)
+  const [tagsFilter, _setTagsFilter] = useState<string[] | null>(null)
+
+  // Debounce search term for better performance
+  const [debouncedSearchTerm] = useDebounce(searchTerm, 300)
 
   const {
     data: cases,
@@ -43,7 +57,16 @@ export default function CaseTable() {
     totalEstimate,
     startItem,
     endItem,
-  } = useCasesPagination({ workspaceId, limit: pageSize })
+  } = useCasesPagination({
+    workspaceId,
+    limit: pageSize,
+    searchTerm: debouncedSearchTerm || null,
+    status: statusFilter,
+    priority: priorityFilter,
+    severity: severityFilter,
+    assigneeId: assigneeFilter === UNASSIGNED ? "unassigned" : assigneeFilter,
+    tags: tagsFilter,
+  })
   const { toast } = useToast()
   const [isDeleting, setIsDeleting] = useState(false)
   const { deleteCase } = useDeleteCase({
@@ -88,56 +111,48 @@ export default function CaseTable() {
     [deleteCase, toast]
   )
 
-  const defaultToolbarProps = useMemo(() => {
-    const workspaceMembers =
-      members?.map((m) => {
-        const displayName = getDisplayName({
-          first_name: m.first_name,
-          last_name: m.last_name,
-          email: m.email,
-        })
-        return {
-          label: displayName,
-          value: displayName,
-        }
-      }) ?? []
-    const assignees = [
-      {
-        label: "Not assigned",
-        value: UNASSIGNED,
-      },
-      ...workspaceMembers,
-    ]
+  // Handle filter changes
+  const handleSearchChange = useCallback(
+    (value: string) => {
+      setSearchTerm(value)
+      if (value !== searchTerm) {
+        goToFirstPage()
+      }
+    },
+    [searchTerm, goToFirstPage]
+  )
 
-    return {
-      filterProps: {
-        placeholder: "Filter cases by summary...",
-        column: "summary",
-      },
-      fields: [
-        {
-          column: "status",
-          title: "Status",
-          options: Object.values(STATUSES),
-        },
-        {
-          column: "priority",
-          title: "Priority",
-          options: Object.values(PRIORITIES),
-        },
-        {
-          column: "severity",
-          title: "Severity",
-          options: Object.values(SEVERITIES),
-        },
-        {
-          column: "Assignee",
-          title: "Assignee",
-          options: assignees,
-        },
-      ],
-    } as DataTableToolbarProps<CaseReadMinimal>
-  }, [members])
+  const handleStatusChange = useCallback(
+    (value: CaseStatus | null) => {
+      setStatusFilter(value)
+      goToFirstPage()
+    },
+    [goToFirstPage]
+  )
+
+  const handlePriorityChange = useCallback(
+    (value: CasePriority | null) => {
+      setPriorityFilter(value)
+      goToFirstPage()
+    },
+    [goToFirstPage]
+  )
+
+  const handleSeverityChange = useCallback(
+    (value: CaseSeverity | null) => {
+      setSeverityFilter(value)
+      goToFirstPage()
+    },
+    [goToFirstPage]
+  )
+
+  const handleAssigneeChange = useCallback(
+    (value: string | null) => {
+      setAssigneeFilter(value)
+      goToFirstPage()
+    },
+    [goToFirstPage]
+  )
 
   return (
     <DeleteCaseAlertDialog
@@ -146,6 +161,19 @@ export default function CaseTable() {
     >
       <TooltipProvider>
         <div className="space-y-4">
+          <CaseTableFilters
+            workspaceId={workspaceId}
+            searchTerm={searchTerm}
+            onSearchChange={handleSearchChange}
+            statusFilter={statusFilter}
+            onStatusChange={handleStatusChange}
+            priorityFilter={priorityFilter}
+            onPriorityChange={handlePriorityChange}
+            severityFilter={severityFilter}
+            onSeverityChange={handleSeverityChange}
+            assigneeFilter={assigneeFilter}
+            onAssigneeChange={handleAssigneeChange}
+          />
           <DataTable
             data={cases || []}
             isLoading={casesIsLoading || isDeleting}
@@ -156,7 +184,6 @@ export default function CaseTable() {
               `/workspaces/${workspaceId}/cases/${row.original.id}`
             }
             onDeleteRows={handleDeleteRows}
-            toolbarProps={defaultToolbarProps}
             tableId={`${user?.id}-${workspaceId}-cases`}
             serverSidePagination={{
               currentPage,

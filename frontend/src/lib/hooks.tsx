@@ -2749,8 +2749,10 @@ export function useCreateCase(workspaceId: string) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["cases"] })
       queryClient.invalidateQueries({ queryKey: ["cases", workspaceId] })
+      // Use partial matching to invalidate all paginated queries regardless of filters
       queryClient.invalidateQueries({
-        queryKey: ["cases", "paginated", workspaceId],
+        queryKey: ["cases", "paginated"],
+        exact: false,
       })
       toast({
         title: "Case created",
@@ -2792,8 +2794,10 @@ export function useUpdateCase({
       queryClient.invalidateQueries({
         queryKey: ["cases", workspaceId],
       })
+      // Use partial matching to invalidate all paginated queries regardless of filters
       queryClient.invalidateQueries({
-        queryKey: ["cases", "paginated", workspaceId],
+        queryKey: ["cases", "paginated"],
+        exact: false,
       })
       queryClient.invalidateQueries({
         queryKey: ["case", caseId],
@@ -2841,8 +2845,10 @@ export function useDeleteCase({ workspaceId }: { workspaceId: string }) {
       queryClient.invalidateQueries({
         queryKey: ["cases", workspaceId],
       })
+      // Use partial matching to invalidate all paginated queries regardless of filters
       queryClient.invalidateQueries({
-        queryKey: ["cases", "paginated", workspaceId],
+        queryKey: ["cases", "paginated"],
+        exact: false,
       })
     },
     onError: (error: TracecatApiError) => {

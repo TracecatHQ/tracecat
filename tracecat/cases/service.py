@@ -96,21 +96,66 @@ class CasesService(BaseWorkspaceService):
         return result.all()
 
     async def list_cases_paginated(
-        self, params: CursorPaginationParams, tag_ids: list[uuid.UUID] | None = None
+        self,
+        params: CursorPaginationParams,
+        search_term: str | None = None,
+        status: CaseStatus | None = None,
+        priority: CasePriority | None = None,
+        severity: CaseSeverity | None = None,
+        assignee_id: uuid.UUID | str | None = None,
+        tag_ids: list[uuid.UUID] | None = None,
     ) -> CursorPaginatedResponse[CaseReadMinimal]:
-        """List cases with cursor-based pagination."""
+        """List cases with cursor-based pagination and filtering."""
         paginator = BaseCursorPaginator(self.session)
 
         # Get estimated total count from table statistics
         total_estimate = await paginator.get_table_row_estimate("cases")
 
-        # Base query with workspace filter - eagerly load tags
+        # Base query with workspace filter - eagerly load tags and assignee
         stmt = (
             select(Case)
             .where(Case.owner_id == self.workspace_id)
             .options(selectinload(Case.tags))  # type: ignore
+            .options(selectinload(Case.assignee))  # type: ignore
             .order_by(col(Case.created_at).desc(), col(Case.id).desc())
         )
+
+        # Apply search term filter
+        if search_term:
+            # Validate search term to prevent abuse
+            if len(search_term) > 1000:
+                raise ValueError("Search term cannot exceed 1000 characters")
+            if "\x00" in search_term:
+                raise ValueError("Search term cannot contain null bytes")
+
+            # Use SQLAlchemy's concat function for proper parameter binding
+            search_pattern = func.concat("%", search_term, "%")
+            stmt = stmt.where(
+                or_(
+                    col(Case.summary).ilike(search_pattern),
+                    col(Case.description).ilike(search_pattern),
+                )
+            )
+
+        # Apply status filter
+        if status:
+            stmt = stmt.where(Case.status == status)
+
+        # Apply priority filter
+        if priority:
+            stmt = stmt.where(Case.priority == priority)
+
+        # Apply severity filter
+        if severity:
+            stmt = stmt.where(Case.severity == severity)
+
+        # Apply assignee filter
+        if assignee_id is not None:
+            # Special handling for unassigned cases
+            if assignee_id == "unassigned":
+                stmt = stmt.where(Case.assignee_id.is_(None))
+            else:
+                stmt = stmt.where(Case.assignee_id == assignee_id)
 
         # Apply tag filtering if tag_ids provided (AND logic - case must have all tags)
         if tag_ids:
