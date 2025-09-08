@@ -319,7 +319,7 @@ async def test_http_poll_condition() -> None:
     result = await http_poll(
         url="https://api.example.com",
         method="GET",
-        poll_condition="lambda x: x['data']['status'] == 'pending'",
+        poll_condition="lambda x: x['data']['status'] == 'completed'",
         poll_interval=0.1,
         poll_max_attempts=3,
     )
@@ -358,8 +358,8 @@ async def test_http_poll_jsonpath_condition() -> None:
     result = await http_poll(
         url="https://api.example.com",
         method="GET",
-        # Retry while status.state is 'pending'
-        poll_condition="lambda x: jsonpath('$.data.status.state', x) == 'pending'",
+        # Poll until status.state is 'completed'
+        poll_condition="lambda x: x['data']['status']['state'] == 'completed'",
         poll_interval=0.1,
         poll_max_attempts=3,
     )
@@ -397,7 +397,8 @@ async def test_http_poll_max_attempts_exceeded() -> None:
 async def test_http_poll_invalid_params() -> None:
     """Test HTTP polling with invalid parameters."""
     with pytest.raises(
-        ValueError, match="At least one of retry_codes or predicate must be specified"
+        ValueError,
+        match="At least one of poll_condition or poll_retry_codes must be specified",
     ):
         await http_poll(
             url="https://api.example.com",
@@ -505,7 +506,7 @@ async def test_http_poll_complex_condition() -> None:
     result = await http_poll(
         url="https://api.example.com",
         method="GET",
-        poll_condition="lambda x: x['headers'].get('x-status') == 'pending'",
+        poll_condition="lambda x: x['headers'].get('x-status') == 'completed'",
         poll_interval=0.1,
         poll_max_attempts=3,
     )
