@@ -653,7 +653,7 @@ async def http_poll(
     poll_condition: Annotated[
         str | None,
         Doc(
-            "Python lambda function that determines when polling should STOP. The function receives a dict with `headers`, `data`, and `status_code` fields."
+            "Python lambda function when evaluated to True, stops polling. The function receives a dict with `headers`, `data`, and `status_code` fields."
         ),
     ] = None,
 ) -> HTTPResponse:
