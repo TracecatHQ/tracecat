@@ -509,7 +509,7 @@ export function CreateScheduleDialog({ workflowId }: { workflowId: string }) {
           workflow_id: workflowId,
           every: durationToISOString(duration),
           timeout,
-          offset,
+          offset: offset || undefined,
         },
       })
       console.log("Schedule created", response)
