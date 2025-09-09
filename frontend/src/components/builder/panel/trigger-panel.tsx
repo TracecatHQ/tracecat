@@ -326,11 +326,12 @@ export function ScheduleControls({ workflowId }: { workflowId: string }) {
             <TableHead className="text-xs font-semibold">Interval</TableHead>
             <TableHead className="text-xs font-semibold">Status</TableHead>
             <TableHead className="text-xs font-semibold">Timeout</TableHead>
+            <TableHead className="text-xs font-semibold">Offset</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {schedules.length > 0 ? (
-            schedules.map(({ id, status, every, timeout }) => (
+            schedules.map(({ id, status, every, timeout, offset }) => (
               <TableRow key={id} className="ext-xs text-muted-foreground">
                 <TableCell className="items-center pl-3 text-xs">
                   {id}
@@ -346,6 +347,11 @@ export function ScheduleControls({ workflowId }: { workflowId: string }) {
                 <TableCell className="text-xs capitalize">
                   <div className="flex">
                     <p>{timeout ? `${timeout}s` : "None"}</p>
+                  </div>
+                </TableCell>
+                <TableCell className="text-xs">
+                  <div className="flex">
+                    <p>{offset || "None"}</p>
                   </div>
                 </TableCell>
                 <TableCell className="items-center pr-3 text-xs">
@@ -422,7 +428,7 @@ export function ScheduleControls({ workflowId }: { workflowId: string }) {
             <TableRow className="justify-center text-xs text-muted-foreground">
               <TableCell
                 className="h-8 text-center bg-muted-foreground/5"
-                colSpan={4}
+                colSpan={5}
               >
                 No Schedules
               </TableCell>
