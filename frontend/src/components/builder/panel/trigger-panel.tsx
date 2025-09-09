@@ -439,7 +439,20 @@ export function ScheduleControls({ workflowId }: { workflowId: string }) {
 const scheduleInputsSchema = z.object({
   duration: durationSchema,
   timeout: z.number().optional(),
-  offset: z.string().optional(),
+  offset: z
+    .string()
+    .optional()
+    .refine(
+      (val) => {
+        if (!val || val === "") return true // Allow empty/undefined
+        // ISO 8601 duration regex pattern
+        const iso8601DurationRegex = /^P(?!$)(\d+(?:\.\d+)?Y)?(\d+(?:\.\d+)?M)?(\d+(?:\.\d+)?W)?(\d+(?:\.\d+)?D)?(T(?=\d)(\d+(?:\.\d+)?H)?(\d+(?:\.\d+)?M)?(\d+(?:\.\d+)?S)?)?$/
+        return iso8601DurationRegex.test(val)
+      },
+      {
+        message: "Must be a valid ISO 8601 duration string (e.g., PT1H, P1D, PT30M)",
+      }
+    ),
 })
 type DurationType =
   | "duration.years"
@@ -614,7 +627,7 @@ export function CreateScheduleDialog({ workflowId }: { workflowId: string }) {
                     Offset
                   </FormLabel>
                   <FormDescription className="text-xs">
-                    Optional delay before the first execution (ISO 8601 duration string, e.g., PT1H for 1 hour).
+                    Optional delay before the first execution. Use ISO 8601 duration format: PT1H (1 hour), P1D (1 day), PT30M (30 minutes).
                   </FormDescription>
                   <FormControl>
                     <Input
