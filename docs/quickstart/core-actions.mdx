@@ -121,7 +121,7 @@ Perform an HTTP request to a given URL.
     - The value can be:
         1.  A simple **base64 encoded string** representing the file content. In this case, the `form_field_name` will also be used as the filename in the `Content-Disposition` header.
         2.  A **dictionary (`FileUploadData`)** with the following keys:
-+            - `filename` (str): The actual filename to be sent in the `Content-Disposition` header (e.g., `"mydocument.pdf"`). If not provided or empty, the `form_field_name` will be used.
+            - `filename` (str): The actual filename to be sent in the `Content-Disposition` header (e.g., `"mydocument.pdf"`). If not provided or empty, the `form_field_name` will be used.
             - `content_base64` (str, required): The base64 encoded string of the file content.
             - `content_type` (str, optional): The MIME type of the file (e.g., `"application/pdf"`, `"image/png"`). If not provided, `httpx` will attempt to guess it.
 - `auth` (dict[str, str], optional): Basic auth credentials with `username` and `password` keys.
@@ -202,7 +202,7 @@ Perform an HTTP request to a given URL with polling.
 - `poll_retry_codes` (int | list[int], optional): Status codes on which the action will retry. If not specified, `poll_condition` must be provided.
 - `poll_interval` (float, optional): Interval in seconds between polling attempts. If not specified, defaults to polling with exponential wait.
 - `poll_max_attempts` (int, optional, default: 10): Maximum number of polling attempts. If set to 0, the action will poll indefinitely (until timeout).
-- `poll_condition` (str, optional): User defined Python lambda function. If returns a truthy value, stops polling. If not specified, `poll_retry_codes` must be provided.
+- `poll_condition` (str, optional): User defined Python lambda function. When it returns a truthy value, stops polling. If not specified, `poll_retry_codes` must be provided.
 
 **Returns**
 
@@ -231,6 +231,113 @@ Examples:
 ```
 </CodeGroup>
 
+## HTTP Paginate
+
+Paginate through a HTTP response.
+
+**Parameters**
+
+- Accepts all parameters from `core.http_request` **except for the `files` parameter.** `core.http_paginate` does not support file uploads.
+- `stop_condition` (str, required): User defined Python lambda function. When it returns a truthy value, stops pagination.
+- `next_request` (str, required): User defined Python lambda function. Returns the next request as a JSON of `url`, `method`, `headers`, `params`, `payload`, `form_data` to paginate to.
+- `items_jsonpath` (str, optional): JSONPath expression that evaluates to the items to paginate through.
+- `limit` (int, optional, default: 1000): Maximum number of items to paginate through.
+
+**Returns**
+
+- With `items_jsonpath`: A flat list of items collected across pages, truncated to `limit` items.
+- Without `items_jsonpath`: A list of per-page `HTTPResponse` objects, where `limit` applies per page.
+
+Examples:
+
+<CodeGroup>
+  ```json Cursor in body (response example)
+  {
+    "items": [{"id": 1}, {"id": 2}],
+    "cursor": "https://api.example.com/resources?cursor=abc123"
+  }
+  ```
+
+  ```yaml Cursor in body (pagination config)
+  stop_condition: "lambda x: x['data'].get('cursor') is None"
+  next_request: "lambda x: {'url': x['data'].get('cursor')}"
+  items_jsonpath: $.items
+  limit: 1000
+  ```
+
+  ```json Offset + total (response example)
+  {
+    "items": [{"id": 101}, {"id": 102}],
+    "offset": 0,
+    "limit": 100,
+    "total": 250
+  }
+  ```
+
+  ```yaml Offset + total (pagination config)
+  stop_condition: "lambda x: (x['data'].get('offset', 0) + x['data'].get('limit', 0)) >= x['data'].get('total', 0)"
+  next_request: "lambda x: {'params': {'offset': x['data'].get('offset', 0) + x['data'].get('limit', 0)}}"
+  items_jsonpath: $.items
+  limit: 1000
+  ```
+
+  ```json nextPageToken in body (response example)
+  {
+    "items": [{"id": "a"}, {"id": "b"}],
+    "nextPageToken": "token-123"
+  }
+  ```
+
+  ```yaml nextPageToken in body (pagination config)
+  stop_condition: "lambda x: not x['data'].get('nextPageToken')"
+  next_request: "lambda x: {'params': {'pageToken': x['data'].get('nextPageToken')}}"
+  items_jsonpath: $.items
+  limit: 1000
+  ```
+
+  ```http Link header (response headers example)
+  Link: <https://api.example.com/resources?page=3>; rel="next", <https://api.example.com/resources?page=50>; rel="last"
+  ```
+
+  ```yaml Link header (pagination config)
+  # Stops when no rel="next" link is present
+  stop_condition: "lambda x: 'link' not in {k.lower(): v for k, v in x['headers'].items()} or 'rel=\"next\"' not in {k.lower(): v for k, v in x['headers'].items()}['link']"
+  # Picks the rel="next" URL from the Link header
+  next_request: "lambda x: {'url': [p.split(';')[0].strip('<> ') for p in {k.lower(): v for k, v in x['headers'].items()}['link'].split(',') if 'rel=\"next\"' in p][0]}"
+  items_jsonpath: $.items
+  limit: 1000
+  ```
+
+  ```http Header token (response headers + body example)
+  x-next-cursor: abc123
+  ---
+  { "items": [{"id": 1}], "count": 1 }
+  ```
+
+  ```yaml Header token (pagination config)
+  stop_condition: "lambda x: not x['headers'].get('x-next-cursor')"
+  next_request: "lambda x: {'params': {'cursor': x['headers'].get('x-next-cursor')}}"
+  items_jsonpath: $.items
+  limit: 1000
+  ```
+
+  ```json Stop on empty items (response example)
+  { "items": [] }
+  ```
+
+  ```yaml Stop on empty items (pagination config)
+  stop_condition: "lambda x: not x['data'].get('items')"
+  next_request: "lambda x: {'params': {'page': (x['data'].get('page', 1) + 1)}}"
+  items_jsonpath: $.items
+  limit: 1000
+  ```
+</CodeGroup>
+
+<Note>
+  To capture the entire response body from each page as items, set `items_jsonpath` to `$`.
+  This returns a flat list of page bodies (e.g., `[page1_body, page2_body, ...]`).
+  If you omit `items_jsonpath`, the action returns a list of full `HTTPResponse` objects (headers, status_code, data) — one per page.
+</Note>
 
 ## Tutorial: URLScan
 

@@ -21,7 +21,7 @@ from tenacity import (
     wait_fixed,
 )
 import yaml
-from tracecat.expressions.common import build_safe_lambda
+from tracecat.expressions.common import build_safe_lambda, eval_jsonpath
 from tracecat.logger import logger
 from typing_extensions import Doc
 
@@ -653,7 +653,7 @@ async def http_poll(
     poll_condition: Annotated[
         str | None,
         Doc(
-            "Python lambda function that determines when polling should STOP. The function receives a dict with `headers`, `data`, and `status_code` fields."
+            "Python lambda function when evaluated to True, stops polling. The function receives a dict with `headers`, `data`, and `status_code` fields."
         ),
     ] = None,
 ) -> HTTPResponse:
@@ -746,3 +746,111 @@ async def http_poll(
 
     result = await call()
     return httpx_to_response(result)
+
+
+@registry.register(
+    namespace="core",
+    description="Paginate through a HTTP response",
+    default_title="HTTP paginate",
+)
+async def http_paginate(
+    *,
+    # Common
+    url: Url,
+    method: Method,
+    headers: Headers = None,
+    params: Params = None,
+    payload: Payload = None,
+    form_data: FormData = None,
+    auth: Auth = None,
+    timeout: Timeout = 10.0,
+    follow_redirects: FollowRedirects = False,
+    max_redirects: MaxRedirects = 20,
+    verify_ssl: VerifySSL = True,
+    # Pagination
+    stop_condition: Annotated[
+        str,
+        Doc(
+            "Python lambda function that determines when pagination should STOP. The function receives a dict with `headers`, `data`, and `status_code` fields."
+        ),
+    ],
+    next_request: Annotated[
+        str,
+        Doc(
+            "Python lambda function that returns the next request as a JSON of `url`, `method`, `headers`, `params`, `payload`, `form_data` to paginate to. The function receives a dict with `headers`, `data`, and `status_code` fields."
+        ),
+    ],
+    items_jsonpath: Annotated[
+        str | None,
+        Doc("JSONPath expression that evaluates to the items to paginate through."),
+    ] = None,
+    limit: Annotated[
+        int,
+        Doc("Maximum number of items to paginate through. Defaults to 1000."),
+    ] = 1000,
+) -> list[Any]:
+    """Paginate through a HTTP response.
+
+    Returns a list of items when `items_jsonpath` is provided (flattened across pages),
+    respecting the `limit` as item-level count. When `items_jsonpath` is None,
+    returns a list of `HTTPResponse` objects (one per page), and `limit` applies per-page.
+    """
+
+    stop_condition_fn = build_safe_lambda(stop_condition)
+    next_request_fn = build_safe_lambda(next_request)
+    results: list[Any] = []
+    # Short-circuit when no items are requested
+    if limit == 0:
+        return results
+    while len(results) < limit:
+        response = await http_request(
+            url=url,
+            method=method,
+            headers=headers,
+            params=params,
+            payload=payload,
+            form_data=form_data,
+            files=None,
+            auth=auth,
+            timeout=timeout,
+            follow_redirects=follow_redirects,
+            max_redirects=max_redirects,
+            verify_ssl=verify_ssl,
+        )
+        if items_jsonpath is not None:
+            data = response["data"]
+            # Apply jsonpath to either dict or list root. If not a dict/list, this will raise
+            # a TracecatExpressionError, surfacing misuse clearly to users.
+            if isinstance(data, dict):
+                items_value = eval_jsonpath(items_jsonpath, data)
+            else:
+                items_value = data
+
+            # Normalize the jsonpath result to a list of items
+            if items_value is None:
+                page_items: list[Any] = []
+            elif isinstance(items_value, list):
+                page_items = items_value
+            else:
+                page_items = [items_value]
+
+            # Enforce item-level limit by extending up to remaining slots
+            remaining = max(0, limit - len(results))
+            if remaining > 0:
+                results.extend(page_items[:remaining])
+        else:
+            # When no items_jsonpath is provided, append the full page response
+            results.append(response)
+
+        # Stop if reached limit or stop condition met
+        if len(results) >= limit or stop_condition_fn(response):
+            break
+        request = next_request_fn(response)
+        url = request.get("url", url)
+        method = request.get("method", method)
+        headers = request.get("headers", headers)
+        params = request.get("params", params)
+        payload = request.get("payload", payload)
+        form_data = request.get("form_data", form_data)
+
+    return results
