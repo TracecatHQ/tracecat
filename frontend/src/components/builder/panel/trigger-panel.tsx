@@ -445,9 +445,22 @@ const scheduleInputsSchema = z.object({
     .refine(
       (val) => {
         if (!val || val === "") return true // Allow empty/undefined
+        
         // ISO 8601 duration regex pattern
-        const iso8601DurationRegex = /^P(?!$)(\d+(?:\.\d+)?Y)?(\d+(?:\.\d+)?M)?(\d+(?:\.\d+)?W)?(\d+(?:\.\d+)?D)?(T(?=\d)(\d+(?:\.\d+)?H)?(\d+(?:\.\d+)?M)?(\d+(?:\.\d+)?S)?)?$/
-        return iso8601DurationRegex.test(val)
+        const iso8601DurationRegex = /^P(?!$)(\d+(?:\.\d+)?Y)?(\d+(?:\.\d+)?M)?(\d+(?:\.\d+)?W)?(\d+(?:\.\d+)?D)?(T(\d+(?:\.\d+)?H)?(\d+(?:\.\d+)?M)?(\d+(?:\.\d+)?S)?)?$/
+        
+        // First check basic format
+        if (!iso8601DurationRegex.test(val)) return false
+        
+        // If T is present, ensure at least one time component follows
+        if (val.includes('T')) {
+          const timePart = val.split('T')[1]
+          if (!timePart || !/(\d+(?:\.\d+)?[HMS])/.test(timePart)) {
+            return false
+          }
+        }
+        
+        return true
       },
       {
         message: "Must be a valid ISO 8601 duration string (e.g., PT1H, P1D, PT30M)",
