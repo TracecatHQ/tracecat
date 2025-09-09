@@ -784,13 +784,17 @@ async def http_paginate(
         str | None,
         Doc("JSONPath expression that evaluates to the items to paginate through."),
     ] = None,
+    limit: Annotated[
+        int,
+        Doc("Maximum number of items to paginate through. Defaults to 1000."),
+    ] = 1000,
 ) -> list[HTTPResponse]:
     """Paginate through a HTTP response."""
 
     stop_condition_fn = build_safe_lambda(stop_condition)
     next_request_fn = build_safe_lambda(next_request)
     responses = []
-    while True:
+    while len(responses) < limit:
         response = await http_request(
             url=url,
             method=method,
