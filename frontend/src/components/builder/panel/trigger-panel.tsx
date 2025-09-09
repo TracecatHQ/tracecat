@@ -97,18 +97,18 @@ const HTTP_METHODS: readonly WebhookMethod[] = $WebhookMethod.enum
 
 export function TriggerPanel({ workflow }: { workflow: WorkflowRead }) {
   return (
-    <div className="size-full overflow-auto">
+    <div className="overflow-auto size-full">
       <div className="grid grid-cols-3">
-        <div className="col-span-2 overflow-hidden">
+        <div className="overflow-hidden col-span-2">
           <h3 className="p-4">
-            <div className="flex w-full items-center space-x-4">
+            <div className="flex items-center space-x-4 w-full">
               {getIcon(TriggerTypename, {
                 className: "size-10 p-2",
                 flairsize: "md",
               })}
-              <div className="flex w-full flex-1 justify-between space-x-12">
+              <div className="flex flex-1 justify-between space-x-12 w-full">
                 <div className="flex flex-col">
-                  <div className="flex w-full items-center justify-between text-xs font-medium leading-none">
+                  <div className="flex justify-between items-center w-full text-xs font-medium leading-none">
                     <div className="flex w-full">Trigger</div>
                   </div>
                   <p className="mt-2 text-xs text-muted-foreground">
@@ -139,7 +139,7 @@ export function TriggerPanel({ workflow }: { workflow: WorkflowRead }) {
             </div>
           </AccordionTrigger>
           <AccordionContent>
-            <div className="my-4 space-y-2 px-4">
+            <div className="px-4 my-4 space-y-2">
               <WebhookControls
                 webhook={workflow.webhook}
                 workflowId={workflow.id}
@@ -157,7 +157,7 @@ export function TriggerPanel({ workflow }: { workflow: WorkflowRead }) {
             </div>
           </AccordionTrigger>
           <AccordionContent>
-            <div className="my-4 space-y-2 px-4">
+            <div className="px-4 my-4 space-y-2">
               <ScheduleControls workflowId={workflow.id} />
             </div>
           </AccordionContent>
@@ -205,10 +205,10 @@ export function WebhookControls({
   return (
     <div className="space-y-4">
       <div className="space-y-2">
-        <div className="flex items-center justify-between">
+        <div className="flex justify-between items-center">
           <Label
             htmlFor="webhook-toggle"
-            className="flex items-center gap-2 text-xs font-medium"
+            className="flex gap-2 items-center text-xs font-medium"
           >
             <span>Toggle Webhook</span>
           </Label>
@@ -227,7 +227,7 @@ export function WebhookControls({
       </div>
 
       <div className="space-y-2">
-        <Label className="flex items-center gap-2 text-xs font-medium">
+        <Label className="flex gap-2 items-center text-xs font-medium">
           <span>Allowed HTTP Methods</span>
         </Label>
         <div className="relative w-full">
@@ -236,7 +236,7 @@ export function WebhookControls({
               <Button
                 variant="outline"
                 role="combobox"
-                className="w-full justify-between text-xs"
+                className="justify-between w-full text-xs"
               >
                 {methods.length > 0
                   ? methods.sort().join(", ")
@@ -275,7 +275,7 @@ export function WebhookControls({
       </div>
 
       <div className="space-y-2">
-        <Label className="flex items-center gap-2 text-xs font-medium">
+        <Label className="flex gap-2 items-center text-xs font-medium">
           <span>URL</span>
           <CopyButton value={url} toastMessage="Copied URL to clipboard" />
         </Label>
@@ -283,7 +283,7 @@ export function WebhookControls({
           <Input
             name="url"
             defaultValue={url}
-            className="rounded-md border-none text-xs shadow-none"
+            className="text-xs rounded-md border-none shadow-none"
             readOnly
             disabled
           />
@@ -353,7 +353,7 @@ export function ScheduleControls({ workflowId }: { workflowId: string }) {
                     <AlertDialog>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button className="size-6 p-0" variant="ghost">
+                          <Button className="p-0 size-6" variant="ghost">
                             <DotsHorizontalIcon className="size-4" />
                           </Button>
                         </DropdownMenuTrigger>
@@ -421,7 +421,7 @@ export function ScheduleControls({ workflowId }: { workflowId: string }) {
           ) : (
             <TableRow className="justify-center text-xs text-muted-foreground">
               <TableCell
-                className="h-8 bg-muted-foreground/5 text-center"
+                className="h-8 text-center bg-muted-foreground/5"
                 colSpan={4}
               >
                 No Schedules
@@ -439,6 +439,7 @@ export function ScheduleControls({ workflowId }: { workflowId: string }) {
 const scheduleInputsSchema = z.object({
   duration: durationSchema,
   timeout: z.number().optional(),
+  offset: z.string().optional(),
 })
 type DurationType =
   | "duration.years"
@@ -468,7 +469,7 @@ export function CreateScheduleDialog({ workflowId }: { workflowId: string }) {
       return
     }
 
-    const { duration, timeout } = values
+    const { duration, timeout, offset } = values
     try {
       const response = await createSchedule({
         workspaceId,
@@ -476,6 +477,7 @@ export function CreateScheduleDialog({ workflowId }: { workflowId: string }) {
           workflow_id: workflowId,
           every: durationToISOString(duration),
           timeout,
+          offset,
         },
       })
       console.log("Schedule created", response)
@@ -499,7 +501,7 @@ export function CreateScheduleDialog({ workflowId }: { workflowId: string }) {
                   type="button"
                   variant="ghost"
                   size="sm"
-                  className="flex h-7 w-full items-center justify-center gap-2 text-muted-foreground"
+                  className="flex gap-2 justify-center items-center w-full h-7 text-muted-foreground"
                   disabled={!hasVersion}
                 >
                   <PlusCircleIcon className="size-4" />
@@ -573,6 +575,7 @@ export function CreateScheduleDialog({ workflowId }: { workflowId: string }) {
                 />
               ))}
             </div>
+            
             <FormField
               key="timeout"
               control={form.control}
@@ -594,6 +597,31 @@ export function CreateScheduleDialog({ workflowId }: { workflowId: string }) {
                       {...form.register("timeout", {
                         valueAsNumber: true,
                       })}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            
+            <FormField
+              key="offset"
+              control={form.control}
+              name="offset"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-xs capitalize text-foreground/80">
+                    Offset
+                  </FormLabel>
+                  <FormDescription className="text-xs">
+                    Optional delay before the first execution (ISO 8601 duration string, e.g., PT1H for 1 hour).
+                  </FormDescription>
+                  <FormControl>
+                    <Input
+                      type="text"
+                      className="text-xs"
+                      placeholder="PT1H (optional)"
+                      {...field}
                     />
                   </FormControl>
                   <FormMessage />
