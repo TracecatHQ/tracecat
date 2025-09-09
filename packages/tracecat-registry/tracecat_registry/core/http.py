@@ -21,7 +21,7 @@ from tenacity import (
     wait_fixed,
 )
 import yaml
-from tracecat.expressions.common import build_safe_lambda
+from tracecat.expressions.common import build_safe_lambda, eval_jsonpath
 from tracecat.logger import logger
 from typing_extensions import Doc
 
@@ -746,3 +746,80 @@ async def http_poll(
 
     result = await call()
     return httpx_to_response(result)
+
+
+@registry.register(
+    namespace="core",
+    description="Paginate through a HTTP response",
+    default_title="HTTP paginate",
+)
+async def http_paginate(
+    *,
+    # Common
+    url: Url,
+    method: Method,
+    headers: Headers = None,
+    params: Params = None,
+    payload: Payload = None,
+    form_data: FormData = None,
+    auth: Auth = None,
+    timeout: Timeout = 10.0,
+    follow_redirects: FollowRedirects = False,
+    max_redirects: MaxRedirects = 20,
+    verify_ssl: VerifySSL = True,
+    # Pagination
+    stop_condition: Annotated[
+        str,
+        Doc(
+            "Python lambda function that determines when pagination should STOP. The function receives a dict with `headers`, `data`, and `status_code` fields."
+        ),
+    ],
+    next_request: Annotated[
+        str,
+        Doc(
+            "Python lambda function that returns the next request as a JSON of `url`, `method`, `headers`, `params`, `payload`, `form_data` to paginate to. The function receives a dict with `headers`, `data`, and `status_code` fields."
+        ),
+    ],
+    items_jsonpath: Annotated[
+        str | None,
+        Doc("JSONPath expression that evaluates to the items to paginate through."),
+    ] = None,
+) -> list[HTTPResponse]:
+    """Paginate through a HTTP response."""
+
+    stop_condition_fn = build_safe_lambda(stop_condition)
+    next_request_fn = build_safe_lambda(next_request)
+    responses = []
+    while True:
+        response = await http_request(
+            url=url,
+            method=method,
+            headers=headers,
+            params=params,
+            payload=payload,
+            form_data=form_data,
+            files=None,
+            auth=auth,
+            timeout=timeout,
+            follow_redirects=follow_redirects,
+            max_redirects=max_redirects,
+            verify_ssl=verify_ssl,
+        )
+        if items_jsonpath is not None:
+            data = response["data"]
+            if isinstance(data, dict):
+                items = eval_jsonpath(items_jsonpath, data)
+                responses.append(items)
+            else:
+                responses.append(response)
+        if stop_condition_fn(response):
+            break
+        request = next_request_fn(response)
+        url = request.get("url", url)
+        method = request.get("method", method)
+        headers = request.get("headers", headers)
+        params = request.get("params", params)
+        payload = request.get("payload", payload)
+        form_data = request.get("form_data", form_data)
+
+    return responses
