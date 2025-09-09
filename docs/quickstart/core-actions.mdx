@@ -243,6 +243,11 @@ Paginate through a HTTP response.
 - `items_jsonpath` (str, optional): JSONPath expression that evaluates to the items to paginate through.
 - `limit` (int, optional, default: 1000): Maximum number of items to paginate through.
 
+**Returns**
+
+- With `items_jsonpath`: A flat list of items collected across pages, truncated to `limit` items.
+- Without `items_jsonpath`: A list of per-page `HTTPResponse` objects, where `limit` applies per page.
+
 Examples:
 
 <CodeGroup>
@@ -327,6 +332,12 @@ Examples:
   limit: 1000
   ```
 </CodeGroup>
+
+<Note>
+  To capture the entire response body from each page as items, set `items_jsonpath` to `$`.
+  This returns a flat list of page bodies (e.g., `[page1_body, page2_body, ...]`).
+  If you omit `items_jsonpath`, the action returns a list of full `HTTPResponse` objects (headers, status_code, data) — one per page.
+</Note>
 
 ## Tutorial: URLScan
 

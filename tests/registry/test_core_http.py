@@ -893,11 +893,7 @@ def pagination_scenarios():
             "stop_condition": "lambda x: x['data'].get('cursor') is None",
             "next_request": "lambda x: {'url': x['data'].get('cursor')}",
             "items_jsonpath": "$.items",
-            "expected_items": [
-                [{"id": 1}, {"id": 2}],
-                [{"id": 3}, {"id": 4}],
-                [{"id": 5}],
-            ],
+            "expected_items": [{"id": 1}, {"id": 2}, {"id": 3}, {"id": 4}, {"id": 5}],
         },
         "offset_total": {
             "responses": [
@@ -928,9 +924,11 @@ def pagination_scenarios():
             "next_request": "lambda x: {'params': {'offset': x['data'].get('offset', 0) + x['data'].get('limit', 0)}}",
             "items_jsonpath": "$.items",
             "expected_items": [
-                [{"id": 101}, {"id": 102}],
-                [{"id": 103}, {"id": 104}],
-                [{"id": 105}],
+                {"id": 101},
+                {"id": 102},
+                {"id": 103},
+                {"id": 104},
+                {"id": 105},
             ],
         },
         "next_page_token": {
@@ -958,9 +956,11 @@ def pagination_scenarios():
             "next_request": "lambda x: {'params': {'pageToken': x['data'].get('nextPageToken')}}",
             "items_jsonpath": "$.items",
             "expected_items": [
-                [{"id": "a"}, {"id": "b"}],
-                [{"id": "c"}, {"id": "d"}],
-                [{"id": "e"}],
+                {"id": "a"},
+                {"id": "b"},
+                {"id": "c"},
+                {"id": "d"},
+                {"id": "e"},
             ],
         },
         "link_header": {
@@ -990,11 +990,7 @@ def pagination_scenarios():
             "stop_condition": "lambda x: 'link' not in {k.lower(): v for k, v in x['headers'].items()} or 'rel=\"next\"' not in {k.lower(): v for k, v in x['headers'].items()}['link']",
             "next_request": "lambda x: {'url': [p.split(';')[0].strip('<> ') for p in {k.lower(): v for k, v in x['headers'].items()}['link'].split(',') if 'rel=\"next\"' in p][0]}",
             "items_jsonpath": "$.items",
-            "expected_items": [
-                [{"id": 1}, {"id": 2}],
-                [{"id": 3}, {"id": 4}],
-                [{"id": 5}],
-            ],
+            "expected_items": [{"id": 1}, {"id": 2}, {"id": 3}, {"id": 4}, {"id": 5}],
         },
         "header_cursor": {
             "responses": [
@@ -1017,7 +1013,7 @@ def pagination_scenarios():
             "stop_condition": "lambda x: not x['headers'].get('x-next-cursor')",
             "next_request": "lambda x: {'params': {'cursor': x['headers'].get('x-next-cursor')}}",
             "items_jsonpath": "$.items",
-            "expected_items": [[{"id": 1}], [{"id": 2}], [{"id": 3}]],
+            "expected_items": [{"id": 1}, {"id": 2}, {"id": 3}],
         },
         "empty_items_stop": {
             "responses": [
@@ -1037,7 +1033,7 @@ def pagination_scenarios():
             "stop_condition": "lambda x: not x['data'].get('items')",
             "next_request": "lambda x: {'params': {'page': (x['data'].get('page', 1) + 1)}}",
             "items_jsonpath": "$.items",
-            "expected_items": [[{"id": 1}, {"id": 2}], [{"id": 3}], []],
+            "expected_items": [{"id": 1}, {"id": 2}, {"id": 3}],
         },
     }
 
@@ -1077,24 +1073,15 @@ async def test_http_paginate_patterns(pagination_scenarios, scenario_name) -> No
     # Verify correct number of requests
     assert route.call_count == len(scenario["responses"])
 
-    # Verify results match expected items
+    # Verify results match expected items (flattened across pages)
     assert isinstance(result, list)
-    assert len(result) == len(scenario["expected_items"])
-
-    for i, expected_items in enumerate(scenario["expected_items"]):
-        assert result[i] == expected_items, (
-            f"Mismatch at page {i} for scenario {scenario_name}"
-        )
+    assert result == scenario["expected_items"]
 
 
 @pytest.mark.anyio
 @respx.mock
 async def test_http_paginate_without_jsonpath() -> None:
-    """Test pagination without items_jsonpath extraction.
-
-    Note: Current implementation only appends to results when items_jsonpath is provided.
-    Without items_jsonpath, the function still paginates but returns an empty list.
-    """
+    """Test pagination without items_jsonpath returns per-page HTTPResponse objects."""
     responses = [
         httpx.Response(
             status_code=200,
@@ -1121,9 +1108,11 @@ async def test_http_paginate_without_jsonpath() -> None:
         limit=1000,
     )
 
-    # Current behavior: When items_jsonpath is None, nothing is appended to results
     assert route.call_count == 3
-    assert len(result) == 0  # No items extracted without JSONPath
+    assert len(result) == 3
+    assert result[0]["data"] == {"data": "page1", "hasMore": True}
+    assert result[1]["data"] == {"data": "page2", "hasMore": True}
+    assert result[2]["data"] == {"data": "page3", "hasMore": False}
 
 
 @pytest.mark.anyio
@@ -1185,16 +1174,12 @@ async def test_http_paginate_limit_enforcement() -> None:
         stop_condition="lambda x: False",  # Never stop based on condition
         next_request="lambda x: {'params': {'page': x['data'].get('page', 0) + 1}}",
         items_jsonpath="$.items",
-        limit=3,  # Limit to 3 pages
+        limit=3,  # Limit to 3 items (flattened)
     )
 
-    # Should stop after 3 requests due to limit
+    # Should stop after collecting 3 items
     assert route.call_count == 3
-    assert len(result) == 3
-
-    # Verify we got the first 3 pages
-    for i in range(3):
-        assert result[i] == [{"id": i + 1}]
+    assert result == [{"id": 1}, {"id": 2}, {"id": 3}]
 
 
 @pytest.mark.anyio
@@ -1225,9 +1210,7 @@ async def test_http_paginate_with_post_method() -> None:
     )
 
     assert route.call_count == 2
-    assert len(result) == 2
-    assert result[0] == [1, 2]
-    assert result[1] == [3, 4]
+    assert result == [1, 2, 3, 4]
 
 
 @pytest.mark.anyio
@@ -1265,7 +1248,7 @@ async def test_http_paginate_with_headers_and_auth() -> None:
         assert "Authorization" in call.request.headers
         assert call.request.headers["X-API-Key"] == "secret"
 
-    assert result == [["a"], ["b"]]
+    assert result == ["a", "b"]
 
 
 @pytest.mark.anyio
@@ -1288,10 +1271,9 @@ async def test_http_paginate_immediate_stop() -> None:
         limit=1000,
     )
 
-    # Should only make one request
+    # Should only make one request and flatten items
     assert route.call_count == 1
-    assert len(result) == 1
-    assert result[0] == [1, 2, 3]
+    assert result == [1, 2, 3]
 
 
 @pytest.mark.anyio
@@ -1327,9 +1309,7 @@ async def test_http_paginate_complex_jsonpath() -> None:
     )
 
     assert route.call_count == 2
-    assert len(result) == 2
-    assert result[0] == [{"name": "Alice"}, {"name": "Bob"}]
-    assert result[1] == [{"name": "Charlie"}]
+    assert result == [{"name": "Alice"}, {"name": "Bob"}, {"name": "Charlie"}]
 
 
 @pytest.mark.anyio
@@ -1360,7 +1340,7 @@ async def test_http_paginate_update_multiple_params() -> None:
     )
 
     assert route.call_count == 2
-    assert result == [[1], [2]]
+    assert result == [1, 2]
 
 
 @pytest.mark.anyio
@@ -1447,7 +1427,7 @@ async def test_http_paginate_form_data() -> None:
     )
 
     assert route.call_count == 2
-    assert result == [["form1"], ["form2"]]
+    assert result == ["form1", "form2"]
 
 
 @pytest.mark.anyio

@@ -788,13 +788,21 @@ async def http_paginate(
         int,
         Doc("Maximum number of items to paginate through. Defaults to 1000."),
     ] = 1000,
-) -> list[HTTPResponse]:
-    """Paginate through a HTTP response."""
+) -> list[Any]:
+    """Paginate through a HTTP response.
+
+    Returns a list of items when `items_jsonpath` is provided (flattened across pages),
+    respecting the `limit` as item-level count. When `items_jsonpath` is None,
+    returns a list of `HTTPResponse` objects (one per page), and `limit` applies per-page.
+    """
 
     stop_condition_fn = build_safe_lambda(stop_condition)
     next_request_fn = build_safe_lambda(next_request)
-    responses = []
-    while len(responses) < limit:
+    results: list[Any] = []
+    # Short-circuit when no items are requested
+    if limit == 0:
+        return results
+    while len(results) < limit:
         response = await http_request(
             url=url,
             method=method,
@@ -811,12 +819,31 @@ async def http_paginate(
         )
         if items_jsonpath is not None:
             data = response["data"]
+            # Apply jsonpath to either dict or list root. If not a dict/list, this will raise
+            # a TracecatExpressionError, surfacing misuse clearly to users.
             if isinstance(data, dict):
-                items = eval_jsonpath(items_jsonpath, data)
-                responses.append(items)
+                items_value = eval_jsonpath(items_jsonpath, data)
             else:
-                responses.append(response)
-        if stop_condition_fn(response):
+                items_value = data
+
+            # Normalize the jsonpath result to a list of items
+            if items_value is None:
+                page_items: list[Any] = []
+            elif isinstance(items_value, list):
+                page_items = items_value
+            else:
+                page_items = [items_value]
+
+            # Enforce item-level limit by extending up to remaining slots
+            remaining = max(0, limit - len(results))
+            if remaining > 0:
+                results.extend(page_items[:remaining])
+        else:
+            # When no items_jsonpath is provided, append the full page response
+            results.append(response)
+
+        # Stop if reached limit or stop condition met
+        if len(results) >= limit or stop_condition_fn(response):
             break
         request = next_request_fn(response)
         url = request.get("url", url)
@@ -826,4 +853,4 @@ async def http_paginate(
         payload = request.get("payload", payload)
         form_data = request.get("form_data", form_data)
 
-    return responses
+    return results
