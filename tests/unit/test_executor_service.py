@@ -266,3 +266,17 @@ async def test_run_action_from_input_secrets_handling(mocker, test_role):
 
     # Verify environment parameter
     assert call_kwargs["environment"] == "test_env"
+
+
+@pytest.mark.anyio
+async def test_extract_templated_secrets_detects_nested_complex_expressions():
+	from tracecat.expressions.eval import extract_templated_secrets
+
+	expr = (
+		"${{ FN.to_base64(SECRETS.zendesk.ZENDESK_EMAIL + \"/token:\" + SECRETS.zendesk.ZENDESK_API_TOKEN) }}"
+	)
+	secrets = extract_templated_secrets(expr)
+	assert sorted(secrets) == sorted([
+		"zendesk.ZENDESK_EMAIL",
+		"zendesk.ZENDESK_API_TOKEN",
+	])

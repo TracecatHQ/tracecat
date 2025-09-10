@@ -78,16 +78,24 @@ def is_template_only(template: str) -> bool:
 def extract_templated_secrets(
     templated_obj: Any,
     *,
-    pattern: re.Pattern[str] = patterns.SECRET_SCAN_TEMPLATE,
+    pattern: re.Pattern[str] = patterns.TEMPLATE_STRING,
 ) -> list[str]:
-    """Extract secrets from templated objects."""
+    """Extract secret paths used within template expressions.
+
+    This scans only inside ${{ ... }} blocks and collects all occurrences of
+    SECRETS.<name>.<key> even when multiple appear in a single template.
+    """
     secrets: set[str] = set()
+    inner_secret_pattern = re.compile(
+        r"SECRETS\.(?P<secret>[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*)"
+    )
 
     def operator(line: str) -> Any:
-        """Collect secrets from the templated string."""
-        for match in re.finditer(pattern, line):
-            secret = match.group("secret")
-            secrets.add(secret)
+        """Collect secrets from template expressions in the string."""
+        for tmpl in re.finditer(pattern, line):
+            expr = tmpl.group("expr")
+            for match in re.finditer(inner_secret_pattern, expr):
+                secrets.add(match.group("secret"))
 
     _eval_templated_obj_rec(templated_obj, operator)
     return list(secrets)

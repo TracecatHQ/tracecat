@@ -271,6 +271,18 @@ def test_find_secrets():
     assert sorted(extract_templated_secrets(mock_templated_kwargs)) == sorted(expected)
 
 
+def test_find_secrets_in_complex_expression():
+    # Should detect secret usages nested within a function call
+    expr = (
+        "${{ FN.to_base64(SECRETS.zendesk.ZENDESK_EMAIL + \"/token:\" + SECRETS.zendesk.ZENDESK_API_TOKEN) }}"
+    )
+    secrets = extract_templated_secrets(expr)
+    assert sorted(secrets) == sorted([
+        "zendesk.ZENDESK_EMAIL",
+        "zendesk.ZENDESK_API_TOKEN",
+    ])
+
+
 def test_evaluate_templated_secret(test_role):
     TEST_SECRETS = {
         "my_secret": [
