@@ -1,21 +1,16 @@
 "use client"
 
-import { DotsHorizontalIcon } from "@radix-ui/react-icons"
-import type { ColumnDef } from "@tanstack/react-table"
-import { formatDistanceToNow } from "date-fns"
-import { BoxIcon, Loader2, Pencil, Trash2, Unlink } from "lucide-react"
+import { BoxIcon, Loader2 } from "lucide-react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { Control, FieldValues } from "react-hook-form"
 import { useForm } from "react-hook-form"
-import type { CaseRecordRead, EntityFieldRead, EntityRead } from "@/client"
-import { DataTable, DataTableColumnHeader } from "@/components/data-table"
+import type { EntityFieldRead, EntityRead } from "@/client"
+import { CaseRecordsTable } from "@/components/cases/case-records-table"
 import {
   YamlStyledEditor,
   type YamlStyledEditorRef,
 } from "@/components/editor/codemirror/yaml-editor"
 import { EntitySelectorPopover } from "@/components/entities/entity-selector-popover"
-import { CompactJsonViewer } from "@/components/json-viewer-compact"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -27,12 +22,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import {
   Form,
   FormControl,
   FormField,
@@ -43,7 +32,6 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { useEntities, useEntity, useEntityFields } from "@/hooks/use-entities"
 import { useCaseRecords, useCreateCaseRecord } from "@/lib/hooks"
 import { getIconByName } from "@/lib/icons"
-import { capitalizeFirst } from "@/lib/utils"
 import { WorkflowProvider } from "@/providers/workflow"
 
 interface CaseRecordsSectionProps {
@@ -60,193 +48,15 @@ export function CaseRecordsSection({
     workspaceId,
   })
   const { entities } = useEntities(workspaceId)
-  const [_selectedRecord, setSelectedRecord] = useState<CaseRecordRead | null>(
-    null
-  )
-  const [_editDialogOpen, setEditDialogOpen] = useState(false)
-  const [_deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [selectedEntityId, setSelectedEntityId] = useState<string>("")
   const [selectedEntityKey, setSelectedEntityKey] = useState<string>("")
-
-  const entityById = useMemo(() => {
-    const map = new Map<string, EntityRead>()
-    entities?.forEach((entity) => map.set(entity.id, entity))
-    return map
-  }, [entities])
-
-  const handleEditRecord = (record: CaseRecordRead) => {
-    setSelectedRecord(record)
-    setEditDialogOpen(true)
-  }
-
-  const handleUnlinkRecord = (record: CaseRecordRead) => {
-    // TODO: Implement unlink functionality
-    console.log("Unlink record:", record)
-  }
-
-  const handleDeleteRecord = (record: CaseRecordRead) => {
-    setSelectedRecord(record)
-    setDeleteDialogOpen(true)
-  }
 
   const handleEntitySelect = (entity: EntityRead) => {
     setSelectedEntityId(entity.id)
     setSelectedEntityKey(entity.key)
     setCreateDialogOpen(true)
   }
-
-  const columns: ColumnDef<CaseRecordRead>[] = [
-    {
-      accessorKey: "entity_id",
-      header: ({ column }) => (
-        <DataTableColumnHeader
-          className="text-xs"
-          column={column}
-          title="Entity"
-        />
-      ),
-      cell: ({ row }) => {
-        const entity = entityById.get(row.original.entity_id)
-        const IconComponent = entity?.icon
-          ? getIconByName(entity.icon)
-          : undefined
-        const initials = entity?.display_name?.[0]?.toUpperCase() || "?"
-
-        return (
-          <div className="flex items-center gap-2.5">
-            <Avatar className="size-7 shrink-0">
-              <AvatarFallback className="text-xs">
-                {IconComponent ? (
-                  <IconComponent className="size-4" />
-                ) : (
-                  initials
-                )}
-              </AvatarFallback>
-            </Avatar>
-            <div>
-              <div className="text-sm font-medium">
-                {row.original.entity_display_name ||
-                  entity?.display_name ||
-                  row.original.entity_id}
-              </div>
-              <div className="text-xs text-muted-foreground">
-                {row.original.entity_key ||
-                  entity?.key ||
-                  row.original.entity_id}
-              </div>
-            </div>
-          </div>
-        )
-      },
-      enableSorting: false,
-      enableHiding: false,
-    },
-    {
-      accessorKey: "created_at",
-      header: ({ column }) => (
-        <DataTableColumnHeader
-          className="text-xs"
-          column={column}
-          title="Created"
-        />
-      ),
-      cell: ({ row }) => (
-        <div className="text-xs text-muted-foreground">
-          {capitalizeFirst(
-            formatDistanceToNow(new Date(row.original.created_at), {
-              addSuffix: true,
-            })
-          )}
-        </div>
-      ),
-      enableSorting: true,
-      enableHiding: false,
-    },
-    {
-      accessorKey: "updated_at",
-      header: ({ column }) => (
-        <DataTableColumnHeader
-          className="text-xs"
-          column={column}
-          title="Updated"
-        />
-      ),
-      cell: ({ row }) => (
-        <div className="text-xs text-muted-foreground">
-          {capitalizeFirst(
-            formatDistanceToNow(new Date(row.original.updated_at), {
-              addSuffix: true,
-            })
-          )}
-        </div>
-      ),
-      enableSorting: true,
-      enableHiding: false,
-    },
-    {
-      accessorKey: "data",
-      header: ({ column }) => (
-        <DataTableColumnHeader
-          className="text-xs"
-          column={column}
-          title="Record"
-        />
-      ),
-      cell: ({ row }) => {
-        const data = row.original.data || {}
-        return (
-          <div className="max-w-xs">
-            <CompactJsonViewer src={data} />
-          </div>
-        )
-      },
-      enableSorting: false,
-      enableHiding: false,
-    },
-    {
-      id: "actions",
-      enableHiding: false,
-      cell: ({ row }) => {
-        return (
-          <div className="flex justify-end">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  className="size-8 p-0"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <span className="sr-only">Open menu</span>
-                  <DotsHorizontalIcon className="size-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem
-                  onClick={() => handleEditRecord(row.original)}
-                >
-                  <Pencil className="mr-2 h-3 w-3" />
-                  <span>Edit</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => handleUnlinkRecord(row.original)}
-                >
-                  <Unlink className="mr-2 h-3 w-3" />
-                  <span>Unlink from case</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => handleDeleteRecord(row.original)}
-                >
-                  <Trash2 className="mr-2 h-3 w-3 text-rose-600" />
-                  <span className="text-rose-600">Delete</span>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        )
-      },
-    },
-  ]
 
   if (recordsIsLoading) {
     return (
@@ -288,13 +98,12 @@ export function CaseRecordsSection({
       </div>
 
       {records && records.length > 0 ? (
-        <DataTable<CaseRecordRead, unknown>
-          data={records}
-          columns={columns}
+        <CaseRecordsTable
+          records={records}
           isLoading={recordsIsLoading}
           error={recordsError as Error | null}
-          emptyMessage="No records linked to this case"
-          tableId={`${workspaceId}-case-${caseId}-records`}
+          caseId={caseId}
+          workspaceId={workspaceId}
         />
       ) : (
         <NoRecords />
@@ -458,100 +267,95 @@ function CreateCaseRecordDialog({
   }
 
   return (
-    <>
-      <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-3xl">
-          <DialogHeader>
-            <DialogTitle>Create record for case</DialogTitle>
-            <DialogDescription>
-              Create a new {entity?.display_name || "entity"} record that will
-              be linked to this case.
-            </DialogDescription>
-          </DialogHeader>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-3xl">
+        <DialogHeader>
+          <DialogTitle>Create record for case</DialogTitle>
+          <DialogDescription>
+            Create a new {entity?.display_name || "entity"} record that will be
+            linked to this case.
+          </DialogDescription>
+        </DialogHeader>
 
-          {submissionError && (
-            <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
-              {submissionError}
-            </div>
-          )}
+        {submissionError && (
+          <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+            {submissionError}
+          </div>
+        )}
 
-          <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-              {/* Display selected entity */}
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Entity</label>
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  {entity?.icon &&
-                    (() => {
-                      const IconComponent = getIconByName(entity.icon)
-                      return IconComponent ? (
-                        <IconComponent className="h-4 w-4" />
-                      ) : null
-                    })()}
-                  <span className="font-medium text-foreground">
-                    {entity?.display_name || "Loading..."}
-                  </span>
-                  {entity?.key && (
-                    <Badge variant="secondary" className="text-xs">
-                      {entity.key}
-                    </Badge>
-                  )}
-                </div>
-              </div>
-
-              <FormField
-                control={form.control}
-                name="data"
-                rules={{ required: "Please enter record data" }}
-                render={() => (
-                  <FormItem>
-                    <FormLabel>Record data</FormLabel>
-                    <FormControl>
-                      <div className="min-h-[200px]">
-                        <WorkflowProvider
-                          workflowId=""
-                          workspaceId={workspaceId}
-                        >
-                          <YamlStyledEditor
-                            ref={yamlEditorRef}
-                            name={"data"}
-                            control={
-                              form.control as unknown as Control<FieldValues>
-                            }
-                          />
-                        </WorkflowProvider>
-                      </div>
-                    </FormControl>
-                  </FormItem>
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+            {/* Display selected entity */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Entity</label>
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                {entity?.icon &&
+                  (() => {
+                    const IconComponent = getIconByName(entity.icon)
+                    return IconComponent ? (
+                      <IconComponent className="h-4 w-4" />
+                    ) : null
+                  })()}
+                <span className="font-medium text-foreground">
+                  {entity?.display_name || "Loading..."}
+                </span>
+                {entity?.key && (
+                  <Badge variant="secondary" className="text-xs">
+                    {entity.key}
+                  </Badge>
                 )}
-              />
-            </form>
-          </Form>
+              </div>
+            </div>
 
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => {
-                setSubmissionError(null)
-                onOpenChange(false)
-              }}
-              disabled={createCaseRecordIsPending}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={form.handleSubmit(onSubmit)}
-              disabled={createCaseRecordIsPending}
-            >
-              {createCaseRecordIsPending && (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            <FormField
+              control={form.control}
+              name="data"
+              rules={{ required: "Please enter record data" }}
+              render={() => (
+                <FormItem>
+                  <FormLabel>Record data</FormLabel>
+                  <FormControl>
+                    <div className="min-h-[200px]">
+                      <WorkflowProvider workflowId="" workspaceId={workspaceId}>
+                        <YamlStyledEditor
+                          ref={yamlEditorRef}
+                          name={"data"}
+                          control={
+                            form.control as unknown as Control<FieldValues>
+                          }
+                        />
+                      </WorkflowProvider>
+                    </div>
+                  </FormControl>
+                </FormItem>
               )}
-              Create record
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </>
+            />
+          </form>
+        </Form>
+
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => {
+              setSubmissionError(null)
+              onOpenChange(false)
+            }}
+            disabled={createCaseRecordIsPending}
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={form.handleSubmit(onSubmit)}
+            disabled={createCaseRecordIsPending}
+          >
+            {createCaseRecordIsPending && (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            )}
+            Create record
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }

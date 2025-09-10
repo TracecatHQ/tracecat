@@ -47,7 +47,10 @@ import {
   type CaseTagRead,
   type CaseUpdate,
   caseRecordsCreateCaseRecord,
+  caseRecordsDeleteCaseRecord,
   caseRecordsListCaseRecords,
+  caseRecordsUnlinkCaseRecord,
+  caseRecordsUpdateCaseRecord,
   casesAddTag,
   casesCreateCase,
   casesCreateComment,
@@ -2810,6 +2813,157 @@ export function useCreateCaseRecord({
     createCaseRecord,
     createCaseRecordIsPending,
     createCaseRecordError,
+  }
+}
+
+export function useUpdateCaseRecord({
+  caseId,
+  workspaceId,
+}: {
+  caseId: string
+  workspaceId: string
+}) {
+  const queryClient = useQueryClient()
+  const {
+    mutateAsync: updateCaseRecord,
+    isPending: updateCaseRecordIsPending,
+    error: updateCaseRecordError,
+  } = useMutation({
+    mutationFn: async ({
+      caseRecordId,
+      data,
+    }: {
+      caseRecordId: string
+      data: Record<string, unknown>
+    }) => {
+      return await caseRecordsUpdateCaseRecord({
+        caseId,
+        caseRecordId,
+        workspaceId,
+        requestBody: { data },
+      })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["case-records", caseId, workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["case-events", caseId, workspaceId],
+      })
+      toast({
+        title: "Record updated",
+        description: "The record has been successfully updated.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      toast({
+        title: "Failed to update record",
+        description:
+          error.message || "An error occurred while updating the record.",
+        variant: "destructive",
+      })
+    },
+  })
+  return {
+    updateCaseRecord,
+    updateCaseRecordIsPending,
+    updateCaseRecordError,
+  }
+}
+
+export function useDeleteCaseRecord({
+  caseId,
+  workspaceId,
+}: {
+  caseId: string
+  workspaceId: string
+}) {
+  const queryClient = useQueryClient()
+  const {
+    mutateAsync: deleteCaseRecord,
+    isPending: deleteCaseRecordIsPending,
+    error: deleteCaseRecordError,
+  } = useMutation({
+    mutationFn: async (caseRecordId: string) => {
+      return await caseRecordsDeleteCaseRecord({
+        caseId,
+        caseRecordId,
+        workspaceId,
+      })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["case-records", caseId, workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["case-events", caseId, workspaceId],
+      })
+      toast({
+        title: "Record removed",
+        description: "The record has been removed from this case.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      toast({
+        title: "Failed to remove record",
+        description:
+          error.message || "An error occurred while removing the record.",
+        variant: "destructive",
+      })
+    },
+  })
+  return {
+    deleteCaseRecord,
+    deleteCaseRecordIsPending,
+    deleteCaseRecordError,
+  }
+}
+
+export function useUnlinkCaseRecord({
+  caseId,
+  workspaceId,
+}: {
+  caseId: string
+  workspaceId: string
+}) {
+  const queryClient = useQueryClient()
+  const {
+    mutateAsync: unlinkCaseRecord,
+    isPending: unlinkCaseRecordIsPending,
+    error: unlinkCaseRecordError,
+  } = useMutation({
+    mutationFn: async (caseRecordId: string) => {
+      return await caseRecordsUnlinkCaseRecord({
+        caseId,
+        caseRecordId,
+        workspaceId,
+      })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["case-records", caseId, workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["case-events", caseId, workspaceId],
+      })
+      toast({
+        title: "Record unlinked",
+        description: "The record has been unlinked from this case.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      toast({
+        title: "Failed to unlink record",
+        description:
+          error.message || "An error occurred while unlinking the record.",
+        variant: "destructive",
+      })
+    },
+  })
+  return {
+    unlinkCaseRecord,
+    unlinkCaseRecordIsPending,
+    unlinkCaseRecordError,
   }
 }
 
