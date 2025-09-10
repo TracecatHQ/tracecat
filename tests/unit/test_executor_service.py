@@ -411,15 +411,15 @@ async def test_git_context_cache_expiry(mock_session):
 
 
 @pytest.mark.anyio
-async def test_git_context_cache_different_roles(mock_session):
-    """Test that different roles have separate cache entries."""
+async def test_git_context_cache_different_workspaces(mock_session):
+    """Test that different workspaces have separate cache entries."""
     from tracecat.contexts import ctx_role
     from tracecat.executor.service import _git_context_cache, get_git_context_cached
 
     # Clear the cache first
     _git_context_cache.clear()
 
-    # Set up two different roles
+    # Set up two different roles with different workspaces
     ws1_id = uuid.uuid4()
     ws2_id = uuid.uuid4()
     role1 = Role(
@@ -491,7 +491,7 @@ async def test_git_context_cache_different_roles(mock_session):
         assert result1_cached[1] == "ssh -i /tmp/key1"
         assert mock_git_url.call_count == 2  # Still 2, used cache
 
-        # Verify cache has entries for both roles
+        # Verify cache has entries for both workspaces
         assert len(_git_context_cache) == 2
 
 

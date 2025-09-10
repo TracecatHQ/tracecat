@@ -67,7 +67,7 @@ type ArgsT = Mapping[str, Any]
 type ExecutionResult = Any | ExecutorActionErrorInfo
 
 _git_context_lock = asyncio.Lock()
-_git_context_cache: dict[tuple[str, str], tuple[float, Any, str | None]] = {}
+_git_context_cache: dict[str, tuple[float, Any, str | None]] = {}
 
 
 async def get_git_context_cached(role: Role) -> tuple[Any | None, str | None]:
@@ -76,7 +76,7 @@ async def get_git_context_cached(role: Role) -> tuple[Any | None, str | None]:
     Returns:
         Tuple of (git_url, ssh_command) or (None, None) if not configured
     """
-    cache_key = (str(role.workspace_id), str(role.user_id))
+    cache_key = str(role.workspace_id)
 
     # Check cache first
     if cached := _git_context_cache.get(cache_key):
