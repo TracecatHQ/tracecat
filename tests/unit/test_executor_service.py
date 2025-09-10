@@ -134,6 +134,12 @@ async def test_dispatch_action_with_foreach(
 @pytest.mark.anyio
 async def test_dispatch_action_with_git_url(mock_session, basic_task_input):
     """Test dispatch_action_on_cluster with a git url, patching get_async_session_context_manager."""
+    # Import ctx_role to set the role context
+    from tracecat.contexts import ctx_role
+
+    # Set up the role context for the test
+    test_role = Role(type="service", service_id="tracecat-executor")
+    ctx_role.set(test_role)
 
     # Patch the async session context manager to yield a mock session
     @asynccontextmanager
