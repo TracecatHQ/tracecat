@@ -36,6 +36,9 @@ import {
   type CaseFieldRead,
   type CaseRead,
   type CaseReadMinimal,
+  type CaseRecordCreate,
+  type CaseRecordRead,
+  type CaseRecordsListCaseRecordsData,
   type CasesGetCaseData,
   type CasesListCasesData,
   type CasesListCommentsData,
@@ -43,6 +46,8 @@ import {
   type CaseTagCreate,
   type CaseTagRead,
   type CaseUpdate,
+  caseRecordsCreateCaseRecord,
+  caseRecordsListCaseRecords,
   casesAddTag,
   casesCreateCase,
   casesCreateComment,
@@ -2732,6 +2737,79 @@ export function useGetCase({ caseId, workspaceId }: CasesGetCaseData) {
     caseData,
     caseDataIsLoading,
     caseDataError,
+  }
+}
+
+export function useCaseRecords({
+  caseId,
+  workspaceId,
+}: CaseRecordsListCaseRecordsData) {
+  const {
+    data: records,
+    isLoading: recordsIsLoading,
+    error: recordsError,
+  } = useQuery<CaseRecordRead[], TracecatApiError>({
+    queryKey: ["case-records", caseId, workspaceId],
+    queryFn: async () => {
+      const response = await caseRecordsListCaseRecords({ caseId, workspaceId })
+      return response.items || []
+    },
+  })
+
+  return {
+    records,
+    recordsIsLoading,
+    recordsError,
+  }
+}
+
+export function useCreateCaseRecord({
+  caseId,
+  workspaceId,
+}: {
+  caseId: string
+  workspaceId: string
+}) {
+  const queryClient = useQueryClient()
+
+  const {
+    mutateAsync: createCaseRecord,
+    isPending: createCaseRecordIsPending,
+    error: createCaseRecordError,
+  } = useMutation<CaseRecordRead, TracecatApiError, CaseRecordCreate>({
+    mutationFn: async (params: CaseRecordCreate) => {
+      return await caseRecordsCreateCaseRecord({
+        caseId,
+        workspaceId,
+        requestBody: params,
+      })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["case-records", caseId, workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["case-events", caseId, workspaceId],
+      })
+      toast({
+        title: "Record created",
+        description: "The record has been successfully linked to this case.",
+      })
+    },
+    onError: (error) => {
+      toast({
+        title: "Failed to create record",
+        description:
+          error.message || "An error occurred while creating the record.",
+        variant: "destructive",
+      })
+    },
+  })
+
+  return {
+    createCaseRecord,
+    createCaseRecordIsPending,
+    createCaseRecordError,
   }
 }
 
