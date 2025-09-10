@@ -283,6 +283,98 @@ def test_find_secrets_in_complex_expression():
     ])
 
 
+# ------------------------------ New fixtures ------------------------------ #
+import pytest
+
+
+@pytest.fixture
+def simple_secret_expr():
+    return "${{ SECRETS.alpha.KEY }}"
+
+
+@pytest.fixture
+def complex_secret_expr():
+    return (
+        "${{ FN.join(':', [SECRETS.alpha.KEY, SECRETS.beta.SECRET, 'tail']) }}"
+    )
+
+
+@pytest.fixture
+def mixed_args_obj(simple_secret_expr, complex_secret_expr):
+    return {
+        "headers": {
+            "Auth": complex_secret_expr,
+            "Init": simple_secret_expr,
+        },
+        "payload": [
+            "no templates here",
+            "${{ 'prefix-' + SECRETS.gamma.TOKEN }}",
+        ],
+    }
+
+
+# ------------------------------ Corner case tests ------------------------------ #
+from tracecat.expressions.eval import extract_templated_secrets
+
+
+def test_multiple_secrets_in_single_template():
+    expr = (
+        "${{ FN.concat(SECRETS.a.K1, '-', SECRETS.a.K2, '-', SECRETS.b.K3) }}"
+    )
+    got = sorted(extract_templated_secrets(expr))
+    assert got == sorted(["a.K1", "a.K2", "b.K3"])
+
+
+def test_trims_whitespace_and_newlines_inside_template():
+    expr = (
+        "${{  FN.to_base64(  SECRETS.a.K1  +\n  '-'  +  SECRETS.b.K2  )  }}"
+    )
+    got = sorted(extract_templated_secrets(expr))
+    assert got == sorted(["a.K1", "b.K2"])
+
+
+def test_multiple_templates_in_one_string():
+    s = (
+        "before ${{ SECRETS.a.K1 }} mid ${{ FN.upper(SECRETS.b.K2) }} after"
+    )
+    got = sorted(extract_templated_secrets(s))
+    assert got == sorted(["a.K1", "b.K2"])
+
+
+def test_detection_in_dict_keys_and_values():
+    obj = {
+        "${{ FN.lower(SECRETS.a.K1) }}": "${{ SECRETS.b.K2 }}",
+        "k2": "${{ FN.len(SECRETS.c.K3) }}",
+    }
+    got = sorted(extract_templated_secrets(obj))
+    assert got == sorted(["a.K1", "b.K2", "c.K3"])
+
+
+def test_underscore_and_case_in_identifiers():
+    expr = "${{ FN.f(SECRETS.alpha_beta.GAMMA_DELTA + SECRETS.xYz.A_b1) }}"
+    got = sorted(extract_templated_secrets(expr))
+    assert got == sorted(["alpha_beta.GAMMA_DELTA", "xYz.A_b1"])
+
+
+def test_duplicates_are_deduped():
+    expr = (
+        "${{ SECRETS.a.K1 + SECRETS.a.K1 + FN.id(SECRETS.a.K1) + SECRETS.b.K2 }}"
+    )
+    got = sorted(extract_templated_secrets(expr))
+    assert got == sorted(["a.K1", "b.K2"])  # no duplicates
+
+
+def test_ignores_non_template_mentions():
+    s = "SECRETS.a.K1 not inside template; and ${{ 'SECRETS.a.K1' }} as string"
+    got = extract_templated_secrets(s)
+    assert got == []
+
+
+def test_mixed_nested_object(mixed_args_obj):
+    got = sorted(extract_templated_secrets(mixed_args_obj))
+    assert got == sorted(["alpha.KEY", "beta.SECRET", "gamma.TOKEN"])
+
+
 def test_evaluate_templated_secret(test_role):
     TEST_SECRETS = {
         "my_secret": [
