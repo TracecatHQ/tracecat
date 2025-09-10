@@ -134,6 +134,12 @@ async def test_dispatch_action_with_foreach(
 @pytest.mark.anyio
 async def test_dispatch_action_with_git_url(mock_session, basic_task_input):
     """Test dispatch_action_on_cluster with a git url, patching get_async_session_context_manager."""
+    # Import ctx_role to set the role context
+    from tracecat.contexts import ctx_role
+
+    # Set up the role context for the test
+    test_role = Role(type="service", service_id="tracecat-executor")
+    ctx_role.set(test_role)
 
     # Patch the async session context manager to yield a mock session
     @asynccontextmanager
@@ -266,3 +272,278 @@ async def test_run_action_from_input_secrets_handling(mocker, test_role):
 
     # Verify environment parameter
     assert call_kwargs["environment"] == "test_env"
+
+
+@pytest.mark.anyio
+async def test_git_context_cache_hit(mock_session):
+    """Test that git context is cached and reused on subsequent calls."""
+    from tracecat.contexts import ctx_role
+    from tracecat.executor.service import _git_context_cache, get_git_context_cached
+
+    # Clear the cache first
+    _git_context_cache.clear()
+
+    # Set up the role context
+    test_role = Role(
+        type="service",
+        service_id="tracecat-executor",
+        workspace_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+    )
+    ctx_role.set(test_role)
+
+    # Mock the session context manager
+    @asynccontextmanager
+    async def mock_session_cm():
+        yield mock_session
+
+    def get_session_cm():
+        return mock_session_cm()
+
+    with (
+        patch(
+            "tracecat.executor.service.get_async_session_context_manager",
+            new=get_session_cm,
+        ),
+        patch("tracecat.executor.service.safe_prepare_git_url") as mock_git_url,
+        patch("tracecat.executor.service.get_ssh_command") as mock_ssh_cmd,
+    ):
+        # Set up mock returns
+        test_git_url = GitUrl(host="github.com", org="test", repo="repo", ref="abc123")
+        mock_git_url.return_value = test_git_url
+        mock_ssh_cmd.return_value = "ssh -i /tmp/test_key"
+
+        # First call - should fetch from DB
+        git_url1, ssh_cmd1 = await get_git_context_cached(role=test_role)
+        assert git_url1 == test_git_url
+        assert ssh_cmd1 == "ssh -i /tmp/test_key"
+        assert mock_git_url.call_count == 1
+        assert mock_ssh_cmd.call_count == 1
+
+        # Second call - should use cache
+        git_url2, ssh_cmd2 = await get_git_context_cached(role=test_role)
+        assert git_url2 == test_git_url
+        assert ssh_cmd2 == "ssh -i /tmp/test_key"
+        # Should still be 1 since it used cache
+        assert mock_git_url.call_count == 1
+        assert mock_ssh_cmd.call_count == 1
+
+        # Third call - verify cache still works
+        git_url3, ssh_cmd3 = await get_git_context_cached(role=test_role)
+        assert git_url3 == test_git_url
+        assert ssh_cmd3 == "ssh -i /tmp/test_key"
+        assert mock_git_url.call_count == 1
+        assert mock_ssh_cmd.call_count == 1
+
+
+@pytest.mark.anyio
+async def test_git_context_cache_expiry(mock_session):
+    """Test that git context cache expires after TTL and refetches."""
+    from tracecat.contexts import ctx_role
+    from tracecat.executor.service import _git_context_cache, get_git_context_cached
+
+    # Clear the cache first
+    _git_context_cache.clear()
+
+    # Set up the role context
+    test_role = Role(
+        type="service",
+        service_id="tracecat-executor",
+        workspace_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+    )
+    ctx_role.set(test_role)
+
+    # Mock the session context manager
+    @asynccontextmanager
+    async def mock_session_cm():
+        yield mock_session
+
+    def get_session_cm():
+        return mock_session_cm()
+
+    with (
+        patch(
+            "tracecat.executor.service.get_async_session_context_manager",
+            new=get_session_cm,
+        ),
+        patch("tracecat.executor.service.safe_prepare_git_url") as mock_git_url,
+        patch("tracecat.executor.service.get_ssh_command") as mock_ssh_cmd,
+        patch("tracecat.executor.service.time.time") as mock_time,
+    ):
+        # Set up mock returns
+        test_git_url = GitUrl(host="github.com", org="test", repo="repo", ref="def456")
+        mock_git_url.return_value = test_git_url
+        mock_ssh_cmd.return_value = "ssh -i /tmp/expired_key"
+
+        # Set initial time
+        initial_time = 1000.0
+        mock_time.return_value = initial_time
+
+        # First call - should fetch from DB
+        git_url1, ssh_cmd1 = await get_git_context_cached(role=test_role)
+        assert git_url1 == test_git_url
+        assert ssh_cmd1 == "ssh -i /tmp/expired_key"
+        assert mock_git_url.call_count == 1
+
+        # Advance time by 40 seconds (still within 60 second TTL)
+        mock_time.return_value = initial_time + 40
+
+        # Second call - should use cache
+        git_url2, ssh_cmd2 = await get_git_context_cached(role=test_role)
+        assert git_url2 == test_git_url
+        assert ssh_cmd2 == "ssh -i /tmp/expired_key"
+        assert mock_git_url.call_count == 1  # Still 1
+
+        # Advance time by 61 seconds (beyond 60 second TTL)
+        mock_time.return_value = initial_time + 61
+
+        # Update mock returns for new fetch
+        new_git_url = GitUrl(host="github.com", org="test", repo="repo", ref="ghi789")
+        mock_git_url.return_value = new_git_url
+        mock_ssh_cmd.return_value = "ssh -i /tmp/new_key"
+
+        # Third call - should refetch due to expired cache
+        git_url3, ssh_cmd3 = await get_git_context_cached(role=test_role)
+        assert git_url3 == new_git_url
+        assert ssh_cmd3 == "ssh -i /tmp/new_key"
+        assert mock_git_url.call_count == 2  # Should have fetched again
+
+
+@pytest.mark.anyio
+async def test_git_context_cache_different_workspaces(mock_session):
+    """Test that different workspaces have separate cache entries."""
+    from tracecat.contexts import ctx_role
+    from tracecat.executor.service import _git_context_cache, get_git_context_cached
+
+    # Clear the cache first
+    _git_context_cache.clear()
+
+    # Set up two different roles with different workspaces
+    ws1_id = uuid.uuid4()
+    ws2_id = uuid.uuid4()
+    role1 = Role(
+        type="service",
+        service_id="tracecat-executor",
+        workspace_id=ws1_id,
+        user_id=uuid.uuid4(),
+    )
+    role2 = Role(
+        type="service",
+        service_id="tracecat-executor",
+        workspace_id=ws2_id,
+        user_id=uuid.uuid4(),
+    )
+
+    # Mock the session context manager
+    @asynccontextmanager
+    async def mock_session_cm():
+        yield mock_session
+
+    def get_session_cm():
+        return mock_session_cm()
+
+    with (
+        patch(
+            "tracecat.executor.service.get_async_session_context_manager",
+            new=get_session_cm,
+        ),
+        patch("tracecat.executor.service.safe_prepare_git_url") as mock_git_url,
+        patch("tracecat.executor.service.get_ssh_command") as mock_ssh_cmd,
+    ):
+        # Set up mock to return different values based on role
+        git_url1 = GitUrl(host="github.com", org="org1", repo="repo1", ref="ref1")
+        git_url2 = GitUrl(host="github.com", org="org2", repo="repo2", ref="ref2")
+
+        def git_url_side_effect(*args, **kwargs):
+            role = kwargs.get("role")
+            if role and role.workspace_id == ws1_id:
+                return git_url1
+            return git_url2
+
+        def ssh_cmd_side_effect(*args, **kwargs):
+            role = kwargs.get("role")
+            if role and role.workspace_id == ws1_id:
+                return "ssh -i /tmp/key1"
+            return "ssh -i /tmp/key2"
+
+        mock_git_url.side_effect = git_url_side_effect
+        mock_ssh_cmd.side_effect = ssh_cmd_side_effect
+
+        # Fetch for role1
+        ctx_role.set(role1)
+        result1 = await get_git_context_cached(role=role1)
+        assert result1[0] == git_url1
+        assert result1[1] == "ssh -i /tmp/key1"
+        assert mock_git_url.call_count == 1
+
+        # Fetch for role2 - should not use role1's cache
+        ctx_role.set(role2)
+        result2 = await get_git_context_cached(role=role2)
+        assert result2[0] == git_url2
+        assert result2[1] == "ssh -i /tmp/key2"
+        assert mock_git_url.call_count == 2  # Should have fetched for role2
+
+        # Fetch again for role1 - should use cache
+        ctx_role.set(role1)
+        result1_cached = await get_git_context_cached(role=role1)
+        assert result1_cached[0] == git_url1
+        assert result1_cached[1] == "ssh -i /tmp/key1"
+        assert mock_git_url.call_count == 2  # Still 2, used cache
+
+        # Verify cache has entries for both workspaces
+        assert len(_git_context_cache) == 2
+
+
+@pytest.mark.anyio
+async def test_git_context_cache_no_git_url(mock_session):
+    """Test caching when no git URL is configured."""
+    from tracecat.contexts import ctx_role
+    from tracecat.executor.service import _git_context_cache, get_git_context_cached
+
+    # Clear the cache first
+    _git_context_cache.clear()
+
+    # Set up the role context
+    test_role = Role(
+        type="service",
+        service_id="tracecat-executor",
+        workspace_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+    )
+    ctx_role.set(test_role)
+
+    # Mock the session context manager
+    @asynccontextmanager
+    async def mock_session_cm():
+        yield mock_session
+
+    def get_session_cm():
+        return mock_session_cm()
+
+    with (
+        patch(
+            "tracecat.executor.service.get_async_session_context_manager",
+            new=get_session_cm,
+        ),
+        patch("tracecat.executor.service.safe_prepare_git_url") as mock_git_url,
+        patch("tracecat.executor.service.get_ssh_command") as mock_ssh_cmd,
+    ):
+        # Set up mock to return None (no git configured)
+        mock_git_url.return_value = None
+
+        # First call - should fetch and get None
+        git_url1, ssh_cmd1 = await get_git_context_cached(role=test_role)
+        assert git_url1 is None
+        assert ssh_cmd1 is None
+        assert mock_git_url.call_count == 1
+        assert (
+            mock_ssh_cmd.call_count == 0
+        )  # Should not call get_ssh_command when no git_url
+
+        # Second call - should use cache
+        git_url2, ssh_cmd2 = await get_git_context_cached(role=test_role)
+        assert git_url2 is None
+        assert ssh_cmd2 is None
+        assert mock_git_url.call_count == 1  # Still 1, used cache
+        assert mock_ssh_cmd.call_count == 0

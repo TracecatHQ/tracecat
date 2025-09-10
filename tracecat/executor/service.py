@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import itertools
+import time
 import traceback
 from collections.abc import Iterator, Mapping
 from pathlib import Path
@@ -64,6 +65,57 @@ from tracecat.types.exceptions import (
 
 type ArgsT = Mapping[str, Any]
 type ExecutionResult = Any | ExecutorActionErrorInfo
+
+_git_context_lock = asyncio.Lock()
+_git_context_cache: dict[str, tuple[float, Any, str | None]] = {}
+
+
+async def get_git_context_cached(role: Role) -> tuple[Any | None, str | None]:
+    """Cache git URL and SSH command for 60 seconds to avoid repeated DB sessions.
+
+    Returns:
+        Tuple of (git_url, ssh_command) or (None, None) if not configured
+    """
+    cache_key = str(role.workspace_id)
+
+    # Check cache first
+    if cached := _git_context_cache.get(cache_key):
+        expire_time, git_url, ssh_cmd = cached
+        if time.time() < expire_time:
+            logger.debug("Using cached git context", workspace_id=role.workspace_id)
+            return git_url, ssh_cmd
+
+    # Load once under lock
+    async with _git_context_lock:
+        # Double-check after acquiring lock
+        if cached := _git_context_cache.get(cache_key):
+            expire_time, git_url, ssh_cmd = cached
+            if time.time() < expire_time:
+                return git_url, ssh_cmd
+
+        # Actually fetch from database
+        logger.debug(
+            "Fetching git context from database", workspace_id=role.workspace_id
+        )
+        async with (
+            get_async_session_context_manager() as session,
+            with_session(session=session),
+        ):
+            git_url = await safe_prepare_git_url(session=session, role=role)
+            ssh_cmd = None
+            if git_url:
+                ssh_cmd = await get_ssh_command(
+                    git_url=git_url, session=session, role=role
+                )
+
+        # Cache for 60 seconds
+        _git_context_cache[cache_key] = (time.time() + 60, git_url, ssh_cmd)
+        logger.debug(
+            "Cached git context",
+            workspace_id=role.workspace_id,
+            has_git_url=bool(git_url),
+        )
+        return git_url, ssh_cmd
 
 
 def sync_executor_entrypoint(input: RunActionInput, role: Role) -> ExecutionResult:
@@ -497,18 +549,12 @@ async def dispatch_action_on_cluster(input: RunActionInput) -> Any:
     role = ctx_role.get()
     ctx = DispatchActionContext(role=role)
 
-    # XXX(perf): Handle the session ourselves.
-    # Not sure if it's the root cause but according to https://github.com/fastapi/fastapi/discussions/10450
-    # FastAPI DI session might cause unreleased connections.
-    async with (
-        get_async_session_context_manager() as session,
-        with_session(session=session),  # Set the session in the context
-    ):
-        if git_url := await safe_prepare_git_url(session=session):
-            sh_cmd = await get_ssh_command(git_url=git_url, session=session, role=role)
-            ctx.ssh_command = sh_cmd
-            ctx.git_url = git_url
-    # XXX(perf): We do *not* hold the session open for the duration of the action.
+    # Use cached git context to avoid opening DB sessions unnecessarily
+    git_url, ssh_cmd = await get_git_context_cached(role=role)
+    if git_url:
+        ctx.git_url = git_url
+        ctx.ssh_command = ssh_cmd
+
     return await _dispatch_action(input=input, ctx=ctx)
 
 
