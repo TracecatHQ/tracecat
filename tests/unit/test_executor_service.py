@@ -386,8 +386,8 @@ async def test_git_context_cache_expiry(mock_session):
         assert ssh_cmd1 == "ssh -i /tmp/expired_key"
         assert mock_git_url.call_count == 1
 
-        # Advance time by 20 seconds (still within 30 second TTL)
-        mock_time.return_value = initial_time + 20
+        # Advance time by 40 seconds (still within 60 second TTL)
+        mock_time.return_value = initial_time + 40
 
         # Second call - should use cache
         git_url2, ssh_cmd2 = await get_git_context_cached(role=test_role)
@@ -395,8 +395,8 @@ async def test_git_context_cache_expiry(mock_session):
         assert ssh_cmd2 == "ssh -i /tmp/expired_key"
         assert mock_git_url.call_count == 1  # Still 1
 
-        # Advance time by 31 seconds (beyond 30 second TTL)
-        mock_time.return_value = initial_time + 31
+        # Advance time by 61 seconds (beyond 60 second TTL)
+        mock_time.return_value = initial_time + 61
 
         # Update mock returns for new fetch
         new_git_url = GitUrl(host="github.com", org="test", repo="repo", ref="ghi789")

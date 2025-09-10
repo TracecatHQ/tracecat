@@ -71,7 +71,7 @@ _git_context_cache: dict[str, tuple[float, Any, str | None]] = {}
 
 
 async def get_git_context_cached(role: Role) -> tuple[Any | None, str | None]:
-    """Cache git URL and SSH command for 30 seconds to avoid repeated DB sessions.
+    """Cache git URL and SSH command for 60 seconds to avoid repeated DB sessions.
 
     Returns:
         Tuple of (git_url, ssh_command) or (None, None) if not configured
@@ -108,8 +108,8 @@ async def get_git_context_cached(role: Role) -> tuple[Any | None, str | None]:
                     git_url=git_url, session=session, role=role
                 )
 
-        # Cache for 30 seconds
-        _git_context_cache[cache_key] = (time.time() + 30, git_url, ssh_cmd)
+        # Cache for 60 seconds
+        _git_context_cache[cache_key] = (time.time() + 60, git_url, ssh_cmd)
         logger.debug(
             "Cached git context",
             workspace_id=role.workspace_id,
