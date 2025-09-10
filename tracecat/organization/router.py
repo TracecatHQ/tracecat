@@ -1,11 +1,16 @@
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy.exc import IntegrityError, NoResultFound
 
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.models import SessionRead, UserUpdate
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.identifiers import SessionID, UserID
-from tracecat.organization.models import OrgMemberRead, OrgRead
+from tracecat.organization.models import (
+    OrgMemberRead,
+    OrgRead,
+    SessionsBulkDeleteRequest,
+    SessionsBulkDeleteResponse,
+)
 from tracecat.organization.service import OrgService
 from tracecat.types.auth import AccessLevel, Role
 from tracecat.types.exceptions import TracecatAuthorizationError
@@ -127,9 +132,10 @@ async def list_sessions(
         min_access_level=AccessLevel.ADMIN,
     ),
     session: AsyncDBSession,
+    user_email: str | None = Query(default=None, description="Filter by user email"),
 ):
     service = OrgService(session, role=role)
-    return await service.list_sessions()
+    return await service.list_sessions(user_email=user_email)
 
 
 @router.delete("/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -151,3 +157,31 @@ async def delete_session(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Session not found"
         ) from e
+
+
+@router.delete("/sessions", response_model=SessionsBulkDeleteResponse)
+async def bulk_delete_sessions(
+    *,
+    role: Role = RoleACL(
+        allow_user=True,
+        allow_service=False,
+        require_workspace="no",
+        min_access_level=AccessLevel.ADMIN,
+    ),
+    session: AsyncDBSession,
+    params: SessionsBulkDeleteRequest,
+):
+    service = OrgService(session, role=role)
+    if params.user_id is not None and params.session_ids:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Provide either user_id or session_ids, not both",
+        )
+    if params.user_id is not None:
+        revoked = await service.delete_sessions_for_user(params.user_id)
+        return SessionsBulkDeleteResponse(revoked=revoked)
+    if params.session_ids:
+        revoked = await service.delete_sessions_bulk(params.session_ids)
+        return SessionsBulkDeleteResponse(revoked=revoked)
+    # If nothing provided, no-op
+    return SessionsBulkDeleteResponse(revoked=0)

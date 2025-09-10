@@ -125,9 +125,19 @@ class OrgService(BaseService):
     # === Manage sessions ===
 
     @require_access_level(AccessLevel.ADMIN)
-    async def list_sessions(self) -> list[SessionRead]:
-        """List all sessions."""
+    async def list_sessions(self, user_email: str | None = None) -> list[SessionRead]:
+        """List all sessions, optionally filtered by user email."""
         statement = select(AccessToken).options(selectinload(AccessToken.user))  # pyright: ignore[reportArgumentType]
+        if user_email:
+            # Join via relationship loaded with selectinload and filter on user email
+            # Since selectinload can't be used for filtering, apply join implicitly using where on related column
+            from tracecat.db.schemas import User as DBUser  # local import to avoid cycle
+            statement = (
+                select(AccessToken)
+                .join(DBUser, AccessToken.user_id == DBUser.id)
+                .where(DBUser.email.ilike(f"%{user_email}%"))
+                .options(selectinload(AccessToken.user))
+            )
         result = await self.session.exec(statement)
         return [
             SessionRead(
@@ -147,3 +157,33 @@ class OrgService(BaseService):
         db_token = result.one()
         await self.session.delete(db_token)
         await self.session.commit()
+
+    @require_access_level(AccessLevel.ADMIN)
+    async def delete_sessions_for_user(self, user_id: UserID) -> int:
+        """Delete all sessions belonging to a specific user.
+
+        Returns the number of sessions revoked.
+        """
+        statement = select(AccessToken).where(AccessToken.user_id == user_id)
+        result = await self.session.exec(statement)
+        tokens = result.all()
+        for token in tokens:
+            await self.session.delete(token)
+        await self.session.commit()
+        return len(tokens)
+
+    @require_access_level(AccessLevel.ADMIN)
+    async def delete_sessions_bulk(self, session_ids: list[SessionID]) -> int:
+        """Delete multiple sessions by their IDs.
+
+        Returns the number of sessions revoked.
+        """
+        if not session_ids:
+            return 0
+        statement = select(AccessToken).where(AccessToken.id.in_(session_ids))
+        result = await self.session.exec(statement)
+        tokens = result.all()
+        for token in tokens:
+            await self.session.delete(token)
+        await self.session.commit()
+        return len(tokens)
