@@ -2,6 +2,7 @@
 
 import {
   Activity,
+  BoxIcon,
   Braces,
   MessageSquare,
   MoreHorizontal,
@@ -32,6 +33,7 @@ import {
 import { CasePanelSummary } from "@/components/cases/case-panel-summary"
 import { CasePayloadSection } from "@/components/cases/case-payload-section"
 import { CasePropertyRow } from "@/components/cases/case-property-row"
+import { CaseRecordsSection } from "@/components/cases/case-records-section"
 import { CaseWorkflowTrigger } from "@/components/cases/case-workflow-trigger"
 import { AlertNotification } from "@/components/notifications"
 import { TagBadge } from "@/components/tag-badge"
@@ -56,7 +58,12 @@ import {
 } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
-type CasePanelTab = "comments" | "activity" | "attachments" | "payload"
+type CasePanelTab =
+  | "comments"
+  | "activity"
+  | "attachments"
+  | "records"
+  | "payload"
 
 interface CasePanelContentProps {
   caseId: string
@@ -86,7 +93,7 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
   // Get active tab from URL query params, default to "comments"
   const activeTab = (
     searchParams &&
-    ["comments", "activity", "attachments", "payload"].includes(
+    ["comments", "activity", "attachments", "records", "payload"].includes(
       searchParams.get("tab") || ""
     )
       ? (searchParams.get("tab") ?? "comments")
@@ -409,6 +416,13 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
                   </TabsTrigger>
                   <TabsTrigger
                     className="flex h-full items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs font-medium ml-6 data-[state=active]:border-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+                    value="records"
+                  >
+                    <BoxIcon className="mr-1.5 h-3.5 w-3.5" />
+                    Records
+                  </TabsTrigger>
+                  <TabsTrigger
+                    className="flex h-full items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs font-medium ml-6 data-[state=active]:border-foreground data-[state=active]:bg-transparent data-[state=active]:shadow-none"
                     value="payload"
                   >
                     <Braces className="mr-1.5 h-3.5 w-3.5" />
@@ -426,6 +440,13 @@ export function CasePanelView({ caseId }: CasePanelContentProps) {
 
                 <TabsContent value="attachments" className="mt-4">
                   <CaseAttachmentsSection
+                    caseId={caseId}
+                    workspaceId={workspaceId}
+                  />
+                </TabsContent>
+
+                <TabsContent value="records" className="mt-4">
+                  <CaseRecordsSection
                     caseId={caseId}
                     workspaceId={workspaceId}
                   />
