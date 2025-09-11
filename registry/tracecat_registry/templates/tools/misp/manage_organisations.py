@@ -1,4 +1,4 @@
-from typing import Annotated, Optional, list
+from typing import Annotated, Optional, List
 import httpx
 from pydantic import Field
 from tracecat_registry import RegistrySecret, registry, secrets
