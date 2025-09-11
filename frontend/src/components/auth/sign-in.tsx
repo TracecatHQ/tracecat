@@ -31,9 +31,9 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { toast } from "@/components/ui/use-toast"
+import { useAuth, useAuthActions } from "@/hooks/use-auth"
 import { useAppInfo } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
-import { useAuth } from "@/providers/auth"
 
 export function SignIn({ className }: React.HTMLProps<HTMLDivElement>) {
   const { user } = useAuth()
@@ -115,7 +115,7 @@ type BasicLoginForm = z.infer<typeof basicLoginSchema>
 
 export function BasicLoginForm() {
   const [isLoading, setIsLoading] = useState(false)
-  const { login } = useAuth()
+  const { login } = useAuthActions()
   const form = useForm<BasicLoginForm>({
     resolver: zodResolver(basicLoginSchema),
     defaultValues: {

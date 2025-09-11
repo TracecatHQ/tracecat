@@ -21,10 +21,10 @@ import { AlertNotification } from "@/components/notifications"
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { useLocalStorage } from "@/hooks/use-local-storage"
 import {
   useCompactWorkflowExecution,
   useLastExecution,
-  useLocalStorage,
   useOrgAppSettings,
 } from "@/lib/hooks"
 import { useWorkflowBuilder } from "@/providers/builder"
@@ -191,7 +191,7 @@ function BuilderSidebarEventsList({
           {appSettings?.app_interactions_enabled && (
             <WorkflowInteractions execution={execution} />
           )}
-          <WorkflowEvents events={execution.events} />
+          <WorkflowEvents events={execution.events} status={execution.status} />
         </>
       ),
     },

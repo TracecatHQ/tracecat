@@ -16,7 +16,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { toast } from "@/components/ui/use-toast"
 import { useDeleteTable } from "@/lib/hooks"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 export function DeleteTableDialog({
   table,
@@ -28,7 +28,7 @@ export function DeleteTableDialog({
   onOpenChange: (open: boolean) => void
 }) {
   const router = useRouter()
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const { deleteTable } = useDeleteTable()
   const [confirmName, setConfirmName] = useState("")
   if (!workspaceId) {

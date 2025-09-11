@@ -1,9 +1,11 @@
 "use client"
 
 import {
-  BracesIcon,
+  BoxIcon,
   KeyRoundIcon,
-  ShieldAlertIcon,
+  ListTodoIcon,
+  ShapesIcon,
+  SquareStackIcon,
   Table2Icon,
   UsersIcon,
   WorkflowIcon,
@@ -27,7 +29,7 @@ import {
   SidebarMenuItem,
   SidebarRail,
 } from "@/components/ui/sidebar"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 function SidebarHeaderContent({ workspaceId }: { workspaceId: string }) {
   return <AppMenu workspaceId={workspaceId} />
@@ -35,27 +37,27 @@ function SidebarHeaderContent({ workspaceId }: { workspaceId: string }) {
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const pathname = usePathname()
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const basePath = `/workspaces/${workspaceId}`
 
   const navMain = [
+    {
+      title: "Cases",
+      url: `${basePath}/cases`,
+      icon: SquareStackIcon,
+      isActive: pathname?.startsWith(`${basePath}/cases`),
+    },
+    {
+      title: "Runbooks",
+      url: `${basePath}/runbooks`,
+      icon: ListTodoIcon,
+      isActive: pathname?.startsWith(`${basePath}/runbooks`),
+    },
     {
       title: "Workflows",
       url: `${basePath}/workflows`,
       icon: WorkflowIcon,
       isActive: pathname?.startsWith(`${basePath}/workflows`),
-    },
-    {
-      title: "Cases",
-      url: `${basePath}/cases`,
-      icon: ShieldAlertIcon,
-      isActive: pathname?.startsWith(`${basePath}/cases`),
-    },
-    {
-      title: "Integrations",
-      url: `${basePath}/integrations`,
-      icon: ZapIcon,
-      isActive: pathname?.startsWith(`${basePath}/integrations`),
     },
   ]
 
@@ -67,22 +69,34 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       isActive: pathname?.startsWith(`${basePath}/tables`),
     },
     {
+      title: "Records",
+      url: `${basePath}/records`,
+      icon: BoxIcon,
+      isActive: pathname?.startsWith(`${basePath}/records`),
+    },
+    {
+      title: "Entities",
+      url: `${basePath}/entities`,
+      icon: ShapesIcon,
+      isActive: pathname?.startsWith(`${basePath}/entities`),
+    },
+    {
       title: "Credentials",
       url: `${basePath}/credentials`,
       icon: KeyRoundIcon,
       isActive: pathname?.startsWith(`${basePath}/credentials`),
     },
     {
+      title: "Integrations",
+      url: `${basePath}/integrations`,
+      icon: ZapIcon,
+      isActive: pathname?.startsWith(`${basePath}/integrations`),
+    },
+    {
       title: "Members",
       url: `${basePath}/members`,
       icon: UsersIcon,
       isActive: pathname?.startsWith(`${basePath}/members`),
-    },
-    {
-      title: "Custom fields",
-      url: `${basePath}/custom-fields`,
-      icon: BracesIcon,
-      isActive: pathname?.startsWith(`${basePath}/custom-fields`),
     },
   ]
 

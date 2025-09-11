@@ -58,10 +58,10 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { toast } from "@/components/ui/use-toast"
+import { useAuth } from "@/hooks/use-auth"
 import { useDeleteColumn, useUpdateColumn } from "@/lib/hooks"
 import { SqlTypeEnum } from "@/lib/tables"
-import { useAuth } from "@/providers/auth"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 type TableViewColumnMenuType = "delete" | "edit" | "set-natural-key" | null
 
@@ -172,7 +172,7 @@ function TableColumnDeleteDialog({
   open: boolean
   onOpenChange: () => void
 }) {
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const { deleteColumn } = useDeleteColumn()
   const [confirmName, setConfirmName] = useState("")
 
@@ -258,7 +258,7 @@ function TableColumnEditDialog({
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const { updateColumn, updateColumnIsPending } = useUpdateColumn()
 
   const form = useForm<UpdateColumnSchema>({
@@ -412,7 +412,7 @@ function TableColumnIndexDialog({
   open: boolean
   onOpenChange: () => void
 }) {
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const { updateColumn, updateColumnIsPending } = useUpdateColumn()
 
   if (!tableId || !workspaceId) {

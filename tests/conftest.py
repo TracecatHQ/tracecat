@@ -8,7 +8,10 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 from unittest.mock import patch
 
+import aioboto3
 import pytest
+import tracecat_registry.integrations.aws_boto3 as boto3_module
+from dotenv import load_dotenv
 from minio import Minio
 from minio.error import S3Error
 from pydantic import SecretStr
@@ -55,6 +58,112 @@ MINIO_ENDPOINT = "localhost:9002"
 MINIO_ACCESS_KEY = "minioadmin"
 MINIO_SECRET_KEY = "minioadmin"
 MINIO_CONTAINER_NAME = "test-minio-grep"
+
+# ---------------------------------------------------------------------------
+# Redis test configuration
+# ---------------------------------------------------------------------------
+
+REDIS_PORT = "6380"
+REDIS_CONTAINER_NAME = "test-redis-grep"
+
+
+# ---------------------------------------------------------------------------
+# Redis fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="session")
+def redis_server():
+    """Start Redis server in Docker for the test session."""
+
+    import redis as redis_sync
+
+    # Stop any existing container with the same name
+    subprocess.run(
+        [
+            "docker",
+            "stop",
+            REDIS_CONTAINER_NAME,
+        ],
+        check=False,
+        capture_output=True,
+    )
+    subprocess.run(
+        [
+            "docker",
+            "rm",
+            REDIS_CONTAINER_NAME,
+        ],
+        check=False,
+        capture_output=True,
+    )
+
+    # Launch Redis container
+    subprocess.run(
+        [
+            "docker",
+            "run",
+            "-d",
+            "--name",
+            REDIS_CONTAINER_NAME,
+            "-p",
+            f"{REDIS_PORT}:6379",
+            "redis:7-alpine",
+        ],
+        check=True,
+        capture_output=True,
+        timeout=20,
+    )
+
+    # Wait until Redis is ready
+    client = redis_sync.Redis(host="localhost", port=int(REDIS_PORT))
+    for _ in range(30):
+        try:
+            if client.ping():
+                break
+        except Exception:
+            time.sleep(1)
+    else:
+        raise RuntimeError("Redis server failed to start in time")
+
+    # Ensure library code picks up the correct URL
+    os.environ["REDIS_URL"] = f"redis://localhost:{REDIS_PORT}"
+
+    try:
+        yield
+    finally:
+        subprocess.run(
+            [
+                "docker",
+                "stop",
+                REDIS_CONTAINER_NAME,
+            ],
+            check=False,
+            capture_output=True,
+        )
+        subprocess.run(
+            [
+                "docker",
+                "rm",
+                REDIS_CONTAINER_NAME,
+            ],
+            check=False,
+            capture_output=True,
+        )
+
+
+@pytest.fixture(autouse=True, scope="function")
+def clean_redis_db(redis_server):
+    """Flush Redis before every test function to guarantee isolation."""
+
+    import redis as redis_sync
+
+    # Use sync redis client to avoid event loop issues
+    client = redis_sync.Redis(host="localhost", port=int(REDIS_PORT))
+    client.flushdb()
+    yield
+    # Optionally flush again after test
+    client.flushdb()
 
 
 @pytest.fixture
@@ -166,8 +275,6 @@ async def session() -> AsyncGenerator[AsyncSession, None]:
 
 @pytest.fixture(autouse=True, scope="session")
 def env_sandbox(monkeysession: pytest.MonkeyPatch):
-    from dotenv import load_dotenv
-
     load_dotenv()
     logger.info("Setting up environment variables")
     monkeysession.setattr(config, "TRACECAT__APP_ENV", "development")
@@ -262,18 +369,12 @@ async def test_admin_role(test_workspace, mock_org_id):
 @pytest.fixture(scope="function")
 async def test_workspace():
     """Create a test workspace for the test session."""
-    workspace_name = "__test_workspace"
+    ws_id = uuid.uuid4()
+    workspace_name = f"__test_workspace_{ws_id.hex[:8]}"
 
     async with WorkspaceService.with_session(role=system_role()) as svc:
-        # Check if test workspace already exists
-        existing_workspaces = await svc.admin_list_workspaces()
-        for ws in existing_workspaces:
-            if ws.name == workspace_name:
-                logger.info("Found existing test workspace, deleting it first")
-                await svc.delete_workspace(ws.id)
-
         # Create new test workspace
-        workspace = await svc.create_workspace(name=workspace_name)
+        workspace = await svc.create_workspace(name=workspace_name, override_id=ws_id)
 
         logger.info("Created test workspace", workspace=workspace)
 
@@ -283,9 +384,9 @@ async def test_workspace():
             # Clean up the workspace
             logger.info("Teardown test workspace")
             try:
-                await svc.delete_workspace(workspace.id)
+                await svc.delete_workspace(ws_id)
             except Exception as e:
-                logger.error(f"Error during workspace cleanup: {e}")
+                logger.warning(f"Error during workspace cleanup: {e}")
 
 
 @pytest.fixture(scope="function")
@@ -597,8 +698,6 @@ def mock_s3_secrets():
 @pytest.fixture
 async def aioboto3_minio_client(monkeypatch):
     """Fixture that mocks aioboto3 to use MinIO endpoint."""
-    import aioboto3
-    import tracecat_registry.integrations.aws_boto3 as boto3_module
 
     # Mock get_session to return session with MinIO credentials
     async def mock_get_session():

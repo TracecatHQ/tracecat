@@ -1,3 +1,0 @@
-endpoint_id:
-  type: str
-  description: ID of the endpoint.

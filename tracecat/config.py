@@ -3,6 +3,7 @@ import uuid
 from typing import Literal
 
 from tracecat.auth.enums import AuthType
+from tracecat.feature_flags.enums import FeatureFlag
 
 # === Internal Services === #
 TRACECAT__APP_ENV: Literal["development", "staging", "production"] = os.environ.get(
@@ -16,6 +17,7 @@ TRACECAT__PUBLIC_API_URL = os.environ.get(
 TRACECAT__PUBLIC_APP_URL = os.environ.get(
     "TRACECAT__PUBLIC_APP_URL", "http://localhost"
 )
+
 
 TRACECAT__EXECUTOR_URL = os.environ.get(
     "TRACECAT__EXECUTOR_URL", "http://executor:8000"
@@ -62,13 +64,13 @@ TRACECAT__DB_SSLMODE = os.environ.get("TRACECAT__DB_SSLMODE", "require")
 TRACECAT__DB_PASS__ARN = os.environ.get("TRACECAT__DB_PASS__ARN")
 """(AWS only) ARN of the secret to connect to the database with."""
 
-TRACECAT__DB_MAX_OVERFLOW = int(os.environ.get("TRACECAT__DB_MAX_OVERFLOW", 30))
+TRACECAT__DB_MAX_OVERFLOW = int(os.environ.get("TRACECAT__DB_MAX_OVERFLOW", 60))
 """The maximum number of connections to allow in the pool."""
-TRACECAT__DB_POOL_SIZE = int(os.environ.get("TRACECAT__DB_POOL_SIZE", 30))
+TRACECAT__DB_POOL_SIZE = int(os.environ.get("TRACECAT__DB_POOL_SIZE", 10))
 """The size of the connection pool."""
 TRACECAT__DB_POOL_TIMEOUT = int(os.environ.get("TRACECAT__DB_POOL_TIMEOUT", 30))
 """The timeout for the connection pool."""
-TRACECAT__DB_POOL_RECYCLE = int(os.environ.get("TRACECAT__DB_POOL_RECYCLE", 1800))
+TRACECAT__DB_POOL_RECYCLE = int(os.environ.get("TRACECAT__DB_POOL_RECYCLE", 600))
 """The time to recycle the connection pool."""
 
 # === Auth config === #
@@ -230,6 +232,11 @@ TRACECAT__BLOB_STORAGE_ENDPOINT = os.environ.get(
 )
 """Endpoint URL for blob storage. Ignored when protocol is 's3'."""
 
+TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT = os.environ.get(
+    "TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT", None
+)
+"""Public endpoint URL to use for presigned URLs. Ignored when protocol is 's3'."""
+
 TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY = int(
     os.environ.get("TRACECAT__BLOB_STORAGE_PRESIGNED_URL_EXPIRY", 10)
 )
@@ -344,6 +351,12 @@ TRACECAT__WORKFLOW_RETURN_STRATEGY = os.environ.get(
 ).lower()
 """Strategy to use when returning a value from a workflow. Supported: context, minimal. Defaults to minimal."""
 
+# === Redis config === #
+REDIS_CHAT_TTL_SECONDS = int(
+    os.environ.get("REDIS_CHAT_TTL_SECONDS", 30 * 24 * 60 * 60)  # 30 days
+)
+"""TTL for Redis chat history streams in seconds. Defaults to 30 days."""
+
 # === File limits === #
 TRACECAT__MAX_ATTACHMENT_SIZE_BYTES = int(
     os.environ.get("TRACECAT__MAX_ATTACHMENT_SIZE_BYTES", 20 * 1024 * 1024)
@@ -364,3 +377,72 @@ TRACECAT__MAX_ATTACHMENTS_PER_CASE = int(
     os.environ.get("TRACECAT__MAX_ATTACHMENTS_PER_CASE", 10)
 )
 """The maximum number of attachments allowed per case. Defaults to 10."""
+
+TRACECAT__MAX_RECORDS_PER_CASE = int(
+    os.environ.get("TRACECAT__MAX_RECORDS_PER_CASE", 50)
+)
+"""The maximum number of entity records allowed per case. Defaults to 50."""
+
+# === File security === #
+
+ALLOWED_ATTACHMENT_EXTENSIONS = ",".join(
+    [
+        ".pdf",
+        ".docx",
+        ".xlsx",
+        ".pptx",
+        ".txt",
+        ".csv",
+        ".jpg",
+        ".jpeg",
+        ".png",
+        ".gif",
+        ".webp",
+    ]
+)
+TRACECAT__ALLOWED_ATTACHMENT_EXTENSIONS = {
+    ext.strip()
+    for ext in os.environ.get(
+        "TRACECAT__ALLOWED_ATTACHMENT_EXTENSIONS", ALLOWED_ATTACHMENT_EXTENSIONS
+    ).split(",")
+    if ext.strip()
+}
+"""The allowed extensions for case attachment files."""
+
+ALLOWED_ATTACHMENT_MIME_TYPES = ",".join(
+    [
+        "application/pdf",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "text/plain",
+        "text/csv",
+        "image/jpeg",
+        "image/png",
+        "image/gif",
+        "image/webp",
+    ]
+)
+TRACECAT__ALLOWED_ATTACHMENT_MIME_TYPES = {
+    mime_type.strip()
+    for mime_type in os.environ.get(
+        "TRACECAT__ALLOWED_ATTACHMENT_MIME_TYPES", ALLOWED_ATTACHMENT_MIME_TYPES
+    ).split(",")
+    if mime_type.strip()
+}
+"""The allowed MIME types for case attachment files."""
+
+# === Enterprise Edition === #
+ENTERPRISE_EDITION = os.environ.get("ENTERPRISE_EDITION", "false").lower() in (
+    "true",
+    "1",
+)
+"""Whether the enterprise edition is enabled."""
+
+# === Feature Flags === #
+TRACECAT__FEATURE_FLAGS: set[FeatureFlag] = {
+    FeatureFlag(f)
+    for flag in os.environ.get("TRACECAT__FEATURE_FLAGS", "").split(",")
+    if (f := flag.strip())
+}
+"""Set of enabled feature flags."""

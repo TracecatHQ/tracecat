@@ -1,3 +1,4 @@
+import datetime
 import inspect
 import types
 from dataclasses import dataclass
@@ -217,6 +218,8 @@ def get_default_component(field_type: Any) -> Component | None:
         return Text()
     elif field_type is Any:
         return Yaml()  # Use Yaml editor for Any type to allow flexible input
+    elif field_type is datetime.datetime:
+        return Yaml()
     elif _safe_issubclass(field_type, Enum):
         member_map = field_type._member_map_
         return Select(options=[member.value for member in member_map.values()])

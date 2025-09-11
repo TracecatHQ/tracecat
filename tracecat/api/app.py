@@ -1,6 +1,7 @@
+import asyncio
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request, status
+from fastapi import Depends, FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import ORJSONResponse
@@ -12,6 +13,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import __version__ as APP_VERSION
 from tracecat import config
+from tracecat.agent.router import router as agent_router
 from tracecat.api.common import (
     add_temporal_search_attributes,
     bootstrap_role,
@@ -30,12 +32,19 @@ from tracecat.auth.users import (
     auth_backend,
     fastapi_users,
 )
+from tracecat.cases.attachments.router import router as case_attachments_router
+from tracecat.cases.records.router import router as case_records_router
 from tracecat.cases.router import case_fields_router as case_fields_router
 from tracecat.cases.router import cases_router as cases_router
+from tracecat.cases.tags.router import router as case_tags_router
+from tracecat.chat.router import router as chat_router
 from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.editor.router import router as editor_router
+from tracecat.entities.router import router as entities_router
+from tracecat.feature_flags import feature_flag_dep
+from tracecat.feature_flags.router import router as feature_flags_router
 from tracecat.integrations.router import integrations_router, providers_router
 from tracecat.logger import logger
 from tracecat.middleware import (
@@ -44,6 +53,8 @@ from tracecat.middleware import (
 )
 from tracecat.middleware.security import SecurityHeadersMiddleware
 from tracecat.organization.router import router as org_router
+from tracecat.prompt.router import router as prompt_router
+from tracecat.records.router import router as records_router
 from tracecat.registry.actions.router import router as registry_actions_router
 from tracecat.registry.common import reload_registry
 from tracecat.registry.repositories.router import router as registry_repos_router
@@ -51,11 +62,12 @@ from tracecat.secrets.router import org_router as org_secrets_router
 from tracecat.secrets.router import router as secrets_router
 from tracecat.settings.router import router as org_settings_router
 from tracecat.settings.service import SettingsService, get_setting_override
-from tracecat.storage import ensure_bucket_exists
+from tracecat.storage.blob import ensure_bucket_exists
 from tracecat.tables.router import router as tables_router
 from tracecat.tags.router import router as tags_router
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatException
+from tracecat.vcs.router import org_router as vcs_router
 from tracecat.webhooks.router import router as webhook_router
 from tracecat.workflow.actions.router import router as workflow_actions_router
 from tracecat.workflow.executions.router import router as workflow_executions_router
@@ -64,6 +76,7 @@ from tracecat.workflow.management.folders.router import (
 )
 from tracecat.workflow.management.router import router as workflow_management_router
 from tracecat.workflow.schedules.router import router as schedules_router
+from tracecat.workflow.store.router import router as workflow_store_router
 from tracecat.workflow.tags.router import router as workflow_tags_router
 from tracecat.workspaces.router import router as workspaces_router
 from tracecat.workspaces.service import WorkspaceService
@@ -72,7 +85,9 @@ from tracecat.workspaces.service import WorkspaceService
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Temporal
-    await add_temporal_search_attributes()
+    # Run in background to avoid blocking startup
+    asyncio.create_task(add_temporal_search_attributes())
+    logger.debug("Spawned lifespan task to add temporal search attributes")
 
     # Storage
     await ensure_bucket_exists(config.TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS)
@@ -82,8 +97,14 @@ async def lifespan(app: FastAPI):
     async with get_async_session_context_manager() as session:
         # Org
         await setup_org_settings(session, role)
-        await reload_registry(session, role)
+        try:
+            await reload_registry(session, role)
+        except Exception as e:
+            logger.warning("Error reloading registry", error=e)
         await setup_workspace_defaults(session, role)
+    logger.info(
+        "Feature flags", feature_flags=[f.value for f in config.TRACECAT__FEATURE_FLAGS]
+    )
     yield
 
 
@@ -113,7 +134,8 @@ def validation_exception_handler(request: Request, exc: RequestValidationError):
     ser_errors = to_jsonable_python(errors, fallback=str)
     logger.error(
         "API Model Validation error",
-        request=request,
+        method=request.method,
+        path=request.url.path,
         errors=ser_errors,
     )
     return ORJSONResponse(
@@ -180,11 +202,15 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(workflow_executions_router)
     app.include_router(workflow_actions_router)
     app.include_router(workflow_tags_router)
+    app.include_router(workflow_store_router)
     app.include_router(secrets_router)
     app.include_router(schedules_router)
+    app.include_router(entities_router)
     app.include_router(tags_router)
+    app.include_router(records_router)
     app.include_router(users_router)
     app.include_router(org_router)
+    app.include_router(agent_router)
     app.include_router(editor_router)
     app.include_router(registry_repos_router)
     app.include_router(registry_actions_router)
@@ -193,9 +219,19 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(tables_router)
     app.include_router(cases_router)
     app.include_router(case_fields_router)
+    app.include_router(case_tags_router)
+    app.include_router(case_attachments_router)
+    app.include_router(case_records_router)
+    app.include_router(chat_router)
+    app.include_router(prompt_router)
     app.include_router(workflow_folders_router)
     app.include_router(integrations_router)
     app.include_router(providers_router)
+    app.include_router(feature_flags_router)
+    app.include_router(
+        vcs_router,
+        dependencies=[Depends(feature_flag_dep("git-sync"))],
+    )
     app.include_router(
         fastapi_users.get_users_router(UserRead, UserUpdate),
         prefix="/users",

@@ -17,10 +17,12 @@ import {
   SidebarMenuItem,
   SidebarRail,
 } from "@/components/ui/sidebar"
+import { useAuth } from "@/hooks/use-auth"
 
 export function RegistrySidebar({
   ...props
 }: React.ComponentProps<typeof Sidebar>) {
+  const { user } = useAuth()
   const pathname = usePathname()
 
   const navMain = [
@@ -30,16 +32,21 @@ export function RegistrySidebar({
       icon: BookOpenIcon,
       isActive: pathname?.includes("/registry/actions"),
     },
-    {
-      title: "Repositories",
-      url: "/registry/repositories",
-      icon: GitBranchIcon,
-      isActive: pathname?.includes("/registry/repositories"),
-    },
+    ...(user?.isOrgAdmin()
+      ? // Only show repositories if the user is an org admin
+        [
+          {
+            title: "Repositories",
+            url: "/registry/repositories",
+            icon: GitBranchIcon,
+            isActive: pathname?.includes("/registry/repositories"),
+          },
+        ]
+      : []),
   ]
 
   return (
-    <Sidebar collapsible="icon" variant="inset" {...props}>
+    <Sidebar collapsible="offcanvas" variant="inset" {...props}>
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>

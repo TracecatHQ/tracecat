@@ -215,7 +215,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
                 self.logger.info("First user promoted to superadmin", email=user.email)
 
             elif len(users) > 1 and await get_setting(
-                "app_create_workspace_on_register", default=True
+                "app_create_workspace_on_register", default=False
             ):
                 # Check if we should auto-create a workspace for the user
                 self.logger.info("Creating workspace for new user", user=user.email)
@@ -457,7 +457,23 @@ def validate_email(
 ) -> None:
     # Safety: This is already a validated email, so we can split on the first @
     _, domain = email.split("@", 1)
-    logger.info(f"Domain: {domain}")
-
     if allowed_domains and domain not in allowed_domains:
         raise InvalidEmailException()
+    logger.info("Validated email with domain", domain=domain)
+
+
+async def lookup_user_by_email(
+    *, session: SQLModelAsyncSession, email: str
+) -> User | None:
+    """Look up a user by their email address.
+
+    Args:
+        session: The database session.
+        email: The email address to search for.
+
+    Returns:
+        User | None: The user object if found, None otherwise.
+    """
+    statement = select(User).where(User.email == email)
+    result = await session.exec(statement)
+    return result.first()

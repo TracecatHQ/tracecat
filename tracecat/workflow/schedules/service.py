@@ -6,16 +6,16 @@ from sqlalchemy.exc import NoResultFound
 from sqlmodel import select
 from temporalio import activity
 
-from tracecat.auth.credentials import TemporaryRole
 from tracecat.db.schemas import Schedule
+from tracecat.db.session_events import add_after_commit_callback
 from tracecat.identifiers import ScheduleID, WorkflowID
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
 from tracecat.service import BaseService
+from tracecat.types.auth import AccessLevel
 from tracecat.types.exceptions import (
     TracecatAuthorizationError,
     TracecatNotFoundError,
-    TracecatServiceError,
 )
 from tracecat.workflow.schedules import bridge
 from tracecat.workflow.schedules.models import (
@@ -54,7 +54,9 @@ class WorkflowSchedulesService(BaseService):
         schedules = result.all()
         return list(schedules)
 
-    async def create_schedule(self, params: ScheduleCreate) -> Schedule:
+    async def create_schedule(
+        self, params: ScheduleCreate, commit: bool = True
+    ) -> Schedule:
         """
         Create a schedule for a workflow.
 
@@ -91,44 +93,56 @@ class WorkflowSchedulesService(BaseService):
         )
         self.session.add(schedule)
 
-        # Set the role for the schedule as the tracecat-runner
-        with TemporaryRole(
-            type="service",
-            user_id=str(owner_id),
-            service_id="tracecat-schedule-runner",
-        ) as sch_role:
+        role = self.role.model_copy(
+            update={
+                "type": "service",
+                "service_id": "tracecat-schedule-runner",
+                "access_level": AccessLevel.ADMIN,
+                "user_id": None,
+            }
+        )
+
+        # Register after-commit callback to create Temporal schedule
+        schedule_id = schedule.id
+
+        async def _create_schedule():
             try:
                 handle = await bridge.create_schedule(
                     workflow_id=WorkflowUUID.new(params.workflow_id),
-                    schedule_id=schedule.id,
+                    schedule_id=schedule_id,
                     every=params.every,
                     offset=params.offset,
                     start_at=params.start_at,
                     end_at=params.end_at,
                     timeout=params.timeout,
+                    role=role,
+                )
+                logger.info(
+                    "Created schedule",
+                    handle_id=handle.id,
+                    workflow_id=params.workflow_id,
+                    schedule_id=schedule_id,
+                    schedule_role=role,
                 )
             except Exception as e:
-                # If we fail to create the schedule in temporal
-                # we should rollback the transaction
-                await self.session.rollback()
-                msg = "The schedules service couldn't create a Temporal schedule"
-                self.logger.error(
-                    msg,
-                    error=e,
+                # Log; optionally wire to a retry/outbox
+                logger.error(
+                    "The schedules service couldn't create a Temporal schedule after commit",
+                    error=str(e),
                     workflow_id=params.workflow_id,
-                    schedule_id=schedule.id,
-                    sch_role=sch_role,
+                    schedule_id=schedule_id,
+                    schedule_role=role,
                 )
-                raise TracecatServiceError(msg) from e
-            logger.info(
-                "Created schedule",
-                handle_id=handle.id,
-                workflow_id=params.workflow_id,
-                schedule_id=schedule.id,
-                sch_role=sch_role,
-            )
 
-        await self.session.commit()
+        add_after_commit_callback(self.session, _create_schedule)
+
+        # Ensure the SQLAlchemy instance is persistent before refresh.
+        # Commit will implicitly flush; when commit=False we must flush explicitly
+        # or SQLAlchemy will raise "Instance is not persistent within this Session".
+        if commit:
+            await self.session.commit()
+        else:
+            await self.session.flush()
         await self.session.refresh(schedule)
         return schedule
 
@@ -188,26 +202,37 @@ class WorkflowSchedulesService(BaseService):
         """
         schedule = await self.get_schedule(schedule_id)
 
-        try:
-            # Synchronize with Temporal
-            await bridge.update_schedule(schedule_id, params)
-        except Exception as e:
-            await self.session.rollback()
-            msg = f"The schedules service couldn't update the Temporal schedule with ID {schedule_id}"
-            logger.error(msg, error=e)
-            raise TracecatNotFoundError(msg) from e
-
-        # Update the schedule
+        # Update the schedule in DB first
         for key, value in params.model_dump(exclude_unset=True).items():
             # Safety: params have been validated
             setattr(schedule, key, value)
 
         self.session.add(schedule)
+
+        # After-commit callback to update Temporal schedule
+        async def _update_schedule():
+            try:
+                await bridge.update_schedule(schedule_id, params)
+                logger.info(
+                    "Updated schedule",
+                    schedule_id=schedule_id,
+                )
+            except Exception as e:
+                logger.error(
+                    "The schedules service couldn't update the Temporal schedule after commit",
+                    error=str(e),
+                    schedule_id=schedule_id,
+                )
+
+        add_after_commit_callback(self.session, _update_schedule)
+
         await self.session.commit()
         await self.session.refresh(schedule)
         return schedule
 
-    async def delete_schedule(self, schedule_id: ScheduleID) -> None:
+    async def delete_schedule(
+        self, schedule_id: ScheduleID, commit: bool = True
+    ) -> None:
         """
         Delete a schedule.
 
@@ -222,32 +247,38 @@ class WorkflowSchedulesService(BaseService):
             If an error occurs while deleting the schedule from Temporal.
 
         """
+        # Stage DB delete (if exists)
         try:
             schedule = await self.get_schedule(schedule_id)
+            await self.session.delete(schedule)
+            logger.info("Deleted schedule", schedule_id=schedule_id)
         except NoResultFound:
-            schedule = None
             logger.warning(
-                "Schedule not found, attempt to delete underlying Temporal schedule...",
+                "Schedule not found in DB; will still attempt Temporal delete after commit",
                 schedule_id=schedule_id,
             )
 
-        try:
-            # Delete the schedule from Temporal first
-            await bridge.delete_schedule(schedule_id)
-        except RuntimeError as e:
-            raise TracecatServiceError(
-                f"The schedules service couldn't delete the Temporal schedule with ID {schedule_id}"
-            ) from e
+        # After-commit callback to delete Temporal schedule
+        async def _delete_schedule():
+            try:
+                await bridge.delete_schedule(schedule_id)
+                logger.info(
+                    "Deleted Temporal schedule",
+                    schedule_id=schedule_id,
+                )
+            except RuntimeError as e:
+                logger.error(
+                    "The schedules service couldn't delete the Temporal schedule after commit",
+                    error=str(e),
+                    schedule_id=schedule_id,
+                )
 
-        # If successful, delete the schedule from the database
-        if schedule:
-            await self.session.delete(schedule)
+        add_after_commit_callback(self.session, _delete_schedule)
+
+        if commit:
             await self.session.commit()
         else:
-            logger.warning(
-                "Schedule was already deleted from the database",
-                schedule_id=schedule_id,
-            )
+            await self.session.flush()
 
     @staticmethod
     @activity.defn

@@ -1,0 +1,23 @@
+type: action
+definition:
+  title: Get latest breach
+  description: Get the most recently added breach in the system.
+  display_group: Have I Been Pwned
+  doc_url: https://haveibeenpwned.com/API/v3#LatestBreach
+  namespace: tools.hibp
+  name: get_latest_breach
+  expects: {}
+  steps:
+    - ref: call_api
+      action: core.http_request
+      args:
+        url: https://haveibeenpwned.com/api/v3/latestbreach
+        method: GET
+        headers:
+          User-Agent: Tracecat-HIBP-Integration
+    - ref: format_response
+      action: core.transform.reshape
+      args:
+        value:
+          latest_breach: ${{ steps.call_api.result.data }}
+  returns: ${{ steps.format_response.result }}

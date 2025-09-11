@@ -119,7 +119,7 @@ import { isTracecatJsonSchema, type TracecatJsonSchema } from "@/lib/schema"
 import { cn, slugify } from "@/lib/utils"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 // These are YAML strings
 const actionFormSchema = z.object({
@@ -140,10 +140,19 @@ const actionFormSchema = z.object({
         z.string().max(1000, "For each must be less than 1000 characters")
       ),
     ])
+    .transform((val) => {
+      if (Array.isArray(val)) {
+        return val.filter((item) => item.trim() !== "")
+      } else if (typeof val === "string") {
+        return val.trim() !== "" ? val : undefined
+      }
+      return val
+    })
     .optional(),
   run_if: z
     .string()
     .max(1000, "Run if must be less than 1000 characters")
+    .transform((val) => (val?.trim() ? val.trim() : undefined))
     .optional(),
   // Retry policy fields
   max_attempts: z.number().int().min(0).optional(),
@@ -158,6 +167,10 @@ const actionFormSchema = z.object({
   wait_until: z
     .string()
     .max(1000, "Wait until must be less than 1000 characters")
+    .optional(),
+  environment: z
+    .string()
+    .max(1000, "Environment must be less than 1000 characters")
     .optional(),
   is_interactive: z.boolean().default(false),
   interaction: z
@@ -254,7 +267,7 @@ function ActionPanelContent({
   workflowId: string
 }) {
   const { appSettings } = useOrgAppSettings()
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const { validationErrors } = useWorkflow()
   const { action, actionIsLoading, updateAction } = useAction(
     actionId,
@@ -266,6 +279,9 @@ function ActionPanelContent({
   const { registryAction, registryActionIsLoading, registryActionError } =
     useGetRegistryAction(action?.type)
   const actionControlFlow = action?.control_flow ?? {}
+
+  // Special-case: disable form mode for reshape actions
+  const isReshapeAction = action?.type === "core.transform.reshape"
 
   const actionInputsObj = useMemo(
     () => parseYaml(action?.inputs) ?? {},
@@ -286,6 +302,7 @@ function ActionPanelContent({
       start_delay: actionControlFlow?.start_delay,
       join_strategy: actionControlFlow?.join_strategy,
       wait_until: actionControlFlow?.wait_until || undefined,
+      environment: actionControlFlow?.environment || undefined,
       is_interactive: action?.is_interactive ?? false,
       interaction: action?.interaction ?? undefined,
     },
@@ -298,7 +315,9 @@ function ActionPanelContent({
   const [activeTab, setActiveTab] = useState<ActionPanelTabs>("inputs")
   const [open, setOpen] = useState(false)
   // Check if form mode is enabled via organization settings
-  const formModeEnabled = appSettings?.app_action_form_mode_enabled ?? true
+  // Keep org-wide toggle AND force YAML mode for reshape
+  const formModeEnabled =
+    !isReshapeAction && (appSettings?.app_action_form_mode_enabled ?? true)
   const [inputMode, setInputMode] = useState<InputMode>(
     formModeEnabled ? "form" : "yaml"
   )
@@ -453,6 +472,7 @@ function ActionPanelContent({
             start_delay: values.start_delay,
             join_strategy: values.join_strategy,
             wait_until: values.wait_until,
+            environment: values.environment,
           },
           is_interactive: values.is_interactive,
           interaction: values.interaction,
@@ -629,7 +649,7 @@ function ActionPanelContent({
   ].filter((e) => e.ref === slugify(action.title))
 
   return (
-    <div onBlur={onPanelBlur}>
+    <div onBlur={onPanelBlur} className="pb-10">
       <Tabs
         defaultValue="inputs"
         value={activeTab}
@@ -1272,6 +1292,71 @@ function ActionPanelContent({
                       </ControlFlowField>
                       {/* Other options */}
 
+                      {/* Join strategy */}
+                      <ControlFlowField
+                        label="Join strategy"
+                        description="Define how to handle results when the action runs in parallel."
+                        tooltip={<JoinStrategyTooltip />}
+                      >
+                        <FormField
+                          name="join_strategy"
+                          control={methods.control}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormMessage className="whitespace-pre-line" />
+                              <FormControl>
+                                <Select
+                                  value={field.value || ""}
+                                  onValueChange={field.onChange}
+                                >
+                                  <SelectTrigger className="text-xs">
+                                    <SelectValue
+                                      placeholder="Select strategy..."
+                                      className="text-xs"
+                                    />
+                                  </SelectTrigger>
+                                  <SelectContent className="w-full text-xs">
+                                    {$JoinStrategy.enum.map((strategy) => (
+                                      <SelectItem
+                                        key={strategy}
+                                        value={strategy}
+                                        className="text-xs"
+                                      >
+                                        {strategy.charAt(0).toUpperCase() +
+                                          strategy.slice(1)}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </FormControl>
+                            </FormItem>
+                          )}
+                        />
+                      </ControlFlowField>
+
+                      {/* Environment */}
+                      <ControlFlowField
+                        label="Environment"
+                        description="Override the environment for this action, otherwise the workflow's environment is used."
+                      >
+                        <FormField
+                          name="environment"
+                          control={methods.control}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormMessage className="whitespace-pre-line" />
+                              <FormControl>
+                                <ExpressionInput
+                                  value={field.value || ""}
+                                  onChange={field.onChange}
+                                  placeholder="Type @ to begin an expression..."
+                                />
+                              </FormControl>
+                            </FormItem>
+                          )}
+                        />
+                      </ControlFlowField>
+
                       <ControlFlowField
                         label="Start delay"
                         description="Define a delay before the action starts."
@@ -1295,38 +1380,6 @@ function ActionPanelContent({
                                     )
                                   }
                                   placeholder="0.0"
-                                  className="text-xs"
-                                />
-                              </FormControl>
-                            </FormItem>
-                          )}
-                        />
-                      </ControlFlowField>
-
-                      {/* Max attempts */}
-                      <ControlFlowField
-                        label="Max attempts"
-                        description="Define the maximum number of retry attempts for the action."
-                        tooltip={<MaxAttemptsTooltip />}
-                      >
-                        <FormField
-                          name="max_attempts"
-                          control={methods.control}
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormMessage className="whitespace-pre-line" />
-                              <FormControl>
-                                <Input
-                                  type="number"
-                                  value={field.value || ""}
-                                  onChange={(e) =>
-                                    field.onChange(
-                                      e.target.value
-                                        ? parseInt(e.target.value)
-                                        : undefined
-                                    )
-                                  }
-                                  placeholder="1"
                                   className="text-xs"
                                 />
                               </FormControl>
@@ -1367,6 +1420,38 @@ function ActionPanelContent({
                         />
                       </ControlFlowField>
 
+                      {/* Max attempts */}
+                      <ControlFlowField
+                        label="Max attempts"
+                        description="Define the maximum number of retry attempts for the action."
+                        tooltip={<MaxAttemptsTooltip />}
+                      >
+                        <FormField
+                          name="max_attempts"
+                          control={methods.control}
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormMessage className="whitespace-pre-line" />
+                              <FormControl>
+                                <Input
+                                  type="number"
+                                  value={field.value || ""}
+                                  onChange={(e) =>
+                                    field.onChange(
+                                      e.target.value
+                                        ? parseInt(e.target.value)
+                                        : undefined
+                                    )
+                                  }
+                                  placeholder="1"
+                                  className="text-xs"
+                                />
+                              </FormControl>
+                            </FormItem>
+                          )}
+                        />
+                      </ControlFlowField>
+
                       {/* Retry until */}
                       <ControlFlowField
                         label="Retry until"
@@ -1384,48 +1469,6 @@ function ActionPanelContent({
                                   value={field.value || ""}
                                   onChange={field.onChange}
                                 />
-                              </FormControl>
-                            </FormItem>
-                          )}
-                        />
-                      </ControlFlowField>
-
-                      {/* Join strategy */}
-                      <ControlFlowField
-                        label="Join strategy"
-                        description="Define how to handle results when the action runs in parallel."
-                        tooltip={<JoinStrategyTooltip />}
-                      >
-                        <FormField
-                          name="join_strategy"
-                          control={methods.control}
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormMessage className="whitespace-pre-line" />
-                              <FormControl>
-                                <Select
-                                  value={field.value || ""}
-                                  onValueChange={field.onChange}
-                                >
-                                  <SelectTrigger className="text-xs">
-                                    <SelectValue
-                                      placeholder="Select strategy..."
-                                      className="text-xs"
-                                    />
-                                  </SelectTrigger>
-                                  <SelectContent className="w-full text-xs">
-                                    {$JoinStrategy.enum.map((strategy) => (
-                                      <SelectItem
-                                        key={strategy}
-                                        value={strategy}
-                                        className="text-xs"
-                                      >
-                                        {strategy.charAt(0).toUpperCase() +
-                                          strategy.slice(1)}
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
                               </FormControl>
                             </FormItem>
                           )}
@@ -1648,7 +1691,7 @@ function RegistryActionSecrets({
 }: {
   secrets: NonNullable<RegistryActionRead["secrets"]>
 }) {
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const customSecrets = secrets.filter(
     (secret): secret is RegistrySecret => secret.type === "custom"
   )

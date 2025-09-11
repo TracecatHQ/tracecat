@@ -3,6 +3,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
+from tracecat.git.constants import GIT_SSH_URL_REGEX
+
 
 class BaseSettingsGroup(BaseModel):
     """Base class for configurable settings."""
@@ -29,6 +31,20 @@ class GitSettingsUpdate(BaseSettingsGroup):
     )
     git_repo_url: str | None = Field(default=None)
     git_repo_package_name: str | None = Field(default=None)
+
+    @field_validator("git_repo_url", mode="before")
+    def validate_git_repo_url(cls, value: str | None) -> str | None:
+        """Validate that git_repo_url is a valid Git SSH URL if provided."""
+        if value is None:
+            return value
+
+        # Use shared regex from git utils to ensure consistency across the codebase
+        if not GIT_SSH_URL_REGEX.match(value):
+            raise ValueError(
+                "Must be a valid Git SSH URL (e.g., git+ssh://git@github.com/org/repo.git)"
+            )
+
+        return value
 
 
 class SAMLSettingsRead(BaseSettingsGroup):
@@ -142,6 +158,34 @@ class AppSettingsUpdate(BaseSettingsGroup):
     app_action_form_mode_enabled: bool = Field(
         default=True,
         description="Whether to enable form mode for action inputs. When disabled, only YAML mode is available, preserving raw YAML formatting.",
+    )
+
+
+class AgentSettingsRead(BaseSettingsGroup):
+    agent_default_model: str | None
+    agent_fixed_args: str | None
+    agent_case_chat_prompt: str
+    agent_case_chat_inject_content: bool
+
+
+class AgentSettingsUpdate(BaseSettingsGroup):
+    agent_default_model: str | None = Field(
+        default=None,
+        description="The default AI model to use for agent operations.",
+    )
+    agent_fixed_args: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=10000,
+        description="Fixed arguments for agent tools as a JSON string. Format: {'tool_name': {'arg': 'value'}}",
+    )
+    agent_case_chat_prompt: str = Field(
+        default="",
+        description="Additional instructions for case chat agent; prepended to UI-provided instructions.",
+    )
+    agent_case_chat_inject_content: bool = Field(
+        default=False,
+        description="Whether to automatically inject case content into agent prompts when a case_id is available.",
     )
 
 

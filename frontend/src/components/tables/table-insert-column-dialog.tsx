@@ -35,7 +35,7 @@ import {
 import type { TracecatApiError } from "@/lib/errors"
 import { useGetTable, useInsertColumn } from "@/lib/hooks"
 import { SqlTypeEnum } from "@/lib/tables"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 // Update schema for column creation
 const createInsertTableColumnSchema = z.object({
@@ -54,7 +54,7 @@ export function TableInsertColumnDialog({
 }) {
   const params = useParams<{ tableId: string }>()
   const tableId = params?.tableId
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const { table } = useGetTable({ tableId: tableId || "", workspaceId })
   const { insertColumn, insertColumnIsPending } = useInsertColumn()
 

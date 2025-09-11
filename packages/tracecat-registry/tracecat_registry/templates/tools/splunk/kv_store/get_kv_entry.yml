@@ -1,0 +1,49 @@
+type: action
+definition:
+  title: Get KV entry
+  description: Get a specific entry from a KV Store collection in Splunk.
+  display_group: Splunk
+  doc_url: https://help.splunk.com/en/splunk-enterprise/rest-api-reference/9.4/kv-store-endpoints/kv-store-endpoint-descriptions#get-7
+  namespace: tools.splunk
+  name: get_kv_entry
+  secrets:
+    - name: splunk
+      keys: ["SPLUNK_API_KEY"]
+  expects:
+    collection:
+      type: str
+      description: Name of the KV Store collection containing the entry.
+    entry_key:
+      type: str
+      description: |
+        The _key value of the entry to retrieve from the collection.
+        Example: "5f3a1b2c3d4e5f6a7b8c9d0e"
+    base_url:
+      type: str
+      description: Splunk base URL (e.g. https://localhost:8089 or https://tracecat.splunkcloud.com:8089).
+    owner:
+      type: str
+      description: Splunk namespace owner for access control (use "nobody" for shared access).
+      default: nobody
+    app:
+      type: str
+      description: Splunk app context where the collection resides (e.g. "search" for default).
+      default: search
+    verify_ssl:
+      type: bool
+      description: Whether to verify SSL certificates.
+      default: true
+  steps:
+    - ref: get_entry
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/servicesNS/${{ inputs.owner }}/${{ inputs.app }}/storage/collections/data/${{ inputs.collection }}/${{ inputs.entry_key }}
+        method: GET
+        verify_ssl: ${{ inputs.verify_ssl }}
+        headers:
+          Authorization: Bearer ${{ SECRETS.splunk.SPLUNK_API_KEY }}
+          Content-Type: application/json
+          Accept: application/json
+        params:
+          output_mode: json
+  returns: ${{ steps.get_entry.result.data }}

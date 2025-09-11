@@ -30,12 +30,12 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Switch } from "@/components/ui/switch"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
+import { useLocalStorage } from "@/hooks/use-local-storage"
 import {
   useCreateManualWorkflowExecution,
-  useLocalStorage,
   useWorkflowManager,
 } from "@/lib/hooks"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 interface CaseWorkflowTriggerProps {
   caseData: CaseRead
@@ -48,7 +48,7 @@ interface CaseWorkflowTriggerProps {
  * @returns JSX.Element
  */
 export function CaseWorkflowTrigger({ caseData }: CaseWorkflowTriggerProps) {
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   // Get the manual execution hook for the selected workflow (if any)
   const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(
     null
@@ -171,7 +171,7 @@ export function CaseWorkflowTrigger({ caseData }: CaseWorkflowTriggerProps) {
         <AlertDialogContent className="max-w-md">
           <AlertDialogHeader>
             <AlertDialogTitle className="text-sm">
-              Confirm Workflow Trigger
+              Confirm workflow trigger
             </AlertDialogTitle>
             <AlertDialogDescription className="text-xs">
               Are you sure you want to trigger &quot;{selectedWorkflow?.title}

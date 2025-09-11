@@ -109,7 +109,7 @@ export function DataTableToolbar<TData>({
             </AlertDialogTrigger>
             <AlertDialogContent>
               <AlertDialogHeader>
-                <AlertDialogTitle>Confirm Deletion</AlertDialogTitle>
+                <AlertDialogTitle>Confirm deletion</AlertDialogTitle>
                 <AlertDialogDescription>
                   Are you sure you want to delete the selected items? This
                   action cannot be undone.

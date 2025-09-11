@@ -225,7 +225,7 @@ async def _role_dependency(
                 )
 
             if membership is None:
-                logger.warning(
+                logger.debug(
                     "User is not a member of this workspace",
                     user=user,
                     workspace_id=workspace_id,
@@ -240,7 +240,7 @@ async def _role_dependency(
                 require_workspace_roles
                 and membership.role not in require_workspace_roles
             ):
-                logger.warning(
+                logger.debug(
                     "User does not have the appropriate workspace role",
                     user=user,
                     workspace_id=workspace_id,
@@ -262,7 +262,7 @@ async def _role_dependency(
     elif api_key and allow_service:
         role = await _authenticate_service(request, api_key)
     else:
-        logger.warning("Invalid authentication or authorization", user=user)
+        logger.debug("Invalid authentication or authorization", user=user)
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
     # Structural checks

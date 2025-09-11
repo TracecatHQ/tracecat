@@ -10,8 +10,8 @@ import { Icons } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import PrivacyPolicy from "@/components/privacy-policy"
 import { buttonVariants } from "@/components/ui/button"
+import { useAuth } from "@/hooks/use-auth"
 import { cn } from "@/lib/utils"
-import { useAuth } from "@/providers/auth"
 
 export default function HomePage() {
   const { user, userIsLoading } = useAuth()
@@ -36,7 +36,7 @@ export default function HomePage() {
       >
         <Link href="/sign-in" className="flex-column flex">
           <LogInIcon className="mr-3 size-5" />
-          <span>Sign In</span>
+          <span>Sign in</span>
         </Link>
       </div>
       <div className="relative hidden h-full flex-col bg-muted p-10 text-white dark:border-r lg:flex">

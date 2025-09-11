@@ -10,13 +10,21 @@ down:
 clean:
 	docker volume ls -q | xargs -r docker volume rm
 clean-images:
-	docker images "tracecat*" -q | xargs -r docker rmi
+	docker images --filter "reference=tracecat*" | awk 'NR>1 && $1 != "<none>" && $2 != "<none>" {print $1 ":" $2}' | xargs -r -n 1 docker rmi
+clean-dangling:
+	docker image prune -f
 dev:
 	docker compose -f docker-compose.dev.yml up
 dev-ui:
 	npx @agentdeskai/browser-tools-server@1.2.0
-build-dev:
-	docker compose -f docker-compose.dev.yml build --no-cache
+build-dev *services:
+	docker compose -f docker-compose.dev.yml build --no-cache {{services}}
+local:
+	NODE_ENV=production NEXT_PUBLIC_APP_ENV=production TRACECAT__APP_ENV=production docker compose -f docker-compose.local.yml up
+build-local *services:
+	docker compose -f docker-compose.local.yml build {{services}}
+rebuild-local *services:
+	docker compose -f docker-compose.local.yml build --no-cache {{services}}
 up:
 	docker compose up
 
@@ -24,12 +32,12 @@ build:
 	docker compose build --no-cache
 
 lint-ui:
-	cd frontend && pnpm lint:fix && cd ..
+	pnpm -C frontend lint:fix
 lint-app:
 	ruff check
 
 lint-fix-ui:
-	cd frontend && pnpm check && cd ..
+	pnpm -C frontend check
 lint-fix-app:
 	ruff check . && ruff format .
 
@@ -40,7 +48,7 @@ fix: lint-fix
 mypy path:
 	mypy --ignore-missing-imports {{path}}
 gen-client:
-	cd frontend && pnpm generate-client && cd ..
+	pnpm -C frontend generate-client
 	just lint-fix
 # Update version number. If no version is provided, increments patch version.
 update-version *after='':

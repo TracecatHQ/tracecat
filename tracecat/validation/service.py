@@ -1,4 +1,5 @@
 from collections.abc import Mapping
+from dataclasses import dataclass
 from itertools import chain
 from typing import Any
 
@@ -16,7 +17,8 @@ from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.schemas import RegistryAction
 from tracecat.dsl.common import DSLInput, ExecuteChildWorkflowArgs
 from tracecat.dsl.enums import PlatformAction
-from tracecat.ee.interactions.models import ResponseInteraction
+from tracecat.dsl.models import ActionStatement
+from tracecat.expressions import patterns
 from tracecat.expressions.common import ExprType
 from tracecat.expressions.eval import extract_expressions, is_template_only
 from tracecat.expressions.validator.validator import (
@@ -26,6 +28,7 @@ from tracecat.expressions.validator.validator import (
 from tracecat.integrations.enums import OAuthGrantType
 from tracecat.integrations.models import ProviderKey
 from tracecat.integrations.service import IntegrationService
+from tracecat.interactions.models import ResponseInteraction
 from tracecat.logger import logger
 from tracecat.registry.actions.models import RegistryActionInterface
 from tracecat.registry.actions.service import RegistryActionsService
@@ -42,12 +45,25 @@ from tracecat.validation.models import (
 )
 
 PERMITTED_INTERACTION_ACTIONS = [
-    "tools.slack.ask_text_input",
-    "tools.slack.lookup_user_by_email",
-    "tools.slack.post_notification",
-    "tools.slack.post_update",
-    "tools.slack.revoke_sessions",
+    "tools.slack.post_message",
+    "tools.slack.update_message",
 ]
+
+
+def get_effective_environment(stmt: ActionStatement, default_environment: str) -> str:
+    """Determine the effective environment for an action statement.
+
+    Args:
+        stmt: Action statement that may have an environment override
+        default_environment: Default environment to use if no override
+
+    Returns:
+        The effective environment string
+    """
+    if stmt.environment and isinstance(stmt.environment, str):
+        if not patterns.TEMPLATE_STRING.search(stmt.environment):
+            return stmt.environment
+    return default_environment
 
 
 async def validate_single_secret(
@@ -196,31 +212,48 @@ async def validate_workspace_integration(
     return results
 
 
+@dataclass(frozen=True)
+class ActionEnvPair:
+    action: str
+    """The action id."""
+    environment: str
+    """The environment to validate secrets for."""
+
+
 async def validate_actions_have_defined_secrets(
     dsl: DSLInput,
 ) -> list[SecretValidationResult]:
     """Validate that all actions in the DSL have their required secrets defined."""
     checked_keys: set[str] = set()
+    action_env_pairs: set[ActionEnvPair] = set()
+
+    for stmt in dsl.actions:
+        env_override = get_effective_environment(stmt, dsl.config.environment)
+        action_env_pairs.add(
+            ActionEnvPair(action=stmt.action, environment=env_override)
+        )
 
     async with get_async_session_context_manager() as session:
         secrets_service = SecretsService(session)
 
         # Get all actions that need validation
-        action_keys = {a.action for a in dsl.actions}
         registry_service = RegistryActionsService(session)
         # For all actions, pull out all the secrets that are used
-        actions = await registry_service.list_actions(include_keys=action_keys)
+        reg_actions = await registry_service.list_actions(
+            include_keys={a.action for a in dsl.actions}
+        )
+        act2ra = {a.action: a for a in reg_actions}
 
         # Validate all actions concurrently
         async with GatheringTaskGroup() as tg:
-            for action in actions:
+            for action_env_pair in action_env_pairs:
                 tg.create_task(
                     check_action_secrets(
                         secrets_service,
                         registry_service,
                         checked_keys,
-                        dsl.config.environment,
-                        action,
+                        action_env_pair.environment,
+                        act2ra[action_env_pair.action],
                     )
                 )
 
@@ -415,9 +448,30 @@ async def validate_dsl_expressions(
 
     results: list[ExprValidationResult] = []
     for act_stmt in dsl.actions:
+        if act_stmt.environment is not None:
+            # Only literal strings are permitted
+            if not isinstance(
+                act_stmt.environment, str
+            ) or patterns.TEMPLATE_STRING.search(act_stmt.environment):
+                results.append(
+                    ExprValidationResult(
+                        status="error",
+                        msg=(
+                            "Template expressions are not allowed in "
+                            "`environment` overrides. Provide a literal string."
+                        ),
+                        ref=act_stmt.ref,
+                        expression_type=ExprType.ENV,
+                    )
+                )
+                # Skip further processing for this action – the error is terminal
+                continue
+
+        env_override = get_effective_environment(act_stmt, dsl.config.environment)
+
         async with ExprValidator(
             validation_context=validation_context,
-            environment=dsl.config.environment,
+            environment=env_override,
         ) as visitor:
             # Validate action args
             for expr in extract_expressions(act_stmt.args):

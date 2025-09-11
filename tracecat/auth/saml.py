@@ -31,7 +31,6 @@ from tracecat.config import (
     SAML_SIGNED_RESPONSES,
     SAML_VERIFY_SSL_ENTITY,
     SAML_VERIFY_SSL_METADATA,
-    TRACECAT__APP_ENV,
     TRACECAT__PUBLIC_API_URL,
     XMLSEC_BINARY_PATH,
 )
@@ -209,15 +208,6 @@ def metadata_cert_tempfile(metadata_cert_data: bytes):
 
 
 async def create_saml_client() -> Saml2Client:
-    # Validate HTTPS requirement in production
-    if TRACECAT__APP_ENV == "production":
-        if not SAML_PUBLIC_ACS_URL.startswith("https://"):
-            logger.error("SAML ACS URL must use HTTPS in production environment")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Authentication service misconfigured",
-            )
-
     role = bootstrap_role()
     saml_idp_metadata_url = await get_setting(
         "saml_idp_metadata_url",
@@ -243,6 +233,7 @@ async def create_saml_client() -> Saml2Client:
         "entityid": TRACECAT__PUBLIC_API_URL,
         "xmlsec_binary": XMLSEC_BINARY_PATH,
         "verify_ssl_cert": SAML_VERIFY_SSL_ENTITY,
+        "disable_ssl_certificate_validation": not SAML_VERIFY_SSL_METADATA,
         "service": {
             "sp": {
                 "name": "tracecat_saml_sp",
@@ -267,7 +258,6 @@ async def create_saml_client() -> Saml2Client:
             "remote": [
                 {
                     "url": saml_idp_metadata_url,
-                    "disable_ssl_certificate_validation": not SAML_VERIFY_SSL_METADATA,
                 }
             ]
         },

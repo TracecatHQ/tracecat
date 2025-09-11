@@ -1,0 +1,52 @@
+type: action
+definition:
+  title: Get reports
+  description: Get a paginated list of reports from HackerOne.
+  display_group: HackerOne
+  doc_url: https://api.hackerone.com/customer-resources/?python#reports-update-weakness
+  namespace: tools.hackerone
+  name: get_reports
+  secrets:
+    - name: hackerone
+      keys: ["HACKERONE_API_USERNAME", "HACKERONE_API_TOKEN"]
+  expects:
+    filters:
+      type: dict[str, Any]
+      description: >
+        Filters to apply to the reports.
+        For example, {'filter[program][]': 'tracecat', 'filter[state][]': ['new', 'triaged'], 'filter[assignee][]': 'Tracecat Team'}
+    page_number:
+      type: int
+      description: The page number to retrieve (starts at 1).
+      default: 1
+    page_size:
+      type: int
+      description: Number of reports per page (1-100).
+      default: 25
+  steps:
+    - ref: build_params
+      action: core.script.run_python
+      args:
+        inputs:
+          filters: ${{ inputs.filters }}
+          page_number: ${{ inputs.page_number }}
+          page_size: ${{ inputs.page_size }}
+        script: |
+          def main(filters, page_number, page_size):
+              params = filters.copy() if filters else {}
+              params["page[number]"] = page_number
+              params["page[size]"] = page_size
+              return params
+    - ref: call_api
+      action: core.http_request
+      args:
+        url: https://api.hackerone.com/v1/reports/
+        method: GET
+        headers:
+          Accept: application/json
+          Content-Type: application/json
+        params: ${{ steps.build_params.result }}
+        auth:
+          username: ${{ SECRETS.hackerone.HACKERONE_API_USERNAME }}
+          password: ${{ SECRETS.hackerone.HACKERONE_API_TOKEN }}
+  returns: ${{ steps.call_api.result.data }}

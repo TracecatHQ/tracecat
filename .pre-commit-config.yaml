@@ -32,11 +32,19 @@ repos:
     rev: v8.25.1
     hooks:
       - id: gitleaks
+  - repo: https://github.com/astral-sh/uv-pre-commit
+    rev: 0.8.6
+    hooks:
+      # Keep uv.lock in sync with changes to pyproject.toml
+      - id: uv-lock
+      # Optionally export a requirements.txt reflecting uv.lock
+      - id: uv-export
   - repo: local
     hooks:
-      - id: biome-check
-        name: biome check
-        entry: bash -c 'cd frontend && npx biome check --write .'
+      - id: gen-client
+        name: update frontend client
+        entry: bash -c "pnpm -C frontend generate-client && pnpm -C frontend check"
         language: system
-        files: ^frontend/
+        files: ^(tracecat|packages)
         require_serial: true
+        pass_filenames: false

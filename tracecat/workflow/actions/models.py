@@ -4,10 +4,10 @@ from pydantic import BaseModel, Field, computed_field, field_validator
 
 from tracecat.dsl.enums import JoinStrategy
 from tracecat.dsl.models import ActionRetryPolicy
-from tracecat.ee.interactions.models import ActionInteraction
 from tracecat.identifiers.action import ActionID
 from tracecat.identifiers.action import ref as _ref
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowIDShort
+from tracecat.interactions.models import ActionInteraction
 
 
 class ActionControlFlow(BaseModel):
@@ -29,6 +29,10 @@ class ActionControlFlow(BaseModel):
         description=(
             "Wait until a specific date and time before starting. Overrides `start_delay` if both are provided."
         ),
+    )
+    environment: str | None = Field(
+        default=None,
+        description="Override environment for this action's execution",
     )
 
     @field_validator("wait_until", mode="before")

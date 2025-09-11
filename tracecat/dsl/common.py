@@ -45,13 +45,13 @@ from tracecat.dsl.models import (
     TriggerInputs,
 )
 from tracecat.dsl.view import RFEdge, RFGraph, RFNode, TriggerNode, UDFNode, UDFNodeData
-from tracecat.ee.interactions.models import ActionInteractionValidator
 from tracecat.expressions import patterns
 from tracecat.expressions.common import ExprContext
 from tracecat.expressions.core import extract_expressions
 from tracecat.expressions.expectations import ExpectedField
 from tracecat.identifiers import ScheduleID
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID
+from tracecat.interactions.models import ActionInteractionValidator
 from tracecat.logger import logger
 from tracecat.parse import traverse_leaves
 from tracecat.types.auth import Role
@@ -466,8 +466,9 @@ class DSLRunArgs(BaseModel):
     )
     timeout: timedelta = Field(
         default_factory=lambda: timedelta(minutes=5),
-        description="The maximum time to wait for the workflow to complete.",
+        description="Platform activity start-to-close timeout.",
     )
+    """Platform activity start-to-close timeout."""
     schedule_id: ScheduleID | None = Field(
         default=None,
         description="The schedule ID that triggered this workflow, if any.",
@@ -626,6 +627,7 @@ def build_action_statements(
             wait_until=control_flow.wait_until,
             join_strategy=control_flow.join_strategy,
             interaction=interaction,
+            environment=control_flow.environment,
         )
         statements.append(action_stmt)
     return statements

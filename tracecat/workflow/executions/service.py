@@ -21,6 +21,7 @@ from temporalio.common import (
     SearchAttributePair,
     TypedSearchAttributes,
 )
+from temporalio.exceptions import TerminatedError
 from temporalio.service import RPCError
 
 from tracecat import config
@@ -53,6 +54,7 @@ from tracecat.workflow.executions.common import (
     is_scheduled_event,
     is_start_event,
 )
+from tracecat.workflow.executions.constants import WF_FAILURE_REF
 from tracecat.workflow.executions.enums import (
     TemporalSearchAttr,
     TriggerType,
@@ -67,6 +69,7 @@ from tracecat.workflow.executions.models import (
     WorkflowExecutionEvent,
     WorkflowExecutionEventCompact,
 )
+from tracecat.workspaces.service import WorkspaceService
 
 
 class WorkflowExecutionsService:
@@ -87,6 +90,42 @@ class WorkflowExecutionsService:
         self, wf_exec_id: WorkflowExecutionID
     ) -> WorkflowHandle[DSLWorkflow, DSLRunArgs]:
         return self._client.get_workflow_handle_for(DSLWorkflow.run, wf_exec_id)
+
+    async def _resolve_execution_timeout(
+        self, seconds: float | int | None
+    ) -> datetime.timedelta | None:
+        """Resolve the execution timeout based on workspace settings and DSL config.
+
+        Precedence order:
+        1. If workspace unlimited timeout enabled → return None (unlimited)
+        2. Else if workspace default seconds > 0 → return timedelta
+        3. Else if DSL timeout > 0 → return timedelta
+        4. Otherwise → return None (unlimited)
+
+        Args:
+            seconds: The timeout in seconds (from DSL config or other source)
+
+        Returns:
+            timedelta if timeout should be applied, None for unlimited
+        """
+        if (ws_id := self.role.workspace_id) is not None:
+            async with WorkspaceService.with_session(role=self.role) as ws_svc:
+                workspace = await ws_svc.get_workspace(ws_id)
+                if workspace and isinstance(workspace.settings, dict):
+                    if bool(
+                        workspace.settings.get("workflow_unlimited_timeout_enabled")
+                    ):
+                        return None
+                    ws_default = workspace.settings.get(
+                        "workflow_default_timeout_seconds"
+                    )
+                    if isinstance(ws_default, int) and ws_default > 0:
+                        return datetime.timedelta(seconds=ws_default)
+
+        if seconds and seconds > 0:
+            return datetime.timedelta(seconds=float(seconds))
+
+        return None
 
     async def query_interaction_states(
         self,
@@ -127,7 +166,7 @@ class WorkflowExecutionsService:
     async def get_execution(
         self, wf_exec_id: WorkflowExecutionID, _include_legacy: bool = True
     ) -> WorkflowExecution | None:
-        self.logger.info("Getting workflow execution", wf_exec_id=wf_exec_id)
+        self.logger.debug("Getting workflow execution", wf_exec_id=wf_exec_id)
         handle = self.handle(wf_exec_id)
         try:
             return await handle.describe()
@@ -189,6 +228,21 @@ class WorkflowExecutionsService:
                     )
                     continue
                 id2event[event.event_id] = source
+            # ── synthetic compact event for top-level workflow failure ──
+            elif event.event_type is EventType.EVENT_TYPE_WORKFLOW_EXECUTION_FAILED:
+                failure = EventFailure.from_history_event(event)
+                id2event[event.event_id] = WorkflowExecutionEventCompact(
+                    source_event_id=event.event_id,
+                    schedule_time=event.event_time.ToDatetime(datetime.UTC),
+                    start_time=event.event_time.ToDatetime(datetime.UTC),
+                    close_time=event.event_time.ToDatetime(datetime.UTC),
+                    curr_event_type=HISTORY_TO_WF_EVENT_TYPE[event.event_type],
+                    status=WorkflowExecutionEventStatus.FAILED,
+                    action_name=WF_FAILURE_REF,
+                    action_ref=WF_FAILURE_REF,
+                    action_error=failure,
+                )
+                continue
             else:
                 logger.trace("Processing event", event_type=event.event_type)
                 source_id = get_source_event_id(event)
@@ -644,6 +698,11 @@ class WorkflowExecutionsService:
             kwargs.setdefault(
                 "task_timeout", datetime.timedelta(seconds=float(task_timeout))
             )
+        # Resolve execution timeout based on workspace settings
+        if execution_timeout := await self._resolve_execution_timeout(
+            seconds=dsl.config.timeout
+        ):
+            kwargs["execution_timeout"] = execution_timeout
 
         logger.info(
             f"Executing DSL workflow: {dsl.title}",
@@ -674,16 +733,33 @@ class WorkflowExecutionsService:
                 id=wf_exec_id,
                 task_queue=config.TEMPORAL__CLUSTER_QUEUE,
                 retry_policy=RETRY_POLICIES["workflow:fail_fast"],
-                # We don't currently differentiate between exec and run timeout as we fail fast for workflows
-                execution_timeout=datetime.timedelta(seconds=dsl.config.timeout),
                 search_attributes=search_attrs,
                 **kwargs,
             )
         except WorkflowFailureError as e:
-            self.logger.error(
-                str(e), role=self.role, wf_exec_id=wf_exec_id, cause=e.cause
-            )
-            raise e
+            if isinstance(e.cause, TerminatedError):
+                self.logger.info(
+                    "Workflow execution terminated by user",
+                    role=self.role,
+                    wf_exec_id=wf_exec_id,
+                    cause=e.cause,
+                )
+                # Don't re-raise for expected terminations
+                return WorkflowDispatchResponse(
+                    wf_id=wf_id,
+                    result={
+                        "status": "terminated",
+                        "message": "Workflow execution terminated by user",
+                    },
+                )
+            else:
+                self.logger.error(
+                    "Workflow execution failed",
+                    role=self.role,
+                    wf_exec_id=wf_exec_id,
+                    cause=e.cause,
+                )
+                raise e
         except RPCError as e:
             self.logger.error(
                 f"Temporal service RPC error occurred while executing the workflow: {e}",

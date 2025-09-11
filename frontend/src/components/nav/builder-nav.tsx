@@ -5,6 +5,7 @@ import {
   AlertTriangleIcon,
   ChevronDownIcon,
   DownloadIcon,
+  GitBranchIcon,
   MoreHorizontal,
   PlayIcon,
   SaveIcon,
@@ -17,6 +18,7 @@ import React from "react"
 import { useForm } from "react-hook-form"
 import YAML from "yaml"
 import { z } from "zod"
+import type { ValidationResult } from "@/client"
 import { ApiError } from "@/client"
 import { CodeEditor } from "@/components/editor/codemirror/code-editor"
 import { ExportMenuItem } from "@/components/export-workflow-dropdown-item"
@@ -41,8 +43,10 @@ import {
   FormControl,
   FormField,
   FormItem,
+  FormLabel,
   FormMessage,
 } from "@/components/ui/form"
+import { Input } from "@/components/ui/input"
 import {
   Popover,
   PopoverContent,
@@ -55,6 +59,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { ValidationErrorView } from "@/components/validation-errors"
+import { useWorkspaceDetails } from "@/hooks/use-workspace"
 import type { TracecatApiError } from "@/lib/errors"
 import {
   useCreateManualWorkflowExecution,
@@ -63,18 +68,20 @@ import {
 import { cn } from "@/lib/utils"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 export function BuilderNav() {
   const {
     workflow,
     isLoading: workflowLoading,
     commitWorkflow,
+    publishWorkflow,
     validationErrors,
     setValidationErrors,
   } = useWorkflow()
 
-  const { workspaceId, workspace, workspaceLoading } = useWorkspace()
+  const workspaceId = useWorkspaceId()
+  const { workspace, workspaceLoading } = useWorkspaceDetails()
 
   const handleCommit = async () => {
     console.log("Saving changes...")
@@ -137,41 +144,12 @@ export function BuilderNav() {
           workflowId={workflow.id}
         />
         {/* Save button */}
-        <div className="flex items-center space-x-2">
-          <ValidationErrorView
-            side="bottom"
-            validationErrors={validationErrors || []}
-            noErrorTooltip={
-              <span>
-                Save workflow v{(workflow.version || 0) + 1} with your changes.
-              </span>
-            }
-          >
-            <Button
-              variant="outline"
-              onClick={handleCommit}
-              className={cn(
-                "h-7 text-xs text-muted-foreground hover:bg-emerald-500 hover:text-white",
-                validationErrors &&
-                  "border-rose-400 text-rose-400 hover:bg-transparent hover:text-rose-500"
-              )}
-            >
-              {validationErrors ? (
-                <AlertTriangleIcon className="mr-2 size-4 fill-red-500 stroke-white" />
-              ) : (
-                <SaveIcon className="mr-2 size-4" />
-              )}
-              Save
-            </Button>
-          </ValidationErrorView>
-
-          <Badge
-            variant="secondary"
-            className="h-7 text-xs font-normal text-muted-foreground hover:cursor-default"
-          >
-            {workflow.version ? `v${workflow.version}` : "Draft"}
-          </Badge>
-        </div>
+        <WorkflowSaveActions
+          workflow={workflow}
+          validationErrors={validationErrors}
+          onSave={handleCommit}
+          onPublish={publishWorkflow}
+        />
 
         {/* Workflow options */}
         <BuilderNavOptions workspaceId={workspaceId} workflowId={workflow.id} />
@@ -182,7 +160,7 @@ export function BuilderNav() {
 
 function TabSwitcher({ workflowId }: { workflowId: string }) {
   const pathname = usePathname()
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   let leafRoute: string = "workflow"
   if (pathname && pathname.includes("executions")) {
     leafRoute = "executions"
@@ -234,6 +212,11 @@ const workflowControlsFormSchema = z.object({
   }),
 })
 type TWorkflowControlsForm = z.infer<typeof workflowControlsFormSchema>
+
+const publishFormSchema = z.object({
+  message: z.string().optional(),
+})
+type TPublishForm = z.infer<typeof publishFormSchema>
 
 function WorkflowManualTrigger({
   disabled = true,
@@ -415,6 +398,144 @@ function WorkflowManualTrigger({
         </Tooltip>
       </div>
     </Form>
+  )
+}
+
+function WorkflowSaveActions({
+  workflow,
+  validationErrors,
+  onSave,
+  onPublish,
+}: {
+  workflow: { version?: number | null }
+  validationErrors: ValidationResult[] | null
+  onSave: () => Promise<void>
+  onPublish: (params: { message?: string }) => Promise<void>
+}) {
+  const [publishOpen, setPublishOpen] = React.useState(false)
+  const [isPublishing, setIsPublishing] = React.useState(false)
+
+  const publishForm = useForm<TPublishForm>({
+    resolver: zodResolver(publishFormSchema),
+    defaultValues: {
+      message: "",
+    },
+  })
+
+  const handlePublish = async (data: TPublishForm) => {
+    setIsPublishing(true)
+    try {
+      await onPublish({ message: data.message || undefined })
+    } finally {
+      setIsPublishing(false)
+      setPublishOpen(false)
+      publishForm.reset()
+    }
+  }
+
+  return (
+    <div className="flex items-center space-x-2">
+      <div className="flex h-7 gap-px rounded-lg border border-input">
+        {/* Main Save Button */}
+        <ValidationErrorView
+          side="bottom"
+          validationErrors={validationErrors || []}
+          noErrorTooltip={
+            <span>
+              Save workflow v{(workflow.version || 0) + 1} with your changes.
+            </span>
+          }
+        >
+          <Button
+            variant="outline"
+            onClick={onSave}
+            className={cn(
+              "h-full rounded-r-none border-none px-3 py-0 text-xs text-muted-foreground hover:bg-emerald-500 hover:text-white",
+              validationErrors &&
+                "border-rose-400 text-rose-400 hover:bg-transparent hover:text-rose-500"
+            )}
+          >
+            {validationErrors ? (
+              <AlertTriangleIcon className="mr-2 size-4 fill-red-500 stroke-white" />
+            ) : (
+              <SaveIcon className="mr-2 size-4" />
+            )}
+            Save
+          </Button>
+        </ValidationErrorView>
+
+        {/* Dropdown Button */}
+        <DropdownMenu open={publishOpen} onOpenChange={setPublishOpen}>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="outline"
+              className="h-full w-7 rounded-l-none border-none px-1 py-0 text-xs text-muted-foreground hover:bg-emerald-500 hover:text-white"
+            >
+              <ChevronDownIcon className="size-3" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-80">
+            <div className="p-3">
+              <Form {...publishForm}>
+                <form onSubmit={publishForm.handleSubmit(handlePublish)}>
+                  <div className="space-y-3">
+                    <div className="flex items-center space-x-2">
+                      <GitBranchIcon className="size-4" />
+                      <span className="text-sm font-medium">
+                        Publish Workflow
+                      </span>
+                    </div>
+                    <FormField
+                      control={publishForm.control}
+                      name="message"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className="text-xs">
+                            Commit Message (Optional)
+                          </FormLabel>
+                          <FormControl>
+                            <Input
+                              {...field}
+                              placeholder="Enter a commit message..."
+                              className="h-8 text-xs"
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <Button
+                      type="submit"
+                      disabled={isPublishing}
+                      className="w-full h-8 text-xs bg-emerald-500 hover:bg-emerald-600"
+                    >
+                      {isPublishing ? (
+                        <>
+                          <Spinner className="mr-2 size-3" />
+                          Publishing...
+                        </>
+                      ) : (
+                        <>
+                          <GitBranchIcon className="mr-2 size-4" />
+                          Publish
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </form>
+              </Form>
+            </div>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+
+      <Badge
+        variant="secondary"
+        className="h-7 text-xs font-normal text-muted-foreground hover:cursor-default"
+      >
+        {workflow.version ? `v${workflow.version}` : "Draft"}
+      </Badge>
+    </div>
   )
 }
 

@@ -33,7 +33,8 @@ BOOLEAN: "bool"
 FLOAT: "float"
 DATETIME: "datetime"
 DURATION: "duration"
-ANY: "any"
+# Allow both lowercase and capitalized variant for the primitive "any"
+ANY: "any" | "Any"
 NULL: "None"
 
 list_type: "list" "[" type "]"
@@ -59,6 +60,7 @@ TYPE_MAPPING = {
     "datetime": datetime,
     "duration": timedelta,
     "any": Any,
+    "Any": Any,  # Alias for any (preferred over any in templates)
     "None": None,
 }
 

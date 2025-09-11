@@ -45,12 +45,12 @@ import { CollapsibleCard } from "@/components/ui/collapsible-card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useIntegrationProvider } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 export default function ProviderDetailPage() {
   const searchParams = useSearchParams()
   const params = useParams()
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
 
   if (!params) {
     return <div>Error: Invalid parameters</div>
@@ -104,12 +104,11 @@ export default function ProviderDetailPage() {
 type ProviderDetailTab = "overview" | "configuration"
 
 function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const router = useRouter()
   const searchParams = useSearchParams()
   const [errorMessage, setErrorMessage] = useState("")
   const [_showConnectPrompt, setShowConnectPrompt] = useState(false)
-  const [showSuccessMessage, setShowSuccessMessage] = useState(false)
   const providerId = provider.metadata.id
 
   // Get active tab from URL query params, default to "overview"
@@ -164,9 +163,6 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
     try {
       setErrorMessage("")
       await connectProvider(providerId)
-      setShowSuccessMessage(true)
-      // Hide success message after 5 seconds
-      setTimeout(() => setShowSuccessMessage(false), 5000)
     } catch (_error) {
       setErrorMessage("Failed to connect. Please try again.")
     }
@@ -175,7 +171,6 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
   const handleDisconnect = useCallback(async () => {
     try {
       await disconnectProvider(providerId)
-      setShowSuccessMessage(false)
       setErrorMessage("")
     } catch (_error) {
       setErrorMessage("Failed to disconnect. Please try again.")
@@ -186,10 +181,6 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
     try {
       setErrorMessage("")
       await testConnection(providerId)
-      setShowSuccessMessage(true)
-      // Hide success message after 5 seconds
-      await new Promise((resolve) => setTimeout(resolve, 5000))
-      setShowSuccessMessage(false)
     } catch (_error) {
       setErrorMessage(
         "Failed to test connection. Please check your credentials."
@@ -315,16 +306,6 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
           </div>
         </div>
       </div>
-
-      {/* Status Alert */}
-      {showSuccessMessage && isConnected && (
-        <Alert className="mb-6 border-green-200 bg-green-50">
-          <SuccessIcon />
-          <AlertDescription className="text-green-800">
-            Successfully connected to {metadata.name}!
-          </AlertDescription>
-        </Alert>
-      )}
 
       {errorMessage && (
         <Alert className="mb-6 border-red-200 bg-red-50">

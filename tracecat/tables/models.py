@@ -98,6 +98,7 @@ class TableRowInsertBatch(BaseModel):
     """Request body for batch inserting rows."""
 
     rows: list[dict[str, Any]]
+    upsert: bool = False
 
 
 class TableRowInsertBatchResponse(BaseModel):

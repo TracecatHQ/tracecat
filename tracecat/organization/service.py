@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
 
+from sqlalchemy.orm import selectinload
 from sqlmodel import select
 
 from tracecat.auth.models import SessionRead, UserUpdate
@@ -126,7 +127,7 @@ class OrgService(BaseService):
     @require_access_level(AccessLevel.ADMIN)
     async def list_sessions(self) -> list[SessionRead]:
         """List all sessions."""
-        statement = select(AccessToken)
+        statement = select(AccessToken).options(selectinload(AccessToken.user))  # pyright: ignore[reportArgumentType]
         result = await self.session.exec(statement)
         return [
             SessionRead(

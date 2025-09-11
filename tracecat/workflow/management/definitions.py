@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlmodel import select
+from sqlmodel import col, select
 from temporalio import activity
 
 from tracecat.db.schemas import WorkflowDefinition
@@ -26,7 +26,7 @@ class WorkflowDefinitionsService(BaseService):
             statement = statement.where(WorkflowDefinition.version == version)
         else:
             # Get the latest version
-            statement = statement.order_by(WorkflowDefinition.version.desc())  # type: ignore
+            statement = statement.order_by(col(WorkflowDefinition.version).desc())
 
         result = await self.session.exec(statement)
         return result.first()
@@ -57,7 +57,7 @@ class WorkflowDefinitionsService(BaseService):
                 WorkflowDefinition.owner_id == self.role.workspace_id,
                 WorkflowDefinition.workflow_id == workflow_id,
             )
-            .order_by(WorkflowDefinition.version.desc())  # type: ignore
+            .order_by(col(WorkflowDefinition.version).desc())
         )
         result = await self.session.exec(statement)
         latest_defn = result.first()
@@ -69,10 +69,12 @@ class WorkflowDefinitionsService(BaseService):
             content=dsl.model_dump(exclude_unset=True),
             version=version,
         )
+        self.session.add(defn)
         if commit:
-            self.session.add(defn)
             await self.session.commit()
-            await self.session.refresh(defn)
+        else:
+            await self.session.flush()
+        await self.session.refresh(defn)
         return defn
 
 
@@ -85,7 +87,7 @@ async def get_workflow_definition_activity(
             input.workflow_id, version=input.version
         )
         if not defn:
-            msg = f"Workflow definition not found for {input.workflow_id!r}, version={input.version}"
+            msg = f"Workflow definition not found for {input.workflow_id.short()}, version={input.version}"
             logger.error(msg)
             raise TracecatException(msg)
         dsl = DSLInput(**defn.content)

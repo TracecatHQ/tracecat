@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/alert-dialog"
 
 import { useDeleteRow } from "@/lib/hooks"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 export function TableViewActionDeleteDialog({
   row,
@@ -28,7 +28,7 @@ export function TableViewActionDeleteDialog({
 }) {
   const params = useParams<{ tableId?: string }>()
   const tableId = params?.tableId
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const { deleteRow } = useDeleteRow()
   if (!tableId || !workspaceId) {
     return null
@@ -51,7 +51,7 @@ export function TableViewActionDeleteDialog({
     <AlertDialog open={open} onOpenChange={onOpenChange}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Delete Row</AlertDialogTitle>
+          <AlertDialogTitle>Delete row</AlertDialogTitle>
           <AlertDialogDescription>
             Are you sure you want to delete this row from the table? This action
             cannot be undone.

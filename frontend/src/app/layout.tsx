@@ -3,12 +3,12 @@ import "@/styles/globals.css"
 import type { Metadata } from "next"
 import dynamic from "next/dynamic"
 import { PublicEnvScript } from "next-runtime-env"
-import React from "react"
+import React, { Suspense } from "react"
 import { Toaster } from "@/components/ui/toaster"
+import { TooltipProvider } from "@/components/ui/tooltip"
 import { siteConfig } from "@/config/site"
 import { fontSans } from "@/lib/fonts"
 import { cn } from "@/lib/utils"
-import { AuthProvider } from "@/providers/auth"
 import type { PHProviderType } from "@/providers/posthog"
 import { DefaultQueryClientProvider } from "@/providers/query"
 
@@ -54,10 +54,14 @@ export default async function RootLayout({ children }: RootLayoutProps) {
           )}
         >
           <DefaultQueryClientProvider>
-            <AuthProvider>
-              {PostHogPageView && <PostHogPageView />}
+            <TooltipProvider>
+              {PostHogPageView && (
+                <Suspense fallback={null}>
+                  <PostHogPageView />
+                </Suspense>
+              )}
               {children}
-            </AuthProvider>
+            </TooltipProvider>
           </DefaultQueryClientProvider>
           <Toaster />
         </body>

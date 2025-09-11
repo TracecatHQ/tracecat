@@ -35,7 +35,7 @@ import { createTemplateRegex } from "@/lib/expressions"
 import { useOrgAppSettings } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import { useWorkflow } from "@/providers/workflow"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 // Single-line expression linter
 function expressionLinter(view: EditorView): Diagnostic[] {
@@ -121,7 +121,7 @@ function ExpressionInputCore({
   disabled = false,
   defaultHeight = "input",
 }: ExpressionInputProps) {
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const { workflow } = useWorkflow()
   const methods = useFormContext()
   const { appSettings } = useOrgAppSettings()
@@ -230,6 +230,7 @@ function ExpressionInputCore({
     }
 
     return baseExtensions.concat([
+      createCoreKeymap(),
       // Input-specific styling to match shadcn Input
       EditorView.theme({
         "&": {

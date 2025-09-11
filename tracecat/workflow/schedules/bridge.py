@@ -2,12 +2,14 @@ from datetime import datetime, timedelta
 
 import temporalio.client
 from temporalio.common import TypedSearchAttributes
+from temporalio.exceptions import TemporalError
 
 from tracecat import config
-from tracecat.contexts import ctx_role
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import DSLRunArgs
 from tracecat.identifiers import ScheduleID, WorkflowID
+from tracecat.logger import logger
+from tracecat.types.auth import Role
 from tracecat.workflow.executions.enums import TriggerType
 from tracecat.workflow.schedules.models import ScheduleUpdate
 
@@ -24,6 +26,7 @@ async def _get_handle(schedule_id: ScheduleID) -> temporalio.client.ScheduleHand
 async def create_schedule(
     workflow_id: WorkflowID,
     schedule_id: ScheduleID,
+    role: Role,
     *,
     every: timedelta,
     offset: timedelta | None = None,
@@ -52,9 +55,7 @@ async def create_schedule(
                 # Scheduled workflow only needs to know the workflow ID
                 # and the role of the user who scheduled it. Everything else
                 # is pulled inside the workflow itself.
-                DSLRunArgs(
-                    role=ctx_role.get(), wf_id=workflow_id, schedule_id=schedule_id
-                ),
+                DSLRunArgs(role=role, wf_id=workflow_id, schedule_id=schedule_id),
                 id=workflow_schedule_id,
                 task_queue=config.TEMPORAL__CLUSTER_QUEUE,
                 typed_search_attributes=SEARCH_ATTRS,
@@ -79,8 +80,18 @@ async def delete_schedule(schedule_id: ScheduleID) -> None:
     handle = await _get_handle(schedule_id)
     try:
         await handle.delete()
-    except Exception as e:
-        if "workflow execution already completed" not in str(e).lower():
+    except TemporalError as e:
+        msg = str(e).lower()
+        # Check for schedule-specific not found conditions
+        if any(
+            phrase in msg
+            for phrase in ["schedule not found", "not found", "does not exist"]
+        ):
+            logger.warning(
+                f"Temporal schedule {schedule_id} not found, skipping deletion"
+            )
+            return None
+        if "workflow execution already completed" not in msg:
             raise RuntimeError(f"Error deleting schedule: {e}") from e
     return None
 

@@ -27,6 +27,7 @@ from tracecat.types.exceptions import (
     ExecutorClientError,
     RateLimitExceeded,
     RegistryError,
+    TracecatExpressionError,
 )
 from tracecat.validation.service import validate_registry_action_args
 
@@ -46,10 +47,10 @@ class DSLActivities:
     def load(cls) -> list[Callable[[RunActionInput], Any]]:
         """Load and return all UDFs in the class."""
         return [
-            getattr(cls, method_name)
+            fn
             for method_name in dir(cls)
             if hasattr(
-                getattr(cls, method_name),
+                fn := getattr(cls, method_name),
                 "__temporal_activity_definition",
             )
         ]
@@ -196,6 +197,24 @@ class DSLActivities:
         expression: str,
         operand: dict[str, Any],
     ) -> Any:
-        """Synchronously evaluate an expression. Strip whitespace from the expression."""
-        expr = TemplateExpression(expression.strip(), operand=operand)
+        """Evaluate a single templated expression synchronously.
+
+        Additional validation is performed so that *invalid* or *empty* expressions
+        no longer fail silently – instead we raise a ``TracecatExpressionError``
+        which will cause the activity to fail fast and surface an explicit error
+        to the calling workflow.
+        """
+        expr_str = expression.strip()
+
+        # Fail fast on empty / whitespace‐only expressions so that users receive a
+        # clear error instead of silently evaluating to ``False``.
+        if not expr_str:
+            raise TracecatExpressionError("Expression cannot be empty")
+
+        # Evaluate the expression. Any parsing / evaluation errors raised inside
+        # ``TemplateExpression`` are propagated unchanged so that Temporal marks
+        # the activity as failed.
+        # Internally, this will raise a ``TracecatExpressionError`` if the expression
+        # is malformed/invalid.
+        expr = TemplateExpression(expr_str, operand=operand)
         return expr.result()

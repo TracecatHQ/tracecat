@@ -1,3 +1,4 @@
+from collections import Counter
 from datetime import UTC, datetime, time, timedelta
 from typing import Any, Literal
 
@@ -15,6 +16,8 @@ from tracecat.expressions.functions import (
     capitalize,
     cast,
     check_ip_version,
+    contains_any_of,
+    contains_none_of,
     create_days,
     create_hours,
     create_minutes,
@@ -26,6 +29,7 @@ from tracecat.expressions.functions import (
     dict_keys,
     dict_lookup,
     dict_values,
+    difference,
     div,
     endswith,
     flatten,
@@ -42,8 +46,13 @@ from tracecat.expressions.functions import (
     get_year,
     greater_than,
     greater_than_or_equal,
+    hash_md5,
+    hash_sha1,
+    hash_sha256,
+    hash_sha512,
     hours_between,
     index_by_key,
+    intersection,
     ipv4_in_subnet,
     ipv4_is_public,
     ipv6_in_subnet,
@@ -87,10 +96,12 @@ from tracecat.expressions.functions import (
     strip,
     sub,
     sum_,
+    symmetric_difference,
     titleize,
     to_datetime,
     to_time,
     to_timestamp,
+    union,
     unset_timezone,
     uppercase,
     url_decode,
@@ -170,6 +181,30 @@ def test_bool(input_val: Any, expected: bool) -> None:
 )
 def test_format_string(template: str, values: list[Any], expected: str) -> None:
     assert format_string(template, *values) == expected
+
+
+@pytest.mark.parametrize(
+    "input_str,expected",
+    [
+        ("SGVsbG8sIFdvcmxkIQ==", "Hello, World!"),
+        ("", ""),
+        ("U3BlY2lhbCBjaGFyczogIUAjJCVeJiooKQ==", "Special chars: !@#$%^&*()"),
+    ],
+)
+def test_base64_to_str(input_str: str, expected: str) -> None:
+    assert b64_to_str(input_str) == expected
+
+
+@pytest.mark.parametrize(
+    "input_str,expected",
+    [
+        ("SGVsbG8sIFdvcmxkIQ==", "Hello, World!"),
+        ("", ""),
+        ("U3BlY2lhbCBjaGFyczogIUAjJCVeJiooKQ==", "Special chars: !@#$%^&*()"),
+    ],
+)
+def test_b64url_to_str(input_str: str, expected: str) -> None:
+    assert b64url_to_str(input_str) == expected
 
 
 @pytest.mark.parametrize(
@@ -396,6 +431,47 @@ def test_equality(func, a: Any, b: Any, expected: bool) -> None:
 )
 def test_is_in(func, a: Any, b: Any, expected: bool) -> None:
     assert func(a, b) == expected
+
+
+@pytest.mark.parametrize(
+    "func,a,b,expected",
+    [
+        (contains_any_of, [1, 3], [2, 3, 4], True),
+        (contains_any_of, ["ex", "ma"], "hello", False),
+        (contains_any_of, ["1", 2, 3.0], ["2", 2, 3.1], True),
+        (contains_none_of, "enc", ["mic", "kitten"], True),
+        (contains_none_of, "x", "hello", True),
+        (contains_none_of, ["1", 4.0], ["1", 2.0, 3], False),
+    ],
+)
+def test_has_any_in(func, a: Any, b: Any, expected: bool) -> None:
+    assert func(a, b) == expected
+
+
+@pytest.mark.parametrize(
+    "func,a,b,expected",
+    [
+        (union, [1, 2, 3], [3, 4, 5], [1, 2, 3, 4, 5]),
+        (union, [1, 2, 3], ["hello", "world"], [1, 2, 3, "hello", "world"]),
+        (intersection, [1, 2, 3], [3, 4, 5], [3]),
+        (intersection, [1, 2, 3], ["hello", "world"], []),
+        (difference, [1, 2, 3], [3, 4, 5], [1, 2]),
+        (difference, [1, 2, 3], ["hello", "world"], [1, 2, 3]),
+        (symmetric_difference, [1, 2, 3], [3, 4, 5], [1, 2, 4, 5]),
+        (
+            symmetric_difference,
+            [1, 2, 3],
+            ["hello", "world"],
+            [1, 2, 3, "hello", "world"],
+        ),
+    ],
+)
+def test_set_operations(func, a: Any, b: Any, expected: list[Any]) -> None:
+    """Test set operations functions."""
+    result = func(a, b)
+    # Compare as multisets (order-independent, preserves multiplicity)
+    # Ref: https://stackoverflow.com/questions/7828867/how-to-efficiently-compare-two-unordered-lists-not-sets
+    assert Counter(result) == Counter(expected)
 
 
 @pytest.mark.parametrize(
@@ -1457,3 +1533,35 @@ def test_to_time_errors(input_val: Any, expected_error: type[Exception]) -> None
     """Test that to_time raises appropriate errors for invalid inputs."""
     with pytest.raises(expected_error):
         to_time(input_val)
+
+
+def test_hash_md5() -> None:
+    assert hash_md5("test") == "098f6bcd4621d373cade4e832627b4f6"
+    assert hash_md5(b"test") == "098f6bcd4621d373cade4e832627b4f6"
+
+
+def test_hash_sha1() -> None:
+    assert hash_sha1("test") == "a94a8fe5ccb19ba61c4c0873d391e987982fbbd3"
+    assert hash_sha1(b"test") == "a94a8fe5ccb19ba61c4c0873d391e987982fbbd3"
+
+
+def test_hash_sha256() -> None:
+    assert (
+        hash_sha256("test")
+        == "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+    )
+    assert (
+        hash_sha256(b"test")
+        == "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+    )
+
+
+def test_hash_sha512() -> None:
+    assert (
+        hash_sha512("test")
+        == "ee26b0dd4af7e749aa1a8ee3c10ae9923f618980772e473f8819a5d4940e0db27ac185f8a0e1d5f84f88bc887fd67b143732c304cc5fa9ad8e6f57f50028a8ff"
+    )
+    assert (
+        hash_sha512(b"test")
+        == "ee26b0dd4af7e749aa1a8ee3c10ae9923f618980772e473f8819a5d4940e0db27ac185f8a0e1d5f84f88bc887fd67b143732c304cc5fa9ad8e6f57f50028a8ff"
+    )

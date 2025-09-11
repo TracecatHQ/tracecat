@@ -10,7 +10,7 @@ import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { useIntegrations } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 // Helper function to get status display info
 const getStatusInfo = (status: IntegrationStatus) => {
@@ -39,7 +39,7 @@ const getStatusInfo = (status: IntegrationStatus) => {
 }
 
 export default function IntegrationsPage() {
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const router = useRouter()
   const [searchQuery, setSearchQuery] = useState("")
 

@@ -45,6 +45,7 @@ from tracecat.workflow.management.models import (
     ExternalWorkflowDefinition,
     WorkflowCommitResponse,
     WorkflowCreate,
+    WorkflowDefinitionMinimal,
     WorkflowDefinitionReadMinimal,
     WorkflowMoveToFolder,
     WorkflowRead,
@@ -64,24 +65,51 @@ async def list_workflows(
         description="Filter workflows by tags",
         alias="tag",
     ),
-    limit: int = Query(default=20, ge=1, le=100),
+    # limit=0 returns all workflows
+    limit: int = Query(default=20, ge=0, le=100),
     cursor: str | None = Query(default=None),
     reverse: bool = Query(default=False),
 ) -> CursorPaginatedResponse[WorkflowReadMinimal]:
     """List workflows."""
     service = WorkflowsManagementService(session, role=role)
 
-    # Create cursor pagination parameters
-    params = CursorPaginationParams(limit=limit, cursor=cursor, reverse=reverse)
+    # Handle limit=0 to return all workflows
+    if limit == 0:
+        # Fetch all workflows without pagination
+        workflows_with_defns = await service.list_workflows(
+            tags=filter_tags, reverse=reverse
+        )
+
+        # Return unpaginated response
+        return CursorPaginatedResponse(
+            items=wfs_and_defns_to_response(workflows_with_defns),
+            next_cursor=None,
+            prev_cursor=None,
+            has_more=False,
+            has_previous=False,
+        )
 
     # Get paginated workflows
     paginated_response = await service.list_workflows_paginated(
-        params, tags=filter_tags
+        CursorPaginationParams(limit=limit, cursor=cursor, reverse=reverse),
+        tags=filter_tags,
     )
 
-    # Transform workflows to WorkflowReadMinimal format
-    workflows_minimal = []
-    for workflow, defn in paginated_response.items:
+    # Return cursor paginated response with transformed items
+    return CursorPaginatedResponse(
+        items=wfs_and_defns_to_response(paginated_response.items),
+        next_cursor=paginated_response.next_cursor,
+        prev_cursor=paginated_response.prev_cursor,
+        has_more=paginated_response.has_more,
+        has_previous=paginated_response.has_previous,
+    )
+
+
+def wfs_and_defns_to_response(
+    wfs_and_defns: list[tuple[Workflow, WorkflowDefinitionMinimal | None]],
+) -> list[WorkflowReadMinimal]:
+    res = []
+    for workflow, defn in wfs_and_defns:
         tags = [
             TagRead.model_validate(tag, from_attributes=True) for tag in workflow.tags
         ]
@@ -90,7 +118,7 @@ async def list_workflows(
             if defn
             else None
         )
-        workflows_minimal.append(
+        res.append(
             WorkflowReadMinimal(
                 id=WorkflowUUID.new(workflow.id).short(),
                 title=workflow.title,
@@ -107,15 +135,7 @@ async def list_workflows(
                 folder_id=workflow.folder_id,
             )
         )
-
-    # Return cursor paginated response with transformed items
-    return CursorPaginatedResponse(
-        items=workflows_minimal,
-        next_cursor=paginated_response.next_cursor,
-        prev_cursor=paginated_response.prev_cursor,
-        has_more=paginated_response.has_more,
-        has_previous=paginated_response.has_previous,
-    )
+    return res
 
 
 @router.post("", status_code=status.HTTP_201_CREATED, tags=["workflows"])
@@ -464,10 +484,10 @@ async def export_workflow(
         )
 
 
-# ----- Workflow Definitions ----- #
+# ----- Workflow Definitione ----- #
 
 
-@router.get("/{workflow_id}/definition", tags=["workflows"])
+@router.get("/{workflow_id}/definitions", tags=["workflows"])
 async def list_workflow_definitions(
     role: WorkspaceUserRole,
     session: AsyncDBSession,

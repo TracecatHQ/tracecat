@@ -238,9 +238,7 @@ export function OrgSettingsAppForm() {
                 <FormLabel>Enable action form mode</FormLabel>
                 <FormDescription>
                   Allow form mode for action inputs. When disabled, only YAML
-                  mode is available, preserving raw YAML formatting and special
-                  characters. Enable this if you are having issues with
-                  preserving YAML formatting in the form view.
+                  mode is available.
                 </FormDescription>
               </div>
               <FormControl>

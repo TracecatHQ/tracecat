@@ -37,7 +37,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { useLocalStorage } from "@/lib/hooks"
+import { useLocalStorage } from "@/hooks/use-local-storage"
+import { cn } from "@/lib/utils"
 
 import type { DataTableToolbarProps } from "./toolbar"
 
@@ -61,6 +62,7 @@ interface DataTableProps<TData, TValue> {
   initialColumnVisibility?: VisibilityState
   tableId?: string
   onDeleteRows?: (selectedRows: Row<TData>[]) => void
+  onSelectionChange?: (selectedRows: Row<TData>[]) => void
   serverSidePagination?: ServerSidePaginationProps
 }
 
@@ -80,6 +82,7 @@ export function DataTable<TData, TValue>({
   initialColumnVisibility,
   tableId,
   onDeleteRows,
+  onSelectionChange,
   serverSidePagination,
 }: DataTableProps<TData, TValue>) {
   const [tableState, setTableState] = useLocalStorage<Partial<TableState>>(
@@ -122,6 +125,12 @@ export function DataTable<TData, TValue>({
       columnVisibility,
       rowSelection,
       columnFilters,
+      ...(serverSidePagination && {
+        pagination: {
+          pageIndex: serverSidePagination.currentPage,
+          pageSize: serverSidePagination.pageSize,
+        },
+      }),
     },
     initialState: {
       pagination: {
@@ -140,14 +149,30 @@ export function DataTable<TData, TValue>({
     getSortedRowModel: getSortedRowModel(),
     getFacetedRowModel: getFacetedRowModel(),
     getFacetedUniqueValues: getFacetedUniqueValues(),
+    manualPagination: !!serverSidePagination,
+    pageCount: serverSidePagination ? -1 : undefined,
   })
 
+  // Notify parent of selection changes
   React.useEffect(() => {
-    if (serverSidePagination) {
-      table.setPageSize(serverSidePagination.pageSize)
-      table.setPageIndex(serverSidePagination.currentPage)
+    if (onSelectionChange) {
+      const selectedRows = table.getFilteredSelectedRowModel().rows
+      onSelectionChange(selectedRows)
     }
-  }, [serverSidePagination])
+  }, [rowSelection, onSelectionChange, table])
+
+  // Handle initial sync when data is first loaded
+  const [hasData, setHasData] = React.useState(false)
+  React.useEffect(() => {
+    if (data && data.length > 0 && !hasData) {
+      setHasData(true)
+      if (onSelectionChange && Object.keys(rowSelection).length > 0) {
+        // Force a sync of the initial selection
+        const selectedRows = table.getFilteredSelectedRowModel().rows
+        onSelectionChange(selectedRows)
+      }
+    }
+  }, [data, hasData, rowSelection, onSelectionChange, table])
 
   return (
     <div>
@@ -171,13 +196,22 @@ export function DataTable<TData, TValue>({
                         options={tableHeaderAuxOptions}
                         data={{ table, column: header.column }}
                       >
-                        <TableHead colSpan={header.colSpan}>
+                        <TableHead
+                          colSpan={header.colSpan}
+                          className={cn(
+                            header.column.id?.toString().toLowerCase() ===
+                              "actions" && "text-right"
+                          )}
+                        >
                           {header.isPlaceholder
                             ? null
-                            : flexRender(
-                                header.column.columnDef.header,
-                                header.getContext()
-                              )}
+                            : header.column.id?.toString().toLowerCase() ===
+                                "actions"
+                              ? null
+                              : flexRender(
+                                  header.column.columnDef.header,
+                                  header.getContext()
+                                )}
                         </TableHead>
                       </AuxClickMenu>
                     )
@@ -283,36 +317,48 @@ function TableContents<TData>({
     <>
       {table.getRowModel().rows.map((row) => {
         const href = getRowHref?.(row)
-        const rowContent = row
-          .getVisibleCells()
-          .map((cell) => (
-            <TableCell key={cell.id}>
-              {flexRender(cell.column.columnDef.cell, cell.getContext())}
-            </TableCell>
-          ))
-
-        if (href) {
-          return (
-            <Link
-              key={row.id}
-              href={href}
-              prefetch={false}
-              className="table-row cursor-pointer h-8 min-h-8 border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted [tbody_&:last-child]:border-0"
-              data-state={row.getIsSelected() ? "selected" : undefined}
-            >
-              {rowContent}
-            </Link>
-          )
-        }
 
         return (
           <TableRow
             key={row.id}
             data-state={row.getIsSelected() && "selected"}
-            onClick={onClickRow?.(row)}
+            onClick={!href ? onClickRow?.(row) : undefined}
             className="cursor-pointer"
           >
-            {rowContent}
+            {row.getVisibleCells().map((cell) => {
+              const isActionsCol =
+                cell.column.id?.toString().toLowerCase() === "actions"
+
+              const content = flexRender(
+                cell.column.columnDef.cell,
+                cell.getContext()
+              )
+
+              // For action columns, don't wrap in Link
+              if (isActionsCol || !href) {
+                return (
+                  <TableCell
+                    key={cell.id}
+                    className={cn(isActionsCol && "p-2")}
+                  >
+                    {isActionsCol ? (
+                      <div className="flex justify-end">{content}</div>
+                    ) : (
+                      content
+                    )}
+                  </TableCell>
+                )
+              }
+
+              // For regular cells with href, wrap content in Link
+              return (
+                <TableCell key={cell.id}>
+                  <Link href={href} prefetch={false} className="block -m-2 p-2">
+                    {content}
+                  </Link>
+                </TableCell>
+              )
+            })}
           </TableRow>
         )
       })}

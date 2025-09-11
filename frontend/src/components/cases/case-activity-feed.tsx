@@ -14,6 +14,7 @@ import {
   EventActor,
   EventIcon,
   FieldsChangedEvent,
+  PayloadChangedEvent,
   PriorityChangedEvent,
   SeverityChangedEvent,
   StatusChangedEvent,
@@ -29,7 +30,7 @@ import {
 import { SYSTEM_USER, User } from "@/lib/auth"
 import { executionId, getWorkflowExecutionUrl } from "@/lib/event-history"
 import { useAppInfo, useCaseEvents } from "@/lib/hooks"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 import { InlineDotSeparator } from "../separator"
 
@@ -101,6 +102,9 @@ function ActivityFeedEvent({
           <AttachmentDeletedEvent event={event} actor={actor} />
         )}
 
+        {event.type === "payload_changed" && (
+          <PayloadChangedEvent event={event} actor={actor} />
+        )}
         {/* Add a dot separator */}
         <InlineDotSeparator />
         <div className="flex items-center gap-1 text-xs text-muted-foreground">
@@ -115,7 +119,7 @@ function ActivityFeedEvent({
 }
 
 function WorkflowExecutionInfo({ wfExecId }: { wfExecId: string }) {
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const { appInfo } = useAppInfo()
   const baseUrl = appInfo?.public_app_url
   const { wf, exec } = executionId(wfExecId)

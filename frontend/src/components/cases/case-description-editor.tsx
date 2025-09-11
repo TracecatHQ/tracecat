@@ -142,7 +142,7 @@ export function CaseCommentViewer({
 
   // Renders the editor instance using a React component.
   return (
-    <div className={cn("mx-0 py-2  text-sm", className)}>
+    <div className={cn("text-base p-0 m-0", className)}>
       <BlockNoteView
         editor={editor}
         theme="light"
@@ -158,6 +158,9 @@ export function CaseCommentViewer({
         }}
         style={{
           height: "100%",
+          padding: 0,
+          margin: 0,
+          fontSize: "14px",
         }}
       />
     </div>

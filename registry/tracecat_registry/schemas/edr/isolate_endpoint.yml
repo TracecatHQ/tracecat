@@ -1,4 +1,0 @@
-# https://d3fend.mitre.org/technique/d3f:NetworkIsolation/
-endpoint_id:
-  type: str
-  description: ID of the endpoint.

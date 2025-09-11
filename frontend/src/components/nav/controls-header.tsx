@@ -1,19 +1,30 @@
 "use client"
 
+import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { format, formatDistanceToNow } from "date-fns"
-import { Calendar, PanelLeftClose, PanelLeftOpen, Plus } from "lucide-react"
+import { Calendar, PanelRight, Plus } from "lucide-react"
 import Link from "next/link"
 import { usePathname, useSearchParams } from "next/navigation"
 import { type ReactNode, useState } from "react"
-import type { OAuthGrantType } from "@/client"
+import type { EntityRead, OAuthGrantType } from "@/client"
+import { entitiesCreateEntity } from "@/client"
+import { AddCustomField } from "@/components/cases/add-custom-field"
 import { CreateCaseDialog } from "@/components/cases/case-create-dialog"
+import {
+  CasesViewMode,
+  CasesViewToggle,
+} from "@/components/cases/cases-view-toggle"
 import { CreateWorkflowButton } from "@/components/dashboard/create-workflow-button"
 import {
   FolderViewToggle,
   ViewMode,
 } from "@/components/dashboard/folder-view-toggle"
+import { CreateEntityDialog } from "@/components/entities/create-entity-dialog"
+import { EntitySelectorPopover } from "@/components/entities/entity-selector-popover"
+import { CreateRecordDialog } from "@/components/records/create-record-dialog"
 import { CreateTableDialog } from "@/components/tables/table-create-dialog"
 import { TableInsertButton } from "@/components/tables/table-insert-button"
+import { Badge } from "@/components/ui/badge"
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -23,24 +34,71 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
 import { Button } from "@/components/ui/button"
-import { SidebarTrigger, useSidebar } from "@/components/ui/sidebar"
-import { AddCustomField } from "@/components/workspaces/add-custom-field"
+import { Label } from "@/components/ui/label"
+import { SidebarTrigger } from "@/components/ui/sidebar"
+import { Switch } from "@/components/ui/switch"
+import { toast } from "@/components/ui/use-toast"
 import { AddWorkspaceMember } from "@/components/workspaces/add-workspace-member"
 import {
   NewCredentialsDialog,
   NewCredentialsDialogTrigger,
 } from "@/components/workspaces/add-workspace-secret"
+import { useEntities, useEntity } from "@/hooks/use-entities"
+import { useLocalStorage } from "@/hooks/use-local-storage"
+import { useWorkspaceDetails } from "@/hooks/use-workspace"
+import { entityEvents } from "@/lib/entity-events"
 import {
   useGetCase,
+  useGetPrompt,
   useGetTable,
   useIntegrationProvider,
-  useLocalStorage,
 } from "@/lib/hooks"
-import { useWorkspace } from "@/providers/workspace"
+import { getIconByName } from "@/lib/icons"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
 interface PageConfig {
   title: string | ReactNode
   actions?: ReactNode
+}
+
+interface ControlsHeaderProps {
+  /** Whether the right-hand chat sidebar is currently open */
+  isChatOpen?: boolean
+  /** Callback to toggle the chat sidebar */
+  onToggleChat?: () => void
+}
+
+function EntitiesDetailHeaderActions() {
+  const [includeInactive, setIncludeInactive] = useLocalStorage(
+    "entities-include-inactive",
+    false
+  )
+  return (
+    <div className="flex items-center gap-4">
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <Label
+          htmlFor="entities-include-inactive"
+          className="text-xs text-muted-foreground"
+        >
+          Include inactive
+        </Label>
+        <Switch
+          id="entities-include-inactive"
+          checked={includeInactive}
+          onCheckedChange={setIncludeInactive}
+        />
+      </div>
+      <Button
+        variant="outline"
+        size="sm"
+        className="h-7 bg-white"
+        onClick={() => entityEvents.emitAddField()}
+      >
+        <Plus className="mr-1 h-3.5 w-3.5" />
+        Add field
+      </Button>
+    </div>
+  )
 }
 
 function WorkflowsActions() {
@@ -79,26 +137,34 @@ function TablesActions() {
 }
 
 function CasesActions() {
+  const [view, setView] = useLocalStorage("cases-view", CasesViewMode.Cases)
   const [dialogOpen, setDialogOpen] = useState(false)
 
   return (
     <>
-      <Button
-        variant="outline"
-        size="sm"
-        className="h-7 bg-white"
-        onClick={() => setDialogOpen(true)}
-      >
-        <Plus className="mr-1 h-3.5 w-3.5" />
-        Create case
-      </Button>
-      <CreateCaseDialog open={dialogOpen} onOpenChange={setDialogOpen} />
+      <CasesViewToggle view={view} onViewChange={setView} />
+      {view === CasesViewMode.CustomFields ? (
+        <AddCustomField />
+      ) : (
+        <>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 bg-white"
+            onClick={() => setDialogOpen(true)}
+          >
+            <Plus className="mr-1 h-3.5 w-3.5" />
+            Create case
+          </Button>
+          <CreateCaseDialog open={dialogOpen} onOpenChange={setDialogOpen} />
+        </>
+      )}
     </>
   )
 }
 
 function MembersActions() {
-  const { workspace } = useWorkspace()
+  const { workspace } = useWorkspaceDetails()
 
   if (!workspace) {
     return null
@@ -120,8 +186,97 @@ function CredentialsActions() {
   )
 }
 
-function CustomFieldsActions() {
-  return <AddCustomField />
+function EntitiesActions() {
+  const [createEntityDialogOpen, setCreateEntityDialogOpen] = useState(false)
+  const workspaceId = useWorkspaceId()
+  const queryClient = useQueryClient()
+
+  const { mutateAsync: createEntity, isPending: isCreatingEntity } =
+    useMutation({
+      mutationFn: async (data: {
+        key: string
+        display_name: string
+        description?: string
+        icon?: string
+      }) =>
+        await entitiesCreateEntity({
+          workspaceId,
+          requestBody: {
+            key: data.key,
+            display_name: data.display_name,
+            description: data.description,
+            icon: data.icon,
+          },
+        }),
+      onSuccess: (_, data) => {
+        queryClient.invalidateQueries({ queryKey: ["entities", workspaceId] })
+        toast({
+          title: "Entity created",
+          description: `${data.display_name} has been created successfully.`,
+        })
+        setCreateEntityDialogOpen(false)
+      },
+    })
+
+  return (
+    <div className="flex items-center gap-2">
+      <Button
+        variant="outline"
+        size="sm"
+        className="h-7 bg-white"
+        onClick={() => setCreateEntityDialogOpen(true)}
+      >
+        <Plus className="mr-1 h-3.5 w-3.5" />
+        Add entity
+      </Button>
+      <CreateEntityDialog
+        open={createEntityDialogOpen}
+        onOpenChange={setCreateEntityDialogOpen}
+        onSubmit={async (data) => {
+          await createEntity(data)
+        }}
+        isSubmitting={isCreatingEntity}
+      />
+    </div>
+  )
+}
+
+function RecordsActions() {
+  const workspaceId = useWorkspaceId()
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [selectedEntityId, setSelectedEntityId] = useState<string>("")
+  const { entities } = useEntities(workspaceId)
+
+  const handleEntitySelect = (entity: EntityRead) => {
+    setSelectedEntityId(entity.id)
+    setDialogOpen(true)
+  }
+
+  return (
+    <>
+      <EntitySelectorPopover
+        entities={entities}
+        onSelect={handleEntitySelect}
+        buttonText="Add record"
+      />
+      {selectedEntityId && (
+        <CreateRecordDialog
+          open={dialogOpen}
+          onOpenChange={(open) => {
+            setDialogOpen(open)
+            if (!open) {
+              setSelectedEntityId("")
+            }
+          }}
+          workspaceId={workspaceId}
+          entityId={selectedEntityId}
+          onSuccess={() => {
+            setSelectedEntityId("")
+          }}
+        />
+      )}
+    </>
+  )
 }
 
 function CaseBreadcrumb({
@@ -135,13 +290,13 @@ function CaseBreadcrumb({
 
   return (
     <Breadcrumb>
-      <BreadcrumbList className="flex items-center gap-2 text-sm">
+      <BreadcrumbList className="relative z-10 flex items-center gap-2 text-sm flex-nowrap overflow-hidden whitespace-nowrap min-w-0 bg-white pr-1">
         <BreadcrumbItem>
           <BreadcrumbLink asChild className="font-semibold hover:no-underline">
             <Link href={`/workspaces/${workspaceId}/cases`}>Cases</Link>
           </BreadcrumbLink>
         </BreadcrumbItem>
-        <BreadcrumbSeparator>
+        <BreadcrumbSeparator className="shrink-0">
           <span className="text-muted-foreground">/</span>
         </BreadcrumbSeparator>
         <BreadcrumbItem>
@@ -168,17 +323,22 @@ function CaseTimestamp({
   }
 
   return (
-    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-      <span className="flex items-center gap-1">
-        <Calendar className="h-3 w-3" />
-        Created {format(new Date(caseData.created_at), "MMM d, yyyy, h:mm a")}
+    <div className="flex items-center gap-2 text-xs text-muted-foreground min-w-0">
+      <span className="hidden sm:flex items-center gap-1 min-w-0">
+        <Calendar className="h-3 w-3 flex-shrink-0" />
+        <span className="hidden lg:inline flex-shrink-0">Created</span>
+        <span className="truncate min-w-0">
+          {format(new Date(caseData.created_at), "MMM d, yyyy, h:mm a")}
+        </span>
       </span>
-      <span>•</span>
-      <span>
-        Updated{" "}
-        {formatDistanceToNow(new Date(caseData.updated_at), {
-          addSuffix: true,
-        })}
+      <span className="hidden sm:inline flex-shrink-0">•</span>
+      <span className="flex items-center gap-1 min-w-0">
+        <span className="hidden sm:inline flex-shrink-0">Updated</span>
+        <span className="truncate min-w-0">
+          {formatDistanceToNow(new Date(caseData.updated_at), {
+            addSuffix: true,
+          })}
+        </span>
       </span>
     </div>
   )
@@ -195,13 +355,13 @@ function TableBreadcrumb({
 
   return (
     <Breadcrumb>
-      <BreadcrumbList className="flex items-center gap-2 text-sm">
+      <BreadcrumbList className="relative z-10 flex items-center gap-2 text-sm flex-nowrap overflow-hidden whitespace-nowrap min-w-0 bg-white pr-1">
         <BreadcrumbItem>
           <BreadcrumbLink asChild className="font-semibold hover:no-underline">
             <Link href={`/workspaces/${workspaceId}/tables`}>Tables</Link>
           </BreadcrumbLink>
         </BreadcrumbItem>
-        <BreadcrumbSeparator>
+        <BreadcrumbSeparator className="shrink-0">
           <span className="text-muted-foreground">/</span>
         </BreadcrumbSeparator>
         <BreadcrumbItem>
@@ -235,7 +395,7 @@ function IntegrationBreadcrumb({
 
   return (
     <Breadcrumb>
-      <BreadcrumbList className="flex items-center gap-2 text-sm">
+      <BreadcrumbList className="relative z-10 flex items-center gap-2 text-sm flex-nowrap overflow-hidden whitespace-nowrap min-w-0 bg-white pr-1">
         <BreadcrumbItem>
           <BreadcrumbLink asChild className="font-semibold hover:no-underline">
             <Link href={`/workspaces/${workspaceId}/integrations`}>
@@ -243,12 +403,86 @@ function IntegrationBreadcrumb({
             </Link>
           </BreadcrumbLink>
         </BreadcrumbItem>
-        <BreadcrumbSeparator>
+        <BreadcrumbSeparator className="shrink-0">
           <span className="text-muted-foreground">/</span>
         </BreadcrumbSeparator>
         <BreadcrumbItem>
           <BreadcrumbPage className="font-semibold">
             {provider?.metadata.name || providerId}
+          </BreadcrumbPage>
+        </BreadcrumbItem>
+      </BreadcrumbList>
+    </Breadcrumb>
+  )
+}
+
+function RunbookBreadcrumb({
+  runbookId,
+  workspaceId,
+}: {
+  runbookId: string
+  workspaceId: string
+}) {
+  const { data: prompt } = useGetPrompt({ workspaceId, promptId: runbookId })
+
+  return (
+    <Breadcrumb>
+      <BreadcrumbList className="relative z-10 flex items-center gap-2 text-sm flex-nowrap overflow-hidden whitespace-nowrap min-w-0 bg-white pr-1">
+        <BreadcrumbItem>
+          <BreadcrumbLink asChild className="font-semibold hover:no-underline">
+            <Link href={`/workspaces/${workspaceId}/runbooks`}>Runbooks</Link>
+          </BreadcrumbLink>
+        </BreadcrumbItem>
+        <BreadcrumbSeparator className="shrink-0">
+          <span className="text-muted-foreground">/</span>
+        </BreadcrumbSeparator>
+        <BreadcrumbItem>
+          <BreadcrumbPage className="font-semibold">
+            {prompt?.title || runbookId}
+          </BreadcrumbPage>
+        </BreadcrumbItem>
+      </BreadcrumbList>
+    </Breadcrumb>
+  )
+}
+
+function EntityBreadcrumb({
+  entityId,
+  workspaceId,
+}: {
+  entityId: string
+  workspaceId: string
+}) {
+  const { entity } = useEntity(workspaceId, entityId)
+
+  return (
+    <Breadcrumb>
+      <BreadcrumbList className="relative z-10 flex items-center gap-2 text-sm flex-nowrap overflow-hidden whitespace-nowrap min-w-0 bg-white pr-1">
+        <BreadcrumbItem>
+          <BreadcrumbLink asChild className="font-semibold hover:no-underline">
+            <Link href={`/workspaces/${workspaceId}/entities`}>Entities</Link>
+          </BreadcrumbLink>
+        </BreadcrumbItem>
+        <BreadcrumbSeparator className="shrink-0">
+          <span className="text-muted-foreground">/</span>
+        </BreadcrumbSeparator>
+        <BreadcrumbItem>
+          <BreadcrumbPage className="font-semibold flex items-center gap-2">
+            <span className="flex items-center gap-2">
+              {entity?.icon &&
+                (() => {
+                  const IconComponent = getIconByName(entity.icon)
+                  return IconComponent ? (
+                    <IconComponent className="h-4 w-4 text-muted-foreground" />
+                  ) : null
+                })()}
+              {entity?.display_name || entityId}
+            </span>
+            {entity?.key && (
+              <Badge variant="secondary" className="text-xs font-normal">
+                {entity.key}
+              </Badge>
+            )}
           </BreadcrumbPage>
         </BreadcrumbItem>
       </BreadcrumbList>
@@ -339,6 +573,25 @@ function getPageConfig(
     }
   }
 
+  if (pagePath.startsWith("/entities")) {
+    // Entity detail page
+    const entityMatch = pagePath.match(/^\/entities\/([^/]+)$/)
+    if (entityMatch) {
+      const entityId = entityMatch[1]
+      return {
+        title: (
+          <EntityBreadcrumb entityId={entityId} workspaceId={workspaceId} />
+        ),
+        actions: <EntitiesDetailHeaderActions />,
+      }
+    }
+    // Index
+    return {
+      title: "Entities",
+      actions: <EntitiesActions />,
+    }
+  }
+
   if (pagePath.startsWith("/members")) {
     return {
       title: "Members",
@@ -346,21 +599,41 @@ function getPageConfig(
     }
   }
 
-  if (pagePath.startsWith("/custom-fields")) {
+  if (pagePath.startsWith("/runbooks")) {
+    // Check if this is a runbook detail page
+    const runbookMatch = pagePath.match(/^\/runbooks\/([^/]+)$/)
+    if (runbookMatch) {
+      const runbookId = runbookMatch[1]
+      return {
+        title: (
+          <RunbookBreadcrumb runbookId={runbookId} workspaceId={workspaceId} />
+        ),
+        // No actions for runbook detail pages
+      }
+    }
+
     return {
-      title: "Custom fields",
-      actions: <CustomFieldsActions />,
+      title: "Runbooks",
+    }
+  }
+
+  if (pagePath.startsWith("/records")) {
+    return {
+      title: "Records",
+      actions: <RecordsActions />,
     }
   }
 
   return null
 }
 
-export function ControlsHeader() {
-  const { state } = useSidebar()
+export function ControlsHeader({
+  isChatOpen,
+  onToggleChat,
+}: ControlsHeaderProps = {}) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
 
   const pageConfig = pathname
     ? getPageConfig(pathname, workspaceId, searchParams)
@@ -377,15 +650,10 @@ export function ControlsHeader() {
   const isCaseDetail = pagePath.match(/^\/cases\/([^/]+)$/)
 
   return (
-    <header className="flex h-14 items-center justify-between border-b px-6">
-      <div className="flex items-center gap-3">
-        <SidebarTrigger className="h-7 w-7">
-          {state === "collapsed" ? (
-            <PanelLeftOpen className="h-4 w-4" />
-          ) : (
-            <PanelLeftClose className="h-4 w-4" />
-          )}
-        </SidebarTrigger>
+    <header className="flex h-10 items-center border-b px-3 overflow-hidden">
+      {/* Left section: sidebar toggle + title */}
+      <div className="flex items-center gap-3 min-w-0">
+        <SidebarTrigger className="h-7 w-7 flex-shrink-0" />
         {typeof pageConfig.title === "string" ? (
           <h1 className="text-sm font-semibold">{pageConfig.title}</h1>
         ) : (
@@ -393,11 +661,32 @@ export function ControlsHeader() {
         )}
       </div>
 
-      {pageConfig.actions ? (
-        <div className="flex items-center gap-2">{pageConfig.actions}</div>
-      ) : isCaseDetail ? (
-        <CaseTimestamp caseId={isCaseDetail[1]} workspaceId={workspaceId} />
-      ) : null}
+      {/* Middle spacer keeps actions/right buttons from overlapping title */}
+      <div className="flex-1 min-w-[1rem]" />
+
+      {/* Right section: actions / timestamp / chat toggle */}
+      <div className="flex items-center gap-2 flex-shrink-0">
+        {pageConfig.actions
+          ? pageConfig.actions
+          : isCaseDetail && (
+              <CaseTimestamp
+                caseId={isCaseDetail[1]}
+                workspaceId={workspaceId}
+              />
+            )}
+
+        {onToggleChat && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7"
+            onClick={onToggleChat}
+          >
+            <PanelRight className="h-4 w-4 text-muted-foreground" />
+            <span className="sr-only">Toggle Chat</span>
+          </Button>
+        )}
+      </div>
     </header>
   )
 }

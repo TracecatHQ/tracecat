@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation"
 import { useEffect } from "react"
 import { CenteredSpinner } from "@/components/loading/spinner"
-import { useAuth } from "@/providers/auth"
+import { useAuth } from "@/hooks/use-auth"
 
 interface AuthGuardProps {
   children: React.ReactNode

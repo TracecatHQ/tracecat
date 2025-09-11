@@ -14,14 +14,13 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat import config
 from tracecat.db.schemas import OAuthStateDB, User, Workspace
-from tracecat.integrations.base import AuthorizationCodeOAuthProvider
 from tracecat.integrations.enums import OAuthGrantType
 from tracecat.integrations.models import (
-    ProviderCategory,
     ProviderKey,
     ProviderMetadata,
     ProviderScopes,
 )
+from tracecat.integrations.providers.base import AuthorizationCodeOAuthProvider
 from tracecat.integrations.service import IntegrationService
 from tracecat.types.auth import AccessLevel, Role
 
@@ -44,14 +43,12 @@ class MockOAuthProvider(AuthorizationCodeOAuthProvider):
     config_model: ClassVar[type[BaseModel]] = MockProviderConfig
     scopes: ClassVar[ProviderScopes] = ProviderScopes(
         default=["read", "write"],
-        allowed_patterns=["user.read"],
     )
     metadata: ClassVar[ProviderMetadata] = ProviderMetadata(
         id="mock_oauth_state_provider",
         name="Mock OAuth State Provider",
         description="A mock OAuth provider for testing state",
         api_docs_url="https://mock.provider/docs",
-        categories=[ProviderCategory.OTHER],
         enabled=True,
     )
 
@@ -111,8 +108,8 @@ async def test_role_with_user(svc_workspace, test_user: User) -> Role:
 @pytest.fixture(autouse=True)
 def register_mock_provider():
     """Mock the provider registry to return our mock provider."""
-    with patch("tracecat.integrations.service.ProviderRegistry") as mock_registry:
-        mock_registry.get.return_value.get_class.return_value = MockOAuthProvider
+    with patch("tracecat.integrations.service.get_provider_class") as mock_get_provider:
+        mock_get_provider.return_value = MockOAuthProvider
         yield
 
 

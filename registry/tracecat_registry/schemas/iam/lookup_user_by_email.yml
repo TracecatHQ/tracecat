@@ -1,4 +1,0 @@
-# https://schema.ocsf.io/1.3.0/objects/user
-email:
-  type: str
-  description: Email of an existing user.

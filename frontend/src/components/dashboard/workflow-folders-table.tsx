@@ -28,6 +28,7 @@ import {
   DataTableColumnHeader,
   type DataTableToolbarProps,
 } from "@/components/data-table"
+import { TagBadge } from "@/components/tag-badge"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -41,19 +42,13 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { useAuth } from "@/hooks/use-auth"
 import { type DirectoryItem, useGetDirectoryItems } from "@/lib/hooks"
 import { capitalizeFirst } from "@/lib/utils"
-import { useAuth } from "@/providers/auth"
-import { useWorkspace } from "@/providers/workspace"
+import { useWorkspaceId } from "@/providers/workspace-id"
 
-export function WorkflowFoldersTable({
-  view,
-  setView,
-}: {
-  view: ViewMode
-  setView?: (view: ViewMode) => void
-}) {
-  const { workspaceId } = useWorkspace()
+export function WorkflowFoldersTable({ view }: { view: ViewMode }) {
+  const workspaceId = useWorkspaceId()
   const searchParams = useSearchParams()
   const path = searchParams?.get("path") || "/"
   const _segments = path.split("/").filter(Boolean)
@@ -85,7 +80,7 @@ export function WorkflowsDashboardTable({
   directoryItemsError: ApiError | null
 }) {
   const router = useRouter()
-  const { workspaceId } = useWorkspace()
+  const workspaceId = useWorkspaceId()
   const { user } = useAuth()
   const [activeDialog, setActiveDialog] = useState<ActiveDialog | null>(null)
   const [selectedWorkflow, setSelectedWorkflow] =
@@ -429,14 +424,7 @@ export function WorkflowsDashboardTable({
               enableHiding: true,
             },
             {
-              id: "Actions",
-              header: ({ column }) => (
-                <DataTableColumnHeader
-                  className="text-xs"
-                  column={column}
-                  title="Actions"
-                />
-              ),
+              id: "actions",
               cell: ({ row }) => {
                 return (
                   <DropdownMenu>
@@ -508,20 +496,4 @@ const defaultToolbarProps: DataTableToolbarProps<DirectoryItem> = {
     placeholder: "Search workflows...",
     column: "name",
   },
-}
-
-export function TagBadge({ tag }: { tag: TagRead }) {
-  return (
-    <Badge
-      key={tag.id}
-      variant="secondary"
-      className="text-xs"
-      style={{
-        backgroundColor: tag.color || undefined,
-        color: tag.color ? "white" : undefined,
-      }}
-    >
-      {tag.name}
-    </Badge>
-  )
 }

@@ -1,0 +1,18 @@
+type: action
+definition:
+  name: test_nonexistent_action
+  namespace: tools.test
+  display_name: Test Nonexistent Action
+  description: Template referencing a non-existent action
+  title: Test Nonexistent Action
+  display_group: Testing
+  expects:
+    data:
+      type: dict[str, Any]
+      description: Input data
+  steps:
+    - ref: invalid_step
+      action: core.does_not_exist
+      args:
+        data: ${{ inputs.data }}
+  returns: ${{ steps.invalid_step.result }}
