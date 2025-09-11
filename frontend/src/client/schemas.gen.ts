@@ -684,20 +684,6 @@ export const $AgentOutput = {
     output: {
       title: "Output",
     },
-    files: {
-      anyOf: [
-        {
-          additionalProperties: {
-            type: "string",
-          },
-          type: "object",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Files",
-    },
     message_history: {
       items: {
         oneOf: [

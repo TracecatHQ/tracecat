@@ -5,10 +5,7 @@ from datetime import datetime
 import inspect
 import keyword
 import textwrap
-import tempfile
 import uuid
-from pathlib import Path
-import base64
 from typing import Any, Union, Annotated, Self
 from pydantic import BaseModel, TypeAdapter
 from pydantic_core import to_json, to_jsonable_python
@@ -64,12 +61,6 @@ from tracecat_registry.integrations.pydantic_ai import (
 
 from tracecat_registry import registry
 from tracecat_registry.integrations.agents.exceptions import AgentRunError
-from tracecat_registry.integrations.agents.tools import (
-    create_secure_file_tools,
-    create_tool_call,
-    create_tool_return,
-    generate_default_tools_prompt,
-)
 
 
 def raise_error(error_message: str) -> None:
@@ -698,14 +689,6 @@ class TracecatAgentBuilder:
         self.tools.append(tool)
         return self
 
-    def with_default_tools(self, temp_dir: str | None = None) -> Self:
-        """Add default file manipulation tools, optionally restricted to temp_dir."""
-        if temp_dir:
-            # Use secure tools restricted to temp_dir
-            secure_tools = create_secure_file_tools(temp_dir)
-            self.tools.extend(secure_tools)
-        return self
-
     async def build(self) -> Agent:
         """Build the Pydantic AI agent with tools from the registry."""
 
@@ -759,7 +742,6 @@ ModelMessageTA: TypeAdapter[ModelMessage] = TypeAdapter(ModelMessage)
 
 class AgentOutput(BaseModel):
     output: Any
-    files: dict[str, str] | None = None
     message_history: list[ModelMessage]
     duration: float
     usage: RunUsage | None = None
@@ -786,12 +768,6 @@ async def agent(
         Doc("Actions (e.g. 'tools.slack.post_message') to include in the agent."),
         ActionType(multiple=True),
     ],
-    files: Annotated[
-        dict[str, str] | None,
-        Doc(
-            "Files to include in the agent's temporary directory environment. Keys are file paths and values are base64-encoded file contents."
-        ),
-    ] = None,
     fixed_arguments: Annotated[
         dict[str, dict[str, Any]] | None,
         Doc(
@@ -819,7 +795,6 @@ async def agent(
         model_name=model_name,
         model_provider=model_provider,
         actions=actions if isinstance(actions, list) else [actions],
-        files=files,
         fixed_arguments=fixed_arguments,
         instructions=instructions,
         output_type=output_type,
@@ -835,7 +810,6 @@ async def run_agent(
     model_name: str,
     model_provider: str,
     actions: list[str],
-    files: dict[str, str] | None = None,
     fixed_arguments: dict[str, dict[str, Any]] | None = None,
     instructions: str | None = None,
     output_type: str | dict[str, Any] | None = None,
@@ -858,10 +832,8 @@ async def run_agent(
         model_provider: Provider of the model (e.g., "openai", "anthropic").
         actions: List of action names to make available to the agent
                 (e.g., ["tools.slack.post_message", "tools.github.create_issue"]).
-        files: Optional mapping of file paths to base64-encoded content.
-               Files are created in a temporary directory accessible to the agent.
         fixed_arguments: Optional pre-configured arguments for specific actions.
-                        Keys are action names, values are keyword argument dictionaries.
+                        Keys are action names, values are keyword argument dictionaries.f
         instructions: Optional system instructions/context for the agent.
                      If provided, will be enhanced with tool guidance and error handling.
         output_type: Optional specification for the agent's output format.
@@ -905,7 +877,7 @@ async def run_agent(
     fixed_arguments = fixed_arguments or {}
     if instructions is not None:
         # Generate the enhanced user prompt with tool guidance
-        tools_prompt = generate_default_tools_prompt(files) if files else ""
+        tools_prompt = ""
         # Provide current date context using Tracecat expression
         current_date_prompt = (
             f"<current_date>{datetime.now().isoformat()}</current_date>"
@@ -978,48 +950,39 @@ async def run_agent(
     if not actions:
         raise ValueError("No actions provided. Please provide at least one action.")
 
-    with tempfile.TemporaryDirectory() as temp_dir:
-        if files:
-            for path, content in files.items():
-                file_path = Path(temp_dir) / path
-                file_path.write_bytes(base64.b64decode(content))
+    agent = await builder.with_action_filters(*actions).build()
 
-            # Add secure default tools with temp_dir restriction
-            builder = builder.with_default_tools(temp_dir)
+    start_time = timeit()
+    # Set up Redis streaming if both parameters are provided
+    redis_client = None
+    stream_key = None
+    conversation_history: list[ModelMessage] = []
 
-        agent = await builder.with_action_filters(*actions).build()
+    if stream_id:
+        stream_key = f"agent-stream:{stream_id}"
+        try:
+            redis_client = await get_redis_client()
+            logger.debug("Redis streaming enabled", stream_key=stream_key)
 
-        start_time = timeit()
-        # Set up Redis streaming if both parameters are provided
-        redis_client = None
-        stream_key = None
-        conversation_history: list[ModelMessage] = []
+            messages = await redis_client.xrange(stream_key, min_id="-", max_id="+")
+            # Load previous messages (if any) and validate
+            for _, fields in messages:
+                try:
+                    data = orjson.loads(fields[DATA_KEY])
+                    if data.get(END_TOKEN) == END_TOKEN_VALUE:
+                        # This is an end-of-stream marker, skip
+                        continue
 
-        if stream_id:
-            stream_key = f"agent-stream:{stream_id}"
-            try:
-                redis_client = await get_redis_client()
-                logger.debug("Redis streaming enabled", stream_key=stream_key)
+                    validated_msg = ModelMessageTA.validate_python(data)
+                    conversation_history.append(validated_msg)
+                except Exception as e:
+                    logger.warning("Failed to load message", error=str(e))
 
-                messages = await redis_client.xrange(stream_key, min_id="-", max_id="+")
-                # Load previous messages (if any) and validate
-                for _, fields in messages:
-                    try:
-                        data = orjson.loads(fields[DATA_KEY])
-                        if data.get(END_TOKEN) == END_TOKEN_VALUE:
-                            # This is an end-of-stream marker, skip
-                            continue
-
-                        validated_msg = ModelMessageTA.validate_python(data)
-                        conversation_history.append(validated_msg)
-                    except Exception as e:
-                        logger.warning("Failed to load message", error=str(e))
-
-            except Exception as e:
-                logger.warning(
-                    "Failed to initialize Redis client, continuing without streaming",
-                    error=str(e),
-                )
+        except Exception as e:
+            logger.warning(
+                "Failed to initialize Redis client, continuing without streaming",
+                error=str(e),
+            )
 
         # Use async version since this function is already async
         async def write_to_redis(msg: ModelMessage):
@@ -1147,17 +1110,8 @@ async def run_agent(
             )
 
         end_time = timeit()
-
-        # Read potentially modified files from temp directory
-        files = {}
-        for file_path in Path(temp_dir).glob("*"):
-            with open(file_path, "r") as f:
-                base64_content = base64.b64encode(f.read().encode()).decode()
-                files[file_path.name] = base64_content
-
         output = AgentOutput(
             output=try_parse_json(result.output),
-            files=files,
             message_history=result.all_messages(),
             duration=end_time - start_time,
         )
@@ -1165,3 +1119,48 @@ async def run_agent(
             output.usage = result.usage()
 
     return output.model_dump()
+
+
+def create_tool_call(
+    tool_name: str,
+    tool_args: str | dict[str, Any],
+    tool_call_id: str,
+    fixed_args: dict[str, Any] | None = None,
+) -> ModelResponse:
+    """Build an assistant tool-call message (ModelResponse)."""
+    if isinstance(tool_args, str):
+        try:
+            args = orjson.loads(tool_args)
+        except Exception:
+            logger.warning("Failed to parse tool args", tool_args=tool_args)
+            args = {"args": tool_args}
+    else:
+        args = tool_args
+    if fixed_args:
+        args = {**fixed_args, **args}
+    return ModelResponse(
+        parts=[
+            ToolCallPart(
+                tool_name=tool_name,
+                args=args,
+                tool_call_id=tool_call_id,
+            )
+        ]
+    )
+
+
+def create_tool_return(
+    tool_name: str,
+    content: Any,
+    tool_call_id: str,
+) -> ModelRequest:
+    """Build the matching tool-result message (ModelRequest)."""
+    return ModelRequest(
+        parts=[
+            ToolReturnPart(
+                tool_name=tool_name,
+                tool_call_id=tool_call_id,
+                content=content,
+            )
+        ]
+    )

@@ -172,9 +172,6 @@ export type status = "success" | "error"
 
 export type AgentOutput = {
   output: unknown
-  files?: {
-    [key: string]: string
-  } | null
   message_history: Array<ModelRequest | ModelResponse>
   duration: number
   usage?: RunUsage | null
