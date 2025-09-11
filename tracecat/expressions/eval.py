@@ -94,7 +94,10 @@ def extract_templated_secrets(
         """Collect secrets from template expressions in the string."""
         for tmpl in re.finditer(pattern, line):
             expr = tmpl.group("expr")
-            for match in re.finditer(inner_secret_pattern, expr):
+            # Remove string literals (both single and double quoted) before searching for secrets
+            # This prevents matching SECRETS references inside strings
+            expr_without_strings = re.sub(r"'[^']*'|\"[^\"]*\"", "", expr)
+            for match in re.finditer(inner_secret_pattern, expr_without_strings):
                 secrets.add(match.group("secret"))
 
     _eval_templated_obj_rec(templated_obj, operator)

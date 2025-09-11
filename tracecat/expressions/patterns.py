@@ -1,6 +1,8 @@
 import re
 
-TEMPLATE_STRING = re.compile(r"(?P<template>\${{\s*(?P<expr>.+?)\s*}})")  # Lazy match
+TEMPLATE_STRING = re.compile(
+    r"(?P<template>\${{\s*(?P<expr>.+?)\s*}})", re.DOTALL
+)  # Lazy match
 """Pattern that matches a template and its expression."""
 
 
