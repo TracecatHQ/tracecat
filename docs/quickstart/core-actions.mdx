@@ -90,6 +90,7 @@ The following examples show common use-cases and inputs for the `Reshape` action
     ip_version: ${{ FN.check_ip_version(ACTIONS.get_user.result.data.user.ip) }}
     iso_datetime: ${{ FN.to_isoformat(ACTIONS.get_user.result.data.user.created_at) }}
   ```
+
 </CodeGroup>
 
 
@@ -262,6 +263,27 @@ Examples:
   stop_condition: "lambda x: x['data'].get('cursor') is None"
   next_request: "lambda x: {'url': x['data'].get('cursor')}"
   items_jsonpath: $.items
+  limit: 1000
+  ```
+
+  ```json Kandji (response body example)
+  {
+    "data": {
+      "next": "https://redacted.api.kandji.io/api/v1/audit/events?limit=500&sort_by=-occurred_at&cursor=xxx...",
+      "previous": null,
+      "results": [ /* page items */ ]
+    }
+  }
+  ```
+
+  ```yaml Kandji (pagination config: body `data.next` + `data.results`)
+  # Kandji returns next/previous URLs inside the response body under `data`.
+  # Use items_jsonpath: "$.data.results" to flatten items across pages.
+  url: https://redacted.api.kandji.io/api/v1/audit/events
+  method: GET
+  stop_condition: "lambda x: not x['data']['data'].get('next')"
+  next_request: "lambda x: {'url': x['data']['data'].get('next')}"
+  items_jsonpath: $.data.results
   limit: 1000
   ```
 

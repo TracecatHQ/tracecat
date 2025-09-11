@@ -1453,3 +1453,67 @@ async def test_http_paginate_zero_limit() -> None:
     # Should not make any requests when limit is 0
     assert route.call_count == 0
     assert result == []
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_http_paginate_kandji_body_next_results() -> None:
+    """Kandji-style pagination using body `data.next` and `data.results`.
+
+    Response shape:
+    {
+      "data": {
+        "next": "https://redacted.api.kandji.io/api/v1/audit/events?...&cursor=xxx",
+        "previous": null,
+        "results": [...items...]
+      }
+    }
+    """
+    responses = [
+        httpx.Response(
+            status_code=200,
+            json={
+                "data": {
+                    "next": "https://api.kandji.io/api/v1/audit/events?limit=500&sort_by=-occurred_at&cursor=page2",
+                    "previous": None,
+                    "results": [1, 2, 3],
+                }
+            },
+        ),
+        httpx.Response(
+            status_code=200,
+            json={
+                "data": {
+                    "next": "https://api.kandji.io/api/v1/audit/events?limit=500&sort_by=-occurred_at&cursor=page3",
+                    "previous": "https://api.kandji.io/api/v1/audit/events?limit=500&sort_by=-occurred_at",
+                    "results": [4, 5],
+                }
+            },
+        ),
+        httpx.Response(
+            status_code=200,
+            json={
+                "data": {
+                    "next": None,
+                    "previous": "https://api.kandji.io/api/v1/audit/events?limit=500&sort_by=-occurred_at",
+                    "results": [6],
+                }
+            },
+        ),
+    ]
+
+    route = respx.get("https://api.kandji.io/api/v1/audit/events").mock(
+        side_effect=responses
+    )
+
+    result = await http_paginate(
+        url="https://api.kandji.io/api/v1/audit/events",
+        method="GET",
+        stop_condition="lambda x: not x['data']['data'].get('next')",
+        next_request="lambda x: {'url': x['data']['data'].get('next')}",
+        items_jsonpath="$.data.results",
+        limit=1000,
+    )
+
+    assert route.call_count == 3
+    assert result == [1, 2, 3, 4, 5, 6]
