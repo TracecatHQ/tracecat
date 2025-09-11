@@ -27,7 +27,7 @@ esac
 # Update package lists
 apt-get update
 
-# Install base packages including curl (needed for kubectl installation)
+# Install base packages including curl (needed for kubectl and Claude Code installation)
 apt-get install -y \
   acl \
   git \
@@ -43,6 +43,63 @@ apt-get install -y \
 # Verify curl is installed and in PATH
 which curl || { echo "ERROR: curl not found after installation"; exit 1; }
 echo "curl version: $(curl --version | head -n 1)"
+
+# Install Claude Code as a native binary
+# This method doesn't require Node.js and is more efficient
+echo "Installing Claude Code native binary..."
+
+# Create a temporary directory for the installation
+TEMP_INSTALL_DIR="/tmp/claude-install"
+mkdir -p "$TEMP_INSTALL_DIR"
+cd "$TEMP_INSTALL_DIR"
+
+# Download and execute the official installation script with security checks
+# Security features:
+# - Verify curl succeeded before piping to bash
+# - Use set -euo pipefail for the subshell
+# - Install to a specific location for better control
+echo "Downloading Claude Code installation script..."
+INSTALL_SCRIPT_URL="https://claude.ai/install.sh"
+
+# First, download the script to inspect/verify
+if curl -fsSL "$INSTALL_SCRIPT_URL" -o install-claude.sh; then
+    echo "Installation script downloaded successfully"
+
+    # Make the script executable
+    chmod +x install-claude.sh
+
+    # Run the installation script
+    # Note: The script automatically detects architecture (x86_64/arm64)
+    # The script installs to ~/.local/bin by default
+    bash install-claude.sh || { echo "ERROR: Failed to install Claude Code binary"; exit 1; }
+
+    # Move the binary to a system-wide location
+    # The installation script puts it in ~/.local/bin/claude
+    if [ -f "$HOME/.local/bin/claude" ]; then
+        echo "Moving Claude binary to /usr/local/bin..."
+        mv "$HOME/.local/bin/claude" /usr/local/bin/claude
+        chmod +x /usr/local/bin/claude
+    else
+        echo "ERROR: Claude binary not found at expected location after installation"
+        exit 1
+    fi
+else
+    echo "ERROR: Failed to download Claude Code installation script"
+    exit 1
+fi
+
+# Clean up temporary installation directory
+cd /
+rm -rf "$TEMP_INSTALL_DIR"
+
+# Verify installation
+if command -v claude &> /dev/null; then
+    echo "Claude Code binary installed successfully at $(which claude)"
+    echo "Claude version: $(claude --version 2>/dev/null || echo 'version command not available')"
+else
+    echo "ERROR: Claude Code binary not found in PATH after installation"
+    exit 1
+fi
 
 # Install kubectl using the latest official method
 # https://kubernetes.io/docs/tasks/tools/install-kubectl-linux/
@@ -123,7 +180,8 @@ echo "Deno and Pyodide installation complete"
 apt-get -y upgrade
 
 # Remove install only dependencies
-apt-get purge -y curl gnupg apt-transport-https unzip
+# Note: Keeping curl and ca-certificates as they may be needed by other tools at runtime
+apt-get purge -y gnupg apt-transport-https unzip
 apt-get autoremove -y
 
 # Check if git is installed by checking the version
@@ -141,6 +199,12 @@ fi
 # Check if ripgrep is installed by checking the version
 if ! rg --version &> /dev/null; then
     echo "ERROR: Failed to install ripgrep"
+    exit 1
+fi
+
+# Check if Claude Code is installed by checking the command
+if ! command -v claude &> /dev/null; then
+    echo "ERROR: Failed to install Claude Code"
     exit 1
 fi
 
