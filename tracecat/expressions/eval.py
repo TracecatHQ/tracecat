@@ -86,6 +86,11 @@ def extract_templated_secrets(
     SECRETS.<name>.<key> even when multiple appear in a single template.
     """
     secrets: set[str] = set()
+    # Patterns to match quoted strings (both single and double quotes)
+    # This captures content within quotes so we can exclude it from secret matching
+    single_quote_pattern = re.compile(r"'[^']*'")
+    double_quote_pattern = re.compile(r'"[^"]*"')
+    
     inner_secret_pattern = re.compile(
         r"SECRETS\.(?P<secret>[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*)"
     )
@@ -94,8 +99,28 @@ def extract_templated_secrets(
         """Collect secrets from template expressions in the string."""
         for tmpl in re.finditer(pattern, line):
             expr = tmpl.group("expr")
+            
+            # Find all quoted string ranges in the expression
+            quoted_ranges = []
+            # Check for single-quoted strings
+            for quoted_match in single_quote_pattern.finditer(expr):
+                quoted_ranges.append((quoted_match.start(), quoted_match.end()))
+            # Check for double-quoted strings
+            for quoted_match in double_quote_pattern.finditer(expr):
+                quoted_ranges.append((quoted_match.start(), quoted_match.end()))
+            
+            # Find all secret matches and filter out those inside quoted strings
             for match in re.finditer(inner_secret_pattern, expr):
-                secrets.add(match.group("secret"))
+                match_start, match_end = match.span()
+                
+                # Check if this match is inside any quoted string
+                inside_quotes = any(
+                    start <= match_start < end and start < match_end <= end
+                    for start, end in quoted_ranges
+                )
+                
+                if not inside_quotes:
+                    secrets.add(match.group("secret"))
 
     _eval_templated_obj_rec(templated_obj, operator)
     return list(secrets)
