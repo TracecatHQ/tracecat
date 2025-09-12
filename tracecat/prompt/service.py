@@ -332,7 +332,7 @@ Here are the <Steps> to execute:
             summary=summary,
             meta={
                 "created_directly": True,
-                "schema_version": 1,
+                "schema": "v1",
                 "tool_sha": tool_sha,
                 "token_count": token_count,
             },

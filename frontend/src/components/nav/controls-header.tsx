@@ -259,7 +259,10 @@ function RunbooksActions() {
     } catch (error) {
       toast({
         title: "Failed to create runbook",
-        description: error instanceof Error ? error.message : "An unexpected error occurred. Please try again.",
+        description:
+          error instanceof Error
+            ? error.message
+            : "An unexpected error occurred. Please try again.",
         variant: "destructive",
       })
     }
