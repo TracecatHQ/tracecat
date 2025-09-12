@@ -13,7 +13,10 @@ from tracecat.chat.enums import ChatEntity
 class PromptCreate(BaseModel):
     """Request model for creating a prompt from a chat."""
 
-    chat_id: UUID4 = Field(..., description="ID of the chat to freeze into a prompt")
+    chat_id: UUID4 | None = Field(
+        default=None,
+        description="ID of the chat to freeze into a prompt",
+    )
     meta: dict[str, Any] | None = Field(
         default=None,
         description="Optional metadata to include with the prompt (e.g., case information)",
@@ -24,7 +27,10 @@ class PromptRead(BaseModel):
     """Model for prompt details."""
 
     id: UUID4 = Field(..., description="Unique prompt identifier")
-    chat_id: UUID4 = Field(..., description="ID of the source chat")
+    chat_id: UUID4 | None = Field(
+        default=None,
+        description="ID of the source chat",
+    )
     title: str = Field(..., description="Human-readable title for the prompt")
     content: str = Field(..., description="The instruction prompt/runbook string")
     tools: list[str] = Field(

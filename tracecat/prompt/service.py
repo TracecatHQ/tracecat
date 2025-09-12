@@ -6,6 +6,7 @@ import json
 import textwrap
 import uuid
 from collections.abc import Sequence
+from datetime import datetime
 from typing import Any
 
 from pydantic_ai.messages import (
@@ -26,7 +27,7 @@ from tracecat.chat.service import ChatService
 from tracecat.db.schemas import Chat, Prompt
 from tracecat.logger import logger
 from tracecat.prompt.flows import execute_runbook_for_case
-from tracecat.prompt.models import PromptRunEntity
+from tracecat.prompt.models import PromptCreate, PromptRunEntity
 from tracecat.service import BaseWorkspaceService
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatNotFoundError
@@ -41,7 +42,21 @@ class PromptService(BaseWorkspaceService):
         super().__init__(session, role)
         self.chats = ChatService(session, role)
 
-    async def create_prompt(
+    async def create_prompt(self, params: PromptCreate):
+        """Create a prompt from a chat."""
+        if params.chat_id:
+            chat = await self.chats.get_chat(params.chat_id)
+            if not chat:
+                raise TracecatNotFoundError(f"Chat with ID {params.chat_id} not found")
+            return await self.create_prompt_from_chat(chat=chat, meta=params.meta)
+        else:
+            return await self.create_prompt_direct(
+                title=f"New runbook - {datetime.now().isoformat()}",
+                content="",
+                tools=[],
+            )
+
+    async def create_prompt_from_chat(
         self,
         *,
         chat: Chat,
@@ -294,6 +309,47 @@ Here are the <Steps> to execute:
                 else:
                     responses.append(response)
         return responses
+
+    async def create_prompt_direct(
+        self,
+        *,
+        title: str,
+        content: str,
+        tools: list[str],
+        summary: str | None = None,
+    ) -> Prompt:
+        """Create a prompt directly without a chat."""
+
+        tool_sha = self._calculate_tool_sha(tools)
+        token_count = self._estimate_token_count(content)
+
+        prompt = Prompt(
+            owner_id=self.workspace_id,
+            chat_id=None,  # No associated chat
+            title=title,
+            content=content,
+            tools=tools,
+            summary=summary,
+            meta={
+                "created_directly": True,
+                "schema_version": 1,
+                "tool_sha": tool_sha,
+                "token_count": token_count,
+            },
+        )
+
+        self.session.add(prompt)
+        await self.session.commit()
+        await self.session.refresh(prompt)
+
+        logger.info(
+            "Created direct prompt",
+            prompt_id=prompt.id,
+            title=title,
+            tools_count=len(tools),
+        )
+
+        return prompt
 
     def _reduce_messages_to_steps(self, messages: list[ChatMessage]) -> str:
         """

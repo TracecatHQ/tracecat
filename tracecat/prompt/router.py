@@ -42,19 +42,13 @@ WorkspaceUser = Annotated[
 
 @router.post("/", response_model=PromptRead)
 async def create_prompt(
-    request: PromptCreate,
+    params: PromptCreate,
     role: WorkspaceUser,
     session: AsyncDBSession,
 ) -> PromptRead:
     """Freeze a chat into a reusable prompt."""
     prompt_service = PromptService(session, role)
-    chat = await prompt_service.chats.get_chat(request.chat_id)
-    if not chat:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Chat not found",
-        )
-    prompt = await prompt_service.create_prompt(chat=chat, meta=request.meta)
+    prompt = await prompt_service.create_prompt(params)
     return PromptRead.model_validate(prompt, from_attributes=True)
 
 

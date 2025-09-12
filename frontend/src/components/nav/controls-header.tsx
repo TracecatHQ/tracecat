@@ -4,7 +4,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { format, formatDistanceToNow } from "date-fns"
 import { Calendar, PanelRight, Plus } from "lucide-react"
 import Link from "next/link"
-import { usePathname, useSearchParams } from "next/navigation"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { type ReactNode, useState } from "react"
 import type { EntityRead, OAuthGrantType } from "@/client"
 import { entitiesCreateEntity } from "@/client"
@@ -45,6 +45,7 @@ import {
 } from "@/components/workspaces/add-workspace-secret"
 import { useEntities, useEntity } from "@/hooks/use-entities"
 import { useLocalStorage } from "@/hooks/use-local-storage"
+import { useCreatePrompt } from "@/hooks/use-prompt"
 import { useWorkspaceDetails } from "@/hooks/use-workspace"
 import { entityEvents } from "@/lib/entity-events"
 import {
@@ -242,18 +243,35 @@ function EntitiesActions() {
 }
 
 function RunbooksActions() {
-  // New runbook creation requires navigating to a chat first
-  // For now, we'll show a button that explains the process
+  const workspaceId = useWorkspaceId()
+  const router = useRouter()
+  const { createPrompt, createPromptPending } = useCreatePrompt(workspaceId)
+
+  const handleCreateRunbook = async () => {
+    try {
+      // Create a runbook without chat_id - backend will auto-generate title and content
+      const prompt = await createPrompt({
+        meta: { created_directly: true },
+      })
+
+      // Navigate to the new runbook
+      router.push(`/workspaces/${workspaceId}/runbooks/${prompt.id}`)
+    } catch (error) {
+      console.error("Failed to create runbook:", error)
+    }
+  }
+
   return (
     <Button
       variant="outline"
       size="sm"
       className="h-7 bg-white"
-      disabled
-      title="Create runbooks from chat conversations"
+      onClick={handleCreateRunbook}
+      disabled={createPromptPending}
+      title="Create runbooks"
     >
       <Plus className="mr-1 h-3.5 w-3.5" />
-      Add runbook
+      {createPromptPending ? "Creating..." : "Add runbook"}
     </Button>
   )
 }

@@ -113,7 +113,9 @@ function RunbookDetailContent({ prompt }: { prompt: PromptRead }) {
             <p className="mt-1 text-muted-foreground">
               {prompt.meta?.case_slug
                 ? `Created from ${prompt.meta.case_slug}`
-                : `Created from chat ${prompt.chat_id}`}
+                : prompt.chat_id
+                  ? `Created from chat ${prompt.chat_id}`
+                  : "Created manually"}
             </p>
             <div className="mt-2 flex items-center gap-1">
               <Calendar className="size-3 text-muted-foreground" />
