@@ -1284,12 +1284,6 @@ export type DSLInput = {
   config?: DSLConfig_Output
   triggers?: Array<Trigger>
   /**
-   * Static input parameters
-   */
-  inputs?: {
-    [key: string]: unknown
-  }
-  /**
    * The action ref or value to return.
    */
   returns?: unknown | null
@@ -1522,7 +1516,6 @@ export type ExprContext =
   | "ACTIONS"
   | "SECRETS"
   | "FN"
-  | "INPUTS"
   | "ENV"
   | "TRIGGER"
   | "var"
@@ -4219,9 +4212,6 @@ export type WorkflowRead = {
   webhook: WebhookRead
   schedules: Array<Schedule>
   entrypoint: string | null
-  static_inputs: {
-    [key: string]: unknown
-  }
   expects?: {
     [key: string]: ExpectedField
   } | null
@@ -4284,9 +4274,6 @@ export type WorkflowUpdate = {
   version?: number | null
   entrypoint?: string | null
   icon_url?: string | null
-  static_inputs?: {
-    [key: string]: unknown
-  } | null
   expects?: {
     [key: string]: ExpectedField
   } | null

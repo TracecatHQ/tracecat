@@ -31,9 +31,6 @@ class ExprContext(TracecatEnum):
     FN = "FN"
     """Function context"""
 
-    INPUTS = "INPUTS"
-    """Inputs context"""
-
     ENV = "ENV"
     """Environment context"""
 

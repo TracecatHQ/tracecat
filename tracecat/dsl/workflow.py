@@ -321,7 +321,6 @@ class DSLWorkflow:
 
         self.context: ExecutionContext = {
             ExprContext.ACTIONS: {},
-            ExprContext.INPUTS: self.dsl.inputs,
             ExprContext.TRIGGER: trigger_inputs,
             ExprContext.ENV: DSLEnvironment(
                 workflow={

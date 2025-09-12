@@ -338,7 +338,6 @@ async def test_stress_workflow_correctness(
                 },
             ],
             "description": "Stress testing",
-            "inputs": {},
             "returns": "${{ ACTIONS.d.result }}",
             "tests": [],
             "title": f"{test_name}",
@@ -399,7 +398,6 @@ async def test_workflow_set_environment_correct(
                 }
             ],
             "description": test_description,
-            "inputs": {},
             "returns": "${{ ACTIONS.a.result }}",
             "tests": [],
             "title": f"{test_name}",
@@ -453,7 +451,6 @@ async def test_workflow_override_environment_correct(
                 }
             ],
             "description": test_description,
-            "inputs": {},
             "returns": "${{ ACTIONS.a.result }}",
             "tests": [],
             "title": f"{test_name}",
@@ -508,7 +505,6 @@ async def test_workflow_default_environment_correct(
                 }
             ],
             "description": test_description,
-            "inputs": {},
             "returns": "${{ ACTIONS.a.result }}",
             "tests": [],
             "title": f"{test_name}",
@@ -600,7 +596,6 @@ async def test_child_workflow_success(test_role, temporal_client, test_worker_fa
                 }
             ],
             "description": "Test child workflow success",
-            "inputs": {},
             "returns": "${{ ACTIONS.a.result }}",
             "tests": [],
             "title": "Test child workflow success",
@@ -622,7 +617,7 @@ async def test_child_workflow_success(test_role, temporal_client, test_worker_fa
                 {
                     "ref": "parent",
                     "action": "core.workflow.execute",
-                    "for_each": "${{ for var.x in INPUTS.data }}",
+                    "for_each": "${{ for var.x in TRIGGER.data }}",
                     "args": {
                         "workflow_id": child_workflow.id,
                         "trigger_inputs": {
@@ -661,8 +656,7 @@ async def test_child_workflow_success(test_role, temporal_client, test_worker_fa
                 "result_typename": "list",
             }
         },
-        "INPUTS": {"data": [1, 2, 3, 4, 5, 6, 7]},
-        "TRIGGER": {},
+        "TRIGGER": {"data": [1, 2, 3, 4, 5, 6, 7]},
     }
     assert result == expected
 
@@ -693,7 +687,6 @@ async def test_child_workflow_context_passing(
                 }
             ],
             "description": "Testing child workflow",
-            "inputs": {},
             "returns": None,
             "tests": [],
             "title": "Aug 16, 2024, 13:44:37",
@@ -737,7 +730,6 @@ async def test_child_workflow_context_passing(
                     "description": "",
                 },
             ],
-            "inputs": {},
             "returns": None,
             "tests": [],
             "triggers": [],
@@ -808,7 +800,6 @@ def child_dsl():
             )
         ],
         description="Testing child workflow",
-        inputs={},
         returns="${{ ACTIONS.reshape.result }}",
         title="Child",
         triggers=[],
@@ -865,7 +856,6 @@ async def test_child_workflow_loop(
                 run_if=None,
             ),
         ],
-        inputs={},
         returns=None,
         triggers=[],
     )
@@ -952,7 +942,6 @@ async def test_single_child_workflow_alias(
                 run_if=None,
             ),
         ],
-        inputs={},
         returns="${{ ACTIONS.run_child.result }}",
         triggers=[],
     )
@@ -1032,7 +1021,6 @@ async def test_child_workflow_alias_with_loop(
                 run_if=None,
             ),
         ],
-        inputs={},
         returns="${{ ACTIONS.run_child.result }}",
         triggers=[],
     )
@@ -1093,7 +1081,6 @@ async def test_single_child_workflow_override_environment_correct(
                 }
             ],
             "description": test_description,
-            "inputs": {},
             "returns": "${{ ACTIONS.a.result }}",
             "tests": [],
             "title": f"{test_name}:child",
@@ -1121,7 +1108,6 @@ async def test_single_child_workflow_override_environment_correct(
                     "depends_on": [],
                 },
             ],
-            "inputs": {},
             "returns": None,
             "tests": [],
             "triggers": [],
@@ -1172,7 +1158,6 @@ async def test_multiple_child_workflow_override_environment_correct(
                     "description": "",
                 }
             ],
-            "inputs": {},
             "returns": "${{ ACTIONS.a.result }}",
             "tests": [],
             "title": f"{test_name}:child",
@@ -1201,7 +1186,6 @@ async def test_multiple_child_workflow_override_environment_correct(
                     "depends_on": [],
                 },
             ],
-            "inputs": {},
             "returns": None,
             "tests": [],
             "triggers": [],
@@ -1253,7 +1237,6 @@ async def test_single_child_workflow_environment_has_correct_default(
                 }
             ],
             "description": test_description,
-            "inputs": {},
             "returns": "${{ ACTIONS.a.result }}",
             "config": {"environment": "__TESTING_DEFAULT__"},
             "tests": [],
@@ -1281,7 +1264,6 @@ async def test_single_child_workflow_environment_has_correct_default(
                     "depends_on": [],
                 },
             ],
-            "inputs": {},
             "returns": None,
             "tests": [],
             "triggers": [],
@@ -1333,7 +1315,6 @@ async def test_multiple_child_workflow_environments_have_correct_defaults(
                 }
             ],
             "description": test_description,
-            "inputs": {},
             "returns": "${{ ACTIONS.a.result }}",
             "config": {
                 "environment": "__TESTING_DEFAULT__"
@@ -1367,7 +1348,6 @@ async def test_multiple_child_workflow_environments_have_correct_defaults(
                     "depends_on": [],
                 },
             ],
-            "inputs": {},
             "returns": None,
             "tests": [],
             "triggers": [],
@@ -1441,7 +1421,6 @@ async def test_single_child_workflow_get_correct_secret_environment(
                 }
             ],
             "description": test_description,
-            "inputs": {},
             "returns": "${{ ACTIONS.a.result }}",
             "config": {
                 "environment": "__TESTING_DEFAULT__"
@@ -1472,7 +1451,6 @@ async def test_single_child_workflow_get_correct_secret_environment(
                     "depends_on": [],
                 },
             ],
-            "inputs": {},
             "returns": None,
             "tests": [],
             "triggers": [],
@@ -1534,7 +1512,6 @@ async def test_pull_based_workflow_fetches_latest_version(
                 }
             ],
             "description": "Test that a pull-based workflow fetches the latest version",
-            "inputs": {},
             "returns": "${{ ACTIONS.a.result }}",
             "tests": [],
             "title": f"{test_name}:first",
@@ -1585,7 +1562,6 @@ async def test_pull_based_workflow_fetches_latest_version(
                 }
             ],
             "description": "Test that a pull-based workflow fetches the latest version",
-            "inputs": {},
             "returns": "${{ ACTIONS.a.result }}",
             "tests": [],
             "title": f"{test_name}:second",
@@ -1689,7 +1665,6 @@ def _get_test_id(test_case):
                         "depends_on": ["start.error"],  # RUNS
                     },
                 ],
-                "inputs": {},
                 "returns": {
                     "start": "${{ ACTIONS.start.result }}",
                     "start.error": "${{ ACTIONS.start.error }}",
@@ -1738,7 +1713,6 @@ def _get_test_id(test_case):
                         "depends_on": ["c"],
                     },
                 ],
-                "inputs": {},
                 "returns": {
                     "a": "${{ ACTIONS.a.result }}",
                     "b": "${{ ACTIONS.b.result }}",
@@ -1779,7 +1753,6 @@ def _get_test_id(test_case):
                         "depends_on": ["a.error"],  # RUNS
                     },
                 ],
-                "inputs": {},
                 "returns": {
                     "success": "${{ ACTIONS.success_path.result }}",
                     "error": "${{ ACTIONS.error_path.result }}",
@@ -1816,7 +1789,6 @@ def _get_test_id(test_case):
                         "depends_on": ["a.error"],  # This action should NOT run
                     },
                 ],
-                "inputs": {},
                 "returns": {
                     "success": "${{ ACTIONS.success_path.result }}",
                     "error": "${{ ACTIONS.error_path.result }}",
@@ -1859,7 +1831,6 @@ def _get_test_id(test_case):
                         "depends_on": ["error_path_1"],  # This action should NOT run
                     },
                 ],
-                "inputs": {},
                 "returns": {
                     "success_path": "${{ ACTIONS.success_path.result }}",
                     "error_path_1": "${{ ACTIONS.error_path_1.result }}",
@@ -1893,7 +1864,6 @@ def _get_test_id(test_case):
                         "run_if": "${{ False }}",
                     },
                 ],
-                "inputs": {},
                 "returns": {
                     "a": "${{ ACTIONS.a.result }}",
                     "b": "${{ ACTIONS.b.result }}",
@@ -1925,7 +1895,6 @@ def _get_test_id(test_case):
                         "join_strategy": "any",
                     },
                 ],
-                "inputs": {},
                 "returns": {
                     "start": "${{ ACTIONS.start.result }}",
                     "join": "${{ ACTIONS.join.result }}",
@@ -1973,7 +1942,6 @@ def _get_test_id(test_case):
                         "join_strategy": "any",
                     },
                 ],
-                "inputs": {},
                 "returns": {
                     "start": "${{ ACTIONS.start.result }}",
                     "left": "${{ ACTIONS.left.result }}",
@@ -2025,7 +1993,6 @@ def _get_test_id(test_case):
                         "join_strategy": "any",
                     },
                 ],
-                "inputs": {},
                 "returns": {
                     "start": "${{ ACTIONS.start.result }}",
                     "left": "${{ ACTIONS.left.result }}",
@@ -3092,7 +3059,6 @@ async def test_workflow_detached_child_workflow(
                 start_delay=2,
             ),
         ],
-        inputs={},
         returns="${{ ACTIONS.a.result }}",
     )
 
