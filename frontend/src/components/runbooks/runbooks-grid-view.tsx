@@ -76,7 +76,8 @@ export function RunbooksGridView({
           <div className="space-y-2">
             <h3 className="text-lg font-semibold">No runbooks yet</h3>
             <p className="text-sm text-muted-foreground max-w-md">
-              Generate your first runbook via case chat or create a new one from scratch.
+              Generate your first runbook via case chat or create a new one from
+              scratch.
             </p>
           </div>
         </div>
