@@ -7,7 +7,6 @@ import { useCallback } from "react"
 import "@radix-ui/react-dialog"
 
 import {
-  FileInputIcon,
   FileSliders,
   Info,
   LayoutListIcon,
@@ -210,13 +209,6 @@ export function WorkflowPanel({
                   >
                     <ShapesIcon className="mr-2 size-4" />
                     <span>Schema</span>
-                  </TabsTrigger>
-                  <TabsTrigger
-                    className="h-full min-w-28 rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
-                    value="workflow-static-inputs"
-                  >
-                    <FileInputIcon className="mr-2 size-4" />
-                    <span>Static inputs</span>
                   </TabsTrigger>
                 </TabsList>
               </div>
@@ -611,12 +603,6 @@ export function WorkflowPanel({
                       </AccordionContent>
                     </AccordionItem>
                   </Accordion>
-                </TabsContent>
-                <TabsContent value="workflow-static-inputs">
-                  <Accordion
-                    type="multiple"
-                    defaultValue={["workflow-static-inputs"]}
-                  ></Accordion>
                 </TabsContent>
               </div>
             </div>
