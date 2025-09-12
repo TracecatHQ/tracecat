@@ -627,9 +627,6 @@ async def test_child_workflow_success(test_role, temporal_client, test_worker_fa
                     "depends_on": [],
                 },
             ],
-            "inputs": {
-                "data": [1, 2, 3, 4, 5, 6, 7],
-            },
             "returns": None,
             "tests": [],
             "triggers": [],
@@ -765,7 +762,6 @@ async def test_child_workflow_context_passing(
                             "result_typename": "dict",
                         }
                     },
-                    "INPUTS": {},
                     "TRIGGER": {
                         "data_from_parent": "Parent sent child __EXPECTED_DATA__"
                     },
@@ -773,7 +769,6 @@ async def test_child_workflow_context_passing(
                 "result_typename": "dict",
             },
         },
-        "INPUTS": {},
         "TRIGGER": {"data": "__EXPECTED_DATA__"},
     }
     assert result == expected
@@ -899,7 +894,6 @@ async def test_child_workflow_loop(
                 "result_typename": "list",
             },
         },
-        "INPUTS": {},
         "TRIGGER": {"data": "__EXPECTED_DATA__"},
     }
     assert result == expected
@@ -1129,7 +1123,6 @@ async def test_single_child_workflow_override_environment_correct(
                 "result_typename": "str",
             }
         },
-        "INPUTS": {},
         "TRIGGER": {},
     }
     assert result == expected
@@ -1207,7 +1200,6 @@ async def test_multiple_child_workflow_override_environment_correct(
                 "result_typename": "list",
             }
         },
-        "INPUTS": {},
         "TRIGGER": {},
     }
     assert result == expected
@@ -1285,7 +1277,6 @@ async def test_single_child_workflow_environment_has_correct_default(
                 "result_typename": "str",
             }
         },
-        "INPUTS": {},
         "TRIGGER": {},
     }
     assert result == expected
@@ -1373,7 +1364,6 @@ async def test_multiple_child_workflow_environments_have_correct_defaults(
                 "result_typename": "list",
             }
         },
-        "INPUTS": {},
         "TRIGGER": {},
     }
     assert result == expected
@@ -1475,7 +1465,6 @@ async def test_single_child_workflow_get_correct_secret_environment(
                 "result_typename": "list",
             }
         },
-        "INPUTS": {},
         "TRIGGER": {},
     }
     assert result == expected
@@ -3162,7 +3151,6 @@ async def test_workflow_detached_child_workflow(
             ),
             {
                 "ACTIONS": {"gather": {"result": [2, 3, 4], "result_typename": "list"}},
-                "INPUTS": {},
                 "TRIGGER": {},
             },
             id="basic-for-loop",
@@ -3213,7 +3201,6 @@ async def test_workflow_detached_child_workflow(
                     "gather": {"result": [2, 3, 4], "result_typename": "list"},
                     "c": {"result": [2, 3, 4], "result_typename": "list"},
                 },
-                "INPUTS": {},
                 "TRIGGER": {},
             },
             id="scatter-gather-with-surrounding-actions",
@@ -3281,7 +3268,6 @@ async def test_workflow_detached_child_workflow(
                 "ACTIONS": {
                     "gather2": {"result": [[2, 3], [4, 5]], "result_typename": "list"}
                 },
-                "INPUTS": {},
                 "TRIGGER": {},
             },
             id="nested-for-loop",
@@ -3347,7 +3333,6 @@ async def test_workflow_detached_child_workflow(
                     "gather1": {"result": [11, 21], "result_typename": "list"},
                     "gather2": {"result": [111, 121], "result_typename": "list"},
                 },
-                "INPUTS": {},
                 "TRIGGER": {},
             },
             id="sequential-scatter-gather",
@@ -3423,7 +3408,6 @@ async def test_workflow_detached_child_workflow(
                     "im2": {"result": [15, 25], "result_typename": "list"},
                     "c": {"result": [2, 4, 15, 25], "result_typename": "list"},
                 },
-                "INPUTS": {},
                 "TRIGGER": {},
             },
             id="parallel-scatter-gather-join",
@@ -3454,7 +3438,6 @@ async def test_workflow_detached_child_workflow(
             ),
             {
                 "ACTIONS": {"gather": {"result": [5, 6, 7], "result_typename": "list"}},
-                "INPUTS": {},
                 "TRIGGER": {},
             },
             id="scatter-gather-direct",
@@ -3500,7 +3483,6 @@ async def test_workflow_detached_child_workflow(
                         "result_typename": "list",
                     }
                 },
-                "INPUTS": {},
                 "TRIGGER": {},
             },
             id="scatter-reshape-even-gather",
@@ -3547,7 +3529,6 @@ async def test_workflow_detached_child_workflow(
                         "result_typename": "list",
                     }
                 },
-                "INPUTS": {},
                 "TRIGGER": {},
             },
             id="scatter-reshape-even-gather-drop-nulls",
@@ -3591,7 +3572,6 @@ async def test_workflow_detached_child_workflow(
                         "result_typename": "list",
                     }
                 },
-                "INPUTS": {},
                 "TRIGGER": {},
             },
             id="scatter-reshape-even-gather-drop-nulls-with-nones",
@@ -3652,7 +3632,6 @@ async def test_workflow_detached_child_workflow(
                     }
                     # No other actions should have run
                 },
-                "INPUTS": {},
                 "TRIGGER": {},
             },
             id="skip-scatter-directly-only-first-runs",
@@ -3694,7 +3673,6 @@ async def test_workflow_detached_child_workflow(
                         "result_typename": "list",
                     }
                 },
-                "INPUTS": {},
                 "TRIGGER": {},
             },
             id="skip-all-in-scatter",
@@ -3767,7 +3745,6 @@ async def test_workflow_detached_child_workflow(
                         "result_typename": "list",
                     },
                 },
-                "INPUTS": {},
                 "TRIGGER": {},
             },
             id="parallel-different-sizes",
@@ -3809,7 +3786,6 @@ async def test_workflow_detached_child_workflow(
                         "result_typename": "list",
                     }
                 },
-                "INPUTS": {},
                 "TRIGGER": {},
             },
             id="mixed-data-types",
@@ -3858,7 +3834,6 @@ async def test_workflow_detached_child_workflow(
                         "result_typename": "list",
                     }
                 },
-                "INPUTS": {},
                 "TRIGGER": {},
             },
             id="variable-nesting-depths",
@@ -3927,7 +3902,6 @@ async def test_workflow_detached_child_workflow(
                     "gather_empty": {"result": [], "result_typename": "list"},
                     "final_merge": {"result": [2, 4, 6], "result_typename": "list"},
                 },
-                "INPUTS": {},
                 "TRIGGER": {},
             },
             id="empty-nonempty-parallel",
@@ -4005,7 +3979,6 @@ async def test_workflow_detached_child_workflow(
                         "result_typename": "list",
                     }
                 },
-                "INPUTS": {},
                 "TRIGGER": {},
             },
             id="nested-varying-sizes",
@@ -4067,7 +4040,6 @@ async def test_workflow_detached_child_workflow(
                         "result_typename": "list",
                     }
                 },
-                "INPUTS": {},
                 "TRIGGER": {},
             },
             id="nested-mixed-empty-nonempty",
@@ -4114,7 +4086,6 @@ async def test_workflow_detached_child_workflow(
                         "result_typename": "list",
                     }
                 },
-                "INPUTS": {},
                 "TRIGGER": {},
             },
             id="scatter-empty-collection",
@@ -4160,7 +4131,6 @@ async def test_workflow_detached_child_workflow(
                     "gather": {"result": [], "result_typename": "list"},
                     "reshape2": {"result": [], "result_typename": "list"},
                 },
-                "INPUTS": {},
                 "TRIGGER": {},
             },
             id="scatter-empty-collection-between",
@@ -4240,7 +4210,6 @@ async def test_workflow_detached_child_workflow(
                         "result_typename": "list",
                     },
                 },
-                "INPUTS": {},
                 "TRIGGER": {},
             },
             id="nested-scatter-empty-collection-inside",
@@ -4328,7 +4297,6 @@ async def test_workflow_detached_child_workflow(
                         "result_typename": "list",
                     },
                 },
-                "INPUTS": {},
                 "TRIGGER": {},
             },
             id="2d-scatter-dag-inside",
@@ -4394,7 +4362,6 @@ async def test_workflow_detached_child_workflow(
                         "result_typename": "list",
                     },
                 },
-                "INPUTS": {},
                 "TRIGGER": {},
             },
             id="1d-scatter-multi-condition",
@@ -4456,7 +4423,6 @@ async def test_workflow_detached_child_workflow(
                         "error_typename": "list",
                     },
                 },
-                "INPUTS": {},
                 "TRIGGER": {},
             },
             id="basic-error-handling-partition",
@@ -4502,7 +4468,6 @@ async def test_workflow_detached_child_workflow(
                         "result_typename": "list",
                     },
                 },
-                "INPUTS": {},
                 "TRIGGER": {},
             },
             id="basic-error-handling-drop",
@@ -4563,7 +4528,6 @@ async def test_workflow_detached_child_workflow(
                         "result_typename": "list",
                     },
                 },
-                "INPUTS": {},
                 "TRIGGER": {},
             },
             id="basic-error-handling-include",
@@ -4620,7 +4584,6 @@ async def test_workflow_detached_child_workflow(
                         "result_typename": "list",
                     },
                 },
-                "INPUTS": {},
                 "TRIGGER": {},
             },
             id="scope-shadowing-stream-lookup",
@@ -4708,7 +4671,6 @@ async def test_workflow_env_and_trigger_access_in_stream(
                 "result_typename": "list",
             },
         },
-        "INPUTS": {},
         "TRIGGER": trigger_data,
     }
 
@@ -4760,7 +4722,6 @@ def assert_result_is_run_context(result: dict[str, Any]) -> bool:
                         "result_typename": "int",
                     },
                 },
-                "INPUTS": {},
                 "TRIGGER": {},
             },
             id="context-strategy",
@@ -4902,6 +4863,5 @@ async def test_workflow_environment_override(
                         "result_typename": "str",
                     },
                 },
-                "INPUTS": {},
                 "TRIGGER": {},
             }
