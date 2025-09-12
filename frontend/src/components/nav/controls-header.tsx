@@ -257,7 +257,11 @@ function RunbooksActions() {
       // Navigate to the new runbook
       router.push(`/workspaces/${workspaceId}/runbooks/${prompt.id}`)
     } catch (error) {
-      console.error("Failed to create runbook:", error)
+      toast({
+        title: "Failed to create runbook",
+        description: error instanceof Error ? error.message : "An unexpected error occurred. Please try again.",
+        variant: "destructive",
+      })
     }
   }
 
