@@ -120,9 +120,6 @@ export function useDeletePrompt(workspaceId: string) {
       onSuccess: () => {
         // Invalidate and refetch prompt lists
         queryClient.invalidateQueries({ queryKey: ["prompts", workspaceId] })
-        toast({
-          title: "Runbook deleted successfully",
-        })
       },
     })
 

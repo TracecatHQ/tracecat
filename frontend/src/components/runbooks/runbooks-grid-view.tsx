@@ -103,7 +103,7 @@ export function RunbooksGridView({
             onValueChange={(value) => onSortChange(value as SortOption)}
           >
             <SelectTrigger className="w-full sm:w-[180px]">
-              <SortDesc className="mr-2 h-4 w-4" />
+              <SortDesc className="h-4 w-4" />
               <SelectValue placeholder="Sort by" />
             </SelectTrigger>
             <SelectContent>
