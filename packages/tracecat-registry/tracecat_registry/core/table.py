@@ -31,12 +31,7 @@ async def lookup(
         Doc("The value(s) to lookup."),
     ],
 ) -> dict[str, Any] | None:
-    return await lookup_many(
-        table=table, 
-        column=column,
-        value=value, 
-        limit=1
-    )
+    return await lookup_many(table=table, column=column, value=value, limit=1)
 
 
 @registry.register(
@@ -67,7 +62,7 @@ async def lookup_many(
         raise ValueError(
             f"Limit cannot be greater than {TRACECAT__MAX_ROWS_CLIENT_POSTGRES}"
         )
-    
+
     # Check if there is only on value or not
     if not isinstance(column, list):
         column = [column]
@@ -76,9 +71,8 @@ async def lookup_many(
 
     if len(column) != len(value):
         raise ValueError(
-            f"Number of columns and values mismatch"
+            "Number of columns and values mismatch. You must set one and only one value for each column."
         )
-
 
     async with TablesService.with_session() as service:
         rows = await service.lookup_rows(
