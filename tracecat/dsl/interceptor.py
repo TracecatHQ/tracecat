@@ -74,6 +74,7 @@ class _SentryWorkflowInterceptor(WorkflowInboundInterceptor):
             )
             info = workflow.info()
             _set_common_workflow_tags(info)
+            sentry.set_user({"id": info.namespace})
             sentry.set_tag("temporal.workflow.task_queue", info.task_queue)
             sentry.set_tag("temporal.workflow.namespace", info.namespace)
             sentry.set_tag("temporal.workflow.run_id", info.run_id)
