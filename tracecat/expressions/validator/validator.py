@@ -8,13 +8,12 @@ from pydantic import BaseModel, Field
 
 from tracecat.concurrency import GatheringTaskGroup
 from tracecat.dsl.models import TaskResult
-from tracecat.expressions.common import ExprContext, ExprType, eval_jsonpath
+from tracecat.expressions.common import ExprContext, ExprType
 from tracecat.expressions.expectations import ExpectedField
 from tracecat.expressions.validator.base import BaseExprValidator
 from tracecat.logger import logger
 from tracecat.secrets.models import SecretSearch
 from tracecat.secrets.service import SecretsService
-from tracecat.types.exceptions import TracecatExpressionError
 from tracecat.validation.models import (
     TemplateActionExprValidationResult,
     ValidationDetail,
@@ -27,7 +26,6 @@ class ExprValidationContext(BaseModel):
     """Container for the validation context of an expression tree."""
 
     action_refs: set[str]
-    inputs_context: Any = Field(default_factory=dict)
     trigger_context: Any = Field(default_factory=dict)
 
 
@@ -174,23 +172,6 @@ class ExprValidator(BaseExprValidator):
             name=name, key=key, environment=self._environment, loc=self._loc
         )
         self._task_group.create_task(coro)
-
-    def inputs(self, node: Tree[Token]):
-        self.logger.trace("Visit input expression", node=node)
-        token = node.children[0]
-        if not isinstance(token, Token):
-            raise ValueError("Expected a string token")
-        jsonpath = token.lstrip(".")
-        try:
-            eval_jsonpath(
-                jsonpath,
-                self._context.inputs_context,
-                context_type=ExprContext.INPUTS,
-                strict=self._strict,
-            )
-            self.add(status="success", type=ExprType.INPUT)
-        except TracecatExpressionError as e:
-            return self.add(status="error", msg=str(e), type=ExprType.INPUT)
 
     def trigger(self, node: Tree):
         self.logger.trace("Visit trigger expression", node=node)

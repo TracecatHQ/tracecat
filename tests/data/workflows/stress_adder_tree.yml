@@ -9,8 +9,6 @@ config:
   scheduler: dynamic
 entrypoint:
   ref: a
-inputs:
-  value: 1
 
 triggers:
   - type: webhook
@@ -21,7 +19,7 @@ actions:
   - ref: a
     action: core.transform.reshape
     args:
-      value: ${{ INPUTS.value }}
+      value: 1
 
   - ref: b
     action: core.transform.reshape

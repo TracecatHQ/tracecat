@@ -8,11 +8,6 @@ config:
 entrypoint:
   ref: a
 
-inputs:
-  valid: 1
-  value:
-    another_valid: 2
-
 triggers:
   - type: webhook
     ref: my_webhook
@@ -23,7 +18,7 @@ actions:
     action: core.transform.reshape
     args:
       value:
-        valid: ${{ INPUTS.valid }}
+        valid: 1
 
   - ref: b
     action: core.transform.reshape
@@ -31,4 +26,4 @@ actions:
       - a
     args:
       # This should fail
-      value: ${{ int(ACTIONS.a.result.invalid) + int(INPUTS.value.another_valid) }}
+      value: ${{ int(ACTIONS.a.result.invalid) + int(2) }}

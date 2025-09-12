@@ -443,7 +443,6 @@ async def validate_dsl_expressions(
     """Validate the DSL expressions at commit time."""
     validation_context = ExprValidationContext(
         action_refs={a.ref for a in dsl.actions},
-        inputs_context=dsl.inputs,
     )
 
     results: list[ExprValidationResult] = []

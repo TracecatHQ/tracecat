@@ -90,7 +90,6 @@ async def test_execution_fails_invalid_expressions(
                 description="",
             ),
         ],
-        inputs={},
         returns=None,
         triggers=[],
     )

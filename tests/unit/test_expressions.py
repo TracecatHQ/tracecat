@@ -166,22 +166,24 @@ def test_eval_jsonpath():
     [
         ("${{ACTIONS.webhook.result}}", 1),
         ("${{ ACTIONS.webhook.result -> int }}", 1),
-        ("${{ INPUTS.arg1 -> int }}", 1),
-        ("${{ INPUTS.arg1 }}", 1),  # Doesn't cast
-        ("${{ INPUTS.arg2 -> str }}", "2"),
+        ("${{ TRIGGER.data.arg1 -> int }}", 1),
+        ("${{ TRIGGER.data.arg1 }}", 1),  # Doesn't cast
+        ("${{ TRIGGER.data.arg2 -> str }}", "2"),
         ("${{ ACTIONS.webhook.result -> str }}", "1"),
         ("${{ ACTIONS.path_A_first.result.path.nested.value -> int }}", 9999),
         (
-            "${{ FN.add(INPUTS.arg1, ACTIONS.path_A_first.result.path.nested.value) }}",
+            "${{ FN.add(TRIGGER.data.arg1, ACTIONS.path_A_first.result.path.nested.value) }}",
             10000,
         ),
     ],
 )
 def test_templated_expression_result(expression, expected_result):
     exec_vars = {
-        ExprContext.INPUTS: {
-            "arg1": 1,
-            "arg2": 2,
+        ExprContext.TRIGGER: {
+            "data": {
+                "arg1": 1,
+                "arg2": 2,
+            },
         },
         ExprContext.ACTIONS: {
             "webhook": {"result": 1},
@@ -209,20 +211,22 @@ def test_templated_expression_result(expression, expected_result):
             1234.5,
         ),
         (
-            "${{ FN.less_than(INPUTS.arg1, INPUTS.arg2) -> bool }}",
+            "${{ FN.less_than(TRIGGER.data.arg1, TRIGGER.data.arg2) -> bool }}",
             True,
         ),
         (
-            "${{ FN.is_equal(INPUTS.arg1, ACTIONS.webhook.result) -> bool }}",
+            "${{ FN.is_equal(TRIGGER.data.arg1, ACTIONS.webhook.result) -> bool }}",
             True,
         ),
     ],
 )
 def test_templated_expression_function(expression, expected_result):
     exec_vars = {
-        ExprContext.INPUTS: {
-            "arg1": 1,
-            "arg2": 2,
+        ExprContext.TRIGGER: {
+            "data": {
+                "arg1": 1,
+                "arg2": 2,
+            },
         },
         ExprContext.ACTIONS: {
             "webhook": {"result": 1},
@@ -521,7 +525,7 @@ def test_eval_templated_object_inline_fails_if_not_str():
         ("FN.concat(ENV.item, '5')", "ITEM5"),
         ("FN.add(5, 2)", 7),
         ("  FN.is_null(None)   ", True),
-        ("FN.contains('a', INPUTS.my.module.items)", True),
+        ("FN.contains('a', TRIGGER.data.my.module.items)", True),
         ("FN.length([1, 2, 3])", 3),
         ("FN.join(['A', 'B', 'C'], ',')", "A,B,C"),
         ("FN.join(['A', 'B', 'C'], '@')", "A@B@C"),
@@ -532,7 +536,7 @@ def test_eval_templated_object_inline_fails_if_not_str():
             ["Hey Alice!", "Hey Bob!", "Hey Charlie!"],
         ),
         (
-            "FN.format.map('Hello, {}! You are {}.', ['Alice', 'Bob', 'Charlie'], INPUTS.adjectives)",
+            "FN.format.map('Hello, {}! You are {}.', ['Alice', 'Bob', 'Charlie'], TRIGGER.data.adjectives)",
             [
                 "Hello, Alice! You are cool.",
                 "Hello, Bob! You are awesome.",
@@ -545,15 +549,15 @@ def test_eval_templated_object_inline_fails_if_not_str():
         ),
         # Ternary expressions
         (
-            "'It contains 1' if FN.contains(1, INPUTS.list) else 'it does not contain 1'",
+            "'It contains 1' if FN.contains(1, TRIGGER.data.list) else 'it does not contain 1'",
             "It contains 1",
         ),
-        ("True if FN.contains('key1', INPUTS.dict) else False", True),
-        ("True if FN.contains('key2', INPUTS.dict) else False", False),
-        ("True if FN.does_not_contain('key2', INPUTS.dict) else False", True),
-        ("True if FN.does_not_contain('key1', INPUTS.dict) else False", False),
+        ("True if FN.contains('key1', TRIGGER.data.dict) else False", True),
+        ("True if FN.contains('key2', TRIGGER.data.dict) else False", False),
+        ("True if FN.does_not_contain('key2', TRIGGER.data.dict) else False", True),
+        ("True if FN.does_not_contain('key1', TRIGGER.data.dict) else False", False),
         (
-            "None if FN.does_not_contain('key1', INPUTS.dict) else INPUTS.dict.key1",
+            "None if FN.does_not_contain('key1', TRIGGER.data.dict) else TRIGGER.data.dict.key1",
             1,
         ),
         (
@@ -567,7 +571,7 @@ def test_eval_templated_object_inline_fails_if_not_str():
         ("True if TRIGGER.hits2._source.host.ip else False", False),
         # Truthy expressions
         ("TRIGGER.hits2._source.host.ip", None),
-        ("INPUTS.people[4].name", None),
+        ("TRIGGER.data.people[4].name", None),
         # Typecast expressions
         ("int(5)", 5),
         ("float(5.0)", 5.0),
@@ -608,12 +612,12 @@ def test_eval_templated_object_inline_fails_if_not_str():
         ("var.y", "100"),
         ("var.y -> int", 100),
         # Test jsonpath
-        ("INPUTS.people[1].name", "Bob"),
-        ("INPUTS.people[2].age -> str", "50"),
-        ("INPUTS.people[*].age", [30, 40, 50]),
-        ("INPUTS.people[*].name", ["Alice", "Bob", "Charlie"]),
-        ("INPUTS.people[*].gender", ["female", "male"]),
-        # ('INPUTS.["user@tracecat.com"].name', "Bob"), TODO: Add support for object key indexing
+        ("TRIGGER.data.people[1].name", "Bob"),
+        ("TRIGGER.data.people[2].age -> str", "50"),
+        ("TRIGGER.data.people[*].age", [30, 40, 50]),
+        ("TRIGGER.data.people[*].name", ["Alice", "Bob", "Charlie"]),
+        ("TRIGGER.data.people[*].gender", ["female", "male"]),
+        # ('TRIGGER.data.["user@tracecat.com"].name', "Bob"), TODO: Add support for object key indexing
         # Combination
         ("'a' if FN.is_equal(var.y, '100') else 'b'", "a"),
         ("'a' if var.y == '100' else 'b'", "a"),
@@ -632,7 +636,7 @@ def test_eval_templated_object_inline_fails_if_not_str():
         ("True || (1 != 1)", True),
         # Advanced jsonpath
         ## Filtering
-        ("INPUTS..name", ["Alice", "Bob", "Charlie", "Bob"]),
+        ("TRIGGER.data..name", ["John", "Alice", "Bob", "Charlie", "Bob"]),
         ("ACTIONS.users[?active == true].name", ["Alice", "Charlie"]),
         (
             "ACTIONS.users[?age >= 40]",
@@ -720,39 +724,6 @@ def test_expression_parser(expr, expected):
                 "KEY": "SECRET",
             },
         },
-        ExprContext.INPUTS: {
-            "list": [1, 2, 3],
-            "dict": {
-                "key1": 1,
-            },
-            "my": {
-                "module": {
-                    "items": ["a", "b", "c"],
-                },
-            },
-            "adjectives": ["cool", "awesome", "happy"],
-            "people": [
-                {
-                    "name": "Alice",
-                    "age": 30,
-                    "gender": "female",
-                },
-                {
-                    "name": "Bob",
-                    "age": 40,
-                    "gender": "male",
-                },
-                {
-                    "name": "Charlie",
-                    "age": 50,
-                },
-            ],
-            "user@tracecat.com": {
-                "name": "Bob",
-            },
-            "numbers": [1, 2, 3],
-            "text": "test",
-        },
         ExprContext.ENV: {
             "item": "ITEM",
             "var": "VAR",
@@ -761,6 +732,37 @@ def test_expression_parser(expr, expected):
             "data": {
                 "name": "John",
                 "age": 30,
+                "list": [1, 2, 3],
+                "dict": {
+                    "key1": 1,
+                },
+                "my": {
+                    "module": {
+                        "items": ["a", "b", "c"],
+                    },
+                },
+                "adjectives": ["cool", "awesome", "happy"],
+                "people": [
+                    {
+                        "name": "Alice",
+                        "age": 30,
+                        "gender": "female",
+                    },
+                    {
+                        "name": "Bob",
+                        "age": 40,
+                        "gender": "male",
+                    },
+                    {
+                        "name": "Charlie",
+                        "age": 50,
+                    },
+                ],
+                "user@tracecat.com": {
+                    "name": "Bob",
+                },
+                "numbers": [1, 2, 3],
+                "text": "test",
             },
             "value": "100",
             "hits": {
@@ -1084,7 +1086,6 @@ def assert_validation_detail(
                     "url": "${{ int(100) }}",
                 },
                 "test2": "fail 1 ${{ ACTIONS.my_action.invalid }} ",
-                "test3": "fail 2 ${{ int(INPUTS.my_action.invalid_inner) }} ",
             },
             [
                 {
@@ -1093,28 +1094,9 @@ def assert_validation_detail(
                     "contains_msg": "invalid",
                 },
                 {
-                    "type": ExprType.INPUT,
-                    "status": "error",
-                    "contains_msg": "invalid_inner",
-                },
-                {
                     "type": ExprType.TYPECAST,
                     "status": "error",
                     "contains_msg": "fails",
-                },
-            ],
-        ),
-        (
-            {
-                "test": {
-                    "data": "INLINE: ${{ INPUTS.invalid }}",
-                },
-            },
-            [
-                {
-                    "type": ExprType.INPUT,
-                    "status": "error",
-                    "contains_msg": "invalid",
                 },
             ],
         ),
@@ -1139,7 +1121,6 @@ async def test_extract_expressions_errors(expr, expected, test_role, env_sandbox
     # The only defined action reference is "my_action"
     validation_context = ExprValidationContext(
         action_refs={"my_action"},
-        inputs_context={"arg": 2},
     )
     validators = get_validators()
 
@@ -1274,15 +1255,6 @@ async def test_template_action_validator(expr, expected):
                 "type": ExprType.ACTION,
                 "status": "error",
                 "contains_msg": "ACTIONS expressions are not supported in Template Actions",
-            },
-        ),
-        # Test that INPUT expressions are not supported
-        (
-            "${{ INPUTS.some_input }}",
-            {
-                "type": ExprType.INPUT,
-                "status": "error",
-                "contains_msg": "INPUTS expressions are not supported in Template Actions",
             },
         ),
         # Test that TRIGGER expressions are not supported
@@ -1468,7 +1440,6 @@ async def test_validate_workflow_key_expressions(expr, expected):
     """Test validation of expressions in workflow dictionary keys."""
     validation_context = ExprValidationContext(
         action_refs={"my_action"},  # Only my_action is valid
-        inputs_context={},
     )
     validators = get_validators()
 

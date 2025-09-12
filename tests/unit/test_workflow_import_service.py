@@ -54,7 +54,6 @@ def sample_dsl() -> DSLInput:
                 depends_on=["test_action"],
             ),
         ],
-        inputs={"test_input": "default_value"},
         config=DSLConfig(timeout=300),
     )
 
