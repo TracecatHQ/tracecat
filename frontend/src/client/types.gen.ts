@@ -2150,7 +2150,7 @@ export type PromptCreate = {
   /**
    * ID of the chat to freeze into a prompt
    */
-  chat_id: string
+  chat_id?: string | null
   /**
    * Optional metadata to include with the prompt (e.g., case information)
    */
@@ -2170,7 +2170,7 @@ export type PromptRead = {
   /**
    * ID of the source chat
    */
-  chat_id: string
+  chat_id?: string | null
   /**
    * Human-readable title for the prompt
    */

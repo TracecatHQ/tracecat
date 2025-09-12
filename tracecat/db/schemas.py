@@ -1287,10 +1287,11 @@ class Prompt(Resource, table=True):
         unique=True,
         index=True,
     )
-    chat_id: UUID4 = Field(
+    chat_id: UUID4 | None = Field(
+        default=None,
         sa_column=Column(
-            UUID, ForeignKey("chat.id", ondelete="CASCADE"), nullable=False
-        )
+            UUID, ForeignKey("chat.id", ondelete="CASCADE"), nullable=True
+        ),
     )
     title: str = Field(
         ...,

@@ -6382,8 +6382,15 @@ export const $PriorityChangedEventRead = {
 export const $PromptCreate = {
   properties: {
     chat_id: {
-      type: "string",
-      format: "uuid4",
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid4",
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "Chat Id",
       description: "ID of the chat to freeze into a prompt",
     },
@@ -6403,7 +6410,6 @@ export const $PromptCreate = {
     },
   },
   type: "object",
-  required: ["chat_id"],
   title: "PromptCreate",
   description: "Request model for creating a prompt from a chat.",
 } as const
@@ -6417,8 +6423,15 @@ export const $PromptRead = {
       description: "Unique prompt identifier",
     },
     chat_id: {
-      type: "string",
-      format: "uuid4",
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid4",
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "Chat Id",
       description: "ID of the source chat",
     },
@@ -6472,15 +6485,7 @@ export const $PromptRead = {
     },
   },
   type: "object",
-  required: [
-    "id",
-    "chat_id",
-    "title",
-    "content",
-    "tools",
-    "created_at",
-    "updated_at",
-  ],
+  required: ["id", "title", "content", "tools", "created_at", "updated_at"],
   title: "PromptRead",
   description: "Model for prompt details.",
 } as const
