@@ -6,7 +6,6 @@ from unittest.mock import AsyncMock, Mock, call, patch
 
 import pytest
 from dotenv import load_dotenv
-from pydantic_ai.agent import AgentRunResult
 from pydantic_ai.tools import Tool
 from tracecat_registry import RegistrySecret
 from tracecat_registry.integrations.agents.builder import (
@@ -445,9 +444,19 @@ class TestTracecatAgentBuilder:
         assert custom_tool in builder.tools
 
     async def test_builder_build_with_mock_registry(
-        self, test_role, mock_registry_deps
+        self, test_role, mock_registry_deps, mocker
     ):
         """Test building an agent with mocked registry actions."""
+        # Mock secrets.get to return the OPENAI_API_KEY from environment
+        import os
+
+        mocker.patch(
+            "tracecat_registry.integrations.pydantic_ai.secrets.get",
+            side_effect=lambda key: os.environ.get(key)
+            if key == "OPENAI_API_KEY"
+            else None,
+        )
+
         builder = TracecatAgentBuilder(
             model_name="gpt-4",
             model_provider="openai",
@@ -489,9 +498,19 @@ class TestTracecatAgentBuilder:
         assert agent == mock_registry_deps["build_agent"].return_value
 
     async def test_builder_build_with_namespace_filter(
-        self, test_role, mock_registry_deps
+        self, test_role, mock_registry_deps, mocker
     ):
         """Test building an agent with namespace filtering."""
+        # Mock secrets.get to return the OPENAI_API_KEY from environment
+        import os
+
+        mocker.patch(
+            "tracecat_registry.integrations.pydantic_ai.secrets.get",
+            side_effect=lambda key: os.environ.get(key)
+            if key == "OPENAI_API_KEY"
+            else None,
+        )
+
         builder = TracecatAgentBuilder(
             model_name="gpt-4",
             model_provider="openai",
@@ -957,6 +976,16 @@ class TestFixedArguments:
 
     async def test_agent_builder_with_fixed_arguments(self, test_role, mocker):
         """Test TracecatAgentBuilder with fixed_arguments parameter."""
+        # Mock secrets.get to return the OPENAI_API_KEY from environment
+        import os
+
+        mocker.patch(
+            "tracecat_registry.integrations.pydantic_ai.secrets.get",
+            side_effect=lambda key: os.environ.get(key)
+            if key == "OPENAI_API_KEY"
+            else None,
+        )
+
         fixed_arguments = {
             "core.cases.create_case": {
                 "priority": "high",
@@ -1033,6 +1062,16 @@ class TestFixedArguments:
 
     async def test_agent_builder_with_partial_fixed_arguments(self, test_role, mocker):
         """Test that actions without fixed arguments get empty dict."""
+        # Mock secrets.get to return the OPENAI_API_KEY from environment
+        import os
+
+        mocker.patch(
+            "tracecat_registry.integrations.pydantic_ai.secrets.get",
+            side_effect=lambda key: os.environ.get(key)
+            if key == "OPENAI_API_KEY"
+            else None,
+        )
+
         fixed_arguments = {
             "core.cases.create_case": {"priority": "high"}
             # tools.slack.post_message intentionally not included
@@ -1101,34 +1140,18 @@ class TestFixedArguments:
             }
         }
 
-        # Mock the TracecatAgentBuilder
-        mock_builder = Mock()
-        mock_agent = Mock()
-        mock_builder.with_action_filters.return_value = mock_builder
-        mock_builder.build = AsyncMock(return_value=mock_agent)
+        # Mock run_agent directly to return expected result
+        expected_result = {
+            "output": "HTTP request completed successfully",
+            "message_history": [],
+            "duration": 1.5,
+            "usage": {"total_tokens": 100},
+        }
 
-        mock_run_result = Mock(spec=AgentRunResult)
-        mock_run_result.output = "HTTP request completed successfully"
-        mock_run_result.all_messages.return_value = []
-        mock_run_result.usage.return_value = {"total_tokens": 100}
-
-        mock_run_context = AsyncMock()
-        mock_run_context.result = mock_run_result
-        mock_run_context.__aenter__.return_value = mock_run_context
-        mock_run_context.__aiter__.return_value = iter([])
-
-        mock_agent.iter.return_value = mock_run_context
-
-        # Mock TracecatAgentBuilder constructor
-        mock_builder_constructor = mocker.patch(
-            "tracecat_registry.integrations.agents.builder.TracecatAgentBuilder",
-            return_value=mock_builder,
-        )
-
-        # Mock timeit
-        mocker.patch(
-            "tracecat_registry.integrations.agents.builder.timeit",
-            side_effect=[0.0, 1.5],
+        mock_run_agent = mocker.patch(
+            "tracecat_registry.integrations.agents.builder.run_agent",
+            new_callable=AsyncMock,
+            return_value=expected_result,
         )
 
         # Call the agent function
@@ -1141,16 +1164,19 @@ class TestFixedArguments:
             include_usage=True,
         )
 
-        # Verify TracecatAgentBuilder was initialized with fixed_arguments
-        mock_builder_constructor.assert_called_once_with(
+        # Verify run_agent was called with correct arguments
+        mock_run_agent.assert_called_once_with(
+            user_prompt="Make a POST request to https://api.example.com/data",
             model_name="gpt-4o-mini",
             model_provider="openai",
-            base_url=None,
+            actions=["core.cases.create_case"],
+            fixed_arguments=fixed_arguments,
             instructions=None,
             output_type=None,
             model_settings=None,
             retries=6,
-            fixed_arguments=fixed_arguments,
+            include_usage=True,
+            base_url=None,
         )
 
         # Verify the result structure
