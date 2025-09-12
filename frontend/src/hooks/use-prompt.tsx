@@ -53,13 +53,17 @@ export function useCreatePrompt(workspaceId: string) {
 export function useListPrompts({
   workspaceId,
   limit = 50,
+  sortBy = "created_at",
+  order = "desc",
 }: {
   workspaceId: string
   limit?: number
+  sortBy?: "created_at" | "updated_at"
+  order?: "asc" | "desc"
 }) {
   return useQuery<PromptRead[], ApiError>({
-    queryKey: ["prompts", workspaceId, limit],
-    queryFn: () => promptListPrompts({ workspaceId, limit }),
+    queryKey: ["prompts", workspaceId, limit, sortBy, order],
+    queryFn: () => promptListPrompts({ workspaceId, limit, sortBy, order }),
   })
 }
 
@@ -117,7 +121,7 @@ export function useDeletePrompt(workspaceId: string) {
         // Invalidate and refetch prompt lists
         queryClient.invalidateQueries({ queryKey: ["prompts", workspaceId] })
         toast({
-          title: "Prompt deleted successfully",
+          title: "Runbook deleted successfully",
         })
       },
     })
@@ -158,7 +162,7 @@ export function useRunPrompt(workspaceId: string) {
       }
 
       toast({
-        title: "Prompt executed successfully",
+        title: "Runbook executed successfully",
       })
     },
   })

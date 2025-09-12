@@ -241,6 +241,23 @@ function EntitiesActions() {
   )
 }
 
+function RunbooksActions() {
+  // New runbook creation requires navigating to a chat first
+  // For now, we'll show a button that explains the process
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      className="h-7 bg-white"
+      disabled
+      title="Create runbooks from chat conversations"
+    >
+      <Plus className="mr-1 h-3.5 w-3.5" />
+      Add runbook
+    </Button>
+  )
+}
+
 function RecordsActions() {
   const workspaceId = useWorkspaceId()
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -614,6 +631,7 @@ function getPageConfig(
 
     return {
       title: "Runbooks",
+      actions: <RunbooksActions />,
     }
   }
 

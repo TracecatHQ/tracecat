@@ -32,6 +32,7 @@ class PromptRead(BaseModel):
         description="The tools available to the agent for this prompt",
     )
     created_at: datetime = Field(..., description="When the prompt was created")
+    updated_at: datetime = Field(..., description="When the prompt was last updated")
     meta: dict[str, Any] = Field(
         default_factory=dict,
         description="Metadata including schema version, tool SHA, token count",

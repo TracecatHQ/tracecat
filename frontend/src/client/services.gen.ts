@@ -5301,6 +5301,8 @@ export const promptCreatePrompt = (
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.limit Maximum number of prompts to return
+ * @param data.sortBy Field to sort by: 'created_at' or 'updated_at'
+ * @param data.order Sort order: 'asc' or 'desc'
  * @returns PromptRead Successful Response
  * @throws ApiError
  */
@@ -5312,6 +5314,8 @@ export const promptListPrompts = (
     url: "/prompt/",
     query: {
       limit: data.limit,
+      sort_by: data.sortBy,
+      order: data.order,
       workspace_id: data.workspaceId,
     },
     errors: {

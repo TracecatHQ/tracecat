@@ -65,10 +65,20 @@ async def list_prompts(
     limit: int = Query(
         50, ge=1, le=100, description="Maximum number of prompts to return"
     ),
+    sort_by: str = Query(
+        "created_at",
+        description="Field to sort by: 'created_at' or 'updated_at'",
+        pattern="^(created_at|updated_at)$",
+    ),
+    order: str = Query(
+        "desc",
+        description="Sort order: 'asc' or 'desc'",
+        pattern="^(asc|desc)$",
+    ),
 ) -> list[PromptRead]:
     """List prompts for the current workspace."""
     svc = PromptService(session, role)
-    prompts = await svc.list_prompts(limit=limit)
+    prompts = await svc.list_prompts(limit=limit, sort_by=sort_by, order=order)
     return [
         PromptRead.model_validate(prompt, from_attributes=True) for prompt in prompts
     ]
