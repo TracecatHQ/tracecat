@@ -4,8 +4,13 @@ from functools import partial
 from typing import Any
 
 from tracecat.expressions import patterns
-from tracecat.expressions.common import ExprOperand, IterableExpr
-from tracecat.expressions.core import Expression, TemplateExpression
+from tracecat.expressions.common import ExprContext, ExprOperand, IterableExpr
+from tracecat.expressions.core import (
+    Expression,
+    SecretPathExtractor,
+    TemplateExpression,
+)
+from tracecat.parse import traverse_expressions
 
 
 def _eval_templated_obj_rec[T: (str, list[Any], dict[str, Any])](
@@ -75,33 +80,16 @@ def is_template_only(template: str) -> bool:
     return template.startswith("${{") and template.endswith("}}")
 
 
-def extract_templated_secrets(
-    templated_obj: Any,
-    *,
-    pattern: re.Pattern[str] = patterns.TEMPLATE_STRING,
-) -> list[str]:
-    """Extract secret paths used within template expressions.
-
-    This scans only inside ${{ ... }} blocks and collects all occurrences of
-    SECRETS.<name>.<key> even when multiple appear in a single template.
-    """
-    secrets: set[str] = set()
-    inner_secret_pattern = re.compile(
-        r"SECRETS\.(?P<secret>[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*)"
-    )
-
-    def operator(line: str) -> Any:
-        """Collect secrets from template expressions in the string."""
-        for tmpl in re.finditer(pattern, line):
-            expr = tmpl.group("expr")
-            # Remove string literals (both single and double quoted) before searching for secrets
-            # This prevents matching SECRETS references inside strings
-            expr_without_strings = re.sub(r"'[^']*'|\"[^\"]*\"", "", expr)
-            for match in re.finditer(inner_secret_pattern, expr_without_strings):
-                secrets.add(match.group("secret"))
-
-    _eval_templated_obj_rec(templated_obj, operator)
-    return list(secrets)
+def extract_templated_secrets(templated_obj: Any) -> list[str]:
+    """Extract secrets from templated objects using AST parsing."""
+    # Extract and parse all template expressions from all strings
+    extractor = SecretPathExtractor()
+    for expr_str in traverse_expressions(templated_obj):
+        Expression(expr_str, visitor=extractor)()
+    # Get the results and return only the secrets
+    results = extractor.results()
+    secrets = set(results.get(ExprContext.SECRETS, []))
+    return sorted(secrets)
 
 
 def extract_expressions(templated_obj: Any) -> list[Expression]:
