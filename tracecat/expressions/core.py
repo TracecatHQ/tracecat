@@ -203,3 +203,24 @@ def extract_expressions(args: Mapping[str, Any]) -> Mapping[ExprContext, set[str
     for expr_str in traverse_expressions(args):
         Expression(expr_str, visitor=extractor)()
     return extractor.results()
+
+
+class SecretPathExtractor(ExprExtractor):
+    """Extracts full secret paths including keys."""
+
+    def __init__(self) -> None:
+        self._results = defaultdict[ExprContext, set[str]](set)
+        self.logger = logger.bind(visitor="SecretPathExtractor")
+
+    def results(self) -> Mapping[ExprContext, set[str]]:
+        return self._results
+
+    def secrets(self, node: Tree[Token]) -> None:
+        token = node.children[0]
+        self.logger.trace("Visit secret expression", node=node, child=token)
+        if not isinstance(token, Token):
+            raise ValueError("Expected a string token")
+        # Get the full path after SECRETS.
+        jsonpath = token.lstrip(".")
+        # Store the full path (e.g., "a.K1" not just "a")
+        self._results[ExprContext.SECRETS].add(jsonpath)
