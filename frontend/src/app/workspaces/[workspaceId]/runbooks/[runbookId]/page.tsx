@@ -103,11 +103,11 @@ function RunbookDetailContent({ prompt }: { prompt: PromptRead }) {
   )
 
   return (
-    <div className="container mx-auto max-w-4xl p-6 min-h-screen">
+    <div className="container mx-auto max-w-4xl p-6 mt-10 min-h-screen">
       {/* Header */}
       <div className="mb-8">
         <RunbookTitleEditor promptData={prompt} updatePrompt={updatePrompt} />
-        <div className="mt-3 flex items-start gap-4">
+        <div className="mt-4 flex items-start gap-4">
           <FileTextIcon className="size-10 p-2 bg-muted rounded-md" />
           <div className="flex-1">
             <p className="mt-1 text-muted-foreground">

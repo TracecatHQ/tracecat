@@ -71,7 +71,7 @@ export function RunbookTitleEditor({
                   {...field}
                   value={field.value || ""}
                   variant="flat"
-                  className="-mx-1 w-full px-1 text-xl font-semibold"
+                  className="-mx-1 w-full px-2 text-2xl font-semibold"
                   onBlur={() => form.handleSubmit(handleTitleSubmit)()}
                   onKeyDown={handleKeyDown}
                 />

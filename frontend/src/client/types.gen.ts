@@ -2188,6 +2188,10 @@ export type PromptRead = {
    */
   created_at: string
   /**
+   * When the prompt was last updated
+   */
+  updated_at: string
+  /**
    * Metadata including schema version, tool SHA, token count
    */
   meta?: {
@@ -5846,6 +5850,14 @@ export type PromptListPromptsData = {
    * Maximum number of prompts to return
    */
   limit?: number
+  /**
+   * Sort order: 'asc' or 'desc'
+   */
+  order?: string
+  /**
+   * Field to sort by: 'created_at' or 'updated_at'
+   */
+  sortBy?: string
   workspaceId: string
 }
 

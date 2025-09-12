@@ -6446,6 +6446,12 @@ export const $PromptRead = {
       title: "Created At",
       description: "When the prompt was created",
     },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+      description: "When the prompt was last updated",
+    },
     meta: {
       additionalProperties: true,
       type: "object",
@@ -6466,7 +6472,15 @@ export const $PromptRead = {
     },
   },
   type: "object",
-  required: ["id", "chat_id", "title", "content", "tools", "created_at"],
+  required: [
+    "id",
+    "chat_id",
+    "title",
+    "content",
+    "tools",
+    "created_at",
+    "updated_at",
+  ],
   title: "PromptRead",
   description: "Model for prompt details.",
 } as const

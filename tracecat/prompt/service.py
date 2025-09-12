@@ -206,12 +206,27 @@ Here are the <Steps> to execute:
         self,
         *,
         limit: int = 50,
+        sort_by: str = "created_at",
+        order: str = "desc",
     ) -> Sequence[Prompt]:
         """List prompts for the current workspace."""
+        # Determine the sort column
+        sort_column = (
+            col(Prompt.created_at)
+            if sort_by == "created_at"
+            else col(Prompt.updated_at)
+        )
+
+        # Apply sort order
+        if order == "desc":
+            sort_column = sort_column.desc()
+        else:
+            sort_column = sort_column.asc()
+
         stmt = (
             select(Prompt)
             .where(Prompt.owner_id == self.workspace_id)
-            .order_by(col(Prompt.created_at).desc())
+            .order_by(sort_column)
             .limit(limit)
         )
 
