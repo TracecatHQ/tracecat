@@ -47,7 +47,7 @@ Schedules are disabled by default. To activate a workflow's schedule, click on t
 
 ![Schedule action](/img/tutorials/triggers/schedule.png)
 
-From here you can enter a recurring schedule with a timeout and offset. By default you're Tracecat might run in UTC time so use the offest string to help fine tune the time you would like to run your workflow.
+From here you can enter a recurring schedule with a timeout and offset. Tracecat defaults to using UTC time, so it's convenient to use `offset` to work with timezone differences.
 
 For example if you are in America/New_York timezone and want something to run every day at 9AM you might configure the schedule to run every 1 day with a Offset of `PT13H`. This is because 00:00 UTC is 8PM EDT.
 
