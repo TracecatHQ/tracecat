@@ -617,7 +617,7 @@ async def test_child_workflow_success(test_role, temporal_client, test_worker_fa
                 {
                     "ref": "parent",
                     "action": "core.workflow.execute",
-                    "for_each": "${{ for var.x in TRIGGER.data }}",
+                    "for_each": "${{ for var.x in [1, 2, 3, 4, 5, 6, 7] }}",
                     "args": {
                         "workflow_id": child_workflow.id,
                         "trigger_inputs": {
@@ -653,7 +653,7 @@ async def test_child_workflow_success(test_role, temporal_client, test_worker_fa
                 "result_typename": "list",
             }
         },
-        "TRIGGER": {"data": [1, 2, 3, 4, 5, 6, 7]},
+        "TRIGGER": {},
     }
     assert result == expected
 
