@@ -105,15 +105,6 @@ class ParserBenchmark:
                 "webhook": {"result": 42},
                 "api": {"response": {"status": 200, "data": [1, 2, 3, 4, 5]}},
             },
-            ExprContext.INPUTS: {
-                "threshold": 100,
-                "values": list(range(100)),  # Large list
-                "nested": {
-                    "level1": {
-                        "level2": {"level3": {"level4": {"level5": "deep_value"}}}
-                    }
-                },
-            },
             ExprContext.ENV: {"API_KEY": "test_key"},
             ExprContext.SECRETS: {"token": "secret_token"},
             ExprContext.TRIGGER: {"event": "test_event"},
