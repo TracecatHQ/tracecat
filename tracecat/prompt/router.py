@@ -27,6 +27,7 @@ from tracecat.prompt.models import (
 from tracecat.prompt.service import PromptService
 from tracecat.redis.client import get_redis_client
 from tracecat.types.auth import Role
+from tracecat.types.exceptions import TracecatNotFoundError
 
 router = APIRouter(prefix="/prompt", tags=["prompt"])
 
@@ -48,7 +49,13 @@ async def create_prompt(
 ) -> PromptRead:
     """Freeze a chat into a reusable prompt."""
     prompt_service = PromptService(session, role)
-    prompt = await prompt_service.create_prompt(params)
+    try:
+        prompt = await prompt_service.create_prompt(params)
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
     return PromptRead.model_validate(prompt, from_attributes=True)
 
 
