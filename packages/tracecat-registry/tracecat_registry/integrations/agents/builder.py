@@ -1003,8 +1003,8 @@ async def run_agent(
                 except Exception as e:
                     logger.warning("Failed to stream message to Redis", error=str(e))
 
+        message_nodes: list[ModelMessage] = []
         try:
-            message_nodes: list[ModelMessage] = []
             # Pass conversation history to the agent
             async with agent.iter(
                 user_prompt=user_prompt,
@@ -1102,23 +1102,23 @@ async def run_agent(
                 except Exception as e:
                     logger.warning("Failed to add end-of-stream marker", error=str(e))
 
+            end_time = timeit()
+            output = AgentOutput(
+                output=try_parse_json(result.output),
+                message_history=result.all_messages(),
+                duration=end_time - start_time,
+            )
+            if include_usage:
+                output.usage = result.usage()
+
+            return output.model_dump()
+
         except Exception as e:
             raise AgentRunError(
                 exc_cls=type(e),
                 exc_msg=str(e),
                 message_history=[to_jsonable_python(m) for m in message_nodes],
             )
-
-        end_time = timeit()
-        output = AgentOutput(
-            output=try_parse_json(result.output),
-            message_history=result.all_messages(),
-            duration=end_time - start_time,
-        )
-        if include_usage:
-            output.usage = result.usage()
-
-    return output.model_dump()
 
 
 def create_tool_call(
