@@ -23,23 +23,15 @@ async def lookup(
         Doc("The table to lookup the value in."),
     ],
     column: Annotated[
-        str,
-        Doc("The column to lookup the value in."),
+        str | list[str],
+        Doc("The column(s) to lookup the value in."),
     ],
     value: Annotated[
-        Any,
-        Doc("The value to lookup."),
+        Any | list[Any],
+        Doc("The value(s) to lookup."),
     ],
 ) -> dict[str, Any] | None:
-    async with TablesService.with_session() as service:
-        rows = await service.lookup_rows(
-            table_name=table,
-            columns=[column],
-            values=[value],
-            limit=min(1, TRACECAT__MAX_ROWS_CLIENT_POSTGRES),
-        )
-    # Since we set limit=1, we know there will be at most one row
-    return rows[0] if rows else None
+    return await lookup_many(table=table, column=column, value=value, limit=1)
 
 
 @registry.register(
@@ -54,12 +46,12 @@ async def lookup_many(
         Doc("The table to lookup the value in."),
     ],
     column: Annotated[
-        str,
-        Doc("The column to lookup the value in."),
+        str | list[str],
+        Doc("The column(s) to lookup the value in."),
     ],
     value: Annotated[
-        Any,
-        Doc("The value to lookup."),
+        Any | list[Any],
+        Doc("The value(s) to lookup."),
     ],
     limit: Annotated[
         int,
@@ -71,11 +63,22 @@ async def lookup_many(
             f"Limit cannot be greater than {TRACECAT__MAX_ROWS_CLIENT_POSTGRES}"
         )
 
+    # Check if there is only on value or not
+    if not isinstance(column, list):
+        column = [column]
+    if not isinstance(value, list):
+        value = [value]
+
+    if len(column) != len(value):
+        raise ValueError(
+            "Number of columns and values mismatch. You must set one and only one value for each column."
+        )
+
     async with TablesService.with_session() as service:
         rows = await service.lookup_rows(
             table_name=table,
-            columns=[column],
-            values=[value],
+            columns=column,
+            values=value,
             limit=limit,
         )
     return rows
