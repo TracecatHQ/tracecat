@@ -6,7 +6,12 @@ from uuid import UUID
 from typing_extensions import Doc
 
 from tracecat.chat.enums import ChatEntity
-from tracecat.runbook.models import RunbookRead, RunbookExecuteEntity, RunbookUpdate
+from tracecat.runbook.models import (
+    RunbookExecuteResponse,
+    RunbookRead,
+    RunbookExecuteEntity,
+    RunbookUpdate,
+)
 from tracecat.runbook.service import RunbookService
 from tracecat_registry import registry
 
@@ -34,7 +39,10 @@ async def list_runbooks(
     async with RunbookService.with_session() as svc:
         runbooks = await svc.list_runbooks(limit=limit, sort_by=sort_by, order=order)
     # Normalize to API shape using RunbookRead
-    return [r.model_dump(mode="json") for r in runbooks]
+    return [
+        RunbookRead.model_validate(r, from_attributes=True).model_dump(mode="json")
+        for r in runbooks
+    ]
 
 
 @registry.register(
@@ -53,7 +61,9 @@ async def get_runbook(
         runbook = await svc.get_runbook(UUID(runbook_id))
     if not runbook:
         raise ValueError(f"Runbook with ID {runbook_id} not found")
-    return runbook.model_dump(mode="json")
+    return RunbookRead.model_validate(runbook, from_attributes=True).model_dump(
+        mode="json"
+    )
 
 
 @registry.register(
@@ -85,7 +95,9 @@ async def execute(
 
     # Return a list of chat execution descriptors
     return [
-        {"chat_id": str(resp.chat_id), "stream_url": resp.stream_url}
+        RunbookExecuteResponse(
+            stream_urls={str(resp.chat_id): resp.stream_url}
+        ).model_dump(mode="json")
         for resp in responses
     ]
 
@@ -124,16 +136,19 @@ async def update_runbook(
             raise ValueError(f"Runbook with ID {runbook_id} not found")
 
         # Build update params
-        update_params = RunbookUpdate()
+        kwargs: dict[str, Any] = {}
         if title is not None:
-            update_params.title = title
+            kwargs["title"] = title
         if content is not None:
-            update_params.content = content
+            kwargs["content"] = content
         if summary is not None:
-            update_params.summary = summary
+            kwargs["summary"] = summary
         if tools is not None:
-            update_params.tools = tools
+            kwargs["tools"] = tools
+        update_params = RunbookUpdate(**kwargs)
 
         updated_runbook = await svc.update_runbook(runbook, update_params)
 
-    return updated_runbook.model_dump(mode="json")
+    return RunbookRead.model_validate(updated_runbook, from_attributes=True).model_dump(
+        mode="json"
+    )
