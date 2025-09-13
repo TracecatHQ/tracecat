@@ -55,7 +55,8 @@ export function RunbookTitleEditor({
       console.error("Failed to update runbook title:", error)
       toast({
         title: "Failed to update title",
-        description: "An error occurred while updating the runbook title. Please try again.",
+        description:
+          "An error occurred while updating the runbook title. Please try again.",
         variant: "destructive",
       })
       // Reset the form to the original value on error

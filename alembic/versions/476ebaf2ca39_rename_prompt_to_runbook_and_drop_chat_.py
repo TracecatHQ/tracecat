@@ -34,12 +34,16 @@ def upgrade() -> None:
     op.execute("ALTER INDEX IF EXISTS ix_prompt_owner_id RENAME TO ix_runbook_owner_id")
 
     # Rename the unique constraint for alias
-    op.execute("ALTER TABLE runbook RENAME CONSTRAINT uq_prompt_alias_owner_id TO uq_runbook_alias_owner_id")
+    op.execute(
+        "ALTER TABLE runbook RENAME CONSTRAINT uq_prompt_alias_owner_id TO uq_runbook_alias_owner_id"
+    )
 
 
 def downgrade() -> None:
     # Rename the unique constraint back
-    op.execute("ALTER TABLE runbook RENAME CONSTRAINT uq_runbook_alias_owner_id TO uq_prompt_alias_owner_id")
+    op.execute(
+        "ALTER TABLE runbook RENAME CONSTRAINT uq_runbook_alias_owner_id TO uq_prompt_alias_owner_id"
+    )
 
     # Rename the table back from runbook to prompt
     op.rename_table("runbook", "prompt")
