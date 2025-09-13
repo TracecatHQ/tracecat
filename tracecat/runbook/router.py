@@ -1,4 +1,4 @@
-"""Prompt API router for freezing and replaying chats."""
+"""Runbook API router for creating and executing runbooks."""
 
 import asyncio
 import uuid
@@ -18,19 +18,19 @@ from tracecat.auth.credentials import RoleACL
 from tracecat.cases.service import CasesService
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.logger import logger
-from tracecat.prompt.models import (
-    PromptCreate,
-    PromptRead,
-    PromptRunRequest,
-    PromptRunResponse,
-    PromptUpdate,
-)
-from tracecat.prompt.service import PromptService
 from tracecat.redis.client import get_redis_client
+from tracecat.runbook.models import (
+    RunbookCreate,
+    RunbookRead,
+    RunbookRunRequest,
+    RunbookRunResponse,
+    RunbookUpdate,
+)
+from tracecat.runbook.service import RunbookService
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatNotFoundError
 
-router = APIRouter(prefix="/prompt", tags=["prompt"])
+router = APIRouter(prefix="/runbook", tags=["runbook"])
 
 WorkspaceUser = Annotated[
     Role,
@@ -42,16 +42,16 @@ WorkspaceUser = Annotated[
 ]
 
 
-@router.post("/", response_model=PromptRead)
-async def create_prompt(
-    params: PromptCreate,
+@router.post("/", response_model=RunbookRead)
+async def create_runbook(
+    params: RunbookCreate,
     role: WorkspaceUser,
     session: AsyncDBSession,
-) -> PromptRead:
-    """Freeze a chat into a reusable prompt."""
-    prompt_service = PromptService(session, role)
+) -> RunbookRead:
+    """Create a new runbook."""
+    runbook_service = RunbookService(session, role)
     try:
-        prompt = await prompt_service.create_prompt(params)
+        runbook = await runbook_service.create_runbook(params)
     except TracecatNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -59,25 +59,25 @@ async def create_prompt(
         ) from e
     except IntegrityError as e:
         # Check if it's the alias uniqueness constraint
-        if "uq_prompt_alias_owner_id" in str(e):
+        if "uq_runbook_alias_owner_id" in str(e):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail=f"Prompt with alias '{params.alias}' already exists in this workspace",
+                detail=f"Runbook with alias '{params.alias}' already exists in this workspace",
             ) from e
         # Re-raise for other integrity errors
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Prompt creation failed due to a conflict",
+            detail="Runbook creation failed due to a conflict",
         ) from e
-    return PromptRead.model_validate(prompt, from_attributes=True)
+    return RunbookRead.model_validate(runbook, from_attributes=True)
 
 
-@router.get("/", response_model=list[PromptRead])
-async def list_prompts(
+@router.get("/", response_model=list[RunbookRead])
+async def list_runbooks(
     role: WorkspaceUser,
     session: AsyncDBSession,
     limit: int = Query(
-        50, ge=1, le=100, description="Maximum number of prompts to return"
+        50, ge=1, le=100, description="Maximum number of runbooks to return"
     ),
     sort_by: str = Query(
         "created_at",
@@ -89,130 +89,134 @@ async def list_prompts(
         description="Sort order: 'asc' or 'desc'",
         pattern="^(asc|desc)$",
     ),
-) -> list[PromptRead]:
-    """List prompts for the current workspace."""
-    svc = PromptService(session, role)
-    prompts = await svc.list_prompts(limit=limit, sort_by=sort_by, order=order)
+) -> list[RunbookRead]:
+    """List runbooks for the current workspace."""
+    svc = RunbookService(session, role)
+    runbooks = await svc.list_runbooks(limit=limit, sort_by=sort_by, order=order)
     return [
-        PromptRead.model_validate(prompt, from_attributes=True) for prompt in prompts
+        RunbookRead.model_validate(runbook, from_attributes=True)
+        for runbook in runbooks
     ]
 
 
-@router.get("/{prompt_id}", response_model=PromptRead)
-async def get_prompt(
-    prompt_id: uuid.UUID,
+@router.get("/{runbook_id}", response_model=RunbookRead)
+async def get_runbook(
+    runbook_id: uuid.UUID,
     role: WorkspaceUser,
     session: AsyncDBSession,
-) -> PromptRead:
-    """Get a prompt by ID."""
-    svc = PromptService(session, role)
-    prompt = await svc.get_prompt(prompt_id)
-    if not prompt:
+) -> RunbookRead:
+    """Get a runbook by ID."""
+    svc = RunbookService(session, role)
+    runbook = await svc.get_runbook(runbook_id)
+    if not runbook:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Prompt not found",
+            detail="Runbook not found",
         )
-    return PromptRead.model_validate(prompt, from_attributes=True)
+    return RunbookRead.model_validate(runbook, from_attributes=True)
 
 
-@router.patch("/{prompt_id}", response_model=PromptRead)
-async def update_prompt(
-    prompt_id: uuid.UUID,
-    params: PromptUpdate,
+@router.patch("/{runbook_id}", response_model=RunbookRead)
+async def update_runbook(
+    runbook_id: uuid.UUID,
+    params: RunbookUpdate,
     role: WorkspaceUser,
     session: AsyncDBSession,
-) -> PromptRead:
-    """Update prompt properties."""
-    svc = PromptService(session, role)
-    prompt = await svc.get_prompt(prompt_id)
-    if not prompt:
+) -> RunbookRead:
+    """Update runbook properties."""
+    svc = RunbookService(session, role)
+    runbook = await svc.get_runbook(runbook_id)
+    if not runbook:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Prompt not found",
+            detail="Runbook not found",
         )
 
     try:
-        prompt = await svc.update_prompt(prompt, params)
+        runbook = await svc.update_runbook(
+            runbook,
+            params
+        )
     except IntegrityError as e:
         # Check if it's the alias uniqueness constraint
-        if "uq_prompt_alias_owner_id" in str(e):
+        if "uq_runbook_alias_owner_id" in str(e):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail=f"Prompt with alias '{params.alias}' already exists in this workspace",
+                detail=f"Runbook with alias '{params.alias}' already exists in this workspace",
             ) from e
         # Re-raise for other integrity errors
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Prompt update failed due to a conflict",
+            detail="Runbook update failed due to a conflict",
         ) from e
-    return PromptRead.model_validate(prompt, from_attributes=True)
+    return RunbookRead.model_validate(runbook, from_attributes=True)
 
 
-@router.delete("/{prompt_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_prompt(
-    prompt_id: uuid.UUID,
+@router.delete("/{runbook_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_runbook(
+    runbook_id: uuid.UUID,
     role: WorkspaceUser,
     session: AsyncDBSession,
 ) -> None:
-    """Delete a prompt."""
-    svc = PromptService(session, role)
-    prompt = await svc.get_prompt(prompt_id)
-    if not prompt:
+    """Delete a runbook."""
+    svc = RunbookService(session, role)
+    runbook = await svc.get_runbook(runbook_id)
+    if not runbook:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Prompt not found",
+            detail="Runbook not found",
         )
-    await svc.delete_prompt(prompt)
+    await svc.delete_runbook(runbook)
 
 
-@router.post("/{prompt_id}/run", response_model=PromptRunResponse)
-async def run_prompt(
-    prompt_id: uuid.UUID,
-    params: PromptRunRequest,
+@router.post("/{runbook_id}/run", response_model=RunbookRunResponse)
+async def run_runbook(
+    runbook_id: uuid.UUID,
+    params: RunbookRunRequest,
     role: WorkspaceUser,
     session: AsyncDBSession,
-) -> PromptRunResponse:
-    """Execute a prompt on multiple cases."""
-    svc = PromptService(session, role)
+) -> RunbookRunResponse:
+    """Execute a runbook on multiple cases."""
+    svc = RunbookService(session, role)
 
-    prompt = await svc.get_prompt(prompt_id)
-    if not prompt:
+    runbook = await svc.get_runbook(runbook_id)
+    if not runbook:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Prompt not found",
+            detail="Runbook not found",
         )
 
     try:
-        responses = await svc.run_prompt(prompt, params.entities)
-        return PromptRunResponse(
+        responses = await svc.run_runbook(runbook, params.entities)
+        return RunbookRunResponse(
             stream_urls={
                 str(response.chat_id): response.stream_url for response in responses
             }
         )
     except Exception as e:
         logger.error(
-            "Failed to run prompt",
-            prompt_id=prompt_id,
+            "Failed to run runbook",
+            runbook_id=runbook_id,
             error=str(e),
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to run prompt: {str(e)}",
+            detail=f"Failed to run runbook: {str(e)}",
         ) from e
 
 
-@router.get("/{prompt_id}/case/{case_id}/stream")
-async def stream_prompt_execution(
+@router.get("/{runbook_id}/case/{case_id}/stream")
+async def stream_runbook_execution(
     request: Request,
-    prompt_id: str,
+    runbook_id: str,
     case_id: str,
     role: WorkspaceUser,
     session: AsyncDBSession,
 ):
-    """Stream prompt execution events via Server-Sent Events (SSE).
+    """Stream runbook execution events via Server-Sent Events (SSE).
 
     This endpoint provides real-time streaming of AI agent execution steps
-    when a prompt is run on a case. It reuses the same Redis stream pattern
+    when a runbook is run on a case. It reuses the same Redis stream pattern
     as the chat service.
     """
     # Verify case exists and user has access to it
@@ -229,10 +233,10 @@ async def stream_prompt_execution(
     last_id = request.headers.get("Last-Event-ID", "0-0")
 
     logger.info(
-        "Starting prompt execution stream",
+        "Starting runbook execution stream",
         stream_key=stream_key,
         last_id=last_id,
-        prompt_id=prompt_id,
+        runbook_id=runbook_id,
         case_id=case_id,
     )
 
@@ -291,7 +295,7 @@ async def stream_prompt_execution(
             logger.error("Fatal error in stream generator", error=str(e))
             yield 'event: error\ndata: {"error": "Fatal stream error"}\n\n'
         finally:
-            logger.info("Prompt execution stream ended", stream_key=stream_key)
+            logger.info("Runbook execution stream ended", stream_key=stream_key)
 
     return StreamingResponse(
         event_generator(),

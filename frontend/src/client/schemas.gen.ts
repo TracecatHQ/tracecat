@@ -8586,6 +8586,222 @@ export const $RunUsage = {
   title: "RunUsage",
 } as const
 
+export const $RunbookCreate = {
+  properties: {
+    chat_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid4",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Chat Id",
+      description: "ID of the chat to freeze into a prompt",
+    },
+    meta: {
+      anyOf: [
+        {
+          additionalProperties: true,
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Meta",
+      description:
+        "Optional metadata to include with the prompt (e.g., case information)",
+    },
+  },
+  type: "object",
+  title: "RunbookCreate",
+  description: "Request model for creating a runbook.",
+} as const
+
+export const $RunbookRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid4",
+      title: "Id",
+      description: "Unique runbook identifier",
+    },
+    title: {
+      type: "string",
+      title: "Title",
+      description: "Human-readable title for the runbook",
+    },
+    content: {
+      type: "string",
+      title: "Content",
+      description: "The instruction runbook string",
+    },
+    tools: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Tools",
+      description: "The tools available to the agent for this runbook",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "When the runbook was created",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+      description: "When the runbook was last updated",
+    },
+    meta: {
+      additionalProperties: true,
+      type: "object",
+      title: "Meta",
+      description: "Metadata including schema version, tool SHA, token count",
+    },
+    summary: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Summary",
+      description: "A summary of the runbook.",
+    },
+  },
+  type: "object",
+  required: ["id", "title", "content", "tools", "created_at", "updated_at"],
+  title: "RunbookRead",
+  description: "Model for runbook details.",
+} as const
+
+export const $RunbookRunEntity = {
+  properties: {
+    entity_id: {
+      type: "string",
+      format: "uuid4",
+      title: "Entity Id",
+      description: "ID of the entity to run the runbook on",
+    },
+    entity_type: {
+      $ref: "#/components/schemas/ChatEntity",
+      description: "Type of the entity to run the runbook on",
+    },
+  },
+  type: "object",
+  required: ["entity_id", "entity_type"],
+  title: "RunbookRunEntity",
+  description: "Request model for running a runbook on an entity.",
+} as const
+
+export const $RunbookRunRequest = {
+  properties: {
+    entities: {
+      items: {
+        $ref: "#/components/schemas/RunbookRunEntity",
+      },
+      type: "array",
+      title: "Entities",
+      description: "Entities to run the runbook on",
+    },
+  },
+  type: "object",
+  required: ["entities"],
+  title: "RunbookRunRequest",
+  description: "Request model for running a runbook on cases.",
+} as const
+
+export const $RunbookRunResponse = {
+  properties: {
+    stream_urls: {
+      additionalProperties: {
+        type: "string",
+      },
+      type: "object",
+      title: "Stream Urls",
+      description: "Mapping of case_id to SSE stream URL",
+    },
+  },
+  type: "object",
+  required: ["stream_urls"],
+  title: "RunbookRunResponse",
+  description: "Response model for runbook execution.",
+} as const
+
+export const $RunbookUpdate = {
+  properties: {
+    title: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 200,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Title",
+      description: "New title for the runbook",
+    },
+    content: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 10000,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Content",
+      description: "New content for the runbook",
+    },
+    tools: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tools",
+      description: "New tools for the runbook",
+    },
+    summary: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 10000,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Summary",
+      description: "New summary for the runbook",
+    },
+  },
+  type: "object",
+  title: "RunbookUpdate",
+  description: "Request model for updating runbook properties.",
+} as const
+
 export const $SAMLDatabaseLoginResponse = {
   properties: {
     redirect_url: {
