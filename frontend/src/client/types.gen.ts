@@ -2889,11 +2889,11 @@ export type RunbookAlias = string
  */
 export type RunbookCreate = {
   /**
-   * ID of the chat to freeze into a prompt
+   * ID of the chat to freeze into a runbook
    */
   chat_id?: string | null
   /**
-   * Optional metadata to include with the prompt (e.g., case information)
+   * Optional metadata to include with the runbook (e.g., case information)
    */
   meta?: {
     [key: string]: unknown
@@ -2902,6 +2902,42 @@ export type RunbookCreate = {
    * Alias for the runbook
    */
   alias?: RunbookAlias | null
+}
+
+/**
+ * Request model for running a runbook on an entity.
+ */
+export type RunbookExecuteEntity = {
+  /**
+   * ID of the entity to run the runbook on
+   */
+  entity_id: string
+  /**
+   * Type of the entity to run the runbook on
+   */
+  entity_type: ChatEntity
+}
+
+/**
+ * Request model for running a runbook on cases.
+ */
+export type RunbookExecuteRequest = {
+  /**
+   * Entities to run the runbook on
+   */
+  entities: Array<RunbookExecuteEntity>
+}
+
+/**
+ * Response model for runbook execution.
+ */
+export type RunbookExecuteResponse = {
+  /**
+   * Mapping of chat_id to SSE stream URL
+   */
+  stream_urls: {
+    [key: string]: string
+  }
 }
 
 /**
@@ -2942,42 +2978,6 @@ export type RunbookRead = {
    * A summary of the runbook.
    */
   summary?: string | null
-}
-
-/**
- * Request model for running a runbook on an entity.
- */
-export type RunbookRunEntity = {
-  /**
-   * ID of the entity to run the runbook on
-   */
-  entity_id: string
-  /**
-   * Type of the entity to run the runbook on
-   */
-  entity_type: ChatEntity
-}
-
-/**
- * Request model for running a runbook on cases.
- */
-export type RunbookRunRequest = {
-  /**
-   * Entities to run the runbook on
-   */
-  entities: Array<RunbookRunEntity>
-}
-
-/**
- * Response model for runbook execution.
- */
-export type RunbookRunResponse = {
-  /**
-   * Mapping of case_id to SSE stream URL
-   */
-  stream_urls: {
-    [key: string]: string
-  }
 }
 
 /**
@@ -5878,13 +5878,13 @@ export type RunbookDeleteRunbookData = {
 
 export type RunbookDeleteRunbookResponse = void
 
-export type RunbookRunRunbookData = {
-  requestBody: RunbookRunRequest
+export type RunbookExecuteRunbookData = {
+  requestBody: RunbookExecuteRequest
   runbookId: string
   workspaceId: string
 }
 
-export type RunbookRunRunbookResponse = RunbookRunResponse
+export type RunbookExecuteRunbookResponse = RunbookExecuteResponse
 
 export type RunbookStreamRunbookExecutionData = {
   caseId: string
@@ -8773,14 +8773,14 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/runbook/{runbook_id}/run": {
+  "/runbook/{runbook_id}/execute": {
     post: {
-      req: RunbookRunRunbookData
+      req: RunbookExecuteRunbookData
       res: {
         /**
          * Successful Response
          */
-        200: RunbookRunResponse
+        200: RunbookExecuteResponse
         /**
          * Validation Error
          */

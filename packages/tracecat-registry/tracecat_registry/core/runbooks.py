@@ -6,7 +6,7 @@ from uuid import UUID
 from typing_extensions import Doc
 
 from tracecat.chat.enums import ChatEntity
-from tracecat.runbook.models import RunbookRead, RunbookRunEntity
+from tracecat.runbook.models import RunbookRead, RunbookExecuteEntity
 from tracecat.runbook.service import RunbookService
 from tracecat_registry import registry
 
@@ -83,7 +83,7 @@ async def execute(
             raise ValueError(f"Runbook with ID {runbook_id} not found")
 
         entities = [
-            RunbookRunEntity(entity_id=UUID(case_id), entity_type=ChatEntity.CASE)
+            RunbookExecuteEntity(entity_id=UUID(case_id), entity_type=ChatEntity.CASE)
             for case_id in case_ids
         ]
         responses = await svc.run_runbook(runbook, entities)

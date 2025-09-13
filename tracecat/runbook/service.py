@@ -30,7 +30,7 @@ from tracecat.runbook.flows import execute_runbook_for_case
 from tracecat.runbook.models import (
     RunbookAlias,
     RunbookCreate,
-    RunbookRunEntity,
+    RunbookExecuteEntity,
     RunbookUpdate,
 )
 from tracecat.service import BaseWorkspaceService
@@ -301,7 +301,7 @@ Here are the <Steps> to execute:
     async def run_runbook(
         self,
         runbook: Runbook,
-        entities: list[RunbookRunEntity],
+        entities: list[RunbookExecuteEntity],
     ) -> list[ChatResponse]:
         """Execute a runbook on multiple cases."""
 

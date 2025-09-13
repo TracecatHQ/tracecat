@@ -257,12 +257,12 @@ import type {
   RunbookCreateRunbookResponse,
   RunbookDeleteRunbookData,
   RunbookDeleteRunbookResponse,
+  RunbookExecuteRunbookData,
+  RunbookExecuteRunbookResponse,
   RunbookGetRunbookData,
   RunbookGetRunbookResponse,
   RunbookListRunbooksData,
   RunbookListRunbooksResponse,
-  RunbookRunRunbookData,
-  RunbookRunRunbookResponse,
   RunbookStreamRunbookExecutionData,
   RunbookStreamRunbookExecutionResponse,
   RunbookUpdateRunbookData,
@@ -5409,21 +5409,21 @@ export const runbookDeleteRunbook = (
 }
 
 /**
- * Run Runbook
+ * Execute Runbook
  * Execute a runbook on multiple cases.
  * @param data The data for the request.
  * @param data.runbookId
  * @param data.workspaceId
  * @param data.requestBody
- * @returns RunbookRunResponse Successful Response
+ * @returns RunbookExecuteResponse Successful Response
  * @throws ApiError
  */
-export const runbookRunRunbook = (
-  data: RunbookRunRunbookData
-): CancelablePromise<RunbookRunRunbookResponse> => {
+export const runbookExecuteRunbook = (
+  data: RunbookExecuteRunbookData
+): CancelablePromise<RunbookExecuteRunbookResponse> => {
   return __request(OpenAPI, {
     method: "POST",
-    url: "/runbook/{runbook_id}/run",
+    url: "/runbook/{runbook_id}/execute",
     path: {
       runbook_id: data.runbookId,
     },
