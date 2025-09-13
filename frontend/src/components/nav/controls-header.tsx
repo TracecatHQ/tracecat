@@ -45,12 +45,12 @@ import {
 } from "@/components/workspaces/add-workspace-secret"
 import { useEntities, useEntity } from "@/hooks/use-entities"
 import { useLocalStorage } from "@/hooks/use-local-storage"
-import { useCreatePrompt } from "@/hooks/use-prompt"
+import { useCreateRunbook } from "@/hooks/use-runbook"
 import { useWorkspaceDetails } from "@/hooks/use-workspace"
 import { entityEvents } from "@/lib/entity-events"
 import {
   useGetCase,
-  useGetPrompt,
+  useGetRunbook,
   useGetTable,
   useIntegrationProvider,
 } from "@/lib/hooks"
@@ -245,17 +245,17 @@ function EntitiesActions() {
 function RunbooksActions() {
   const workspaceId = useWorkspaceId()
   const router = useRouter()
-  const { createPrompt, createPromptPending } = useCreatePrompt(workspaceId)
+  const { createRunbook, createRunbookPending } = useCreateRunbook(workspaceId)
 
   const handleCreateRunbook = async () => {
     try {
       // Create a runbook without chat_id - backend will auto-generate title and content
-      const prompt = await createPrompt({
+      const runbook = await createRunbook({
         meta: { created_directly: true },
       })
 
       // Navigate to the new runbook
-      router.push(`/workspaces/${workspaceId}/runbooks/${prompt.id}`)
+      router.push(`/workspaces/${workspaceId}/runbooks/${runbook.id}`)
     } catch (error) {
       toast({
         title: "Failed to create runbook",
@@ -274,11 +274,11 @@ function RunbooksActions() {
       size="sm"
       className="h-7 bg-white"
       onClick={handleCreateRunbook}
-      disabled={createPromptPending}
+      disabled={createRunbookPending}
       title="Create runbooks"
     >
       <Plus className="mr-1 h-3.5 w-3.5" />
-      {createPromptPending ? "Creating..." : "Add runbook"}
+      {createRunbookPending ? "Creating..." : "Add runbook"}
     </Button>
   )
 }
@@ -465,7 +465,7 @@ function RunbookBreadcrumb({
   runbookId: string
   workspaceId: string
 }) {
-  const { data: prompt } = useGetPrompt({ workspaceId, promptId: runbookId })
+  const { data: runbook } = useGetRunbook({ workspaceId, runbookId })
 
   return (
     <Breadcrumb>
@@ -480,7 +480,7 @@ function RunbookBreadcrumb({
         </BreadcrumbSeparator>
         <BreadcrumbItem>
           <BreadcrumbPage className="font-semibold">
-            {prompt?.title || runbookId}
+            {runbook?.title || runbookId}
           </BreadcrumbPage>
         </BreadcrumbItem>
       </BreadcrumbList>

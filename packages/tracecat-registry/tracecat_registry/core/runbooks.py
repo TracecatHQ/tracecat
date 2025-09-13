@@ -6,14 +6,14 @@ from uuid import UUID
 from typing_extensions import Doc
 
 from tracecat.chat.enums import ChatEntity
-from tracecat.prompt.models import PromptRead, PromptRunEntity
-from tracecat.prompt.service import PromptService
+from tracecat.runbook.models import RunbookRead, RunbookRunEntity
+from tracecat.runbook.service import RunbookService
 from tracecat_registry import registry
 
 
 @registry.register(
     namespace="core.runbooks",
-    description="List runbooks (prompts) in the current workspace.",
+    description="List runbooks in the current workspace.",
     default_title="List runbooks",
     display_group="Runbooks",
 )
@@ -31,18 +31,18 @@ async def list_runbooks(
         Doc("Sort order: 'asc' or 'desc'."),
     ] = "desc",
 ) -> list[dict[str, Any]]:
-    async with PromptService.with_session() as svc:
-        prompts = await svc.list_prompts(limit=limit, sort_by=sort_by, order=order)
-    # Normalize to API shape using PromptRead
+    async with RunbookService.with_session() as svc:
+        runbooks = await svc.list_runbooks(limit=limit, sort_by=sort_by, order=order)
+    # Normalize to API shape using RunbookRead
     return [
-        PromptRead.model_validate(p, from_attributes=True).model_dump(mode="json")
-        for p in prompts
+        RunbookRead.model_validate(r, from_attributes=True).model_dump(mode="json")
+        for r in runbooks
     ]
 
 
 @registry.register(
     namespace="core.runbooks",
-    description="Get a single runbook (prompt) by ID.",
+    description="Get a single runbook by ID.",
     default_title="Get runbook",
     display_group="Runbooks",
 )
@@ -52,11 +52,11 @@ async def get_runbook(
         Doc("The runbook ID (UUID)."),
     ],
 ) -> dict[str, Any]:
-    async with PromptService.with_session() as svc:
-        prompt = await svc.get_prompt(UUID(runbook_id))
-    if not prompt:
+    async with RunbookService.with_session() as svc:
+        runbook = await svc.get_runbook(UUID(runbook_id))
+    if not runbook:
         raise ValueError(f"Runbook with ID {runbook_id} not found")
-    return PromptRead.model_validate(prompt, from_attributes=True).model_dump(
+    return RunbookRead.model_validate(runbook, from_attributes=True).model_dump(
         mode="json"
     )
 
@@ -77,16 +77,16 @@ async def execute(
         Doc("List of case IDs (UUID strings) to run the runbook on."),
     ],
 ) -> list[dict[str, Any]]:
-    async with PromptService.with_session() as svc:
-        prompt = await svc.get_prompt(UUID(runbook_id))
-        if not prompt:
+    async with RunbookService.with_session() as svc:
+        runbook = await svc.get_runbook(UUID(runbook_id))
+        if not runbook:
             raise ValueError(f"Runbook with ID {runbook_id} not found")
 
         entities = [
-            PromptRunEntity(entity_id=UUID(case_id), entity_type=ChatEntity.CASE)
+            RunbookRunEntity(entity_id=UUID(case_id), entity_type=ChatEntity.CASE)
             for case_id in case_ids
         ]
-        responses = await svc.run_prompt(prompt, entities)
+        responses = await svc.run_runbook(runbook, entities)
 
     # Return a list of chat execution descriptors
     return [

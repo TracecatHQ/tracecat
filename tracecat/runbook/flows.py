@@ -12,21 +12,21 @@ from tracecat.cases.service import CasesService
 from tracecat.chat.enums import ChatEntity
 from tracecat.chat.models import ChatResponse
 from tracecat.chat.service import ChatService
-from tracecat.db.schemas import Prompt
+from tracecat.db.schemas import Runbook
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatNotFoundError
 
 
 async def execute_runbook_for_case(
     *,
-    prompt: Prompt,
+    runbook: Runbook,
     case_id: uuid.UUID,
     session: AsyncSession,
     role: Role,
 ) -> ChatResponse:
-    """Run prompt for a case.
+    """Run runbook for a case.
 
-    This creates a new chat for the case and runs the prompt on it.
+    This creates a new chat for the case and runs the runbook on it.
     """
     chat_svc = ChatService(session, role)
     case_svc = CasesService(session, role)
@@ -37,7 +37,7 @@ async def execute_runbook_for_case(
     chat = await chat_svc.create_chat(
         entity_type=ChatEntity.CASE,
         entity_id=case.id,
-        title=f"Prompt {prompt.title}: {datetime.now().isoformat()}",
+        title=f"Runbook {runbook.title}: {datetime.now().isoformat()}",
     )
 
     # Create task with proper environment
@@ -45,10 +45,10 @@ async def execute_runbook_for_case(
     agent_svc = AgentManagementService(session, role)
     async with agent_svc.with_model_config() as model_config:
         coro = run_agent(
-            instructions=prompt.content,
+            instructions=runbook.content,
             model_name=model_config.name,
             model_provider=model_config.provider,
-            actions=prompt.tools,
+            actions=runbook.tools,
             stream_id=str(chat.id),
             user_prompt=textwrap.dedent(f"""
             You are working with the following case:

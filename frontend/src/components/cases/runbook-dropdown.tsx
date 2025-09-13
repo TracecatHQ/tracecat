@@ -3,7 +3,7 @@
 import { formatDistanceToNow } from "date-fns"
 import { Calendar, CirclePlay } from "lucide-react"
 import { useState } from "react"
-import type { PromptRead } from "@/client"
+import type { RunbookRead } from "@/client"
 import { RunbookExecuteDialog } from "@/components/cases/runbook-execute-dialog"
 import { Button } from "@/components/ui/button"
 import {
@@ -25,7 +25,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { useListPrompts } from "@/hooks/use-prompt"
+import { useListRunbooks } from "@/hooks/use-runbook"
 import { capitalizeFirst } from "@/lib/utils"
 
 interface RunbookDropdownProps {
@@ -43,24 +43,26 @@ export function RunbookDropdown({
 }: RunbookDropdownProps) {
   const [open, setOpen] = useState(false)
   const [searchTerm, setSearchTerm] = useState("")
-  const [selectedPrompt, setSelectedPrompt] = useState<PromptRead | null>(null)
+  const [selectedRunbook, setSelectedRunbook] = useState<RunbookRead | null>(
+    null
+  )
   const [dialogOpen, setDialogOpen] = useState(false)
 
   const {
-    data: prompts,
-    isLoading: promptsLoading,
-    error: promptsError,
-  } = useListPrompts({ workspaceId })
+    data: runbooks,
+    isLoading: runbooksLoading,
+    error: runbooksError,
+  } = useListRunbooks({ workspaceId })
 
-  const filteredPrompts =
-    prompts?.filter(
-      (prompt) =>
-        prompt.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        prompt.content.toLowerCase().includes(searchTerm.toLowerCase())
+  const filteredRunbooks =
+    runbooks?.filter(
+      (runbook) =>
+        runbook.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        runbook.content.toLowerCase().includes(searchTerm.toLowerCase())
     ) || []
 
-  const handleSelectRunbook = (prompt: PromptRead) => {
-    setSelectedPrompt(prompt)
+  const handleSelectRunbook = (runbook: RunbookRead) => {
+    setSelectedRunbook(runbook)
     setDialogOpen(true)
     setOpen(false)
     setSearchTerm("")
@@ -93,11 +95,11 @@ export function RunbookDropdown({
                   className="h-9"
                 />
                 <CommandList>
-                  {promptsLoading ? (
+                  {runbooksLoading ? (
                     <CommandEmpty>Loading runbooks...</CommandEmpty>
-                  ) : promptsError ? (
+                  ) : runbooksError ? (
                     <CommandEmpty>Failed to load runbooks</CommandEmpty>
-                  ) : filteredPrompts.length === 0 ? (
+                  ) : filteredRunbooks.length === 0 ? (
                     <CommandEmpty>
                       {searchTerm
                         ? "No runbooks match your search"
@@ -105,22 +107,22 @@ export function RunbookDropdown({
                     </CommandEmpty>
                   ) : (
                     <CommandGroup>
-                      {filteredPrompts.map((prompt) => (
+                      {filteredRunbooks.map((runbook) => (
                         <CommandItem
-                          key={prompt.id}
-                          onSelect={() => handleSelectRunbook(prompt)}
+                          key={runbook.id}
+                          onSelect={() => handleSelectRunbook(runbook)}
                           className="flex flex-col items-start py-2 cursor-pointer"
                         >
                           <div className="flex w-full justify-between items-start">
                             <div className="flex-1 min-w-0">
                               <div className="text-sm font-medium truncate">
-                                {prompt.title}
+                                {runbook.title}
                               </div>
                               <div className="text-xs text-muted-foreground flex items-center gap-1">
                                 <Calendar className="h-3 w-3" />
                                 {capitalizeFirst(
                                   formatDistanceToNow(
-                                    new Date(prompt.created_at),
+                                    new Date(runbook.created_at),
                                     {
                                       addSuffix: true,
                                     }
@@ -129,19 +131,21 @@ export function RunbookDropdown({
                               </div>
                             </div>
                           </div>
-                          {prompt.tools && prompt.tools.length > 0 && (
+                          {runbook.tools && runbook.tools.length > 0 && (
                             <div className="flex flex-wrap gap-1 mt-1">
-                              {prompt.tools.slice(0, 3).map((tool, index) => (
-                                <span
-                                  key={index}
-                                  className="inline-flex items-center rounded-md bg-muted px-1.5 py-0.5 text-xs font-medium text-muted-foreground"
-                                >
-                                  {tool}
-                                </span>
-                              ))}
-                              {prompt.tools.length > 3 && (
+                              {runbook.tools
+                                .slice(0, 3)
+                                .map((tool: string, index: number) => (
+                                  <span
+                                    key={index}
+                                    className="inline-flex items-center rounded-md bg-muted px-1.5 py-0.5 text-xs font-medium text-muted-foreground"
+                                  >
+                                    {tool}
+                                  </span>
+                                ))}
+                              {runbook.tools.length > 3 && (
                                 <span className="text-xs text-muted-foreground">
-                                  +{prompt.tools.length - 3} more
+                                  +{runbook.tools.length - 3} more
                                 </span>
                               )}
                             </div>
@@ -160,7 +164,7 @@ export function RunbookDropdown({
       <RunbookExecuteDialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}
-        prompt={selectedPrompt}
+        runbook={selectedRunbook}
         workspaceId={workspaceId}
         entityType={entityType}
         entityId={entityId}
