@@ -6379,276 +6379,6 @@ export const $PriorityChangedEventRead = {
   description: "Event for when a case priority is changed.",
 } as const
 
-export const $PromptAlias = {
-  type: "string",
-  maxLength: 50,
-  minLength: 3,
-  pattern: "^[a-zA-Z0-9_-]+$",
-} as const
-
-export const $PromptCreate = {
-  properties: {
-    chat_id: {
-      anyOf: [
-        {
-          type: "string",
-          format: "uuid4",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Chat Id",
-      description: "ID of the chat to freeze into a prompt",
-    },
-    alias: {
-      anyOf: [
-        {
-          $ref: "#/components/schemas/PromptAlias",
-        },
-        {
-          type: "null",
-        },
-      ],
-      description:
-        "Optional alias for the prompt (must be unique within workspace)",
-    },
-    meta: {
-      anyOf: [
-        {
-          additionalProperties: true,
-          type: "object",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Meta",
-      description:
-        "Optional metadata to include with the prompt (e.g., case information)",
-    },
-  },
-  type: "object",
-  title: "PromptCreate",
-  description: "Request model for creating a prompt from a chat.",
-} as const
-
-export const $PromptRead = {
-  properties: {
-    id: {
-      type: "string",
-      format: "uuid4",
-      title: "Id",
-      description: "Unique prompt identifier",
-    },
-    chat_id: {
-      anyOf: [
-        {
-          type: "string",
-          format: "uuid4",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Chat Id",
-      description: "ID of the source chat",
-    },
-    title: {
-      type: "string",
-      title: "Title",
-      description: "Human-readable title for the prompt",
-    },
-    content: {
-      type: "string",
-      title: "Content",
-      description: "The instruction prompt/runbook string",
-    },
-    tools: {
-      items: {
-        type: "string",
-      },
-      type: "array",
-      title: "Tools",
-      description: "The tools available to the agent for this prompt",
-    },
-    alias: {
-      anyOf: [
-        {
-          $ref: "#/components/schemas/PromptAlias",
-        },
-        {
-          type: "null",
-        },
-      ],
-      description: "Alias for the prompt",
-    },
-    created_at: {
-      type: "string",
-      format: "date-time",
-      title: "Created At",
-      description: "When the prompt was created",
-    },
-    updated_at: {
-      type: "string",
-      format: "date-time",
-      title: "Updated At",
-      description: "When the prompt was last updated",
-    },
-    meta: {
-      additionalProperties: true,
-      type: "object",
-      title: "Meta",
-      description: "Metadata including schema version, tool SHA, token count",
-    },
-    summary: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Summary",
-      description: "A summary of the prompt.",
-    },
-  },
-  type: "object",
-  required: ["id", "title", "content", "tools", "created_at", "updated_at"],
-  title: "PromptRead",
-  description: "Model for prompt details.",
-} as const
-
-export const $PromptRunEntity = {
-  properties: {
-    entity_id: {
-      type: "string",
-      format: "uuid4",
-      title: "Entity Id",
-      description: "ID of the entity to run the prompt on",
-    },
-    entity_type: {
-      $ref: "#/components/schemas/ChatEntity",
-      description: "Type of the entity to run the prompt on",
-    },
-  },
-  type: "object",
-  required: ["entity_id", "entity_type"],
-  title: "PromptRunEntity",
-  description: "Request model for running a prompt on an entity.",
-} as const
-
-export const $PromptRunRequest = {
-  properties: {
-    entities: {
-      items: {
-        $ref: "#/components/schemas/PromptRunEntity",
-      },
-      type: "array",
-      title: "Entities",
-      description: "Entities to run the prompt on",
-    },
-  },
-  type: "object",
-  required: ["entities"],
-  title: "PromptRunRequest",
-  description: "Request model for running a prompt on cases.",
-} as const
-
-export const $PromptRunResponse = {
-  properties: {
-    stream_urls: {
-      additionalProperties: {
-        type: "string",
-      },
-      type: "object",
-      title: "Stream Urls",
-      description: "Mapping of case_id to SSE stream URL",
-    },
-  },
-  type: "object",
-  required: ["stream_urls"],
-  title: "PromptRunResponse",
-  description: "Response model for prompt execution.",
-} as const
-
-export const $PromptUpdate = {
-  properties: {
-    title: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 200,
-          minLength: 1,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Title",
-      description: "New title for the prompt",
-    },
-    content: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 10000,
-          minLength: 1,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Content",
-      description: "New content for the prompt",
-    },
-    tools: {
-      anyOf: [
-        {
-          items: {
-            type: "string",
-          },
-          type: "array",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Tools",
-      description: "New tools for the prompt",
-    },
-    alias: {
-      anyOf: [
-        {
-          $ref: "#/components/schemas/PromptAlias",
-        },
-        {
-          type: "null",
-        },
-      ],
-      description: "New alias for the prompt (must be unique within workspace)",
-    },
-    summary: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 10000,
-          minLength: 1,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Summary",
-      description: "New summary for the prompt",
-    },
-  },
-  type: "object",
-  title: "PromptUpdate",
-  description: "Request model for updating prompt properties.",
-} as const
-
 export const $ProviderCredentialConfig = {
   properties: {
     provider: {
@@ -8586,6 +8316,13 @@ export const $RunUsage = {
   title: "RunUsage",
 } as const
 
+export const $RunbookAlias = {
+  type: "string",
+  maxLength: 50,
+  minLength: 3,
+  pattern: "^[a-zA-Z0-9_-]+$",
+} as const
+
 export const $RunbookCreate = {
   properties: {
     chat_id: {
@@ -8614,6 +8351,17 @@ export const $RunbookCreate = {
       title: "Meta",
       description:
         "Optional metadata to include with the prompt (e.g., case information)",
+    },
+    alias: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/RunbookAlias",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description: "Alias for the runbook",
     },
   },
   type: "object",
@@ -8795,6 +8543,18 @@ export const $RunbookUpdate = {
       ],
       title: "Summary",
       description: "New summary for the runbook",
+    },
+    alias: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/RunbookAlias",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "New alias for the runbook (must be unique within workspace)",
     },
   },
   type: "object",

@@ -27,7 +27,12 @@ from tracecat.chat.service import ChatService
 from tracecat.db.schemas import Chat, Runbook
 from tracecat.logger import logger
 from tracecat.runbook.flows import execute_runbook_for_case
-from tracecat.runbook.models import RunbookAlias, RunbookCreate, RunbookRunEntity, RunbookUpdate
+from tracecat.runbook.models import (
+    RunbookAlias,
+    RunbookCreate,
+    RunbookRunEntity,
+    RunbookUpdate,
+)
 from tracecat.service import BaseWorkspaceService
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatNotFoundError

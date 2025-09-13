@@ -11,6 +11,7 @@ from tracecat.chat.enums import ChatEntity
 
 type RunbookAlias = Annotated[str, StringConstraints(pattern=r"^[a-zA-Z0-9_-]+$")]
 
+
 class RunbookCreate(BaseModel):
     """Request model for creating a runbook."""
 

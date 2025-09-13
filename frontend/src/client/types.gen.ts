@@ -2143,138 +2143,6 @@ export type PriorityChangedEventRead = {
   created_at: string
 }
 
-export type PromptAlias = string
-
-/**
- * Request model for creating a prompt from a chat.
- */
-export type PromptCreate = {
-  /**
-   * ID of the chat to freeze into a prompt
-   */
-  chat_id?: string | null
-  /**
-   * Optional alias for the prompt (must be unique within workspace)
-   */
-  alias?: PromptAlias | null
-  /**
-   * Optional metadata to include with the prompt (e.g., case information)
-   */
-  meta?: {
-    [key: string]: unknown
-  } | null
-}
-
-/**
- * Model for prompt details.
- */
-export type PromptRead = {
-  /**
-   * Unique prompt identifier
-   */
-  id: string
-  /**
-   * ID of the source chat
-   */
-  chat_id?: string | null
-  /**
-   * Human-readable title for the prompt
-   */
-  title: string
-  /**
-   * The instruction prompt/runbook string
-   */
-  content: string
-  /**
-   * The tools available to the agent for this prompt
-   */
-  tools: Array<string>
-  /**
-   * Alias for the prompt
-   */
-  alias?: PromptAlias | null
-  /**
-   * When the prompt was created
-   */
-  created_at: string
-  /**
-   * When the prompt was last updated
-   */
-  updated_at: string
-  /**
-   * Metadata including schema version, tool SHA, token count
-   */
-  meta?: {
-    [key: string]: unknown
-  }
-  /**
-   * A summary of the prompt.
-   */
-  summary?: string | null
-}
-
-/**
- * Request model for running a prompt on an entity.
- */
-export type PromptRunEntity = {
-  /**
-   * ID of the entity to run the prompt on
-   */
-  entity_id: string
-  /**
-   * Type of the entity to run the prompt on
-   */
-  entity_type: ChatEntity
-}
-
-/**
- * Request model for running a prompt on cases.
- */
-export type PromptRunRequest = {
-  /**
-   * Entities to run the prompt on
-   */
-  entities: Array<PromptRunEntity>
-}
-
-/**
- * Response model for prompt execution.
- */
-export type PromptRunResponse = {
-  /**
-   * Mapping of case_id to SSE stream URL
-   */
-  stream_urls: {
-    [key: string]: string
-  }
-}
-
-/**
- * Request model for updating prompt properties.
- */
-export type PromptUpdate = {
-  /**
-   * New title for the prompt
-   */
-  title?: string | null
-  /**
-   * New content for the prompt
-   */
-  content?: string | null
-  /**
-   * New tools for the prompt
-   */
-  tools?: Array<string> | null
-  /**
-   * New alias for the prompt (must be unique within workspace)
-   */
-  alias?: PromptAlias | null
-  /**
-   * New summary for the prompt
-   */
-  summary?: string | null
-}
-
 /**
  * Model for provider credential configuration.
  */
@@ -3021,6 +2889,8 @@ export type RunUsage = {
   tool_calls?: number
 }
 
+export type RunbookAlias = string
+
 /**
  * Request model for creating a runbook.
  */
@@ -3035,6 +2905,10 @@ export type RunbookCreate = {
   meta?: {
     [key: string]: unknown
   } | null
+  /**
+   * Alias for the runbook
+   */
+  alias?: RunbookAlias | null
 }
 
 /**
@@ -3133,6 +3007,10 @@ export type RunbookUpdate = {
    * New summary for the runbook
    */
   summary?: string | null
+  /**
+   * New alias for the runbook (must be unique within workspace)
+   */
+  alias?: RunbookAlias | null
 }
 
 export type SAMLDatabaseLoginResponse = {

@@ -133,10 +133,7 @@ async def update_runbook(
         )
 
     try:
-        runbook = await svc.update_runbook(
-            runbook,
-            params
-        )
+        runbook = await svc.update_runbook(runbook, params)
     except IntegrityError as e:
         # Check if it's the alias uniqueness constraint
         if "uq_runbook_alias_owner_id" in str(e):
