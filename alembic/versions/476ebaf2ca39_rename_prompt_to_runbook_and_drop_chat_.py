@@ -14,7 +14,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "476ebaf2ca39"
-down_revision: str | None = "6de4fe1a2745"
+down_revision: str | None = "cbba80f89a32"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
@@ -33,8 +33,14 @@ def upgrade() -> None:
     op.execute("ALTER INDEX IF EXISTS ix_prompt_id RENAME TO ix_runbook_id")
     op.execute("ALTER INDEX IF EXISTS ix_prompt_owner_id RENAME TO ix_runbook_owner_id")
 
+    # Rename the unique constraint for alias
+    op.execute("ALTER TABLE runbook RENAME CONSTRAINT uq_prompt_alias_owner_id TO uq_runbook_alias_owner_id")
+
 
 def downgrade() -> None:
+    # Rename the unique constraint back
+    op.execute("ALTER TABLE runbook RENAME CONSTRAINT uq_runbook_alias_owner_id TO uq_prompt_alias_owner_id")
+
     # Rename the table back from runbook to prompt
     op.rename_table("runbook", "prompt")
 
