@@ -53,7 +53,9 @@ class RunbookService(BaseWorkspaceService):
             chat = await self.chats.get_chat(params.chat_id)
             if not chat:
                 raise TracecatNotFoundError(f"Chat with ID {params.chat_id} not found")
-            return await self.create_runbook_from_chat(chat=chat, meta=params.meta)
+            return await self.create_runbook_from_chat(
+                chat=chat, meta=params.meta, alias=params.alias
+            )
         else:
             return await self.create_runbook_direct(
                 title=f"New runbook - {datetime.now().isoformat()}",
