@@ -26,11 +26,7 @@ export default function RunbookDetailPage() {
   const params = useParams()
   const workspaceId = useWorkspaceId()
 
-  if (!params) {
-    return <div>Error: Invalid parameters</div>
-  }
-
-  const runbookId = params.runbookId as string
+  const runbookId = params?.runbookId as string | undefined
 
   const {
     data: runbook,
@@ -38,7 +34,7 @@ export default function RunbookDetailPage() {
     error,
   } = useGetRunbook({
     workspaceId,
-    runbookId: runbookId,
+    runbookId: runbookId || "",
   })
 
   useEffect(() => {
@@ -47,6 +43,9 @@ export default function RunbookDetailPage() {
     }
   }, [runbook])
 
+  if (!params) {
+    return <div>Error: Invalid parameters</div>
+  }
   if (isLoading) {
     return <CenteredSpinner />
   }

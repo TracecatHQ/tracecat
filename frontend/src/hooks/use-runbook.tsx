@@ -78,6 +78,7 @@ export function useGetRunbook({
   return useQuery<RunbookRead, ApiError>({
     queryKey: ["runbooks", workspaceId, runbookId],
     queryFn: () => runbookGetRunbook({ workspaceId, runbookId }),
+    enabled: !!runbookId,
   })
 }
 
