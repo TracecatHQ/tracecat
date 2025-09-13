@@ -12,6 +12,7 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
+import { toast } from "@/components/ui/use-toast"
 
 const titleFormSchema = z.object({
   title: z.string().min(1, { message: "Title is required" }),
@@ -41,10 +42,25 @@ export function RunbookTitleEditor({
     if (values.title === runbookData?.title) {
       return // No changes to save
     }
-    await updateRunbook({
-      runbookId: runbookData.id,
-      request: { title: values.title },
-    })
+    try {
+      await updateRunbook({
+        runbookId: runbookData.id,
+        request: { title: values.title },
+      })
+      toast({
+        title: "Title updated",
+        description: "The runbook title has been updated successfully.",
+      })
+    } catch (error) {
+      console.error("Failed to update runbook title:", error)
+      toast({
+        title: "Failed to update title",
+        description: "An error occurred while updating the runbook title. Please try again.",
+        variant: "destructive",
+      })
+      // Reset the form to the original value on error
+      form.setValue("title", runbookData?.title || "")
+    }
   }
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
