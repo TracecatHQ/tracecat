@@ -2,7 +2,7 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import type React from "react"
 import { useForm } from "react-hook-form"
 import * as z from "zod"
-import type { PromptRead, PromptUpdate } from "@/client"
+import type { RunbookRead, RunbookUpdate } from "@/client"
 
 import {
   Form,
@@ -19,30 +19,30 @@ const titleFormSchema = z.object({
 type TitleFormSchema = z.infer<typeof titleFormSchema>
 
 interface RunbookTitleEditorProps {
-  promptData: PromptRead
-  updatePrompt: (params: {
-    promptId: string
-    request: PromptUpdate
-  }) => Promise<PromptRead>
+  runbookData: RunbookRead
+  updateRunbook: (params: {
+    runbookId: string
+    request: RunbookUpdate
+  }) => Promise<RunbookRead>
 }
 
 export function RunbookTitleEditor({
-  promptData,
-  updatePrompt,
+  runbookData,
+  updateRunbook,
 }: RunbookTitleEditorProps) {
   const form = useForm<TitleFormSchema>({
     resolver: zodResolver(titleFormSchema),
     defaultValues: {
-      title: promptData?.title || "",
+      title: runbookData?.title || "",
     },
   })
 
   const handleTitleSubmit = async (values: TitleFormSchema) => {
-    if (values.title === promptData?.title) {
+    if (values.title === runbookData?.title) {
       return // No changes to save
     }
-    await updatePrompt({
-      promptId: promptData.id,
+    await updateRunbook({
+      runbookId: runbookData.id,
       request: { title: values.title },
     })
   }

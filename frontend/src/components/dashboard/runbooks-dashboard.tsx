@@ -4,7 +4,7 @@ import { useState } from "react"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import type { SortOption } from "@/components/runbooks/runbooks-grid-view"
 import { RunbooksGridView } from "@/components/runbooks/runbooks-grid-view"
-import { useListPrompts } from "@/hooks/use-prompt"
+import { useListRunbooks } from "@/hooks/use-runbook"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 export function RunbooksDashboard() {
@@ -12,10 +12,10 @@ export function RunbooksDashboard() {
   const [sortBy, setSortBy] = useState<SortOption>("updated_at")
 
   const {
-    data: prompts,
+    data: runbooks,
     isLoading,
     error,
-  } = useListPrompts({
+  } = useListRunbooks({
     workspaceId,
     limit: 100,
     sortBy,
@@ -40,7 +40,7 @@ export function RunbooksDashboard() {
     <div className="size-full overflow-auto">
       <div className="container mx-auto h-full p-6">
         <RunbooksGridView
-          runbooks={prompts || []}
+          runbooks={runbooks || []}
           isLoading={isLoading}
           sortBy={sortBy}
           onSortChange={setSortBy}
