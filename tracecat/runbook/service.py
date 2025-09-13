@@ -9,6 +9,7 @@ from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 
+import yaml
 from pydantic_ai.messages import (
     ModelRequest,
     ModelResponse,
@@ -506,3 +507,25 @@ Here are the <Steps> to execute:
             output = self._clean_runbook_output(response.output)
 
         return output
+
+
+async def inject_runbook_content(
+    *, session: AsyncSession, role: Role, runbook_id: uuid.UUID
+) -> str | None:
+    runbook_svc = RunbookService(session, role)
+    if runbook := await runbook_svc.get_runbook(runbook_id):
+        # Add indication that this is the current runbook
+        # Prepare case data for YAML dump, including tags if they exist
+        runbook_data = runbook.model_dump(mode="json")
+
+        runbook_content = (
+            f"This is the current runbook you are working on:\n\n"
+            "<runbook_context>\n"
+            f"```yaml\n"
+            f"{yaml.dump(runbook_data, indent=2)}\n"
+            "```\n"
+            "</runbook_context>\n"
+        )
+
+        return runbook_content
+    return None
