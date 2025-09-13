@@ -732,6 +732,7 @@ class TracecatAgentBuilder:
             model=self.model_name,
             provider=self.model_provider,
             tool_count=len(self.tools),
+            tools=[tool.name for tool in self.tools],
             secret_count=len(self.collected_secrets),
         )
         return agent
