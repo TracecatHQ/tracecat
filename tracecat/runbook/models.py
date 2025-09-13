@@ -21,7 +21,7 @@ class RunbookCreate(BaseModel):
     )
     meta: dict[str, Any] | None = Field(
         default=None,
-        description="Optional metadata to include with the prompt (e.g., case information)",
+        description="Optional metadata to include with the runbook (e.g., case information)",
     )
     alias: RunbookAlias | None = Field(
         default=None,
