@@ -63,7 +63,7 @@ async def lookup_many(
             f"Limit cannot be greater than {TRACECAT__MAX_ROWS_CLIENT_POSTGRES}"
         )
 
-    # Check if there is only on value or not
+    # Check if there is only one value or not
     if not isinstance(column, list):
         column = [column]
     if not isinstance(value, list):
