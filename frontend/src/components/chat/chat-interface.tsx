@@ -24,7 +24,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { useChat, useCreateChat, useListChats } from "@/hooks/use-chat"
-import { useCreateRunbook } from "@/hooks/use-runbook"
+import { useCreateRunbook, useGetRunbook } from "@/hooks/use-runbook"
 import { useChatReadiness, useGetCase } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -62,6 +62,12 @@ export function ChatInterface({
   // Fetch case data if entityType is "case"
   const { caseData } = useGetCase({
     caseId: entityType === "case" ? entityId : "",
+    workspaceId,
+  })
+
+  // Fetch runbook data if entityType is "runbook"
+  const { data: runbookData } = useGetRunbook({
+    runbookId: entityType === "runbook" ? entityId : "",
     workspaceId,
   })
 
@@ -126,13 +132,18 @@ export function ChatInterface({
     }
 
     try {
-      // Build meta object with case information if this is a case chat
+      // Build meta object with entity information
       let meta = undefined
       if (entityType === "case" && caseData) {
         meta = {
           case_id: caseData.id,
           case_slug: caseData.short_id,
           case_title: caseData.summary,
+        }
+      } else if (entityType === "runbook" && runbookData) {
+        meta = {
+          runbook_id: runbookData.id,
+          runbook_title: runbookData.title,
         }
       }
 
@@ -155,7 +166,14 @@ export function ChatInterface({
         message,
         // TODO: Make this dynamic
         model_provider: "openai",
-        instructions: `You are a helpful AI assistant helping with ${entityType} management.
+        instructions:
+          entityType === "runbook"
+            ? `You are a helpful AI assistant helping with runbook editing.
+        The current runbook ID is: ${entityId}
+        ${runbookData ? `The runbook title is: "${runbookData.title}"` : ""}
+        You can use the update_prompt tool to edit the runbook's title, content, or summary.
+        Be concise but thorough in your responses.`
+            : `You are a helpful AI assistant helping with ${entityType} management.
         The current ${entityType} ID is: ${entityId}
         If you need to use the ${entityType} ID in a tool call you should use the above ID.
         Be concise but thorough in your responses.`,
@@ -274,23 +292,27 @@ export function ChatInterface({
               </Tooltip>
             </TooltipProvider>
 
-            {/* Generate runbook icon button with tooltip */}
-            <TooltipProvider delayDuration={0}>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="size-6 p-0"
-                    onClick={handleSaveAsPrompt}
-                    disabled={createRunbookPending || !messages?.length}
-                  >
-                    <ListTodo className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">Generate runbook</TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
+            {/* Generate runbook icon button with tooltip - only show for non-runbook entities */}
+            {entityType !== "runbook" && (
+              <TooltipProvider delayDuration={0}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="size-6 p-0"
+                      onClick={handleSaveAsPrompt}
+                      disabled={createRunbookPending || !messages?.length}
+                    >
+                      <ListTodo className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">
+                    Generate runbook
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
             {entityType === "case" && (
               <RunbookDropdown
                 workspaceId={workspaceId}
@@ -318,7 +340,11 @@ export function ChatInterface({
             <ChatInput
               onSendMessage={handleSendMessage}
               disabled={isResponding}
-              placeholder={`Ask about this ${entityType}...`}
+              placeholder={
+                entityType === "runbook"
+                  ? "Ask about or edit this runbook..."
+                  : `Ask about this ${entityType}...`
+              }
               chatId={selectedChatId}
             />
           ) : chatReadyLoading ? (
