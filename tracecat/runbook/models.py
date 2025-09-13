@@ -107,5 +107,5 @@ class RunbookRunResponse(BaseModel):
     """Response model for runbook execution."""
 
     stream_urls: dict[str, str] = Field(
-        ..., description="Mapping of case_id to SSE stream URL"
+        ..., description="Mapping of chat_id to SSE stream URL"
     )
