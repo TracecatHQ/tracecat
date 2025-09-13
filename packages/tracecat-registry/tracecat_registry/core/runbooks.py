@@ -38,29 +38,46 @@ async def list_runbooks(
 ) -> list[dict[str, Any]]:
     async with RunbookService.with_session() as svc:
         runbooks = await svc.list_runbooks(limit=limit, sort_by=sort_by, order=order)
-    # Normalize to API shape using RunbookRead
-    return [
-        RunbookRead.model_validate(r, from_attributes=True).model_dump(mode="json")
-        for r in runbooks
-    ]
+    return [r.model_dump(mode="json") for r in runbooks]
 
 
 @registry.register(
     namespace="core.runbooks",
-    description="Get a single runbook by ID.",
+    description="Get a single runbook.",
     default_title="Get runbook",
     display_group="Runbooks",
 )
 async def get_runbook(
     runbook_id: Annotated[
-        str,
+        str | None,
         Doc("The runbook ID (UUID)."),
-    ],
+    ] = None,
+    runbook_alias: Annotated[
+        str | None,
+        Doc("The runbook alias (can be selected from dropdown)."),
+    ] = None,
 ) -> dict[str, Any]:
+    if not runbook_id and not runbook_alias:
+        raise ValueError("Either runbook_id or runbook_alias must be provided")
+    if runbook_id and runbook_alias:
+        raise ValueError("Only one of runbook_id or runbook_alias should be provided")
+
     async with RunbookService.with_session() as svc:
-        runbook = await svc.get_runbook(UUID(runbook_id))
+        runbook = None
+        if runbook_id:
+            try:
+                runbook_uuid = UUID(runbook_id)
+            except ValueError:
+                raise ValueError(f"Invalid runbook ID format: '{runbook_id}'")
+            runbook = await svc.get_runbook(runbook_uuid)
+        elif runbook_alias:
+            runbook = await svc.get_runbook_by_alias(runbook_alias)
+
     if not runbook:
-        raise ValueError(f"Runbook with ID {runbook_id} not found")
+        identifier = runbook_id if runbook_id else runbook_alias
+        raise ValueError(
+            f"Runbook with {'ID' if runbook_id else 'alias'} '{identifier}' not found"
+        )
     return RunbookRead.model_validate(runbook, from_attributes=True).model_dump(
         mode="json"
     )
@@ -73,19 +90,41 @@ async def get_runbook(
     display_group="Runbooks",
 )
 async def execute(
+    *,
     runbook_id: Annotated[
-        str,
+        str | None,
         Doc("The runbook ID (UUID) to execute."),
-    ],
+    ] = None,
+    runbook_alias: Annotated[
+        str | None,
+        Doc("The runbook alias to execute (can be selected from dropdown)."),
+    ] = None,
     case_ids: Annotated[
         list[str],
         Doc("List of case IDs (UUID strings) to run the runbook on."),
     ],
 ) -> list[dict[str, Any]]:
+    if not runbook_id and not runbook_alias:
+        raise ValueError("Either runbook_id or runbook_alias must be provided")
+    if runbook_id and runbook_alias:
+        raise ValueError("Only one of runbook_id or runbook_alias should be provided")
+
     async with RunbookService.with_session() as svc:
-        runbook = await svc.get_runbook(UUID(runbook_id))
+        runbook = None
+        if runbook_id:
+            try:
+                runbook_uuid = UUID(runbook_id)
+            except ValueError:
+                raise ValueError(f"Invalid runbook ID format: '{runbook_id}'")
+            runbook = await svc.get_runbook(runbook_uuid)
+        elif runbook_alias:
+            runbook = await svc.get_runbook_by_alias(runbook_alias)
+
         if not runbook:
-            raise ValueError(f"Runbook with ID {runbook_id} not found")
+            identifier = runbook_id if runbook_id else runbook_alias
+            raise ValueError(
+                f"Runbook with {'ID' if runbook_id else 'alias'} '{identifier}' not found"
+            )
 
         entities = [
             RunbookExecuteEntity(entity_id=UUID(case_id), entity_type=ChatEntity.CASE)

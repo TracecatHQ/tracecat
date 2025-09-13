@@ -210,7 +210,7 @@ class TestRunbookService:
         )
 
         # Retrieve by alias
-        retrieved_runbook = await runbook_service.get_prompt_by_alias(
+        retrieved_runbook = await runbook_service.get_runbook_by_alias(
             "unique-alias-test"
         )
         assert retrieved_runbook is not None
@@ -348,7 +348,7 @@ class TestRunbookService:
         assert deleted_runbook is None
 
         # Also verify can't find by alias
-        deleted_by_alias = await runbook_service.get_prompt_by_alias("delete-test")
+        deleted_by_alias = await runbook_service.get_runbook_by_alias("delete-test")
         assert deleted_by_alias is None
 
     async def test_create_runbook_with_alias(
@@ -361,7 +361,7 @@ class TestRunbookService:
         assert runbook.owner_id == runbook_service.workspace_id
 
         # Verify can retrieve by alias
-        retrieved = await runbook_service.get_prompt_by_alias("test-runbook")
+        retrieved = await runbook_service.get_runbook_by_alias("test-runbook")
         assert retrieved is not None
         assert retrieved.id == runbook.id
 
@@ -384,7 +384,7 @@ class TestRunbookService:
         assert updated.alias == "newly-added-alias"
 
         # Verify can retrieve by new alias
-        retrieved = await runbook_service.get_prompt_by_alias("newly-added-alias")
+        retrieved = await runbook_service.get_runbook_by_alias("newly-added-alias")
         assert retrieved is not None
         assert retrieved.id == runbook.id
 
@@ -414,7 +414,7 @@ class TestRunbookService:
     ) -> None:
         """Test error handling for non-existent alias."""
         # Try to get runbook by non-existent alias
-        runbook = await runbook_service.get_prompt_by_alias("non-existent-alias")
+        runbook = await runbook_service.get_runbook_by_alias("non-existent-alias")
         assert runbook is None
 
         # Try to resolve non-existent alias

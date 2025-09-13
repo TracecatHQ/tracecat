@@ -47,6 +47,12 @@ class RunbookRead(BaseModel):
         default_factory=dict,
         description="Metadata including schema version, tool SHA, token count",
     )
+    alias: RunbookAlias | None = Field(
+        default=None,
+        description="Alias for the runbook",
+        min_length=3,
+        max_length=50,
+    )
     summary: str | None = Field(
         default=None,
         description="A summary of the runbook.",

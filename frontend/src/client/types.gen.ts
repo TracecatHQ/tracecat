@@ -2975,6 +2975,10 @@ export type RunbookRead = {
     [key: string]: unknown
   }
   /**
+   * Alias for the runbook
+   */
+  alias?: RunbookAlias | null
+  /**
    * A summary of the runbook.
    */
   summary?: string | null

@@ -227,8 +227,8 @@ Here are the <Steps> to execute:
         result = await self.session.exec(stmt)
         return result.first()
 
-    async def get_prompt_by_alias(self, alias: str) -> Runbook | None:
-        """Get a prompt by alias."""
+    async def get_runbook_by_alias(self, alias: str) -> Runbook | None:
+        """Get a runbook by alias."""
         stmt = select(Runbook).where(
             Runbook.alias == alias,
             Runbook.owner_id == self.workspace_id,
@@ -238,7 +238,7 @@ Here are the <Steps> to execute:
         return result.first()
 
     async def resolve_runbook_alias(self, alias: str) -> uuid.UUID | None:
-        """Resolve a prompt alias to its ID."""
+        """Resolve a runbook alias to its ID."""
         stmt = select(Runbook.id).where(
             Runbook.alias == alias,
             Runbook.owner_id == self.workspace_id,

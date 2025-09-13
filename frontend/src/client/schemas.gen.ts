@@ -8459,6 +8459,17 @@ export const $RunbookRead = {
       title: "Meta",
       description: "Metadata including schema version, tool SHA, token count",
     },
+    alias: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/RunbookAlias",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description: "Alias for the runbook",
+    },
     summary: {
       anyOf: [
         {
