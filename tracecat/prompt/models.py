@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Annotated, Any
 
-from pydantic import UUID4, BaseModel, Field
+from pydantic import UUID4, BaseModel, Field, StringConstraints
 
 from tracecat.chat.enums import ChatEntity
+
+# Slug pattern for alias validation - alphanumeric, underscores, and hyphens (case-insensitive)
+# Lowercase normalization is handled by the field validator
+type PromptAlias = Annotated[str, StringConstraints(pattern=r"^[a-zA-Z0-9_-]+$")]
 
 
 class PromptCreate(BaseModel):
@@ -16,6 +20,12 @@ class PromptCreate(BaseModel):
     chat_id: UUID4 | None = Field(
         default=None,
         description="ID of the chat to freeze into a prompt",
+    )
+    alias: PromptAlias | None = Field(
+        default=None,
+        description="Optional alias for the prompt (must be unique within workspace)",
+        min_length=3,
+        max_length=50,
     )
     meta: dict[str, Any] | None = Field(
         default=None,
@@ -36,6 +46,12 @@ class PromptRead(BaseModel):
     tools: list[str] = Field(
         ...,
         description="The tools available to the agent for this prompt",
+    )
+    alias: PromptAlias | None = Field(
+        default=None,
+        description="Alias for the prompt",
+        min_length=3,
+        max_length=50,
     )
     created_at: datetime = Field(..., description="When the prompt was created")
     updated_at: datetime = Field(..., description="When the prompt was last updated")
@@ -67,6 +83,12 @@ class PromptUpdate(BaseModel):
     tools: list[str] | None = Field(
         default=None,
         description="New tools for the prompt",
+    )
+    alias: PromptAlias | None = Field(
+        default=None,
+        description="New alias for the prompt (must be unique within workspace)",
+        min_length=3,
+        max_length=50,
     )
     summary: str | None = Field(
         default=None,

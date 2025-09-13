@@ -7,6 +7,7 @@ from typing import Annotated
 import orjson
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
+from sqlalchemy.exc import IntegrityError
 from tracecat_registry.integrations.agents.tokens import (
     DATA_KEY,
     END_TOKEN,
@@ -55,6 +56,18 @@ async def create_prompt(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
+        ) from e
+    except IntegrityError as e:
+        # Check if it's the alias uniqueness constraint
+        if "uq_prompt_alias_owner_id" in str(e):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Prompt with alias '{params.alias}' already exists in this workspace",
+            ) from e
+        # Re-raise for other integrity errors
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Prompt creation failed due to a conflict",
         ) from e
     return PromptRead.model_validate(prompt, from_attributes=True)
 
@@ -118,13 +131,20 @@ async def update_prompt(
             detail="Prompt not found",
         )
 
-    prompt = await svc.update_prompt(
-        prompt,
-        title=params.title,
-        content=params.content,
-        tools=params.tools,
-        summary=params.summary,
-    )
+    try:
+        prompt = await svc.update_prompt(prompt, params)
+    except IntegrityError as e:
+        # Check if it's the alias uniqueness constraint
+        if "uq_prompt_alias_owner_id" in str(e):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Prompt with alias '{params.alias}' already exists in this workspace",
+            ) from e
+        # Re-raise for other integrity errors
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Prompt update failed due to a conflict",
+        ) from e
     return PromptRead.model_validate(prompt, from_attributes=True)
 
 

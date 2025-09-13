@@ -27,7 +27,7 @@ from tracecat.chat.service import ChatService
 from tracecat.db.schemas import Chat, Prompt
 from tracecat.logger import logger
 from tracecat.prompt.flows import execute_runbook_for_case
-from tracecat.prompt.models import PromptCreate, PromptRunEntity
+from tracecat.prompt.models import PromptCreate, PromptRunEntity, PromptUpdate
 from tracecat.service import BaseWorkspaceService
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatNotFoundError
@@ -48,12 +48,15 @@ class PromptService(BaseWorkspaceService):
             chat = await self.chats.get_chat(params.chat_id)
             if not chat:
                 raise TracecatNotFoundError(f"Chat with ID {params.chat_id} not found")
-            return await self.create_prompt_from_chat(chat=chat, meta=params.meta)
+            return await self.create_prompt_from_chat(
+                chat=chat, meta=params.meta, alias=params.alias
+            )
         else:
             return await self.create_prompt_direct(
                 title=f"New runbook - {datetime.now().isoformat()}",
                 content="",
                 tools=[],
+                alias=params.alias,
             )
 
     async def create_prompt_from_chat(
@@ -61,6 +64,7 @@ class PromptService(BaseWorkspaceService):
         *,
         chat: Chat,
         meta: dict[str, Any] | None = None,
+        alias: str | None = None,
     ) -> Prompt:
         """Turn a chat into a reusable prompt."""
 
@@ -142,6 +146,7 @@ Here are the <Steps> to execute:
             meta=prompt_meta,
             tools=chat.tools,
             summary=summary,
+            alias=alias,
         )
 
         self.session.add(prompt)
@@ -217,6 +222,26 @@ Here are the <Steps> to execute:
         result = await self.session.exec(stmt)
         return result.first()
 
+    async def get_prompt_by_alias(self, alias: str) -> Prompt | None:
+        """Get a prompt by alias."""
+        stmt = select(Prompt).where(
+            Prompt.alias == alias,
+            Prompt.owner_id == self.workspace_id,
+        )
+
+        result = await self.session.exec(stmt)
+        return result.first()
+
+    async def resolve_prompt_alias(self, alias: str) -> uuid.UUID | None:
+        """Resolve a prompt alias to its ID."""
+        stmt = select(Prompt.id).where(
+            Prompt.alias == alias,
+            Prompt.owner_id == self.workspace_id,
+        )
+
+        result = await self.session.exec(stmt)
+        return result.one_or_none()
+
     async def list_prompts(
         self,
         *,
@@ -251,24 +276,12 @@ Here are the <Steps> to execute:
     async def update_prompt(
         self,
         prompt: Prompt,
-        *,
-        title: str | None = None,
-        content: str | None = None,
-        tools: list[str] | None = None,
-        summary: str | None = None,
+        params: PromptUpdate,
     ) -> Prompt:
         """Update prompt properties."""
-        if title is not None:
-            prompt.title = title
-
-        if content is not None:
-            prompt.content = content
-
-        if tools is not None:
-            prompt.tools = tools
-
-        if summary is not None:
-            prompt.summary = summary
+        set_fields = params.model_dump(exclude_unset=True)
+        for key, value in set_fields.items():
+            setattr(prompt, key, value)
 
         self.session.add(prompt)
         await self.session.commit()
@@ -317,6 +330,7 @@ Here are the <Steps> to execute:
         content: str,
         tools: list[str],
         summary: str | None = None,
+        alias: str | None = None,
     ) -> Prompt:
         """Create a prompt directly without a chat."""
 
@@ -330,6 +344,7 @@ Here are the <Steps> to execute:
             content=content,
             tools=tools,
             summary=summary,
+            alias=alias,
             meta={
                 "created_directly": True,
                 "schema": "v1",
