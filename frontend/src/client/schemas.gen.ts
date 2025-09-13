@@ -6379,6 +6379,13 @@ export const $PriorityChangedEventRead = {
   description: "Event for when a case priority is changed.",
 } as const
 
+export const $PromptAlias = {
+  type: "string",
+  maxLength: 50,
+  minLength: 3,
+  pattern: "^[a-zA-Z0-9_-]+$",
+} as const
+
 export const $PromptCreate = {
   properties: {
     chat_id: {
@@ -6397,13 +6404,12 @@ export const $PromptCreate = {
     alias: {
       anyOf: [
         {
-          type: "string",
+          $ref: "#/components/schemas/PromptAlias",
         },
         {
           type: "null",
         },
       ],
-      title: "Alias",
       description:
         "Optional alias for the prompt (must be unique within workspace)",
     },
@@ -6469,13 +6475,12 @@ export const $PromptRead = {
     alias: {
       anyOf: [
         {
-          type: "string",
+          $ref: "#/components/schemas/PromptAlias",
         },
         {
           type: "null",
         },
       ],
-      title: "Alias",
       description: "Alias for the prompt",
     },
     created_at: {
@@ -6616,13 +6621,12 @@ export const $PromptUpdate = {
     alias: {
       anyOf: [
         {
-          type: "string",
+          $ref: "#/components/schemas/PromptAlias",
         },
         {
           type: "null",
         },
       ],
-      title: "Alias",
       description: "New alias for the prompt (must be unique within workspace)",
     },
     summary: {

@@ -2143,6 +2143,8 @@ export type PriorityChangedEventRead = {
   created_at: string
 }
 
+export type PromptAlias = string
+
 /**
  * Request model for creating a prompt from a chat.
  */
@@ -2154,7 +2156,7 @@ export type PromptCreate = {
   /**
    * Optional alias for the prompt (must be unique within workspace)
    */
-  alias?: string | null
+  alias?: PromptAlias | null
   /**
    * Optional metadata to include with the prompt (e.g., case information)
    */
@@ -2190,7 +2192,7 @@ export type PromptRead = {
   /**
    * Alias for the prompt
    */
-  alias?: string | null
+  alias?: PromptAlias | null
   /**
    * When the prompt was created
    */
@@ -2266,7 +2268,7 @@ export type PromptUpdate = {
   /**
    * New alias for the prompt (must be unique within workspace)
    */
-  alias?: string | null
+  alias?: PromptAlias | null
   /**
    * New summary for the prompt
    */
