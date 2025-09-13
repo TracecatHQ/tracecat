@@ -1316,9 +1316,7 @@ class Prompt(Resource, table=True):
         default=None,
         description="A summary of the prompt.",
     )
-    alias: str | None = Field(
-        default=None, description="Alias for the prompt", index=True
-    )
+    alias: str | None = Field(default=None, description="Alias for the prompt")
     meta: dict[str, Any] = Field(
         default_factory=dict,
         sa_column=Column(JSONB),
