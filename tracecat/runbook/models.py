@@ -17,7 +17,7 @@ class RunbookCreate(BaseModel):
 
     chat_id: UUID4 | None = Field(
         default=None,
-        description="ID of the chat to freeze into a prompt",
+        description="ID of the chat to freeze into a runbook",
     )
     meta: dict[str, Any] | None = Field(
         default=None,
