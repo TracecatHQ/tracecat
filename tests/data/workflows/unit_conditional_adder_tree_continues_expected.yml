@@ -8,8 +8,4 @@ ACTIONS:
   c:
     result: 4
     result_typename: "int"
-
-INPUTS:
-  another_url: http://api:8000
-  value: 1
 TRIGGER:

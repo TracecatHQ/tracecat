@@ -3557,12 +3557,6 @@ export const $DSLInput = {
       type: "array",
       title: "Triggers",
     },
-    inputs: {
-      additionalProperties: true,
-      type: "object",
-      title: "Inputs",
-      description: "Static input parameters",
-    },
     returns: {
       anyOf: [
         {},
@@ -4577,7 +4571,6 @@ export const $ExprContext = {
     "ACTIONS",
     "SECRETS",
     "FN",
-    "INPUTS",
     "ENV",
     "TRIGGER",
     "var",
@@ -12501,11 +12494,6 @@ export const $WorkflowRead = {
       ],
       title: "Entrypoint",
     },
-    static_inputs: {
-      additionalProperties: true,
-      type: "object",
-      title: "Static Inputs",
-    },
     expects: {
       anyOf: [
         {
@@ -12568,7 +12556,6 @@ export const $WorkflowRead = {
     "webhook",
     "schedules",
     "entrypoint",
-    "static_inputs",
     "returns",
     "config",
   ],
@@ -12820,18 +12807,6 @@ export const $WorkflowUpdate = {
         },
       ],
       title: "Icon Url",
-    },
-    static_inputs: {
-      anyOf: [
-        {
-          additionalProperties: true,
-          type: "object",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Static Inputs",
     },
     expects: {
       anyOf: [

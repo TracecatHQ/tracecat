@@ -118,13 +118,6 @@ class BaseExprValidator(Visitor):
             msg=f"ACTIONS expressions are not supported in {self._expr_kind}",
         )
 
-    def inputs(self, node: Tree[Token]):
-        self.add(
-            status="error",
-            type=ExprType.INPUT,
-            msg=f"INPUTS expressions are not supported in {self._expr_kind}",
-        )
-
     def trigger(self, node: Tree):
         self.add(
             status="error",

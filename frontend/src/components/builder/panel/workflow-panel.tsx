@@ -7,7 +7,6 @@ import { useCallback } from "react"
 import "@radix-ui/react-dialog"
 
 import {
-  FileInputIcon,
   FileSliders,
   Info,
   LayoutListIcon,
@@ -80,7 +79,6 @@ const workflowUpdateFormSchema = z.object({
       message: "Timeout cannot exceed 14 days (1209600 seconds)",
     })
     .optional(),
-  static_inputs: z.record(z.string(), z.unknown()).nullish(),
   /* Input Schema */
   expects: z
     .record(
@@ -117,7 +115,6 @@ export function WorkflowPanel({
       alias: workflow.alias,
       environment: workflow.config?.environment || "default",
       timeout: workflow.config?.timeout || 0,
-      static_inputs: workflow.static_inputs,
       expects: workflow.expects || undefined,
       returns: workflow.returns,
       error_handler: workflow.error_handler || "",
@@ -212,13 +209,6 @@ export function WorkflowPanel({
                   >
                     <ShapesIcon className="mr-2 size-4" />
                     <span>Schema</span>
-                  </TabsTrigger>
-                  <TabsTrigger
-                    className="h-full min-w-28 rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
-                    value="workflow-static-inputs"
-                  >
-                    <FileInputIcon className="mr-2 size-4" />
-                    <span>Static inputs</span>
                   </TabsTrigger>
                 </TabsList>
               </div>
@@ -614,75 +604,11 @@ export function WorkflowPanel({
                     </AccordionItem>
                   </Accordion>
                 </TabsContent>
-                <TabsContent value="workflow-static-inputs">
-                  <Accordion
-                    type="multiple"
-                    defaultValue={["workflow-static-inputs"]}
-                  >
-                    <AccordionItem value="workflow-static-inputs">
-                      <AccordionTrigger className="px-4 text-xs font-bold">
-                        <div className="flex items-center">
-                          <FileInputIcon className="mr-3 size-4" />
-                          <span>Static inputs</span>
-                        </div>
-                      </AccordionTrigger>
-                      <AccordionContent>
-                        <div className="flex flex-col space-y-4 px-4">
-                          <div className="flex items-center">
-                            <HoverCard openDelay={100} closeDelay={100}>
-                              <HoverCardTrigger
-                                asChild
-                                className="hover:border-none"
-                              >
-                                <Info className="mr-1 size-3 stroke-muted-foreground" />
-                              </HoverCardTrigger>
-                              <HoverCardContent
-                                className="w-[300px] p-3 font-mono text-xs tracking-tight"
-                                side="left"
-                                sideOffset={20}
-                              >
-                                <StaticInputTooltip />
-                              </HoverCardContent>
-                            </HoverCard>
-                            <span className="text-xs text-muted-foreground">
-                              Define optional static inputs for the workflow.
-                            </span>
-                          </div>
-                          <ControlledYamlField fieldName="static_inputs" />
-                        </div>
-                      </AccordionContent>
-                    </AccordionItem>
-                  </Accordion>
-                </TabsContent>
               </div>
             </div>
           </form>
         </Form>
       </Tabs>
-    </div>
-  )
-}
-
-function StaticInputTooltip() {
-  return (
-    <div className="w-full space-y-4">
-      <div className="flex w-full items-center justify-between text-muted-foreground ">
-        <span className="font-mono text-sm font-semibold">Static inputs</span>
-        <span className="text-xs text-muted-foreground/80">(optional)</span>
-      </div>
-      <div className="flex w-full flex-col items-center justify-between space-y-4 text-muted-foreground">
-        <span>
-          Fixed key-value pairs passed into every action input and workflow run.
-        </span>
-        <span className="w-full text-muted-foreground">
-          Usage example in expressions:
-        </span>
-      </div>
-      <div className="rounded-md border bg-muted-foreground/10 p-2">
-        <pre className="text-xs text-foreground/70">
-          {"${{ INPUTS.my_static_key }}"}
-        </pre>
-      </div>
     </div>
   )
 }
