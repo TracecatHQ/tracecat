@@ -198,7 +198,7 @@ async def run_runbook(
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to run runbook: {str(e)}",
+            detail="Failed to run runbook",
         ) from e
 
 
