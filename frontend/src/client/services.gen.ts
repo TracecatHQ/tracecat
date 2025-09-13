@@ -213,20 +213,6 @@ import type {
   OrganizationSecretsUpdateOrgSecretByIdResponse,
   OrganizationUpdateOrgMemberData,
   OrganizationUpdateOrgMemberResponse,
-  PromptCreatePromptData,
-  PromptCreatePromptResponse,
-  PromptDeletePromptData,
-  PromptDeletePromptResponse,
-  PromptGetPromptData,
-  PromptGetPromptResponse,
-  PromptListPromptsData,
-  PromptListPromptsResponse,
-  PromptRunPromptData,
-  PromptRunPromptResponse,
-  PromptStreamPromptExecutionData,
-  PromptStreamPromptExecutionResponse,
-  PromptUpdatePromptData,
-  PromptUpdatePromptResponse,
   ProvidersGetProviderData,
   ProvidersGetProviderResponse,
   ProvidersListProvidersData,
@@ -267,6 +253,20 @@ import type {
   RegistryRepositoriesSyncRegistryRepositoryResponse,
   RegistryRepositoriesUpdateRegistryRepositoryData,
   RegistryRepositoriesUpdateRegistryRepositoryResponse,
+  RunbookCreateRunbookData,
+  RunbookCreateRunbookResponse,
+  RunbookDeleteRunbookData,
+  RunbookDeleteRunbookResponse,
+  RunbookGetRunbookData,
+  RunbookGetRunbookResponse,
+  RunbookListRunbooksData,
+  RunbookListRunbooksResponse,
+  RunbookRunRunbookData,
+  RunbookRunRunbookResponse,
+  RunbookStreamRunbookExecutionData,
+  RunbookStreamRunbookExecutionResponse,
+  RunbookUpdateRunbookData,
+  RunbookUpdateRunbookResponse,
   SchedulesCreateScheduleData,
   SchedulesCreateScheduleResponse,
   SchedulesDeleteScheduleData,
@@ -5270,20 +5270,20 @@ export const chatStreamChatEvents = (
 }
 
 /**
- * Create Prompt
- * Freeze a chat into a reusable prompt.
+ * Create Runbook
+ * Create a new runbook.
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.requestBody
- * @returns PromptRead Successful Response
+ * @returns RunbookRead Successful Response
  * @throws ApiError
  */
-export const promptCreatePrompt = (
-  data: PromptCreatePromptData
-): CancelablePromise<PromptCreatePromptResponse> => {
+export const runbookCreateRunbook = (
+  data: RunbookCreateRunbookData
+): CancelablePromise<RunbookCreateRunbookResponse> => {
   return __request(OpenAPI, {
     method: "POST",
-    url: "/prompt/",
+    url: "/runbook/",
     query: {
       workspace_id: data.workspaceId,
     },
@@ -5296,22 +5296,22 @@ export const promptCreatePrompt = (
 }
 
 /**
- * List Prompts
- * List prompts for the current workspace.
+ * List Runbooks
+ * List runbooks for the current workspace.
  * @param data The data for the request.
  * @param data.workspaceId
- * @param data.limit Maximum number of prompts to return
+ * @param data.limit Maximum number of runbooks to return
  * @param data.sortBy Field to sort by: 'created_at' or 'updated_at'
  * @param data.order Sort order: 'asc' or 'desc'
- * @returns PromptRead Successful Response
+ * @returns RunbookRead Successful Response
  * @throws ApiError
  */
-export const promptListPrompts = (
-  data: PromptListPromptsData
-): CancelablePromise<PromptListPromptsResponse> => {
+export const runbookListRunbooks = (
+  data: RunbookListRunbooksData
+): CancelablePromise<RunbookListRunbooksResponse> => {
   return __request(OpenAPI, {
     method: "GET",
-    url: "/prompt/",
+    url: "/runbook/",
     query: {
       limit: data.limit,
       sort_by: data.sortBy,
@@ -5325,22 +5325,22 @@ export const promptListPrompts = (
 }
 
 /**
- * Get Prompt
- * Get a prompt by ID.
+ * Get Runbook
+ * Get a runbook by ID.
  * @param data The data for the request.
- * @param data.promptId
+ * @param data.runbookId
  * @param data.workspaceId
- * @returns PromptRead Successful Response
+ * @returns RunbookRead Successful Response
  * @throws ApiError
  */
-export const promptGetPrompt = (
-  data: PromptGetPromptData
-): CancelablePromise<PromptGetPromptResponse> => {
+export const runbookGetRunbook = (
+  data: RunbookGetRunbookData
+): CancelablePromise<RunbookGetRunbookResponse> => {
   return __request(OpenAPI, {
     method: "GET",
-    url: "/prompt/{prompt_id}",
+    url: "/runbook/{runbook_id}",
     path: {
-      prompt_id: data.promptId,
+      runbook_id: data.runbookId,
     },
     query: {
       workspace_id: data.workspaceId,
@@ -5352,23 +5352,23 @@ export const promptGetPrompt = (
 }
 
 /**
- * Update Prompt
- * Update prompt properties.
+ * Update Runbook
+ * Update runbook properties.
  * @param data The data for the request.
- * @param data.promptId
+ * @param data.runbookId
  * @param data.workspaceId
  * @param data.requestBody
- * @returns PromptRead Successful Response
+ * @returns RunbookRead Successful Response
  * @throws ApiError
  */
-export const promptUpdatePrompt = (
-  data: PromptUpdatePromptData
-): CancelablePromise<PromptUpdatePromptResponse> => {
+export const runbookUpdateRunbook = (
+  data: RunbookUpdateRunbookData
+): CancelablePromise<RunbookUpdateRunbookResponse> => {
   return __request(OpenAPI, {
     method: "PATCH",
-    url: "/prompt/{prompt_id}",
+    url: "/runbook/{runbook_id}",
     path: {
-      prompt_id: data.promptId,
+      runbook_id: data.runbookId,
     },
     query: {
       workspace_id: data.workspaceId,
@@ -5382,22 +5382,22 @@ export const promptUpdatePrompt = (
 }
 
 /**
- * Delete Prompt
- * Delete a prompt.
+ * Delete Runbook
+ * Delete a runbook.
  * @param data The data for the request.
- * @param data.promptId
+ * @param data.runbookId
  * @param data.workspaceId
  * @returns void Successful Response
  * @throws ApiError
  */
-export const promptDeletePrompt = (
-  data: PromptDeletePromptData
-): CancelablePromise<PromptDeletePromptResponse> => {
+export const runbookDeleteRunbook = (
+  data: RunbookDeleteRunbookData
+): CancelablePromise<RunbookDeleteRunbookResponse> => {
   return __request(OpenAPI, {
     method: "DELETE",
-    url: "/prompt/{prompt_id}",
+    url: "/runbook/{runbook_id}",
     path: {
-      prompt_id: data.promptId,
+      runbook_id: data.runbookId,
     },
     query: {
       workspace_id: data.workspaceId,
@@ -5409,23 +5409,23 @@ export const promptDeletePrompt = (
 }
 
 /**
- * Run Prompt
- * Execute a prompt on multiple cases.
+ * Run Runbook
+ * Execute a runbook on multiple cases.
  * @param data The data for the request.
- * @param data.promptId
+ * @param data.runbookId
  * @param data.workspaceId
  * @param data.requestBody
- * @returns PromptRunResponse Successful Response
+ * @returns RunbookRunResponse Successful Response
  * @throws ApiError
  */
-export const promptRunPrompt = (
-  data: PromptRunPromptData
-): CancelablePromise<PromptRunPromptResponse> => {
+export const runbookRunRunbook = (
+  data: RunbookRunRunbookData
+): CancelablePromise<RunbookRunRunbookResponse> => {
   return __request(OpenAPI, {
     method: "POST",
-    url: "/prompt/{prompt_id}/run",
+    url: "/runbook/{runbook_id}/run",
     path: {
-      prompt_id: data.promptId,
+      runbook_id: data.runbookId,
     },
     query: {
       workspace_id: data.workspaceId,
@@ -5439,27 +5439,27 @@ export const promptRunPrompt = (
 }
 
 /**
- * Stream Prompt Execution
- * Stream prompt execution events via Server-Sent Events (SSE).
+ * Stream Runbook Execution
+ * Stream runbook execution events via Server-Sent Events (SSE).
  *
  * This endpoint provides real-time streaming of AI agent execution steps
- * when a prompt is run on a case. It reuses the same Redis stream pattern
+ * when a runbook is run on a case. It reuses the same Redis stream pattern
  * as the chat service.
  * @param data The data for the request.
- * @param data.promptId
+ * @param data.runbookId
  * @param data.caseId
  * @param data.workspaceId
  * @returns unknown Successful Response
  * @throws ApiError
  */
-export const promptStreamPromptExecution = (
-  data: PromptStreamPromptExecutionData
-): CancelablePromise<PromptStreamPromptExecutionResponse> => {
+export const runbookStreamRunbookExecution = (
+  data: RunbookStreamRunbookExecutionData
+): CancelablePromise<RunbookStreamRunbookExecutionResponse> => {
   return __request(OpenAPI, {
     method: "GET",
-    url: "/prompt/{prompt_id}/case/{case_id}/stream",
+    url: "/runbook/{runbook_id}/case/{case_id}/stream",
     path: {
-      prompt_id: data.promptId,
+      runbook_id: data.runbookId,
       case_id: data.caseId,
     },
     query: {

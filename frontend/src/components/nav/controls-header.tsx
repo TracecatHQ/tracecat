@@ -4,7 +4,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { format, formatDistanceToNow } from "date-fns"
 import { Calendar, PanelRight, Plus } from "lucide-react"
 import Link from "next/link"
-import { usePathname, useSearchParams } from "next/navigation"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { type ReactNode, useState } from "react"
 import type { EntityRead, OAuthGrantType } from "@/client"
 import { entitiesCreateEntity } from "@/client"
@@ -45,11 +45,12 @@ import {
 } from "@/components/workspaces/add-workspace-secret"
 import { useEntities, useEntity } from "@/hooks/use-entities"
 import { useLocalStorage } from "@/hooks/use-local-storage"
+import { useCreateRunbook } from "@/hooks/use-runbook"
 import { useWorkspaceDetails } from "@/hooks/use-workspace"
 import { entityEvents } from "@/lib/entity-events"
 import {
   useGetCase,
-  useGetPrompt,
+  useGetRunbook,
   useGetTable,
   useIntegrationProvider,
 } from "@/lib/hooks"
@@ -242,18 +243,42 @@ function EntitiesActions() {
 }
 
 function RunbooksActions() {
-  // New runbook creation requires navigating to a chat first
-  // For now, we'll show a button that explains the process
+  const workspaceId = useWorkspaceId()
+  const router = useRouter()
+  const { createRunbook, createRunbookPending } = useCreateRunbook(workspaceId)
+
+  const handleCreateRunbook = async () => {
+    try {
+      // Create a runbook without chat_id - backend will auto-generate title and content
+      const runbook = await createRunbook({
+        meta: { created_directly: true },
+      })
+
+      // Navigate to the new runbook
+      router.push(`/workspaces/${workspaceId}/runbooks/${runbook.id}`)
+    } catch (error) {
+      toast({
+        title: "Failed to create runbook",
+        description:
+          error instanceof Error
+            ? error.message
+            : "An unexpected error occurred. Please try again.",
+        variant: "destructive",
+      })
+    }
+  }
+
   return (
     <Button
       variant="outline"
       size="sm"
       className="h-7 bg-white"
-      disabled
-      title="Create runbooks from chat conversations"
+      onClick={handleCreateRunbook}
+      disabled={createRunbookPending}
+      title="Create runbooks"
     >
       <Plus className="mr-1 h-3.5 w-3.5" />
-      Add runbook
+      {createRunbookPending ? "Creating..." : "Add runbook"}
     </Button>
   )
 }
@@ -440,7 +465,7 @@ function RunbookBreadcrumb({
   runbookId: string
   workspaceId: string
 }) {
-  const { data: prompt } = useGetPrompt({ workspaceId, promptId: runbookId })
+  const { data: runbook } = useGetRunbook({ workspaceId, runbookId })
 
   return (
     <Breadcrumb>
@@ -455,7 +480,7 @@ function RunbookBreadcrumb({
         </BreadcrumbSeparator>
         <BreadcrumbItem>
           <BreadcrumbPage className="font-semibold">
-            {prompt?.title || runbookId}
+            {runbook?.title || runbookId}
           </BreadcrumbPage>
         </BreadcrumbItem>
       </BreadcrumbList>

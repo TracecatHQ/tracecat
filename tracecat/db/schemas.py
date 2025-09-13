@@ -1271,10 +1271,14 @@ class Chat(Resource, table=True):
     user: User = Relationship(back_populates="chats")
 
 
-class Prompt(Resource, table=True):
-    """A frozen chat that can be replayed on multiple cases."""
+class Runbook(Resource, table=True):
+    """A runbook that can be executed on cases."""
 
-    __tablename__: str = "prompt"
+    __tablename__: str = "runbook"
+
+    __table_args__ = (
+        UniqueConstraint("alias", "owner_id", name="uq_prompt_alias_owner_id"),
+    )
 
     id: uuid.UUID = Field(
         default_factory=uuid.uuid4,
@@ -1282,38 +1286,31 @@ class Prompt(Resource, table=True):
         unique=True,
         index=True,
     )
-    chat_id: UUID4 = Field(
-        sa_column=Column(
-            UUID, ForeignKey("chat.id", ondelete="CASCADE"), nullable=False
-        )
-    )
     title: str = Field(
         ...,
-        description="Human-readable title for the prompt",
+        description="Human-readable title for the runbook",
         nullable=False,
     )
     content: str = Field(
         ...,
-        description="The instruction prompt/runbook string passed to the agent",
+        description="The instruction runbook string passed to the agent",
         nullable=False,
     )
     tools: list[str] = Field(
         default_factory=list,
         sa_column=Column(JSONB),
-        description="The tools available to the agent for this prompt.",
+        description="The tools available to the agent for this runbook.",
     )
     summary: str | None = Field(
         default=None,
-        description="A summary of the prompt.",
+        description="A summary of the runbook.",
     )
+    alias: str | None = Field(default=None, description="Alias for the prompt")
     meta: dict[str, Any] = Field(
         default_factory=dict,
         sa_column=Column(JSONB),
         description="Metadata including schema version, tool SHA, token count",
     )
-
-    # Relationships
-    chat: Chat = Relationship()
 
 
 class Tag(Resource, table=True):

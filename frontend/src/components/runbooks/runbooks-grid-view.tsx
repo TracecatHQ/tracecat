@@ -2,7 +2,7 @@
 
 import { FileText, Search, SortDesc } from "lucide-react"
 import { useMemo, useState } from "react"
-import type { PromptRead } from "@/client"
+import type { RunbookRead } from "@/client"
 import { RunbookCard } from "@/components/runbooks/runbook-card"
 import {
   AlertDialog,
@@ -22,13 +22,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { useDeletePrompt } from "@/hooks/use-prompt"
+import { useDeleteRunbook } from "@/hooks/use-runbook"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 export type SortOption = "created_at" | "updated_at"
 
 interface RunbooksGridViewProps {
-  runbooks: PromptRead[]
+  runbooks: RunbookRead[]
   isLoading: boolean
   sortBy: SortOption
   onSortChange: (sort: SortOption) => void
@@ -43,7 +43,7 @@ export function RunbooksGridView({
   const workspaceId = useWorkspaceId()
   const [searchTerm, setSearchTerm] = useState("")
   const [runbookToDelete, setRunbookToDelete] = useState<string | null>(null)
-  const { deletePrompt, deletePromptPending } = useDeletePrompt(workspaceId)
+  const { deleteRunbook, deleteRunbookPending } = useDeleteRunbook(workspaceId)
 
   // Filter runbooks based on search term
   const filteredRunbooks = useMemo(() => {
@@ -57,7 +57,7 @@ export function RunbooksGridView({
 
   const handleDelete = async () => {
     if (runbookToDelete) {
-      await deletePrompt(runbookToDelete)
+      await deleteRunbook(runbookToDelete)
       setRunbookToDelete(null)
     }
   }
@@ -148,15 +148,15 @@ export function RunbooksGridView({
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={deletePromptPending}>
+            <AlertDialogCancel disabled={deleteRunbookPending}>
               Cancel
             </AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDelete}
-              disabled={deletePromptPending}
+              disabled={deleteRunbookPending}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              {deletePromptPending ? "Deleting..." : "Delete"}
+              {deleteRunbookPending ? "Deleting..." : "Delete"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

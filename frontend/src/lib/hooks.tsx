@@ -235,7 +235,7 @@ import {
   workspacesUpdateWorkspace,
 } from "@/client"
 import { toast } from "@/components/ui/use-toast"
-import { useGetPrompt } from "@/hooks/use-prompt"
+import { useGetRunbook } from "@/hooks/use-runbook"
 
 import { getBaseUrl } from "@/lib/api"
 import { retryHandler, type TracecatApiError } from "@/lib/errors"
@@ -2967,7 +2967,7 @@ export function useUnlinkCaseRecord({
   }
 }
 
-export { useGetPrompt }
+export { useGetRunbook }
 
 export function useCreateCase(workspaceId: string) {
   const queryClient = useQueryClient()

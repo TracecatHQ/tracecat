@@ -24,7 +24,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { useChat, useCreateChat, useListChats } from "@/hooks/use-chat"
-import { useCreatePrompt } from "@/hooks/use-prompt"
+import { useCreateRunbook } from "@/hooks/use-runbook"
 import { useChatReadiness, useGetCase } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -57,7 +57,7 @@ export function ChatInterface({
   const { createChat, createChatPending } = useCreateChat(workspaceId)
 
   // Create prompt mutation
-  const { createPrompt, createPromptPending } = useCreatePrompt(workspaceId)
+  const { createRunbook, createRunbookPending } = useCreateRunbook(workspaceId)
 
   // Fetch case data if entityType is "case"
   const { caseData } = useGetCase({
@@ -136,12 +136,12 @@ export function ChatInterface({
         }
       }
 
-      const prompt = await createPrompt({
+      const runbook = await createRunbook({
         chat_id: selectedChatId,
         meta,
       })
 
-      console.log(`Chat saved as prompt: "${prompt.title}"`)
+      console.log(`Chat saved as prompt: "${runbook.title}"`)
     } catch (error) {
       console.error("Failed to save chat as prompt:", error)
     }
@@ -283,7 +283,7 @@ export function ChatInterface({
                     variant="ghost"
                     className="size-6 p-0"
                     onClick={handleSaveAsPrompt}
-                    disabled={createPromptPending || !messages?.length}
+                    disabled={createRunbookPending || !messages?.length}
                   >
                     <ListTodo className="h-4 w-4" />
                   </Button>

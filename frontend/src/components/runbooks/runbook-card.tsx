@@ -4,7 +4,7 @@ import { formatDistanceToNow } from "date-fns"
 import { FileText, MoreHorizontal, Trash2 } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useState } from "react"
-import type { PromptRead } from "@/client"
+import type { RunbookRead } from "@/client"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -22,7 +22,7 @@ import {
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 interface RunbookCardProps {
-  runbook: PromptRead
+  runbook: RunbookRead
   onDelete: (runbookId: string) => void
 }
 

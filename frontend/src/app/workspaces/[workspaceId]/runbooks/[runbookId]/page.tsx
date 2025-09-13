@@ -10,7 +10,7 @@ import {
 import Link from "next/link"
 import { useParams, useRouter, useSearchParams } from "next/navigation"
 import { useCallback, useEffect } from "react"
-import type { PromptRead } from "@/client"
+import type { RunbookRead } from "@/client"
 import { CaseCommentViewer } from "@/components/cases/case-description-editor"
 import { JsonViewWithControls } from "@/components/json-viewer"
 import { CenteredSpinner } from "@/components/loading/spinner"
@@ -18,7 +18,7 @@ import { RunbookSummaryEditor } from "@/components/runbooks/runbook-summary-edit
 import { RunbookTitleEditor } from "@/components/runbooks/runbook-title-editor"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { useGetPrompt, useUpdatePrompt } from "@/hooks/use-prompt"
+import { useGetRunbook, useUpdateRunbook } from "@/hooks/use-runbook"
 import { capitalizeFirst } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -26,27 +26,26 @@ export default function RunbookDetailPage() {
   const params = useParams()
   const workspaceId = useWorkspaceId()
 
-  if (!params) {
-    return <div>Error: Invalid parameters</div>
-  }
-
-  const runbookId = params.runbookId as string
+  const runbookId = params?.runbookId as string | undefined
 
   const {
-    data: prompt,
+    data: runbook,
     isLoading,
     error,
-  } = useGetPrompt({
+  } = useGetRunbook({
     workspaceId,
-    promptId: runbookId,
+    runbookId: runbookId || "",
   })
 
   useEffect(() => {
-    if (prompt?.title) {
-      document.title = prompt.title
+    if (runbook?.title) {
+      document.title = runbook.title
     }
-  }, [prompt])
+  }, [runbook])
 
+  if (!params) {
+    return <div>Error: Invalid parameters</div>
+  }
   if (isLoading) {
     return <CenteredSpinner />
   }
@@ -55,7 +54,7 @@ export default function RunbookDetailPage() {
     return <div>Error: {error.message}</div>
   }
 
-  if (!prompt) {
+  if (!runbook) {
     return (
       <div className="container mx-auto max-w-4xl p-6">
         <div className="flex flex-col items-center justify-center space-y-4 py-12">
@@ -75,16 +74,16 @@ export default function RunbookDetailPage() {
     )
   }
 
-  return <RunbookDetailContent prompt={prompt} />
+  return <RunbookDetailContent runbook={runbook} />
 }
 
 type RunbookDetailTab = "summary" | "instructions"
 
-function RunbookDetailContent({ prompt }: { prompt: PromptRead }) {
+function RunbookDetailContent({ runbook }: { runbook: RunbookRead }) {
   const workspaceId = useWorkspaceId()
   const router = useRouter()
   const searchParams = useSearchParams()
-  const { updatePrompt } = useUpdatePrompt(workspaceId)
+  const { updateRunbook } = useUpdateRunbook(workspaceId)
 
   // Get active tab from URL query params, default to "summary"
   const activeTab = (
@@ -97,29 +96,36 @@ function RunbookDetailContent({ prompt }: { prompt: PromptRead }) {
   // Function to handle tab changes and update URL
   const handleTabChange = useCallback(
     (tab: string) => {
-      router.push(`/workspaces/${workspaceId}/runbooks/${prompt.id}?tab=${tab}`)
+      router.push(
+        `/workspaces/${workspaceId}/runbooks/${runbook.id}?tab=${tab}`
+      )
     },
-    [router, workspaceId, prompt.id]
+    [router, workspaceId, runbook.id]
   )
 
   return (
     <div className="container mx-auto max-w-4xl p-6 mt-10 min-h-screen">
       {/* Header */}
       <div className="mb-8">
-        <RunbookTitleEditor promptData={prompt} updatePrompt={updatePrompt} />
+        <RunbookTitleEditor
+          runbookData={runbook}
+          updateRunbook={updateRunbook}
+        />
         <div className="mt-4 flex items-start gap-4">
           <FileTextIcon className="size-10 p-2 bg-muted rounded-md" />
           <div className="flex-1">
             <p className="mt-1 text-muted-foreground">
-              {prompt.meta?.case_slug
-                ? `Created from ${prompt.meta.case_slug}`
-                : `Created from chat ${prompt.chat_id}`}
+              {runbook.meta?.case_slug
+                ? `Created from ${runbook.meta.case_slug}`
+                : runbook.meta?.chat_id
+                  ? `Created from chat ${runbook.meta.chat_id}`
+                  : "Created manually"}
             </p>
             <div className="mt-2 flex items-center gap-1">
               <Calendar className="size-3 text-muted-foreground" />
               <span className="text-sm text-muted-foreground">
                 {capitalizeFirst(
-                  formatDistanceToNow(new Date(prompt.created_at), {
+                  formatDistanceToNow(new Date(runbook.created_at), {
                     addSuffix: true,
                   })
                 )}
@@ -155,10 +161,10 @@ function RunbookDetailContent({ prompt }: { prompt: PromptRead }) {
         <TabsContent value="summary" className="space-y-6">
           {/* Main Content */}
           <div className="space-y-6">
-            {prompt.summary !== undefined ? (
+            {runbook.summary !== undefined ? (
               <RunbookSummaryEditor
-                promptData={prompt}
-                updatePrompt={updatePrompt}
+                runbookData={runbook}
+                updateRunbook={updateRunbook}
               />
             ) : (
               <CaseCommentViewer content="" className="min-h-[200px]" />
@@ -170,7 +176,7 @@ function RunbookDetailContent({ prompt }: { prompt: PromptRead }) {
           <div className="space-y-4">
             <h3 className="text-lg font-semibold">Payload</h3>
             <JsonViewWithControls
-              src={prompt}
+              src={runbook}
               defaultExpanded
               defaultTab="nested"
             />
