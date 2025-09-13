@@ -240,8 +240,7 @@ Here are the <Steps> to execute:
         )
 
         result = await self.session.exec(stmt)
-        prompt_id = result.one_or_none()
-        return prompt_id if prompt_id else None
+        return result.one_or_none()
 
     async def list_prompts(
         self,
