@@ -6,6 +6,7 @@ import type React from "react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
+import type { ChatEntity } from "@/client"
 import { ChatToolsDialog } from "@/components/chat/chat-tools-dialog"
 import { Button } from "@/components/ui/button"
 import {
@@ -35,6 +36,7 @@ interface ChatInputProps {
   disabled?: boolean
   placeholder?: string
   chatId: string
+  entityType?: ChatEntity
 }
 
 export function ChatInput({
@@ -42,6 +44,7 @@ export function ChatInput({
   disabled = false,
   placeholder = "Type your message...",
   chatId,
+  entityType,
 }: ChatInputProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -145,6 +148,7 @@ export function ChatInput({
             sendMessage={form.handleSubmit(handleMessageSubmit)}
             disabled={disabled || isMessageEmpty}
             chatId={chatId}
+            entityType={entityType}
           />
         </Form>
       </div>
@@ -156,10 +160,12 @@ function ChatControls({
   sendMessage,
   disabled = false,
   chatId,
+  entityType,
 }: {
   sendMessage: () => void
   disabled?: boolean
   chatId: string
+  entityType?: ChatEntity
 }) {
   const [toolsModalOpen, setToolsModalOpen] = useState(false)
 
@@ -192,6 +198,7 @@ function ChatControls({
               variant="ghost"
               className="h-6 flex items-center p-1 gap-1 rounded-md hover:text-muted-foreground"
               onClick={() => setToolsModalOpen(true)}
+              disabled={disabled || entityType === "runbook"}
             >
               <HammerIcon className="size-3.5" />
               <span className="text-xs">Tools</span>

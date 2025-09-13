@@ -346,6 +346,7 @@ export function ChatInterface({
                   : `Ask about this ${entityType}...`
               }
               chatId={selectedChatId}
+              entityType={entityType}
             />
           ) : chatReadyLoading ? (
             <CenteredSpinner />
