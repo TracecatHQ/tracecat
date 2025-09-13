@@ -217,6 +217,8 @@ import type {
   PromptCreatePromptResponse,
   PromptDeletePromptData,
   PromptDeletePromptResponse,
+  PromptGetPromptByAliasData,
+  PromptGetPromptByAliasResponse,
   PromptGetPromptData,
   PromptGetPromptResponse,
   PromptListPromptsData,
@@ -5398,6 +5400,33 @@ export const promptDeletePrompt = (
     url: "/prompt/{prompt_id}",
     path: {
       prompt_id: data.promptId,
+    },
+    query: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Prompt By Alias
+ * Get a prompt by alias.
+ * @param data The data for the request.
+ * @param data.alias
+ * @param data.workspaceId
+ * @returns PromptRead Successful Response
+ * @throws ApiError
+ */
+export const promptGetPromptByAlias = (
+  data: PromptGetPromptByAliasData
+): CancelablePromise<PromptGetPromptByAliasResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/prompt/alias/{alias}",
+    path: {
+      alias: data.alias,
     },
     query: {
       workspace_id: data.workspaceId,

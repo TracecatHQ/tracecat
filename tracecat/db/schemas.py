@@ -1281,6 +1281,10 @@ class Prompt(Resource, table=True):
 
     __tablename__: str = "prompt"
 
+    __table_args__ = (
+        UniqueConstraint("alias", "owner_id", name="uq_prompt_alias_owner_id"),
+    )
+
     id: uuid.UUID = Field(
         default_factory=uuid.uuid4,
         nullable=False,
@@ -1311,6 +1315,9 @@ class Prompt(Resource, table=True):
     summary: str | None = Field(
         default=None,
         description="A summary of the prompt.",
+    )
+    alias: str | None = Field(
+        default=None, description="Alias for the prompt", index=True
     )
     meta: dict[str, Any] = Field(
         default_factory=dict,

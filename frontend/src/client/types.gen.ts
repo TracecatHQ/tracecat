@@ -2152,6 +2152,10 @@ export type PromptCreate = {
    */
   chat_id?: string | null
   /**
+   * Optional alias for the prompt (must be unique within workspace)
+   */
+  alias?: string | null
+  /**
    * Optional metadata to include with the prompt (e.g., case information)
    */
   meta?: {
@@ -2183,6 +2187,10 @@ export type PromptRead = {
    * The tools available to the agent for this prompt
    */
   tools: Array<string>
+  /**
+   * Alias for the prompt
+   */
+  alias?: string | null
   /**
    * When the prompt was created
    */
@@ -2255,6 +2263,10 @@ export type PromptUpdate = {
    * New tools for the prompt
    */
   tools?: Array<string> | null
+  /**
+   * New alias for the prompt (must be unique within workspace)
+   */
+  alias?: string | null
   /**
    * New summary for the prompt
    */
@@ -5885,6 +5897,13 @@ export type PromptDeletePromptData = {
 
 export type PromptDeletePromptResponse = void
 
+export type PromptGetPromptByAliasData = {
+  alias: string
+  workspaceId: string
+}
+
+export type PromptGetPromptByAliasResponse = PromptRead
+
 export type PromptRunPromptData = {
   promptId: string
   requestBody: PromptRunRequest
@@ -8773,6 +8792,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/prompt/alias/{alias}": {
+    get: {
+      req: PromptGetPromptByAliasData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: PromptRead
         /**
          * Validation Error
          */

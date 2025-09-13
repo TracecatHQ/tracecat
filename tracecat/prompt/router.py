@@ -102,6 +102,23 @@ async def get_prompt(
     return PromptRead.model_validate(prompt, from_attributes=True)
 
 
+@router.get("/alias/{alias}", response_model=PromptRead)
+async def get_prompt_by_alias(
+    alias: str,
+    role: WorkspaceUser,
+    session: AsyncDBSession,
+) -> PromptRead:
+    """Get a prompt by alias."""
+    svc = PromptService(session, role)
+    prompt = await svc.get_prompt_by_alias(alias)
+    if not prompt:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Prompt not found",
+        )
+    return PromptRead.model_validate(prompt, from_attributes=True)
+
+
 @router.patch("/{prompt_id}", response_model=PromptRead)
 async def update_prompt(
     prompt_id: uuid.UUID,
@@ -118,13 +135,7 @@ async def update_prompt(
             detail="Prompt not found",
         )
 
-    prompt = await svc.update_prompt(
-        prompt,
-        title=params.title,
-        content=params.content,
-        tools=params.tools,
-        summary=params.summary,
-    )
+    prompt = await svc.update_prompt(prompt, params)
     return PromptRead.model_validate(prompt, from_attributes=True)
 
 

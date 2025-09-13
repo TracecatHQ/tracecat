@@ -6394,6 +6394,19 @@ export const $PromptCreate = {
       title: "Chat Id",
       description: "ID of the chat to freeze into a prompt",
     },
+    alias: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Alias",
+      description:
+        "Optional alias for the prompt (must be unique within workspace)",
+    },
     meta: {
       anyOf: [
         {
@@ -6452,6 +6465,18 @@ export const $PromptRead = {
       type: "array",
       title: "Tools",
       description: "The tools available to the agent for this prompt",
+    },
+    alias: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Alias",
+      description: "Alias for the prompt",
     },
     created_at: {
       type: "string",
@@ -6587,6 +6612,18 @@ export const $PromptUpdate = {
       ],
       title: "Tools",
       description: "New tools for the prompt",
+    },
+    alias: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Alias",
+      description: "New alias for the prompt (must be unique within workspace)",
     },
     summary: {
       anyOf: [

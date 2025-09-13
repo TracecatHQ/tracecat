@@ -17,6 +17,10 @@ class PromptCreate(BaseModel):
         default=None,
         description="ID of the chat to freeze into a prompt",
     )
+    alias: str | None = Field(
+        default=None,
+        description="Optional alias for the prompt (must be unique within workspace)",
+    )
     meta: dict[str, Any] | None = Field(
         default=None,
         description="Optional metadata to include with the prompt (e.g., case information)",
@@ -36,6 +40,10 @@ class PromptRead(BaseModel):
     tools: list[str] = Field(
         ...,
         description="The tools available to the agent for this prompt",
+    )
+    alias: str | None = Field(
+        default=None,
+        description="Alias for the prompt",
     )
     created_at: datetime = Field(..., description="When the prompt was created")
     updated_at: datetime = Field(..., description="When the prompt was last updated")
@@ -67,6 +75,10 @@ class PromptUpdate(BaseModel):
     tools: list[str] | None = Field(
         default=None,
         description="New tools for the prompt",
+    )
+    alias: str | None = Field(
+        default=None,
+        description="New alias for the prompt (must be unique within workspace)",
     )
     summary: str | None = Field(
         default=None,
