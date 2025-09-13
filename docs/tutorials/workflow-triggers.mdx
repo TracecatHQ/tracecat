@@ -7,9 +7,9 @@ icon: bolt
 <Note>
   This tutorial does not cover how to expose your Tracecat instance to the public internet.
 
-  - If you're running Tracecat locally, you'll need use a tunneling service like [ngrok](https://ngrok.com/) to receive webhook requests from the public internet.
-  - If you're running Tracecat on AWS Fargate, Tracecat is automatically exposed to the public internet via an Application Load Balancer.
-</Note>
+- If you're running Tracecat locally, you'll need use a tunneling service like [ngrok](https://ngrok.com/) to receive webhook requests from the public internet.
+- If you're running Tracecat on AWS Fargate, Tracecat is automatically exposed to the public internet via an Application Load Balancer.
+  </Note>
 
 ## What you'll learn
 
@@ -29,8 +29,8 @@ Click on the `Trigger` action to activate the webhooks and schedules configurati
 ### Webhooks
 
 <Warning>
-  Webhook URLs are **secrets** and should not be exposed in public.
-  The webhook URL shown in the UI screenshots are for demonstration only.
+  Webhook URLs are **secrets** and should not be exposed in public. The webhook
+  URL shown in the UI screenshots are for demonstration only.
 </Warning>
 
 Webhooks are disabled by default. To activate a workflow's webhook, click on the `Trigger` action, then toggle the webhook on.
@@ -46,6 +46,12 @@ WEBHOOK_URL=https://<tracecat-public-url>/api/webhooks/<workflow-id>/<webhook-se
 Schedules are disabled by default. To activate a workflow's schedule, click on the `Trigger` action, then toggle the schedule on.
 
 ![Schedule action](/img/tutorials/triggers/schedule.png)
+
+From here you can enter a recurring schedule with a timeout and offset. Tracecat defaults to using UTC time, so it's convenient to use `offset` to work with timezone differences.
+
+For example, if you are in America/New_York timezone and want to run a workflow every day at 9AM, you can configure the schedule to run every 1 day with an `offset` of `PT13H`. This is because 00:00 UTC is 8PM EDT.
+
+![Schedule modal](/img/tutorials/triggers/schedule_modal.png)
 
 ### Webhook verification
 
@@ -68,8 +74,9 @@ https://${WEBHOOK_URL}?empty_echo=true
 ### Vendor-specific webhooks
 
 <Note>
-  Can't find the vendor you're looking for?
-  Open an issue on [GitHub](https://github.com/TracecatHQ/tracecat/issues) and we'll add support for it.
+  Can't find the vendor you're looking for? Open an issue on
+  [GitHub](https://github.com/TracecatHQ/tracecat/issues) and we'll add support
+  for it.
 </Note>
 
 Some vendors have more complex webhook verification requirements.
@@ -80,6 +87,7 @@ https://${WEBHOOK_URL}?vendor=okta
 ```
 
 Vendors currently supported:
+
 - `okta`
 
 ### Pause or delete schedule
@@ -106,8 +114,9 @@ Traceat's webhook parser supports the following `Content-Type` headers:
 - `application/www-form-urlencoded`
 
 <Note>
-  The webhook sender must set the `Content-Type` header to the appropriate value.
-  If no `Content-Type` header is set, Tracecat defaults to `application/json`.
+  The webhook sender must set the `Content-Type` header to the appropriate
+  value. If no `Content-Type` header is set, Tracecat defaults to
+  `application/json`.
 </Note>
 
 ### Example: Elastic Security
@@ -143,6 +152,7 @@ in Kibana to send NDJSON with the expected content type (`application/x-ndjson`)
 
       ![Elastic Security webhook](/img/tutorials/triggers/elastic-security-webhook.png)
     </Step>
+
   </Steps>
 </Accordion>
 
@@ -158,6 +168,7 @@ in Kibana to send NDJSON with the expected content type (`application/x-ndjson`)
     ```
 
     ![Deserialize JSON action](/img/tutorials/triggers/deserialize-json.png)
+
   </Step>
   <Step title="Save workflow">
     Save the workflow.
@@ -168,6 +179,7 @@ in Kibana to send NDJSON with the expected content type (`application/x-ndjson`)
     The workflow will now receive webhook events.
 
     ![Toggle webhook](/img/tutorials/triggers/toggle-webhook.png)
+
   </Step>
   <Step title="POST webhook request">
     Copy the webhook URL to your clipboard, then make a `POST` request to the webhook URL.
@@ -179,11 +191,13 @@ in Kibana to send NDJSON with the expected content type (`application/x-ndjson`)
       -d '{"payload": "{\"name\": \"John\", \"age\": 30}"}' \
       <webhook-url>
     ```
+
   </Step>
   <Step title="View workflow runs">
     Go to the `Runs` view and check that the workflow has run successfully.
     The workflow should have received the webhook payload and deserialized it into a JSON object.
 
     ![Deserialize JSON result](/img/tutorials/triggers/deserialize-json-result.png)
+
   </Step>
 </Steps>
