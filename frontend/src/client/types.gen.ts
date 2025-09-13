@@ -5897,13 +5897,6 @@ export type PromptDeletePromptData = {
 
 export type PromptDeletePromptResponse = void
 
-export type PromptGetPromptByAliasData = {
-  alias: string
-  workspaceId: string
-}
-
-export type PromptGetPromptByAliasResponse = PromptRead
-
 export type PromptRunPromptData = {
   promptId: string
   requestBody: PromptRunRequest
@@ -8792,21 +8785,6 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/prompt/alias/{alias}": {
-    get: {
-      req: PromptGetPromptByAliasData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: PromptRead
         /**
          * Validation Error
          */
