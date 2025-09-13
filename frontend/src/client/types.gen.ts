@@ -913,7 +913,7 @@ export type ChatCreate = {
 /**
  * The type of entity associated with a chat.
  */
-export type ChatEntity = "case"
+export type ChatEntity = "case" | "runbook"
 
 /**
  * Model for chat metadata with a single message.

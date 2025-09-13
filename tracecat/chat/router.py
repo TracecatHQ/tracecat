@@ -31,6 +31,7 @@ from tracecat.chat.service import ChatService, inject_case_content
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.logger import logger
 from tracecat.redis.client import get_redis_client
+from tracecat.runbook.service import inject_runbook_content
 from tracecat.settings.service import get_setting_cached
 
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -175,6 +176,11 @@ async def start_chat_turn(
                 session=session, role=role, case_id=chat.entity_id
             ):
                 instructions.append(case_instructions)
+        elif chat.entity_type == ChatEntity.RUNBOOK:
+            if runbook_instructions := await inject_runbook_content(
+                session=session, role=role, runbook_id=chat.entity_id
+            ):
+                instructions.append(runbook_instructions)
         if request.instructions:
             instructions.append(request.instructions)
         merged_instructions = "\n".join(instructions) if instructions else None
@@ -183,6 +189,7 @@ async def start_chat_turn(
             merged_instructions=merged_instructions,
             org_prompt=org_prompt,
             request_instructions=request.instructions,
+            tools=chat.tools,
         )
 
         model_info = ModelInfo(
