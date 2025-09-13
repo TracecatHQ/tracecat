@@ -86,15 +86,15 @@ class RunbookUpdate(BaseModel):
     )
 
 
-class RunbookRunRequest(BaseModel):
+class RunbookExecuteRequest(BaseModel):
     """Request model for running a runbook on cases."""
 
-    entities: list[RunbookRunEntity] = Field(
+    entities: list[RunbookExecuteEntity] = Field(
         ..., description="Entities to run the runbook on"
     )
 
 
-class RunbookRunEntity(BaseModel):
+class RunbookExecuteEntity(BaseModel):
     """Request model for running a runbook on an entity."""
 
     entity_id: UUID4 = Field(..., description="ID of the entity to run the runbook on")
@@ -103,7 +103,7 @@ class RunbookRunEntity(BaseModel):
     )
 
 
-class RunbookRunResponse(BaseModel):
+class RunbookExecuteResponse(BaseModel):
     """Response model for runbook execution."""
 
     stream_urls: dict[str, str] = Field(

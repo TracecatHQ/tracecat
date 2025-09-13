@@ -3,7 +3,7 @@
 import { formatDistanceToNow } from "date-fns"
 import { Calendar } from "lucide-react"
 import { useState } from "react"
-import type { RunbookRead, RunbookRunRequest } from "@/client"
+import type { RunbookExecuteRequest, RunbookRead } from "@/client"
 import { CaseCommentViewer } from "@/components/cases/case-description-editor"
 import { Button } from "@/components/ui/button"
 import {
@@ -43,7 +43,7 @@ export function RunbookExecuteDialog({
 
     setIsExecuting(true)
     try {
-      const request: RunbookRunRequest = {
+      const request: RunbookExecuteRequest = {
         entities: [
           {
             entity_id: entityId,

@@ -2,15 +2,15 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   type ApiError,
   type RunbookCreate,
+  type RunbookExecuteRequest,
+  type RunbookExecuteResponse,
   type RunbookRead,
-  type RunbookRunRequest,
-  type RunbookRunResponse,
   type RunbookUpdate,
   runbookCreateRunbook,
   runbookDeleteRunbook,
+  runbookExecuteRunbook,
   runbookGetRunbook,
   runbookListRunbooks,
-  runbookRunRunbook,
   runbookUpdateRunbook,
 } from "@/client"
 import { toast } from "@/components/ui/use-toast"
@@ -132,12 +132,12 @@ export function useRunRunbook(workspaceId: string) {
   const queryClient = useQueryClient()
 
   const { mutateAsync: runRunbook, isPending: runRunbookPending } = useMutation<
-    RunbookRunResponse,
+    RunbookExecuteResponse,
     ApiError,
-    { runbookId: string; request: RunbookRunRequest }
+    { runbookId: string; request: RunbookExecuteRequest }
   >({
     mutationFn: ({ runbookId, request }) =>
-      runbookRunRunbook({
+      runbookExecuteRunbook({
         runbookId,
         workspaceId,
         requestBody: request,

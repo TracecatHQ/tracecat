@@ -8329,7 +8329,7 @@ export const $RunbookCreate = {
         },
       ],
       title: "Chat Id",
-      description: "ID of the chat to freeze into a prompt",
+      description: "ID of the chat to freeze into a runbook",
     },
     meta: {
       anyOf: [
@@ -8343,7 +8343,7 @@ export const $RunbookCreate = {
       ],
       title: "Meta",
       description:
-        "Optional metadata to include with the prompt (e.g., case information)",
+        "Optional metadata to include with the runbook (e.g., case information)",
     },
     alias: {
       anyOf: [
@@ -8360,6 +8360,59 @@ export const $RunbookCreate = {
   type: "object",
   title: "RunbookCreate",
   description: "Request model for creating a runbook.",
+} as const
+
+export const $RunbookExecuteEntity = {
+  properties: {
+    entity_id: {
+      type: "string",
+      format: "uuid4",
+      title: "Entity Id",
+      description: "ID of the entity to run the runbook on",
+    },
+    entity_type: {
+      $ref: "#/components/schemas/ChatEntity",
+      description: "Type of the entity to run the runbook on",
+    },
+  },
+  type: "object",
+  required: ["entity_id", "entity_type"],
+  title: "RunbookExecuteEntity",
+  description: "Request model for running a runbook on an entity.",
+} as const
+
+export const $RunbookExecuteRequest = {
+  properties: {
+    entities: {
+      items: {
+        $ref: "#/components/schemas/RunbookExecuteEntity",
+      },
+      type: "array",
+      title: "Entities",
+      description: "Entities to run the runbook on",
+    },
+  },
+  type: "object",
+  required: ["entities"],
+  title: "RunbookExecuteRequest",
+  description: "Request model for running a runbook on cases.",
+} as const
+
+export const $RunbookExecuteResponse = {
+  properties: {
+    stream_urls: {
+      additionalProperties: {
+        type: "string",
+      },
+      type: "object",
+      title: "Stream Urls",
+      description: "Mapping of chat_id to SSE stream URL",
+    },
+  },
+  type: "object",
+  required: ["stream_urls"],
+  title: "RunbookExecuteResponse",
+  description: "Response model for runbook execution.",
 } as const
 
 export const $RunbookRead = {
@@ -8423,59 +8476,6 @@ export const $RunbookRead = {
   required: ["id", "title", "content", "tools", "created_at", "updated_at"],
   title: "RunbookRead",
   description: "Model for runbook details.",
-} as const
-
-export const $RunbookRunEntity = {
-  properties: {
-    entity_id: {
-      type: "string",
-      format: "uuid4",
-      title: "Entity Id",
-      description: "ID of the entity to run the runbook on",
-    },
-    entity_type: {
-      $ref: "#/components/schemas/ChatEntity",
-      description: "Type of the entity to run the runbook on",
-    },
-  },
-  type: "object",
-  required: ["entity_id", "entity_type"],
-  title: "RunbookRunEntity",
-  description: "Request model for running a runbook on an entity.",
-} as const
-
-export const $RunbookRunRequest = {
-  properties: {
-    entities: {
-      items: {
-        $ref: "#/components/schemas/RunbookRunEntity",
-      },
-      type: "array",
-      title: "Entities",
-      description: "Entities to run the runbook on",
-    },
-  },
-  type: "object",
-  required: ["entities"],
-  title: "RunbookRunRequest",
-  description: "Request model for running a runbook on cases.",
-} as const
-
-export const $RunbookRunResponse = {
-  properties: {
-    stream_urls: {
-      additionalProperties: {
-        type: "string",
-      },
-      type: "object",
-      title: "Stream Urls",
-      description: "Mapping of case_id to SSE stream URL",
-    },
-  },
-  type: "object",
-  required: ["stream_urls"],
-  title: "RunbookRunResponse",
-  description: "Response model for runbook execution.",
 } as const
 
 export const $RunbookUpdate = {

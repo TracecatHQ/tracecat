@@ -21,9 +21,9 @@ from tracecat.logger import logger
 from tracecat.redis.client import get_redis_client
 from tracecat.runbook.models import (
     RunbookCreate,
+    RunbookExecuteRequest,
+    RunbookExecuteResponse,
     RunbookRead,
-    RunbookRunRequest,
-    RunbookRunResponse,
     RunbookUpdate,
 )
 from tracecat.runbook.service import RunbookService
@@ -166,13 +166,13 @@ async def delete_runbook(
     await svc.delete_runbook(runbook)
 
 
-@router.post("/{runbook_id}/run", response_model=RunbookRunResponse)
-async def run_runbook(
+@router.post("/{runbook_id}/execute", response_model=RunbookExecuteResponse)
+async def execute_runbook(
     runbook_id: uuid.UUID,
-    params: RunbookRunRequest,
+    params: RunbookExecuteRequest,
     role: WorkspaceUser,
     session: AsyncDBSession,
-) -> RunbookRunResponse:
+) -> RunbookExecuteResponse:
     """Execute a runbook on multiple cases."""
     svc = RunbookService(session, role)
 
@@ -185,7 +185,7 @@ async def run_runbook(
 
     try:
         responses = await svc.run_runbook(runbook, params.entities)
-        return RunbookRunResponse(
+        return RunbookExecuteResponse(
             stream_urls={
                 str(response.chat_id): response.stream_url for response in responses
             }
