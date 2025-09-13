@@ -1277,7 +1277,7 @@ class Runbook(Resource, table=True):
     __tablename__: str = "runbook"
 
     __table_args__ = (
-        UniqueConstraint("alias", "owner_id", name="uq_prompt_alias_owner_id"),
+        UniqueConstraint("alias", "owner_id", name="uq_runbook_alias_owner_id"),
     )
 
     id: uuid.UUID = Field(
@@ -1305,7 +1305,7 @@ class Runbook(Resource, table=True):
         default=None,
         description="A summary of the runbook.",
     )
-    alias: str | None = Field(default=None, description="Alias for the prompt")
+    alias: str | None = Field(default=None, description="Alias for the runbook")
     meta: dict[str, Any] = Field(
         default_factory=dict,
         sa_column=Column(JSONB),
