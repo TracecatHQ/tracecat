@@ -2730,7 +2730,7 @@ interface UseGetCaseOptions {
 }
 export function useGetCase(
   { caseId, workspaceId }: CasesGetCaseData,
-  options: UseGetCaseOptions
+  options?: UseGetCaseOptions
 ) {
   const {
     data: caseData,
