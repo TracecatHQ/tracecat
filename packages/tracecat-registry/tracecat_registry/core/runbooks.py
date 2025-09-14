@@ -1,6 +1,7 @@
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
+from pydantic_core import to_jsonable_python
 from tracecat_registry.integrations.pydantic_ai import PYDANTIC_AI_REGISTRY_SECRETS
 from typing_extensions import Doc
 from tracecat import config
@@ -9,6 +10,7 @@ from tracecat.clients import AuthenticatedServiceClient
 from tracecat.chat.enums import ChatEntity
 from tracecat.contexts import ctx_role
 from tracecat.runbook.models import (
+    RunbookExecuteResponse,
     RunbookRead,
     RunbookExecuteEntity,
     RunbookUpdate,
@@ -95,7 +97,7 @@ async def execute(
         list[str],
         Doc("List of case IDs (UUID strings) to run the runbook on."),
     ],
-) -> list[dict[str, Any]]:
+) -> Any:
     async with RunbookService.with_session() as svc:
         # Try to determine if it's a UUID or alias
         runbook = await svc.get_runbook(runbook_id_or_alias)
@@ -111,28 +113,13 @@ async def execute(
     async with ApiHTTPClient() as client:
         response = await client.post(
             f"/runbooks/{runbook.id}/execute",
-            json={"entities": entities},
+            json={"entities": to_jsonable_python(entities)},
         )
         response.raise_for_status()
-        results = response.json()
+        raw_results = response.json()
 
-    if not isinstance(results, list):
-        raise ValueError(f"Invalid response from API: {results}")
-
-    # Return a list of chat execution descriptors
-    # Serialize exceptions as well
-    res = []
-    for result in results:
-        if isinstance(result, Exception):
-            res.append({"kind": "error", "message": str(result)})
-        else:
-            res.append(
-                {
-                    "kind": "result",
-                    "result": result,
-                }
-            )
-    return res
+    results = RunbookExecuteResponse.model_validate(raw_results)
+    return results.model_dump(mode="json")
 
 
 @registry.register(
