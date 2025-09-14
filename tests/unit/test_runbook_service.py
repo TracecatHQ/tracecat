@@ -193,11 +193,47 @@ class TestRunbookService:
         )
 
         # Retrieve by ID
-        retrieved_runbook = await runbook_service.get_runbook(created_runbook.id)
+        retrieved_runbook = await runbook_service.get_runbook_by_id(created_runbook.id)
         assert retrieved_runbook is not None
         assert retrieved_runbook.id == created_runbook.id
         assert retrieved_runbook.title == "Test Runbook for ID"
         assert retrieved_runbook.alias == "id-test-runbook"
+
+    async def test_get_runbook_with_uuid(self, runbook_service: RunbookService) -> None:
+        """Test retrieving a runbook using the new get_runbook method with UUID."""
+        # Create a runbook
+        created_runbook = await runbook_service.create_runbook_direct(
+            title="Test Runbook UUID",
+            content="Test content",
+            tools=[],
+            alias="uuid-test-runbook",
+        )
+
+        # Retrieve using get_runbook with UUID string
+        retrieved_runbook = await runbook_service.get_runbook(str(created_runbook.id))
+        assert retrieved_runbook is not None
+        assert retrieved_runbook.id == created_runbook.id
+        assert retrieved_runbook.title == "Test Runbook UUID"
+        assert retrieved_runbook.alias == "uuid-test-runbook"
+
+    async def test_get_runbook_with_alias(
+        self, runbook_service: RunbookService
+    ) -> None:
+        """Test retrieving a runbook using the new get_runbook method with alias."""
+        # Create a runbook
+        created_runbook = await runbook_service.create_runbook_direct(
+            title="Test Runbook Alias Method",
+            content="Test content",
+            tools=[],
+            alias="method-test-alias",
+        )
+
+        # Retrieve using get_runbook with alias
+        retrieved_runbook = await runbook_service.get_runbook("method-test-alias")
+        assert retrieved_runbook is not None
+        assert retrieved_runbook.id == created_runbook.id
+        assert retrieved_runbook.title == "Test Runbook Alias Method"
+        assert retrieved_runbook.alias == "method-test-alias"
 
     async def test_get_runbook_by_alias(self, runbook_service: RunbookService) -> None:
         """Test retrieving a runbook by alias."""
@@ -210,7 +246,7 @@ class TestRunbookService:
         )
 
         # Retrieve by alias
-        retrieved_runbook = await runbook_service.get_prompt_by_alias(
+        retrieved_runbook = await runbook_service.get_runbook_by_alias(
             "unique-alias-test"
         )
         assert retrieved_runbook is not None
@@ -302,7 +338,7 @@ class TestRunbookService:
         assert updated_runbook.tools == []
 
         # Verify persistence
-        retrieved = await runbook_service.get_runbook(runbook.id)
+        retrieved = await runbook_service.get_runbook_by_id(runbook.id)
         assert retrieved is not None
         assert retrieved.title == "Updated Title"
         assert retrieved.alias == "updated-alias"
@@ -344,11 +380,11 @@ class TestRunbookService:
         await runbook_service.delete_runbook(runbook)
 
         # Verify deletion
-        deleted_runbook = await runbook_service.get_runbook(runbook.id)
+        deleted_runbook = await runbook_service.get_runbook_by_id(runbook.id)
         assert deleted_runbook is None
 
         # Also verify can't find by alias
-        deleted_by_alias = await runbook_service.get_prompt_by_alias("delete-test")
+        deleted_by_alias = await runbook_service.get_runbook_by_alias("delete-test")
         assert deleted_by_alias is None
 
     async def test_create_runbook_with_alias(
@@ -361,7 +397,7 @@ class TestRunbookService:
         assert runbook.owner_id == runbook_service.workspace_id
 
         # Verify can retrieve by alias
-        retrieved = await runbook_service.get_prompt_by_alias("test-runbook")
+        retrieved = await runbook_service.get_runbook_by_alias("test-runbook")
         assert retrieved is not None
         assert retrieved.id == runbook.id
 
@@ -384,7 +420,7 @@ class TestRunbookService:
         assert updated.alias == "newly-added-alias"
 
         # Verify can retrieve by new alias
-        retrieved = await runbook_service.get_prompt_by_alias("newly-added-alias")
+        retrieved = await runbook_service.get_runbook_by_alias("newly-added-alias")
         assert retrieved is not None
         assert retrieved.id == runbook.id
 
@@ -414,7 +450,7 @@ class TestRunbookService:
     ) -> None:
         """Test error handling for non-existent alias."""
         # Try to get runbook by non-existent alias
-        runbook = await runbook_service.get_prompt_by_alias("non-existent-alias")
+        runbook = await runbook_service.get_runbook_by_alias("non-existent-alias")
         assert runbook is None
 
         # Try to resolve non-existent alias
@@ -442,8 +478,8 @@ class TestRunbookService:
         assert runbook2.alias == ""
 
         # Both should be retrievable by ID
-        retrieved1 = await runbook_service.get_runbook(runbook1.id)
-        retrieved2 = await runbook_service.get_runbook(runbook2.id)
+        retrieved1 = await runbook_service.get_runbook_by_id(runbook1.id)
+        retrieved2 = await runbook_service.get_runbook_by_id(runbook2.id)
         assert retrieved1 is not None
         assert retrieved2 is not None
 

@@ -1,19 +1,22 @@
-from __future__ import annotations
-
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
+from tracecat_registry.integrations.pydantic_ai import PYDANTIC_AI_REGISTRY_SECRETS
 from typing_extensions import Doc
+from tracecat import config
+from tracecat.clients import AuthenticatedServiceClient
 
 from tracecat.chat.enums import ChatEntity
+from tracecat.contexts import ctx_role
 from tracecat.runbook.models import (
-    RunbookExecuteResponse,
     RunbookRead,
     RunbookExecuteEntity,
     RunbookUpdate,
 )
 from tracecat.runbook.service import RunbookService
 from tracecat_registry import registry
+
+from tracecat.types.auth import Role
 
 
 @registry.register(
@@ -47,35 +50,46 @@ async def list_runbooks(
 
 @registry.register(
     namespace="core.runbooks",
-    description="Get a single runbook by ID.",
+    description="Get a single runbook by ID or alias.",
     default_title="Get runbook",
     display_group="Runbooks",
 )
 async def get_runbook(
-    runbook_id: Annotated[
+    runbook_id_or_alias: Annotated[
         str,
-        Doc("The runbook ID (UUID)."),
+        Doc("The runbook ID (UUID) or alias."),
     ],
 ) -> dict[str, Any]:
     async with RunbookService.with_session() as svc:
-        runbook = await svc.get_runbook(UUID(runbook_id))
-    if not runbook:
-        raise ValueError(f"Runbook with ID {runbook_id} not found")
+        runbook = await svc.get_runbook(runbook_id_or_alias)
     return RunbookRead.model_validate(runbook, from_attributes=True).model_dump(
         mode="json"
     )
+
+
+class ApiHTTPClient(AuthenticatedServiceClient):
+    """Async httpx client for the executor service."""
+
+    def __init__(self, role: Role | None = None, *args: Any, **kwargs: Any) -> None:
+        self._api_base_url = config.TRACECAT__API_URL
+        super().__init__(role, *args, base_url=self._api_base_url, **kwargs)
+        self.params = self.params.add(
+            "workspace_id", str(self.role.workspace_id) if self.role else None
+        )
+        self.role = self.role or ctx_role.get()
 
 
 @registry.register(
     namespace="core.runbooks",
     description="Execute a runbook on one or more cases.",
     default_title="Execute runbook",
+    secrets=[*PYDANTIC_AI_REGISTRY_SECRETS],
     display_group="Runbooks",
 )
 async def execute(
-    runbook_id: Annotated[
+    runbook_id_or_alias: Annotated[
         str,
-        Doc("The runbook ID (UUID) to execute."),
+        Doc("The runbook ID (UUID) or alias to execute."),
     ],
     case_ids: Annotated[
         list[str],
@@ -83,35 +97,54 @@ async def execute(
     ],
 ) -> list[dict[str, Any]]:
     async with RunbookService.with_session() as svc:
-        runbook = await svc.get_runbook(UUID(runbook_id))
+        # Try to determine if it's a UUID or alias
+        runbook = await svc.get_runbook(runbook_id_or_alias)
         if not runbook:
-            raise ValueError(f"Runbook with ID {runbook_id} not found")
-
+            raise ValueError(
+                f"Runbook with ID or alias {runbook_id_or_alias} not found"
+            )
         entities = [
             RunbookExecuteEntity(entity_id=UUID(case_id), entity_type=ChatEntity.CASE)
             for case_id in case_ids
         ]
-        responses = await svc.run_runbook(runbook, entities)
+
+    async with ApiHTTPClient() as client:
+        response = await client.post(
+            f"/runbooks/{runbook.id}/execute",
+            json={"entities": entities},
+        )
+        response.raise_for_status()
+        results = response.json()
+
+    if not isinstance(results, list):
+        raise ValueError(f"Invalid response from API: {results}")
 
     # Return a list of chat execution descriptors
-    return [
-        RunbookExecuteResponse(
-            stream_urls={str(resp.chat_id): resp.stream_url}
-        ).model_dump(mode="json")
-        for resp in responses
-    ]
+    # Serialize exceptions as well
+    res = []
+    for result in results:
+        if isinstance(result, Exception):
+            res.append({"kind": "error", "message": str(result)})
+        else:
+            res.append(
+                {
+                    "kind": "result",
+                    "result": result,
+                }
+            )
+    return res
 
 
 @registry.register(
     namespace="core.runbooks",
-    description="Update a runbook's title, content, summary, or tools.",
+    description="Update a runbook's title, content, summary, alias, or tools.",
     default_title="Update runbook",
     display_group="Runbooks",
 )
 async def update_runbook(
-    runbook_id: Annotated[
+    runbook_id_or_alias: Annotated[
         str,
-        Doc("The runbook ID (UUID) to update."),
+        Doc("The runbook ID (UUID) or alias to update."),
     ],
     title: Annotated[
         str | None,
@@ -125,16 +158,22 @@ async def update_runbook(
         str | None,
         Doc("New summary for the runbook."),
     ] = None,
+    alias: Annotated[
+        str | None,
+        Doc("New alias for the runbook (must be unique within workspace)."),
+    ] = None,
     tools: Annotated[
         list[str] | None,
         Doc("New list of tools for the runbook."),
     ] = None,
 ) -> dict[str, Any]:
     async with RunbookService.with_session() as svc:
-        runbook = await svc.get_runbook(UUID(runbook_id))
+        # Try to determine if it's a UUID or alias
+        runbook = await svc.get_runbook(runbook_id_or_alias)
         if not runbook:
-            raise ValueError(f"Runbook with ID {runbook_id} not found")
-
+            raise ValueError(
+                f"Runbook with ID or alias {runbook_id_or_alias} not found"
+            )
         # Build update params
         kwargs: dict[str, Any] = {}
         if title is not None:
@@ -143,6 +182,8 @@ async def update_runbook(
             kwargs["content"] = content
         if summary is not None:
             kwargs["summary"] = summary
+        if alias is not None:
+            kwargs["alias"] = alias
         if tools is not None:
             kwargs["tools"] = tools
         update_params = RunbookUpdate(**kwargs)

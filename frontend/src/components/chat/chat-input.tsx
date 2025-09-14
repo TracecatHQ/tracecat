@@ -146,9 +146,9 @@ export function ChatInput({
           </form>
           <ChatControls
             sendMessage={form.handleSubmit(handleMessageSubmit)}
-            disabled={disabled || isMessageEmpty}
+            sendDisabled={disabled || isMessageEmpty}
+            toolsDisabled={disabled || entityType === "runbook"}
             chatId={chatId}
-            entityType={entityType}
           />
         </Form>
       </div>
@@ -158,14 +158,14 @@ export function ChatInput({
 
 function ChatControls({
   sendMessage,
-  disabled = false,
+  sendDisabled = false,
+  toolsDisabled = false,
   chatId,
-  entityType,
 }: {
   sendMessage: () => void
-  disabled?: boolean
+  sendDisabled?: boolean
+  toolsDisabled?: boolean
   chatId: string
-  entityType?: ChatEntity
 }) {
   const [toolsModalOpen, setToolsModalOpen] = useState(false)
 
@@ -198,7 +198,7 @@ function ChatControls({
               variant="ghost"
               className="h-6 flex items-center p-1 gap-1 rounded-md hover:text-muted-foreground"
               onClick={() => setToolsModalOpen(true)}
-              disabled={disabled || entityType === "runbook"}
+              disabled={toolsDisabled}
             >
               <HammerIcon className="size-3.5" />
               <span className="text-xs">Tools</span>
@@ -218,7 +218,7 @@ function ChatControls({
           size="icon"
           type="submit"
           className="size-6 rounded-md hover:text-muted-foreground"
-          disabled={disabled}
+          disabled={sendDisabled}
           onClick={sendMessage}
         >
           <ArrowUpIcon className="size-3.5" />

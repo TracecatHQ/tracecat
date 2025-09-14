@@ -54,12 +54,14 @@ export function Messages({
     // We have at least 1 message
     const lastMsg = messages[messages.length - 1]
 
-    // Handle case updates
+    // Handle case updates (on tool-call or tool-return)
     if (
       entityType === "case" &&
-      lastMsg.kind === "response" &&
       lastMsg.parts.some(
-        (p) => "tool_name" in p && caseUpdateActions.includes(p.tool_name)
+        (p) =>
+          "tool_name" in p &&
+          p.tool_name &&
+          caseUpdateActions.includes(p.tool_name)
       )
     ) {
       console.log("Invalidating case queries")
@@ -74,12 +76,14 @@ export function Messages({
       })
     }
 
-    // Handle runbook updates
+    // Handle runbook updates (on tool-call or tool-return)
     if (
       entityType === "runbook" &&
-      lastMsg.kind === "response" &&
       lastMsg.parts.some(
-        (p) => "tool_name" in p && runbookUpdateActions.includes(p.tool_name)
+        (p) =>
+          "tool_name" in p &&
+          p.tool_name &&
+          runbookUpdateActions.includes(p.tool_name)
       )
     ) {
       console.log("Invalidating runbook queries")

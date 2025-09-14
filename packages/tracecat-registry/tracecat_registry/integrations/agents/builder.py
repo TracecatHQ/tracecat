@@ -1,5 +1,6 @@
 """Pydantic AI agents with tool calling."""
 
+import asyncio
 from dataclasses import dataclass
 from datetime import datetime
 import inspect
@@ -570,14 +571,14 @@ async def build_agent_tools(
         failed_actions: list[str] = []
 
         # Create tools from registry actions
-        for ra in actions:
+        async def create_tool(ra: RegistryAction):
             action_name = f"{ra.namespace}.{ra.name}"
             logger.debug(f"Building tool for action: {action_name}")
 
             # Apply namespace filtering if specified
             if namespace_filters:
                 if not any(action_name.startswith(ns) for ns in namespace_filters):
-                    continue
+                    return
 
             # Create the tool using the extracted function
             result = await create_single_tool(service, ra, action_name, fixed_arguments)
@@ -585,7 +586,7 @@ async def build_agent_tools(
             # Check if result is None and handle accordingly
             if result is None:
                 failed_actions.append(action_name)
-                continue
+                return
 
             # Update collected secrets
             collected_secrets.update(result.collected_secrets)
@@ -594,6 +595,8 @@ async def build_agent_tools(
                 tools.append(result.tool)
             else:
                 failed_actions.append(result.action_name)
+
+        await asyncio.gather(*[create_tool(ra) for ra in actions])
 
     return BulidToolsResult(
         tools=tools,
@@ -936,6 +939,7 @@ async def run_agent(
                 error_handling_prompt,
             ]
         )
+        logger.debug("Enhanced instructions", enhanced_instrs=enhanced_instrs)
 
     builder = TracecatAgentBuilder(
         model_name=model_name,

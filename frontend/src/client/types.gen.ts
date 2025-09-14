@@ -2882,7 +2882,9 @@ export type RunUsage = {
   tool_calls?: number
 }
 
-export type RunbookAlias = string
+export type RunbookAlias_Input = string
+
+export type RunbookAlias_Output = string
 
 /**
  * Request model for creating a runbook.
@@ -2901,7 +2903,7 @@ export type RunbookCreate = {
   /**
    * Alias for the runbook
    */
-  alias?: RunbookAlias | null
+  alias?: RunbookAlias_Input | null
 }
 
 /**
@@ -2978,6 +2980,10 @@ export type RunbookRead = {
    * A summary of the runbook.
    */
   summary?: string | null
+  /**
+   * Alias for the runbook
+   */
+  alias?: RunbookAlias_Output | null
 }
 
 /**
@@ -3003,7 +3009,7 @@ export type RunbookUpdate = {
   /**
    * New alias for the runbook (must be unique within workspace)
    */
-  alias?: RunbookAlias | null
+  alias?: RunbookAlias_Input | null
 }
 
 export type SAMLDatabaseLoginResponse = {
@@ -8704,7 +8710,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/runbook/": {
+  "/runbooks": {
     post: {
       req: RunbookCreateRunbookData
       res: {
@@ -8732,7 +8738,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/runbook/{runbook_id}": {
+  "/runbooks/{runbook_id}": {
     get: {
       req: RunbookGetRunbookData
       res: {
@@ -8773,7 +8779,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/runbook/{runbook_id}/execute": {
+  "/runbooks/{runbook_id}/execute": {
     post: {
       req: RunbookExecuteRunbookData
       res: {
@@ -8788,7 +8794,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/runbook/{runbook_id}/case/{case_id}/stream": {
+  "/runbooks/{runbook_id}/case/{case_id}/stream": {
     get: {
       req: RunbookStreamRunbookExecutionData
       res: {

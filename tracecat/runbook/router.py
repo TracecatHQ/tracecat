@@ -30,7 +30,7 @@ from tracecat.runbook.service import RunbookService
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatNotFoundError
 
-router = APIRouter(prefix="/runbook", tags=["runbook"])
+router = APIRouter(prefix="/runbooks", tags=["runbook"])
 
 WorkspaceUser = Annotated[
     Role,
@@ -42,7 +42,7 @@ WorkspaceUser = Annotated[
 ]
 
 
-@router.post("/", response_model=RunbookRead)
+@router.post("", response_model=RunbookRead)
 async def create_runbook(
     params: RunbookCreate,
     role: WorkspaceUser,
@@ -72,7 +72,7 @@ async def create_runbook(
     return RunbookRead.model_validate(runbook, from_attributes=True)
 
 
-@router.get("/", response_model=list[RunbookRead])
+@router.get("", response_model=list[RunbookRead])
 async def list_runbooks(
     role: WorkspaceUser,
     session: AsyncDBSession,
@@ -107,7 +107,7 @@ async def get_runbook(
 ) -> RunbookRead:
     """Get a runbook by ID."""
     svc = RunbookService(session, role)
-    runbook = await svc.get_runbook(runbook_id)
+    runbook = await svc.get_runbook_by_id(runbook_id)
     if not runbook:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -125,7 +125,7 @@ async def update_runbook(
 ) -> RunbookRead:
     """Update runbook properties."""
     svc = RunbookService(session, role)
-    runbook = await svc.get_runbook(runbook_id)
+    runbook = await svc.get_runbook_by_id(runbook_id)
     if not runbook:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -157,7 +157,7 @@ async def delete_runbook(
 ) -> None:
     """Delete a runbook."""
     svc = RunbookService(session, role)
-    runbook = await svc.get_runbook(runbook_id)
+    runbook = await svc.get_runbook_by_id(runbook_id)
     if not runbook:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -176,7 +176,7 @@ async def execute_runbook(
     """Execute a runbook on multiple cases."""
     svc = RunbookService(session, role)
 
-    runbook = await svc.get_runbook(runbook_id)
+    runbook = await svc.get_runbook_by_id(runbook_id)
     if not runbook:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -184,7 +184,7 @@ async def execute_runbook(
         )
 
     try:
-        responses = await svc.run_runbook(runbook, params.entities)
+        responses = await svc.execute_runbook(runbook, params.entities)
         return RunbookExecuteResponse(
             stream_urls={
                 str(response.chat_id): response.stream_url for response in responses

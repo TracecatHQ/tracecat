@@ -2725,8 +2725,13 @@ export function useListCases({ workspaceId }: CasesListCasesData) {
     casesError,
   }
 }
-
-export function useGetCase({ caseId, workspaceId }: CasesGetCaseData) {
+interface UseGetCaseOptions {
+  enabled?: boolean
+}
+export function useGetCase(
+  { caseId, workspaceId }: CasesGetCaseData,
+  options?: UseGetCaseOptions
+) {
   const {
     data: caseData,
     isLoading: caseDataIsLoading,
@@ -2734,6 +2739,7 @@ export function useGetCase({ caseId, workspaceId }: CasesGetCaseData) {
   } = useQuery<CaseRead, TracecatApiError>({
     queryKey: ["case", caseId],
     queryFn: async () => await casesGetCase({ caseId, workspaceId }),
+    enabled: options?.enabled,
   })
 
   return {

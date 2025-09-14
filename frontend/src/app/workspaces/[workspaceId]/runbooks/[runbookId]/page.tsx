@@ -14,6 +14,7 @@ import type { RunbookRead } from "@/client"
 import { CaseCommentViewer } from "@/components/cases/case-description-editor"
 import { JsonViewWithControls } from "@/components/json-viewer"
 import { CenteredSpinner } from "@/components/loading/spinner"
+import { RunbookInlineAliasEditor } from "@/components/runbooks/runbook-inline-alias-editor"
 import { RunbookSummaryEditor } from "@/components/runbooks/runbook-summary-editor"
 import { RunbookTitleEditor } from "@/components/runbooks/runbook-title-editor"
 import { Button } from "@/components/ui/button"
@@ -113,15 +114,19 @@ function RunbookDetailContent({ runbook }: { runbook: RunbookRead }) {
         />
         <div className="mt-4 flex items-start gap-4">
           <FileTextIcon className="size-10 p-2 bg-muted rounded-md" />
-          <div className="flex-1">
-            <p className="mt-1 text-muted-foreground">
+          <div className="flex-1 space-y-2">
+            <p className="text-muted-foreground">
               {runbook.meta?.case_slug
                 ? `Created from ${runbook.meta.case_slug}`
                 : runbook.meta?.chat_id
                   ? `Created from chat ${runbook.meta.chat_id}`
                   : "Created manually"}
             </p>
-            <div className="mt-2 flex items-center gap-1">
+            <RunbookInlineAliasEditor
+              runbookData={runbook}
+              updateRunbook={updateRunbook}
+            />
+            <div className="flex items-center gap-1">
               <Calendar className="size-3 text-muted-foreground" />
               <span className="text-sm text-muted-foreground">
                 {capitalizeFirst(
