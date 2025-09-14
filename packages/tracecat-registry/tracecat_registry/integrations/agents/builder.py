@@ -1008,122 +1008,120 @@ async def run_agent(
                 except Exception as e:
                     logger.warning("Failed to stream message to Redis", error=str(e))
 
-        message_nodes: list[ModelMessage] = []
-        try:
-            # Pass conversation history to the agent
-            async with agent.iter(
-                user_prompt=user_prompt,
-                message_history=[
-                    ModelResponse(
-                        parts=[
-                            TextPart(
-                                content=f"Chat history thus far: <chat_history>{to_json(conversation_history, indent=2).decode()}</chat_history>"
-                            )
-                        ]
-                    ),
-                ],
-            ) as run:
-                async for node in run:
-                    curr: ModelMessage
-                    if Agent.is_user_prompt_node(node):
-                        continue
+    message_nodes: list[ModelMessage] = []
+    try:
+        # Pass conversation history to the agent
+        async with agent.iter(
+            user_prompt=user_prompt,
+            message_history=[
+                ModelResponse(
+                    parts=[
+                        TextPart(
+                            content=f"Chat history thus far: <chat_history>{to_json(conversation_history, indent=2).decode()}</chat_history>"
+                        )
+                    ]
+                ),
+            ],
+        ) as run:
+            async for node in run:
+                curr: ModelMessage
+                if Agent.is_user_prompt_node(node):
+                    continue
 
-                    # 1️⃣  Model request (may be a normal user/tool-return message)
-                    elif Agent.is_model_request_node(node):
-                        curr = node.request
+                # 1️⃣  Model request (may be a normal user/tool-return message)
+                elif Agent.is_model_request_node(node):
+                    curr = node.request
 
-                        # If this request is ONLY a tool-return we have
-                        # already streamed it via FunctionToolResultEvent.
-                        if any(isinstance(p, ToolReturnPart) for p in curr.parts):
-                            message_nodes.append(curr)  # keep history
-                            continue  # ← skip duplicate stream
-                    # assistant tool-call + tool-return events
-                    elif Agent.is_call_tools_node(node):
-                        curr = node.model_response
-                        async with node.stream(run.ctx) as stream:
-                            async for event in stream:
-                                if isinstance(event, FunctionToolCallEvent):
-                                    denorm_tool_name = event.part.tool_name.replace(
-                                        "__", "."
-                                    )
-                                    tool_fixed_args = fixed_arguments.get(
-                                        denorm_tool_name
-                                    )
-                                    message = create_tool_call(
-                                        tool_name=event.part.tool_name,
-                                        tool_args=event.part.args or {},
-                                        tool_call_id=event.part.tool_call_id,
-                                        fixed_args=tool_fixed_args,
-                                    )
-                                elif isinstance(
-                                    event, FunctionToolResultEvent
-                                ) and isinstance(event.result, ToolReturnPart):
-                                    message = create_tool_return(
-                                        tool_name=event.result.tool_name,
-                                        content=event.result.content,
-                                        tool_call_id=event.tool_call_id,
-                                    )
-                                else:
-                                    continue
+                    # If this request is ONLY a tool-return we have
+                    # already streamed it via FunctionToolResultEvent.
+                    if any(isinstance(p, ToolReturnPart) for p in curr.parts):
+                        message_nodes.append(curr)  # keep history
+                        continue  # ← skip duplicate stream
+                # assistant tool-call + tool-return events
+                elif Agent.is_call_tools_node(node):
+                    curr = node.model_response
+                    async with node.stream(run.ctx) as stream:
+                        async for event in stream:
+                            if isinstance(event, FunctionToolCallEvent):
+                                denorm_tool_name = event.part.tool_name.replace(
+                                    "__", "."
+                                )
+                                tool_fixed_args = fixed_arguments.get(denorm_tool_name)
+                                message = create_tool_call(
+                                    tool_name=event.part.tool_name,
+                                    tool_args=event.part.args or {},
+                                    tool_call_id=event.part.tool_call_id,
+                                    fixed_args=tool_fixed_args,
+                                )
+                            elif isinstance(
+                                event, FunctionToolResultEvent
+                            ) and isinstance(event.result, ToolReturnPart):
+                                message = create_tool_return(
+                                    tool_name=event.result.tool_name,
+                                    content=event.result.content,
+                                    tool_call_id=event.tool_call_id,
+                                )
+                            else:
+                                continue
 
-                                message_nodes.append(message)
-                                await write_to_redis(message)
-                        continue
-                    elif Agent.is_end_node(node):
-                        final = node.data
-                        if final.tool_name:
-                            curr = create_tool_return(
-                                tool_name=final.tool_name,
-                                content=final.output,
-                                tool_call_id=final.tool_call_id or "",
-                            )
-                        else:
-                            # Plain text output
-                            curr = ModelResponse(
-                                parts=[
-                                    TextPart(content=final.output),
-                                ]
-                            )
+                            message_nodes.append(message)
+                            await write_to_redis(message)
+                    continue
+                elif Agent.is_end_node(node):
+                    final = node.data
+                    if final.tool_name:
+                        curr = create_tool_return(
+                            tool_name=final.tool_name,
+                            content=final.output,
+                            tool_call_id=final.tool_call_id or "",
+                        )
                     else:
-                        raise ValueError(f"Unknown node type: {node}")
+                        # Plain text output
+                        curr = ModelResponse(
+                            parts=[
+                                TextPart(content=final.output),
+                            ]
+                        )
+                else:
+                    raise ValueError(f"Unknown node type: {node}")
 
-                    message_nodes.append(curr)
-                    await write_to_redis(curr)
+                message_nodes.append(curr)
+                await write_to_redis(curr)
 
-                result = run.result
-                if not isinstance(result, AgentRunResult):
-                    raise ValueError("No output returned from agent run.")
+            result = run.result
+            if not isinstance(result, AgentRunResult):
+                raise ValueError("No output returned from agent run.")
 
-            # Add end-of-stream marker if streaming is enabled
-            if redis_client and stream_key:
-                try:
-                    await redis_client.xadd(
-                        stream_key,
-                        {DATA_KEY: orjson.dumps({END_TOKEN: END_TOKEN_VALUE}).decode()},
-                        maxlen=10000,
-                        approximate=True,
-                    )
-                    logger.debug("Added end-of-stream marker", stream_key=stream_key)
-                except Exception as e:
-                    logger.warning("Failed to add end-of-stream marker", error=str(e))
+        # Add end-of-stream marker if streaming is enabled
+        if redis_client and stream_key:
+            try:
+                await redis_client.xadd(
+                    stream_key,
+                    {DATA_KEY: orjson.dumps({END_TOKEN: END_TOKEN_VALUE}).decode()},
+                    maxlen=10000,
+                    approximate=True,
+                )
+                logger.debug("Added end-of-stream marker", stream_key=stream_key)
+            except Exception as e:
+                logger.warning("Failed to add end-of-stream marker", error=str(e))
 
-            end_time = timeit()
-            output = AgentOutput(
-                output=try_parse_json(result.output),
-                message_history=result.all_messages(),
-                duration=end_time - start_time,
-            )
-            if include_usage:
-                output.usage = result.usage()
+        end_time = timeit()
+        output = AgentOutput(
+            output=try_parse_json(result.output),
+            message_history=result.all_messages(),
+            duration=end_time - start_time,
+        )
+        if include_usage:
+            output.usage = result.usage()
 
-            return output.model_dump()
+        return output.model_dump()
 
-        except Exception as e:
-            raise AgentRunError(
-                exc_cls=type(e),
-                exc_msg=str(e),
-                message_history=[to_jsonable_python(m) for m in message_nodes],
-            )
+    except Exception as e:
+        raise AgentRunError(
+            exc_cls=type(e),
+            exc_msg=str(e),
+            message_history=[to_jsonable_python(m) for m in message_nodes],
+        )
 
 
 def create_tool_call(
