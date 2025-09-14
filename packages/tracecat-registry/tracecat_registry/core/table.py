@@ -292,3 +292,17 @@ async def list_tables() -> list[dict[str, Any]]:
     async with TablesService.with_session() as service:
         tables = await service.list_tables()
     return [table.model_dump() for table in tables]
+
+
+@registry.register(
+    default_title="Get table metadata",
+    description="Get a table's metadata by name. This includes the columns and whether they are indexed.",
+    display_group="Tables",
+    namespace="core.table",
+)
+async def get_table_metadata(
+    name: Annotated[str, Doc("The name of the table to get.")],
+) -> dict[str, Any]:
+    async with TablesService.with_session() as service:
+        table = await service.get_table_by_name(name)
+    return table.model_dump(mode="json")
