@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
@@ -14,6 +12,15 @@ from tracecat.runbook.models import (
 )
 from tracecat.runbook.service import RunbookService
 from tracecat_registry import registry
+
+
+def _is_uuid(value: str) -> bool:
+    """Check if a string is a valid UUID."""
+    try:
+        UUID(value)
+        return True
+    except ValueError:
+        return False
 
 
 @registry.register(
@@ -47,20 +54,29 @@ async def list_runbooks(
 
 @registry.register(
     namespace="core.runbooks",
-    description="Get a single runbook by ID.",
+    description="Get a single runbook by ID or alias.",
     default_title="Get runbook",
     display_group="Runbooks",
 )
 async def get_runbook(
-    runbook_id: Annotated[
+    runbook_id_or_alias: Annotated[
         str,
-        Doc("The runbook ID (UUID)."),
+        Doc("The runbook ID (UUID) or alias."),
     ],
 ) -> dict[str, Any]:
     async with RunbookService.with_session() as svc:
-        runbook = await svc.get_runbook(UUID(runbook_id))
-    if not runbook:
-        raise ValueError(f"Runbook with ID {runbook_id} not found")
+        # Try to determine if it's a UUID or alias
+        if _is_uuid(runbook_id_or_alias):
+            runbook = await svc.get_runbook(UUID(runbook_id_or_alias))
+            if not runbook:
+                raise ValueError(f"Runbook with ID {runbook_id_or_alias} not found")
+        else:
+            runbook = await svc.get_runbook_by_alias(runbook_id_or_alias)
+            if not runbook:
+                raise ValueError(
+                    f"Runbook with alias '{runbook_id_or_alias}' not found"
+                )
+
     return RunbookRead.model_validate(runbook, from_attributes=True).model_dump(
         mode="json"
     )
@@ -73,9 +89,9 @@ async def get_runbook(
     display_group="Runbooks",
 )
 async def execute(
-    runbook_id: Annotated[
+    runbook_id_or_alias: Annotated[
         str,
-        Doc("The runbook ID (UUID) to execute."),
+        Doc("The runbook ID (UUID) or alias to execute."),
     ],
     case_ids: Annotated[
         list[str],
@@ -83,9 +99,17 @@ async def execute(
     ],
 ) -> list[dict[str, Any]]:
     async with RunbookService.with_session() as svc:
-        runbook = await svc.get_runbook(UUID(runbook_id))
-        if not runbook:
-            raise ValueError(f"Runbook with ID {runbook_id} not found")
+        # Try to determine if it's a UUID or alias
+        if _is_uuid(runbook_id_or_alias):
+            runbook = await svc.get_runbook(UUID(runbook_id_or_alias))
+            if not runbook:
+                raise ValueError(f"Runbook with ID {runbook_id_or_alias} not found")
+        else:
+            runbook = await svc.get_runbook_by_alias(runbook_id_or_alias)
+            if not runbook:
+                raise ValueError(
+                    f"Runbook with alias '{runbook_id_or_alias}' not found"
+                )
 
         entities = [
             RunbookExecuteEntity(entity_id=UUID(case_id), entity_type=ChatEntity.CASE)
@@ -104,14 +128,14 @@ async def execute(
 
 @registry.register(
     namespace="core.runbooks",
-    description="Update a runbook's title, content, summary, or tools.",
+    description="Update a runbook's title, content, summary, alias, or tools.",
     default_title="Update runbook",
     display_group="Runbooks",
 )
 async def update_runbook(
-    runbook_id: Annotated[
+    runbook_id_or_alias: Annotated[
         str,
-        Doc("The runbook ID (UUID) to update."),
+        Doc("The runbook ID (UUID) or alias to update."),
     ],
     title: Annotated[
         str | None,
@@ -125,15 +149,27 @@ async def update_runbook(
         str | None,
         Doc("New summary for the runbook."),
     ] = None,
+    alias: Annotated[
+        str | None,
+        Doc("New alias for the runbook (must be unique within workspace)."),
+    ] = None,
     tools: Annotated[
         list[str] | None,
         Doc("New list of tools for the runbook."),
     ] = None,
 ) -> dict[str, Any]:
     async with RunbookService.with_session() as svc:
-        runbook = await svc.get_runbook(UUID(runbook_id))
-        if not runbook:
-            raise ValueError(f"Runbook with ID {runbook_id} not found")
+        # Try to determine if it's a UUID or alias
+        if _is_uuid(runbook_id_or_alias):
+            runbook = await svc.get_runbook(UUID(runbook_id_or_alias))
+            if not runbook:
+                raise ValueError(f"Runbook with ID {runbook_id_or_alias} not found")
+        else:
+            runbook = await svc.get_runbook_by_alias(runbook_id_or_alias)
+            if not runbook:
+                raise ValueError(
+                    f"Runbook with alias '{runbook_id_or_alias}' not found"
+                )
 
         # Build update params
         kwargs: dict[str, Any] = {}
@@ -143,6 +179,8 @@ async def update_runbook(
             kwargs["content"] = content
         if summary is not None:
             kwargs["summary"] = summary
+        if alias is not None:
+            kwargs["alias"] = alias
         if tools is not None:
             kwargs["tools"] = tools
         update_params = RunbookUpdate(**kwargs)
