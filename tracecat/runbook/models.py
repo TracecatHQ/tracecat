@@ -51,6 +51,10 @@ class RunbookRead(BaseModel):
         default=None,
         description="A summary of the runbook.",
     )
+    alias: RunbookAlias | None = Field(
+        default=None,
+        description="Alias for the runbook",
+    )
 
 
 class RunbookUpdate(BaseModel):

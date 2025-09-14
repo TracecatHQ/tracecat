@@ -8309,10 +8309,15 @@ export const $RunUsage = {
   title: "RunUsage",
 } as const
 
-export const $RunbookAlias = {
+export const $RunbookAlias_Input = {
   type: "string",
   maxLength: 50,
   minLength: 3,
+  pattern: "^[a-zA-Z0-9_-]+$",
+} as const
+
+export const $RunbookAlias_Output = {
+  type: "string",
   pattern: "^[a-zA-Z0-9_-]+$",
 } as const
 
@@ -8348,7 +8353,7 @@ export const $RunbookCreate = {
     alias: {
       anyOf: [
         {
-          $ref: "#/components/schemas/RunbookAlias",
+          $ref: "#/components/schemas/RunbookAlias-Input",
         },
         {
           type: "null",
@@ -8471,6 +8476,17 @@ export const $RunbookRead = {
       title: "Summary",
       description: "A summary of the runbook.",
     },
+    alias: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/RunbookAlias-Output",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description: "Alias for the runbook",
+    },
   },
   type: "object",
   required: ["id", "title", "content", "tools", "created_at", "updated_at"],
@@ -8540,7 +8556,7 @@ export const $RunbookUpdate = {
     alias: {
       anyOf: [
         {
-          $ref: "#/components/schemas/RunbookAlias",
+          $ref: "#/components/schemas/RunbookAlias-Input",
         },
         {
           type: "null",

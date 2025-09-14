@@ -5,6 +5,7 @@ import { FileText, MoreHorizontal, Trash2 } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useState } from "react"
 import type { RunbookRead } from "@/client"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -92,7 +93,14 @@ export function RunbookCard({ runbook, onDelete }: RunbookCardProps) {
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
-        <CardDescription className="text-xs text-muted-foreground">
+        {runbook.alias && (
+          <div className="mt-1">
+            <Badge variant="secondary" className="font-mono text-xs">
+              {runbook.alias}
+            </Badge>
+          </div>
+        )}
+        <CardDescription className="text-xs text-muted-foreground mt-1">
           Last edited{" "}
           {formatDistanceToNow(new Date(runbook.updated_at), {
             addSuffix: true,
