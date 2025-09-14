@@ -1,17 +1,22 @@
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
+from tracecat_registry.integrations.pydantic_ai import PYDANTIC_AI_REGISTRY_SECRETS
 from typing_extensions import Doc
+from tracecat import config
+from tracecat.clients import AuthenticatedServiceClient
 
 from tracecat.chat.enums import ChatEntity
+from tracecat.contexts import ctx_role
 from tracecat.runbook.models import (
-    RunbookExecuteResponse,
     RunbookRead,
     RunbookExecuteEntity,
     RunbookUpdate,
 )
 from tracecat.runbook.service import RunbookService
 from tracecat_registry import registry
+
+from tracecat.types.auth import Role
 
 
 @registry.register(
@@ -62,10 +67,23 @@ async def get_runbook(
     )
 
 
+class ApiHTTPClient(AuthenticatedServiceClient):
+    """Async httpx client for the executor service."""
+
+    def __init__(self, role: Role | None = None, *args: Any, **kwargs: Any) -> None:
+        self._api_base_url = config.TRACECAT__API_URL
+        super().__init__(role, *args, base_url=self._api_base_url, **kwargs)
+        self.params = self.params.add(
+            "workspace_id", str(self.role.workspace_id) if self.role else None
+        )
+        self.role = self.role or ctx_role.get()
+
+
 @registry.register(
     namespace="core.runbooks",
     description="Execute a runbook on one or more cases.",
     default_title="Execute runbook",
+    secrets=[*PYDANTIC_AI_REGISTRY_SECRETS],
     display_group="Runbooks",
 )
 async def execute(
@@ -89,15 +107,32 @@ async def execute(
             RunbookExecuteEntity(entity_id=UUID(case_id), entity_type=ChatEntity.CASE)
             for case_id in case_ids
         ]
-        responses = await svc.execute_runbook(runbook, entities)
+
+    async with ApiHTTPClient() as client:
+        response = await client.post(
+            f"/runbooks/{runbook.id}/execute",
+            json={"entities": entities},
+        )
+        response.raise_for_status()
+        results = response.json()
+
+    if not isinstance(results, list):
+        raise ValueError(f"Invalid response from API: {results}")
 
     # Return a list of chat execution descriptors
-    return [
-        RunbookExecuteResponse(
-            stream_urls={str(resp.chat_id): resp.stream_url}
-        ).model_dump(mode="json")
-        for resp in responses
-    ]
+    # Serialize exceptions as well
+    res = []
+    for result in results:
+        if isinstance(result, Exception):
+            res.append({"kind": "error", "message": str(result)})
+        else:
+            res.append(
+                {
+                    "kind": "result",
+                    "result": result,
+                }
+            )
+    return res
 
 
 @registry.register(
