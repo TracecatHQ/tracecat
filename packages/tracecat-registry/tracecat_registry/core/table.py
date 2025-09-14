@@ -6,7 +6,13 @@ from typing_extensions import Doc
 
 from tracecat.config import TRACECAT__MAX_ROWS_CLIENT_POSTGRES
 from tracecat.tables.enums import SqlType
-from tracecat.tables.models import TableColumnCreate, TableCreate, TableRowInsert
+from tracecat.tables.models import (
+    TableColumnCreate,
+    TableColumnRead,
+    TableCreate,
+    TableRead,
+    TableRowInsert,
+)
 from tracecat.tables.service import TablesService
 from tracecat_registry import registry
 
@@ -305,4 +311,24 @@ async def get_table_metadata(
 ) -> dict[str, Any]:
     async with TablesService.with_session() as service:
         table = await service.get_table_by_name(name)
-    return table.model_dump(mode="json")
+
+        # Get unique index info or default to empty dict if not present
+        index_columns = await service.get_index(table)
+
+        # Convert to response model (includes is_index field)
+        res = TableRead(
+            id=table.id,
+            name=table.name,
+            columns=[
+                TableColumnRead(
+                    id=column.id,
+                    name=column.name,
+                    type=SqlType(column.type),
+                    nullable=column.nullable,
+                    default=column.default,
+                    is_index=column.name in index_columns,
+                )
+                for column in table.columns
+            ],
+        )
+    return res.model_dump(mode="json")
