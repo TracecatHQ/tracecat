@@ -2730,7 +2730,7 @@ interface UseGetCaseOptions {
 }
 export function useGetCase(
   { caseId, workspaceId }: CasesGetCaseData,
-  { enabled }: UseGetCaseOptions
+  options: UseGetCaseOptions
 ) {
   const {
     data: caseData,
@@ -2739,7 +2739,7 @@ export function useGetCase(
   } = useQuery<CaseRead, TracecatApiError>({
     queryKey: ["case", caseId],
     queryFn: async () => await casesGetCase({ caseId, workspaceId }),
-    enabled,
+    enabled: options?.enabled,
   })
 
   return {
