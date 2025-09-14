@@ -8710,7 +8710,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/runbook/": {
+  "/runbooks": {
     post: {
       req: RunbookCreateRunbookData
       res: {
@@ -8738,7 +8738,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/runbook/{runbook_id}": {
+  "/runbooks/{runbook_id}": {
     get: {
       req: RunbookGetRunbookData
       res: {
@@ -8779,7 +8779,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/runbook/{runbook_id}/execute": {
+  "/runbooks/{runbook_id}/execute": {
     post: {
       req: RunbookExecuteRunbookData
       res: {
@@ -8794,7 +8794,7 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/runbook/{runbook_id}/case/{case_id}/stream": {
+  "/runbooks/{runbook_id}/case/{case_id}/stream": {
     get: {
       req: RunbookStreamRunbookExecutionData
       res: {

@@ -30,7 +30,7 @@ from tracecat.runbook.service import RunbookService
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatNotFoundError
 
-router = APIRouter(prefix="/runbook", tags=["runbook"])
+router = APIRouter(prefix="/runbooks", tags=["runbook"])
 
 WorkspaceUser = Annotated[
     Role,
@@ -42,7 +42,7 @@ WorkspaceUser = Annotated[
 ]
 
 
-@router.post("/", response_model=RunbookRead)
+@router.post("", response_model=RunbookRead)
 async def create_runbook(
     params: RunbookCreate,
     role: WorkspaceUser,
@@ -72,7 +72,7 @@ async def create_runbook(
     return RunbookRead.model_validate(runbook, from_attributes=True)
 
 
-@router.get("/", response_model=list[RunbookRead])
+@router.get("", response_model=list[RunbookRead])
 async def list_runbooks(
     role: WorkspaceUser,
     session: AsyncDBSession,

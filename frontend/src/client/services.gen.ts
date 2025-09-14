@@ -5283,7 +5283,7 @@ export const runbookCreateRunbook = (
 ): CancelablePromise<RunbookCreateRunbookResponse> => {
   return __request(OpenAPI, {
     method: "POST",
-    url: "/runbook/",
+    url: "/runbooks",
     query: {
       workspace_id: data.workspaceId,
     },
@@ -5311,7 +5311,7 @@ export const runbookListRunbooks = (
 ): CancelablePromise<RunbookListRunbooksResponse> => {
   return __request(OpenAPI, {
     method: "GET",
-    url: "/runbook/",
+    url: "/runbooks",
     query: {
       limit: data.limit,
       sort_by: data.sortBy,
@@ -5338,7 +5338,7 @@ export const runbookGetRunbook = (
 ): CancelablePromise<RunbookGetRunbookResponse> => {
   return __request(OpenAPI, {
     method: "GET",
-    url: "/runbook/{runbook_id}",
+    url: "/runbooks/{runbook_id}",
     path: {
       runbook_id: data.runbookId,
     },
@@ -5366,7 +5366,7 @@ export const runbookUpdateRunbook = (
 ): CancelablePromise<RunbookUpdateRunbookResponse> => {
   return __request(OpenAPI, {
     method: "PATCH",
-    url: "/runbook/{runbook_id}",
+    url: "/runbooks/{runbook_id}",
     path: {
       runbook_id: data.runbookId,
     },
@@ -5395,7 +5395,7 @@ export const runbookDeleteRunbook = (
 ): CancelablePromise<RunbookDeleteRunbookResponse> => {
   return __request(OpenAPI, {
     method: "DELETE",
-    url: "/runbook/{runbook_id}",
+    url: "/runbooks/{runbook_id}",
     path: {
       runbook_id: data.runbookId,
     },
@@ -5423,7 +5423,7 @@ export const runbookExecuteRunbook = (
 ): CancelablePromise<RunbookExecuteRunbookResponse> => {
   return __request(OpenAPI, {
     method: "POST",
-    url: "/runbook/{runbook_id}/execute",
+    url: "/runbooks/{runbook_id}/execute",
     path: {
       runbook_id: data.runbookId,
     },
@@ -5457,7 +5457,7 @@ export const runbookStreamRunbookExecution = (
 ): CancelablePromise<RunbookStreamRunbookExecutionResponse> => {
   return __request(OpenAPI, {
     method: "GET",
-    url: "/runbook/{runbook_id}/case/{case_id}/stream",
+    url: "/runbooks/{runbook_id}/case/{case_id}/stream",
     path: {
       runbook_id: data.runbookId,
       case_id: data.caseId,
