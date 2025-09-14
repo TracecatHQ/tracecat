@@ -39,6 +39,15 @@ from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatNotFoundError
 
 
+def _is_uuid(value: str) -> bool:
+    """Check if a string is a valid UUID."""
+    try:
+        uuid.UUID(value)
+        return True
+    except ValueError:
+        return False
+
+
 class RunbookService(BaseWorkspaceService):
     """Service for managing runbooks (frozen chats)."""
 
@@ -217,7 +226,14 @@ Here are the <Steps> to execute:
                 title = f"{chat.title}"
             return title
 
-    async def get_runbook(self, runbook_id: uuid.UUID) -> Runbook | None:
+    async def get_runbook(self, runbook_id_or_alias: str) -> Runbook | None:
+        """Get a runbook by ID or alias."""
+        if _is_uuid(runbook_id_or_alias):
+            return await self.get_runbook_by_id(uuid.UUID(runbook_id_or_alias))
+        else:
+            return await self.get_runbook_by_alias(runbook_id_or_alias)
+
+    async def get_runbook_by_id(self, runbook_id: uuid.UUID) -> Runbook | None:
         """Get a runbook by ID."""
         stmt = select(Runbook).where(
             Runbook.id == runbook_id,
@@ -227,8 +243,8 @@ Here are the <Steps> to execute:
         result = await self.session.exec(stmt)
         return result.first()
 
-    async def get_prompt_by_alias(self, alias: str) -> Runbook | None:
-        """Get a prompt by alias."""
+    async def get_runbook_by_alias(self, alias: str) -> Runbook | None:
+        """Get a runbook by alias."""
         stmt = select(Runbook).where(
             Runbook.alias == alias,
             Runbook.owner_id == self.workspace_id,
@@ -238,7 +254,7 @@ Here are the <Steps> to execute:
         return result.first()
 
     async def resolve_runbook_alias(self, alias: str) -> uuid.UUID | None:
-        """Resolve a prompt alias to its ID."""
+        """Resolve a runbook alias to its ID."""
         stmt = select(Runbook.id).where(
             Runbook.alias == alias,
             Runbook.owner_id == self.workspace_id,
@@ -513,7 +529,7 @@ async def inject_runbook_content(
     *, session: AsyncSession, role: Role, runbook_id: uuid.UUID
 ) -> str | None:
     runbook_svc = RunbookService(session, role)
-    if runbook := await runbook_svc.get_runbook(runbook_id):
+    if runbook := await runbook_svc.get_runbook_by_id(runbook_id):
         # Add indication that this is the current runbook
         # Prepare case data for YAML dump, including tags if they exist
         runbook_data = runbook.model_dump(mode="json")

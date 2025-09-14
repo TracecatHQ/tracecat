@@ -107,7 +107,7 @@ async def get_runbook(
 ) -> RunbookRead:
     """Get a runbook by ID."""
     svc = RunbookService(session, role)
-    runbook = await svc.get_runbook(runbook_id)
+    runbook = await svc.get_runbook_by_id(runbook_id)
     if not runbook:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -125,7 +125,7 @@ async def update_runbook(
 ) -> RunbookRead:
     """Update runbook properties."""
     svc = RunbookService(session, role)
-    runbook = await svc.get_runbook(runbook_id)
+    runbook = await svc.get_runbook_by_id(runbook_id)
     if not runbook:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -157,7 +157,7 @@ async def delete_runbook(
 ) -> None:
     """Delete a runbook."""
     svc = RunbookService(session, role)
-    runbook = await svc.get_runbook(runbook_id)
+    runbook = await svc.get_runbook_by_id(runbook_id)
     if not runbook:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -176,7 +176,7 @@ async def execute_runbook(
     """Execute a runbook on multiple cases."""
     svc = RunbookService(session, role)
 
-    runbook = await svc.get_runbook(runbook_id)
+    runbook = await svc.get_runbook_by_id(runbook_id)
     if not runbook:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
