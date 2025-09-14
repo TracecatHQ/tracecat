@@ -8528,7 +8528,7 @@ export const $RunbookUpdate = {
         {
           type: "string",
           maxLength: 10000,
-          minLength: 1,
+          minLength: 0,
         },
         {
           type: "null",

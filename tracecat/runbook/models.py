@@ -75,7 +75,7 @@ class RunbookUpdate(BaseModel):
     summary: str | None = Field(
         default=None,
         description="New summary for the runbook",
-        min_length=1,
+        min_length=0,
         max_length=10000,
     )
     alias: RunbookAlias | None = Field(
