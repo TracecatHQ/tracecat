@@ -60,10 +60,15 @@ export function ChatInterface({
   const { createRunbook, createRunbookPending } = useCreateRunbook(workspaceId)
 
   // Fetch case data if entityType is "case"
-  const { caseData } = useGetCase({
-    caseId: entityType === "case" ? entityId : "",
-    workspaceId,
-  })
+  const { caseData } = useGetCase(
+    {
+      caseId: entityType === "case" ? entityId : "",
+      workspaceId,
+    },
+    {
+      enabled: entityType === "case",
+    }
+  )
 
   // Fetch runbook data if entityType is "runbook"
   const { data: runbookData } = useGetRunbook({
