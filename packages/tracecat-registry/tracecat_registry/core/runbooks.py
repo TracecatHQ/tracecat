@@ -89,7 +89,7 @@ async def execute(
             RunbookExecuteEntity(entity_id=UUID(case_id), entity_type=ChatEntity.CASE)
             for case_id in case_ids
         ]
-        responses = await svc.run_runbook(runbook, entities)
+        responses = await svc.execute_runbook(runbook, entities)
 
     # Return a list of chat execution descriptors
     return [

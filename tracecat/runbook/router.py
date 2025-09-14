@@ -184,7 +184,7 @@ async def execute_runbook(
         )
 
     try:
-        responses = await svc.run_runbook(runbook, params.entities)
+        responses = await svc.execute_runbook(runbook, params.entities)
         return RunbookExecuteResponse(
             stream_urls={
                 str(response.chat_id): response.stream_url for response in responses

@@ -315,7 +315,7 @@ Here are the <Steps> to execute:
         await self.session.delete(runbook)
         await self.session.commit()
 
-    async def run_runbook(
+    async def execute_runbook(
         self,
         runbook: Runbook,
         entities: list[RunbookExecuteEntity],
@@ -342,6 +342,13 @@ Here are the <Steps> to execute:
                     )
                 else:
                     responses.append(response)
+            else:
+                self.logger.warning(
+                    "Unsupported entity type",
+                    entity_type=entity.entity_type,
+                    runbook_id=runbook.id,
+                    workspace_id=self.workspace_id,
+                )
         return responses
 
     async def create_runbook_direct(
