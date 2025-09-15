@@ -1,7 +1,6 @@
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from pydantic_core import to_jsonable_python
 from tracecat_registry.integrations.pydantic_ai import PYDANTIC_AI_REGISTRY_SECRETS
 from typing_extensions import Doc
 from tracecat import config
@@ -93,8 +92,8 @@ async def execute(
         str,
         Doc("The runbook ID (UUID) or alias to execute."),
     ],
-    case_ids: Annotated[
-        list[str],
+    case_id: Annotated[
+        str,
         Doc("List of case IDs (UUID strings) to run the runbook on."),
     ],
 ) -> Any:
@@ -105,15 +104,12 @@ async def execute(
             raise ValueError(
                 f"Runbook with ID or alias {runbook_id_or_alias} not found"
             )
-        entities = [
-            RunbookExecuteEntity(entity_id=UUID(case_id), entity_type=ChatEntity.CASE)
-            for case_id in case_ids
-        ]
 
+    entity = RunbookExecuteEntity(entity_id=UUID(case_id), entity_type=ChatEntity.CASE)
     async with ApiHTTPClient() as client:
         response = await client.post(
             f"/runbooks/{runbook.id}/execute",
-            json={"entities": to_jsonable_python(entities)},
+            json={"entities": [entity.model_dump(mode="json")]},
         )
         response.raise_for_status()
         raw_results = response.json()
