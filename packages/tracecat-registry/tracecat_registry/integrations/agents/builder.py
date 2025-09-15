@@ -963,6 +963,21 @@ async def run_agent(
     stream_key = None
     conversation_history: list[ModelMessage] = []
 
+    # Use async version since this function is already async
+    async def write_to_redis(msg: ModelMessage):
+        # Stream to Redis if enabled
+        if redis_client and stream_key:
+            logger.debug("Streaming message to Redis", stream_key=stream_key)
+            try:
+                await redis_client.xadd(
+                    stream_key,
+                    {DATA_KEY: orjson.dumps(msg, default=to_jsonable_python).decode()},
+                    maxlen=10000,
+                    approximate=True,
+                )
+            except Exception as e:
+                logger.warning("Failed to stream message to Redis", error=str(e))
+
     if stream_id:
         stream_key = f"agent-stream:{stream_id}"
         try:
@@ -988,25 +1003,6 @@ async def run_agent(
                 "Failed to initialize Redis client, continuing without streaming",
                 error=str(e),
             )
-
-        # Use async version since this function is already async
-        async def write_to_redis(msg: ModelMessage):
-            # Stream to Redis if enabled
-            if redis_client and stream_key:
-                logger.debug("Streaming message to Redis", stream_key=stream_key)
-                try:
-                    await redis_client.xadd(
-                        stream_key,
-                        {
-                            DATA_KEY: orjson.dumps(
-                                msg, default=to_jsonable_python
-                            ).decode()
-                        },
-                        maxlen=10000,
-                        approximate=True,
-                    )
-                except Exception as e:
-                    logger.warning("Failed to stream message to Redis", error=str(e))
 
     message_nodes: list[ModelMessage] = []
     try:
