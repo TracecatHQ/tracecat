@@ -130,16 +130,18 @@ Here are the <Steps> to execute:
 
 <StepHandling>
 - user-prompt: follow the instruction
-- tool-call: use the named tool; infer inputs from <Alert> and prior returns; do not reuse example values
+- tool-call: use the named tool; infer inputs from <Alert> and prior returns
+    - You *MUST NOT* reuse hardcoded or example values. You *MUST* derive fresh values from <Alert>
+    - For example, if the <Alert> has a hostname `example.com`, during tool calls you *MUST NOT* use `example.com` as the hostname. You *MUST* use the actual hostname from the <Alert>
 - tool-return: note the type/shape, not literal example values
 </StepHandling>
 
 <Rules>
 1. Call tools only when a <Step> says so
 2. Preserve the original <Step> order
-3. Never reuse example inputs/outputs; derive fresh values from <Alert>
+3. *NEVER reuse hardcoded or example inputs/outputs*; derive fresh values from <Alert>. Doing so means you are not executing the runbook on the incoming <Alert>.
 4. No conversational chatter, rationale, or chain-of-thought; keep outputs minimal and task-focused
-5. If the case is clearly unrelated to these <Steps>, stop and output INAPPLICABLE
+5. You should first read the case content and the <Alert> to determine if it is relevant to the <Steps>. Only if the case is clearly unrelated to these <Steps>, stop and output INAPPLICABLE, with an explanation.
 6. Do not restate or summarize <Alert> or <Steps>
 7. Keep each message under ~150 tokens; do not dump large payloads; reference them instead
 </Rules>""")
