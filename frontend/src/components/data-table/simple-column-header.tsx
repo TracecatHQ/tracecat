@@ -1,4 +1,8 @@
-import { ArrowDownIcon, ArrowUpIcon, CaretSortIcon } from "@radix-ui/react-icons"
+import {
+  ArrowDownIcon,
+  ArrowUpIcon,
+  CaretSortIcon,
+} from "@radix-ui/react-icons"
 import type { Column } from "@tanstack/react-table"
 import { cn } from "@/lib/utils"
 

@@ -118,7 +118,11 @@ export function DatabaseTable({
   const allColumns: ColumnDef<TableRowRead, TableColumnRead>[] = [
     ...columns.map((column) => ({
       accessorKey: column.name,
-      header: ({ column: tableColumn }: { column: Column<TableRowRead, unknown> }) => (
+      header: ({
+        column: tableColumn,
+      }: {
+        column: Column<TableRowRead, unknown>
+      }) => (
         <div className="flex items-center gap-2 text-xs">
           <SimpleColumnHeader
             column={tableColumn}
