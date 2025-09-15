@@ -719,6 +719,17 @@ export const $AgentOutput = {
         },
       ],
     },
+    trace_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Trace Id",
+    },
   },
   type: "object",
   required: ["output", "message_history", "duration"],
