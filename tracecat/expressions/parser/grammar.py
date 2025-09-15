@@ -61,7 +61,6 @@ iterator: "for" local_vars_assignment "in" expression
 
 ?context: actions
         | secrets
-        | inputs
         | env
         | local_vars
         | trigger
@@ -74,7 +73,6 @@ arg_list: (expression ("," expression)*)?
 
 actions: "ACTIONS" PARTIAL_JSONPATH_EXPR
 secrets: "SECRETS" ATTRIBUTE_PATH
-inputs: "INPUTS" PARTIAL_JSONPATH_EXPR
 env: "ENV" PARTIAL_JSONPATH_EXPR
 local_vars: "var" PARTIAL_JSONPATH_EXPR
 trigger: "TRIGGER" [PARTIAL_JSONPATH_EXPR]

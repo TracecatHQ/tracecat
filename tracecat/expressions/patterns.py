@@ -1,11 +1,9 @@
 import re
 
-TEMPLATE_STRING = re.compile(r"(?P<template>\${{\s*(?P<expr>.+?)\s*}})")  # Lazy match
+TEMPLATE_STRING = re.compile(
+    r"(?P<template>\${{\s*(?P<expr>.+?)\s*}})", re.DOTALL
+)  # Lazy match, includes newlines
 """Pattern that matches a template and its expression."""
-
-
-SECRET_SCAN_TEMPLATE = re.compile(r"\${{\s*SECRETS\.(?P<secret>.+?)\s*}}")
-"""Specialized pattern to scan for secrets."""
 
 STANDALONE_TEMPLATE = re.compile(r"^\${{\s*(?:(?!\${{).)*?\s*}}$")
 """Pattern that matches a standalone template expression."""

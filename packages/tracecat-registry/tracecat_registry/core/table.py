@@ -6,7 +6,13 @@ from typing_extensions import Doc
 
 from tracecat.config import TRACECAT__MAX_ROWS_CLIENT_POSTGRES
 from tracecat.tables.enums import SqlType
-from tracecat.tables.models import TableColumnCreate, TableCreate, TableRowInsert
+from tracecat.tables.models import (
+    TableColumnCreate,
+    TableColumnRead,
+    TableCreate,
+    TableRead,
+    TableRowInsert,
+)
 from tracecat.tables.service import TablesService
 from tracecat_registry import registry
 
@@ -295,3 +301,37 @@ async def list_tables() -> list[dict[str, Any]]:
     async with TablesService.with_session() as service:
         tables = await service.list_tables()
     return [table.model_dump() for table in tables]
+
+
+@registry.register(
+    default_title="Get table metadata",
+    description="Get a table's metadata by name. This includes the columns and whether they are indexed.",
+    display_group="Tables",
+    namespace="core.table",
+)
+async def get_table_metadata(
+    name: Annotated[str, Doc("The name of the table to get.")],
+) -> dict[str, Any]:
+    async with TablesService.with_session() as service:
+        table = await service.get_table_by_name(name)
+
+        # Get unique index info or default to empty dict if not present
+        index_columns = await service.get_index(table)
+
+        # Convert to response model (includes is_index field)
+        res = TableRead(
+            id=table.id,
+            name=table.name,
+            columns=[
+                TableColumnRead(
+                    id=column.id,
+                    name=column.name,
+                    type=SqlType(column.type),
+                    nullable=column.nullable,
+                    default=column.default,
+                    is_index=column.name in index_columns,
+                )
+                for column in table.columns
+            ],
+        )
+    return res.model_dump(mode="json")

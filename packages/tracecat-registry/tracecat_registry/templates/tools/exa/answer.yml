@@ -1,0 +1,26 @@
+type: action
+definition:
+  title: Answer
+  description: Answer a question with Exa.
+  display_group: Exa
+  doc_url: https://docs.exa.ai/reference/answer
+  namespace: tools.exa
+  name: answer
+  secrets:
+    - name: exa
+      keys: ["EXA_API_KEY"]
+  expects:
+    query:
+      type: str
+      description: The question to answer.
+  steps:
+    - ref: answer
+      action: core.http_request
+      args:
+        url: https://api.exa.ai/answer
+        method: POST
+        headers:
+          x-api-key: ${{ SECRETS.exa.EXA_API_KEY }}
+        payload:
+          query: ${{ inputs.query }}
+  returns: ${{ steps.answer.result.data }}

@@ -172,12 +172,10 @@ export type status = "success" | "error"
 
 export type AgentOutput = {
   output: unknown
-  files?: {
-    [key: string]: string
-  } | null
   message_history: Array<ModelRequest | ModelResponse>
   duration: number
   usage?: RunUsage | null
+  trace_id?: string | null
 }
 
 export type AgentSettingsRead = {
@@ -916,7 +914,7 @@ export type ChatCreate = {
 /**
  * The type of entity associated with a chat.
  */
-export type ChatEntity = "case"
+export type ChatEntity = "case" | "runbook"
 
 /**
  * Model for chat metadata with a single message.
@@ -1287,12 +1285,6 @@ export type DSLInput = {
   config?: DSLConfig_Output
   triggers?: Array<Trigger>
   /**
-   * Static input parameters
-   */
-  inputs?: {
-    [key: string]: unknown
-  }
-  /**
    * The action ref or value to return.
    */
   returns?: unknown | null
@@ -1525,7 +1517,6 @@ export type ExprContext =
   | "ACTIONS"
   | "SECRETS"
   | "FN"
-  | "INPUTS"
   | "ENV"
   | "TRIGGER"
   | "var"
@@ -2144,120 +2135,6 @@ export type PriorityChangedEventRead = {
    * The timestamp of the event.
    */
   created_at: string
-}
-
-/**
- * Request model for creating a prompt from a chat.
- */
-export type PromptCreate = {
-  /**
-   * ID of the chat to freeze into a prompt
-   */
-  chat_id: string
-  /**
-   * Optional metadata to include with the prompt (e.g., case information)
-   */
-  meta?: {
-    [key: string]: unknown
-  } | null
-}
-
-/**
- * Model for prompt details.
- */
-export type PromptRead = {
-  /**
-   * Unique prompt identifier
-   */
-  id: string
-  /**
-   * ID of the source chat
-   */
-  chat_id: string
-  /**
-   * Human-readable title for the prompt
-   */
-  title: string
-  /**
-   * The instruction prompt/runbook string
-   */
-  content: string
-  /**
-   * The tools available to the agent for this prompt
-   */
-  tools: Array<string>
-  /**
-   * When the prompt was created
-   */
-  created_at: string
-  /**
-   * Metadata including schema version, tool SHA, token count
-   */
-  meta?: {
-    [key: string]: unknown
-  }
-  /**
-   * A summary of the prompt.
-   */
-  summary?: string | null
-}
-
-/**
- * Request model for running a prompt on an entity.
- */
-export type PromptRunEntity = {
-  /**
-   * ID of the entity to run the prompt on
-   */
-  entity_id: string
-  /**
-   * Type of the entity to run the prompt on
-   */
-  entity_type: ChatEntity
-}
-
-/**
- * Request model for running a prompt on cases.
- */
-export type PromptRunRequest = {
-  /**
-   * Entities to run the prompt on
-   */
-  entities: Array<PromptRunEntity>
-}
-
-/**
- * Response model for prompt execution.
- */
-export type PromptRunResponse = {
-  /**
-   * Mapping of case_id to SSE stream URL
-   */
-  stream_urls: {
-    [key: string]: string
-  }
-}
-
-/**
- * Request model for updating prompt properties.
- */
-export type PromptUpdate = {
-  /**
-   * New title for the prompt
-   */
-  title?: string | null
-  /**
-   * New content for the prompt
-   */
-  content?: string | null
-  /**
-   * New tools for the prompt
-   */
-  tools?: Array<string> | null
-  /**
-   * New summary for the prompt
-   */
-  summary?: string | null
 }
 
 /**
@@ -3004,6 +2881,136 @@ export type RunUsage = {
   }
   requests?: number
   tool_calls?: number
+}
+
+export type RunbookAlias_Input = string
+
+export type RunbookAlias_Output = string
+
+/**
+ * Request model for creating a runbook.
+ */
+export type RunbookCreate = {
+  /**
+   * ID of the chat to freeze into a runbook
+   */
+  chat_id?: string | null
+  /**
+   * Optional metadata to include with the runbook (e.g., case information)
+   */
+  meta?: {
+    [key: string]: unknown
+  } | null
+  /**
+   * Alias for the runbook
+   */
+  alias?: RunbookAlias_Input | null
+}
+
+/**
+ * Request model for running a runbook on an entity.
+ */
+export type RunbookExecuteEntity = {
+  /**
+   * ID of the entity to run the runbook on
+   */
+  entity_id: string
+  /**
+   * Type of the entity to run the runbook on
+   */
+  entity_type: ChatEntity
+}
+
+/**
+ * Request model for running a runbook on cases.
+ */
+export type RunbookExecuteRequest = {
+  /**
+   * Entities to run the runbook on
+   */
+  entities: Array<RunbookExecuteEntity>
+}
+
+/**
+ * Response model for runbook execution.
+ */
+export type RunbookExecuteResponse = {
+  /**
+   * Mapping of chat_id to SSE stream URL
+   */
+  stream_urls: {
+    [key: string]: string
+  }
+}
+
+/**
+ * Model for runbook details.
+ */
+export type RunbookRead = {
+  /**
+   * Unique runbook identifier
+   */
+  id: string
+  /**
+   * Human-readable title for the runbook
+   */
+  title: string
+  /**
+   * The instruction runbook string
+   */
+  content: string
+  /**
+   * The tools available to the agent for this runbook
+   */
+  tools: Array<string>
+  /**
+   * When the runbook was created
+   */
+  created_at: string
+  /**
+   * When the runbook was last updated
+   */
+  updated_at: string
+  /**
+   * Metadata including schema version, tool SHA, token count
+   */
+  meta?: {
+    [key: string]: unknown
+  }
+  /**
+   * A summary of the runbook.
+   */
+  summary?: string | null
+  /**
+   * Alias for the runbook
+   */
+  alias?: RunbookAlias_Output | null
+}
+
+/**
+ * Request model for updating runbook properties.
+ */
+export type RunbookUpdate = {
+  /**
+   * New title for the runbook
+   */
+  title?: string | null
+  /**
+   * New content for the runbook
+   */
+  content?: string | null
+  /**
+   * New tools for the runbook
+   */
+  tools?: Array<string> | null
+  /**
+   * New summary for the runbook
+   */
+  summary?: string | null
+  /**
+   * New alias for the runbook (must be unique within workspace)
+   */
+  alias?: RunbookAlias_Input | null
 }
 
 export type SAMLDatabaseLoginResponse = {
@@ -4218,9 +4225,6 @@ export type WorkflowRead = {
   webhook: WebhookRead
   schedules: Array<Schedule>
   entrypoint: string | null
-  static_inputs: {
-    [key: string]: unknown
-  }
   expects?: {
     [key: string]: ExpectedField
   } | null
@@ -4283,9 +4287,6 @@ export type WorkflowUpdate = {
   version?: number | null
   entrypoint?: string | null
   icon_url?: string | null
-  static_inputs?: {
-    [key: string]: unknown
-  } | null
   expects?: {
     [key: string]: ExpectedField
   } | null
@@ -5837,60 +5838,68 @@ export type ChatStreamChatEventsData = {
 
 export type ChatStreamChatEventsResponse = unknown
 
-export type PromptCreatePromptData = {
-  requestBody: PromptCreate
+export type RunbookCreateRunbookData = {
+  requestBody: RunbookCreate
   workspaceId: string
 }
 
-export type PromptCreatePromptResponse = PromptRead
+export type RunbookCreateRunbookResponse = RunbookRead
 
-export type PromptListPromptsData = {
+export type RunbookListRunbooksData = {
   /**
-   * Maximum number of prompts to return
+   * Maximum number of runbooks to return
    */
   limit?: number
+  /**
+   * Sort order: 'asc' or 'desc'
+   */
+  order?: string
+  /**
+   * Field to sort by: 'created_at' or 'updated_at'
+   */
+  sortBy?: string
   workspaceId: string
 }
 
-export type PromptListPromptsResponse = Array<PromptRead>
+export type RunbookListRunbooksResponse = Array<RunbookRead>
 
-export type PromptGetPromptData = {
-  promptId: string
+export type RunbookGetRunbookData = {
+  runbookId: string
   workspaceId: string
 }
 
-export type PromptGetPromptResponse = PromptRead
+export type RunbookGetRunbookResponse = RunbookRead
 
-export type PromptUpdatePromptData = {
-  promptId: string
-  requestBody: PromptUpdate
+export type RunbookUpdateRunbookData = {
+  requestBody: RunbookUpdate
+  runbookId: string
   workspaceId: string
 }
 
-export type PromptUpdatePromptResponse = PromptRead
+export type RunbookUpdateRunbookResponse = RunbookRead
 
-export type PromptDeletePromptData = {
-  promptId: string
+export type RunbookDeleteRunbookData = {
+  runbookId: string
   workspaceId: string
 }
 
-export type PromptDeletePromptResponse = void
+export type RunbookDeleteRunbookResponse = void
 
-export type PromptRunPromptData = {
-  promptId: string
-  requestBody: PromptRunRequest
+export type RunbookExecuteRunbookData = {
+  requestBody: RunbookExecuteRequest
+  runbookId: string
   workspaceId: string
 }
 
-export type PromptRunPromptResponse = PromptRunResponse
+export type RunbookExecuteRunbookResponse = RunbookExecuteResponse
 
-export type PromptStreamPromptExecutionData = {
+export type RunbookStreamRunbookExecutionData = {
   caseId: string
-  promptId: string
+  runbookId: string
   workspaceId: string
 }
 
-export type PromptStreamPromptExecutionResponse = unknown
+export type RunbookStreamRunbookExecutionResponse = unknown
 
 export type FoldersGetDirectoryData = {
   /**
@@ -8702,14 +8711,14 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/prompt/": {
+  "/runbooks": {
     post: {
-      req: PromptCreatePromptData
+      req: RunbookCreateRunbookData
       res: {
         /**
          * Successful Response
          */
-        200: PromptRead
+        200: RunbookRead
         /**
          * Validation Error
          */
@@ -8717,12 +8726,12 @@ export type $OpenApiTs = {
       }
     }
     get: {
-      req: PromptListPromptsData
+      req: RunbookListRunbooksData
       res: {
         /**
          * Successful Response
          */
-        200: Array<PromptRead>
+        200: Array<RunbookRead>
         /**
          * Validation Error
          */
@@ -8730,14 +8739,14 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/prompt/{prompt_id}": {
+  "/runbooks/{runbook_id}": {
     get: {
-      req: PromptGetPromptData
+      req: RunbookGetRunbookData
       res: {
         /**
          * Successful Response
          */
-        200: PromptRead
+        200: RunbookRead
         /**
          * Validation Error
          */
@@ -8745,12 +8754,12 @@ export type $OpenApiTs = {
       }
     }
     patch: {
-      req: PromptUpdatePromptData
+      req: RunbookUpdateRunbookData
       res: {
         /**
          * Successful Response
          */
-        200: PromptRead
+        200: RunbookRead
         /**
          * Validation Error
          */
@@ -8758,7 +8767,7 @@ export type $OpenApiTs = {
       }
     }
     delete: {
-      req: PromptDeletePromptData
+      req: RunbookDeleteRunbookData
       res: {
         /**
          * Successful Response
@@ -8771,14 +8780,14 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/prompt/{prompt_id}/run": {
+  "/runbooks/{runbook_id}/execute": {
     post: {
-      req: PromptRunPromptData
+      req: RunbookExecuteRunbookData
       res: {
         /**
          * Successful Response
          */
-        200: PromptRunResponse
+        200: RunbookExecuteResponse
         /**
          * Validation Error
          */
@@ -8786,9 +8795,9 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/prompt/{prompt_id}/case/{case_id}/stream": {
+  "/runbooks/{runbook_id}/case/{case_id}/stream": {
     get: {
-      req: PromptStreamPromptExecutionData
+      req: RunbookStreamRunbookExecutionData
       res: {
         /**
          * Successful Response

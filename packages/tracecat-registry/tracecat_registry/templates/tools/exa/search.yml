@@ -1,0 +1,26 @@
+type: action
+definition:
+  title: Search the web
+  description: Search the web with Exa.
+  display_group: Exa
+  doc_url: https://docs.exa.ai/reference/search
+  namespace: tools.exa
+  name: search
+  secrets:
+    - name: exa
+      keys: ["EXA_API_KEY"]
+  expects:
+    query:
+      type: str
+      description: The query to search for.
+  steps:
+    - ref: search
+      action: core.http_request
+      args:
+        url: https://api.exa.ai/search
+        method: POST
+        headers:
+          x-api-key: ${{ SECRETS.exa.EXA_API_KEY }}
+        payload:
+          query: ${{ inputs.query }}
+  returns: ${{ steps.search.result.data }}

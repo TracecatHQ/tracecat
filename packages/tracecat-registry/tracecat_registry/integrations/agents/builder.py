@@ -1,15 +1,14 @@
 """Pydantic AI agents with tool calling."""
 
+import asyncio
 from dataclasses import dataclass
 from datetime import datetime
 import inspect
 import keyword
 import textwrap
-import tempfile
 import uuid
-from pathlib import Path
-import base64
 from typing import Any, Union, Annotated, Self
+from langfuse import get_client, observe
 from pydantic import BaseModel, TypeAdapter
 from pydantic_core import to_json, to_jsonable_python
 from tracecat_registry import RegistrySecretType
@@ -42,6 +41,7 @@ from pydantic_ai.tools import Tool, ToolDefinition
 from pydantic_core import PydanticUndefined
 import yaml
 
+from tracecat.contexts import ctx_run
 from tracecat.db.schemas import RegistryAction
 from tracecat.dsl.common import create_default_execution_context
 from tracecat.executor.service import (
@@ -64,12 +64,9 @@ from tracecat_registry.integrations.pydantic_ai import (
 
 from tracecat_registry import registry
 from tracecat_registry.integrations.agents.exceptions import AgentRunError
-from tracecat_registry.integrations.agents.tools import (
-    create_secure_file_tools,
-    create_tool_call,
-    create_tool_return,
-    generate_default_tools_prompt,
-)
+
+# Initialize Pydantic AI instrumentation for Langfuse
+Agent.instrument_all()
 
 
 def raise_error(error_message: str) -> None:
@@ -579,14 +576,14 @@ async def build_agent_tools(
         failed_actions: list[str] = []
 
         # Create tools from registry actions
-        for ra in actions:
+        async def create_tool(ra: RegistryAction):
             action_name = f"{ra.namespace}.{ra.name}"
             logger.debug(f"Building tool for action: {action_name}")
 
             # Apply namespace filtering if specified
             if namespace_filters:
                 if not any(action_name.startswith(ns) for ns in namespace_filters):
-                    continue
+                    return
 
             # Create the tool using the extracted function
             result = await create_single_tool(service, ra, action_name, fixed_arguments)
@@ -594,7 +591,7 @@ async def build_agent_tools(
             # Check if result is None and handle accordingly
             if result is None:
                 failed_actions.append(action_name)
-                continue
+                return
 
             # Update collected secrets
             collected_secrets.update(result.collected_secrets)
@@ -603,6 +600,8 @@ async def build_agent_tools(
                 tools.append(result.tool)
             else:
                 failed_actions.append(result.action_name)
+
+        await asyncio.gather(*[create_tool(ra) for ra in actions])
 
     return BulidToolsResult(
         tools=tools,
@@ -698,14 +697,6 @@ class TracecatAgentBuilder:
         self.tools.append(tool)
         return self
 
-    def with_default_tools(self, temp_dir: str | None = None) -> Self:
-        """Add default file manipulation tools, optionally restricted to temp_dir."""
-        if temp_dir:
-            # Use secure tools restricted to temp_dir
-            secure_tools = create_secure_file_tools(temp_dir)
-            self.tools.extend(secure_tools)
-        return self
-
     async def build(self) -> Agent:
         """Build the Pydantic AI agent with tools from the registry."""
 
@@ -749,6 +740,7 @@ class TracecatAgentBuilder:
             model=self.model_name,
             provider=self.model_provider,
             tool_count=len(self.tools),
+            tools=[tool.name for tool in self.tools],
             secret_count=len(self.collected_secrets),
         )
         return agent
@@ -759,10 +751,10 @@ ModelMessageTA: TypeAdapter[ModelMessage] = TypeAdapter(ModelMessage)
 
 class AgentOutput(BaseModel):
     output: Any
-    files: dict[str, str] | None = None
     message_history: list[ModelMessage]
     duration: float
     usage: RunUsage | None = None
+    trace_id: str | None = None
 
 
 @registry.register(
@@ -773,6 +765,7 @@ class AgentOutput(BaseModel):
     secrets=[*PYDANTIC_AI_REGISTRY_SECRETS],
     namespace="ai",
 )
+@observe()
 async def agent(
     user_prompt: Annotated[
         str,
@@ -786,12 +779,6 @@ async def agent(
         Doc("Actions (e.g. 'tools.slack.post_message') to include in the agent."),
         ActionType(multiple=True),
     ],
-    files: Annotated[
-        dict[str, str] | None,
-        Doc(
-            "Files to include in the agent's temporary directory environment. Keys are file paths and values are base64-encoded file contents."
-        ),
-    ] = None,
     fixed_arguments: Annotated[
         dict[str, dict[str, Any]] | None,
         Doc(
@@ -819,7 +806,6 @@ async def agent(
         model_name=model_name,
         model_provider=model_provider,
         actions=actions if isinstance(actions, list) else [actions],
-        files=files,
         fixed_arguments=fixed_arguments,
         instructions=instructions,
         output_type=output_type,
@@ -830,12 +816,12 @@ async def agent(
     )
 
 
+@observe()
 async def run_agent(
     user_prompt: str,
     model_name: str,
     model_provider: str,
     actions: list[str],
-    files: dict[str, str] | None = None,
     fixed_arguments: dict[str, dict[str, Any]] | None = None,
     instructions: str | None = None,
     output_type: str | dict[str, Any] | None = None,
@@ -858,10 +844,8 @@ async def run_agent(
         model_provider: Provider of the model (e.g., "openai", "anthropic").
         actions: List of action names to make available to the agent
                 (e.g., ["tools.slack.post_message", "tools.github.create_issue"]).
-        files: Optional mapping of file paths to base64-encoded content.
-               Files are created in a temporary directory accessible to the agent.
         fixed_arguments: Optional pre-configured arguments for specific actions.
-                        Keys are action names, values are keyword argument dictionaries.
+                        Keys are action names, values are keyword argument dictionaries.f
         instructions: Optional system instructions/context for the agent.
                      If provided, will be enhanced with tool guidance and error handling.
         output_type: Optional specification for the agent's output format.
@@ -900,12 +884,33 @@ async def run_agent(
         ```
     """
 
+    # Initialize Langfuse client and update trace
+    langfuse_client = get_client()
+
+    # Get workflow context for session_id
+    run_context = ctx_run.get()
+    if run_context:
+        session_id = f"{run_context.wf_id}/{run_context.wf_run_id}"
+        tags = ["action:ai.agent"]
+        if model_name:
+            tags.append(model_name)
+        if model_provider:
+            tags.append(model_provider)
+
+        langfuse_client.update_current_trace(
+            session_id=session_id,
+            tags=tags,
+        )
+
+    # Get the current trace_id
+    trace_id = langfuse_client.get_current_trace_id()
+
     # Only enhance instructions when provided (not None)
     enhanced_instrs: str | None = None
     fixed_arguments = fixed_arguments or {}
     if instructions is not None:
         # Generate the enhanced user prompt with tool guidance
-        tools_prompt = generate_default_tools_prompt(files) if files else ""
+        tools_prompt = ""
         # Provide current date context using Tracecat expression
         current_date_prompt = (
             f"<current_date>{datetime.now().isoformat()}</current_date>"
@@ -963,6 +968,7 @@ async def run_agent(
                 error_handling_prompt,
             ]
         )
+        logger.debug("Enhanced instructions", enhanced_instrs=enhanced_instrs)
 
     builder = TracecatAgentBuilder(
         model_name=model_name,
@@ -978,190 +984,212 @@ async def run_agent(
     if not actions:
         raise ValueError("No actions provided. Please provide at least one action.")
 
-    with tempfile.TemporaryDirectory() as temp_dir:
-        if files:
-            for path, content in files.items():
-                file_path = Path(temp_dir) / path
-                file_path.write_bytes(base64.b64decode(content))
+    agent = await builder.with_action_filters(*actions).build()
 
-            # Add secure default tools with temp_dir restriction
-            builder = builder.with_default_tools(temp_dir)
+    start_time = timeit()
+    # Set up Redis streaming if both parameters are provided
+    redis_client = None
+    stream_key = None
+    conversation_history: list[ModelMessage] = []
 
-        agent = await builder.with_action_filters(*actions).build()
-
-        start_time = timeit()
-        # Set up Redis streaming if both parameters are provided
-        redis_client = None
-        stream_key = None
-        conversation_history: list[ModelMessage] = []
-
-        if stream_id:
-            stream_key = f"agent-stream:{stream_id}"
+    # Use async version since this function is already async
+    async def write_to_redis(msg: ModelMessage):
+        # Stream to Redis if enabled
+        if redis_client and stream_key:
+            logger.debug("Streaming message to Redis", stream_key=stream_key)
             try:
-                redis_client = await get_redis_client()
-                logger.debug("Redis streaming enabled", stream_key=stream_key)
-
-                messages = await redis_client.xrange(stream_key, min_id="-", max_id="+")
-                # Load previous messages (if any) and validate
-                for _, fields in messages:
-                    try:
-                        data = orjson.loads(fields[DATA_KEY])
-                        if data.get(END_TOKEN) == END_TOKEN_VALUE:
-                            # This is an end-of-stream marker, skip
-                            continue
-
-                        validated_msg = ModelMessageTA.validate_python(data)
-                        conversation_history.append(validated_msg)
-                    except Exception as e:
-                        logger.warning("Failed to load message", error=str(e))
-
-            except Exception as e:
-                logger.warning(
-                    "Failed to initialize Redis client, continuing without streaming",
-                    error=str(e),
+                await redis_client.xadd(
+                    stream_key,
+                    {DATA_KEY: orjson.dumps(msg, default=to_jsonable_python).decode()},
+                    maxlen=10000,
+                    approximate=True,
                 )
+            except Exception as e:
+                logger.warning("Failed to stream message to Redis", error=str(e))
 
-        # Use async version since this function is already async
-        async def write_to_redis(msg: ModelMessage):
-            # Stream to Redis if enabled
-            if redis_client and stream_key:
-                logger.debug("Streaming message to Redis", stream_key=stream_key)
-                try:
-                    await redis_client.xadd(
-                        stream_key,
-                        {
-                            DATA_KEY: orjson.dumps(
-                                msg, default=to_jsonable_python
-                            ).decode()
-                        },
-                        maxlen=10000,
-                        approximate=True,
-                    )
-                except Exception as e:
-                    logger.warning("Failed to stream message to Redis", error=str(e))
-
+    if stream_id:
+        stream_key = f"agent-stream:{stream_id}"
         try:
-            message_nodes: list[ModelMessage] = []
-            # Pass conversation history to the agent
-            async with agent.iter(
-                user_prompt=user_prompt,
-                message_history=[
-                    ModelResponse(
-                        parts=[
-                            TextPart(
-                                content=f"Chat history thus far: <chat_history>{to_json(conversation_history, indent=2).decode()}</chat_history>"
-                            )
-                        ]
-                    ),
-                ],
-            ) as run:
-                async for node in run:
-                    curr: ModelMessage
-                    if Agent.is_user_prompt_node(node):
-                        continue
+            redis_client = await get_redis_client()
+            logger.debug("Redis streaming enabled", stream_key=stream_key)
 
-                    # 1️⃣  Model request (may be a normal user/tool-return message)
-                    elif Agent.is_model_request_node(node):
-                        curr = node.request
-
-                        # If this request is ONLY a tool-return we have
-                        # already streamed it via FunctionToolResultEvent.
-                        if any(isinstance(p, ToolReturnPart) for p in curr.parts):
-                            message_nodes.append(curr)  # keep history
-                            continue  # ← skip duplicate stream
-                    # assistant tool-call + tool-return events
-                    elif Agent.is_call_tools_node(node):
-                        curr = node.model_response
-                        async with node.stream(run.ctx) as stream:
-                            async for event in stream:
-                                if isinstance(event, FunctionToolCallEvent):
-                                    denorm_tool_name = event.part.tool_name.replace(
-                                        "__", "."
-                                    )
-                                    tool_fixed_args = fixed_arguments.get(
-                                        denorm_tool_name
-                                    )
-                                    message = create_tool_call(
-                                        tool_name=event.part.tool_name,
-                                        tool_args=event.part.args or {},
-                                        tool_call_id=event.part.tool_call_id,
-                                        fixed_args=tool_fixed_args,
-                                    )
-                                elif isinstance(
-                                    event, FunctionToolResultEvent
-                                ) and isinstance(event.result, ToolReturnPart):
-                                    message = create_tool_return(
-                                        tool_name=event.result.tool_name,
-                                        content=event.result.content,
-                                        tool_call_id=event.tool_call_id,
-                                    )
-                                else:
-                                    continue
-
-                                message_nodes.append(message)
-                                await write_to_redis(message)
-                        continue
-                    elif Agent.is_end_node(node):
-                        final = node.data
-                        if final.tool_name:
-                            curr = create_tool_return(
-                                tool_name=final.tool_name,
-                                content=final.output,
-                                tool_call_id=final.tool_call_id or "",
-                            )
-                        else:
-                            # Plain text output
-                            curr = ModelResponse(
-                                parts=[
-                                    TextPart(content=final.output),
-                                ]
-                            )
-                    else:
-                        raise ValueError(f"Unknown node type: {node}")
-
-                    message_nodes.append(curr)
-                    await write_to_redis(curr)
-
-                result = run.result
-                if not isinstance(result, AgentRunResult):
-                    raise ValueError("No output returned from agent run.")
-
-            # Add end-of-stream marker if streaming is enabled
-            if redis_client and stream_key:
+            messages = await redis_client.xrange(stream_key, min_id="-", max_id="+")
+            # Load previous messages (if any) and validate
+            for _, fields in messages:
                 try:
-                    await redis_client.xadd(
-                        stream_key,
-                        {DATA_KEY: orjson.dumps({END_TOKEN: END_TOKEN_VALUE}).decode()},
-                        maxlen=10000,
-                        approximate=True,
-                    )
-                    logger.debug("Added end-of-stream marker", stream_key=stream_key)
+                    data = orjson.loads(fields[DATA_KEY])
+                    if data.get(END_TOKEN) == END_TOKEN_VALUE:
+                        # This is an end-of-stream marker, skip
+                        continue
+
+                    validated_msg = ModelMessageTA.validate_python(data)
+                    conversation_history.append(validated_msg)
                 except Exception as e:
-                    logger.warning("Failed to add end-of-stream marker", error=str(e))
+                    logger.warning("Failed to load message", error=str(e))
 
         except Exception as e:
-            raise AgentRunError(
-                exc_cls=type(e),
-                exc_msg=str(e),
-                message_history=[to_jsonable_python(m) for m in message_nodes],
+            logger.warning(
+                "Failed to initialize Redis client, continuing without streaming",
+                error=str(e),
             )
 
+    message_nodes: list[ModelMessage] = []
+    try:
+        # Pass conversation history to the agent
+        async with agent.iter(
+            user_prompt=user_prompt,
+            message_history=[
+                ModelResponse(
+                    parts=[
+                        TextPart(
+                            content=f"Chat history thus far: <chat_history>{to_json(conversation_history, indent=2).decode()}</chat_history>"
+                        )
+                    ]
+                ),
+            ],
+        ) as run:
+            async for node in run:
+                curr: ModelMessage
+                if Agent.is_user_prompt_node(node):
+                    continue
+
+                # 1️⃣  Model request (may be a normal user/tool-return message)
+                elif Agent.is_model_request_node(node):
+                    curr = node.request
+
+                    # If this request is ONLY a tool-return we have
+                    # already streamed it via FunctionToolResultEvent.
+                    if any(isinstance(p, ToolReturnPart) for p in curr.parts):
+                        message_nodes.append(curr)  # keep history
+                        continue  # ← skip duplicate stream
+                # assistant tool-call + tool-return events
+                elif Agent.is_call_tools_node(node):
+                    curr = node.model_response
+                    async with node.stream(run.ctx) as stream:
+                        async for event in stream:
+                            if isinstance(event, FunctionToolCallEvent):
+                                denorm_tool_name = event.part.tool_name.replace(
+                                    "__", "."
+                                )
+                                tool_fixed_args = fixed_arguments.get(denorm_tool_name)
+                                message = create_tool_call(
+                                    tool_name=event.part.tool_name,
+                                    tool_args=event.part.args or {},
+                                    tool_call_id=event.part.tool_call_id,
+                                    fixed_args=tool_fixed_args,
+                                )
+                            elif isinstance(
+                                event, FunctionToolResultEvent
+                            ) and isinstance(event.result, ToolReturnPart):
+                                message = create_tool_return(
+                                    tool_name=event.result.tool_name,
+                                    content=event.result.content,
+                                    tool_call_id=event.tool_call_id,
+                                )
+                            else:
+                                continue
+
+                            message_nodes.append(message)
+                            await write_to_redis(message)
+                    continue
+                elif Agent.is_end_node(node):
+                    final = node.data
+                    if final.tool_name:
+                        curr = create_tool_return(
+                            tool_name=final.tool_name,
+                            content=final.output,
+                            tool_call_id=final.tool_call_id or "",
+                        )
+                    else:
+                        # Plain text output
+                        curr = ModelResponse(
+                            parts=[
+                                TextPart(content=final.output),
+                            ]
+                        )
+                else:
+                    raise ValueError(f"Unknown node type: {node}")
+
+                message_nodes.append(curr)
+                await write_to_redis(curr)
+
+            result = run.result
+            if not isinstance(result, AgentRunResult):
+                raise ValueError("No output returned from agent run.")
+
+        # Add end-of-stream marker if streaming is enabled
+        if redis_client and stream_key:
+            try:
+                await redis_client.xadd(
+                    stream_key,
+                    {DATA_KEY: orjson.dumps({END_TOKEN: END_TOKEN_VALUE}).decode()},
+                    maxlen=10000,
+                    approximate=True,
+                )
+                logger.debug("Added end-of-stream marker", stream_key=stream_key)
+            except Exception as e:
+                logger.warning("Failed to add end-of-stream marker", error=str(e))
+
         end_time = timeit()
-
-        # Read potentially modified files from temp directory
-        files = {}
-        for file_path in Path(temp_dir).glob("*"):
-            with open(file_path, "r") as f:
-                base64_content = base64.b64encode(f.read().encode()).decode()
-                files[file_path.name] = base64_content
-
         output = AgentOutput(
             output=try_parse_json(result.output),
-            files=files,
             message_history=result.all_messages(),
             duration=end_time - start_time,
+            trace_id=trace_id,
         )
         if include_usage:
             output.usage = result.usage()
 
-    return output.model_dump()
+        return output.model_dump()
+
+    except Exception as e:
+        raise AgentRunError(
+            exc_cls=type(e),
+            exc_msg=str(e),
+            message_history=[to_jsonable_python(m) for m in message_nodes],
+        )
+
+
+def create_tool_call(
+    tool_name: str,
+    tool_args: str | dict[str, Any],
+    tool_call_id: str,
+    fixed_args: dict[str, Any] | None = None,
+) -> ModelResponse:
+    """Build an assistant tool-call message (ModelResponse)."""
+    if isinstance(tool_args, str):
+        try:
+            args = orjson.loads(tool_args)
+        except Exception:
+            logger.warning("Failed to parse tool args", tool_args=tool_args)
+            args = {"args": tool_args}
+    else:
+        args = tool_args
+    if fixed_args:
+        args = {**fixed_args, **args}
+    return ModelResponse(
+        parts=[
+            ToolCallPart(
+                tool_name=tool_name,
+                args=args,
+                tool_call_id=tool_call_id,
+            )
+        ]
+    )
+
+
+def create_tool_return(
+    tool_name: str,
+    content: Any,
+    tool_call_id: str,
+) -> ModelRequest:
+    """Build the matching tool-result message (ModelRequest)."""
+    return ModelRequest(
+        parts=[
+            ToolReturnPart(
+                tool_name=tool_name,
+                tool_call_id=tool_call_id,
+                content=content,
+            )
+        ]
+    )

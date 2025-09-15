@@ -49,9 +49,22 @@ def traverse_leaves(obj: Any, parent_key: str = "") -> Iterator[tuple[str, Any]]
         yield parent_key, obj
 
 
+def traverse_nodes(obj: Any) -> Iterator[Any]:
+    """Iterate through the nodes of a nested object, including dict keys."""
+    if isinstance(obj, dict):
+        for key, value in obj.items():
+            yield key
+            yield from traverse_nodes(value)
+    elif isinstance(obj, list):
+        for item in obj:
+            yield from traverse_nodes(item)
+    else:
+        yield obj
+
+
 def traverse_expressions(obj: Any) -> Iterator[str]:
     """Return an iterator of all expressions in a nested object."""
-    for _, value in traverse_leaves(obj):
+    for value in traverse_nodes(obj):
         if not isinstance(value, str):
             continue
         for match in re.finditer(patterns.TEMPLATE_STRING, value):

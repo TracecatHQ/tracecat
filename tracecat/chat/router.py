@@ -7,7 +7,11 @@ from typing import Annotated
 import orjson
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
-from tracecat_registry.integrations.agents.builder import ModelMessageTA
+from pydantic_ai import Tool
+from tracecat_registry.integrations.agents.builder import (
+    ModelMessageTA,
+    build_agent_tools,
+)
 from tracecat_registry.integrations.agents.tokens import (
     DATA_KEY,
     END_TOKEN,
@@ -31,6 +35,7 @@ from tracecat.chat.service import ChatService, inject_case_content
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.logger import logger
 from tracecat.redis.client import get_redis_client
+from tracecat.runbook.service import inject_runbook_content
 from tracecat.settings.service import get_setting_cached
 
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -175,6 +180,66 @@ async def start_chat_turn(
                 session=session, role=role, case_id=chat.entity_id
             ):
                 instructions.append(case_instructions)
+        elif chat.entity_type == ChatEntity.RUNBOOK:
+            all_tools = await build_agent_tools()
+
+            def format_tool(tool: Tool) -> str:
+                return f'<Tool id="{tool.name}">{tool.description}</Tool>'
+
+            main_instructions = f"""
+            You are an expert runbook editing agent.
+
+            You will be given a user request to edit the runbook.
+
+            <Task>
+            Your task is to interpret the users intent and edit the runbook as requested by the user.
+            </Task>
+
+            <EditingRules>
+            - You must ask clarifying questions to the user if you are not sure about the user's intent.
+            - If you've determined you have to update the Runbook instructions, you should update the runbook `summary` using markdown.
+            - You must not edit the runbook `content` as this will be interpreted by another AI agent that actually executes the runbook steps.
+            - You *MUST* follow the <SummaryInstructions> and <Sections> structure exactly.
+            </EditingRules>
+
+            <SummaryInstructions>
+            - Output ONLY the runbook as Markdown; no extra prose before/after
+            - Do NOT wrap the entire runbook in a single code block
+            - Use Markdown headings and lists; use fenced blocks only for actual code/commands
+            - Sections (in order): Objective, Tools, Steps
+            - Note that there is no trigger section. Do not include or ask about this.
+
+            <Sections>
+            <Objective>
+            - Generalized purpose; no case-specific identifiers or private values
+            </Objective>
+
+            <Tools>
+            - Use ONLY the provided tools for this chat (Tracecat tool IDs)
+            - This is the list of all available Tracecat tools:
+            <AllAvailableTools>
+            {"\n".join(format_tool(tool) for tool in all_tools.tools)}
+            </AllAvailableTools>
+            </Tools>
+
+            <Steps>
+            - Concise, actionable, generalized instructions
+            - If a step clearly requires a tool call, include the tool ID in the step
+            - Infer parameters from intent/structure; do not copy example inputs/outputs verbatim
+            </Steps>
+            </Sections>
+            </SummaryInstructions>
+
+            <GeneralizationRules>
+            - Do NOT hardcode case-specific IDs/values; use placeholders or JSONPath
+            - IoCs (emails, IPs, hostnames, domains, URLs, hashes, usernames) MAY appear ONLY as “example” values in Trigger or Steps
+            </GeneralizationRules>
+            """
+            instructions.append(main_instructions)
+            if runbook_instructions := await inject_runbook_content(
+                session=session, role=role, runbook_id=chat.entity_id
+            ):
+                instructions.append(runbook_instructions)
         if request.instructions:
             instructions.append(request.instructions)
         merged_instructions = "\n".join(instructions) if instructions else None
@@ -183,6 +248,7 @@ async def start_chat_turn(
             merged_instructions=merged_instructions,
             org_prompt=org_prompt,
             request_instructions=request.instructions,
+            tools=chat.tools,
         )
 
         model_info = ModelInfo(

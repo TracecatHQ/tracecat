@@ -1,4 +1,4 @@
-"""Prompt service for freezing and replaying chats."""
+"""Runbook service for freezing and replaying chats."""
 
 import asyncio
 import hashlib
@@ -6,8 +6,10 @@ import json
 import textwrap
 import uuid
 from collections.abc import Sequence
+from datetime import datetime
 from typing import Any
 
+import yaml
 from pydantic_ai.messages import (
     ModelRequest,
     ModelResponse,
@@ -23,39 +25,71 @@ from tracecat.agent.service import AgentManagementService
 from tracecat.chat.enums import ChatEntity
 from tracecat.chat.models import ChatMessage, ChatResponse
 from tracecat.chat.service import ChatService
-from tracecat.db.schemas import Chat, Prompt
+from tracecat.db.schemas import Chat, Runbook
 from tracecat.logger import logger
-from tracecat.prompt.flows import execute_runbook_for_case
-from tracecat.prompt.models import PromptRunEntity
+from tracecat.runbook.flows import execute_runbook_for_case
+from tracecat.runbook.models import (
+    RunbookAlias,
+    RunbookCreate,
+    RunbookExecuteEntity,
+    RunbookUpdate,
+)
 from tracecat.service import BaseWorkspaceService
 from tracecat.types.auth import Role
 from tracecat.types.exceptions import TracecatNotFoundError
 
 
-class PromptService(BaseWorkspaceService):
-    """Service for managing prompts (frozen chats)."""
+def _is_uuid(value: str) -> bool:
+    """Check if a string is a valid UUID."""
+    try:
+        uuid.UUID(value)
+        return True
+    except ValueError:
+        return False
 
-    service_name = "prompt"
+
+class RunbookService(BaseWorkspaceService):
+    """Service for managing runbooks (frozen chats)."""
+
+    service_name = "runbook"
 
     def __init__(self, session: AsyncSession, role: Role):
         super().__init__(session, role)
         self.chats = ChatService(session, role)
 
-    async def create_prompt(
+    async def create_runbook(self, params: RunbookCreate):
+        """Create a runbook."""
+        if params.chat_id:
+            chat = await self.chats.get_chat(params.chat_id)
+            if not chat:
+                raise TracecatNotFoundError(f"Chat with ID {params.chat_id} not found")
+            return await self.create_runbook_from_chat(
+                chat=chat, meta=params.meta, alias=params.alias
+            )
+        else:
+            return await self.create_runbook_direct(
+                title=f"New runbook - {datetime.now().isoformat()}",
+                content="",
+                tools=[],
+                alias=params.alias,
+            )
+
+    async def create_runbook_from_chat(
         self,
         *,
         chat: Chat,
         meta: dict[str, Any] | None = None,
-    ) -> Prompt:
-        """Turn a chat into a reusable prompt."""
+        alias: RunbookAlias | None = None,
+    ) -> Runbook:
+        """Turn a chat into a reusable runbook."""
 
         messages = await self.chats.get_chat_messages(chat)
         steps = self._reduce_messages_to_steps(messages)
 
         # Run both AI generation tasks in parallel
         results = await asyncio.gather(
-            self._prompt_summary(steps, tools=chat.tools),
-            self._chat_to_prompt_title(chat, meta, messages),
+            self._runbook_summary(steps, tools=chat.tools),
+            self._chat_to_runbook_title(chat, meta, messages),
             return_exceptions=True,
         )
 
@@ -63,7 +97,7 @@ class PromptService(BaseWorkspaceService):
         summary: str | None
         if isinstance(results[0], Exception):
             logger.error(
-                "Failed to create prompt summary",
+                "Failed to create runbook summary",
                 error=results[0],
                 steps=steps,
                 tools=chat.tools,
@@ -96,54 +130,56 @@ Here are the <Steps> to execute:
 
 <StepHandling>
 - user-prompt: follow the instruction
-- tool-call: use the named tool; infer inputs from <Alert> and prior returns; do not reuse example values
+- tool-call: use the named tool; infer inputs from <Alert> and prior returns
+    - You *MUST NOT* reuse hardcoded or example values. You *MUST* derive fresh values from <Alert>
+    - For example, if the <Alert> has a hostname `example.com`, during tool calls you *MUST NOT* use `example.com` as the hostname. You *MUST* use the actual hostname from the <Alert>
 - tool-return: note the type/shape, not literal example values
 </StepHandling>
 
 <Rules>
 1. Call tools only when a <Step> says so
 2. Preserve the original <Step> order
-3. Never reuse example inputs/outputs; derive fresh values from <Alert>
+3. *NEVER reuse hardcoded or example inputs/outputs*; derive fresh values from <Alert>. Doing so means you are not executing the runbook on the incoming <Alert>.
 4. No conversational chatter, rationale, or chain-of-thought; keep outputs minimal and task-focused
-5. If the case is clearly unrelated to these <Steps>, stop and output INAPPLICABLE
+5. You should first read the case content and the <Alert> to determine if it is relevant to the <Steps>. Only if the case is clearly unrelated to these <Steps>, stop and output INAPPLICABLE, with an explanation.
 6. Do not restate or summarize <Alert> or <Steps>
 7. Keep each message under ~150 tokens; do not dump large payloads; reference them instead
 </Rules>""")
 
         # Merge provided meta with generated meta
-        prompt_meta = {
+        runbook_meta = {
             "schema": "v1",
             "tool_sha": tool_sha,
             "token_count": token_count,
         }
         if meta:
-            prompt_meta.update(meta)
+            runbook_meta.update(meta)
 
-        prompt = Prompt(
-            chat_id=chat.id,
+        runbook = Runbook(
             title=title,
             content=content.strip(),  # Defensive
             owner_id=self.workspace_id,
-            meta=prompt_meta,
+            meta=runbook_meta,
             tools=chat.tools,
             summary=summary,
+            alias=alias,
         )
 
-        self.session.add(prompt)
+        self.session.add(runbook)
         await self.session.commit()
-        await self.session.refresh(prompt)
+        await self.session.refresh(runbook)
 
         logger.info(
-            "Created prompt from chat",
-            prompt_id=str(prompt.id),
+            "Created runbook from chat",
+            runbook_id=str(runbook.id),
             chat_id=chat.id,
             token_count=token_count,
             workspace_id=self.workspace_id,
         )
 
-        return prompt
+        return runbook
 
-    async def _chat_to_prompt_title(
+    async def _chat_to_runbook_title(
         self, chat: Chat, meta: dict[str, Any] | None, messages: list[ChatMessage]
     ) -> str:
         """Generate an ITSM-focused runbook title.
@@ -192,71 +228,101 @@ Here are the <Steps> to execute:
                 title = f"{chat.title}"
             return title
 
-    async def get_prompt(self, prompt_id: uuid.UUID) -> Prompt | None:
-        """Get a prompt by ID."""
-        stmt = select(Prompt).where(
-            Prompt.id == prompt_id,
-            Prompt.owner_id == self.workspace_id,
+    async def get_runbook(self, runbook_id_or_alias: str) -> Runbook | None:
+        """Get a runbook by ID or alias."""
+        if _is_uuid(runbook_id_or_alias):
+            return await self.get_runbook_by_id(uuid.UUID(runbook_id_or_alias))
+        else:
+            return await self.get_runbook_by_alias(runbook_id_or_alias)
+
+    async def get_runbook_by_id(self, runbook_id: uuid.UUID) -> Runbook | None:
+        """Get a runbook by ID."""
+        stmt = select(Runbook).where(
+            Runbook.id == runbook_id,
+            Runbook.owner_id == self.workspace_id,
         )
 
         result = await self.session.exec(stmt)
         return result.first()
 
-    async def list_prompts(
+    async def get_runbook_by_alias(self, alias: str) -> Runbook | None:
+        """Get a runbook by alias."""
+        stmt = select(Runbook).where(
+            Runbook.alias == alias,
+            Runbook.owner_id == self.workspace_id,
+        )
+
+        result = await self.session.exec(stmt)
+        return result.first()
+
+    async def resolve_runbook_alias(self, alias: str) -> uuid.UUID | None:
+        """Resolve a runbook alias to its ID."""
+        stmt = select(Runbook.id).where(
+            Runbook.alias == alias,
+            Runbook.owner_id == self.workspace_id,
+        )
+
+        result = await self.session.exec(stmt)
+        return result.one_or_none()
+
+    async def list_runbooks(
         self,
         *,
         limit: int = 50,
-    ) -> Sequence[Prompt]:
-        """List prompts for the current workspace."""
+        sort_by: str = "created_at",
+        order: str = "desc",
+    ) -> Sequence[Runbook]:
+        """List runbooks for the current workspace."""
+        # Determine the sort column
+        sort_column = (
+            col(Runbook.created_at)
+            if sort_by == "created_at"
+            else col(Runbook.updated_at)
+        )
+
+        # Apply sort order
+        if order == "desc":
+            sort_column = sort_column.desc()
+        else:
+            sort_column = sort_column.asc()
+
         stmt = (
-            select(Prompt)
-            .where(Prompt.owner_id == self.workspace_id)
-            .order_by(col(Prompt.created_at).desc())
+            select(Runbook)
+            .where(Runbook.owner_id == self.workspace_id)
+            .order_by(sort_column)
             .limit(limit)
         )
 
         result = await self.session.exec(stmt)
         return result.all()
 
-    async def update_prompt(
+    async def update_runbook(
         self,
-        prompt: Prompt,
-        *,
-        title: str | None = None,
-        content: str | None = None,
-        tools: list[str] | None = None,
-        summary: str | None = None,
-    ) -> Prompt:
-        """Update prompt properties."""
-        if title is not None:
-            prompt.title = title
+        runbook: Runbook,
+        params: RunbookUpdate,
+    ) -> Runbook:
+        """Update runbook properties."""
+        set_fields = params.model_dump(exclude_unset=True)
+        for key, value in set_fields.items():
+            setattr(runbook, key, value)
 
-        if content is not None:
-            prompt.content = content
-
-        if tools is not None:
-            prompt.tools = tools
-
-        if summary is not None:
-            prompt.summary = summary
-
-        self.session.add(prompt)
+        self.session.add(runbook)
         await self.session.commit()
-        await self.session.refresh(prompt)
+        await self.session.refresh(runbook)
 
-        return prompt
+        return runbook
 
-    async def delete_prompt(self, prompt: Prompt) -> None:
-        """Delete a prompt."""
-        await self.session.delete(prompt)
+    async def delete_runbook(self, runbook: Runbook) -> None:
+        """Delete a runbook."""
+        await self.session.delete(runbook)
         await self.session.commit()
 
-    async def run_prompt(
+    async def execute_runbook(
         self,
-        prompt: Prompt,
-        entities: list[PromptRunEntity],
+        runbook: Runbook,
+        entities: list[RunbookExecuteEntity],
     ) -> list[ChatResponse]:
-        """Execute a prompt on multiple cases."""
+        """Execute a runbook on multiple cases."""
 
         # Fire off tasks for each case
         responses = []
@@ -265,7 +331,7 @@ Here are the <Steps> to execute:
                 try:
                     response = await execute_runbook_for_case(
                         case_id=entity.entity_id,
-                        prompt=prompt,
+                        runbook=runbook,
                         session=self.session,
                         role=self.role,
                     )
@@ -273,27 +339,78 @@ Here are the <Steps> to execute:
                     logger.warning(
                         "Case not found",
                         case_id=entity.entity_id,
-                        prompt_id=prompt.id,
+                        runbook_id=runbook.id,
                         workspace_id=self.workspace_id,
                     )
                 else:
                     responses.append(response)
+            else:
+                self.logger.warning(
+                    "Unsupported entity type",
+                    entity_type=entity.entity_type,
+                    runbook_id=runbook.id,
+                    workspace_id=self.workspace_id,
+                )
         return responses
+
+    async def create_runbook_direct(
+        self,
+        *,
+        title: str,
+        content: str,
+        tools: list[str],
+        summary: str | None = None,
+        alias: RunbookAlias | None = None,
+        meta: dict[str, Any] | None = None,
+    ) -> Runbook:
+        """Create a runbook directly without a chat."""
+
+        tool_sha = self._calculate_tool_sha(tools)
+        token_count = self._estimate_token_count(content)
+
+        runbook = Runbook(
+            owner_id=self.workspace_id,
+            title=title,
+            content=content,
+            tools=tools,
+            summary=summary,
+            alias=alias,
+            meta={
+                "created_directly": True,
+                "schema": "v1",
+                "tool_sha": tool_sha,
+                "token_count": token_count,
+                **(meta or {}),
+            },
+        )
+
+        self.session.add(runbook)
+        await self.session.commit()
+        await self.session.refresh(runbook)
+
+        logger.info(
+            "Created direct runbook",
+            runbook_id=runbook.id,
+            title=title,
+            tools_count=len(tools),
+        )
+
+        return runbook
 
     def _reduce_messages_to_steps(self, messages: list[ChatMessage]) -> str:
         """
-        Reduce chat messages to a single prompt string.
+        Reduce chat messages to a single runbook string.
 
-        The prompt string should be an executable instruction set for an agent.
+        The runbook string should be an executable instruction set for an agent.
 
         Phase 1:
         - Just serialize as XML objects
 
         Phase 2:
-        - Prompt optimization
+        - Runbook optimization
         """
         # Simple concatenation approach for MVP
-        prompt_parts = []
+        runbook_parts = []
 
         # Turn these into steps
         for msg in messages:
@@ -316,7 +433,7 @@ Here are the <Steps> to execute:
                                     "</Step>\n"
                                 )
                     content = "".join(xml_parts)
-                    prompt_parts.append(content)
+                    runbook_parts.append(content)
                 case ModelResponse(parts=parts):
                     # Convert each part to XML
                     xml_parts = []
@@ -329,8 +446,8 @@ Here are the <Steps> to execute:
                                     "</Step>\n"
                                 )
                     content = "".join(xml_parts)
-                    prompt_parts.append(content)
-        return f"<Steps>\n{''.join(prompt_parts)}\n</Steps>"
+                    runbook_parts.append(content)
+        return f"<Steps>\n{''.join(runbook_parts)}\n</Steps>"
 
     def _calculate_tool_sha(self, tools: list[str]) -> str:
         """Calculate SHA256 hash of tools list."""
@@ -341,8 +458,8 @@ Here are the <Steps> to execute:
         """Rough estimation of token count (1 token ≈ 4 characters)."""
         return len(text) // 4
 
-    def _clean_prompt_output(self, output: str) -> str:
-        """Clean and normalize prompt output by removing code block wrappers."""
+    def _clean_runbook_output(self, output: str) -> str:
+        """Clean and normalize runbook output by removing code block wrappers."""
         output = output.strip()
 
         # Remove markdown code block wrapper if the entire content is wrapped
@@ -357,8 +474,8 @@ Here are the <Steps> to execute:
                     output = output[:-3].rstrip()
         return output
 
-    async def _prompt_summary(self, steps: str, tools: list[str]) -> str:
-        """Convert a prompt to a runbook."""
+    async def _runbook_summary(self, steps: str, tools: list[str]) -> str:
+        """Generate a summary for a runbook."""
         instructions = textwrap.dedent("""
         You are an expert runbook creation agent.
 
@@ -412,6 +529,28 @@ Here are the <Steps> to execute:
             </Tools>
             """
             response = await agent.run(user_prompt)
-            output = self._clean_prompt_output(response.output)
+            output = self._clean_runbook_output(response.output)
 
         return output
+
+
+async def inject_runbook_content(
+    *, session: AsyncSession, role: Role, runbook_id: uuid.UUID
+) -> str | None:
+    runbook_svc = RunbookService(session, role)
+    if runbook := await runbook_svc.get_runbook_by_id(runbook_id):
+        # Add indication that this is the current runbook
+        # Prepare case data for YAML dump, including tags if they exist
+        runbook_data = runbook.model_dump(mode="json")
+
+        runbook_content = (
+            f"This is the current runbook you are working on:\n\n"
+            "<runbook_context>\n"
+            f"```yaml\n"
+            f"{yaml.dump(runbook_data, indent=2)}\n"
+            "```\n"
+            "</runbook_context>\n"
+        )
+
+        return runbook_content
+    return None
