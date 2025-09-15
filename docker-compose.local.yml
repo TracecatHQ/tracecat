@@ -152,8 +152,6 @@ services:
       REDIS_HOST: ${REDIS_HOST}
       REDIS_PORT: ${REDIS_PORT}
       REDIS_URL: ${REDIS_URL}
-      # TMP
-      HEALTHCHECK_TMP_THRESHOLD: ${HEALTHCHECK_TMP_THRESHOLD}
     volumes:
       - ${TRACECAT__LOCAL_REPOSITORY_PATH}:/app/local_registry
     command:
