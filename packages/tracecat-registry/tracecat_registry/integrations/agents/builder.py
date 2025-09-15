@@ -8,6 +8,7 @@ import keyword
 import textwrap
 import uuid
 from typing import Any, Union, Annotated, Self
+from langfuse import get_client, observe
 from pydantic import BaseModel, TypeAdapter
 from pydantic_core import to_json, to_jsonable_python
 from tracecat_registry import RegistrySecretType
@@ -40,6 +41,7 @@ from pydantic_ai.tools import Tool, ToolDefinition
 from pydantic_core import PydanticUndefined
 import yaml
 
+from tracecat.contexts import ctx_run
 from tracecat.db.schemas import RegistryAction
 from tracecat.dsl.common import create_default_execution_context
 from tracecat.executor.service import (
@@ -62,6 +64,9 @@ from tracecat_registry.integrations.pydantic_ai import (
 
 from tracecat_registry import registry
 from tracecat_registry.integrations.agents.exceptions import AgentRunError
+
+# Initialize Pydantic AI instrumentation for Langfuse
+Agent.instrument_all()
 
 
 def raise_error(error_message: str) -> None:
@@ -749,6 +754,7 @@ class AgentOutput(BaseModel):
     message_history: list[ModelMessage]
     duration: float
     usage: RunUsage | None = None
+    trace_id: str | None = None
 
 
 @registry.register(
@@ -759,6 +765,7 @@ class AgentOutput(BaseModel):
     secrets=[*PYDANTIC_AI_REGISTRY_SECRETS],
     namespace="ai",
 )
+@observe()
 async def agent(
     user_prompt: Annotated[
         str,
@@ -809,6 +816,7 @@ async def agent(
     )
 
 
+@observe()
 async def run_agent(
     user_prompt: str,
     model_name: str,
@@ -875,6 +883,27 @@ async def run_agent(
         )
         ```
     """
+
+    # Initialize Langfuse client and update trace
+    langfuse_client = get_client()
+
+    # Get workflow context for session_id
+    run_context = ctx_run.get()
+    if run_context:
+        session_id = f"{run_context.wf_id}/{run_context.wf_run_id}"
+        tags = ["action:ai.agent"]
+        if model_name:
+            tags.append(model_name)
+        if model_provider:
+            tags.append(model_provider)
+
+        langfuse_client.update_current_trace(
+            session_id=session_id,
+            tags=tags,
+        )
+
+    # Get the current trace_id
+    trace_id = langfuse_client.get_current_trace_id()
 
     # Only enhance instructions when provided (not None)
     enhanced_instrs: str | None = None
@@ -963,6 +992,21 @@ async def run_agent(
     stream_key = None
     conversation_history: list[ModelMessage] = []
 
+    # Use async version since this function is already async
+    async def write_to_redis(msg: ModelMessage):
+        # Stream to Redis if enabled
+        if redis_client and stream_key:
+            logger.debug("Streaming message to Redis", stream_key=stream_key)
+            try:
+                await redis_client.xadd(
+                    stream_key,
+                    {DATA_KEY: orjson.dumps(msg, default=to_jsonable_python).decode()},
+                    maxlen=10000,
+                    approximate=True,
+                )
+            except Exception as e:
+                logger.warning("Failed to stream message to Redis", error=str(e))
+
     if stream_id:
         stream_key = f"agent-stream:{stream_id}"
         try:
@@ -988,25 +1032,6 @@ async def run_agent(
                 "Failed to initialize Redis client, continuing without streaming",
                 error=str(e),
             )
-
-        # Use async version since this function is already async
-        async def write_to_redis(msg: ModelMessage):
-            # Stream to Redis if enabled
-            if redis_client and stream_key:
-                logger.debug("Streaming message to Redis", stream_key=stream_key)
-                try:
-                    await redis_client.xadd(
-                        stream_key,
-                        {
-                            DATA_KEY: orjson.dumps(
-                                msg, default=to_jsonable_python
-                            ).decode()
-                        },
-                        maxlen=10000,
-                        approximate=True,
-                    )
-                except Exception as e:
-                    logger.warning("Failed to stream message to Redis", error=str(e))
 
     message_nodes: list[ModelMessage] = []
     try:
@@ -1110,6 +1135,7 @@ async def run_agent(
             output=try_parse_json(result.output),
             message_history=result.all_messages(),
             duration=end_time - start_time,
+            trace_id=trace_id,
         )
         if include_usage:
             output.usage = result.usage()
