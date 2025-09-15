@@ -1,10 +1,10 @@
 "use client"
 
-import type { CellContext, ColumnDef } from "@tanstack/react-table"
+import type { CellContext, Column, ColumnDef } from "@tanstack/react-table"
 import { DatabaseZapIcon } from "lucide-react"
 import React, { useEffect, useState } from "react"
 import type { TableColumnRead, TableRead, TableRowRead } from "@/client"
-import { DataTable } from "@/components/data-table"
+import { DataTable, SimpleColumnHeader } from "@/components/data-table"
 import { JsonViewWithControls } from "@/components/json-viewer"
 import { TableViewAction } from "@/components/tables/table-view-action"
 import { TableViewColumnMenu } from "@/components/tables/table-view-column-menu"
@@ -61,7 +61,9 @@ function CollapsibleText({ text }: { text: string }) {
 
   return (
     <div ref={containerRef} className="space-y-1">
-      <pre className="whitespace-pre-wrap text-xs font-sans">{chunks.join("\n")}</pre>
+      <pre className="whitespace-pre-wrap text-xs font-sans">
+        {chunks.join("\n")}
+      </pre>
       <Button
         variant="ghost"
         size="sm"
@@ -116,11 +118,13 @@ export function DatabaseTable({
   const allColumns: ColumnDef<TableRowRead, TableColumnRead>[] = [
     ...columns.map((column) => ({
       accessorKey: column.name,
-      header: () => (
+      header: ({ column: tableColumn }: { column: Column<TableRowRead, unknown> }) => (
         <div className="flex items-center gap-2 text-xs">
-          <span className="font-semibold text-foreground/90">
-            {column.name}
-          </span>
+          <SimpleColumnHeader
+            column={tableColumn}
+            title={column.name}
+            className="text-xs"
+          />
           <span className="lowercase text-muted-foreground">{column.type}</span>
           {column.is_index && (
             <span className="inline-flex items-center rounded-full bg-green-100 px-1.5 py-0.5 text-xs font-medium text-green-800 dark:bg-green-900 dark:text-green-100">
