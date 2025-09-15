@@ -17,7 +17,7 @@ definition:
     - ref: search
       action: core.http_request
       args:
-        url: https://api.exa.ai/v1/search
+        url: https://api.exa.ai/search
         method: POST
         headers:
           x-api-key: ${{ SECRETS.exa.EXA_API_KEY }}

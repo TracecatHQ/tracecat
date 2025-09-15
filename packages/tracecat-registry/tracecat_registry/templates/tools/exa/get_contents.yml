@@ -17,7 +17,7 @@ definition:
     - ref: get_contents
       action: core.http_request
       args:
-        url: https://api.exa.ai/v1/contents
+        url: https://api.exa.ai/contents
         method: POST
         headers:
           x-api-key: ${{ SECRETS.exa.EXA_API_KEY }}
