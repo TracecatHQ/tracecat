@@ -142,7 +142,9 @@ services:
       TRACECAT__DB_SSLMODE: ${TRACECAT__DB_SSLMODE}
       TRACECAT__DB_URI: ${TRACECAT__DB_URI} # Sensitive
       TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY} # Sensitive
+      TRACECAT__SIGNING_SECRET: ${TRACECAT__SIGNING_SECRET} # Sensitive
       TRACECAT__FEATURE_FLAGS: ${TRACECAT__FEATURE_FLAGS}
+      TRACECAT__API_URL: ${TRACECAT__API_URL:-http://api:8000}
       # Local registry
       TRACECAT__LOCAL_REPOSITORY_PATH: ${TRACECAT__LOCAL_REPOSITORY_PATH}
       TRACECAT__LOCAL_REPOSITORY_ENABLED: ${TRACECAT__LOCAL_REPOSITORY_ENABLED}
@@ -247,7 +249,7 @@ services:
       - temporal_postgres_db
 
   temporal_ui:
-    image: temporalio/ui:${TEMPORAL__UI_VERSION}
+    image: temporalio/ui:${TEMPORAL__UI_VERSION:-latest}
     container_name: temporal_ui
     restart: unless-stopped
     networks:

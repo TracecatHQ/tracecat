@@ -43,7 +43,7 @@ class AuthorizationCacheMiddleware(BaseHTTPMiddleware):
             "user_id": None,  # The user ID this cache is for
         }
 
-        logger.debug(
+        logger.trace(
             "Authorization cache initialized",
             path=request.url.path,
             method=request.method,

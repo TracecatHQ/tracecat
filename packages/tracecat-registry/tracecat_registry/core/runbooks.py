@@ -9,6 +9,7 @@ from tracecat.clients import AuthenticatedServiceClient
 from tracecat.chat.enums import ChatEntity
 from tracecat.contexts import ctx_role
 from tracecat.runbook.models import (
+    RunbookExecuteResponse,
     RunbookRead,
     RunbookExecuteEntity,
     RunbookUpdate,
@@ -91,11 +92,11 @@ async def execute(
         str,
         Doc("The runbook ID (UUID) or alias to execute."),
     ],
-    case_ids: Annotated[
-        list[str],
+    case_id: Annotated[
+        str,
         Doc("List of case IDs (UUID strings) to run the runbook on."),
     ],
-) -> list[dict[str, Any]]:
+) -> Any:
     async with RunbookService.with_session() as svc:
         # Try to determine if it's a UUID or alias
         runbook = await svc.get_runbook(runbook_id_or_alias)
@@ -103,36 +104,18 @@ async def execute(
             raise ValueError(
                 f"Runbook with ID or alias {runbook_id_or_alias} not found"
             )
-        entities = [
-            RunbookExecuteEntity(entity_id=UUID(case_id), entity_type=ChatEntity.CASE)
-            for case_id in case_ids
-        ]
 
+    entity = RunbookExecuteEntity(entity_id=UUID(case_id), entity_type=ChatEntity.CASE)
     async with ApiHTTPClient() as client:
         response = await client.post(
             f"/runbooks/{runbook.id}/execute",
-            json={"entities": entities},
+            json={"entities": [entity.model_dump(mode="json")]},
         )
         response.raise_for_status()
-        results = response.json()
+        raw_results = response.json()
 
-    if not isinstance(results, list):
-        raise ValueError(f"Invalid response from API: {results}")
-
-    # Return a list of chat execution descriptors
-    # Serialize exceptions as well
-    res = []
-    for result in results:
-        if isinstance(result, Exception):
-            res.append({"kind": "error", "message": str(result)})
-        else:
-            res.append(
-                {
-                    "kind": "result",
-                    "result": result,
-                }
-            )
-    return res
+    results = RunbookExecuteResponse.model_validate(raw_results)
+    return results.model_dump(mode="json")
 
 
 @registry.register(

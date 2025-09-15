@@ -61,7 +61,9 @@ function CollapsibleText({ text }: { text: string }) {
 
   return (
     <div ref={containerRef} className="space-y-1">
-      <pre className="whitespace-pre-wrap text-xs">{chunks.join("\n")}</pre>
+      <pre className="whitespace-pre-wrap text-xs font-sans">
+        {chunks.join("\n")}
+      </pre>
       <Button
         variant="ghost"
         size="sm"
@@ -153,7 +155,7 @@ export function DatabaseTable({
             ) : typeof value === "string" && value.length > 25 ? (
               <CollapsibleText text={String(value)} />
             ) : (
-              <pre className="text-xs">{String(value)}</pre>
+              <pre className="text-xs font-sans">{String(value)}</pre>
             )}
           </div>
         )
