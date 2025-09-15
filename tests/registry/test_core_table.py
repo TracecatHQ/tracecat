@@ -4,11 +4,13 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import orjson
 import pytest
 from sqlmodel.ext.asyncio.session import AsyncSession
 from tracecat_registry.core.table import (
     create_table,
     delete_row,
+    download_table,
     insert_row,
     insert_rows,
     list_tables,
@@ -563,6 +565,302 @@ class TestCoreInsertRows:
 
         # Verify the result
         assert result == 3
+
+
+@pytest.mark.anyio
+class TestCoreDownloadTable:
+    """Test cases for the download_table UDF."""
+
+    @patch("tracecat_registry.core.table.TablesService.with_session")
+    async def test_download_table_no_format(self, mock_with_session, mock_table):
+        """Test downloading table data without format (returns list of dicts)."""
+        # Create mock rows with UUID objects (simulating asyncpg UUID type)
+        mock_rows = [
+            {
+                "id": uuid.UUID("123e4567-e89b-12d3-a456-426655440000"),
+                "name": "Alice",
+                "age": 25,
+                "created_at": datetime.now(UTC),
+            },
+            {
+                "id": uuid.UUID("223e4567-e89b-12d3-a456-426655440001"),
+                "name": "Bob",
+                "age": 30,
+                "created_at": datetime.now(UTC),
+            },
+        ]
+
+        # Set up the mock service context manager
+        mock_service = AsyncMock()
+        mock_service.get_table_by_name.return_value = mock_table
+        mock_service.list_rows.return_value = mock_rows
+
+        # Set up the context manager's __aenter__ to return the mock service
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        # Call the download_table function
+        result = await download_table(name="test_table", limit=100)
+
+        # Assert service methods were called correctly
+        mock_service.get_table_by_name.assert_called_once_with("test_table")
+        mock_service.list_rows.assert_called_once_with(table=mock_table, limit=100)
+
+        # Verify the result is a list of dicts with UUIDs converted to strings
+        assert isinstance(result, list)
+        assert len(result) == 2
+        assert result[0]["id"] == "123e4567-e89b-12d3-a456-426655440000"
+        assert result[0]["name"] == "Alice"
+        assert result[1]["id"] == "223e4567-e89b-12d3-a456-426655440001"
+        assert result[1]["name"] == "Bob"
+
+    @patch("tracecat_registry.core.table.TablesService.with_session")
+    async def test_download_table_json_format(self, mock_with_session, mock_table):
+        """Test downloading table data in JSON format."""
+        # Create mock rows with UUID objects
+        mock_rows = [
+            {
+                "id": uuid.UUID("123e4567-e89b-12d3-a456-426655440000"),
+                "name": "Alice",
+                "age": 25,
+            },
+        ]
+
+        # Set up the mock service context manager
+        mock_service = AsyncMock()
+        mock_service.get_table_by_name.return_value = mock_table
+        mock_service.list_rows.return_value = mock_rows
+
+        # Set up the context manager's __aenter__ to return the mock service
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        # Call the download_table function with JSON format
+        result = await download_table(name="test_table", format="json", limit=100)
+
+        # Verify the result is a JSON string
+        assert isinstance(result, str)
+
+        # Parse the JSON to verify it's valid and contains the expected data
+        parsed = orjson.loads(result)
+        assert isinstance(parsed, list)
+        assert len(parsed) == 1
+        assert parsed[0]["id"] == "123e4567-e89b-12d3-a456-426655440000"
+        assert parsed[0]["name"] == "Alice"
+        assert parsed[0]["age"] == 25
+
+    @patch("tracecat_registry.core.table.TablesService.with_session")
+    async def test_download_table_ndjson_format(self, mock_with_session, mock_table):
+        """Test downloading table data in NDJSON format."""
+        # Create mock rows with UUID objects
+        mock_rows = [
+            {
+                "id": uuid.UUID("123e4567-e89b-12d3-a456-426655440000"),
+                "name": "Alice",
+                "age": 25,
+            },
+            {
+                "id": uuid.UUID("223e4567-e89b-12d3-a456-426655440001"),
+                "name": "Bob",
+                "age": 30,
+            },
+        ]
+
+        # Set up the mock service context manager
+        mock_service = AsyncMock()
+        mock_service.get_table_by_name.return_value = mock_table
+        mock_service.list_rows.return_value = mock_rows
+
+        # Set up the context manager's __aenter__ to return the mock service
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        # Call the download_table function with NDJSON format
+        result = await download_table(name="test_table", format="ndjson", limit=100)
+
+        # Verify the result is an NDJSON string
+        assert isinstance(result, str)
+        lines = result.split("\n")
+        assert len(lines) == 2
+
+        # Parse each line to verify it's valid JSON
+        parsed_line1 = orjson.loads(lines[0])
+        assert parsed_line1["id"] == "123e4567-e89b-12d3-a456-426655440000"
+        assert parsed_line1["name"] == "Alice"
+
+        parsed_line2 = orjson.loads(lines[1])
+        assert parsed_line2["id"] == "223e4567-e89b-12d3-a456-426655440001"
+        assert parsed_line2["name"] == "Bob"
+
+    @patch("tracecat_registry.core.table.TablesService.with_session")
+    async def test_download_table_csv_format(self, mock_with_session, mock_table):
+        """Test downloading table data in CSV format."""
+        # Create mock rows with UUID objects
+        mock_rows = [
+            {
+                "id": uuid.UUID("123e4567-e89b-12d3-a456-426655440000"),
+                "name": "Alice",
+                "age": 25,
+            },
+            {
+                "id": uuid.UUID("223e4567-e89b-12d3-a456-426655440001"),
+                "name": "Bob",
+                "age": 30,
+            },
+        ]
+
+        # Set up the mock service context manager
+        mock_service = AsyncMock()
+        mock_service.get_table_by_name.return_value = mock_table
+        mock_service.list_rows.return_value = mock_rows
+
+        # Set up the context manager's __aenter__ to return the mock service
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        # Call the download_table function with CSV format
+        result = await download_table(name="test_table", format="csv", limit=100)
+
+        # Verify the result is a CSV string
+        assert isinstance(result, str)
+        # CSV should contain headers and data rows
+        assert "id" in result
+        assert "name" in result
+        assert "age" in result
+        assert "Alice" in result
+        assert "Bob" in result
+        # UUIDs should be converted to strings in the CSV
+        assert "123e4567-e89b-12d3-a456-426655440000" in result
+        assert "223e4567-e89b-12d3-a456-426655440001" in result
+
+    @patch("tracecat_registry.core.table.TablesService.with_session")
+    async def test_download_table_markdown_format(self, mock_with_session, mock_table):
+        """Test downloading table data in Markdown format."""
+        # Create mock rows with UUID objects
+        mock_rows = [
+            {
+                "id": uuid.UUID("123e4567-e89b-12d3-a456-426655440000"),
+                "name": "Alice",
+                "age": 25,
+            },
+        ]
+
+        # Set up the mock service context manager
+        mock_service = AsyncMock()
+        mock_service.get_table_by_name.return_value = mock_table
+        mock_service.list_rows.return_value = mock_rows
+
+        # Set up the context manager's __aenter__ to return the mock service
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        # Call the download_table function with Markdown format
+        result = await download_table(name="test_table", format="markdown", limit=100)
+
+        # Verify the result is a Markdown table string
+        assert isinstance(result, str)
+        # Markdown tables use pipes
+        assert "|" in result
+        # Check for content
+        assert "id" in result
+        assert "name" in result
+        assert "age" in result
+        assert "Alice" in result
+        assert "123e4567-e89b-12d3-a456-426655440000" in result
+
+    @patch("tracecat_registry.core.table.TablesService.with_session")
+    async def test_download_table_limit_validation(self, mock_with_session):
+        """Test that download_table raises ValueError when limit exceeds 1000."""
+        # Call download_table with limit exceeding maximum
+        with pytest.raises(
+            ValueError,
+            match="Cannot return more than 1000 rows",
+        ):
+            await download_table(
+                name="test_table",
+                limit=1001,
+            )
+
+    @patch("tracecat_registry.core.table.TablesService.with_session")
+    async def test_download_table_with_complex_types(
+        self, mock_with_session, mock_table
+    ):
+        """Test downloading table data with complex types that need serialization."""
+        # Create mock rows with various complex types
+        mock_rows = [
+            {
+                "id": uuid.UUID("123e4567-e89b-12d3-a456-426655440000"),
+                "name": "Alice",
+                "metadata": {"key": "value", "nested": {"data": 123}},
+                "created_at": datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
+                "tags": ["tag1", "tag2"],
+                "nullable_field": None,
+            },
+        ]
+
+        # Set up the mock service context manager
+        mock_service = AsyncMock()
+        mock_service.get_table_by_name.return_value = mock_table
+        mock_service.list_rows.return_value = mock_rows
+
+        # Set up the context manager's __aenter__ to return the mock service
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        # Call the download_table function with JSON format to verify serialization
+        result = await download_table(name="test_table", format="json", limit=100)
+
+        # Parse the JSON to verify all types were properly serialized
+        parsed = orjson.loads(result)
+        assert len(parsed) == 1
+        row = parsed[0]
+
+        # UUID should be converted to string
+        assert row["id"] == "123e4567-e89b-12d3-a456-426655440000"
+
+        # Complex nested objects should be preserved
+        assert row["metadata"] == {"key": "value", "nested": {"data": 123}}
+
+        # Arrays should be preserved
+        assert row["tags"] == ["tag1", "tag2"]
+
+        # Datetime should be converted to ISO format string
+        assert isinstance(row["created_at"], str)
+        assert "2024-01-01" in row["created_at"]
+
+        # None should be preserved as null in JSON
+        assert row["nullable_field"] is None
+
+    @patch("tracecat_registry.core.table.TablesService.with_session")
+    async def test_download_table_empty_table(self, mock_with_session, mock_table):
+        """Test downloading an empty table."""
+        # Set up the mock service context manager with empty rows
+        mock_service = AsyncMock()
+        mock_service.get_table_by_name.return_value = mock_table
+        mock_service.list_rows.return_value = []
+
+        # Set up the context manager's __aenter__ to return the mock service
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__.return_value = mock_service
+        mock_with_session.return_value = mock_ctx
+
+        # Test with no format (list)
+        result = await download_table(name="empty_table")
+        assert result == []
+
+        # Test with JSON format
+        result = await download_table(name="empty_table", format="json")
+        assert result == "[]"
+
+        # Test with NDJSON format
+        result = await download_table(name="empty_table", format="ndjson")
+        assert result == ""
 
 
 @pytest.mark.anyio

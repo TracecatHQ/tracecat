@@ -1,7 +1,9 @@
 from datetime import datetime
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
+import orjson
+from pydantic_core import to_jsonable_python
 from typing_extensions import Doc
 
 from tracecat.config import TRACECAT__MAX_ROWS_CLIENT_POSTGRES
@@ -15,6 +17,7 @@ from tracecat.tables.models import (
 )
 from tracecat.tables.service import TablesService
 from tracecat_registry import registry
+from tracecat.expressions.functions import tabulate
 
 
 @registry.register(
@@ -332,3 +335,38 @@ async def get_table_metadata(
             ],
         )
     return res.model_dump(mode="json")
+
+
+@registry.register(
+    default_title="Download table data",
+    description="Download a table's data by name as list of dicts, JSON string, NDJSON string, CSV or Markdown.",
+    display_group="Tables",
+    namespace="core.table",
+)
+async def download_table(
+    name: Annotated[str, Doc("The name of the table to download.")],
+    format: Annotated[
+        Literal["json", "ndjson", "csv", "markdown"] | None,
+        Doc("The format to download the table data in."),
+    ] = None,
+    limit: Annotated[int, Doc("The maximum number of rows to download.")] = 1000,
+) -> list[dict[str, Any]] | str:
+    if limit > 1000:
+        raise ValueError("Cannot return more than 1000 rows")
+
+    async with TablesService.with_session() as service:
+        table = await service.get_table_by_name(name)
+        rows = await service.list_rows(table=table, limit=limit)
+
+        # Convert rows to JSON-safe format (handles UUID and other non-serializable types)
+        json_safe_rows = to_jsonable_python(rows, fallback=str)
+
+        if format is None:
+            return json_safe_rows
+        elif format == "json":
+            return orjson.dumps(json_safe_rows).decode()
+        elif format == "ndjson":
+            return "\n".join([orjson.dumps(row).decode() for row in json_safe_rows])
+        elif format in ["csv", "markdown"]:
+            return tabulate(json_safe_rows, format)
+        return tabulate(json_safe_rows, format)
