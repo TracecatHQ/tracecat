@@ -141,7 +141,7 @@ Here are the <Steps> to execute:
 2. Preserve the original <Step> order
 3. *NEVER reuse hardcoded or example inputs/outputs*; derive fresh values from <Alert>. Doing so means you are not executing the runbook on the incoming <Alert>.
 4. No conversational chatter, rationale, or chain-of-thought; keep outputs minimal and task-focused
-5. You should first read the case content and the <Alert> to determine if it is relevant to the <Steps>. If the case is clearly unrelated to these <Steps>, stop and output INAPPLICABLE
+5. You should first read the case content and the <Alert> to determine if it is relevant to the <Steps>. Only if the case is clearly unrelated to these <Steps>, stop and output INAPPLICABLE, with an explanation.
 6. Do not restate or summarize <Alert> or <Steps>
 7. Keep each message under ~150 tokens; do not dump large payloads; reference them instead
 </Rules>""")
