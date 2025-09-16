@@ -35,7 +35,7 @@ class GitHubMCPProvider(MCPAuthProvider):
     metadata: ClassVar[ProviderMetadata] = ProviderMetadata(
         id="github_mcp",
         name="GitHub Copilot MCP",
-        description="GitHub Copilot Model Context Protocol OAuth provider for AI-powered development assistance",
+        description="GitHub Copilot MCP provider for repo and code access",
         enabled=True,
         requires_config=False,
         setup_instructions=(

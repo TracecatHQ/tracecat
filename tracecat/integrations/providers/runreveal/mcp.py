@@ -30,7 +30,7 @@ class RunRevealMCPProvider(MCPAuthProvider):
     metadata: ClassVar[ProviderMetadata] = ProviderMetadata(
         id="runreveal_mcp",
         name="RunReveal MCP",
-        description="RunReveal Model Context Protocol OAuth provider for security data analysis",
+        description="RunReveal MCP provider for security data analysis",
         enabled=True,
         requires_config=False,
         setup_instructions=(

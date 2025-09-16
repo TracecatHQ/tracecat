@@ -29,7 +29,7 @@ class LinearMCPProvider(MCPAuthProvider):
     metadata: ClassVar[ProviderMetadata] = ProviderMetadata(
         id="linear_mcp",
         name="Linear MCP",
-        description="Linear Model Context Protocol OAuth provider for issue tracking and project management",
+        description="Linear MCP providerfor issue tracking and project management",
         enabled=True,
         requires_config=False,
         setup_instructions=(
@@ -42,5 +42,5 @@ class LinearMCPProvider(MCPAuthProvider):
             "Review and approve the OAuth client permissions",
             "Complete authorization to enable MCP integration",
         ],
-        api_docs_url="https://mcp.linear.app",
+        api_docs_url="https://linear.app/docs/mcp",
     )

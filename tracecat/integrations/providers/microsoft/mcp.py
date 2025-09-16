@@ -38,7 +38,7 @@ class MicrosoftLearnMCPProvider(MCPAuthProvider):
     metadata: ClassVar[ProviderMetadata] = ProviderMetadata(
         id="microsoft_learn_mcp",
         name="Microsoft Learn MCP",
-        description="Microsoft Learn Model Context Protocol OAuth provider for AI-powered documentation access",
+        description="Microsoft Learn MCP provider for Learn knowlege services.",
         enabled=True,
         requires_config=False,
         setup_instructions=(
@@ -52,5 +52,5 @@ class MicrosoftLearnMCPProvider(MCPAuthProvider):
             "Review and approve the OAuth permissions",
             "Complete authorization to enable Microsoft Learn MCP integration",
         ],
-        api_docs_url="https://github.com/microsoft/mcp",
+        api_docs_url="https://learn.microsoft.com/en-us/training/support/mcp",
     )

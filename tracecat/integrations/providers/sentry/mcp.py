@@ -30,11 +30,11 @@ class SentryMCPProvider(MCPAuthProvider):
     metadata: ClassVar[ProviderMetadata] = ProviderMetadata(
         id="sentry_mcp",
         name="Sentry MCP",
-        description="Sentry Model Context Protocol OAuth provider for error tracking and performance monitoring",
+        description="Sentry MCP provider for issues tracking and performance monitoring",
         enabled=True,
         requires_config=False,
         setup_instructions=(
-            "Connect to Sentry MCP to access error tracking, performance monitoring, and issue management. "
+            "Connect to Sentry MCP to access issues and performance monitoring. "
             "Permissions are automatically determined based on your Sentry organization access."
         ),
         setup_steps=[
@@ -44,5 +44,5 @@ class SentryMCPProvider(MCPAuthProvider):
             "Review and approve the OAuth client permissions",
             "Complete authorization to enable MCP integration",
         ],
-        api_docs_url="https://mcp.sentry.dev",
+        api_docs_url="https://docs.sentry.io/product/sentry-mcp/",
     )

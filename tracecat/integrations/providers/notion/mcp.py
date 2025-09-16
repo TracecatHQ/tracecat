@@ -29,7 +29,7 @@ class NotionMCPProvider(MCPAuthProvider):
     metadata: ClassVar[ProviderMetadata] = ProviderMetadata(
         id="notion_mcp",
         name="Notion MCP",
-        description="Notion Model Context Protocol OAuth provider for AI-powered workspace integration",
+        description="Notion MCP provider for Notion workspace access",
         enabled=True,
         requires_config=False,
         setup_instructions=(
