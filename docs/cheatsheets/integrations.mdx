@@ -133,7 +133,23 @@ description: A cheatsheet of core actions, integrations, and credentials support
 | tools.slack_elements   | format_overflow_menu                    | -                         |
 | tools.slack_sdk        | call_method                             | `slack`                   |
 | tools.slack_sdk        | call_paginated_method                   | `slack`                   |
+| tools.splunk           | add_kv_fields                           | `splunk`, `ssl`           |
+| tools.splunk           | create_kv_collection                    | `splunk`, `ssl`           |
+| tools.splunk           | create_kv_entry                         | `splunk`, `ssl`           |
+| tools.splunk           | delete_kv_collection                    | `splunk`, `ssl`           |
+| tools.splunk           | delete_kv_entry                         | `splunk`, `ssl`           |
+| tools.splunk           | discover_fields                         | `splunk`, `ssl`           |
+| tools.splunk           | get_kv_collection                       | `splunk`, `ssl`           |
+| tools.splunk           | get_kv_entry                            | `splunk`, `ssl`           |
+| tools.splunk           | list_data_models                        | `splunk`, `ssl`           |
+| tools.splunk           | list_field_extractions                  | `splunk`, `ssl`           |
+| tools.splunk           | list_indexes                            | `splunk`, `ssl`           |
+| tools.splunk           | list_kv_collections                     | `splunk`, `ssl`           |
+| tools.splunk           | list_kv_entries                         | `splunk`, `ssl`           |
+| tools.splunk           | list_sourcetypes                        | `splunk`, `ssl`           |
 | tools.splunk           | search_events                           | `splunk`, `ssl`           |
+| tools.splunk           | submit_hec_event                        | `splunk_hec`, `ssl`       |
+| tools.splunk           | update_kv_entry                         | `splunk`, `ssl`           |
 | tools.thehive          | add_case_comment                        | `ssl`, `thehive`          |
 | tools.thehive          | create_case                             | `ssl`, `thehive`          |
 | tools.thehive          | update_case_description                 | `ssl`, `thehive`          |
@@ -196,6 +212,7 @@ description: A cheatsheet of core actions, integrations, and credentials support
 | `slack`                | `SLACK_BOT_TOKEN`                                                              | -                                                                                                                  |
 | `smtp`                 | `SMTP_HOST` `SMTP_PASS` `SMTP_PORT` `SMTP_USER`                                | -                                                                                                                  |
 | `splunk`               | `SPLUNK_API_KEY`                                                               | -                                                                                                                  |
+| `splunk_hec`           | `SPLUNK_HEC_TOKEN`                                                             | -                                                                                                                  |
 | `ssl`                  | -                                                                              | `SSL_CLIENT_CERT` `SSL_CLIENT_KEY` `SSL_CLIENT_PASSWORD`                                                           |
 | `thehive`              | `THEHIVE_API_KEY`                                                              | -                                                                                                                  |
 | `threatstream`         | `ANOMALI_API_KEY` `ANOMALI_USERNAME`                                           | -                                                                                                                  |
