@@ -41,6 +41,14 @@ description: A cheatsheet of core actions, integrations, and credentials support
 
 | Namespace              | Function                                | Secrets                   |
 | ---------------------- | --------------------------------------- | ------------------------- |
+| tools.alertmedia       | create_trip                             | `alertmedia`, `ssl`       |
+| tools.alertmedia       | delete_trip                             | `alertmedia`, `ssl`       |
+| tools.alertmedia       | get_travel_events                       | `alertmedia`, `ssl`       |
+| tools.alertmedia       | get_user_trip_by_id                     | `alertmedia`, `ssl`       |
+| tools.alertmedia       | get_user_trips                          | `alertmedia`, `ssl`       |
+| tools.alertmedia       | search_trips                            | `alertmedia`, `ssl`       |
+| tools.alertmedia       | search_users                            | `alertmedia`, `ssl`       |
+| tools.alertmedia       | update_trip                             | `alertmedia`, `ssl`       |
 | tools.amazon_s3        | download_object                         | `amazon_s3`               |
 | tools.amazon_s3        | parse_uri                               | `amazon_s3`               |
 | tools.ansible          | run_playbook                            | `ansible`                 |
@@ -193,6 +201,7 @@ description: A cheatsheet of core actions, integrations, and credentials support
 
 | Secret Name            | Required Keys                                                                  | Optional Keys                                                                                                      |
 | ---------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------ |
+| `alertmedia`           | `ALERTMEDIA_API_KEY`                                                           | -                                                                                                                  |
 | `amazon_s3`            | -                                                                              | `AWS_ACCESS_KEY_ID` `AWS_PROFILE` `AWS_REGION` `AWS_ROLE_ARN` `AWS_ROLE_SESSION_NAME` `AWS_SECRET_ACCESS_KEY`      |
 | `ansible`              | `ANSIBLE_SSH_KEY`                                                              | `ANSIBLE_PASSWORDS`                                                                                                |
 | `aws`                  | -                                                                              | `AWS_ACCESS_KEY_ID` `AWS_PROFILE_NAME` `AWS_REGION` `AWS_ROLE_ARN` `AWS_ROLE_SESSION_NAME` `AWS_SECRET_ACCESS_KEY` |
