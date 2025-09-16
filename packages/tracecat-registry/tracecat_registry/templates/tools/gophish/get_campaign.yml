@@ -1,0 +1,29 @@
+type: action
+definition:
+  title: Get campaign
+  description: Get a campaign from Gophish.
+  display_group: Gophish
+  doc_url: https://docs.getgophish.com/api-documentation/campaigns#get-campaigns
+  namespace: tools.gophish
+  name: get_campaign
+  secrets:
+    - name: gophish
+      keys: ["GOPHISH_API_KEY"]
+  expects:
+    base_url:
+      type: str
+      description: The base URL of the Gophish instance.
+      required: true
+    campaign_id:
+      type: int
+      description: The ID of the campaign to get.
+      required: true
+  steps:
+    - ref: get_campaign
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/api/campaigns/${{ inputs.campaign_id }}
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.gophish.GOPHISH_API_KEY }}
+  returns: ${{ steps.get_campaign.result.data }}
