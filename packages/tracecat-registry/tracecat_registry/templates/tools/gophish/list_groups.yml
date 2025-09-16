@@ -22,4 +22,12 @@ definition:
         method: GET
         headers:
           Authorization: Bearer ${{ SECRETS.gophish.GOPHISH_API_KEY }}
-  returns: ${{ steps.list_groups.result.data }}
+    - ref: parse_groups_list
+      action: core.script.run_python
+      args:
+        inputs:
+          data: ${{ steps.list_groups.result.data }}
+        script: |
+          def main(data):
+            return [{"id": group["id"], "name": group["name"]} for group in data]
+  returns: ${{ steps.parse_groups_list.result }}
