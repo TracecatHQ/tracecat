@@ -22,7 +22,7 @@ definition:
         headers:
           Authorization: Bearer ${{ SECRETS.gophish.GOPHISH_API_KEY }}
 
-    # This is needed because the API will return results and they can exeed the limit size of workflow steps very easily.
+    # This is needed because the API will return results and timelines for all campaigns. This can exeed the max size of workflow data steps very easily. For example a campaign with 1,000 recipients will return 11,000 lines of just results, in addition to the at least 1000 timeline items which are each another 8 lines of data. Very quickly this can exeed the max size of workflow data steps.
     - ref: parse_campaigns
       action: core.script.run_python
       args:
