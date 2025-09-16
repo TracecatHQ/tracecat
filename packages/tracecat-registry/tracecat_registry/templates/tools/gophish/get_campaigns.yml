@@ -1,0 +1,37 @@
+type: action
+definition:
+  title: Get campaigns
+  description: Get campaigns from Gophish.
+  display_group: Gophish
+  doc_url: https://docs.getgophish.com/api-documentation/campaigns#get-campaigns
+  namespace: tools.gophish
+  name: get_campaigns
+  secrets:
+    - name: gophish
+      keys: ["GOPHISH_API_KEY"]
+  expects:
+    base_url:
+      type: str
+      description: The base URL of the Gophish instance.
+  steps:
+    - ref: get_campaigns
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/api/campaigns/
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.gophish.GOPHISH_API_KEY }}
+
+    # This is needed because the API will return results and they can exeed the limit size of workflow steps very easily.
+    - ref: parse_campaigns
+      action: core.script.run_python
+      args:
+        inputs:
+          data: ${{ steps.get_campaigns.result.data }}
+        script: |
+          def main(data):
+            return [
+                {"id": campaign["id"], "name": campaign["name"]} 
+                for campaign in data
+            ]
+  returns: ${{ steps.parse_campaigns.result }}
