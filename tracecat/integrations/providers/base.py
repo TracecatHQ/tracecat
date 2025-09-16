@@ -2,7 +2,9 @@
 
 from abc import ABC
 from typing import Any, ClassVar, Self, cast
+from urllib.parse import urlparse
 
+import httpx
 from authlib.integrations.httpx_client import AsyncOAuth2Client
 from pydantic import BaseModel, SecretStr
 
@@ -269,3 +271,103 @@ class ClientCredentialsOAuthProvider(BaseOAuthProvider):
                 error=str(e),
             )
             raise
+
+
+class MCPAuthProvider(AuthorizationCodeOAuthProvider):
+    """Base OAuth provider for Model Context Protocol (MCP) servers using OAuth 2.1.
+
+    MCP OAuth follows OAuth 2.1 standards with:
+    - PKCE required for authorization code flow
+    - Resource parameter to identify the MCP server
+    - Flexible scope handling (server determines granted scopes)
+    - Dynamic discovery of OAuth endpoints
+    - Optional dynamic client registration
+    """
+
+    # MCP server URI (e.g., "https://api.runreveal.com/mcp")
+    _mcp_server_uri: ClassVar[str]
+
+    def __init__(self, **kwargs):
+        """Initialize MCP provider with dynamic endpoint discovery."""
+        # Initialize logger early for discovery
+        self.logger = logger.bind(service=f"{self.__class__.__name__}")
+
+        # Discover OAuth endpoints before parent initialization
+        self._discover_oauth_endpoints()
+        super().__init__(**kwargs)
+
+    @property
+    def authorization_endpoint(self) -> str:
+        """Return the discovered authorization endpoint."""
+        return self._discovered_auth_endpoint
+
+    @property
+    def token_endpoint(self) -> str:
+        """Return the discovered token endpoint."""
+        return self._discovered_token_endpoint
+
+    def _get_base_url(self) -> str:
+        """Extract base URL from MCP server URI."""
+        parsed = urlparse(self._mcp_server_uri)
+        return f"{parsed.scheme}://{parsed.netloc}"
+
+    def _discover_oauth_endpoints(self) -> None:
+        """Discover OAuth endpoints from .well-known configuration."""
+        base_url = self._get_base_url()
+        discovery_url = f"{base_url}/.well-known/oauth-authorization-server"
+
+        try:
+            # Synchronous discovery during initialization
+            with httpx.Client() as client:
+                response = client.get(discovery_url, timeout=10.0)
+                response.raise_for_status()
+                discovery_doc = response.json()
+
+                # Store discovered endpoints as instance variables
+                self._discovered_auth_endpoint = discovery_doc["authorization_endpoint"]
+                self._discovered_token_endpoint = discovery_doc["token_endpoint"]
+
+                # Store registration endpoint if available
+                self._registration_endpoint = discovery_doc.get("registration_endpoint")
+
+                self.logger.info(
+                    "Discovered OAuth endpoints",
+                    provider=self.id,
+                    authorization=self._discovered_auth_endpoint,
+                    token=self._discovered_token_endpoint,
+                )
+        except Exception as e:
+            self.logger.error(
+                "Failed to discover OAuth endpoints",
+                provider=self.id,
+                error=str(e),
+                discovery_url=discovery_url,
+            )
+            # Let subclasses provide fallback endpoints if needed
+            if not hasattr(self, "_discovered_auth_endpoint"):
+                raise ValueError(
+                    f"Could not discover OAuth endpoints from {discovery_url} "
+                    f"and no fallback endpoints provided"
+                ) from e
+
+    def _use_pkce(self) -> bool:
+        """PKCE is mandatory for OAuth 2.1 compliance."""
+        return True
+
+    def _get_additional_authorize_params(self) -> dict[str, Any]:
+        """Add MCP-specific authorization parameters.
+
+        The resource parameter identifies the MCP server that the token will be used with.
+        """
+        params = super()._get_additional_authorize_params()
+        params["resource"] = self._mcp_server_uri
+        return params
+
+    def _get_additional_token_params(self) -> dict[str, Any]:
+        """Add MCP-specific token exchange parameters.
+
+        The resource parameter must be included in token requests per MCP spec.
+        """
+        params = super()._get_additional_token_params()
+        params["resource"] = self._mcp_server_uri
+        return params

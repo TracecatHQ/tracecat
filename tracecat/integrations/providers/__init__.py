@@ -1,6 +1,7 @@
 from typing import Final
 
 from tracecat.integrations.models import ProviderKey
+from tracecat.integrations.providers.atlassian.mcp import AtlassianMCPProvider
 from tracecat.integrations.providers.base import BaseOAuthProvider
 from tracecat.integrations.providers.microsoft.graph import (
     MicrosoftGraphACProvider,
@@ -10,12 +11,15 @@ from tracecat.integrations.providers.microsoft.teams import (
     MicrosoftTeamsACProvider,
     MicrosoftTeamsCCProvider,
 )
+from tracecat.integrations.providers.runreveal.mcp import RunRevealMCPProvider
 
 _PROVIDER_CLASSES: list[type[BaseOAuthProvider]] = [
     MicrosoftGraphACProvider,
     MicrosoftGraphCCProvider,
     MicrosoftTeamsACProvider,
     MicrosoftTeamsCCProvider,
+    RunRevealMCPProvider,
+    AtlassianMCPProvider,
 ]
 
 
