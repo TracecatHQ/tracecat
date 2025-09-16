@@ -5,165 +5,183 @@ description: A cheatsheet of core actions, integrations, and credentials support
 
 ## Core Actions
 
-<Note>
-Core action namespaces are prefixed with `core.`.
-</Note>
+<Note>Core action namespaces are prefixed with `core.`.</Note>
 
-| Namespace | Function | Secrets |
-| --- | --- | --- |
-| core | http_poll | `ssl` |
-| core | http_request | `ssl` |
-| core | require | - |
-| core | send_email_smtp | `smtp` |
-| core.cases | create_case | - |
-| core.cases | create_comment | - |
-| core.cases | get_case | - |
-| core.cases | list_cases | - |
-| core.cases | list_comments | - |
-| core.cases | update_case | - |
-| core.cases | update_comment | - |
-| core.table | delete_row | - |
-| core.table | insert_row | - |
-| core.table | lookup | - |
-| core.table | lookup_many | - |
-| core.table | update_row | - |
-| core.transform | apply | - |
-| core.transform | deduplicate | - |
-| core.transform | filter | - |
-| core.transform | is_in | - |
-| core.transform | map | - |
-| core.transform | not_in | - |
-| core.transform | reshape | - |
-| core.workflow | execute | - |
+| Namespace      | Function        | Secrets |
+| -------------- | --------------- | ------- |
+| core           | http_poll       | `ssl`   |
+| core           | http_request    | `ssl`   |
+| core           | require         | -       |
+| core           | send_email_smtp | `smtp`  |
+| core.cases     | create_case     | -       |
+| core.cases     | create_comment  | -       |
+| core.cases     | get_case        | -       |
+| core.cases     | list_cases      | -       |
+| core.cases     | list_comments   | -       |
+| core.cases     | update_case     | -       |
+| core.cases     | update_comment  | -       |
+| core.table     | delete_row      | -       |
+| core.table     | insert_row      | -       |
+| core.table     | lookup          | -       |
+| core.table     | lookup_many     | -       |
+| core.table     | update_row      | -       |
+| core.transform | apply           | -       |
+| core.transform | deduplicate     | -       |
+| core.transform | filter          | -       |
+| core.transform | is_in           | -       |
+| core.transform | map             | -       |
+| core.transform | not_in          | -       |
+| core.transform | reshape         | -       |
+| core.workflow  | execute         | -       |
 
 ## Integrations
 
-<Note>
-Integration namespaces are prefixed with `tools.`.
-</Note>
+<Note>Integration namespaces are prefixed with `tools.`.</Note>
 
-| Namespace | Function | Secrets |
-| --- | --- | --- |
-| tools.amazon_s3 | download_object | `amazon_s3` |
-| tools.amazon_s3 | parse_uri | `amazon_s3` |
-| tools.ansible | run_playbook | `ansible` |
-| tools.aws_boto3 | call_api | `aws` |
-| tools.aws_boto3 | call_paginated_api | `aws` |
-| tools.crowdsec | lookup_ip_address | `crowdsec_cti`, `ssl` |
-| tools.crowdstrike | list_alerts | `crowdstrike` |
-| tools.crowdstrike | list_cases | `crowdstrike` |
-| tools.crowdstrike | list_detects | `crowdstrike` |
-| tools.datadog | list_security_signals | `datadog`, `ssl` |
-| tools.elastic_security | list_detection_signals | `elastic_security`, `ssl` |
-| tools.falconpy | call_command | `crowdstrike` |
-| tools.google_api | get_access_token | `google_api` |
-| tools.ipinfo | lookup_ip_address | `ipinfo`, `ssl` |
-| tools.jamf | get_access_token | `jamf` |
-| tools.jamf | list_computers | `jamf`, `ssl` |
-| tools.jamf | lock_device | `jamf`, `ssl` |
-| tools.jira | add_issue_comment | `jira`, `ssl` |
-| tools.jira | create_issue | `jira`, `ssl` |
-| tools.jira | get_fields | `jira`, `ssl` |
-| tools.jira | get_priorities | `jira`, `ssl` |
-| tools.jira | get_priority_schemes | `jira`, `ssl` |
-| tools.jira | get_projects | `jira`, `ssl` |
-| tools.jira | get_transitions | `jira`, `ssl` |
-| tools.jira | update_issue_description | `jira`, `ssl` |
-| tools.jira | update_issue_fields | `jira`, `ssl` |
-| tools.jira | update_issue_status | `jira`, `ssl` |
-| tools.ldap | add_entry | `ldap` |
-| tools.ldap | delete_entry | `ldap` |
-| tools.ldap | modify_entry | `ldap` |
-| tools.ldap | search_entries | `ldap` |
-| tools.microsoft_graph | get_access_token | `microsoft_graph` |
-| tools.okta | lookup_user_by_email | `okta`, `ssl` |
-| tools.okta | revoke_sessions | `okta`, `ssl` |
-| tools.pagerduty | acknowledge_event | - |
-| tools.pagerduty | get_all_schedules | `pagerduty` |
-| tools.pagerduty | get_contact_methods | `pagerduty` |
-| tools.pagerduty | get_incident_data | `pagerduty` |
-| tools.pagerduty | get_incidents | `pagerduty` |
-| tools.pagerduty | get_user_notification_rules | `pagerduty` |
-| tools.pagerduty | get_users_on_cll | `pagerduty` |
-| tools.pagerduty | resolve_event | - |
-| tools.pagerduty | trigger_event | - |
-| tools.phishlabs | get_case_data | `phishlabs` |
-| tools.phishlabs | get_feed_data | `phishlabs` |
-| tools.phishlabs | get_threat_data | `phishlabs` |
-| tools.pymongo | execute_operation | `mongodb` |
-| tools.sentinel_one | list_threats | `sentinel_one`, `ssl` |
-| tools.slack | ask_text_input | `slack` |
-| tools.slack | lookup_user_by_email | `slack` |
-| tools.slack | post_message | `slack` |
-| tools.slack | post_notification | `slack` |
-| tools.slack | post_update | `slack` |
-| tools.slack | revoke_sessions | `slack` |
-| tools.slack_blocks | format_choices | - |
-| tools.slack_blocks | format_fields | - |
-| tools.slack_blocks | format_fields_context | - |
-| tools.slack_blocks | format_links | - |
-| tools.slack_blocks | format_text_input | - |
-| tools.slack_elements | format_overflow_menu | - |
-| tools.slack_sdk | call_method | `slack` |
-| tools.slack_sdk | call_paginated_method | `slack` |
-| tools.splunk | search_events | `splunk`, `ssl` |
-| tools.thehive | add_case_comment | `ssl`, `thehive` |
-| tools.thehive | create_case | `ssl`, `thehive` |
-| tools.thehive | update_case_description | `ssl`, `thehive` |
-| tools.thehive | update_case_fields | `ssl`, `thehive` |
-| tools.thehive | update_case_status | `ssl`, `thehive` |
-| tools.threatstream | lookup_domain | `ssl`, `threatstream` |
-| tools.threatstream | lookup_email | `ssl`, `threatstream` |
-| tools.threatstream | lookup_file_hash | `ssl`, `threatstream` |
-| tools.threatstream | lookup_ip_address | `ssl`, `threatstream` |
-| tools.threatstream | lookup_url | `ssl`, `threatstream` |
-| tools.urlscan | lookup_url | `ssl`, `urlscan` |
-| tools.virustotal | lookup_domain | `ssl`, `virustotal` |
-| tools.virustotal | lookup_file_hash | `ssl`, `virustotal` |
-| tools.virustotal | lookup_ip_address | `ssl`, `virustotal` |
-| tools.virustotal | lookup_url | `ssl`, `virustotal` |
-| tools.wazuh | active_response | `ssl`, `wazuh_wui` |
-| tools.wazuh | get_access_token | `wazuh_wui` |
-| tools.wazuh | update_agents | `ssl`, `wazuh_wui` |
+| Namespace              | Function                                | Secrets                   |
+| ---------------------- | --------------------------------------- | ------------------------- |
+| tools.amazon_s3        | download_object                         | `amazon_s3`               |
+| tools.amazon_s3        | parse_uri                               | `amazon_s3`               |
+| tools.ansible          | run_playbook                            | `ansible`                 |
+| tools.aws_boto3        | call_api                                | `aws`                     |
+| tools.aws_boto3        | call_paginated_api                      | `aws`                     |
+| tools.crowdsec         | lookup_ip_address                       | `crowdsec_cti`, `ssl`     |
+| tools.crowdstrike      | list_alerts                             | `crowdstrike`             |
+| tools.crowdstrike      | list_cases                              | `crowdstrike`             |
+| tools.crowdstrike      | list_detects                            | `crowdstrike`             |
+| tools.datadog          | list_security_signals                   | `datadog`, `ssl`          |
+| tools.elastic_security | list_detection_signals                  | `elastic_security`, `ssl` |
+| tools.falconpy         | call_command                            | `crowdstrike`             |
+| tools.google_api       | get_access_token                        | `google_api`              |
+| tools.ipinfo           | lookup_ip_address                       | `ipinfo`, `ssl`           |
+| tools.jamf             | get_access_token                        | `jamf`                    |
+| tools.jamf             | list_computers                          | `jamf`, `ssl`             |
+| tools.jamf             | lock_device                             | `jamf`, `ssl`             |
+| tools.jira             | add_issue_comment                       | `jira`, `ssl`             |
+| tools.jira             | create_issue                            | `jira`, `ssl`             |
+| tools.jira             | get_fields                              | `jira`, `ssl`             |
+| tools.jira             | get_priorities                          | `jira`, `ssl`             |
+| tools.jira             | get_priority_schemes                    | `jira`, `ssl`             |
+| tools.jira             | get_projects                            | `jira`, `ssl`             |
+| tools.jira             | get_transitions                         | `jira`, `ssl`             |
+| tools.jira             | update_issue_description                | `jira`, `ssl`             |
+| tools.jira             | update_issue_fields                     | `jira`, `ssl`             |
+| tools.jira             | update_issue_status                     | `jira`, `ssl`             |
+| tools.ldap             | add_entry                               | `ldap`                    |
+| tools.ldap             | delete_entry                            | `ldap`                    |
+| tools.ldap             | modify_entry                            | `ldap`                    |
+| tools.ldap             | search_entries                          | `ldap`                    |
+| tools.microsoft_graph  | get_access_token                        | `microsoft_graph`         |
+| tools.okta             | activate_user                           | `okta`, `ssl`             |
+| tools.okta             | add_to_group                            | `okta`, `ssl`             |
+| tools.okta             | assign_group_to_app                     | `okta`, `ssl`             |
+| tools.okta             | clear_user_sessions                     | `okta`, `ssl`             |
+| tools.okta             | create_user                             | `okta`, `ssl`             |
+| tools.okta             | expire_password                         | `okta`, `ssl`             |
+| tools.okta             | expire_password_with_temporary_password | `okta`, `ssl`             |
+| tools.okta             | get_group_members                       | `okta`, `ssl`             |
+| tools.okta             | get_groups_assigned_to_user             | `okta`, `ssl`             |
+| tools.okta             | get_user                                | `okta`, `ssl`             |
+| tools.okta             | list_groups_in_org                      | `okta`, `ssl`             |
+| tools.okta             | list_users                              | `okta`, `ssl`             |
+| tools.okta             | lookup_user_by_email                    | `okta`, `ssl`             |
+| tools.okta             | remove_from_group                       | `okta`, `ssl`             |
+| tools.okta             | reset_password                          | `okta`, `ssl`             |
+| tools.okta             | revoke_sessions                         | `okta`, `ssl`             |
+| tools.okta             | search_users                            | `okta`, `ssl`             |
+| tools.okta             | suspend_user                            | `okta`, `ssl`             |
+| tools.okta             | unsuspend_user                          | `okta`, `ssl`             |
+| tools.okta_oar         | create_message                          | `okta`, `ssl`             |
+| tools.okta_oar         | get_requests                            | `okta`, `ssl`             |
+| tools.okta_oar         | get_specific_request                    | `okta`, `ssl`             |
+| tools.okta_oar         | get_user                                | `okta`, `ssl`             |
+| tools.pagerduty        | acknowledge_event                       | -                         |
+| tools.pagerduty        | get_all_schedules                       | `pagerduty`               |
+| tools.pagerduty        | get_contact_methods                     | `pagerduty`               |
+| tools.pagerduty        | get_incident_data                       | `pagerduty`               |
+| tools.pagerduty        | get_incidents                           | `pagerduty`               |
+| tools.pagerduty        | get_user_notification_rules             | `pagerduty`               |
+| tools.pagerduty        | get_users_on_cll                        | `pagerduty`               |
+| tools.pagerduty        | resolve_event                           | `pagerduty`               |
+| tools.pagerduty        | trigger_event                           | -                         |
+| tools.phishlabs        | get_case_data                           | `phishlabs`               |
+| tools.phishlabs        | get_feed_data                           | `phishlabs`               |
+| tools.phishlabs        | get_threat_data                         | `phishlabs`               |
+| tools.pymongo          | execute_operation                       | `mongodb`                 |
+| tools.sentinel_one     | list_threats                            | `sentinel_one`, `ssl`     |
+| tools.slack            | ask_text_input                          | `slack`                   |
+| tools.slack            | lookup_user_by_email                    | `slack`                   |
+| tools.slack            | post_message                            | `slack`                   |
+| tools.slack            | post_notification                       | `slack`                   |
+| tools.slack            | post_update                             | `slack`                   |
+| tools.slack            | revoke_sessions                         | `slack`                   |
+| tools.slack_blocks     | format_choices                          | -                         |
+| tools.slack_blocks     | format_fields                           | -                         |
+| tools.slack_blocks     | format_fields_context                   | -                         |
+| tools.slack_blocks     | format_links                            | -                         |
+| tools.slack_blocks     | format_text_input                       | -                         |
+| tools.slack_elements   | format_overflow_menu                    | -                         |
+| tools.slack_sdk        | call_method                             | `slack`                   |
+| tools.slack_sdk        | call_paginated_method                   | `slack`                   |
+| tools.splunk           | search_events                           | `splunk`, `ssl`           |
+| tools.thehive          | add_case_comment                        | `ssl`, `thehive`          |
+| tools.thehive          | create_case                             | `ssl`, `thehive`          |
+| tools.thehive          | update_case_description                 | `ssl`, `thehive`          |
+| tools.thehive          | update_case_fields                      | `ssl`, `thehive`          |
+| tools.thehive          | update_case_status                      | `ssl`, `thehive`          |
+| tools.threatstream     | lookup_domain                           | `ssl`, `threatstream`     |
+| tools.threatstream     | lookup_email                            | `ssl`, `threatstream`     |
+| tools.threatstream     | lookup_file_hash                        | `ssl`, `threatstream`     |
+| tools.threatstream     | lookup_ip_address                       | `ssl`, `threatstream`     |
+| tools.threatstream     | lookup_url                              | `ssl`, `threatstream`     |
+| tools.urlscan          | lookup_url                              | `ssl`, `urlscan`          |
+| tools.virustotal       | lookup_domain                           | `ssl`, `virustotal`       |
+| tools.virustotal       | lookup_file_hash                        | `ssl`, `virustotal`       |
+| tools.virustotal       | lookup_ip_address                       | `ssl`, `virustotal`       |
+| tools.virustotal       | lookup_url                              | `ssl`, `virustotal`       |
+| tools.wazuh            | active_response                         | `ssl`, `wazuh_wui`        |
+| tools.wazuh            | get_access_token                        | `wazuh_wui`               |
+| tools.wazuh            | update_agents                           | `ssl`, `wazuh_wui`        |
 
 ## Credentials
 
 <Note>
-Tracecat uses secret keys associated with each integration for 3rd-party authentication.
-Find out more about how secrets work in Tracecat [here](/quickstart/secrets).
+  Tracecat uses secret keys associated with each integration for 3rd-party
+  authentication. Find out more about how secrets work in Tracecat
+  [here](/quickstart/secrets).
 </Note>
 
-| Secret Name | Required Keys | Optional Keys |
-| --- | --- | --- |
-| `amazon_s3` | - | `AWS_ACCESS_KEY_ID` `AWS_PROFILE` `AWS_REGION` `AWS_ROLE_ARN` `AWS_ROLE_SESSION_NAME` `AWS_SECRET_ACCESS_KEY` |
-| `ansible` | `ANSIBLE_SSH_KEY` | `ANSIBLE_PASSWORDS` |
-| `aws` | - | `AWS_ACCESS_KEY_ID` `AWS_PROFILE_NAME` `AWS_REGION` `AWS_ROLE_ARN` `AWS_ROLE_SESSION_NAME` `AWS_SECRET_ACCESS_KEY` |
-| `check_point_infinity` | `CHECKPOINT_ACCESS_KEY` `CHECKPOINT_CLIENT_ID` | - |
-| `crowdsec_cti` | `CTI_API_KEY` | - |
-| `crowdstrike` | `CROWDSTRIKE_CLIENT_ID` `CROWDSTRIKE_CLIENT_SECRET` | - |
-| `datadog` | `DATADOG_API_KEY` `DATADOG_APP_KEY` | - |
-| `elastic_security` | `ELASTIC_API_KEY` | - |
-| `google_api` | `GOOGLE_API_CREDENTIALS` | - |
-| `ipinfo` | `IPINFO_API_TOKEN` | - |
-| `jamf` | `JAMF_CLIENT_ID` `JAMF_CLIENT_SECRET` | - |
-| `jira` | `JIRA_API_TOKEN` `JIRA_USEREMAIL` | - |
-| `kubernetes` | `KUBECONFIG_BASE64` | - |
-| `ldap` | `LDAP_HOST` `LDAP_PASSWORD` `LDAP_PORT` `LDAP_USER` | - |
-| `microsoft_graph` | `MICROSOFT_GRAPH_CLIENT_ID` `MICROSOFT_GRAPH_CLIENT_SECRET` | - |
-| `mongodb` | `MONGODB_CONNECTION_STRING` | - |
-| `okta` | `OKTA_API_TOKEN` | - |
-| `openai` | `OPENAI_API_KEY` | - |
-| `opencti` | `OPENCTI_API_TOKEN` | - |
-| `pagerduty` | `PAGERDUTY_API_TOKEN` | - |
-| `phishlabs` | `PL_CLIENT_ID` `PL_CLIENT_SECRET` `PL_CUSTOMER_ID` `PL_PASSWORD` `PL_USERNAME` | - |
-| `sentinel_one` | `SENTINEL_ONE_API_TOKEN` | - |
-| `slack` | `SLACK_BOT_TOKEN` | - |
-| `smtp` | `SMTP_HOST` `SMTP_PASS` `SMTP_PORT` `SMTP_USER` | - |
-| `splunk` | `SPLUNK_API_KEY` | - |
-| `ssl` | - | `SSL_CLIENT_CERT` `SSL_CLIENT_KEY` `SSL_CLIENT_PASSWORD` |
-| `thehive` | `THEHIVE_API_KEY` | - |
-| `threatstream` | `ANOMALI_API_KEY` `ANOMALI_USERNAME` | - |
-| `urlscan` | `URLSCAN_API_KEY` | - |
-| `virustotal` | `VIRUSTOTAL_API_KEY` | - |
-| `wazuh_wui` | `WAZUH_WUI_PASSWORD` `WAZUH_WUI_USERNAME` | - |
-| `wiz` | `WIZ_CLIENT_ID` `WIZ_CLIENT_SECRET` | - |
+| Secret Name            | Required Keys                                                                  | Optional Keys                                                                                                      |
+| ---------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------ |
+| `amazon_s3`            | -                                                                              | `AWS_ACCESS_KEY_ID` `AWS_PROFILE` `AWS_REGION` `AWS_ROLE_ARN` `AWS_ROLE_SESSION_NAME` `AWS_SECRET_ACCESS_KEY`      |
+| `ansible`              | `ANSIBLE_SSH_KEY`                                                              | `ANSIBLE_PASSWORDS`                                                                                                |
+| `aws`                  | -                                                                              | `AWS_ACCESS_KEY_ID` `AWS_PROFILE_NAME` `AWS_REGION` `AWS_ROLE_ARN` `AWS_ROLE_SESSION_NAME` `AWS_SECRET_ACCESS_KEY` |
+| `check_point_infinity` | `CHECKPOINT_ACCESS_KEY` `CHECKPOINT_CLIENT_ID`                                 | -                                                                                                                  |
+| `crowdsec_cti`         | `CTI_API_KEY`                                                                  | -                                                                                                                  |
+| `crowdstrike`          | `CROWDSTRIKE_CLIENT_ID` `CROWDSTRIKE_CLIENT_SECRET`                            | -                                                                                                                  |
+| `datadog`              | `DATADOG_API_KEY` `DATADOG_APP_KEY`                                            | -                                                                                                                  |
+| `elastic_security`     | `ELASTIC_API_KEY`                                                              | -                                                                                                                  |
+| `google_api`           | `GOOGLE_API_CREDENTIALS`                                                       | -                                                                                                                  |
+| `ipinfo`               | `IPINFO_API_TOKEN`                                                             | -                                                                                                                  |
+| `jamf`                 | `JAMF_CLIENT_ID` `JAMF_CLIENT_SECRET`                                          | -                                                                                                                  |
+| `jira`                 | `JIRA_API_TOKEN` `JIRA_USEREMAIL`                                              | -                                                                                                                  |
+| `kubernetes`           | `KUBECONFIG_BASE64`                                                            | -                                                                                                                  |
+| `ldap`                 | `LDAP_HOST` `LDAP_PASSWORD` `LDAP_PORT` `LDAP_USER`                            | -                                                                                                                  |
+| `microsoft_graph`      | `MICROSOFT_GRAPH_CLIENT_ID` `MICROSOFT_GRAPH_CLIENT_SECRET`                    | -                                                                                                                  |
+| `mongodb`              | `MONGODB_CONNECTION_STRING`                                                    | -                                                                                                                  |
+| `okta`                 | `OKTA_API_TOKEN`                                                               | -                                                                                                                  |
+| `openai`               | `OPENAI_API_KEY`                                                               | -                                                                                                                  |
+| `opencti`              | `OPENCTI_API_TOKEN`                                                            | -                                                                                                                  |
+| `pagerduty`            | `PAGERDUTY_API_TOKEN`                                                          | -                                                                                                                  |
+| `phishlabs`            | `PL_CLIENT_ID` `PL_CLIENT_SECRET` `PL_CUSTOMER_ID` `PL_PASSWORD` `PL_USERNAME` | -                                                                                                                  |
+| `sentinel_one`         | `SENTINEL_ONE_API_TOKEN`                                                       | -                                                                                                                  |
+| `slack`                | `SLACK_BOT_TOKEN`                                                              | -                                                                                                                  |
+| `smtp`                 | `SMTP_HOST` `SMTP_PASS` `SMTP_PORT` `SMTP_USER`                                | -                                                                                                                  |
+| `splunk`               | `SPLUNK_API_KEY`                                                               | -                                                                                                                  |
+| `ssl`                  | -                                                                              | `SSL_CLIENT_CERT` `SSL_CLIENT_KEY` `SSL_CLIENT_PASSWORD`                                                           |
+| `thehive`              | `THEHIVE_API_KEY`                                                              | -                                                                                                                  |
+| `threatstream`         | `ANOMALI_API_KEY` `ANOMALI_USERNAME`                                           | -                                                                                                                  |
+| `urlscan`              | `URLSCAN_API_KEY`                                                              | -                                                                                                                  |
+| `virustotal`           | `VIRUSTOTAL_API_KEY`                                                           | -                                                                                                                  |
+| `wazuh_wui`            | `WAZUH_WUI_PASSWORD` `WAZUH_WUI_USERNAME`                                      | -                                                                                                                  |
+| `wiz`                  | `WIZ_CLIENT_ID` `WIZ_CLIENT_SECRET`                                            | -                                                                                                                  |
