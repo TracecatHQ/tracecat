@@ -3,7 +3,7 @@ definition:
   title: Get campaign
   description: Get a campaign from Gophish.
   display_group: Gophish
-  doc_url: https://docs.getgophish.com/api-documentation/campaigns#get-campaigns
+  doc_url: https://docs.getgophish.com/api-documentation/campaigns#get-campaign
   namespace: tools.gophish
   name: get_campaign
   secrets:
