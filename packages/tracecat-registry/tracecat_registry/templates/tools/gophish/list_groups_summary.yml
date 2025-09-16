@@ -1,11 +1,11 @@
 type: action
 definition:
-  title: List groups
-  description: List groups from Gophish.
+  title: List groups summary
+  description: List groups summary from Gophish.
   display_group: Gophish
-  doc_url: https://docs.getgophish.com/api-documentation/users-and-groups#get-groups
+  doc_url: https://docs.getgophish.com/api-documentation/users-and-groups#get-groups-summary
   namespace: tools.gophish
-  name: list_groups
+  name: list_groups_summary
   secrets:
     - name: gophish
       keys: ["GOPHISH_API_KEY"]
@@ -15,11 +15,11 @@ definition:
       description: The base URL of the Gophish instance.
       required: true
   steps:
-    - ref: list_groups
+    - ref: list_groups_summary
       action: core.http_request
       args:
-        url: ${{ inputs.base_url }}/api/groups/
+        url: ${{ inputs.base_url }}/api/groups/summary
         method: GET
         headers:
           Authorization: Bearer ${{ SECRETS.gophish.GOPHISH_API_KEY }}
-  returns: ${{ steps.list_groups.result.data }}
+  returns: ${{ steps.list_groups_summary.result.data }}
