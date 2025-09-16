@@ -86,6 +86,15 @@ interface ProviderConfigFormProps {
   additionalButtons?: React.ReactNode
 }
 
+/**
+ * Check if a provider is an MCP (Model Context Protocol) provider.
+ * MCP providers don't require user-provided client credentials.
+ */
+function isMCPProvider(provider: ProviderRead): boolean {
+  // MCP providers follow the naming convention of ending with "_mcp"
+  return provider.metadata.id.endsWith("_mcp")
+}
+
 export function ProviderConfigForm({
   provider,
   onSuccess,
@@ -98,6 +107,7 @@ export function ProviderConfigForm({
     grant_type: grantType,
   } = provider
   const workspaceId = useWorkspaceId()
+  const isMCP = isMCPProvider(provider)
   const {
     integration,
     integrationIsLoading,
@@ -169,6 +179,42 @@ export function ProviderConfigForm({
 
   if (integrationIsLoading) {
     return <ProviderConfigFormSkeleton />
+  }
+
+  // For MCP providers, show a simplified message
+  if (isMCP) {
+    return (
+      <div className="flex flex-col gap-6">
+        <Card>
+          <CardHeader>
+            <CardTitle>MCP OAuth Provider</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              This is a Model Context Protocol (MCP) provider that uses
+              server-managed OAuth credentials. No client configuration is
+              required - simply click "Connect" to authenticate.
+            </p>
+            {defaultScopes && defaultScopes.length > 0 && (
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Default scopes</Label>
+                <div className="flex flex-wrap gap-2">
+                  {defaultScopes.map((scope) => (
+                    <Badge key={scope} variant="secondary">
+                      {scope}
+                    </Badge>
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  The authorization server will determine the granted scopes
+                  based on your permissions.
+                </p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    )
   }
 
   return (

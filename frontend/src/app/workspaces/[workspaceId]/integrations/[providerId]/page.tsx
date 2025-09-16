@@ -103,6 +103,15 @@ export default function ProviderDetailPage() {
 
 type ProviderDetailTab = "overview" | "configuration"
 
+/**
+ * Check if a provider is an MCP (Model Context Protocol) provider.
+ * MCP providers don't require user-provided client credentials.
+ */
+function isMCPProvider(provider: ProviderRead): boolean {
+  // MCP providers follow the naming convention of ending with "_mcp"
+  return provider.metadata.id.endsWith("_mcp")
+}
+
 function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
   const workspaceId = useWorkspaceId()
   const router = useRouter()
@@ -110,11 +119,14 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
   const [errorMessage, setErrorMessage] = useState("")
   const [_showConnectPrompt, setShowConnectPrompt] = useState(false)
   const providerId = provider.metadata.id
+  const isMCP = isMCPProvider(provider)
 
   // Get active tab from URL query params, default to "overview"
+  // For MCP providers, always use "overview" since there's no configuration tab
   const activeTab = (
     searchParams &&
-    ["overview", "configuration"].includes(searchParams.get("tab") || "")
+    ["overview", "configuration"].includes(searchParams.get("tab") || "") &&
+    !isMCP // Don't allow configuration tab for MCP providers
       ? (searchParams.get("tab") ?? "overview")
       : "overview"
   ) as ProviderDetailTab
@@ -294,11 +306,21 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
                     variant="outline"
                     size="sm"
                     className="h-[22px] px-2 py-0 text-xs font-medium"
-                    onClick={() => handleTabChange("configuration")}
-                    disabled={!isEnabled}
+                    onClick={
+                      isMCP
+                        ? handleOAuthConnect
+                        : () => handleTabChange("configuration")
+                    }
+                    disabled={!isEnabled || (isMCP && connectProviderIsPending)}
                   >
-                    <Settings className="mr-1 h-3 w-3" />
-                    Configure
+                    {isMCP && connectProviderIsPending ? (
+                      <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                    ) : isMCP ? (
+                      <ExternalLink className="mr-1 h-3 w-3" />
+                    ) : (
+                      <Settings className="mr-1 h-3 w-3" />
+                    )}
+                    {isMCP ? "Connect" : "Configure"}
                   </Button>
                 )}
               </div>
@@ -306,15 +328,6 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
           </div>
         </div>
       </div>
-
-      {errorMessage && (
-        <Alert className="mb-6 border-red-200 bg-red-50">
-          <AlertCircle className="size-4 text-red-600" />
-          <AlertDescription className="text-red-800">
-            {errorMessage}
-          </AlertDescription>
-        </Alert>
-      )}
 
       {/* Tabs */}
       <Tabs
@@ -330,13 +343,15 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
             <LayoutListIcon className="mr-2 size-4" />
             <span>Overview</span>
           </TabsTrigger>
-          <TabsTrigger
-            className="flex h-full min-w-24 items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
-            value="configuration"
-          >
-            <Settings className="mr-2 size-4" />
-            <span>Configuration</span>
-          </TabsTrigger>
+          {!isMCP && (
+            <TabsTrigger
+              className="flex h-full min-w-24 items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+              value="configuration"
+            >
+              <Settings className="mr-2 size-4" />
+              <span>Configuration</span>
+            </TabsTrigger>
+          )}
         </TabsList>
 
         <TabsContent value="overview" className="space-y-6">
@@ -514,54 +529,56 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
           </div>
         </TabsContent>
 
-        <TabsContent value="configuration" className="space-y-6">
-          {/* Configuration Form */}
-          <div className="space-y-4">
-            <ProviderConfigForm
-              provider={provider}
-              onSuccess={handleConfigSuccess}
-              additionalButtons={
-                isConfigured ? (
-                  provider.grant_type === "client_credentials" ? (
-                    <Button
-                      onClick={handleTestConnection}
-                      disabled={!isEnabled || testConnectionIsPending}
-                    >
-                      {testConnectionIsPending ? (
-                        <>
-                          <Loader2 className="mr-2 size-4 animate-spin" />
-                          Testing...
-                        </>
-                      ) : (
-                        <>
-                          <Zap className="mr-2 size-4" />
-                          Test connection
-                        </>
-                      )}
-                    </Button>
-                  ) : (
-                    <Button
-                      onClick={handleOAuthConnect}
-                      disabled={!isEnabled || connectProviderIsPending}
-                    >
-                      {connectProviderIsPending ? (
-                        <>
-                          <Loader2 className="mr-2 size-4 animate-spin" />
-                          Connecting...
-                        </>
-                      ) : (
-                        <>
-                          <ExternalLink className="mr-2 size-4" />
-                          Connect with OAuth
-                        </>
-                      )}
-                    </Button>
-                  )
-                ) : null
-              }
-            />
-          </div>
-        </TabsContent>
+        {!isMCP && (
+          <TabsContent value="configuration" className="space-y-6">
+            {/* Configuration Form */}
+            <div className="space-y-4">
+              <ProviderConfigForm
+                provider={provider}
+                onSuccess={handleConfigSuccess}
+                additionalButtons={
+                  isConfigured ? (
+                    provider.grant_type === "client_credentials" ? (
+                      <Button
+                        onClick={handleTestConnection}
+                        disabled={!isEnabled || testConnectionIsPending}
+                      >
+                        {testConnectionIsPending ? (
+                          <>
+                            <Loader2 className="mr-2 size-4 animate-spin" />
+                            Testing...
+                          </>
+                        ) : (
+                          <>
+                            <Zap className="mr-2 size-4" />
+                            Test connection
+                          </>
+                        )}
+                      </Button>
+                    ) : (
+                      <Button
+                        onClick={handleOAuthConnect}
+                        disabled={!isEnabled || connectProviderIsPending}
+                      >
+                        {connectProviderIsPending ? (
+                          <>
+                            <Loader2 className="mr-2 size-4 animate-spin" />
+                            Connecting...
+                          </>
+                        ) : (
+                          <>
+                            <ExternalLink className="mr-2 size-4" />
+                            Connect with OAuth
+                          </>
+                        )}
+                      </Button>
+                    )
+                  ) : null
+                }
+              />
+            </div>
+          </TabsContent>
+        )}
       </Tabs>
     </div>
   )
