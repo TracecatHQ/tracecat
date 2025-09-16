@@ -65,9 +65,12 @@ class BaseOAuthProvider(ABC):
         client_kwargs = {
             "client_id": self.client_id,
             "client_secret": self.client_secret,
-            "scope": " ".join(self.requested_scopes),
             "grant_type": self.grant_type,
         }
+
+        # Only add scope if not empty
+        if self.requested_scopes:
+            client_kwargs["scope"] = " ".join(self.requested_scopes)
 
         # Let subclasses add grant-specific parameters
         client_kwargs.update(self._get_client_kwargs())
@@ -284,7 +287,6 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
     - Optional dynamic client registration
     """
 
-    # MCP server URI (e.g., "https://api.runreveal.com/mcp")
     _mcp_server_uri: ClassVar[str]
 
     def __init__(self, **kwargs):
@@ -312,7 +314,7 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
         return f"{parsed.scheme}://{parsed.netloc}"
 
     def _discover_oauth_endpoints(self) -> None:
-        """Discover OAuth endpoints from .well-known configuration."""
+        """Discover OAuth endpoints from .well-known configuration with fallback support."""
         base_url = self._get_base_url()
         discovery_url = f"{base_url}/.well-known/oauth-authorization-server"
 
@@ -337,14 +339,25 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
                     token=self._discovered_token_endpoint,
                 )
         except Exception as e:
-            self.logger.error(
-                "Failed to discover OAuth endpoints",
-                provider=self.id,
-                error=str(e),
-                discovery_url=discovery_url,
-            )
-            # Let subclasses provide fallback endpoints if needed
-            if not hasattr(self, "_discovered_auth_endpoint"):
+            # Check if subclass provides fallback endpoints
+            if hasattr(self, "_fallback_auth_endpoint") and hasattr(
+                self, "_fallback_token_endpoint"
+            ):
+                self._discovered_auth_endpoint = self._fallback_auth_endpoint
+                self._discovered_token_endpoint = self._fallback_token_endpoint
+                self.logger.info(
+                    "Using fallback OAuth endpoints",
+                    provider=self.id,
+                    authorization=self._discovered_auth_endpoint,
+                    token=self._discovered_token_endpoint,
+                )
+            else:
+                self.logger.error(
+                    "Failed to discover OAuth endpoints",
+                    provider=self.id,
+                    error=str(e),
+                    discovery_url=discovery_url,
+                )
                 raise ValueError(
                     f"Could not discover OAuth endpoints from {discovery_url} "
                     f"and no fallback endpoints provided"
