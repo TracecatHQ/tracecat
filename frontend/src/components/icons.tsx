@@ -316,7 +316,7 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
         <WandSparkles {...rest} />
         <Sparkles
           className={cn(
-            "-translate-y-1/8 translate-x-1/8 absolute right-0 top-0 fill-yellow-500/70 text-amber-500/70",
+            "absolute top-0 right-0 -translate-y-1/8 translate-x-1/8 fill-yellow-500/70 text-amber-500/70",
             getFlairSize(flairsize)
           )}
         />
@@ -454,7 +454,7 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
         viewBox="0 0 24 24"
         className={cn(
           basicIconsCommon,
-          "bg-green-400/20 rounded-xl",
+          "rounded-xl bg-green-400/20",
           className
         )}
         {...rest}
@@ -464,6 +464,13 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
           d="M16.965 1.18C15.085.164 13.769 0 10.683 0H3.73v14.55h6.926c2.743 0 4.8-.164 6.61-1.37 1.975-1.303 3.004-3.484 3.004-6.007 0-2.716-1.262-4.896-3.305-5.994zm-5.5 10.326h-4.21V3.113l3.977-.027c3.62-.028 5.43 1.234 5.43 4.128 0 3.113-2.248 4.292-5.197 4.292zM3.73 17.61h3.525V24H3.73Z"
         />
       </svg>
+    ),
+    "tools.gophish": ({ className, ...rest }: IconProps) => (
+      <svg xmlns="http://www.w3.org/2000/svg" width="186.667" height="213.333" viewBox="0 0 174.99999 199.99999" className={cn(
+        basicIconsCommon,
+        "rounded-full bg-blue-400/20",
+        className
+      )} {...rest}><g transform="translate(-286.786 -403.79)"><path d="M374.286 403.79l-87.5 50v100l87.5 50 87.5-50v-100l-87.5-50zm-.62 14.633l75.226 43.005v85.981l-75.226 42.99-75.225-42.99v-85.981l75.225-43.005z" fill="#283F50"/><path d="M472.126 134.444l6.911 3.808-6.753 4.081z" transform="matrix(.33514 0 0 .78956 188.901 398.936)" fill="#283F50" stroke="#283F50" stroke-width="4" stroke-linecap="square"/><path d="M348.42 508.015v17.441-17.441z" fill="none" stroke="#283F50" stroke-width="4"/><circle r="6.294" cy="456.744" cx="390.358" fill="none" stroke="#283F50" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><path d="M390.388 527.03a20.98 20.98 0 0 1-10.49 18.17 20.98 20.98 0 0 1-20.981 0 20.98 20.98 0 0 1-10.49-18.17" fill="none" stroke="#283F50" stroke-width="4" stroke-linecap="square"/><g stroke="#283F50"><path d="M390.45 463.343v61.879-61.88z" fill="none" stroke-width="4"/><path d="M346.635 503.574l9.522 12.33-5.745-2.01-3.777-10.32z" fill="#283F50"/></g></g></svg>
     ),
     "tools.slack": (props: IconProps) => <SlackIcon {...props} />,
     "tools.slack_blocks": (props: IconProps) => <SlackIcon {...props} />,
@@ -543,7 +550,7 @@ export function ProviderIcon({
   return (
     <Icon
       className={cn(
-        "flex shrink-0 items-center justify-center rounded-sm bg-stone-200/50 p-1",
+        "flex justify-center items-center p-1 rounded-sm shrink-0 bg-stone-200/50",
         className
       )}
       {...rest}
