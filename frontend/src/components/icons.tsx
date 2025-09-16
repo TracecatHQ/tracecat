@@ -466,11 +466,67 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
       </svg>
     ),
     "tools.gophish": ({ className, ...rest }: IconProps) => (
-      <svg xmlns="http://www.w3.org/2000/svg" width="186.667" height="213.333" viewBox="0 0 174.99999 199.99999" className={cn(
-        basicIconsCommon,
-        "rounded-full bg-blue-400/20",
-        className
-      )} {...rest}><g transform="translate(-286.786 -403.79)"><path d="M374.286 403.79l-87.5 50v100l87.5 50 87.5-50v-100l-87.5-50zm-.62 14.633l75.226 43.005v85.981l-75.226 42.99-75.225-42.99v-85.981l75.225-43.005z" fill="#283F50"/><path d="M472.126 134.444l6.911 3.808-6.753 4.081z" transform="matrix(.33514 0 0 .78956 188.901 398.936)" fill="#283F50" stroke="#283F50" stroke-width="4" stroke-linecap="square"/><path d="M348.42 508.015v17.441-17.441z" fill="none" stroke="#283F50" stroke-width="4"/><circle r="6.294" cy="456.744" cx="390.358" fill="none" stroke="#283F50" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><path d="M390.388 527.03a20.98 20.98 0 0 1-10.49 18.17 20.98 20.98 0 0 1-20.981 0 20.98 20.98 0 0 1-10.49-18.17" fill="none" stroke="#283F50" stroke-width="4" stroke-linecap="square"/><g stroke="#283F50"><path d="M390.45 463.343v61.879-61.88z" fill="none" stroke-width="4"/><path d="M346.635 503.574l9.522 12.33-5.745-2.01-3.777-10.32z" fill="#283F50"/></g></g></svg>
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        width="186.667"
+        height="213.333"
+        viewBox="0 0 174.99999 199.99999"
+        className={cn(
+          basicIconsCommon,
+          "rounded-full bg-blue-400/20",
+          className
+        )}
+        {...rest}
+      >
+        <g transform="translate(-286.786 -403.79)">
+          <path
+            d="M374.286 403.79l-87.5 50v100l87.5 50 87.5-50v-100l-87.5-50zm-.62 14.633l75.226 43.005v85.981l-75.226 42.99-75.225-42.99v-85.981l75.225-43.005z"
+            fill="#283F50"
+          />
+          <path
+            d="M472.126 134.444l6.911 3.808-6.753 4.081z"
+            transform="matrix(.33514 0 0 .78956 188.901 398.936)"
+            fill="#283F50"
+            stroke="#283F50"
+            stroke-width="4"
+            stroke-linecap="square"
+          />
+          <path
+            d="M348.42 508.015v17.441-17.441z"
+            fill="none"
+            stroke="#283F50"
+            stroke-width="4"
+          />
+          <circle
+            r="6.294"
+            cy="456.744"
+            cx="390.358"
+            fill="none"
+            stroke="#283F50"
+            stroke-width="4"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+          <path
+            d="M390.388 527.03a20.98 20.98 0 0 1-10.49 18.17 20.98 20.98 0 0 1-20.981 0 20.98 20.98 0 0 1-10.49-18.17"
+            fill="none"
+            stroke="#283F50"
+            stroke-width="4"
+            stroke-linecap="square"
+          />
+          <g stroke="#283F50">
+            <path
+              d="M390.45 463.343v61.879-61.88z"
+              fill="none"
+              stroke-width="4"
+            />
+            <path
+              d="M346.635 503.574l9.522 12.33-5.745-2.01-3.777-10.32z"
+              fill="#283F50"
+            />
+          </g>
+        </g>
+      </svg>
     ),
     "tools.slack": (props: IconProps) => <SlackIcon {...props} />,
     "tools.slack_blocks": (props: IconProps) => <SlackIcon {...props} />,
