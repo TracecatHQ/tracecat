@@ -8,7 +8,6 @@ from tracecat.integrations.providers.microsoft.graph import (
     MicrosoftGraphACProvider,
     MicrosoftGraphCCProvider,
 )
-from tracecat.integrations.providers.microsoft.mcp import MicrosoftLearnMCPProvider
 from tracecat.integrations.providers.microsoft.teams import (
     MicrosoftTeamsACProvider,
     MicrosoftTeamsCCProvider,
@@ -22,7 +21,6 @@ _PROVIDER_CLASSES: list[type[BaseOAuthProvider]] = [
     MicrosoftGraphCCProvider,
     MicrosoftTeamsACProvider,
     MicrosoftTeamsCCProvider,
-    MicrosoftLearnMCPProvider,
     GitHubMCPProvider,
     LinearMCPProvider,
     NotionMCPProvider,

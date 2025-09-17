@@ -48,8 +48,10 @@ class BaseOAuthProvider(ABC):
             client_secret: Optional client secret to use instead of environment variable
             scopes: Optional scopes to use (overrides defaults if provided)
         """
-        self.client_id = client_id
-        self.client_secret = client_secret
+        # Resolve client credentials, allowing subclasses to supply defaults
+        self.client_id, self.client_secret = self._resolve_client_credentials(
+            client_id, client_secret
+        )
         # Use provided scopes or fall back to defaults
         self.requested_scopes = self.scopes.default if scopes is None else scopes
 
@@ -67,6 +69,10 @@ class BaseOAuthProvider(ABC):
             "client_secret": self.client_secret,
             "grant_type": self.grant_type,
         }
+
+        token_auth_method = self._get_token_endpoint_auth_method()
+        if token_auth_method:
+            client_kwargs["token_endpoint_auth_method"] = token_auth_method
 
         # Only add scope if not empty
         if self.requested_scopes:
@@ -99,6 +105,21 @@ class BaseOAuthProvider(ABC):
         """Get the metadata for the OAuth provider."""
         return cls.config_model.model_json_schema() if cls.config_model else None
 
+    def _resolve_client_credentials(
+        self, client_id: str | None, client_secret: str | None
+    ) -> tuple[str | None, str | None]:
+        """Resolve client credentials used to initialize the OAuth client.
+
+        Subclasses can override this to supply credentials from dynamic
+        registration or other mechanisms.
+        """
+
+        if client_id is None or (isinstance(client_id, str) and not client_id.strip()):
+            raise ValueError(f"{self.__class__.__name__} requires client credentials")
+        if client_secret is not None and not client_secret.strip():
+            client_secret = None
+        return client_id, client_secret
+
     @classmethod
     def from_config(cls, config: ProviderConfig) -> Self:
         """Create an OAuth provider from a configuration."""
@@ -109,10 +130,76 @@ class BaseOAuthProvider(ABC):
             validated_config = {}
         return cls(
             client_id=config.client_id,
-            client_secret=config.client_secret.get_secret_value(),
+            client_secret=config.client_secret.get_secret_value()
+            if config.client_secret
+            else None,
             scopes=config.scopes,
             **validated_config,
         )
+
+    def _perform_dynamic_registration(self) -> tuple[str, str | None]:
+        """Register a public client using OAuth 2.0 Dynamic Client Registration."""
+
+        if not getattr(self, "_registration_endpoint", None):
+            raise ValueError("Dynamic registration endpoint is not available")
+
+        registration_payload = {
+            "client_name": self.metadata.name,
+            "redirect_uris": [self.redirect_uri()],
+            "grant_types": ["authorization_code"],
+            "response_types": ["code"],
+        }
+
+        registration_auth_method = self._dynamic_registration_auth_method()
+        if registration_auth_method:
+            registration_payload["token_endpoint_auth_method"] = (
+                registration_auth_method
+            )
+
+        with httpx.Client() as client:
+            response = client.post(
+                self._registration_endpoint,
+                json=registration_payload,
+                timeout=10.0,
+            )
+            response.raise_for_status()
+            registration_response = response.json()
+
+        client_id = registration_response.get("client_id")
+        if not client_id:
+            raise ValueError(
+                "Dynamic client registration response did not include client_id"
+            )
+
+        client_secret = registration_response.get("client_secret")
+
+        auth_method = (
+            registration_response.get("token_endpoint_auth_method")
+            or registration_auth_method
+        )
+        if auth_method:
+            self._client_registration_auth_method = auth_method
+
+        self.logger.info(
+            "Registered OAuth client dynamically",
+            provider=self.id,
+            registration_endpoint=self._registration_endpoint,
+            client_id=client_id,
+        )
+
+        return client_id, client_secret
+
+    def _dynamic_registration_auth_method(self) -> str | None:
+        """Preferred token endpoint auth method when registering dynamically."""
+        return None
+
+    def _get_token_endpoint_auth_method(self) -> str | None:
+        """Return auth method to use when calling the token endpoint."""
+        if hasattr(self, "_client_registration_auth_method"):
+            return self._client_registration_auth_method
+        if self.client_secret:
+            return "client_secret_basic"
+        return None
 
     def _get_client_kwargs(self) -> dict[str, Any]:
         """Override to add grant-specific client parameters."""
@@ -288,6 +375,7 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
     """
 
     _mcp_server_uri: ClassVar[str]
+    token_endpoint_auth_methods_supported: ClassVar[list[str]] = []
 
     def __init__(self, **kwargs):
         """Initialize MCP provider with dynamic endpoint discovery."""
@@ -316,6 +404,7 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
     def _discover_oauth_endpoints(self) -> None:
         """Discover OAuth endpoints from .well-known configuration with fallback support."""
         base_url = self._get_base_url()
+        self._registration_endpoint = None
         discovery_url = f"{base_url}/.well-known/oauth-authorization-server"
 
         try:
@@ -328,6 +417,9 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
                 # Store discovered endpoints as instance variables
                 self._discovered_auth_endpoint = discovery_doc["authorization_endpoint"]
                 self._discovered_token_endpoint = discovery_doc["token_endpoint"]
+                self._token_endpoint_auth_methods_supported = discovery_doc.get(
+                    "token_endpoint_auth_methods_supported", []
+                )
 
                 # Store registration endpoint if available
                 self._registration_endpoint = discovery_doc.get("registration_endpoint")
@@ -345,6 +437,9 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
             ):
                 self._discovered_auth_endpoint = self._fallback_auth_endpoint
                 self._discovered_token_endpoint = self._fallback_token_endpoint
+                self._token_endpoint_auth_methods_supported = getattr(
+                    self, "token_endpoint_auth_methods_supported", []
+                )
                 self.logger.info(
                     "Using fallback OAuth endpoints",
                     provider=self.id,
@@ -366,6 +461,50 @@ class MCPAuthProvider(AuthorizationCodeOAuthProvider):
     def _use_pkce(self) -> bool:
         """PKCE is mandatory for OAuth 2.1 compliance."""
         return True
+
+    def _resolve_client_credentials(
+        self, client_id: str | None, client_secret: str | None
+    ) -> tuple[str | None, str | None]:
+        resolved_client_id = client_id if client_id and client_id.strip() else None
+        resolved_client_secret = (
+            client_secret if client_secret and client_secret.strip() else None
+        )
+
+        # Attempt dynamic client registration when no credentials are provided.
+        if resolved_client_id is None and self._registration_endpoint:
+            resolved_client_id, resolved_client_secret = (
+                self._perform_dynamic_registration()
+            )
+
+        if resolved_client_id is None:
+            raise ValueError("Missing hosted client credential: client_id")
+
+        # Secrets are optional for public clients (token endpoint auth method "none").
+        return resolved_client_id, resolved_client_secret
+
+    def _dynamic_registration_auth_method(self) -> str | None:
+        methods = getattr(self, "_token_endpoint_auth_methods_supported", [])
+        if "client_secret_post" in methods:
+            return "client_secret_post"
+        if "client_secret_basic" in methods:
+            return "client_secret_basic"
+        if "none" in methods:
+            return "none"
+        return None
+
+    def _get_token_endpoint_auth_method(self) -> str | None:
+        if hasattr(self, "_client_registration_auth_method"):
+            return self._client_registration_auth_method
+        methods = getattr(self, "_token_endpoint_auth_methods_supported", [])
+        if self.client_secret:
+            if "client_secret_post" in methods:
+                return "client_secret_post"
+            if "client_secret_basic" in methods:
+                return "client_secret_basic"
+        else:
+            if "none" in methods:
+                return "none"
+        return super()._get_token_endpoint_auth_method()
 
     def _get_additional_authorize_params(self) -> dict[str, Any]:
         """Add MCP-specific authorization parameters.

@@ -223,9 +223,9 @@ class IntegrationService(BaseWorkspaceService):
                 else None
             )
 
-            if not client_id or not client_secret:
+            if not client_id:
                 self.logger.warning(
-                    "No client credentials found",
+                    "No client ID found",
                     user_id=integration.user_id,
                     provider=integration.provider_id,
                 )
@@ -233,7 +233,9 @@ class IntegrationService(BaseWorkspaceService):
             # Create provider config
             provider_config = ProviderConfig(
                 client_id=client_id,
-                client_secret=SecretStr(client_secret),
+                client_secret=SecretStr(client_secret)
+                if client_secret is not None
+                else None,
                 provider_config=integration.provider_config,
                 scopes=self.parse_scopes(integration.requested_scopes),
             )
@@ -509,20 +511,21 @@ class IntegrationService(BaseWorkspaceService):
         if not integration or not integration.use_workspace_credentials:
             return None
 
-        if (
-            not integration.encrypted_client_id
-            or not integration.encrypted_client_secret
-        ):
+        if not integration.encrypted_client_id:
             return None
 
         try:
             client_id = self.decrypt_client_credential(integration.encrypted_client_id)
-            client_secret = self.decrypt_client_credential(
-                integration.encrypted_client_secret
+            client_secret = (
+                self.decrypt_client_credential(integration.encrypted_client_secret)
+                if integration.encrypted_client_secret
+                else None
             )
             return ProviderConfig(
                 client_id=client_id,
-                client_secret=SecretStr(client_secret),
+                client_secret=SecretStr(client_secret)
+                if client_secret is not None
+                else None,
                 provider_config=integration.provider_config,
                 scopes=self.parse_scopes(integration.requested_scopes)
                 or default_scopes,

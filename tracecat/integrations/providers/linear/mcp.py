@@ -29,7 +29,7 @@ class LinearMCPProvider(MCPAuthProvider):
     metadata: ClassVar[ProviderMetadata] = ProviderMetadata(
         id="linear_mcp",
         name="Linear MCP",
-        description="Linear MCP providerfor issue tracking and project management",
+        description="Linear MCP provider for issue tracking and project management",
         enabled=True,
         requires_config=False,
         setup_instructions=(

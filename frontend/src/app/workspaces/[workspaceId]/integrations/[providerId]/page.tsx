@@ -104,7 +104,7 @@ type ProviderDetailTab = "overview" | "configuration"
 
 /**
  * Check if a provider is an MCP (Model Context Protocol) provider.
- * MCP providers don't require user-provided client credentials.
+ * Some MCP providers still require workspace configuration (e.g. GitHub).
  */
 function isMCPProvider(provider: ProviderRead): boolean {
   // MCP providers follow the naming convention of ending with "_mcp"
@@ -119,13 +119,15 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
   const [_showConnectPrompt, setShowConnectPrompt] = useState(false)
   const providerId = provider.metadata.id
   const isMCP = isMCPProvider(provider)
+  const requiresConfiguration = Boolean(provider.metadata.requires_config)
+  const isSelfConfiguringMCP = isMCP && !requiresConfiguration
 
   // Get active tab from URL query params, default to "overview"
   // For MCP providers, always use "overview" since there's no configuration tab
   const activeTab = (
     searchParams &&
     ["overview", "configuration"].includes(searchParams.get("tab") || "") &&
-    !isMCP // Don't allow configuration tab for MCP providers
+    !isSelfConfiguringMCP // Don't allow configuration tab for self-configured MCP providers
       ? (searchParams.get("tab") ?? "overview")
       : "overview"
   ) as ProviderDetailTab
@@ -306,20 +308,23 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
                     size="sm"
                     className="h-[22px] px-2 py-0 text-xs font-medium"
                     onClick={
-                      isMCP
+                      isSelfConfiguringMCP
                         ? handleOAuthConnect
                         : () => handleTabChange("configuration")
                     }
-                    disabled={!isEnabled || (isMCP && connectProviderIsPending)}
+                    disabled={
+                      !isEnabled ||
+                      (isSelfConfiguringMCP && connectProviderIsPending)
+                    }
                   >
-                    {isMCP && connectProviderIsPending ? (
+                    {isSelfConfiguringMCP && connectProviderIsPending ? (
                       <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                    ) : isMCP ? (
+                    ) : isSelfConfiguringMCP ? (
                       <ExternalLink className="mr-1 h-3 w-3" />
                     ) : (
                       <Settings className="mr-1 h-3 w-3" />
                     )}
-                    {isMCP ? "Connect" : "Configure"}
+                    {isSelfConfiguringMCP ? "Connect" : "Configure"}
                   </Button>
                 )}
               </div>
@@ -342,7 +347,7 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
             <LayoutListIcon className="mr-2 size-4" />
             <span>Overview</span>
           </TabsTrigger>
-          {!isMCP && (
+          {!isSelfConfiguringMCP && (
             <TabsTrigger
               className="flex h-full min-w-24 items-center justify-center rounded-none border-b-2 border-transparent py-0 text-xs data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
               value="configuration"
@@ -528,7 +533,7 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
           </div>
         </TabsContent>
 
-        {!isMCP && (
+        {!isSelfConfiguringMCP && (
           <TabsContent value="configuration" className="space-y-6">
             {/* Configuration Form */}
             <div className="space-y-4">

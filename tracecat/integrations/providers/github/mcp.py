@@ -18,6 +18,7 @@ class GitHubMCPProvider(MCPAuthProvider):
     """
 
     id: ClassVar[str] = "github_mcp"
+    token_endpoint_auth_methods_supported: ClassVar[list[str]] = ["none"]
 
     # MCP server endpoint
     _mcp_server_uri: ClassVar[str] = "https://api.githubcopilot.com/mcp"
@@ -37,12 +38,15 @@ class GitHubMCPProvider(MCPAuthProvider):
         name="GitHub Copilot MCP",
         description="GitHub Copilot MCP provider for repo and code access",
         enabled=True,
-        requires_config=False,
+        requires_config=True,
         setup_instructions=(
             "Connect to GitHub Copilot MCP to enable AI-powered code assistance and repository context. "
+            "Register an OAuth application with GitHub Copilot MCP and provide the client ID and secret."
             "Permissions are automatically determined based on your GitHub account and organization settings."
         ),
         setup_steps=[
+            "Register an OAuth client for GitHub Copilot MCP",
+            "Configure the client ID and client secret in Tracecat",
             "Click 'Connect' to begin OAuth authorization",
             "Authenticate with your GitHub account",
             "Review and approve the OAuth client permissions",

@@ -538,11 +538,6 @@ export const providerIcons: Record<
       <GitHubIcon {...rest} />
     </div>
   ),
-  microsoft_learn_mcp: ({ className, ...rest }) => (
-    <div className={className}>
-      <MicrosoftIcon {...rest} />
-    </div>
-  ),
 }
 
 export function ProviderIcon({
