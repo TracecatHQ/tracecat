@@ -49,7 +49,7 @@ async def create_schedule(
 
     workflow_schedule_id = f"{workflow_id.short()}/{schedule_id}"
 
-    if cron is None and every is None:
+    if (cron is None or not cron.strip()) and every is None:
         raise ValueError("Either cron or every must be provided for a schedule")
 
     spec_kwargs: dict[str, Any] = {
