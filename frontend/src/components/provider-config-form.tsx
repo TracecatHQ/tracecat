@@ -40,6 +40,7 @@ import {
 } from "@/components/ui/tooltip"
 import { useIntegrationProvider } from "@/lib/hooks"
 import { jsonSchemaToZod } from "@/lib/jsonschema"
+import { isMCPProvider } from "@/lib/providers"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 function getInputType(schemaProperty: JSONSchema7): HTMLInputTypeAttribute {
@@ -84,15 +85,6 @@ interface ProviderConfigFormProps {
   provider: ProviderRead
   onSuccess?: () => void
   additionalButtons?: React.ReactNode
-}
-
-/**
- * Check if a provider is an MCP (Model Context Protocol) provider.
- * MCP providers don't require user-provided client credentials.
- */
-function isMCPProvider(provider: ProviderRead): boolean {
-  // MCP providers follow the naming convention of ending with "_mcp"
-  return provider.metadata.id.endsWith("_mcp")
 }
 
 export function ProviderConfigForm({

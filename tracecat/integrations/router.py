@@ -140,13 +140,9 @@ async def oauth_callback(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="Provider is not configured for this workspace",
                 )
-            provider = provider_impl.from_config(provider_config)
+            provider = await provider_impl.instantiate(config=provider_config)
         else:
-            provider = (
-                provider_impl.from_config(provider_config)
-                if provider_config is not None
-                else provider_impl()
-            )
+            provider = await provider_impl.instantiate(config=provider_config)
             if (integration is None or provider_config is None) and provider.client_id:
                 await svc.store_provider_config(
                     provider_key=key,
@@ -299,13 +295,9 @@ async def connect_provider(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="Provider is not configured for this workspace",
                 )
-            provider = provider_impl.from_config(provider_config)
+            provider = await provider_impl.instantiate(config=provider_config)
         else:
-            provider = (
-                provider_impl.from_config(provider_config)
-                if provider_config is not None
-                else provider_impl()
-            )
+            provider = await provider_impl.instantiate(config=provider_config)
             if (integration is None or provider_config is None) and provider.client_id:
                 await svc.store_provider_config(
                     provider_key=provider_info.key,
@@ -448,7 +440,7 @@ async def test_connection(
 
     try:
         # Create provider instance and attempt to get token
-        provider = impl.from_config(provider_config)
+        provider = await impl.instantiate(config=provider_config)
         token_response = await provider.get_client_credentials_token()
 
         # Store the token if successful

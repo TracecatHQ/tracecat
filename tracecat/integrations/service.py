@@ -239,7 +239,7 @@ class IntegrationService(BaseWorkspaceService):
                 provider_config=integration.provider_config,
                 scopes=self.parse_scopes(integration.requested_scopes),
             )
-            return provider_impl.from_config(provider_config)
+            return await provider_impl.instantiate(config=provider_config)
         except Exception as e:
             self.logger.error(
                 "Failed to create provider for token refresh",

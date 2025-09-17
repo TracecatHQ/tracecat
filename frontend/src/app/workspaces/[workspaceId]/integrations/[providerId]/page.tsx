@@ -43,6 +43,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { CollapsibleCard } from "@/components/ui/collapsible-card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useIntegrationProvider } from "@/lib/hooks"
+import { isMCPProvider } from "@/lib/providers"
 import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -101,15 +102,6 @@ export default function ProviderDetailPage() {
 }
 
 type ProviderDetailTab = "overview" | "configuration"
-
-/**
- * Check if a provider is an MCP (Model Context Protocol) provider.
- * Some MCP providers still require workspace configuration (e.g. GitHub).
- */
-function isMCPProvider(provider: ProviderRead): boolean {
-  // MCP providers follow the naming convention of ending with "_mcp"
-  return provider.metadata.id.endsWith("_mcp")
-}
 
 function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
   const workspaceId = useWorkspaceId()
