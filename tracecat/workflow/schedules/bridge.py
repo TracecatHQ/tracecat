@@ -56,7 +56,7 @@ async def create_schedule(
         "start_at": start_at,
         "end_at": end_at,
     }
-    if cron:
+    if cron and cron.strip():
         spec_kwargs["cron_expressions"] = [cron]
     elif every is not None:
         spec_kwargs["intervals"] = [
