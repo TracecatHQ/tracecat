@@ -2,6 +2,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
+import httpx
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import SecretStr
 from sqlmodel import select
@@ -152,16 +153,29 @@ async def oauth_callback(
                     else None,
                     requested_scopes=provider.requested_scopes,
                 )
-    except ValueError as exc:
+    except (ValueError, httpx.HTTPError, RuntimeError, KeyError) as exc:
+        # Log sanitized error details without exposing implementation
+        error_msg = str(exc)
+        if isinstance(exc, httpx.HTTPError):
+            error_type = "network_error"
+        elif isinstance(exc, RuntimeError):
+            error_type = "runtime_error"
+        elif isinstance(exc, KeyError):
+            error_type = "configuration_error"
+        else:
+            error_type = "validation_error"
+
         logger.error(
             "Failed to instantiate OAuth provider",
             provider=provider_impl.id,
             grant_type=provider_impl.grant_type,
-            error=str(exc),
+            error_type=error_type,
+            # Sanitize error message to avoid exposing sensitive details
+            error=error_msg[:200] if error_msg else "Unknown error",
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Provider credentials are not available on the server",
+            detail="Provider configuration or credentials are not available",
         ) from exc
     token_result = await provider.exchange_code_for_token(code, str(state))
 
@@ -244,7 +258,7 @@ async def get_integration(
         requested_scopes=integration.requested_scopes.split(" ")
         if integration.requested_scopes
         else provider_info.impl.scopes.default,
-        provider_config=integration.provider_config if integration else None,
+        provider_config=integration.provider_config,
         created_at=integration.created_at,
         updated_at=integration.updated_at,
         status=integration.status,
@@ -317,16 +331,29 @@ async def connect_provider(
                     if integration
                     else None
                 )
-    except ValueError as exc:
+    except (ValueError, httpx.HTTPError, RuntimeError, KeyError) as exc:
+        # Log sanitized error details without exposing implementation
+        error_msg = str(exc)
+        if isinstance(exc, httpx.HTTPError):
+            error_type = "network_error"
+        elif isinstance(exc, RuntimeError):
+            error_type = "runtime_error"
+        elif isinstance(exc, KeyError):
+            error_type = "configuration_error"
+        else:
+            error_type = "validation_error"
+
         logger.error(
             "Failed to instantiate OAuth provider",
             provider=provider_impl.id,
             grant_type=provider_impl.grant_type,
-            error=str(exc),
+            error_type=error_type,
+            # Sanitize error message to avoid exposing sensitive details
+            error=error_msg[:200] if error_msg else "Unknown error",
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Provider credentials are not available on the server",
+            detail="Provider configuration or credentials are not available",
         ) from exc
 
     # Clean up expired state entries before creating a new one
