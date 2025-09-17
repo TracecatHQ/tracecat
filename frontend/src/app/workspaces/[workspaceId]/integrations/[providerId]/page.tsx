@@ -26,7 +26,6 @@ import { SuccessIcon, statusStyles } from "@/components/integrations/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { ProviderConfigForm } from "@/components/provider-config-form"
 import { RedirectUriDisplay } from "@/components/redirect-uri-display"
-import { Alert, AlertDescription } from "@/components/ui/alert"
 import {
   AlertDialog,
   AlertDialogAction,
