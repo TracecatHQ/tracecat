@@ -107,7 +107,6 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
   const workspaceId = useWorkspaceId()
   const router = useRouter()
   const searchParams = useSearchParams()
-  const [, setErrorMessage] = useState("")
   const [_showConnectPrompt, setShowConnectPrompt] = useState(false)
   const providerId = provider.metadata.id
   const isMCP = isMCPProvider(provider)
@@ -165,32 +164,15 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
   }, [integrationStatus])
 
   const handleOAuthConnect = useCallback(async () => {
-    try {
-      setErrorMessage("")
-      await connectProvider(providerId)
-    } catch (_error) {
-      setErrorMessage("Failed to connect. Please try again.")
-    }
+    await connectProvider(providerId)
   }, [connectProvider, providerId])
 
   const handleDisconnect = useCallback(async () => {
-    try {
-      await disconnectProvider(providerId)
-      setErrorMessage("")
-    } catch (_error) {
-      setErrorMessage("Failed to disconnect. Please try again.")
-    }
+    await disconnectProvider(providerId)
   }, [disconnectProvider, providerId])
 
   const handleTestConnection = useCallback(async () => {
-    try {
-      setErrorMessage("")
-      await testConnection(providerId)
-    } catch (_error) {
-      setErrorMessage(
-        "Failed to test connection. Please check your credentials."
-      )
-    }
+    await testConnection(providerId)
   }, [testConnection, providerId])
 
   const isEnabled = Boolean(metadata.enabled)
