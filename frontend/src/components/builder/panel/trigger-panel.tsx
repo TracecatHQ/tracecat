@@ -2,10 +2,10 @@
 
 import "react18-json-view/src/style.css"
 
-import { useEffect } from "react"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { CheckIcon, DotsHorizontalIcon } from "@radix-ui/react-icons"
 import { CalendarClockIcon, PlusCircleIcon, WebhookIcon } from "lucide-react"
+import { useEffect } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import {
@@ -329,147 +329,153 @@ export function ScheduleControls({ workflowId }: { workflowId: string }) {
       <Table>
         <TableHeader>
           <TableRow>
-          <TableHead className="pl-3 text-xs font-semibold">
-            Schedule ID
-          </TableHead>
-          <TableHead className="text-xs font-semibold">Type</TableHead>
-          <TableHead className="text-xs font-semibold">Schedule</TableHead>
-          <TableHead className="text-xs font-semibold">Status</TableHead>
-          <TableHead className="text-xs font-semibold">Timeout</TableHead>
-          <TableHead className="text-xs font-semibold">Offset</TableHead>
-          <TableHead className="text-right text-xs font-semibold">
-            Actions
-          </TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {schedules.length > 0 ? (
-          schedules.map(({ id, status, every, cron, timeout, offset }) => {
-            const isCron = Boolean(cron)
-            const scheduleLabel = isCron
-              ? cron
-              : every
-                ? durationToHumanReadable(every)
-                : "—"
-            const offsetLabel = !isCron && offset ? (() => {
-              try {
-                return durationToHumanReadable(offset)
-              } catch {
-                return offset
-              }
-            })()
-            : "None"
-
-            return (
-              <TableRow key={id} className="ext-xs text-muted-foreground">
-                <TableCell className="items-center pl-3 text-xs">{id}</TableCell>
-                <TableCell className="items-center text-xs">
-                  {isCron ? "Cron" : "Interval"}
-                </TableCell>
-                <TableCell className="items-center text-xs">
-                  {isCron ? (
-                    <code className="rounded bg-muted px-1 py-0.5 text-[11px]">
-                      {scheduleLabel}
-                    </code>
-                  ) : (
-                    scheduleLabel
-                  )}
-                </TableCell>
-                <TableCell className="text-xs capitalize">
-                  <div className="flex">
-                    <p>{status}</p>
-                  </div>
-                </TableCell>
-                <TableCell className="text-xs capitalize">
-                  <div className="flex">
-                    <p>{timeout ? `${timeout}s` : "None"}</p>
-                  </div>
-                </TableCell>
-                <TableCell className="text-xs">
-                  <div className="flex">
-                    <p>{offsetLabel}</p>
-                  </div>
-                </TableCell>
-                <TableCell className="items-center pr-3 text-xs">
-                  <div className="flex justify-end">
-                    <AlertDialog>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button className="p-0 size-6" variant="ghost">
-                            <DotsHorizontalIcon className="size-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent>
-                          <DropdownMenuLabel className="text-xs">
-                            Actions
-                          </DropdownMenuLabel>
-                          <DropdownMenuItem
-                            onClick={() => navigator.clipboard.writeText(id!)}
-                            className="text-xs"
-                          >
-                            Copy ID
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            className={cn("text-xs", status === "online")}
-                            onClick={async () =>
-                              await updateSchedule({
-                                workspaceId,
-                                scheduleId: id!,
-                                requestBody: {
-                                  status:
-                                    status === "online" ? "offline" : "online",
-                                },
-                              })
-                            }
-                          >
-                            {status === "online" ? "Pause" : "Unpause"}
-                          </DropdownMenuItem>
-                          <AlertDialogTrigger asChild>
-                            <DropdownMenuItem className="text-xs text-rose-500 focus:text-rose-600">
-                              Delete
-                            </DropdownMenuItem>
-                          </AlertDialogTrigger>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                      <AlertDialogContent>
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>Delete schedule</AlertDialogTitle>
-                          <AlertDialogDescription>
-                            Are you sure you want to delete this schedule? This
-                            action cannot be undone.
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel>Cancel</AlertDialogCancel>
-                          <AlertDialogAction
-                            variant="destructive"
-                            onClick={async () =>
-                              await deleteSchedule({
-                                workspaceId,
-                                scheduleId: id!,
-                              })
-                            }
-                          >
-                            Confirm
-                          </AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
-                  </div>
-                </TableCell>
-              </TableRow>
-            )
-          })
-        ) : (
-          <TableRow className="justify-center text-xs text-muted-foreground">
-            <TableCell
-              className="h-8 text-center bg-muted-foreground/5"
-              colSpan={7}
-            >
-              No Schedules
-            </TableCell>
+            <TableHead className="pl-3 text-xs font-semibold">
+              Schedule ID
+            </TableHead>
+            <TableHead className="text-xs font-semibold">Type</TableHead>
+            <TableHead className="text-xs font-semibold">Schedule</TableHead>
+            <TableHead className="text-xs font-semibold">Status</TableHead>
+            <TableHead className="text-xs font-semibold">Timeout</TableHead>
+            <TableHead className="text-xs font-semibold">Offset</TableHead>
+            <TableHead className="text-right text-xs font-semibold">
+              Actions
+            </TableHead>
           </TableRow>
+        </TableHeader>
+        <TableBody>
+          {schedules.length > 0 ? (
+            schedules.map(({ id, status, every, cron, timeout, offset }) => {
+              const isCron = Boolean(cron)
+              const scheduleLabel = isCron
+                ? cron
+                : every
+                  ? durationToHumanReadable(every)
+                  : "—"
+              const offsetLabel =
+                !isCron && offset
+                  ? (() => {
+                      try {
+                        return durationToHumanReadable(offset)
+                      } catch {
+                        return offset
+                      }
+                    })()
+                  : "None"
+
+              return (
+                <TableRow key={id} className="ext-xs text-muted-foreground">
+                  <TableCell className="items-center pl-3 text-xs">
+                    {id}
+                  </TableCell>
+                  <TableCell className="items-center text-xs">
+                    {isCron ? "Cron" : "Interval"}
+                  </TableCell>
+                  <TableCell className="items-center text-xs">
+                    {isCron ? (
+                      <code className="rounded bg-muted px-1 py-0.5 text-[11px]">
+                        {scheduleLabel}
+                      </code>
+                    ) : (
+                      scheduleLabel
+                    )}
+                  </TableCell>
+                  <TableCell className="text-xs capitalize">
+                    <div className="flex">
+                      <p>{status}</p>
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-xs capitalize">
+                    <div className="flex">
+                      <p>{timeout ? `${timeout}s` : "None"}</p>
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-xs">
+                    <div className="flex">
+                      <p>{offsetLabel}</p>
+                    </div>
+                  </TableCell>
+                  <TableCell className="items-center pr-3 text-xs">
+                    <div className="flex justify-end">
+                      <AlertDialog>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button className="p-0 size-6" variant="ghost">
+                              <DotsHorizontalIcon className="size-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent>
+                            <DropdownMenuLabel className="text-xs">
+                              Actions
+                            </DropdownMenuLabel>
+                            <DropdownMenuItem
+                              onClick={() => navigator.clipboard.writeText(id!)}
+                              className="text-xs"
+                            >
+                              Copy ID
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              className={cn("text-xs", status === "online")}
+                              onClick={async () =>
+                                await updateSchedule({
+                                  workspaceId,
+                                  scheduleId: id!,
+                                  requestBody: {
+                                    status:
+                                      status === "online"
+                                        ? "offline"
+                                        : "online",
+                                  },
+                                })
+                              }
+                            >
+                              {status === "online" ? "Pause" : "Unpause"}
+                            </DropdownMenuItem>
+                            <AlertDialogTrigger asChild>
+                              <DropdownMenuItem className="text-xs text-rose-500 focus:text-rose-600">
+                                Delete
+                              </DropdownMenuItem>
+                            </AlertDialogTrigger>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Delete schedule</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Are you sure you want to delete this schedule?
+                              This action cannot be undone.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction
+                              variant="destructive"
+                              onClick={async () =>
+                                await deleteSchedule({
+                                  workspaceId,
+                                  scheduleId: id!,
+                                })
+                              }
+                            >
+                              Confirm
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              )
+            })
+          ) : (
+            <TableRow className="justify-center text-xs text-muted-foreground">
+              <TableCell
+                className="h-8 text-center bg-muted-foreground/5"
+                colSpan={7}
+              >
+                No Schedules
+              </TableCell>
+            </TableRow>
           )}
         </TableBody>
       </Table>
@@ -615,7 +621,9 @@ export function CreateScheduleDialog({ workflowId }: { workflowId: string }) {
       }
 
       const sanitizedTimeout =
-        typeof timeout === "number" && !Number.isNaN(timeout) ? timeout : undefined
+        typeof timeout === "number" && !Number.isNaN(timeout)
+          ? timeout
+          : undefined
       if (sanitizedTimeout !== undefined) {
         payload.timeout = sanitizedTimeout
       }
@@ -773,7 +781,8 @@ export function CreateScheduleDialog({ workflowId }: { workflowId: string }) {
                       Cron Expression
                     </FormLabel>
                     <FormDescription className="text-xs">
-                      Standard 5 or 6 field cron format, e.g. <code className="font-mono">0 0 * * *</code>.
+                      Standard 5 or 6 field cron format, e.g.{" "}
+                      <code className="font-mono">0 0 * * *</code>.
                     </FormDescription>
                     <FormControl>
                       <Input
