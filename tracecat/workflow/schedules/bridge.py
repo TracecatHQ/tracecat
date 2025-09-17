@@ -149,6 +149,9 @@ async def update_schedule(schedule_id: ScheduleID, params: ScheduleUpdate) -> No
                 spec.intervals = [
                     temporalio.client.ScheduleIntervalSpec(every=every, offset=offset)
                 ]
+                # Clear cron expressions when switching to interval-based scheduling
+                # to prevent double-triggering
+                spec.cron_expressions = []
         if "start_at" in set_fields:
             spec.start_at = set_fields["start_at"]
         if "end_at" in set_fields:
