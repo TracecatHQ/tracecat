@@ -177,7 +177,7 @@ function TriggerNodeSchedulesTable({ workflowId }: { workflowId: string }) {
 
       <TableBody>
         {schedules.length > 0 ? (
-          schedules.map(({ status, every, cron }, idx) => {
+          schedules.map(({ id, status, every, cron }) => {
             const isCron = Boolean(cron)
             const label = isCron
               ? cron
@@ -187,7 +187,7 @@ function TriggerNodeSchedulesTable({ workflowId }: { workflowId: string }) {
 
             return (
               <TableRow
-                key={idx}
+                key={id}
                 className="items-center text-center text-xs text-muted-foreground"
               >
                 <TableCell>
