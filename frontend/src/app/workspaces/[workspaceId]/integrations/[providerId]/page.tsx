@@ -115,7 +115,7 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
   const workspaceId = useWorkspaceId()
   const router = useRouter()
   const searchParams = useSearchParams()
-  const [errorMessage, setErrorMessage] = useState("")
+  const [_errorMessage, setErrorMessage] = useState("")
   const [_showConnectPrompt, setShowConnectPrompt] = useState(false)
   const providerId = provider.metadata.id
   const isMCP = isMCPProvider(provider)
@@ -206,7 +206,7 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
       {/* Header */}
       <div className="mb-8 flex items-start justify-between">
         <div className="flex items-start gap-4">
-          <ProviderIcon providerId={metadata.id} className="size-10 p-2" />
+          <ProviderIcon providerId={metadata.id} className="size-12" />
           <div>
             <h1 className="text-3xl font-bold">{metadata.name}</h1>
             <p className="mt-1 text-muted-foreground">
