@@ -107,7 +107,7 @@ function ProviderDetailContent({ provider }: { provider: ProviderRead }) {
   const workspaceId = useWorkspaceId()
   const router = useRouter()
   const searchParams = useSearchParams()
-  const [_errorMessage, setErrorMessage] = useState("")
+  const [, setErrorMessage] = useState("")
   const [_showConnectPrompt, setShowConnectPrompt] = useState(false)
   const providerId = provider.metadata.id
   const isMCP = isMCPProvider(provider)
