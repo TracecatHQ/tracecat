@@ -1161,7 +1161,6 @@ class TestFixedArguments:
             model_provider="openai",
             actions=["core.cases.create_case"],
             fixed_arguments=fixed_arguments,
-            include_usage=True,
         )
 
         # Verify run_agent was called with correct arguments
@@ -1175,7 +1174,6 @@ class TestFixedArguments:
             output_type=None,
             model_settings=None,
             retries=6,
-            include_usage=True,
             base_url=None,
         )
 

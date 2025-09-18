@@ -710,14 +710,7 @@ export const $AgentOutput = {
       title: "Duration",
     },
     usage: {
-      anyOf: [
-        {
-          $ref: "#/components/schemas/RunUsage",
-        },
-        {
-          type: "null",
-        },
-      ],
+      $ref: "#/components/schemas/RunUsage",
     },
     trace_id: {
       anyOf: [
@@ -732,7 +725,7 @@ export const $AgentOutput = {
     },
   },
   type: "object",
-  required: ["output", "message_history", "duration"],
+  required: ["output", "message_history", "duration", "usage"],
   title: "AgentOutput",
 } as const
 

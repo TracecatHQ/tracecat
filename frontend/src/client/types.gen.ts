@@ -174,7 +174,7 @@ export type AgentOutput = {
   output: unknown
   message_history: Array<ModelRequest | ModelResponse>
   duration: number
-  usage?: RunUsage | null
+  usage: RunUsage
   trace_id?: string | null
 }
 
