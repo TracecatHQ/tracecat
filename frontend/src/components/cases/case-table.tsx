@@ -27,6 +27,8 @@ export default function CaseTable() {
   const workspaceId = useWorkspaceId()
   const [pageSize, setPageSize] = useState(20)
   const [selectedCase, setSelectedCase] = useState<CaseReadMinimal | null>(null)
+  const [selectedRows, setSelectedRows] = useState<Row<CaseReadMinimal>[]>([])
+  const [clearSelectionTrigger, setClearSelectionTrigger] = useState(0)
   const router = useRouter()
 
   // Server-side filter states
@@ -39,8 +41,6 @@ export default function CaseTable() {
     null
   )
   const [assigneeFilter, setAssigneeFilter] = useState<string | null>(null)
-  const [tagsFilter, _setTagsFilter] = useState<string[] | null>(null)
-
   // Debounce search term for better performance
   const [debouncedSearchTerm] = useDebounce(searchTerm, 300)
 
@@ -57,6 +57,7 @@ export default function CaseTable() {
     totalEstimate,
     startItem,
     endItem,
+    refetch,
   } = useCasesPagination({
     workspaceId,
     limit: pageSize,
@@ -65,7 +66,6 @@ export default function CaseTable() {
     priority: priorityFilter,
     severity: severityFilter,
     assigneeId: assigneeFilter === UNASSIGNED ? "unassigned" : assigneeFilter,
-    tags: tagsFilter,
   })
   const { toast } = useToast()
   const [isDeleting, setIsDeleting] = useState(false)
@@ -102,14 +102,26 @@ export default function CaseTable() {
         })
 
         // Refresh the cases list
+        await refetch()
+        setSelectedRows([])
+        setClearSelectionTrigger((value) => value + 1)
       } catch (error) {
         console.error("Failed to delete cases:", error)
+        toast({
+          variant: "destructive",
+          title: "Failed to delete cases",
+          description: "Please try again.",
+        })
       } finally {
         setIsDeleting(false)
       }
     },
-    [deleteCase, toast]
+    [deleteCase, refetch, toast]
   )
+
+  const handleBulkDelete = useCallback(async () => {
+    await handleDeleteRows(selectedRows)
+  }, [handleDeleteRows, selectedRows])
 
   // Handle filter changes
   const handleSearchChange = useCallback(
@@ -173,6 +185,9 @@ export default function CaseTable() {
             onSeverityChange={handleSeverityChange}
             assigneeFilter={assigneeFilter}
             onAssigneeChange={handleAssigneeChange}
+            selectedCount={selectedRows.length}
+            onDeleteSelected={handleBulkDelete}
+            isDeleting={isDeleting}
           />
           <DataTable
             data={cases || []}
@@ -183,8 +198,9 @@ export default function CaseTable() {
             getRowHref={(row) =>
               `/workspaces/${workspaceId}/cases/${row.original.id}`
             }
-            onDeleteRows={handleDeleteRows}
             tableId={`${user?.id}-${workspaceId}-cases`}
+            onSelectionChange={setSelectedRows}
+            clearSelectionTrigger={clearSelectionTrigger}
             serverSidePagination={{
               currentPage,
               hasNextPage,

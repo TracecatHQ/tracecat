@@ -1,5 +1,5 @@
 from collections import defaultdict
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 from uuid import UUID
@@ -506,7 +506,7 @@ class BaseTablesService(BaseService):
 
     async def list_rows(
         self, table: Table, *, limit: int = 100, offset: int = 0
-    ) -> Sequence[Mapping[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """List all rows in a table."""
         schema_name = self._get_schema_name()
         sanitized_table_name = self._sanitize_identifier(table.name)
@@ -1486,7 +1486,7 @@ class TableEditorService(BaseService):
 
     async def list_rows(
         self, *, limit: int = 100, offset: int = 0
-    ) -> Sequence[Mapping[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """List all rows in a table."""
         conn = await self.session.connection()
         stmt = (

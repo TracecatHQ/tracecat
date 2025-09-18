@@ -1,6 +1,7 @@
 "use client"
 
 import { Cross2Icon } from "@radix-ui/react-icons"
+import { Trash2Icon } from "lucide-react"
 import type { CasePriority, CaseSeverity, CaseStatus } from "@/client"
 import {
   PRIORITIES,
@@ -8,6 +9,18 @@ import {
   STATUSES,
 } from "@/components/cases/case-categories"
 import { UNASSIGNED } from "@/components/cases/case-panel-selectors"
+import { Spinner } from "@/components/loading/spinner"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -32,6 +45,9 @@ interface CaseTableFiltersProps {
   onSeverityChange: (value: CaseSeverity | null) => void
   assigneeFilter: string | null
   onAssigneeChange: (value: string | null) => void
+  selectedCount: number
+  onDeleteSelected?: () => Promise<void>
+  isDeleting?: boolean
 }
 
 export function CaseTableFilters({
@@ -46,6 +62,9 @@ export function CaseTableFilters({
   onSeverityChange,
   assigneeFilter,
   onAssigneeChange,
+  selectedCount,
+  onDeleteSelected,
+  isDeleting,
 }: CaseTableFiltersProps) {
   const { members } = useWorkspaceMembers(workspaceId)
 
@@ -64,8 +83,10 @@ export function CaseTableFilters({
     onAssigneeChange(null)
   }
 
+  const showDeleteButton = onDeleteSelected && selectedCount > 0
+
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex flex-wrap items-center gap-2">
       <Input
         placeholder="Filter cases..."
         value={searchTerm}
@@ -163,6 +184,50 @@ export function CaseTableFilters({
           Reset
           <Cross2Icon className="ml-2 size-4" />
         </Button>
+      )}
+      {showDeleteButton && (
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 px-2 text-foreground/70 lg:px-3"
+            >
+              <span className="flex items-center">
+                <Trash2Icon className="size-4" />
+                <span className="ml-2">Delete</span>
+              </span>
+            </Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Confirm deletion</AlertDialogTitle>
+              <AlertDialogDescription>
+                Are you sure you want to delete {selectedCount} selected case
+                {selectedCount > 1 ? "s" : ""}? This action cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                variant="destructive"
+                disabled={isDeleting}
+                onClick={async () => {
+                  await onDeleteSelected()
+                }}
+              >
+                {isDeleting ? (
+                  <span className="flex items-center">
+                    <Spinner className="size-4" />
+                    <span className="ml-2">Deleting...</span>
+                  </span>
+                ) : (
+                  "Delete"
+                )}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       )}
     </div>
   )
