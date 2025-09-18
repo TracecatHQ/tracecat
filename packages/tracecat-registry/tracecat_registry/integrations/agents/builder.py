@@ -7,7 +7,7 @@ import inspect
 import keyword
 import textwrap
 import uuid
-from typing import Any, Union, Annotated, Self
+from typing import Any, Union, Annotated, Self, Literal
 from langfuse import get_client, observe
 from pydantic import BaseModel, TypeAdapter
 from pydantic_core import to_json, to_jsonable_python
@@ -753,7 +753,7 @@ class AgentOutput(BaseModel):
     output: Any
     message_history: list[ModelMessage]
     duration: float
-    usage: RunUsage | None = None
+    usage: RunUsage
     trace_id: str | None = None
 
 
@@ -790,15 +790,26 @@ async def agent(
         str | None, Doc("Instructions for the agent."), TextArea()
     ] = None,
     output_type: Annotated[
-        str | dict[str, Any] | None, Doc("Output type for the agent.")
+        Literal[
+            "bool",
+            "float",
+            "int",
+            "str",
+            "list[bool]",
+            "list[float]",
+            "list[int]",
+            "list[str]",
+        ]
+        | dict[str, Any]
+        | None,
+        Doc(
+            "Output type for agent responses. Select from a list of supported types or provide a JSONSchema."
+        ),
     ] = None,
     model_settings: Annotated[
         dict[str, Any] | None, Doc("Model settings for the agent.")
     ] = None,
     retries: Annotated[int, Doc("Number of retries for the agent.")] = 6,
-    include_usage: Annotated[
-        bool, Doc("Whether to include usage information in the output.")
-    ] = False,
     base_url: Annotated[str | None, Doc("Base URL of the model to use.")] = None,
 ) -> dict[str, str | dict[str, Any] | list[dict[str, Any]]]:
     return await run_agent(
@@ -811,7 +822,6 @@ async def agent(
         output_type=output_type,
         model_settings=model_settings,
         retries=retries,
-        include_usage=include_usage,
         base_url=base_url,
     )
 
@@ -824,10 +834,20 @@ async def run_agent(
     actions: list[str],
     fixed_arguments: dict[str, dict[str, Any]] | None = None,
     instructions: str | None = None,
-    output_type: str | dict[str, Any] | None = None,
+    output_type: Literal[
+        "bool",
+        "float",
+        "int",
+        "str",
+        "list[bool]",
+        "list[float]",
+        "list[int]",
+        "list[str]",
+    ]
+    | dict[str, Any]
+    | None = None,
     model_settings: dict[str, Any] | None = None,
     retries: int = 3,
-    include_usage: bool = False,
     base_url: str | None = None,
     stream_id: str | None = None,
 ) -> dict[str, str | dict[str, Any] | list[dict[str, Any]]]:
@@ -850,18 +870,18 @@ async def run_agent(
                      If provided, will be enhanced with tool guidance and error handling.
         output_type: Optional specification for the agent's output format.
                     Can be a string type name or a structured dictionary schema.
+                    Supported types: bool, float, int, str, list[bool], list[float], list[int], list[str]
         model_settings: Optional model-specific configuration parameters
                        (temperature, max_tokens, etc.).
         retries: Maximum number of retry attempts for agent execution (default: 3).
-        include_usage: Whether to include token usage information in the response.
         base_url: Optional custom base URL for the model provider's API.
         stream_id: Optional identifier for Redis streaming of execution events.
                   If provided, execution steps will be streamed to Redis.
 
     Returns:
-        A dictionary containing the agent's execution results, which may include:
+        A dictionary containing the agent's execution results:
         - "result": The primary output from the agent
-        - "usage": Token usage information (if include_usage=True)
+        - "usage": Token usage information
         - Additional metadata depending on the agent's configuration
 
     Raises:
@@ -1135,10 +1155,9 @@ async def run_agent(
             output=try_parse_json(result.output),
             message_history=result.all_messages(),
             duration=end_time - start_time,
+            usage=result.usage(),
             trace_id=trace_id,
         )
-        if include_usage:
-            output.usage = result.usage()
 
         return output.model_dump()
 
