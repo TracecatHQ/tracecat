@@ -69,11 +69,6 @@ from tracecat_registry.integrations.agents.exceptions import AgentRunError
 Agent.instrument_all()
 
 
-def raise_error(error_message: str) -> None:
-    """Raise an error with a custom message to be displayed to the user."""
-    raise ModelRetry(error_message)
-
-
 def generate_google_style_docstring(
     description: str | None, model_cls: type, fixed_args: set[str] | None = None
 ) -> str:
@@ -713,15 +708,6 @@ class TracecatAgentBuilder:
                 f"Unknown namespaces or action names. Please double check the following:\n{failed_list}"
             )
 
-        # Add raise_error tool
-        # self.tools.append(
-        #     Tool(
-        #         name="raise_error",
-        #         description="Raise an error with a custom message to be displayed to the user.",
-        #         function=raise_error,
-        #     )
-        # )
-
         # Create the agent using build_agent
         self.tools = result.tools
         model = get_model(self.model_name, self.model_provider, self.base_url)
@@ -952,7 +938,6 @@ async def run_agent(
           2. Include the minimum set of parameters necessary to complete the task
           3. Choose parameter values grounded in the user request, available context, and prior tool results
         - Prefer fewer parameters: omit optional parameters unless they are needed to achieve the goal
-        - Do not invent values for required parameters. If required information is missing, use `raise_error` to request the specific details needed
         - Parameter selection workflow: read docstring → identify required vs optional → map to available data → call the tool
         </tool_calling>
 
@@ -968,7 +953,6 @@ async def run_agent(
         """
         error_handling_prompt = """
         <error_handling>
-        - Use `raise_error` when a <task> or any task-like instruction requires clarification or missing information
         - Be specific about what's needed: "Missing API key" not "Cannot proceed"
         - Stop execution immediately - don't attempt workarounds or assumptions
         </error_handling>
