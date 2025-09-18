@@ -7407,11 +7407,14 @@ components:
           - type: string
           - type: 'null'
           title: Cron
+          description: Cron expression for the schedule. Provide either cron or every.
         every:
-          type: string
-          format: duration
+          anyOf:
+          - type: string
+            format: duration
+          - type: 'null'
           title: Every
-          description: ISO 8601 duration string
+          description: ISO 8601 duration string. Provide either cron or every.
         offset:
           anyOf:
           - type: string
@@ -7444,11 +7447,10 @@ components:
           type: number
           title: Timeout
           description: The maximum number of seconds to wait for the workflow to complete
-          default: 300
+          default: 0
       type: object
       required:
       - workflow_id
-      - every
       title: ScheduleCreate
     ScheduleSearch:
       properties:
