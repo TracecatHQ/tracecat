@@ -7,7 +7,7 @@ import inspect
 import keyword
 import textwrap
 import uuid
-from typing import Any, Union, Annotated, Self
+from typing import Any, Union, Annotated, Self, Literal
 from langfuse import get_client, observe
 from pydantic import BaseModel, TypeAdapter
 from pydantic_core import to_json, to_jsonable_python
@@ -790,7 +790,21 @@ async def agent(
         str | None, Doc("Instructions for the agent."), TextArea()
     ] = None,
     output_type: Annotated[
-        str | dict[str, Any] | None, Doc("Output type for the agent.")
+        Literal[
+            "bool",
+            "float",
+            "int",
+            "str",
+            "list[bool]",
+            "list[float]",
+            "list[int]",
+            "list[str]",
+        ]
+        | dict[str, Any]
+        | None,
+        Doc(
+            "Output type for agent responses. Select from a list of supported types or provide a JSONSchema."
+        ),
     ] = None,
     model_settings: Annotated[
         dict[str, Any] | None, Doc("Model settings for the agent.")
@@ -820,7 +834,18 @@ async def run_agent(
     actions: list[str],
     fixed_arguments: dict[str, dict[str, Any]] | None = None,
     instructions: str | None = None,
-    output_type: str | dict[str, Any] | None = None,
+    output_type: Literal[
+        "bool",
+        "float",
+        "int",
+        "str",
+        "list[bool]",
+        "list[float]",
+        "list[int]",
+        "list[str]",
+    ]
+    | dict[str, Any]
+    | None = None,
     model_settings: dict[str, Any] | None = None,
     retries: int = 3,
     base_url: str | None = None,
@@ -845,6 +870,7 @@ async def run_agent(
                      If provided, will be enhanced with tool guidance and error handling.
         output_type: Optional specification for the agent's output format.
                     Can be a string type name or a structured dictionary schema.
+                    Supported types: bool, float, int, str, list[bool], list[float], list[int], list[str]
         model_settings: Optional model-specific configuration parameters
                        (temperature, max_tokens, etc.).
         retries: Maximum number of retry attempts for agent execution (default: 3).
