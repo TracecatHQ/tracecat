@@ -58,6 +58,7 @@ bedrock_secret = RegistrySecret(
         "AWS_PROFILE",
         "AWS_ROLE_ARN",
         "AWS_ROLE_SESSION_NAME",
+        "AWS_SESSION_TOKEN",
     ],
     optional=True,
 )
@@ -74,6 +75,23 @@ bedrock_secret = RegistrySecret(
     Or:
         - `AWS_ROLE_ARN`
         - `AWS_ROLE_SESSION_NAME` (optional)
+    Or:
+        - `AWS_SESSION_TOKEN`
+"""
+
+
+google_secret = RegistrySecret(
+    name="google",
+    optional_keys=["GOOGLE_API_CREDENTIALS"],
+    optional=True,
+)
+"""Google API credentials.
+
+- name: `google`
+- optional_keys:
+    - `GOOGLE_API_CREDENTIALS`: Optional Google API credentials.
+
+Note: `GOOGLE_API_CREDENTIALS` should be a JSON string of the service account credentials.
 """
 
 

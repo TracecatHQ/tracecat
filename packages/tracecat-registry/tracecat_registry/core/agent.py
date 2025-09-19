@@ -62,7 +62,7 @@ async def agent(
     ] = None,
     retries: Annotated[int, Doc("Number of retries for the agent.")] = 6,
     base_url: Annotated[str | None, Doc("Base URL of the model to use.")] = None,
-) -> dict[str, str | dict[str, Any] | list[dict[str, Any]]]:
+) -> Any:
     return await run_agent(
         user_prompt=user_prompt,
         model_name=model_name,

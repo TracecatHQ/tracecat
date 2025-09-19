@@ -1,6 +1,5 @@
 """Functions that create and call tools added to the agent."""
 
-import asyncio
 import inspect
 import keyword
 import textwrap
@@ -258,7 +257,12 @@ async def build_agent_tools(
             else:
                 failed_actions.append(result.action_name)
 
-        await asyncio.gather(*[create_tool(ra) for ra in selected_actions])
+        # NOTE: avoid running `create_tool` concurrently with the same
+        # `RegistryActionsService` instance. AsyncSession does not support
+        # concurrent usage, so we iterate sequentially instead of
+        # `asyncio.gather`.
+        for ra in selected_actions:
+            await create_tool(ra)
 
     return BulidToolsResult(
         tools=tools,

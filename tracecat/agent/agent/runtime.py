@@ -169,7 +169,7 @@ async def run_agent(
         actions: List of action names to make available to the agent
                 (e.g., ["tools.slack.post_message", "tools.github.create_issue"]).
         fixed_arguments: Optional pre-configured arguments for specific actions.
-                        Keys are action names, values are keyword argument dictionaries.f
+                        Keys are action names, values are keyword argument dictionaries.
         instructions: Optional system instructions/context for the agent.
                      If provided, will be enhanced with tool guidance and error handling.
         output_type: Optional specification for the agent's output format.
@@ -210,19 +210,6 @@ async def run_agent(
 
     # Initialize Langfuse client and update trace
     langfuse_client = get_client()
-
-    # Create the agent
-    agent = await build_agent(
-        model_name=model_name,
-        model_provider=model_provider,
-        actions=actions,
-        fixed_arguments=fixed_arguments,
-        instructions=instructions,
-        output_type=output_type,
-        model_settings=model_settings,
-        retries=retries,
-        base_url=base_url,
-    )
 
     # Get workflow context for session_id
     run_context = ctx_run.get()
@@ -304,6 +291,22 @@ async def run_agent(
             ]
         )
         logger.debug("Enhanced instructions", enhanced_instrs=enhanced_instrs)
+    else:
+        # If no instructions provided, enhanced_instrs remains None
+        enhanced_instrs = instructions
+
+    # Create the agent with enhanced instructions
+    agent = await build_agent(
+        model_name=model_name,
+        model_provider=model_provider,
+        actions=actions,
+        fixed_arguments=fixed_arguments,
+        instructions=enhanced_instrs,
+        output_type=output_type,
+        model_settings=model_settings,
+        retries=retries,
+        base_url=base_url,
+    )
 
     start_time = timeit()
     # Set up Redis streaming if both parameters are provided
