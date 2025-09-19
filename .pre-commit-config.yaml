@@ -39,12 +39,12 @@ repos:
       - id: uv-lock
       # Optionally export a requirements.txt reflecting uv.lock
       - id: uv-export
-  # - repo: local
-  #   hooks:
-  #     - id: gen-client
-  #       name: update frontend client
-  #       entry: bash -c "pnpm -C frontend generate-client && pnpm -C frontend check"
-  #       language: system
-  #       files: ^(tracecat|packages)
-  #       require_serial: true
-  #       pass_filenames: false
+  - repo: local
+    hooks:
+      - id: gen-client
+        name: update frontend client
+        entry: bash -c "pnpm -C frontend generate-client && pnpm -C frontend check"
+        language: system
+        files: ^(tracecat|packages)
+        require_serial: true
+        pass_filenames: false
