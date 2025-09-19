@@ -8,12 +8,12 @@ import orjson
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.exc import IntegrityError
-from tracecat_registry.integrations.agents.tokens import (
+
+from tracecat.agent.tokens import (
     DATA_KEY,
     END_TOKEN,
     END_TOKEN_VALUE,
 )
-
 from tracecat.auth.credentials import RoleACL
 from tracecat.cases.service import CasesService
 from tracecat.db.dependencies import AsyncDBSession

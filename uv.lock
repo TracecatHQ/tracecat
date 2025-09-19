@@ -1138,6 +1138,25 @@ wheels = [
 ]
 
 [[package]]
+name = "google-genai"
+version = "1.38.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "anyio" },
+    { name = "google-auth" },
+    { name = "httpx" },
+    { name = "pydantic" },
+    { name = "requests" },
+    { name = "tenacity" },
+    { name = "typing-extensions" },
+    { name = "websockets" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/b4/11/108ddd3aca8af6a9e2369e59b9646a3a4c64aefb39d154f6467ab8d79f34/google_genai-1.38.0.tar.gz", hash = "sha256:363272fc4f677d0be6a1aed7ebabe8adf45e1626a7011a7886a587e9464ca9ec", size = 244903, upload-time = "2025-09-16T23:25:42.577Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/53/6c/1de711bab3c118284904c3bedf870519e8c63a7a8e0905ac3833f1db9cbc/google_genai-1.38.0-py3-none-any.whl", hash = "sha256:95407425132d42b3fa11bc92b3f5cf61a0fbd8d9add1f0e89aac52c46fbba090", size = 245558, upload-time = "2025-09-16T23:25:41.141Z" },
+]
+
+[[package]]
 name = "googleapis-common-protos"
 version = "1.70.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2732,15 +2751,14 @@ anthropic = [
 bedrock = [
     { name = "boto3" },
 ]
+google = [
+    { name = "google-genai" },
+]
 mcp = [
     { name = "mcp" },
 ]
 openai = [
     { name = "openai" },
-]
-vertexai = [
-    { name = "google-auth" },
-    { name = "requests" },
 ]
 
 [[package]]
@@ -3805,6 +3823,7 @@ dependencies = [
     { name = "psycopg", extra = ["binary"] },
     { name = "pyarrow" },
     { name = "pydantic" },
+    { name = "pydantic-ai-slim", extra = ["anthropic", "bedrock", "google", "mcp", "openai"] },
     { name = "pydantic-extra-types" },
     { name = "pygithub" },
     { name = "pysaml2" },
@@ -3870,6 +3889,7 @@ requires-dist = [
     { name = "psycopg", extras = ["binary"], specifier = "==3.1.19" },
     { name = "pyarrow", specifier = "==16.1.0" },
     { name = "pydantic", specifier = ">=2.11.7,<3.0.0" },
+    { name = "pydantic-ai-slim", extras = ["anthropic", "bedrock", "google", "mcp", "openai"], specifier = "==1.0.8" },
     { name = "pydantic-extra-types", specifier = ">=2.10.2,<3.0.0" },
     { name = "pygithub", specifier = ">=2.7.0" },
     { name = "pysaml2", specifier = "==7.5.0" },
@@ -3924,7 +3944,6 @@ dependencies = [
     { name = "msal" },
     { name = "nh3" },
     { name = "ollama" },
-    { name = "pydantic-ai-slim", extra = ["anthropic", "bedrock", "mcp", "openai", "vertexai"] },
     { name = "pymongo" },
     { name = "slack-sdk" },
     { name = "tavily-python" },
@@ -3956,7 +3975,6 @@ requires-dist = [
     { name = "msal", specifier = "==1.31.1" },
     { name = "nh3", specifier = "==0.2.18" },
     { name = "ollama", specifier = "==0.4.8" },
-    { name = "pydantic-ai-slim", extras = ["anthropic", "bedrock", "mcp", "openai", "vertexai"], specifier = "==1.0.8" },
     { name = "pymongo", specifier = "==4.8.0" },
     { name = "rich", marker = "extra == 'cli'", specifier = ">=13.7.0" },
     { name = "slack-sdk", specifier = "==3.28.0" },
