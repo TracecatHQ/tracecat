@@ -5,13 +5,13 @@ import orjson
 import yaml
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
-from tracecat_registry.integrations.agents.builder import ModelMessageTA
-from tracecat_registry.integrations.agents.tokens import (
+
+from tracecat.agent.agent.runtime import ModelMessageTA
+from tracecat.agent.agent.tokens import (
     DATA_KEY,
     END_TOKEN,
     END_TOKEN_VALUE,
 )
-
 from tracecat.cases.service import CasesService
 from tracecat.chat.models import ChatMessage
 from tracecat.chat.tools import get_default_tools
