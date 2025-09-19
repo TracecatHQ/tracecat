@@ -8,16 +8,14 @@ import orjson
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic_ai import Tool
-from tracecat_registry.integrations.agents.builder import (
-    ModelMessageTA,
-    build_agent_tools,
-)
-from tracecat_registry.integrations.agents.tokens import (
+
+from tracecat.agent.agent.runtime import ModelMessageTA
+from tracecat.agent.agent.tokens import (
     DATA_KEY,
     END_TOKEN,
     END_TOKEN_VALUE,
 )
-
+from tracecat.agent.agent.tools import build_agent_tools
 from tracecat.agent.executor.base import BaseAgentExecutor
 from tracecat.agent.executor.deps import WorkspaceUser, get_executor
 from tracecat.agent.models import ModelInfo, RunAgentArgs, ToolFilters
