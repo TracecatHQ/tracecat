@@ -5,9 +5,9 @@ from typing import Any, Final, cast
 
 import orjson
 
-from tracecat.agent.agent.runtime import AgentOutput, run_agent
 from tracecat.agent.executor.base import BaseAgentExecutor, BaseAgentRunHandle
 from tracecat.agent.models import RunAgentArgs, RunAgentResult, ToolFilters
+from tracecat.agent.runtime import AgentOutput, run_agent
 from tracecat.agent.service import AgentManagementService
 from tracecat.logger import logger
 from tracecat.settings.service import get_setting_cached

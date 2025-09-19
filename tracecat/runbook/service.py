@@ -20,7 +20,7 @@ from pydantic_ai.messages import (
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from tracecat.agent.agent.runtime import build_agent
+from tracecat.agent.runtime import build_agent
 from tracecat.agent.service import AgentManagementService
 from tracecat.chat.enums import ChatEntity
 from tracecat.chat.models import ChatMessage, ChatResponse

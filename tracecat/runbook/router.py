@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.exc import IntegrityError
 
-from tracecat.agent.agent.tokens import (
+from tracecat.agent.tokens import (
     DATA_KEY,
     END_TOKEN,
     END_TOKEN_VALUE,

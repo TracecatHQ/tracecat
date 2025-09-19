@@ -23,15 +23,15 @@ from pydantic_ai.messages import (
 from pydantic_ai.settings import ModelSettings
 from pydantic_core import to_json, to_jsonable_python
 
-from tracecat.agent.agent.parsers import try_parse_json
-from tracecat.agent.agent.providers import get_model
-from tracecat.agent.agent.tokens import (
+from tracecat.agent.exceptions import AgentRunError
+from tracecat.agent.parsers import try_parse_json
+from tracecat.agent.providers import get_model
+from tracecat.agent.tokens import (
     DATA_KEY,
     END_TOKEN,
     END_TOKEN_VALUE,
 )
-from tracecat.agent.agent.tools import build_agent_tools
-from tracecat.agent.exceptions import AgentRunError
+from tracecat.agent.tools import build_agent_tools
 from tracecat.contexts import ctx_run
 from tracecat.logger import logger
 from tracecat.redis.client import get_redis_client

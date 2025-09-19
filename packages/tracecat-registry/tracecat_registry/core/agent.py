@@ -2,7 +2,7 @@
 
 from typing import Annotated, Any, Literal
 from tracecat_registry import registry, RegistrySecret
-from tracecat.agent.agent.runtime import run_agent
+from tracecat.agent.runtime import run_agent
 
 from tracecat.registry.fields import ActionType, TextArea
 from typing_extensions import Doc

@@ -6,7 +6,7 @@ from datetime import datetime
 
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from tracecat.agent.agent.runtime import run_agent
+from tracecat.agent.runtime import run_agent
 from tracecat.agent.service import AgentManagementService
 from tracecat.cases.service import CasesService
 from tracecat.chat.enums import ChatEntity

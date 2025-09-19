@@ -6,8 +6,8 @@ import yaml
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from tracecat.agent.agent.runtime import ModelMessageTA
-from tracecat.agent.agent.tokens import (
+from tracecat.agent.runtime import ModelMessageTA
+from tracecat.agent.tokens import (
     DATA_KEY,
     END_TOKEN,
     END_TOKEN_VALUE,

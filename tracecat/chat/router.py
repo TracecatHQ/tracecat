@@ -9,16 +9,16 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic_ai import Tool
 
-from tracecat.agent.agent.runtime import ModelMessageTA
-from tracecat.agent.agent.tokens import (
+from tracecat.agent.executor.base import BaseAgentExecutor
+from tracecat.agent.executor.deps import WorkspaceUser, get_executor
+from tracecat.agent.models import ModelInfo, RunAgentArgs, ToolFilters
+from tracecat.agent.runtime import ModelMessageTA
+from tracecat.agent.tokens import (
     DATA_KEY,
     END_TOKEN,
     END_TOKEN_VALUE,
 )
-from tracecat.agent.agent.tools import build_agent_tools
-from tracecat.agent.executor.base import BaseAgentExecutor
-from tracecat.agent.executor.deps import WorkspaceUser, get_executor
-from tracecat.agent.models import ModelInfo, RunAgentArgs, ToolFilters
+from tracecat.agent.tools import build_agent_tools
 from tracecat.chat.enums import ChatEntity
 from tracecat.chat.models import (
     ChatCreate,
