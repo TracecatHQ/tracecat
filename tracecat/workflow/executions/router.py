@@ -5,8 +5,8 @@ from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy.exc import NoResultFound
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
-from tracecat_registry.integrations.agents.builder import AgentOutput
 
+from tracecat.agent.agent.runtime import AgentOutput
 from tracecat.auth.dependencies import WorkspaceUserRole
 from tracecat.auth.enums import SpecialUserID
 from tracecat.db.dependencies import AsyncDBSession
