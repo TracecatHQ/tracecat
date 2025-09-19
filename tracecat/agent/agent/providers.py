@@ -1,3 +1,4 @@
+import orjson
 from google.oauth2 import service_account
 from pydantic_ai.models import Model
 from pydantic_ai.models.anthropic import AnthropicModel
@@ -137,10 +138,6 @@ def get_model(
 
     Returns:
         A configured Model instance ready for use with pydantic-ai agents
-
-    Raises:
-        ValueError: If the model provider is not supported or credentials are invalid
-        orjson.JSONDecodeError: If JSON credentials (e.g., Google service account) are malformed
     """
     match model_provider:
         case "custom-model-provider":
@@ -185,7 +182,7 @@ def get_model(
             )
         case "gemini_vertex":
             credentials = service_account.Credentials.from_service_account_info(
-                secrets.get("GOOGLE_API_CREDENTIALS"),
+                orjson.loads(secrets.get("GOOGLE_API_CREDENTIALS")),
                 scopes=["https://www.googleapis.com/auth/cloud-platform"],
             )
             model = GoogleModel(
