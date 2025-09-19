@@ -1,0 +1,29 @@
+type: action
+definition:
+  title: Delete campaign
+  description: Delete a campaign in Gophish.
+  display_group: Gophish
+  doc_url: https://docs.getgophish.com/api-documentation/campaigns#delete-campaign
+  namespace: tools.gophish
+  name: delete_campaign
+  secrets:
+    - name: gophish
+      keys: ["GOPHISH_API_KEY"]
+  expects:
+    base_url:
+      type: str
+      description: The base URL of the Gophish instance.
+      required: true
+    campaign_id:
+      type: int
+      description: The ID of the campaign to delete.
+      required: true
+  steps:
+    - ref: delete_campaign
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/api/campaigns/${{ inputs.campaign_id }}
+        method: DELETE
+        headers:
+          Authorization: Bearer ${{ SECRETS.gophish.GOPHISH_API_KEY }}
+  returns: ${{ steps.delete_campaign.result.data }}

@@ -1,0 +1,29 @@
+type: action
+definition:
+  title: Delete template
+  description: Delete a template in Gophish.
+  display_group: Gophish
+  doc_url: https://docs.getgophish.com/api-documentation/templates#delete-template
+  namespace: tools.gophish
+  name: delete_template
+  secrets:
+    - name: gophish
+      keys: ["GOPHISH_API_KEY"]
+  expects:
+    base_url:
+      type: str
+      description: The base URL of the Gophish instance.
+      required: true
+    template_id:
+      type: int
+      description: The ID of the template to delete.
+      required: true
+  steps:
+    - ref: delete_template
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/api/templates/${{ inputs.template_id }}
+        method: DELETE
+        headers:
+          Authorization: Bearer ${{ SECRETS.gophish.GOPHISH_API_KEY }}
+  returns: ${{ steps.delete_template.result.data }}

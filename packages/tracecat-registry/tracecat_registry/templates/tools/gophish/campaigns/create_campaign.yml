@@ -1,0 +1,30 @@
+type: action
+definition:
+  title: Create campaign
+  description: Create a campaign in Gophish.
+  display_group: Gophish
+  doc_url: https://docs.getgophish.com/api-documentation/campaigns#create-campaign
+  namespace: tools.gophish
+  name: create_campaign
+  secrets:
+    - name: gophish
+      keys: ["GOPHISH_API_KEY"]
+  expects:
+    base_url:
+      type: str
+      description: The base URL of the Gophish instance.
+      required: true
+    payload:
+      type: dict[str, Any]
+      description: The body of the campaign to create. Look at the Gophish API documentation for the expected body.
+      required: true
+  steps:
+    - ref: create_campaign
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/api/campaigns/
+        method: POST
+        payload: ${{ inputs.payload }}
+        headers:
+          Authorization: Bearer ${{ SECRETS.gophish.GOPHISH_API_KEY }}
+  returns: ${{ steps.create_campaign.result.data }}

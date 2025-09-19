@@ -1,0 +1,29 @@
+type: action
+definition:
+  title: Get sending profile
+  description: Get a sending profile in Gophish.
+  display_group: Gophish
+  doc_url: https://docs.getgophish.com/api-documentation/sending-profiles#get-sending-profile
+  namespace: tools.gophish
+  name: get_sending_profile
+  secrets:
+    - name: gophish
+      keys: ["GOPHISH_API_KEY"]
+  expects:
+    base_url:
+      type: str
+      description: The base URL of the Gophish instance.
+      required: true
+    sending_profile_id:
+      type: int
+      description: The ID of the sending profile to get.
+      required: true
+  steps:
+    - ref: get_sending_profile
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/api/smtp/${{ inputs.sending_profile_id }}
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.gophish.GOPHISH_API_KEY }}
+  returns: ${{ steps.get_sending_profile.result.data }}
