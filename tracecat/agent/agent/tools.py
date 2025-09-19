@@ -206,7 +206,7 @@ async def create_single_tool(
 
 
 @dataclass
-class BulidToolsResult[DepsT]:
+class BuildToolsResult[DepsT]:
     tools: list[Tool[DepsT]]
     failed_actions: list[str]
     collected_secrets: set[RegistrySecretType]
@@ -216,7 +216,7 @@ async def build_agent_tools(
     namespaces: list[str] | None = None,
     actions: list[str] | None = None,
     fixed_arguments: dict[str, dict[str, Any]] | None = None,
-) -> BulidToolsResult:
+) -> BuildToolsResult:
     """Build tools from a list of actions."""
     tools: list[Tool] = []
     collected_secrets: set[RegistrySecretType] = set()
@@ -264,7 +264,7 @@ async def build_agent_tools(
         for ra in selected_actions:
             await create_tool(ra)
 
-    return BulidToolsResult(
+    return BuildToolsResult(
         tools=tools,
         failed_actions=failed_actions,
         collected_secrets=collected_secrets,

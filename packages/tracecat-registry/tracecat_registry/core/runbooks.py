@@ -1,7 +1,7 @@
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from tracecat_registry.integrations.pydantic_ai import PYDANTIC_AI_REGISTRY_SECRETS
+from tracecat.agent.agent.providers import PYDANTIC_AI_REGISTRY_SECRETS
 from typing_extensions import Doc
 from tracecat import config
 from tracecat.clients import AuthenticatedServiceClient
