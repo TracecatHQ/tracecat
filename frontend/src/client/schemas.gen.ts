@@ -6126,6 +6126,18 @@ export const $ModelResponse = {
       ],
       title: "Provider Response Id",
     },
+    finish_reason: {
+      anyOf: [
+        {
+          type: "string",
+          enum: ["stop", "length", "content_filter", "tool_call", "error"],
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Finish Reason",
+    },
   },
   type: "object",
   required: ["parts"],
@@ -10494,6 +10506,17 @@ export const $TextPart = {
       type: "string",
       title: "Content",
     },
+    id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Id",
+    },
     part_kind: {
       type: "string",
       const: "text",
@@ -10534,6 +10557,17 @@ export const $ThinkingPart = {
         },
       ],
       title: "Signature",
+    },
+    provider_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Provider Name",
     },
     part_kind: {
       type: "string",

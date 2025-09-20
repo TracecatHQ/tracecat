@@ -2052,6 +2052,13 @@ export type ModelResponse = {
     [key: string]: unknown
   } | null
   provider_response_id?: string | null
+  finish_reason?:
+    | "stop"
+    | "length"
+    | "content_filter"
+    | "tool_call"
+    | "error"
+    | null
 }
 
 export type ModelSecretConfig = {
@@ -3653,6 +3660,7 @@ export type TextArea = {
  */
 export type TextPart = {
   content: string
+  id?: string | null
   part_kind?: "text"
 }
 
@@ -3663,6 +3671,7 @@ export type ThinkingPart = {
   content: string
   id?: string | null
   signature?: string | null
+  provider_name?: string | null
   part_kind?: "thinking"
 }
 
