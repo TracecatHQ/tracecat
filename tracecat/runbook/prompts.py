@@ -17,7 +17,7 @@ RUNBOOK_REQUIREMENTS = textwrap.dedent("""
     - Trigger section (Markdown):
         - Start with a single line: **Execute when**:
         - Then list 1 to 3 concise, human-readable conditions as bullets, each referencing Alert fields via JSONPath or placeholders
-        - Add a **Do not execute when** subsection (optional, 0–3 bullets) listing clear exclusions
+        - Add a **Do not execute when** subsection (optional, 1-3 bullet points) listing clear exclusions
         - Keep the language human-readable; avoid raw code where possible. Use JSONPath only to point to specific fields
     </Requirements>
 """)
