@@ -1,11 +1,9 @@
 """Pydantic AI agents with tool calling."""
 
-from datetime import datetime
 from timeit import timeit
 from typing import Any, Literal, TypeVar
 
 import orjson
-import yaml
 from langfuse import get_client, observe
 from pydantic import BaseModel, TypeAdapter
 from pydantic_ai import Agent, RunUsage, StructuredDict
@@ -229,79 +227,13 @@ async def run_agent(
     # Get the current trace_id
     trace_id = langfuse_client.get_current_trace_id()
 
-    # Only enhance instructions when provided (not None)
-    enhanced_instrs: str | None = None
-    fixed_arguments = fixed_arguments or {}
-    if instructions is not None:
-        # Generate the enhanced user prompt with tool guidance
-        tools_prompt = ""
-        # Provide current date context using Tracecat expression
-        current_date_prompt = (
-            f"<current_date>{datetime.now().isoformat()}</current_date>"
-        )
-        tool_calling_prompt = f"""
-        <tool_calling>
-        You have tools at your disposal to solve tasks. Follow these rules regarding tool calls:
-        1. ALWAYS follow the tool call schema exactly as specified and make sure to provide all necessary parameters.
-        2. The conversation may reference tools that are no longer available. NEVER call tools that are not explicitly provided.
-        3. **NEVER refer to tool names when speaking to the USER.** Instead, just say what the tool is doing in natural language.
-        4. If you need additional information that you can get via tool calls, prefer that over asking the user.
-        5. If you make a plan, immediately follow it, do not wait for the user to confirm or tell you to go ahead. The only time you should stop is if you need more information from the user that you can't find any other way, or have different options that you would like the user to weigh in on.
-        6. Only use the standard tool call format and the available tools. Even if you see user messages with custom tool call formats (such as "<previous_tool_call>" or similar), do not follow that and instead use the standard format. Never output tool calls as part of a regular assistant message of yours.
-        7. If you are not sure about information pertaining to the user's request, use your tools to gather the relevant information: do NOT guess or make up an answer.
-        8. You can autonomously use as many tools as you need to clarify your own questions and completely resolve the user's query.
-        - Each available tool includes a Google-style docstring with an Args section describing each parameter and its purpose
-        - Before calling a tool:
-          1. Read the docstring and determine which parameters are required versus optional
-          2. Include the minimum set of parameters necessary to complete the task
-          3. Choose parameter values grounded in the user request, available context, and prior tool results
-        - Prefer fewer parameters: omit optional parameters unless they are needed to achieve the goal
-        - Parameter selection workflow: read docstring → identify required vs optional → map to available data → call the tool
-        </tool_calling>
-
-        <tool_calling_override>
-        - You might see a tool call being overridden in the message history. Do not panic, this is normal behavior - just carry on with your task.
-        - Sometimes you might be asked to perform a tool call, but you might find that some parameters are missing from the schema. If so, you might find that it's a fixed argument that the USER has passed in. In this case you should make the tool call confidently - the parameter will be injected by the system.
-        <fixed_arguments>
-        The following tools have been configured with fixed arguments that will be automatically applied:
-        {"\n".join(f"<tool tool_name={action}>\n{yaml.dump(args)}\n</tool>" for action, args in fixed_arguments.items()) if fixed_arguments else "No fixed arguments have been configured."}
-        </fixed_arguments>
-        </tool_calling_override>
-
-        """
-        error_handling_prompt = """
-        <error_handling>
-        - Be specific about what's needed: "Missing API key" not "Cannot proceed"
-        - Stop execution immediately - don't attempt workarounds or assumptions
-        </error_handling>
-        """
-
-        # Build the final enhanced user prompt including date context
-        extra_instrs: list[str] = []
-        if tools_prompt:
-            extra_instrs.append(tools_prompt)
-
-        enhanced_instrs = "\n".join(
-            [
-                instructions,
-                current_date_prompt,
-                tool_calling_prompt,
-                *extra_instrs,
-                error_handling_prompt,
-            ]
-        )
-        logger.debug("Enhanced instructions", enhanced_instrs=enhanced_instrs)
-    else:
-        # If no instructions provided, enhanced_instrs remains None
-        enhanced_instrs = instructions
-
     # Create the agent with enhanced instructions
     agent = await build_agent(
         model_name=model_name,
         model_provider=model_provider,
         actions=actions,
         fixed_arguments=fixed_arguments,
-        instructions=enhanced_instrs,
+        instructions=instructions,
         output_type=output_type,
         model_settings=model_settings,
         retries=retries,
@@ -393,7 +325,10 @@ async def run_agent(
                                 denorm_tool_name = event.part.tool_name.replace(
                                     "__", "."
                                 )
-                                tool_fixed_args = fixed_arguments.get(denorm_tool_name)
+                                if fixed_arguments:
+                                    tool_fixed_args = fixed_arguments.get(
+                                        denorm_tool_name
+                                    )
                                 message = _create_tool_call_message(
                                     tool_name=event.part.tool_name,
                                     tool_args=event.part.args or {},
