@@ -99,7 +99,6 @@ export function ProviderConfigForm({
     grant_type: grantType,
   } = provider
   const workspaceId = useWorkspaceId()
-  const isMCP = isMCPProvider(provider)
   const {
     integration,
     integrationIsLoading,
