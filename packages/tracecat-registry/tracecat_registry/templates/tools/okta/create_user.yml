@@ -3,7 +3,7 @@ definition:
   title: Create user
   description: Create a new user in your Okta organization.
   display_group: Okta
-  doc_url: https://developer.okta.com/docs/reference/api/users/#create-user
+  doc_url: https://developer.okta.com/docs/api/openapi/okta-management/management/tag/User/#tag/User/operation/createUser
   namespace: tools.okta
   name: create_user
   secrets:

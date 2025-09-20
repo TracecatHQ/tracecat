@@ -3,7 +3,7 @@ definition:
   title: Get group members
   description: List all users that are members of a specific group.
   display_group: Okta
-  doc_url: https://developer.okta.com/docs/reference/api/groups/#list-group-members
+  doc_url: https://developer.okta.com/docs/api/openapi/okta-management/management/tag/Group/#tag/Group/operation/listGroupUsers
   namespace: tools.okta
   name: get_group_members
   secrets:
