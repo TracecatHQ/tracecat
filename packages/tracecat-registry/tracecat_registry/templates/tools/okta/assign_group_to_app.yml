@@ -3,7 +3,7 @@ definition:
   title: Assign group to application
   description: Assign a group to an application in Okta.
   display_group: Okta
-  doc_url: https://developer.okta.com/docs/reference/api/apps/#assign-group-to-application
+  doc_url: https://developer.okta.com/docs/api/openapi/okta-management/management/tag/ApplicationGroups/#tag/ApplicationGroups/operation/updateGroupAssignmentToApplication
   namespace: tools.okta
   name: assign_group_to_app
   secrets:
@@ -40,7 +40,7 @@ definition:
               if priority is not None:
                   return {**assignment, "priority": priority}
               return assignment
-    - ref: assign_group
+    - ref: assign_group_to_app
       action: core.http_request
       args:
         method: PUT
@@ -50,4 +50,4 @@ definition:
           Accept: "application/json"
           Content-Type: "application/json"
         payload: ${{ steps.add_priority.result }}
-  returns: ${{ steps.assign_group.result.data }}
+  returns: ${{ steps.assign_group_to_app.result.data }}

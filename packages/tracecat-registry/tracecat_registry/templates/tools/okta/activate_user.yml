@@ -3,7 +3,7 @@ definition:
   title: Activate user
   description: Activate a user account in Okta.
   display_group: Okta
-  doc_url: https://developer.okta.com/docs/reference/api/users/#activate-user
+  doc_url: https://developer.okta.com/docs/api/openapi/okta-management/management/tag/UserLifecycle/#tag/UserLifecycle/operation/activateUser
   namespace: tools.okta
   name: activate_user
   secrets:
