@@ -137,7 +137,7 @@ def _reduce_messages_to_text(messages: list[ChatMessage], n: int = 4) -> str:
 
 def _reduce_runbook_to_text(runbook: Runbook) -> str:
     """Reduce runbook to a single text."""
-    return f"<Runbook version={runbook.version}>{runbook.instructions}</Runbook>"
+    return f'<Runbook description="The runbook to be edited">\nversion={runbook.version}\n{runbook.instructions}\n</Runbook>'
 
 
 class CaseToRunbookPrompts(BaseModel):
