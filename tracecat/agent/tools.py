@@ -6,7 +6,14 @@ import textwrap
 from dataclasses import dataclass
 from typing import Any
 
+import orjson
 from pydantic_ai import ModelRetry
+from pydantic_ai.messages import (
+    ModelRequest,
+    ModelResponse,
+    ToolCallPart,
+    ToolReturnPart,
+)
 from pydantic_ai.tools import Tool
 from pydantic_core import PydanticUndefined
 from tracecat_registry import RegistrySecretType
@@ -24,6 +31,51 @@ from tracecat.expressions.expectations import create_expectation_model
 from tracecat.logger import logger
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.secrets.secrets_manager import env_sandbox
+
+
+def create_tool_call_message(
+    tool_name: str,
+    tool_args: str | dict[str, Any],
+    tool_call_id: str,
+    fixed_args: dict[str, Any] | None = None,
+) -> ModelResponse:
+    """Build an assistant tool-call message (ModelResponse)."""
+    if isinstance(tool_args, str):
+        try:
+            args = orjson.loads(tool_args)
+        except Exception:
+            logger.warning("Failed to parse tool args", tool_args=tool_args)
+            args = {"args": tool_args}
+    else:
+        args = tool_args
+    if fixed_args:
+        args = {**fixed_args, **args}
+    return ModelResponse(
+        parts=[
+            ToolCallPart(
+                tool_name=tool_name,
+                args=args,
+                tool_call_id=tool_call_id,
+            )
+        ]
+    )
+
+
+def create_tool_return_message(
+    tool_name: str,
+    content: Any,
+    tool_call_id: str,
+) -> ModelRequest:
+    """Build the matching tool-result message (ModelRequest)."""
+    return ModelRequest(
+        parts=[
+            ToolReturnPart(
+                tool_name=tool_name,
+                tool_call_id=tool_call_id,
+                content=content,
+            )
+        ]
+    )
 
 
 async def call_tracecat_action(

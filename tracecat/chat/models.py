@@ -4,12 +4,16 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import UUID4, BaseModel, Field
 from pydantic_ai.messages import ModelMessage
 
+from tracecat.agent.runtime import ModelMessageTA
 from tracecat.chat.enums import ChatEntity
+
+if TYPE_CHECKING:
+    from tracecat.db.schemas import ChatMessage as DBChatMessage
 
 
 class ChatRequest(BaseModel):
@@ -70,7 +74,7 @@ class ChatCreate(BaseModel):
     )
 
 
-class ChatRead(BaseModel):
+class ChatReadMinimal(BaseModel):
     """Model for chat metadata without messages."""
 
     id: UUID4 = Field(..., description="Unique chat identifier")
@@ -85,7 +89,7 @@ class ChatRead(BaseModel):
     updated_at: datetime = Field(..., description="When the chat was last updated")
 
 
-class ChatWithMessages(ChatRead):
+class ChatRead(ChatReadMinimal):
     """Model for chat metadata with message history."""
 
     messages: list[ChatMessage] = Field(
@@ -109,3 +113,10 @@ class ChatMessage(BaseModel):
 
     id: str = Field(..., description="Unique chat identifier")
     message: ModelMessage = Field(..., description="The message from the chat")
+
+    @classmethod
+    def from_db(cls, value: DBChatMessage) -> ChatMessage:
+        return cls(
+            id=str(value.id),
+            message=ModelMessageTA.validate_python(value.data),
+        )

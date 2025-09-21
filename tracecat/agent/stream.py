@@ -1,5 +1,9 @@
+from __future__ import annotations
+
 import asyncio
+import uuid
 from collections.abc import AsyncIterable
+from dataclasses import dataclass
 from typing import Any, Protocol
 
 import aiohttp
@@ -7,26 +11,16 @@ import orjson
 from pydantic import TypeAdapter
 from pydantic_ai.messages import (
     AgentStreamEvent,
-    FinalResultEvent,
-    FunctionToolCallEvent,
-    FunctionToolResultEvent,
-    ModelResponse,
-    PartDeltaEvent,
-    PartStartEvent,
-    TextPart,
+    ModelMessage,
 )
 from pydantic_ai.tools import RunContext
 from pydantic_core import to_jsonable_python
-from tracecat_registry.integrations.agents.builder import (
-    create_tool_call,
-    create_tool_return,
-)
-from tracecat_registry.integrations.agents.tokens import (
-    DATA_KEY,
-    END_TOKEN,
-    END_TOKEN_VALUE,
-)
 
+# Late import to avoid circular dependency
+from tracecat.chat.service import ChatService
+from tracecat.chat.tokens import (
+    DATA_KEY,
+)
 from tracecat.logger import logger
 from tracecat.redis.client import RedisClient
 
@@ -39,6 +33,32 @@ class StreamWriter(Protocol):
 
 class HasStreamWriter(Protocol):
     stream_writer: StreamWriter
+
+
+@dataclass
+class BasicStreamingAgentDeps:
+    stream_writer: StreamWriter
+
+    async def store(self, events: AgentStreamEvent) -> None: ...
+
+
+AgentStreamEventTA: TypeAdapter[AgentStreamEvent] = TypeAdapter(AgentStreamEvent)
+
+
+class AgentStream:
+    def __init__(self, client: RedisClient, session_id: uuid.UUID):
+        self.client = client
+        self.session_id = session_id
+        self._stream_key = f"agent-stream:{str(self.session_id)}"
+
+    async def append(self, event: Any) -> None:
+        """Stream a message to a Redis stream."""
+        await self.client.xadd(
+            self._stream_key,
+            {DATA_KEY: orjson.dumps(event, default=to_jsonable_python).decode()},
+            maxlen=10000,
+            approximate=True,
+        )
 
 
 class HttpStreamWriter(StreamWriter):
@@ -54,87 +74,6 @@ class HttpStreamWriter(StreamWriter):
                     self.url, json={"event": ta.dump_json(event).decode()}
                 ) as response:
                     logger.warning("STREAM RESPONSE", response=response.status)
-
-
-class RedisStreamWriter(StreamWriter):
-    def __init__(self, client: RedisClient, stream_key: str):
-        self.client = client
-        self.stream_key = stream_key
-        self._accumulated_text = ""
-        self._in_text_response = False
-
-    async def _stream_message(self, message: Any) -> None:
-        try:
-            await self.client.xadd(
-                self.stream_key,
-                {DATA_KEY: orjson.dumps(message, default=to_jsonable_python).decode()},
-                maxlen=10000,
-                approximate=True,
-            )
-        except Exception as e:
-            logger.warning("Failed to stream message", error=e)
-
-    async def write(self, events: AsyncIterable[AgentStreamEvent]) -> None:
-        try:
-            async for event in events:
-                logger.debug("Processing stream event", event_type=type(event).__name__)
-
-                if isinstance(event, FunctionToolCallEvent):
-                    # Tool call event - write as full ModelMessage
-                    tool_call_msg = create_tool_call(
-                        tool_name=event.part.tool_name,
-                        tool_args=event.part.args or {},
-                        tool_call_id=event.part.tool_call_id,
-                    )
-                    await self._stream_message(tool_call_msg)
-
-                elif isinstance(event, FunctionToolResultEvent):
-                    # Tool result event - write as full ModelMessage
-                    if event.result.tool_name:  # Only process if tool_name is not None
-                        tool_return_msg = create_tool_return(
-                            tool_name=event.result.tool_name,
-                            content=event.result.content,
-                            tool_call_id=event.result.tool_call_id,
-                        )
-                        await self._stream_message(tool_return_msg)
-                elif isinstance(event, PartStartEvent):
-                    # Start of a text response - initialize state
-                    if hasattr(event.part, "content") or isinstance(
-                        event.part, TextPart
-                    ):
-                        self._in_text_response = True
-                        self._accumulated_text = ""
-
-                elif isinstance(event, PartDeltaEvent):
-                    # Text delta - write immediately and accumulate
-                    if (
-                        hasattr(event.delta, "part_delta_kind")
-                        and event.delta.part_delta_kind == "text"
-                    ):
-                        # Write delta entry immediately
-                        delta_payload = {
-                            "t": "delta",
-                            "text": event.delta.content_delta,
-                        }
-                        await self._stream_message(delta_payload)
-                        # Accumulate for final message
-                        self._accumulated_text += event.delta.content_delta
-
-                elif isinstance(event, FinalResultEvent):
-                    # Final result - write complete assistant message if we had text
-                    if self._in_text_response and self._accumulated_text:
-                        final_msg = ModelResponse(
-                            parts=[TextPart(content=self._accumulated_text)]
-                        )
-                        await self._stream_message(final_msg)
-
-                        # Reset state
-                        self._in_text_response = False
-                        self._accumulated_text = ""
-
-        finally:
-            # Always add end marker when streaming is complete
-            await self._stream_message({END_TOKEN: END_TOKEN_VALUE})
 
 
 class BroadcastStreamWriter(StreamWriter):
@@ -238,3 +177,16 @@ async def event_stream_handler[StreamableDepsT: HasStreamWriter](
     except Exception as e:
         logger.error("Error writing to stream", error=e)
         raise e
+
+
+class PersistentStreamWriter(StreamWriter):
+    def __init__(self, stream: AgentStream, chat_id: uuid.UUID):
+        self.stream = stream
+        self.chat_id = chat_id
+
+    async def write(self, events: AsyncIterable[AgentStreamEvent]) -> None:
+        await self.stream.append(events)
+
+    async def store(self, messages: list[ModelMessage]) -> None:
+        async with ChatService.with_session() as chat_svc:
+            await chat_svc.append_messages(self.chat_id, messages)

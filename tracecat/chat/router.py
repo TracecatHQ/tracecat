@@ -11,21 +11,21 @@ from fastapi.responses import StreamingResponse
 from tracecat.agent.executor.base import BaseAgentExecutor
 from tracecat.agent.executor.deps import WorkspaceUser, get_executor
 from tracecat.agent.runtime import ModelMessageTA
-from tracecat.agent.tokens import (
-    DATA_KEY,
-    END_TOKEN,
-    END_TOKEN_VALUE,
-)
 from tracecat.chat.models import (
     ChatCreate,
     ChatMessage,
     ChatRead,
+    ChatReadMinimal,
     ChatRequest,
     ChatResponse,
     ChatUpdate,
-    ChatWithMessages,
 )
 from tracecat.chat.service import ChatService
+from tracecat.chat.tokens import (
+    DATA_KEY,
+    END_TOKEN,
+    END_TOKEN_VALUE,
+)
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.logger import logger
 from tracecat.redis.client import get_redis_client
@@ -34,12 +34,12 @@ from tracecat.types.exceptions import TracecatNotFoundError
 router = APIRouter(prefix="/chat", tags=["chat"])
 
 
-@router.post("/")
+@router.post("")
 async def create_chat(
     request: ChatCreate,
     role: WorkspaceUser,
     session: AsyncDBSession,
-) -> ChatRead:
+) -> ChatReadMinimal:
     """Create a new chat associated with an entity."""
     chat_service = ChatService(session, role)
     chat = await chat_service.create_chat(
@@ -48,10 +48,10 @@ async def create_chat(
         entity_id=request.entity_id,
         tools=request.tools,
     )
-    return ChatRead.model_validate(chat, from_attributes=True)
+    return ChatReadMinimal.model_validate(chat, from_attributes=True)
 
 
-@router.get("/")
+@router.get("")
 async def list_chats(
     role: WorkspaceUser,
     session: AsyncDBSession,
@@ -60,7 +60,7 @@ async def list_chats(
     limit: int = Query(
         50, ge=1, le=100, description="Maximum number of chats to return"
     ),
-) -> list[ChatRead]:
+) -> list[ChatReadMinimal]:
     """List chats for the current workspace with optional filtering."""
     if role.user_id is None:
         raise HTTPException(
@@ -76,7 +76,9 @@ async def list_chats(
         limit=limit,
     )
 
-    chats = [ChatRead.model_validate(chat, from_attributes=True) for chat in chats]
+    chats = [
+        ChatReadMinimal.model_validate(chat, from_attributes=True) for chat in chats
+    ]
     return chats
 
 
@@ -85,26 +87,31 @@ async def get_chat(
     chat_id: uuid.UUID,
     role: WorkspaceUser,
     session: AsyncDBSession,
-) -> ChatWithMessages:
+) -> ChatRead:
     """Get a chat with its message history."""
     svc = ChatService(session, role)
 
     # Get chat metadata
-    chat = await svc.get_chat(chat_id)
+    chat = await svc.get_chat(chat_id, with_messages=True)
     if not chat:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Chat not found",
         )
 
-    # Get messages from Redis
-    messages = await svc.get_chat_messages(chat)
-
-    chat_data = ChatRead.model_validate(chat, from_attributes=True)
-    return ChatWithMessages(
-        **chat_data.model_dump(),
-        messages=[ChatMessage(id=msg.id, message=msg.message) for msg in messages],
+    res = ChatRead(
+        id=chat.id,
+        title=chat.title,
+        user_id=chat.user_id,
+        entity_type=chat.entity_type,
+        entity_id=chat.entity_id,
+        tools=chat.tools,
+        created_at=chat.created_at,
+        updated_at=chat.updated_at,
+        messages=[ChatMessage.from_db(message) for message in chat.messages],
     )
+    logger.info("Chat read", chat_id=chat.id, messages=len(chat.messages))
+    return res
 
 
 @router.patch("/{chat_id}")
@@ -113,7 +120,7 @@ async def update_chat(
     request: ChatUpdate,
     role: WorkspaceUser,
     session: AsyncDBSession,
-) -> ChatRead:
+) -> ChatReadMinimal:
     """Update chat properties."""
     svc = ChatService(session, role)
     chat = await svc.get_chat(chat_id)
@@ -128,7 +135,7 @@ async def update_chat(
         tools=request.tools,
         title=request.title,
     )
-    return ChatRead.model_validate(chat, from_attributes=True)
+    return ChatReadMinimal.model_validate(chat, from_attributes=True)
 
 
 @router.post("/{chat_id}")
