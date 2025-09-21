@@ -75,3 +75,19 @@ class RunbookUpdate(BaseModel):
         min_length=3,
         max_length=50,
     )
+
+
+class RunbookExecuteRequest(BaseModel):
+    """Request model for executing a runbook on a case."""
+
+    case_ids: list[UUID4] = Field(
+        ..., description="IDs of the cases to execute the runbook on"
+    )
+
+
+class RunbookExecuteResponse(BaseModel):
+    """Response model for executing a runbook on a case."""
+
+    stream_urls: dict[str, str] = Field(
+        ..., description="Mapping of case ID to stream URL"
+    )

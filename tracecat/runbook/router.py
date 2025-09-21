@@ -192,14 +192,8 @@ async def execute_runbook(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Runbook not found",
         )
-
     try:
-        responses = await svc.execute_runbook(runbook, params.entities)
-        return RunbookExecuteResponse(
-            stream_urls={
-                str(response.chat_id): response.stream_url for response in responses
-            }
-        )
+        return await svc.execute_runbook(runbook, case_ids=params.case_ids)
     except Exception as e:
         logger.error(
             "Failed to run runbook",

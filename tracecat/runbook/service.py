@@ -17,7 +17,7 @@ from tracecat.runbook.flows import (
     generate_runbook_from_chat,
     generate_runbook_title_from_chat,
 )
-from tracecat.runbook.models import RunbookCreate, RunbookUpdate
+from tracecat.runbook.models import RunbookCreate, RunbookExecuteResponse, RunbookUpdate
 from tracecat.runbook.prompts import NEW_RUNBOOK_INSTRUCTIONS
 from tracecat.service import BaseWorkspaceService
 from tracecat.types.auth import Role
@@ -140,11 +140,11 @@ class RunbookService(BaseWorkspaceService):
     async def get_runbook(self, runbook_id_or_alias: str) -> Runbook | None:
         """Get a runbook by ID or alias."""
         if self._is_uuid(runbook_id_or_alias):
-            return await self._get_runbook_by_id(uuid.UUID(runbook_id_or_alias))
+            return await self.get_runbook_by_id(uuid.UUID(runbook_id_or_alias))
         else:
-            return await self._get_runbook_by_alias(runbook_id_or_alias)
+            return await self.get_runbook_by_alias(runbook_id_or_alias)
 
-    async def _get_runbook_by_id(self, runbook_id: uuid.UUID) -> Runbook | None:
+    async def get_runbook_by_id(self, runbook_id: uuid.UUID) -> Runbook | None:
         """Get a runbook by ID."""
         stmt = select(Runbook).where(
             Runbook.id == runbook_id,
@@ -153,7 +153,7 @@ class RunbookService(BaseWorkspaceService):
         result = await self.session.exec(stmt)
         return result.first()
 
-    async def _get_runbook_by_alias(self, alias: str) -> Runbook | None:
+    async def get_runbook_by_alias(self, alias: str) -> Runbook | None:
         """Get a runbook by alias."""
         stmt = select(Runbook).where(
             Runbook.alias == alias,
@@ -205,11 +205,18 @@ class RunbookService(BaseWorkspaceService):
         await self.session.delete(runbook)
         await self.session.commit()
 
-    async def execute_runbook(self, runbook: Runbook, case: Case) -> str:
-        """Execute a runbook for a case."""
-        return await execute_runbook_on_case(
-            runbook=runbook,
-            case=case,
-            session=self.session,
-            role=self.role,
-        )
+    async def execute_runbook(
+        self, runbook: Runbook, case_ids: list[uuid.UUID]
+    ) -> RunbookExecuteResponse:
+        """Execute a runbook for a case. Returns a stream URL."""
+        stream_urls = {}
+        for case_id in case_ids:
+            case = await self._get_case(case_id)
+            stream_url = await execute_runbook_on_case(
+                runbook=runbook,
+                case=case,
+                session=self.session,
+                role=self.role,
+            )
+            stream_urls[str(case_id)] = stream_url
+        return RunbookExecuteResponse(stream_urls=stream_urls)
