@@ -4,7 +4,7 @@ from timeit import timeit
 from typing import Any, Literal, TypeVar
 
 import orjson
-from langfuse import get_client, observe
+from langfuse import observe
 from pydantic import BaseModel, TypeAdapter
 from pydantic_ai import Agent, RunUsage, StructuredDict
 from pydantic_ai.agent import AgentRunResult
@@ -19,10 +19,12 @@ from pydantic_ai.messages import (
     ToolReturnPart,
 )
 from pydantic_ai.settings import ModelSettings
-from pydantic_core import to_json, to_jsonable_python
+from pydantic_core import to_jsonable_python
 
 from tracecat.agent.exceptions import AgentRunError
+from tracecat.agent.observability import init_langfuse
 from tracecat.agent.parsers import try_parse_json
+from tracecat.agent.prompts import MessageHistoryPrompt, ToolCallPrompt
 from tracecat.agent.providers import get_model
 from tracecat.agent.tokens import (
     DATA_KEY,
@@ -30,7 +32,6 @@ from tracecat.agent.tokens import (
     END_TOKEN_VALUE,
 )
 from tracecat.agent.tools import build_agent_tools
-from tracecat.contexts import ctx_run
 from tracecat.logger import logger
 from tracecat.redis.client import get_redis_client
 
@@ -43,7 +44,7 @@ AgentDepsT = TypeVar("AgentDepsT")
 
 ModelMessageTA: TypeAdapter[ModelMessage] = TypeAdapter(ModelMessage)
 
-SUPPORTED_OUTPUT_TYPES = {
+SUPPORTED_OUTPUT_TYPES: dict[str, type[Any]] = {
     "bool": bool,
     "float": float,
     "int": int,
@@ -61,6 +62,37 @@ class AgentOutput(BaseModel):
     duration: float
     usage: RunUsage
     trace_id: str | None = None
+
+
+def _parse_output_type(
+    output_type: Literal[
+        "bool",
+        "float",
+        "int",
+        "str",
+        "list[bool]",
+        "list[float]",
+        "list[int]",
+        "list[str]",
+    ]
+    | dict[str, Any]
+    | None,
+) -> type[Any]:
+    if isinstance(output_type, str):
+        try:
+            return SUPPORTED_OUTPUT_TYPES[output_type]
+        except KeyError as e:
+            raise ValueError(
+                f"Unknown output type: {output_type}. Expected one of: {', '.join(SUPPORTED_OUTPUT_TYPES.keys())}"
+            ) from e
+    elif isinstance(output_type, dict):
+        schema_name = output_type.get("name") or output_type.get("title")
+        schema_description = output_type.get("description")
+        return StructuredDict(
+            output_type, name=schema_name, description=schema_description
+        )
+    else:
+        return str
 
 
 async def build_agent(
@@ -91,36 +123,22 @@ async def build_agent(
         namespaces=namespaces,
         actions=actions,
     )
-
-    # If there were failures, raise simple error
-    if tools.failed_actions:
-        failed_list = "\n".join(f"- {action}" for action in tools.failed_actions)
-        raise ValueError(
-            f"Unknown namespaces or action names. Please double check the following:\n{failed_list}"
-        )
-
-    # Parse the output type
-    response_format: Any = str
-    if isinstance(output_type, str):
-        response_format = SUPPORTED_OUTPUT_TYPES[output_type]
-    elif isinstance(output_type, dict):
-        try:
-            json_schema_name = output_type.get("name") or output_type["title"]
-            json_schema_description = output_type.get("description")
-            response_format = StructuredDict(
-                output_type, name=json_schema_name, description=json_schema_description
-            )
-        except KeyError as e:
-            raise ValueError(
-                f"Invalid JSONSchema: {output_type}. Missing top-level `name` or `title` field."
-            ) from e
-
+    _output_type = _parse_output_type(output_type)
+    _model_settings = ModelSettings(**model_settings) if model_settings else None
     model = get_model(model_name, model_provider, base_url)
+
+    if actions:
+        tool_calling_prompt = ToolCallPrompt(
+            tools=tools.tools,
+            fixed_arguments=fixed_arguments,
+        )
+        instructions = f"{instructions}\n\n{tool_calling_prompt.prompt}"
+
     agent = Agent(
         model=model,
         instructions=instructions,
-        output_type=response_format,
-        model_settings=ModelSettings(**model_settings) if model_settings else None,
+        output_type=_output_type,
+        model_settings=_model_settings,
         retries=retries,
         instrument=True,
         tools=tools.tools,
@@ -206,26 +224,7 @@ async def run_agent(
         ```
     """
 
-    # Initialize Langfuse client and update trace
-    langfuse_client = get_client()
-
-    # Get workflow context for session_id
-    run_context = ctx_run.get()
-    if run_context:
-        session_id = f"{run_context.wf_id}/{run_context.wf_run_id}"
-        tags = ["action:ai.agent"]
-        if model_name:
-            tags.append(model_name)
-        if model_provider:
-            tags.append(model_provider)
-
-        langfuse_client.update_current_trace(
-            session_id=session_id,
-            tags=tags,
-        )
-
-    # Get the current trace_id
-    trace_id = langfuse_client.get_current_trace_id()
+    trace_id = init_langfuse(model_name, model_provider)
 
     # Create the agent with enhanced instructions
     agent = await build_agent(
@@ -290,17 +289,12 @@ async def run_agent(
     message_nodes: list[ModelMessage] = []
     try:
         # Pass conversation history to the agent
+        message_history_prompt = MessageHistoryPrompt(
+            message_history=conversation_history
+        )
         async with agent.iter(
             user_prompt=user_prompt,
-            message_history=[
-                ModelResponse(
-                    parts=[
-                        TextPart(
-                            content=f"Chat history thus far: <chat_history>{to_json(conversation_history, indent=2).decode()}</chat_history>"
-                        )
-                    ]
-                ),
-            ],
+            message_history=message_history_prompt.to_message_history(),
         ) as run:
             async for node in run:
                 curr: ModelMessage
