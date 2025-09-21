@@ -1301,6 +1301,41 @@ class Chat(Resource, table=True):
 
     # Relationships
     user: User = Relationship(back_populates="chats")
+    messages: list["ChatMessage"] = Relationship(
+        back_populates="chat",
+        sa_relationship_kwargs={
+            "cascade": "all, delete",
+            "order_by": "ChatMessage.created_at.asc()",
+        },
+    )
+
+
+class ChatMessage(Resource, table=True):
+    """A message in a chat."""
+
+    __tablename__: str = "chat_message"
+
+    id: uuid.UUID = Field(
+        default_factory=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    kind: str = Field(..., description="The kind of message", nullable=False)
+    data: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=Column(JSONB),
+        description="The data of the message.",
+    )
+
+    # Foreign key
+    chat_id: uuid.UUID = Field(
+        sa_column=Column(
+            UUID, ForeignKey("chat.id", ondelete="CASCADE"), nullable=False
+        )
+    )
+    # Relationships
+    chat: Chat = Relationship(back_populates="messages")
 
 
 class Runbook(Resource, table=True):
