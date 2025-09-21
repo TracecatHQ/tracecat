@@ -4,48 +4,29 @@ from collections.abc import Sequence
 import orjson
 from sqlmodel import col, select
 
+from tracecat.agent.executor.base import BaseAgentExecutor
+from tracecat.agent.models import ModelInfo, RunAgentArgs, ToolFilters
 from tracecat.agent.runtime import ModelMessageTA
 from tracecat.agent.tokens import (
     DATA_KEY,
     END_TOKEN,
     END_TOKEN_VALUE,
 )
-from tracecat.chat.models import ChatMessage
+from tracecat.cases.prompts import CaseCopilotPrompts
+from tracecat.cases.service import CasesService
+from tracecat.chat.enums import ChatEntity
+from tracecat.chat.models import ChatMessage, ChatRequest, ChatResponse
 from tracecat.chat.tools import get_default_tools
-from tracecat.db.schemas import Chat
+from tracecat.db.schemas import Case, Chat, Runbook
 from tracecat.identifiers import UserID
 from tracecat.logger import logger
 from tracecat.redis.client import get_redis_client
+from tracecat.runbook.prompts import RunbookCopilotPrompts
 from tracecat.service import BaseWorkspaceService
 
 
 class ChatService(BaseWorkspaceService):
     service_name = "chat"
-
-    async def list_chats(
-        self,
-        *,
-        user_id: UserID,
-        entity_type: str | None = None,
-        entity_id: str | None = None,
-        limit: int = 50,
-    ) -> Sequence[Chat]:
-        """List chats for the current workspace with optional entity filtering."""
-
-        stmt = select(Chat).where(Chat.owner_id == self.role.workspace_id)
-        if user_id:
-            stmt = stmt.where(Chat.user_id == user_id)
-
-        if entity_type:
-            stmt = stmt.where(Chat.entity_type == entity_type)
-
-        if entity_id:
-            stmt = stmt.where(Chat.entity_id == entity_id)
-
-        stmt = stmt.order_by(col(Chat.created_at).desc()).limit(limit)
-
-        result = await self.session.exec(stmt)
-        return result.all()
 
     async def create_chat(
         self,
@@ -83,6 +64,80 @@ class ChatService(BaseWorkspaceService):
 
         return chat
 
+    async def _get_case(self, case_id: uuid.UUID) -> Case:
+        """Get a case by ID."""
+        cases_service = CasesService(self.session, self.role)
+        case = await cases_service.get_case(case_id)
+        if not case:
+            raise ValueError(f"Case with ID {case_id} not found")
+        return case
+
+    async def _get_runbook(self, runbook_id: uuid.UUID) -> Runbook | None:
+        """Get a runbook by ID. Can be None if not found."""
+        stmt = select(Runbook).where(
+            Runbook.id == runbook_id,
+            Runbook.owner_id == self.workspace_id,
+        )
+        result = await self.session.exec(stmt)
+        runbook = result.first()
+        return runbook
+
+    async def _chat_entity_to_prompt(self, entity_type: str, chat: Chat) -> str:
+        """Get the prompt for a given entity type."""
+
+        if entity_type == ChatEntity.CASE:
+            case = await self._get_case(chat.entity_id)
+            return CaseCopilotPrompts(case=case).instructions
+        elif entity_type == ChatEntity.RUNBOOK:
+            runbook = await self._get_runbook(chat.entity_id)
+            return RunbookCopilotPrompts(runbook=runbook).instructions
+        else:
+            raise ValueError(
+                f"Unsupported chat entity type: {entity_type}. Expected one of: {list(ChatEntity)}"
+            )
+
+    async def start_chat_turn(
+        self,
+        chat_id: uuid.UUID,
+        request: ChatRequest,
+        executor: BaseAgentExecutor,
+    ) -> ChatResponse:
+        """Start a new chat turn with an AI agent.
+
+        This method handles the business logic for starting a chat turn,
+        including instruction merging, content injection, and agent execution.
+        """
+        # Get the chat
+        chat = await self.get_chat(chat_id)
+        if not chat:
+            raise ValueError(f"Chat with ID {chat_id} not found")
+
+        # Prepare agent execution arguments
+        instructions = await self._chat_entity_to_prompt(chat.entity_type, chat)
+        model_info = ModelInfo(
+            name=request.model_name,
+            provider=request.model_provider,
+            base_url=request.base_url,
+        )
+        args = RunAgentArgs(
+            role=self.role,
+            user_prompt=request.message,
+            tool_filters=ToolFilters(actions=chat.tools),
+            session_id=str(chat_id),
+            instructions=instructions,
+            model_info=model_info,
+        )
+
+        # Start agent execution
+        await executor.start(args)
+
+        # Return response with stream URL
+        stream_url = f"/api/chat/{chat_id}/stream"
+        return ChatResponse(
+            stream_url=stream_url,
+            chat_id=chat_id,
+        )
+
     async def get_chat(self, chat_id: uuid.UUID) -> Chat | None:
         """Get a chat by ID, ensuring it belongs to the current workspace."""
         stmt = select(Chat).where(
@@ -92,6 +147,31 @@ class ChatService(BaseWorkspaceService):
 
         result = await self.session.exec(stmt)
         return result.first()
+
+    async def list_chats(
+        self,
+        *,
+        user_id: UserID,
+        entity_type: str | None = None,
+        entity_id: str | None = None,
+        limit: int = 50,
+    ) -> Sequence[Chat]:
+        """List chats for the current workspace with optional entity filtering."""
+
+        stmt = select(Chat).where(Chat.owner_id == self.role.workspace_id)
+        if user_id:
+            stmt = stmt.where(Chat.user_id == user_id)
+
+        if entity_type:
+            stmt = stmt.where(Chat.entity_type == entity_type)
+
+        if entity_id:
+            stmt = stmt.where(Chat.entity_id == entity_id)
+
+        stmt = stmt.order_by(col(Chat.created_at).desc()).limit(limit)
+
+        result = await self.session.exec(stmt)
+        return result.all()
 
     async def update_chat(
         self,
