@@ -1,8 +1,10 @@
 """Runbook service."""
 
 import uuid
+from collections.abc import Sequence
 from datetime import datetime
 
+from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from tracecat.agent.service import AgentManagementService
@@ -11,7 +13,7 @@ from tracecat.chat.models import ChatMessage
 from tracecat.chat.service import ChatService
 from tracecat.db.schemas import Case, Chat, Runbook
 from tracecat.runbook.flows import generate_runbook_from_chat
-from tracecat.runbook.models import RunbookCreate
+from tracecat.runbook.models import RunbookCreate, RunbookUpdate
 from tracecat.runbook.prompts import NEW_RUNBOOK_INSTRUCTIONS
 from tracecat.service import BaseWorkspaceService
 from tracecat.types.auth import Role
@@ -114,3 +116,79 @@ class RunbookService(BaseWorkspaceService):
             alias=alias,
         )
         return runbook
+
+    def _is_uuid(self, value: str) -> bool:
+        """Check if a string is a valid UUID."""
+        try:
+            uuid.UUID(value)
+            return True
+        except ValueError:
+            return False
+
+    async def get_runbook(self, runbook_id_or_alias: str) -> Runbook | None:
+        """Get a runbook by ID or alias."""
+        if self._is_uuid(runbook_id_or_alias):
+            return await self._get_runbook_by_id(uuid.UUID(runbook_id_or_alias))
+        else:
+            return await self._get_runbook_by_alias(runbook_id_or_alias)
+
+    async def _get_runbook_by_id(self, runbook_id: uuid.UUID) -> Runbook | None:
+        """Get a runbook by ID."""
+        stmt = select(Runbook).where(
+            Runbook.id == runbook_id,
+            Runbook.owner_id == self.workspace_id,
+        )
+        result = await self.session.exec(stmt)
+        return result.first()
+
+    async def _get_runbook_by_alias(self, alias: str) -> Runbook | None:
+        """Get a runbook by alias."""
+        stmt = select(Runbook).where(
+            Runbook.alias == alias,
+            Runbook.owner_id == self.workspace_id,
+        )
+        result = await self.session.exec(stmt)
+        return result.first()
+
+    async def list_runbooks(
+        self, limit: int = 50, sort_by: str = "created_at", order: str = "desc"
+    ) -> Sequence[Runbook]:
+        """List runbooks."""
+        # Determine the sort column
+        if sort_by not in ["created_at", "updated_at"]:
+            raise ValueError("Invalid sort by field")
+
+        if sort_by == "created_at":
+            sort_column = col(Runbook.created_at)
+        else:
+            sort_column = col(Runbook.updated_at)
+
+        if order == "desc":
+            sort_column = sort_column.desc()
+        else:
+            sort_column = sort_column.asc()
+
+        stmt = (
+            select(Runbook)
+            .where(Runbook.owner_id == self.workspace_id)
+            .order_by(sort_column)
+            .limit(limit)
+        )
+
+        result = await self.session.exec(stmt)
+        return result.all()
+
+    async def update_runbook(self, runbook: Runbook, params: RunbookUpdate) -> Runbook:
+        """Update a runbook."""
+        set_fields = params.model_dump(exclude_unset=True)
+        for key, value in set_fields.items():
+            setattr(runbook, key, value)
+        self.session.add(runbook)
+        await self.session.commit()
+        await self.session.refresh(runbook)
+        return runbook
+
+    async def delete_runbook(self, runbook: Runbook) -> None:
+        """Delete a runbook."""
+        await self.session.delete(runbook)
+        await self.session.commit()
