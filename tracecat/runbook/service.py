@@ -12,7 +12,11 @@ from tracecat.cases.service import CasesService
 from tracecat.chat.models import ChatMessage
 from tracecat.chat.service import ChatService
 from tracecat.db.schemas import Case, Chat, Runbook
-from tracecat.runbook.flows import generate_runbook_from_chat
+from tracecat.runbook.flows import (
+    execute_runbook_on_case,
+    generate_runbook_from_chat,
+    generate_runbook_title_from_chat,
+)
 from tracecat.runbook.models import RunbookCreate, RunbookUpdate
 from tracecat.runbook.prompts import NEW_RUNBOOK_INSTRUCTIONS
 from tracecat.service import BaseWorkspaceService
@@ -97,13 +101,21 @@ class RunbookService(BaseWorkspaceService):
         case = await self._get_case(self.case_id)
         chat = await self._get_chat(chat_id)
         messages = await self._get_chat_messages(chat)
-        title, tools = chat.title, chat.tools
+        tools = chat.tools
 
         # Generate runbook from chat via LLM agent
         instructions = await generate_runbook_from_chat(
             case=case,
             messages=messages,
             tools=tools,
+            session=self.session,
+            role=self.role,
+        )
+
+        # Generate runbook title from chat via LLM agent
+        title = await generate_runbook_title_from_chat(
+            case=case,
+            messages=messages,
             session=self.session,
             role=self.role,
         )
@@ -192,3 +204,12 @@ class RunbookService(BaseWorkspaceService):
         """Delete a runbook."""
         await self.session.delete(runbook)
         await self.session.commit()
+
+    async def execute_runbook(self, runbook: Runbook, case: Case) -> str:
+        """Execute a runbook for a case."""
+        return await execute_runbook_on_case(
+            runbook=runbook,
+            case=case,
+            session=self.session,
+            role=self.role,
+        )

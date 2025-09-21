@@ -59,7 +59,7 @@ async def create_runbook(
         ) from e
     except IntegrityError as e:
         # Check if it's the alias uniqueness constraint
-        if "uq_runbook_alias_owner_id" in str(e):
+        if "uq_prompt_alias_owner_id" in str(e):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=f"Runbook with alias '{params.alias}' already exists in this workspace",
@@ -136,7 +136,7 @@ async def update_runbook(
         runbook = await svc.update_runbook(runbook, params)
     except IntegrityError as e:
         # Check if it's the alias uniqueness constraint
-        if "uq_runbook_alias_owner_id" in str(e):
+        if "uq_prompt_alias_owner_id" in str(e):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=f"Runbook with alias '{params.alias}' already exists in this workspace",
