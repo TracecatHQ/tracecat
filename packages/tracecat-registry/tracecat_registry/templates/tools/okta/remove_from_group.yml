@@ -1,11 +1,11 @@
 type: action
 definition:
-  title: Unassign user from group
-  description: Unassign a user from a specific group in Okta.
+  title: Remove user from group
+  description: Remove a user from a specific group in Okta.
   display_group: Okta
-  doc_url: https://developer.okta.com/docs/api/openapi/okta-management/management/tag/Group/#tag/Group/operation/unassignUserFromGroup
+  doc_url: https://developer.okta.com/docs/reference/api/groups/#remove-user-from-group
   namespace: tools.okta
-  name: unassign_from_group
+  name: remove_from_group
   secrets:
     - name: okta
       keys: ["OKTA_API_TOKEN"]
@@ -15,12 +15,12 @@ definition:
       description: Okta domain base URL (e.g., 'https://dev-12345.okta.com')
     user_id:
       type: str
-      description: User ID, login, or email to unassign from the group
+      description: User ID, login, or email to remove from the group
     group_id:
       type: str
-      description: ID of the group to unassign the user from
+      description: ID of the group to remove the user from
   steps:
-    - ref: unassign_user
+    - ref: remove_user
       action: core.http_request
       args:
         method: DELETE
@@ -29,4 +29,4 @@ definition:
           Authorization: "SSWS ${{ SECRETS.okta.OKTA_API_TOKEN }}"
           Accept: "application/json"
           Content-Type: "application/json"
-  returns: ${{ steps.unassign_user.result.data }}
+  returns: ${{ steps.remove_user.result.data }}

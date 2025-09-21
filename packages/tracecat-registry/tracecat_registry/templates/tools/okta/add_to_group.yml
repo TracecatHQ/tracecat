@@ -1,11 +1,11 @@
 type: action
 definition:
-  title: Assign user to group
-  description: Assign a user to a specific group in Okta.
+  title: Add user to group
+  description: Add a user to a specific group in Okta.
   display_group: Okta
-  doc_url: https://developer.okta.com/docs/api/openapi/okta-management/management/tag/Group/#tag/Group/operation/assignUserToGroup
+  doc_url: https://developer.okta.com/docs/reference/api/groups/#add-user-to-group
   namespace: tools.okta
-  name: assign_to_group
+  name: add_to_group
   secrets:
     - name: okta
       keys: ["OKTA_API_TOKEN"]
@@ -15,12 +15,12 @@ definition:
       description: Okta domain base URL (e.g., 'https://dev-12345.okta.com')
     user_id:
       type: str
-      description: User ID, login, or email to assign to the group
+      description: User ID, login, or email to add to the group
     group_id:
       type: str
-      description: ID of the group to assign the user to
+      description: ID of the group to add the user to
   steps:
-    - ref: assign_user
+    - ref: add_user
       action: core.http_request
       args:
         method: PUT
@@ -29,4 +29,4 @@ definition:
           Authorization: "SSWS ${{ SECRETS.okta.OKTA_API_TOKEN }}"
           Accept: "application/json"
           Content-Type: "application/json"
-  returns: ${{ steps.assign_user.result.data }}
+  returns: ${{ steps.add_user.result.data }}
