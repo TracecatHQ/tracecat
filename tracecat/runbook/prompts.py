@@ -13,7 +13,6 @@ from pydantic_ai.messages import (
     ToolReturnPart,
     UserPromptPart,
 )
-from pydantic_ai.tools import Tool
 
 from tracecat.chat.models import ChatMessage
 from tracecat.db.schemas import Case, Runbook
@@ -228,7 +227,6 @@ class RunbookCopilotPrompts(BaseModel):
     """Prompts for creating or editing a runbook from a user request."""
 
     runbook: Runbook | None = None
-    tools: list[Tool] | None = None
 
     @property
     def instructions(self) -> str:
