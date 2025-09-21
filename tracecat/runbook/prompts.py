@@ -13,15 +13,12 @@ from pydantic_ai.messages import (
     ToolReturnPart,
     UserPromptPart,
 )
+from pydantic_ai.tools import Tool
 
 from tracecat.chat.models import ChatMessage
 from tracecat.db.schemas import Case, Runbook
 
 NEW_RUNBOOK_INSTRUCTIONS = textwrap.dedent("""
-<Trigger>
-**Execute when**: ...
-</Trigger>
-
 <Objective>
 What is the objective of this runbook?
 </Objective>
@@ -46,7 +43,7 @@ RUNBOOK_REQUIREMENTS = textwrap.dedent("""
     - Do NOT wrap the entire runbook in a single code block
     - Use Markdown: headers (#, ##), lists (-), bold (**)
     - Use fenced blocks only for actual code/commands
-    - Include sections: Objective, Tools, Trigger, Steps
+    - Include sections: Objective, Tools, Steps
     - Objective must be generalized (no specific IDs/private values)
     - Tools are provided as <Tools>
     - Trigger section (Markdown):
@@ -158,6 +155,22 @@ class CaseToRunbookPrompts(BaseModel):
             Produce a concise, generalized runbook suitable for similar future cases.
             </Task>
 
+            <Sections description="The sections of the runbook">
+            <Objective>
+            - Generalized purpose; no case-specific identifiers or private values
+            </Objective>
+
+            <Steps>
+            - Concise, actionable, generalized instructions
+            - If a step clearly requires a tool call, include the tool ID in the step
+            - Infer parameters from intent/structure; do not copy example inputs/outputs verbatim
+            </Steps>
+
+            <Tools>
+            - The tools available to the agent for this runbook
+            </Tools>
+            </Sections>
+
             <PostProcessingRules>
             - Remove irrelevant, duplicate, or failed steps
             - Merge repeated patterns (loops over items) into one generalized step
@@ -215,7 +228,7 @@ class RunbookCopilotPrompts(BaseModel):
     """Prompts for creating or editing a runbook from a user request."""
 
     runbook: Runbook | None = None
-    user_request: str
+    tools: list[Tool] | None = None
 
     @property
     def instructions(self) -> str:
@@ -228,18 +241,24 @@ class RunbookCopilotPrompts(BaseModel):
             action = "create"
             source = "You will be given a user request to create a runbook that will be used to automate a specific task."
 
-        return textwrap.dedent(f"""
+        base_instructions = textwrap.dedent(f"""
             You are an expert runbook {action} agent. {source}
             You must interpret the user's request and {action} the runbook as requested by the user.
             Use the runbook tools provided to you to {action} the runbook.
 
+            <RunbookSections>
+            - The runbook has the following sections: Objective, Tools, Steps
+
             <EditingRules>
             - You must ask clarifying questions to the user if you are not sure about the user's intent.
+            - If you've determined you have to update the Runbook instructions, you should update the runbook `instructions` using Markdown.
             - You will be given tools to help assist you in {action} the runbook.
             </EditingRules>
+        """)
 
-            {_reduce_runbook_to_text(self.runbook) if self.runbook else ""}
-        """).strip()
+        if self.runbook:
+            return f"{base_instructions}\n\n{_reduce_runbook_to_text(self.runbook)}".strip()
+        return base_instructions.strip()
 
     @property
     def user_prompt(self) -> str:
