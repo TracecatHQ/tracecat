@@ -6,6 +6,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from tracecat.agent.models import RunAgentArgs, RunAgentResult
 from tracecat.contexts import ctx_role
 from tracecat.types.auth import Role
+from tracecat.types.exceptions import TracecatAuthorizationError
 
 
 class BaseAgentRunHandle(ABC):
@@ -33,6 +34,12 @@ class BaseAgentExecutor(ABC):
     def __init__(self, session: AsyncSession, role: Role | None = None, **kwargs: Any):
         self.session = session
         self.role = role or ctx_role.get()
+
+        if self.role.workspace_id is None:
+            raise TracecatAuthorizationError(
+                f"{self.__class__.__name__} requires workspace"
+            )
+        self.workspace_id = self.role.workspace_id
 
     async def run(self, args: RunAgentArgs) -> RunAgentResult:
         """Run an agentic turn and wait for completion."""
