@@ -14,9 +14,31 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 
-from tracecat.cases.models import CaseRead
 from tracecat.chat.models import ChatMessage
-from tracecat.db.schemas import Runbook
+from tracecat.db.schemas import Case, Runbook
+
+NEW_RUNBOOK_INSTRUCTIONS = textwrap.dedent("""
+<Trigger>
+**Execute when**: ...
+</Trigger>
+
+<Objective>
+What is the objective of this runbook?
+</Objective>
+
+<Steps>
+  <Step>
+  What is the step to be executed?
+  </Step>
+</Steps>
+
+<Tools>
+  <Tool>
+  What is the tool to be used?
+  </Tool>
+</Tools>
+""")
+
 
 RUNBOOK_REQUIREMENTS = textwrap.dedent("""
     <Requirements>
@@ -93,7 +115,7 @@ def _reduce_tools_to_text(tools: list[str]) -> str:
     return f'<Tools description="The tools available to the agent for this runbook">\n{json.dumps(tools, indent=2)}\n</Tools>'
 
 
-def _reduce_case_to_text(case: CaseRead) -> str:
+def _reduce_case_to_text(case: Case) -> str:
     """Reduce case to a single text."""
     return f'<Case description="The case that the analyst investigated or resolved">\n{yaml.safe_dump(case.model_dump(mode="json"))}\n</Case>'
 
@@ -121,7 +143,7 @@ def _reduce_runbook_to_text(runbook: Runbook) -> str:
 class CaseToRunbookPrompts(BaseModel):
     """Prompts for building a runbook to case."""
 
-    case: CaseRead
+    case: Case
     messages: list[ChatMessage]
     tools: list[str]
 
@@ -165,7 +187,7 @@ class CaseToRunbookPrompts(BaseModel):
 class CaseToRunbookTitlePrompts(BaseModel):
     """Prompts for generating a runbook title from a case."""
 
-    case: CaseRead
+    case: Case
     messages: list[ChatMessage]
     n_messages: int = 4
 
@@ -236,7 +258,7 @@ class ExecuteRunbookPrompts(BaseModel):
     """Prompts for executing a runbook on a case."""
 
     runbook: Runbook
-    case: CaseRead
+    case: Case
 
     @property
     def instructions(self) -> str:
