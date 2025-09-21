@@ -211,7 +211,7 @@ class CaseToRunbookTitlePrompts(BaseModel):
         """)
 
 
-class RequestToRunbookPrompts(BaseModel):
+class RunbookCopilotPrompts(BaseModel):
     """Prompts for creating or editing a runbook from a user request."""
 
     runbook: Runbook | None = None
@@ -237,21 +237,16 @@ class RequestToRunbookPrompts(BaseModel):
             - You must ask clarifying questions to the user if you are not sure about the user's intent.
             - You will be given tools to help assist you in {action} the runbook.
             </EditingRules>
-        """)
+
+            {_reduce_runbook_to_text(self.runbook) if self.runbook else ""}
+        """).strip()
 
     @property
     def user_prompt(self) -> str:
         """Build the user prompt for creating or editing a runbook from a request."""
-        if self.runbook:
-            return textwrap.dedent(f"""
-            {_reduce_runbook_to_text(self.runbook)}
-
-            <UserRequest>
-            {self.user_request}
-            </UserRequest>
-            """)
-        else:
-            return self.user_request
+        raise NotImplementedError(
+            "User prompt is not implemented for runbook copilot prompts"
+        )
 
 
 class ExecuteRunbookPrompts(BaseModel):
