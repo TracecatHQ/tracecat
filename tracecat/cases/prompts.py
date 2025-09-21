@@ -1,5 +1,6 @@
 import textwrap
 
+import yaml
 from pydantic import BaseModel
 
 from tracecat.db.schemas import Case
@@ -14,6 +15,7 @@ class CaseCopilotPrompts(BaseModel):
     def instructions(self) -> str:
         """Build the instructions for the case copilot."""
         updated_at = self.case.updated_at.isoformat()
+        case_data = yaml.dump(self.case.model_dump(mode="json"), indent=2)
         return textwrap.dedent(f"""
             You are a helpful case management assistant that helps analysts in security and IT operations resolve cases / tickets effiently and accurately. You will be given a case with a summary, description, and payload inside the <Case> tag.
 
@@ -39,7 +41,7 @@ class CaseCopilotPrompts(BaseModel):
             </Proactiveness>
 
             <Case description="This is the case you are working on with the summary, description, and payload. It was last updated at {updated_at}.">
-            {{ self.case }}
+            {case_data}
             </Case>
         """)
 
