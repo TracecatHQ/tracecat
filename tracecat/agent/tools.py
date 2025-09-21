@@ -208,7 +208,6 @@ async def create_single_tool(
 @dataclass
 class BuildToolsResult[DepsT]:
     tools: list[Tool[DepsT]]
-    failed_actions: list[str]
     collected_secrets: set[RegistrySecretType]
 
 
@@ -264,9 +263,15 @@ async def build_agent_tools(
         for ra in selected_actions:
             await create_tool(ra)
 
+    # If there were failures, raise simple error
+    if failed_actions:
+        failed_list = "\n".join(f"- {action}" for action in failed_actions)
+        raise ValueError(
+            f"Unknown namespaces or action names. Please double check the following:\n{failed_list}"
+        )
+
     return BuildToolsResult(
         tools=tools,
-        failed_actions=failed_actions,
         collected_secrets=collected_secrets,
     )
 
