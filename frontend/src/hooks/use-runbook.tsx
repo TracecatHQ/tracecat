@@ -15,16 +15,13 @@ import {
 } from "@/client"
 import { toast } from "@/components/ui/use-toast"
 
-type RunbookCreateRequest = RunbookCreate & {
-  meta?: Record<string, string | boolean | null | undefined>
-}
 
 // Hook for creating a new runbook from a chat
 export function useCreateRunbook(workspaceId: string) {
   const queryClient = useQueryClient()
 
   const { mutateAsync: createRunbook, isPending: createRunbookPending } =
-    useMutation<RunbookRead, ApiError, RunbookCreateRequest>({
+    useMutation<RunbookRead, ApiError, RunbookCreate>({
       mutationFn: (request) => {
         // Kick off the runbook creation
         const result = runbookCreateRunbook({
