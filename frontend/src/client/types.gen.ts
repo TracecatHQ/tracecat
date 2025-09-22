@@ -2903,47 +2903,27 @@ export type RunbookCreate = {
    */
   chat_id?: string | null
   /**
-   * Optional metadata to include with the runbook (e.g., case information)
-   */
-  meta?: {
-    [key: string]: unknown
-  } | null
-  /**
    * Alias for the runbook
    */
   alias?: RunbookAlias_Input | null
 }
 
 /**
- * Request model for running a runbook on an entity.
- */
-export type RunbookExecuteEntity = {
-  /**
-   * ID of the entity to run the runbook on
-   */
-  entity_id: string
-  /**
-   * Type of the entity to run the runbook on
-   */
-  entity_type: ChatEntity
-}
-
-/**
- * Request model for running a runbook on cases.
+ * Request model for executing a runbook on a case.
  */
 export type RunbookExecuteRequest = {
   /**
-   * Entities to run the runbook on
+   * IDs of the cases to execute the runbook on
    */
-  entities: Array<RunbookExecuteEntity>
+  case_ids: Array<string>
 }
 
 /**
- * Response model for runbook execution.
+ * Response model for executing a runbook on a case.
  */
 export type RunbookExecuteResponse = {
   /**
-   * Mapping of chat_id to SSE stream URL
+   * Mapping of case ID to stream URL
    */
   stream_urls: {
     [key: string]: string
@@ -2963,10 +2943,6 @@ export type RunbookRead = {
    */
   title: string
   /**
-   * The instruction runbook string
-   */
-  content: string
-  /**
    * The tools available to the agent for this runbook
    */
   tools: Array<string>
@@ -2979,15 +2955,13 @@ export type RunbookRead = {
    */
   updated_at: string
   /**
-   * Metadata including schema version, tool SHA, token count
+   * The instructions for the runbook
    */
-  meta?: {
-    [key: string]: unknown
-  }
+  instructions: string
   /**
-   * A summary of the runbook.
+   * The cases that the runbook is related to
    */
-  summary?: string | null
+  related_cases: Array<string> | null
   /**
    * Alias for the runbook
    */
@@ -3003,17 +2977,17 @@ export type RunbookUpdate = {
    */
   title?: string | null
   /**
-   * New content for the runbook
-   */
-  content?: string | null
-  /**
    * New tools for the runbook
    */
   tools?: Array<string> | null
   /**
-   * New summary for the runbook
+   * New instructions for the runbook
    */
-  summary?: string | null
+  instructions?: string | null
+  /**
+   * New related cases for the runbook
+   */
+  related_cases?: Array<string> | null
   /**
    * New alias for the runbook (must be unique within workspace)
    */

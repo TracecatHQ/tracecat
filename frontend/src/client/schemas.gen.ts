@@ -8352,20 +8352,6 @@ export const $RunbookCreate = {
       title: "Chat Id",
       description: "ID of the chat to freeze into a runbook",
     },
-    meta: {
-      anyOf: [
-        {
-          additionalProperties: true,
-          type: "object",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Meta",
-      description:
-        "Optional metadata to include with the runbook (e.g., case information)",
-    },
     alias: {
       anyOf: [
         {
@@ -8383,40 +8369,22 @@ export const $RunbookCreate = {
   description: "Request model for creating a runbook.",
 } as const
 
-export const $RunbookExecuteEntity = {
-  properties: {
-    entity_id: {
-      type: "string",
-      format: "uuid4",
-      title: "Entity Id",
-      description: "ID of the entity to run the runbook on",
-    },
-    entity_type: {
-      $ref: "#/components/schemas/ChatEntity",
-      description: "Type of the entity to run the runbook on",
-    },
-  },
-  type: "object",
-  required: ["entity_id", "entity_type"],
-  title: "RunbookExecuteEntity",
-  description: "Request model for running a runbook on an entity.",
-} as const
-
 export const $RunbookExecuteRequest = {
   properties: {
-    entities: {
+    case_ids: {
       items: {
-        $ref: "#/components/schemas/RunbookExecuteEntity",
+        type: "string",
+        format: "uuid4",
       },
       type: "array",
-      title: "Entities",
-      description: "Entities to run the runbook on",
+      title: "Case Ids",
+      description: "IDs of the cases to execute the runbook on",
     },
   },
   type: "object",
-  required: ["entities"],
+  required: ["case_ids"],
   title: "RunbookExecuteRequest",
-  description: "Request model for running a runbook on cases.",
+  description: "Request model for executing a runbook on a case.",
 } as const
 
 export const $RunbookExecuteResponse = {
@@ -8427,13 +8395,13 @@ export const $RunbookExecuteResponse = {
       },
       type: "object",
       title: "Stream Urls",
-      description: "Mapping of chat_id to SSE stream URL",
+      description: "Mapping of case ID to stream URL",
     },
   },
   type: "object",
   required: ["stream_urls"],
   title: "RunbookExecuteResponse",
-  description: "Response model for runbook execution.",
+  description: "Response model for executing a runbook on a case.",
 } as const
 
 export const $RunbookRead = {
@@ -8448,11 +8416,6 @@ export const $RunbookRead = {
       type: "string",
       title: "Title",
       description: "Human-readable title for the runbook",
-    },
-    content: {
-      type: "string",
-      title: "Content",
-      description: "The instruction runbook string",
     },
     tools: {
       items: {
@@ -8474,23 +8437,26 @@ export const $RunbookRead = {
       title: "Updated At",
       description: "When the runbook was last updated",
     },
-    meta: {
-      additionalProperties: true,
-      type: "object",
-      title: "Meta",
-      description: "Metadata including schema version, tool SHA, token count",
+    instructions: {
+      type: "string",
+      title: "Instructions",
+      description: "The instructions for the runbook",
     },
-    summary: {
+    related_cases: {
       anyOf: [
         {
-          type: "string",
+          items: {
+            type: "string",
+            format: "uuid4",
+          },
+          type: "array",
         },
         {
           type: "null",
         },
       ],
-      title: "Summary",
-      description: "A summary of the runbook.",
+      title: "Related Cases",
+      description: "The cases that the runbook is related to",
     },
     alias: {
       anyOf: [
@@ -8505,7 +8471,15 @@ export const $RunbookRead = {
     },
   },
   type: "object",
-  required: ["id", "title", "content", "tools", "created_at", "updated_at"],
+  required: [
+    "id",
+    "title",
+    "tools",
+    "created_at",
+    "updated_at",
+    "instructions",
+    "related_cases",
+  ],
   title: "RunbookRead",
   description: "Model for runbook details.",
 } as const
@@ -8526,20 +8500,6 @@ export const $RunbookUpdate = {
       title: "Title",
       description: "New title for the runbook",
     },
-    content: {
-      anyOf: [
-        {
-          type: "string",
-          maxLength: 10000,
-          minLength: 1,
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Content",
-      description: "New content for the runbook",
-    },
     tools: {
       anyOf: [
         {
@@ -8555,19 +8515,35 @@ export const $RunbookUpdate = {
       title: "Tools",
       description: "New tools for the runbook",
     },
-    summary: {
+    instructions: {
       anyOf: [
         {
           type: "string",
           maxLength: 10000,
-          minLength: 0,
+          minLength: 1,
         },
         {
           type: "null",
         },
       ],
-      title: "Summary",
-      description: "New summary for the runbook",
+      title: "Instructions",
+      description: "New instructions for the runbook",
+    },
+    related_cases: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+            format: "uuid4",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Related Cases",
+      description: "New related cases for the runbook",
     },
     alias: {
       anyOf: [
