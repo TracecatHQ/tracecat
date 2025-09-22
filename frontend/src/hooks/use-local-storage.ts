@@ -26,7 +26,9 @@ export function useLocalStorage<T>(
     try {
       setStoredValue((current) => {
         const valueToStore =
-          typeof value === "function" ? (value as (current: T) => T)(current) : value
+          typeof value === "function"
+            ? (value as (current: T) => T)(current)
+            : value
 
         if (typeof window !== "undefined") {
           const serialized = JSON.stringify(valueToStore)
@@ -60,7 +62,9 @@ export function useLocalStorage<T>(
     }
 
     const handleCustomEvent = (event: Event) => {
-      const { detail } = event as CustomEvent<{ key: string; value: T } | undefined>
+      const { detail } = event as CustomEvent<
+        { key: string; value: T } | undefined
+      >
 
       if (!detail || detail.key !== prefixedKey) {
         return

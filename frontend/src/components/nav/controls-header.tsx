@@ -146,9 +146,7 @@ function CasesActions() {
     ? CasesViewMode.CustomFields
     : CasesViewMode.Cases
 
-  const casesHref = workspaceId
-    ? `/workspaces/${workspaceId}/cases`
-    : undefined
+  const casesHref = workspaceId ? `/workspaces/${workspaceId}/cases` : undefined
   const customFieldsHref = workspaceId
     ? `/workspaces/${workspaceId}/cases/custom-fields`
     : undefined

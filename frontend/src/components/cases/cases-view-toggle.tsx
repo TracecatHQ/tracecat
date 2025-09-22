@@ -1,7 +1,7 @@
 "use client"
 
-import Link from "next/link"
 import { BracesIcon, SquareStackIcon } from "lucide-react"
+import Link from "next/link"
 import {
   Tooltip,
   TooltipContent,
@@ -88,17 +88,16 @@ export function CasesViewToggle({
             {customFieldsHref ? (
               <Link
                 href={customFieldsHref}
-                onClick={() =>
-                  handleViewChange(CasesViewMode.CustomFields)
-                }
+                onClick={() => handleViewChange(CasesViewMode.CustomFields)}
                 className={cn(
                   "flex size-7 items-center justify-center rounded-r-sm transition-colors",
                   view === CasesViewMode.CustomFields
                     ? "bg-background text-accent-foreground"
                     : "bg-accent text-muted-foreground hover:bg-muted/50"
                 )}
-                aria-current=
-                  {view === CasesViewMode.CustomFields ? "page" : undefined}
+                aria-current={
+                  view === CasesViewMode.CustomFields ? "page" : undefined
+                }
                 aria-label="Custom fields view"
               >
                 <BracesIcon className="size-3.5" />
