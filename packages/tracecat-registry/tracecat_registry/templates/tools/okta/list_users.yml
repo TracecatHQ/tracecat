@@ -3,7 +3,7 @@ definition:
   title: List users
   description: List all users in your Okta organization with optional filtering and search.
   display_group: Okta
-  doc_url: https://developer.okta.com/docs/reference/api/users/#list-users
+  doc_url: https://developer.okta.com/docs/api/openapi/okta-management/management/tag/User/#tag/User/operation/listUsers
   namespace: tools.okta
   name: list_users
   secrets:

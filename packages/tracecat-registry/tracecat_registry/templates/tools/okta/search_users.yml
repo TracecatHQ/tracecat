@@ -3,7 +3,7 @@ definition:
   title: Search users
   description: Search for users using a query string that matches login, email, firstName, or lastName.
   display_group: Okta
-  doc_url: https://developer.okta.com/docs/reference/api/users/#list-users
+  doc_url: https://developer.okta.com/docs/api/openapi/okta-management/management/tag/User/#tag/User/operation/listUsers
   namespace: tools.okta
   name: search_users
   secrets:
