@@ -36,7 +36,12 @@ class RunbookRead(BaseModel):
     )
     created_at: datetime = Field(..., description="When the runbook was created")
     updated_at: datetime = Field(..., description="When the runbook was last updated")
-    instructions: str = Field(..., description="The instructions for the runbook")
+    instructions: str = Field(
+        ...,
+        description="The instructions for the runbook",
+        min_length=1,
+        max_length=10000,
+    )
     related_cases: list[UUID4] | None = Field(
         ..., description="The cases that the runbook is related to"
     )

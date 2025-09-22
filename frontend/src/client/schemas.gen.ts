@@ -8439,6 +8439,8 @@ export const $RunbookRead = {
     },
     instructions: {
       type: "string",
+      maxLength: 10000,
+      minLength: 1,
       title: "Instructions",
       description: "The instructions for the runbook",
     },
