@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import uuid
 from datetime import datetime
-from typing import Annotated, Any
+from typing import Annotated
 
-from pydantic import UUID4, BaseModel, Field, StringConstraints, field_validator
+from pydantic import UUID4, BaseModel, Field, StringConstraints
 
 type RunbookAlias = Annotated[str, StringConstraints(pattern=r"^[a-zA-Z0-9_-]+$")]
 
@@ -45,34 +44,6 @@ class RunbookRead(BaseModel):
         default=None,
         description="Alias for the runbook",
     )
-
-    @field_validator("related_cases", mode="before")
-    @classmethod
-    def _coerce_related_cases(
-        cls, value: Any
-    ) -> list[UUID4] | None:  # pragma: no cover - simple data coercion
-        if value is None:
-            return None
-
-        coerced: list[uuid.UUID] = []
-        for item in value:
-            if isinstance(item, uuid.UUID):
-                coerced.append(item)
-                continue
-
-            if isinstance(item, str):
-                coerced.append(uuid.UUID(item))
-                continue
-
-            item_id = getattr(item, "id", None)
-            if item_id is None:
-                raise TypeError(
-                    "related_cases must be UUIDs, UUID strings, or objects with an 'id' attribute"
-                )
-
-            coerced.append(uuid.UUID(str(item_id)))
-
-        return coerced
 
 
 class RunbookUpdate(BaseModel):
