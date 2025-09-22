@@ -26,7 +26,7 @@ import "./editor.css"
 
 import { type BlockNoteEditor, filterSuggestionItems } from "@blocknote/core"
 import { Trash2Icon } from "lucide-react"
-import { useEffect, useRef, useState } from "react"
+import { useEffect } from "react"
 
 import { getSpacedBlocks } from "@/lib/rich-text-editor"
 import { cn } from "@/lib/utils"
@@ -50,17 +50,6 @@ export function CaseDescriptionEditor({
   className,
   onBlur,
 }: CaseDescriptionEditorProps) {
-  const [isLoading, setIsLoading] = useState(false)
-  const [hasLoaded, setHasLoaded] = useState(false)
-  const loadIdRef = useRef(0)
-  const isMountedRef = useRef(true)
-
-  useEffect(() => {
-    return () => {
-      isMountedRef.current = false
-    }
-  }, [])
-
   // Creates a new editor instance.
   const editor = useCreateBlockNote({
     animations: false,
@@ -78,35 +67,10 @@ export function CaseDescriptionEditor({
   }
 
   useEffect(() => {
-    if (initialContent === undefined || hasLoaded || isLoading) {
-      return
+    if (initialContent) {
+      loadInitialContent(editor, initialContent)
     }
-
-    loadIdRef.current += 1
-    const currentLoadId = loadIdRef.current
-    setIsLoading(true)
-
-    ;(async () => {
-      try {
-        await loadInitialContent(editor, initialContent)
-        if (!isMountedRef.current || loadIdRef.current !== currentLoadId) {
-          return
-        }
-        setHasLoaded(true)
-      } catch (error) {
-        console.error("Failed to load initial content:", error)
-      } finally {
-        if (isMountedRef.current && loadIdRef.current === currentLoadId) {
-          setIsLoading(false)
-        }
-      }
-    })()
-  }, [initialContent, editor, hasLoaded, isLoading])
-
-  // Reset hasLoaded when content changes significantly
-  useEffect(() => {
-    setHasLoaded(false)
-  }, [initialContent])
+  }, [initialContent, editor])
 
   // Renders the editor instance using a React component.
   return (
@@ -164,11 +128,6 @@ export function CaseCommentViewer({
   content: string
   className?: string
 }) {
-  const [isLoading, setIsLoading] = useState(false)
-  const [hasLoaded, setHasLoaded] = useState(false)
-  const loadIdRef = useRef(0)
-  const isMountedRef = useRef(true)
-
   // Creates a new editor instance.
   const editor = useCreateBlockNote({
     animations: false,
@@ -176,41 +135,10 @@ export function CaseCommentViewer({
   })
 
   useEffect(() => {
-    return () => {
-      isMountedRef.current = false
+    if (content) {
+      loadInitialContent(editor, content)
     }
-  }, [])
-
-  useEffect(() => {
-    if (content === undefined || hasLoaded || isLoading) {
-      return
-    }
-
-    loadIdRef.current += 1
-    const currentLoadId = loadIdRef.current
-    setIsLoading(true)
-
-    ;(async () => {
-      try {
-        await loadInitialContent(editor, content)
-        if (!isMountedRef.current || loadIdRef.current !== currentLoadId) {
-          return
-        }
-        setHasLoaded(true)
-      } catch (error) {
-        console.error("Failed to load initial content:", error)
-      } finally {
-        if (isMountedRef.current && loadIdRef.current === currentLoadId) {
-          setIsLoading(false)
-        }
-      }
-    })()
-  }, [content, editor, hasLoaded, isLoading])
-
-  // Reset hasLoaded when content changes
-  useEffect(() => {
-    setHasLoaded(false)
-  }, [content])
+  }, [content, editor])
 
   // Renders the editor instance using a React component.
   return (

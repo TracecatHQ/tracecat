@@ -15,7 +15,6 @@ import {
 } from "@/client"
 import { toast } from "@/components/ui/use-toast"
 
-
 // Hook for creating a new runbook from a chat
 export function useCreateRunbook(workspaceId: string) {
   const queryClient = useQueryClient()
