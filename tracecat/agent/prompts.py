@@ -94,7 +94,7 @@ class MessageHistoryPrompt(BaseModel):
             </ChatHistory>
         """)
 
-    def to_message_history(self) -> list[ModelResponse]:
+    def to_message_history(self) -> list[ModelMessage]:
         """Get the message history."""
         prompt = self.prompt
         return [ModelResponse(parts=[TextPart(content=prompt)])]
