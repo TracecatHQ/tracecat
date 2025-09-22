@@ -1,14 +1,10 @@
-"use client"
-
-import { useEffect } from "react"
 import { CustomFieldsView } from "@/components/cases/custom-fields-view"
+import type { Metadata } from "next"
+
+export const metadata: Metadata = {
+  title: "Custom fields",
+}
 
 export default function CasesCustomFieldsPage() {
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      document.title = "Custom fields"
-    }
-  }, [])
-
   return <CustomFieldsView />
 }

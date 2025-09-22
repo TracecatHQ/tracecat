@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 
 type LocalStorageUpdater<T> = T | ((value: T) => T)
 
@@ -8,6 +8,8 @@ export function useLocalStorage<T>(
   prefix = ""
 ): [T, (value: LocalStorageUpdater<T>) => void] {
   const prefixedKey = prefix ? `${prefix}_${key}` : key
+
+  const initialValueRef = useRef(initialValue)
 
   const [storedValue, setStoredValue] = useState<T>(() => {
     if (typeof window === "undefined") {
@@ -48,14 +50,31 @@ export function useLocalStorage<T>(
     }
   }
 
+  initialValueRef.current = initialValue
+
   useEffect(() => {
+    if (typeof window === "undefined") {
+      return
+    }
+
+    const readValue = () => {
+      try {
+        const item = window.localStorage.getItem(prefixedKey)
+        setStoredValue(item ? JSON.parse(item) : initialValueRef.current)
+      } catch (error) {
+        console.error(error)
+      }
+    }
+
     const handleStorageChange = (e: StorageEvent) => {
       if (e.key !== prefixedKey) {
         return
       }
 
       try {
-        setStoredValue(e.newValue ? JSON.parse(e.newValue) : initialValue)
+        setStoredValue(
+          e.newValue ? JSON.parse(e.newValue) : initialValueRef.current
+        )
       } catch (error) {
         console.error(error)
       }
@@ -73,13 +92,14 @@ export function useLocalStorage<T>(
       setStoredValue(detail.value)
     }
 
+    readValue()
     window.addEventListener("storage", handleStorageChange)
     window.addEventListener("local-storage", handleCustomEvent)
     return () => {
       window.removeEventListener("storage", handleStorageChange)
       window.removeEventListener("local-storage", handleCustomEvent)
     }
-  }, [initialValue, prefixedKey])
+  }, [prefixedKey])
 
   return [storedValue, setValue]
 }
