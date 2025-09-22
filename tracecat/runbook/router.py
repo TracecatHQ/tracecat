@@ -189,21 +189,11 @@ async def delete_runbook(
     await svc.delete_runbook(runbook)
 
 
-WorkspaceUserOrService = Annotated[
-    Role,
-    RoleACL(
-        allow_user=True,
-        allow_service=True,
-        require_workspace="yes",
-    ),
-]
-
-
 @router.post("/{runbook_id}/execute", response_model=RunbookExecuteResponse)
 async def execute_runbook(
     runbook_id: uuid.UUID,
     params: RunbookExecuteRequest,
-    role: WorkspaceUserOrService,
+    role: WorkspaceUser,
     session: AsyncDBSession,
 ) -> RunbookExecuteResponse:
     """Execute a runbook on multiple cases."""
