@@ -132,7 +132,8 @@ async def build_agent(
             tools=tools.tools,
             fixed_arguments=fixed_arguments,
         )
-        instructions = f"{instructions}\n\n{tool_calling_prompt.prompt}"
+        instruction_parts = [instructions, tool_calling_prompt.prompt]
+        instructions = "\n\n".join(part for part in instruction_parts if part)
 
     agent = Agent(
         model=model,

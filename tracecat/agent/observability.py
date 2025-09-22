@@ -1,11 +1,28 @@
-from langfuse import get_client
+"""Langfuse observability helpers."""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 from tracecat.contexts import ctx_run
+from tracecat.logger import logger
+
+try:  # pragma: no cover - optional dependency import
+    from langfuse import get_client
+except ImportError:  # pragma: no cover - optional dependency import
+    get_client = None  # type: ignore[assignment]
+
+if TYPE_CHECKING:  # pragma: no cover - typing aid only
+    pass
 
 
-def init_langfuse(model_name: str, model_provider: str) -> str | None:
-    """Initialize Langfuse client and return the trace id."""
-    # Initialize Langfuse client and update trace
+def init_langfuse(model_name: str | None, model_provider: str | None) -> str | None:
+    """Initialize Langfuse client and return the trace id when Langfuse is available."""
+
+    if get_client is None:
+        logger.debug("Langfuse client not available; skipping trace initialization")
+        return None
+
     langfuse_client = get_client()
 
     # Get workflow context for session_id

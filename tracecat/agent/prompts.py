@@ -28,7 +28,7 @@ class ToolCallPrompt(BaseModel):
         if self.fixed_arguments:
             fixed_arguments_text = textwrap.dedent(f"""
             <FixedArguments description="The following tools have been configured with fixed arguments that will be automatically applied">
-             {"\n".join(f"<tool tool_name={action}>\n{yaml.dump(args)}\n</tool>" for action, args in self.fixed_arguments.items())}
+             {"\n".join(f"<tool tool_name={action}>\n{yaml.safe_dump(args)}\n</tool>" for action, args in self.fixed_arguments.items())}
             </FixedArguments>
             """)
 
@@ -90,11 +90,11 @@ class MessageHistoryPrompt(BaseModel):
         """Build the prompt for the message history agent."""
         return textwrap.dedent(f"""
             <ChatHistory description="The chat history thus far">
-            {yaml.dump(self.message_history, indent=2)}
+            {yaml.safe_dump(self.message_history, indent=2)}
             </ChatHistory>
         """)
 
-    def to_message_history(self) -> list[ModelMessage]:
+    def to_message_history(self) -> list[ModelResponse]:
         """Get the message history."""
         prompt = self.prompt
         return [ModelResponse(parts=[TextPart(content=prompt)])]

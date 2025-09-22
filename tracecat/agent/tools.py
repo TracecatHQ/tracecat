@@ -227,8 +227,17 @@ async def build_agent_tools(
         else:
             selected_actions = await service.list_actions(include_marked=True)
 
-        # Collect failed action names
-        failed_actions: list[str] = []
+        # Collect action build issues
+        failed_actions: set[str] = set()
+        missing_actions: set[str] = set()
+
+        if actions:
+            found_actions = {f"{ra.namespace}.{ra.name}" for ra in selected_actions}
+            missing_actions = {
+                action_name
+                for action_name in actions
+                if action_name not in found_actions
+            }
 
         # Create tools from registry actions
         async def create_tool(ra: RegistryAction):
@@ -245,7 +254,7 @@ async def build_agent_tools(
 
             # Check if result is None and handle accordingly
             if result is None:
-                failed_actions.append(action_name)
+                failed_actions.add(action_name)
                 return
 
             # Update collected secrets
@@ -254,7 +263,7 @@ async def build_agent_tools(
             if result.tool is not None:
                 tools.append(result.tool)
             else:
-                failed_actions.append(result.action_name)
+                failed_actions.add(result.action_name)
 
         # NOTE: avoid running `create_tool` concurrently with the same
         # `RegistryActionsService` instance. AsyncSession does not support
@@ -264,10 +273,19 @@ async def build_agent_tools(
             await create_tool(ra)
 
     # If there were failures, raise simple error
-    if failed_actions:
-        failed_list = "\n".join(f"- {action}" for action in failed_actions)
+    if missing_actions or failed_actions:
+        details: list[str] = []
+        if missing_actions:
+            missing_list = "\n".join(
+                f"- {action}" for action in sorted(missing_actions)
+            )
+            details.append("Requested actions not found in registry:\n" + missing_list)
+        if failed_actions:
+            failed_list = "\n".join(f"- {action}" for action in sorted(failed_actions))
+            details.append("Failed to build the following actions:\n" + failed_list)
+
         raise ValueError(
-            f"Unknown namespaces or action names. Please double check the following:\n{failed_list}"
+            "Unable to build the requested tools:\n" + "\n\n".join(details)
         )
 
     return BuildToolsResult(
