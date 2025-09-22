@@ -110,6 +110,7 @@ class WorkflowSchedulesService(BaseService):
                 handle = await bridge.create_schedule(
                     workflow_id=WorkflowUUID.new(params.workflow_id),
                     schedule_id=schedule_id,
+                    cron=params.cron,
                     every=params.every,
                     offset=params.offset,
                     start_at=params.start_at,

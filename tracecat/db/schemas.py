@@ -7,7 +7,16 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from pydantic import UUID4, BaseModel, ConfigDict, computed_field
-from sqlalchemy import TIMESTAMP, Column, ForeignKey, Identity, Index, Integer, func
+from sqlalchemy import (
+    TIMESTAMP,
+    Column,
+    ForeignKey,
+    Identity,
+    Index,
+    Integer,
+    Interval,
+    func,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import UUID, Field, Relationship, SQLModel, UniqueConstraint
 
@@ -489,7 +498,11 @@ class Schedule(Resource, table=True):
     status: str = "online"  # "online" or "offline"
     cron: str | None = None
     inputs: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
-    every: timedelta = Field(..., description="ISO 8601 duration string")
+    every: timedelta | None = Field(
+        default=None,
+        description="ISO 8601 duration string",
+        sa_column=Column(Interval(), nullable=True),
+    )
     offset: timedelta | None = Field(None, description="ISO 8601 duration string")
     start_at: datetime | None = Field(None, description="ISO 8601 datetime string")
     end_at: datetime | None = Field(None, description="ISO 8601 datetime string")

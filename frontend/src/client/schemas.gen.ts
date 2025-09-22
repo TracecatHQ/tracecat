@@ -710,14 +710,7 @@ export const $AgentOutput = {
       title: "Duration",
     },
     usage: {
-      anyOf: [
-        {
-          $ref: "#/components/schemas/RunUsage",
-        },
-        {
-          type: "null",
-        },
-      ],
+      $ref: "#/components/schemas/RunUsage",
     },
     trace_id: {
       anyOf: [
@@ -732,7 +725,7 @@ export const $AgentOutput = {
     },
   },
   type: "object",
-  required: ["output", "message_history", "duration"],
+  required: ["output", "message_history", "duration", "usage"],
   title: "AgentOutput",
 } as const
 
@@ -8699,8 +8692,15 @@ export const $Schedule = {
       title: "Inputs",
     },
     every: {
-      type: "string",
-      format: "duration",
+      anyOf: [
+        {
+          type: "string",
+          format: "duration",
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "Every",
       description: "ISO 8601 duration string",
     },
@@ -8763,7 +8763,7 @@ export const $Schedule = {
     },
   },
   type: "object",
-  required: ["owner_id", "every", "workflow_id"],
+  required: ["owner_id", "workflow_id"],
   title: "Schedule",
 } as const
 
@@ -8806,8 +8806,15 @@ export const $ScheduleCreate = {
       title: "Cron",
     },
     every: {
-      type: "string",
-      format: "duration",
+      anyOf: [
+        {
+          type: "string",
+          format: "duration",
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "Every",
       description: "ISO 8601 duration string",
     },
@@ -8865,7 +8872,7 @@ export const $ScheduleCreate = {
     },
   },
   type: "object",
-  required: ["workflow_id", "every"],
+  required: ["workflow_id"],
   title: "ScheduleCreate",
 } as const
 
