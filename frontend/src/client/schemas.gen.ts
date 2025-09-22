@@ -8384,7 +8384,7 @@ export const $RunbookExecuteRequest = {
   type: "object",
   required: ["case_ids"],
   title: "RunbookExecuteRequest",
-  description: "Request model for executing a runbook on a case.",
+  description: "Request model for executing a runbook on cases.",
 } as const
 
 export const $RunbookExecuteResponse = {
@@ -8401,7 +8401,7 @@ export const $RunbookExecuteResponse = {
   type: "object",
   required: ["stream_urls"],
   title: "RunbookExecuteResponse",
-  description: "Response model for executing a runbook on a case.",
+  description: "Response model for executing a runbook on cases.",
 } as const
 
 export const $RunbookRead = {

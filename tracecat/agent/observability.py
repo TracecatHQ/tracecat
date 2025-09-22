@@ -2,18 +2,13 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 from tracecat.contexts import ctx_run
 from tracecat.logger import logger
 
-try:  # pragma: no cover - optional dependency import
+try:
     from langfuse import get_client
-except ImportError:  # pragma: no cover - optional dependency import
-    get_client = None  # type: ignore[assignment]
-
-if TYPE_CHECKING:  # pragma: no cover - typing aid only
-    pass
+except ImportError:
+    get_client = None
 
 
 def init_langfuse(model_name: str | None, model_provider: str | None) -> str | None:

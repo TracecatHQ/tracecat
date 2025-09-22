@@ -2909,7 +2909,7 @@ export type RunbookCreate = {
 }
 
 /**
- * Request model for executing a runbook on a case.
+ * Request model for executing a runbook on cases.
  */
 export type RunbookExecuteRequest = {
   /**
@@ -2919,7 +2919,7 @@ export type RunbookExecuteRequest = {
 }
 
 /**
- * Response model for executing a runbook on a case.
+ * Response model for executing a runbook on cases.
  */
 export type RunbookExecuteResponse = {
   /**
