@@ -23,6 +23,7 @@ from tracecat.logger import logger
 from tracecat.redis.client import get_redis_client
 from tracecat.runbook.prompts import RunbookCopilotPrompts
 from tracecat.service import BaseWorkspaceService
+from tracecat.types.exceptions import TracecatNotFoundError
 
 
 class ChatService(BaseWorkspaceService):
@@ -69,7 +70,7 @@ class ChatService(BaseWorkspaceService):
         cases_service = CasesService(self.session, self.role)
         case = await cases_service.get_case(case_id)
         if not case:
-            raise ValueError(f"Case with ID {case_id} not found")
+            raise TracecatNotFoundError(f"Case with ID {case_id} not found")
         return case
 
     async def _get_runbook(self, runbook_id: uuid.UUID) -> Runbook | None:
@@ -110,7 +111,7 @@ class ChatService(BaseWorkspaceService):
         # Get the chat
         chat = await self.get_chat(chat_id)
         if not chat:
-            raise ValueError(f"Chat with ID {chat_id} not found")
+            raise TracecatNotFoundError(f"Chat with ID {chat_id} not found")
 
         # Prepare agent execution arguments
         instructions = await self._chat_entity_to_prompt(chat.entity_type, chat)

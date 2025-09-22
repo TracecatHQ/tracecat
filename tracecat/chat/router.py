@@ -29,6 +29,7 @@ from tracecat.chat.service import ChatService
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.logger import logger
 from tracecat.redis.client import get_redis_client
+from tracecat.types.exceptions import TracecatNotFoundError
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -151,9 +152,14 @@ async def start_chat_turn(
             request=request,
             executor=executor,
         )
-    except ValueError as e:
+    except TracecatNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         ) from e
     except Exception as e:
