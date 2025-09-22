@@ -1,5 +1,6 @@
 "use client"
 
+import Link from "next/link"
 import { BracesIcon, SquareStackIcon } from "lucide-react"
 import {
   Tooltip,
@@ -18,12 +19,16 @@ interface CasesViewToggleProps {
   view: CasesViewMode
   onViewChange?: (view: CasesViewMode) => void
   className?: string
+  casesHref?: string
+  customFieldsHref?: string
 }
 
 export function CasesViewToggle({
   view,
   onViewChange,
   className,
+  casesHref,
+  customFieldsHref,
 }: CasesViewToggleProps) {
   const handleViewChange = (view: CasesViewMode) => {
     onViewChange?.(view)
@@ -40,20 +45,37 @@ export function CasesViewToggle({
       <TooltipProvider>
         <Tooltip>
           <TooltipTrigger asChild>
-            <button
-              type="button"
-              onClick={() => handleViewChange(CasesViewMode.Cases)}
-              className={cn(
-                "flex size-7 items-center justify-center rounded-l-sm transition-colors",
-                view === CasesViewMode.Cases
-                  ? "bg-background text-accent-foreground"
-                  : "bg-accent text-muted-foreground hover:bg-muted/50"
-              )}
-              aria-current={view === CasesViewMode.Cases}
-              aria-label="Cases view"
-            >
-              <SquareStackIcon className="size-3.5" />
-            </button>
+            {casesHref ? (
+              <Link
+                href={casesHref}
+                onClick={() => handleViewChange(CasesViewMode.Cases)}
+                className={cn(
+                  "flex size-7 items-center justify-center rounded-l-sm transition-colors",
+                  view === CasesViewMode.Cases
+                    ? "bg-background text-accent-foreground"
+                    : "bg-accent text-muted-foreground hover:bg-muted/50"
+                )}
+                aria-current={view === CasesViewMode.Cases ? "page" : undefined}
+                aria-label="Cases view"
+              >
+                <SquareStackIcon className="size-3.5" />
+              </Link>
+            ) : (
+              <button
+                type="button"
+                onClick={() => handleViewChange(CasesViewMode.Cases)}
+                className={cn(
+                  "flex size-7 items-center justify-center rounded-l-sm transition-colors",
+                  view === CasesViewMode.Cases
+                    ? "bg-background text-accent-foreground"
+                    : "bg-accent text-muted-foreground hover:bg-muted/50"
+                )}
+                aria-current={view === CasesViewMode.Cases}
+                aria-label="Cases view"
+              >
+                <SquareStackIcon className="size-3.5" />
+              </button>
+            )}
           </TooltipTrigger>
           <TooltipContent>
             <p>Cases table</p>
@@ -63,20 +85,40 @@ export function CasesViewToggle({
       <TooltipProvider>
         <Tooltip>
           <TooltipTrigger asChild>
-            <button
-              type="button"
-              onClick={() => handleViewChange(CasesViewMode.CustomFields)}
-              className={cn(
-                "flex size-7 items-center justify-center rounded-r-sm transition-colors",
-                view === CasesViewMode.CustomFields
-                  ? "bg-background text-accent-foreground"
-                  : "bg-accent text-muted-foreground hover:bg-muted/50"
-              )}
-              aria-current={view === CasesViewMode.CustomFields}
-              aria-label="Custom fields view"
-            >
-              <BracesIcon className="size-3.5" />
-            </button>
+            {customFieldsHref ? (
+              <Link
+                href={customFieldsHref}
+                onClick={() =>
+                  handleViewChange(CasesViewMode.CustomFields)
+                }
+                className={cn(
+                  "flex size-7 items-center justify-center rounded-r-sm transition-colors",
+                  view === CasesViewMode.CustomFields
+                    ? "bg-background text-accent-foreground"
+                    : "bg-accent text-muted-foreground hover:bg-muted/50"
+                )}
+                aria-current=
+                  {view === CasesViewMode.CustomFields ? "page" : undefined}
+                aria-label="Custom fields view"
+              >
+                <BracesIcon className="size-3.5" />
+              </Link>
+            ) : (
+              <button
+                type="button"
+                onClick={() => handleViewChange(CasesViewMode.CustomFields)}
+                className={cn(
+                  "flex size-7 items-center justify-center rounded-r-sm transition-colors",
+                  view === CasesViewMode.CustomFields
+                    ? "bg-background text-accent-foreground"
+                    : "bg-accent text-muted-foreground hover:bg-muted/50"
+                )}
+                aria-current={view === CasesViewMode.CustomFields}
+                aria-label="Custom fields view"
+              >
+                <BracesIcon className="size-3.5" />
+              </button>
+            )}
           </TooltipTrigger>
           <TooltipContent>
             <p>Custom fields</p>
