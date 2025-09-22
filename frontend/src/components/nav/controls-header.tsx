@@ -250,9 +250,7 @@ function RunbooksActions() {
   const handleCreateRunbook = async () => {
     try {
       // Create a runbook without chat_id - backend will auto-generate title and content
-      const runbook = await createRunbook({
-        meta: { created_directly: true },
-      })
+      const runbook = await createRunbook({})
 
       // Navigate to the new runbook
       router.push(`/workspaces/${workspaceId}/runbooks/${runbook.id}`)
