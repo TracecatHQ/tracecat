@@ -8,7 +8,7 @@ import {
 import { useCallback, useEffect, useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
-import type { PromptRead, PromptUpdate } from "@/client"
+import type { RunbookRead, RunbookUpdate } from "@/client"
 import { CaseDescriptionEditor } from "@/components/cases/case-description-editor"
 import { Form, FormControl, FormField, FormItem } from "@/components/ui/form"
 import { cn } from "@/lib/utils"
@@ -27,32 +27,32 @@ enum SaveState {
 }
 
 interface RunbookSummaryEditorProps {
-  promptData: PromptRead
-  updatePrompt: (params: {
-    promptId: string
-    request: PromptUpdate
-  }) => Promise<PromptRead>
+  runbookData: RunbookRead
+  updateRunbook: (params: {
+    runbookId: string
+    request: RunbookUpdate
+  }) => Promise<RunbookRead>
 }
 
 export function RunbookSummaryEditor({
-  promptData,
-  updatePrompt,
+  runbookData,
+  updateRunbook,
 }: RunbookSummaryEditorProps) {
   const [saveState, setSaveState] = useState<SaveState>(SaveState.IDLE)
 
   const form = useForm<SummaryFormSchema>({
     resolver: zodResolver(summaryFormSchema),
     defaultValues: {
-      summary: promptData?.summary || "",
+      summary: runbookData?.summary || "",
     },
   })
 
   // Reset form when promptData changes to avoid false dirty states
   useEffect(() => {
     form.reset({
-      summary: promptData?.summary || "",
+      summary: runbookData?.summary || "",
     })
-  }, [promptData, form])
+  }, [runbookData, form])
 
   // Update save state when form state changes
   useEffect(() => {
@@ -63,14 +63,14 @@ export function RunbookSummaryEditor({
 
   const handleSave = useCallback(
     async (values: SummaryFormSchema) => {
-      if (values.summary === promptData?.summary) {
+      if (values.summary === runbookData?.summary) {
         return // No changes to save
       }
 
       setSaveState(SaveState.SAVING)
       try {
-        await updatePrompt({
-          promptId: promptData.id,
+        await updateRunbook({
+          runbookId: runbookData.id,
           request: { summary: values.summary },
         })
         setSaveState(SaveState.SAVED)
@@ -82,7 +82,7 @@ export function RunbookSummaryEditor({
         setSaveState(SaveState.ERROR)
       }
     },
-    [updatePrompt, promptData, form]
+    [updateRunbook, runbookData, form]
   )
 
   // Save on blur
@@ -117,7 +117,7 @@ export function RunbookSummaryEditor({
                 <FormControl>
                   <CaseDescriptionEditor
                     className="min-h-[250px]"
-                    initialContent={promptData.summary || ""}
+                    initialContent={runbookData.summary || ""}
                     onChange={(content) => {
                       field.onChange(content)
                     }}

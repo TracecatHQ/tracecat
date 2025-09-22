@@ -1,7 +1,8 @@
 from datetime import datetime, timedelta
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from croniter import croniter
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from tracecat.identifiers import OwnerID, ScheduleID, WorkflowID
 from tracecat.identifiers.workflow import AnyWorkflowID
@@ -28,25 +29,62 @@ class ScheduleCreate(BaseModel):
     workflow_id: AnyWorkflowID
     inputs: dict[str, Any] | None = None
     cron: str | None = None
-    every: timedelta = Field(..., description="ISO 8601 duration string")
-    offset: timedelta | None = Field(None, description="ISO 8601 duration string")
-    start_at: datetime | None = Field(None, description="ISO 8601 datetime string")
-    end_at: datetime | None = Field(None, description="ISO 8601 datetime string")
+    every: timedelta | None = Field(
+        default=None, description="ISO 8601 duration string"
+    )
+    offset: timedelta | None = Field(
+        default=None, description="ISO 8601 duration string"
+    )
+    start_at: datetime | None = Field(
+        default=None, description="ISO 8601 datetime string"
+    )
+    end_at: datetime | None = Field(
+        default=None, description="ISO 8601 datetime string"
+    )
     status: Literal["online", "offline"] = "online"
     timeout: float = Field(
         default=0,
         description="The maximum number of seconds to wait for the workflow to complete",
     )
 
+    @model_validator(mode="after")
+    def validate_schedule_spec(self) -> "ScheduleCreate":
+        """Ensure at least one schedule specifier is provided."""
+        if self.cron is None and self.every is None:
+            raise ValueError("Either cron or every must be provided for a schedule")
+        return self
+
+    @field_validator("cron")
+    @classmethod
+    def validate_cron_expression(cls, cron: str | None) -> str | None:
+        if cron and not croniter.is_valid(cron):
+            raise ValueError(f"Invalid cron expression: {cron}")
+        return cron
+
 
 class ScheduleUpdate(BaseModel):
     inputs: dict[str, Any] | None = None
     cron: str | None = None
-    every: timedelta | None = Field(None, description="ISO 8601 duration string")
-    offset: timedelta | None = Field(None, description="ISO 8601 duration string")
-    start_at: datetime | None = Field(None, description="ISO 8601 datetime string")
-    end_at: datetime | None = Field(None, description="ISO 8601 datetime string")
+    every: timedelta | None = Field(
+        default=None, description="ISO 8601 duration string"
+    )
+    offset: timedelta | None = Field(
+        default=None, description="ISO 8601 duration string"
+    )
+    start_at: datetime | None = Field(
+        default=None, description="ISO 8601 datetime string"
+    )
+    end_at: datetime | None = Field(
+        default=None, description="ISO 8601 datetime string"
+    )
     status: Literal["online", "offline"] | None = None
+
+    @field_validator("cron")
+    @classmethod
+    def validate_cron_expression(cls, cron: str | None) -> str | None:
+        if cron and not croniter.is_valid(cron):
+            raise ValueError(f"Invalid cron expression: {cron}")
+        return cron
 
 
 class ScheduleSearch(BaseModel):

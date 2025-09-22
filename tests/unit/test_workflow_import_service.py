@@ -1,7 +1,5 @@
 """Tests for WorkflowImportService functionality."""
 
-from datetime import timedelta
-
 import pytest
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -54,7 +52,6 @@ def sample_dsl() -> DSLInput:
                 depends_on=["test_action"],
             ),
         ],
-        inputs={"test_input": "default_value"},
         config=DSLConfig(timeout=300),
     )
 
@@ -70,7 +67,6 @@ def remote_workflow_definition(sample_dsl: DSLInput) -> RemoteWorkflowDefinition
             RemoteWorkflowSchedule(
                 status="online",
                 cron="0 */6 * * *",
-                every=timedelta(seconds=21600),
                 timeout=300.0,
             )
         ],
@@ -163,7 +159,7 @@ class TestWorkflowImportService:
         schedule = result.first()
         assert schedule is not None
         assert schedule.cron == "0 */6 * * *"
-        assert schedule.every == timedelta(seconds=21600)
+        assert schedule.every is None
         assert schedule.timeout == 300.0
         assert schedule.status == "online"
 
@@ -389,13 +385,11 @@ class TestWorkflowImportService:
             RemoteWorkflowSchedule(
                 status="offline",
                 cron="0 0 * * *",  # Daily instead of every 6 hours
-                every=timedelta(seconds=86400),  # 24 hours
                 timeout=600.0,  # 10 minutes
             ),
             RemoteWorkflowSchedule(
                 status="online",
                 cron="0 12 * * *",  # Additional noon schedule
-                every=timedelta(seconds=86400),
                 timeout=300.0,
             ),
         ]

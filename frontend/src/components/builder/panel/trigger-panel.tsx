@@ -5,11 +5,13 @@ import "react18-json-view/src/style.css"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { CheckIcon, DotsHorizontalIcon } from "@radix-ui/react-icons"
 import { CalendarClockIcon, PlusCircleIcon, WebhookIcon } from "lucide-react"
+import { useEffect } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import {
   $WebhookMethod,
   ApiError,
+  type SchedulesCreateScheduleData,
   type WebhookMethod,
   type WebhookRead,
   type WorkflowRead,
@@ -66,6 +68,13 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import { Switch } from "@/components/ui/switch"
 import {
@@ -97,18 +106,18 @@ const HTTP_METHODS: readonly WebhookMethod[] = $WebhookMethod.enum
 
 export function TriggerPanel({ workflow }: { workflow: WorkflowRead }) {
   return (
-    <div className="size-full overflow-auto">
+    <div className="overflow-auto size-full">
       <div className="grid grid-cols-3">
-        <div className="col-span-2 overflow-hidden">
+        <div className="overflow-hidden col-span-2">
           <h3 className="p-4">
-            <div className="flex w-full items-center space-x-4">
+            <div className="flex items-center space-x-4 w-full">
               {getIcon(TriggerTypename, {
                 className: "size-10 p-2",
                 flairsize: "md",
               })}
-              <div className="flex w-full flex-1 justify-between space-x-12">
+              <div className="flex flex-1 justify-between space-x-12 w-full">
                 <div className="flex flex-col">
-                  <div className="flex w-full items-center justify-between text-xs font-medium leading-none">
+                  <div className="flex justify-between items-center w-full text-xs font-medium leading-none">
                     <div className="flex w-full">Trigger</div>
                   </div>
                   <p className="mt-2 text-xs text-muted-foreground">
@@ -139,7 +148,7 @@ export function TriggerPanel({ workflow }: { workflow: WorkflowRead }) {
             </div>
           </AccordionTrigger>
           <AccordionContent>
-            <div className="my-4 space-y-2 px-4">
+            <div className="px-4 my-4 space-y-2">
               <WebhookControls
                 webhook={workflow.webhook}
                 workflowId={workflow.id}
@@ -157,7 +166,7 @@ export function TriggerPanel({ workflow }: { workflow: WorkflowRead }) {
             </div>
           </AccordionTrigger>
           <AccordionContent>
-            <div className="my-4 space-y-2 px-4">
+            <div className="px-4 my-4 space-y-2">
               <ScheduleControls workflowId={workflow.id} />
             </div>
           </AccordionContent>
@@ -205,10 +214,10 @@ export function WebhookControls({
   return (
     <div className="space-y-4">
       <div className="space-y-2">
-        <div className="flex items-center justify-between">
+        <div className="flex justify-between items-center">
           <Label
             htmlFor="webhook-toggle"
-            className="flex items-center gap-2 text-xs font-medium"
+            className="flex gap-2 items-center text-xs font-medium"
           >
             <span>Toggle Webhook</span>
           </Label>
@@ -227,7 +236,7 @@ export function WebhookControls({
       </div>
 
       <div className="space-y-2">
-        <Label className="flex items-center gap-2 text-xs font-medium">
+        <Label className="flex gap-2 items-center text-xs font-medium">
           <span>Allowed HTTP Methods</span>
         </Label>
         <div className="relative w-full">
@@ -236,7 +245,7 @@ export function WebhookControls({
               <Button
                 variant="outline"
                 role="combobox"
-                className="w-full justify-between text-xs"
+                className="justify-between w-full text-xs"
               >
                 {methods.length > 0
                   ? methods.sort().join(", ")
@@ -275,7 +284,7 @@ export function WebhookControls({
       </div>
 
       <div className="space-y-2">
-        <Label className="flex items-center gap-2 text-xs font-medium">
+        <Label className="flex gap-2 items-center text-xs font-medium">
           <span>URL</span>
           <CopyButton value={url} toastMessage="Copied URL to clipboard" />
         </Label>
@@ -283,7 +292,7 @@ export function WebhookControls({
           <Input
             name="url"
             defaultValue={url}
-            className="rounded-md border-none text-xs shadow-none"
+            className="text-xs rounded-md border-none shadow-none"
             readOnly
             disabled
           />
@@ -323,106 +332,146 @@ export function ScheduleControls({ workflowId }: { workflowId: string }) {
             <TableHead className="pl-3 text-xs font-semibold">
               Schedule ID
             </TableHead>
-            <TableHead className="text-xs font-semibold">Interval</TableHead>
+            <TableHead className="text-xs font-semibold">Type</TableHead>
+            <TableHead className="text-xs font-semibold">Schedule</TableHead>
             <TableHead className="text-xs font-semibold">Status</TableHead>
             <TableHead className="text-xs font-semibold">Timeout</TableHead>
+            <TableHead className="text-xs font-semibold">Offset</TableHead>
+            <TableHead className="text-right text-xs font-semibold">
+              Actions
+            </TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {schedules.length > 0 ? (
-            schedules.map(({ id, status, every, timeout }) => (
-              <TableRow key={id} className="ext-xs text-muted-foreground">
-                <TableCell className="items-center pl-3 text-xs">
-                  {id}
-                </TableCell>
-                <TableCell className="items-center text-xs">
-                  {durationToHumanReadable(every)}
-                </TableCell>
-                <TableCell className="text-xs capitalize">
-                  <div className="flex">
-                    <p>{status}</p>
-                  </div>
-                </TableCell>
-                <TableCell className="text-xs capitalize">
-                  <div className="flex">
-                    <p>{timeout ? `${timeout}s` : "None"}</p>
-                  </div>
-                </TableCell>
-                <TableCell className="items-center pr-3 text-xs">
-                  <div className="flex justify-end">
-                    <AlertDialog>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button className="size-6 p-0" variant="ghost">
-                            <DotsHorizontalIcon className="size-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent>
-                          <DropdownMenuLabel className="text-xs">
-                            Actions
-                          </DropdownMenuLabel>
-                          <DropdownMenuItem
-                            onClick={() => navigator.clipboard.writeText(id!)}
-                            className="text-xs"
-                          >
-                            Copy ID
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            className={cn("text-xs", status === "online")}
-                            onClick={async () =>
-                              await updateSchedule({
-                                workspaceId,
-                                scheduleId: id!,
-                                requestBody: {
-                                  status:
-                                    status === "online" ? "offline" : "online",
-                                },
-                              })
-                            }
-                          >
-                            {status === "online" ? "Pause" : "Unpause"}
-                          </DropdownMenuItem>
-                          <AlertDialogTrigger asChild>
-                            <DropdownMenuItem className="text-xs text-rose-500 focus:text-rose-600">
-                              Delete
+            schedules.map(({ id, status, every, cron, timeout, offset }) => {
+              const isCron = Boolean(cron)
+              const scheduleLabel = isCron
+                ? cron
+                : every
+                  ? durationToHumanReadable(every)
+                  : "—"
+              const offsetLabel =
+                !isCron && offset
+                  ? (() => {
+                      try {
+                        return durationToHumanReadable(offset)
+                      } catch {
+                        return offset
+                      }
+                    })()
+                  : "None"
+
+              return (
+                <TableRow key={id} className="ext-xs text-muted-foreground">
+                  <TableCell className="items-center pl-3 text-xs">
+                    {id}
+                  </TableCell>
+                  <TableCell className="items-center text-xs">
+                    {isCron ? "Cron" : "Interval"}
+                  </TableCell>
+                  <TableCell className="items-center text-xs">
+                    {isCron ? (
+                      <code className="rounded bg-muted px-1 py-0.5 text-[11px]">
+                        {scheduleLabel}
+                      </code>
+                    ) : (
+                      scheduleLabel
+                    )}
+                  </TableCell>
+                  <TableCell className="text-xs capitalize">
+                    <div className="flex">
+                      <p>{status}</p>
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-xs capitalize">
+                    <div className="flex">
+                      <p>{timeout ? `${timeout}s` : "None"}</p>
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-xs">
+                    <div className="flex">
+                      <p>{offsetLabel}</p>
+                    </div>
+                  </TableCell>
+                  <TableCell className="items-center pr-3 text-xs">
+                    <div className="flex justify-end">
+                      <AlertDialog>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button className="p-0 size-6" variant="ghost">
+                              <DotsHorizontalIcon className="size-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent>
+                            <DropdownMenuLabel className="text-xs">
+                              Actions
+                            </DropdownMenuLabel>
+                            <DropdownMenuItem
+                              onClick={() => navigator.clipboard.writeText(id!)}
+                              className="text-xs"
+                            >
+                              Copy ID
                             </DropdownMenuItem>
-                          </AlertDialogTrigger>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                      <AlertDialogContent>
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>Delete schedule</AlertDialogTitle>
-                          <AlertDialogDescription>
-                            Are you sure you want to delete this schedule? This
-                            action cannot be undone.
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel>Cancel</AlertDialogCancel>
-                          <AlertDialogAction
-                            variant="destructive"
-                            onClick={async () =>
-                              await deleteSchedule({
-                                workspaceId,
-                                scheduleId: id!,
-                              })
-                            }
-                          >
-                            Confirm
-                          </AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
-                  </div>
-                </TableCell>
-              </TableRow>
-            ))
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              className={cn("text-xs", status === "online")}
+                              onClick={async () =>
+                                await updateSchedule({
+                                  workspaceId,
+                                  scheduleId: id!,
+                                  requestBody: {
+                                    status:
+                                      status === "online"
+                                        ? "offline"
+                                        : "online",
+                                  },
+                                })
+                              }
+                            >
+                              {status === "online" ? "Pause" : "Unpause"}
+                            </DropdownMenuItem>
+                            <AlertDialogTrigger asChild>
+                              <DropdownMenuItem className="text-xs text-rose-500 focus:text-rose-600">
+                                Delete
+                              </DropdownMenuItem>
+                            </AlertDialogTrigger>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Delete schedule</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Are you sure you want to delete this schedule?
+                              This action cannot be undone.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction
+                              variant="destructive"
+                              onClick={async () =>
+                                await deleteSchedule({
+                                  workspaceId,
+                                  scheduleId: id!,
+                                })
+                              }
+                            >
+                              Confirm
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              )
+            })
           ) : (
             <TableRow className="justify-center text-xs text-muted-foreground">
               <TableCell
-                className="h-8 bg-muted-foreground/5 text-center"
-                colSpan={4}
+                className="h-8 text-center bg-muted-foreground/5"
+                colSpan={7}
               >
                 No Schedules
               </TableCell>
@@ -436,10 +485,82 @@ export function ScheduleControls({ workflowId }: { workflowId: string }) {
   )
 }
 
-const scheduleInputsSchema = z.object({
-  duration: durationSchema,
-  timeout: z.number().optional(),
+const ISO_8601_DURATION_REGEX =
+  /^P(?!$)(\d+(?:\.\d+)?Y)?(\d+(?:\.\d+)?M)?(\d+(?:\.\d+)?W)?(\d+(?:\.\d+)?D)?(T(\d+(?:\.\d+)?H)?(\d+(?:\.\d+)?M)?(\d+(?:\.\d+)?S)?)?$/
+
+const BASIC_CRON_REGEX = /^(\S+\s+){4,5}\S+$/
+
+const durationNumber = z.coerce.number().int().nonnegative().catch(0)
+
+const rawDurationSchema = z.object({
+  years: durationNumber,
+  months: durationNumber,
+  weeks: durationNumber,
+  days: durationNumber,
+  hours: durationNumber,
+  minutes: durationNumber,
+  seconds: durationNumber,
 })
+
+const scheduleInputsSchema = z
+  .object({
+    mode: z.enum(["interval", "cron"]).default("interval"),
+    duration: rawDurationSchema,
+    cronExpression: z.string().optional(),
+    timeout: z.number().optional(),
+    offset: z.string().optional(),
+  })
+  .superRefine((values, ctx) => {
+    if (values.mode === "interval") {
+      try {
+        // Validates at least one component and positive numbers
+        durationSchema.parse(values.duration)
+      } catch (error) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["duration.seconds"],
+          message:
+            error instanceof Error
+              ? error.message
+              : "Please provide a valid interval duration.",
+        })
+      }
+
+      if (values.offset && values.offset.trim() !== "") {
+        if (!ISO_8601_DURATION_REGEX.test(values.offset)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["offset"],
+            message:
+              "Must be a valid ISO 8601 duration string (e.g., PT1H, P1D, PT30M)",
+          })
+        }
+      }
+    } else {
+      const cron = values.cronExpression?.trim()
+      if (!cron) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["cronExpression"],
+          message: "Cron expression is required for cron schedules.",
+        })
+      } else if (!BASIC_CRON_REGEX.test(cron)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["cronExpression"],
+          message: "Enter a valid cron expression with 5 or 6 fields.",
+        })
+      }
+
+      if (values.offset) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["offset"],
+          message: "Offset is only supported for interval schedules.",
+        })
+      }
+    }
+  })
 type DurationType =
   | "duration.years"
   | "duration.months"
@@ -456,7 +577,32 @@ export function CreateScheduleDialog({ workflowId }: { workflowId: string }) {
   const hasVersion = !!workflow?.version
   const form = useForm<ScheduleInputs>({
     resolver: zodResolver(scheduleInputsSchema),
+    defaultValues: {
+      mode: "interval",
+      duration: {
+        years: 0,
+        months: 0,
+        weeks: 0,
+        days: 0,
+        hours: 0,
+        minutes: 0,
+        seconds: 0,
+      },
+      cronExpression: "",
+      timeout: undefined,
+      offset: "",
+    },
   })
+  const mode = form.watch("mode")
+
+  useEffect(() => {
+    if (mode === "cron") {
+      form.setValue("offset", "")
+      form.clearErrors(["offset"])
+    } else {
+      form.clearErrors(["cronExpression"])
+    }
+  }, [form, mode])
 
   const onSubmit = async (values: ScheduleInputs) => {
     if (!hasVersion) {
@@ -468,17 +614,39 @@ export function CreateScheduleDialog({ workflowId }: { workflowId: string }) {
       return
     }
 
-    const { duration, timeout } = values
+    const { mode, duration, cronExpression, timeout, offset } = values
     try {
+      const payload: SchedulesCreateScheduleData["requestBody"] = {
+        workflow_id: workflowId,
+      }
+
+      const sanitizedTimeout =
+        typeof timeout === "number" && !Number.isNaN(timeout)
+          ? timeout
+          : undefined
+      if (sanitizedTimeout !== undefined) {
+        payload.timeout = sanitizedTimeout
+      }
+
+      if (mode === "interval") {
+        const parsedDuration = durationSchema.parse(duration)
+        payload.every = durationToISOString(parsedDuration)
+        if (offset && offset.trim() !== "") {
+          payload.offset = offset
+        }
+      } else {
+        const cron = cronExpression?.trim()
+        if (cron) {
+          payload.cron = cron
+        }
+      }
+
       const response = await createSchedule({
         workspaceId,
-        requestBody: {
-          workflow_id: workflowId,
-          every: durationToISOString(duration),
-          timeout,
-        },
+        requestBody: payload,
       })
       console.log("Schedule created", response)
+      form.reset()
     } catch (error) {
       if (error instanceof ApiError) {
         console.error("Failed to create schedule", error.body)
@@ -499,7 +667,7 @@ export function CreateScheduleDialog({ workflowId }: { workflowId: string }) {
                   type="button"
                   variant="ghost"
                   size="sm"
-                  className="flex h-7 w-full items-center justify-center gap-2 text-muted-foreground"
+                  className="flex gap-2 justify-center items-center w-full h-7 text-muted-foreground"
                   disabled={!hasVersion}
                 >
                   <PlusCircleIcon className="size-4" />
@@ -538,41 +706,98 @@ export function CreateScheduleDialog({ workflowId }: { workflowId: string }) {
               })
             })}
           >
-            <div className="grid grid-cols-2 gap-2">
-              {[
-                "duration.years",
-                "duration.months",
-                "duration.days",
-                "duration.hours",
-                "duration.minutes",
-                "duration.seconds",
-              ].map((unit) => (
-                <FormField
-                  key={unit}
-                  control={form.control}
-                  name={unit as DurationType}
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel className="text-xs capitalize text-foreground/80">
-                        {unit.split(".")[1]}
-                      </FormLabel>
-                      <FormControl>
-                        <Input
-                          type="number"
-                          className="text-xs capitalize"
-                          placeholder={unit}
-                          value={Math.max(0, Number(field.value || 0))}
-                          {...form.register(unit as DurationType, {
-                            valueAsNumber: true,
-                          })}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              ))}
-            </div>
+            <FormField
+              control={form.control}
+              name="mode"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-xs capitalize text-foreground/80">
+                    Schedule Type
+                  </FormLabel>
+                  <FormDescription className="text-xs">
+                    Choose between interval-based or cron-based scheduling.
+                  </FormDescription>
+                  <FormControl>
+                    <Select value={field.value} onValueChange={field.onChange}>
+                      <SelectTrigger className="text-xs capitalize">
+                        <SelectValue placeholder="Select schedule type" />
+                      </SelectTrigger>
+                      <SelectContent className="text-xs">
+                        <SelectItem value="interval">Interval</SelectItem>
+                        <SelectItem value="cron">Cron</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            {mode === "interval" && (
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  "duration.years",
+                  "duration.months",
+                  "duration.days",
+                  "duration.hours",
+                  "duration.minutes",
+                  "duration.seconds",
+                ].map((unit) => (
+                  <FormField
+                    key={unit}
+                    control={form.control}
+                    name={unit as DurationType}
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-xs capitalize text-foreground/80">
+                          {unit.split(".")[1]}
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            type="number"
+                            className="text-xs capitalize"
+                            placeholder={unit}
+                            value={Math.max(0, Number(field.value || 0))}
+                            {...form.register(unit as DurationType, {
+                              valueAsNumber: true,
+                            })}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                ))}
+              </div>
+            )}
+
+            {mode === "cron" && (
+              <FormField
+                control={form.control}
+                name="cronExpression"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-xs capitalize text-foreground/80">
+                      Cron Expression
+                    </FormLabel>
+                    <FormDescription className="text-xs">
+                      Standard 5 or 6 field cron format, e.g.{" "}
+                      <code className="font-mono">0 0 * * *</code>.
+                    </FormDescription>
+                    <FormControl>
+                      <Input
+                        type="text"
+                        className="text-xs font-mono"
+                        placeholder="0 0 * * *"
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
+
             <FormField
               key="timeout"
               control={form.control}
@@ -605,6 +830,35 @@ export function CreateScheduleDialog({ workflowId }: { workflowId: string }) {
                 </FormItem>
               )}
             />
+
+            {mode === "interval" && (
+              <FormField
+                key="offset"
+                control={form.control}
+                name="offset"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-xs capitalize text-foreground/80">
+                      Offset
+                    </FormLabel>
+                    <FormDescription className="text-xs">
+                      Optional delay before the first execution. Use ISO 8601
+                      duration format: PT1H (1 hour), P1D (1 day), PT30M (30
+                      minutes).
+                    </FormDescription>
+                    <FormControl>
+                      <Input
+                        type="text"
+                        className="text-xs"
+                        placeholder="PT1H (optional)"
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
             <DialogFooter className="mt-4">
               <DialogClose asChild>
                 <Button type="submit" variant="default">

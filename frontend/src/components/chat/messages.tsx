@@ -23,6 +23,8 @@ const caseUpdateActions = [
   "core__cases__create_comment",
 ]
 
+const runbookUpdateActions = ["core__runbooks__update_runbook"]
+
 export function Messages({
   messages,
   isResponding,
@@ -42,20 +44,24 @@ export function Messages({
     })
   }, [messages])
 
-  // Real-time invalidation when the agent updates a case
+  // Real-time invalidation when the agent updates a case or runbook
   // TODO: Make this generic and injectable from the parent component
   useEffect(() => {
-    if (entityType !== "case" || messages.length === 0) {
+    if (messages.length === 0) {
       return
     }
 
     // We have at least 1 message
     const lastMsg = messages[messages.length - 1]
 
+    // Handle case updates (on tool-call or tool-return)
     if (
-      lastMsg.kind === "response" &&
+      entityType === "case" &&
       lastMsg.parts.some(
-        (p) => "tool_name" in p && caseUpdateActions.includes(p.tool_name)
+        (p) =>
+          "tool_name" in p &&
+          p.tool_name &&
+          caseUpdateActions.includes(p.tool_name)
       )
     ) {
       console.log("Invalidating case queries")
@@ -68,6 +74,21 @@ export function Messages({
       queryClient.invalidateQueries({
         queryKey: ["case-comments", entityId, workspaceId],
       })
+    }
+
+    // Handle runbook updates (on tool-call or tool-return)
+    if (
+      entityType === "runbook" &&
+      lastMsg.parts.some(
+        (p) =>
+          "tool_name" in p &&
+          p.tool_name &&
+          runbookUpdateActions.includes(p.tool_name)
+      )
+    ) {
+      console.log("Invalidating runbook queries")
+      // Force-refetch the runbook & related queries so the UI updates instantly
+      queryClient.invalidateQueries({ queryKey: ["runbooks"], exact: false })
     }
   }, [messages, entityType, entityId, workspaceId, queryClient])
 
@@ -103,7 +124,7 @@ function NoMessages() {
           Start a conversation
         </h4>
         <p className="text-xs text-gray-500">
-          Ask me anything about this case or get help with investigation tasks.
+          Ask me anything or get help with your tasks.
         </p>
       </div>
     </div>

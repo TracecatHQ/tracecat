@@ -245,7 +245,7 @@ class ProviderConfig(BaseModel):
     """Data class for integration client credentials."""
 
     client_id: str
-    client_secret: SecretStr
+    client_secret: SecretStr | None = None
     provider_config: dict[str, Any]
     scopes: list[str] | None = None
 

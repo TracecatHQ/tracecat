@@ -4,7 +4,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { format, formatDistanceToNow } from "date-fns"
 import { Calendar, PanelRight, Plus } from "lucide-react"
 import Link from "next/link"
-import { usePathname, useSearchParams } from "next/navigation"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { type ReactNode, useState } from "react"
 import type { EntityRead, OAuthGrantType } from "@/client"
 import { entitiesCreateEntity } from "@/client"
@@ -20,6 +20,7 @@ import {
   ViewMode,
 } from "@/components/dashboard/folder-view-toggle"
 import { CreateEntityDialog } from "@/components/entities/create-entity-dialog"
+import { EntitySelectorPopover } from "@/components/entities/entity-selector-popover"
 import { CreateRecordDialog } from "@/components/records/create-record-dialog"
 import { CreateTableDialog } from "@/components/tables/table-create-dialog"
 import { TableInsertButton } from "@/components/tables/table-insert-button"
@@ -33,20 +34,7 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
 import { Button } from "@/components/ui/button"
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command"
 import { Label } from "@/components/ui/label"
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 import { Switch } from "@/components/ui/switch"
 import { toast } from "@/components/ui/use-toast"
@@ -57,11 +45,12 @@ import {
 } from "@/components/workspaces/add-workspace-secret"
 import { useEntities, useEntity } from "@/hooks/use-entities"
 import { useLocalStorage } from "@/hooks/use-local-storage"
+import { useCreateRunbook } from "@/hooks/use-runbook"
 import { useWorkspaceDetails } from "@/hooks/use-workspace"
 import { entityEvents } from "@/lib/entity-events"
 import {
   useGetCase,
-  useGetPrompt,
+  useGetRunbook,
   useGetTable,
   useIntegrationProvider,
 } from "@/lib/hooks"
@@ -253,62 +242,65 @@ function EntitiesActions() {
   )
 }
 
+function RunbooksActions() {
+  const workspaceId = useWorkspaceId()
+  const router = useRouter()
+  const { createRunbook, createRunbookPending } = useCreateRunbook(workspaceId)
+
+  const handleCreateRunbook = async () => {
+    try {
+      // Create a runbook without chat_id - backend will auto-generate title and content
+      const runbook = await createRunbook({
+        meta: { created_directly: true },
+      })
+
+      // Navigate to the new runbook
+      router.push(`/workspaces/${workspaceId}/runbooks/${runbook.id}`)
+    } catch (error) {
+      toast({
+        title: "Failed to create runbook",
+        description:
+          error instanceof Error
+            ? error.message
+            : "An unexpected error occurred. Please try again.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      className="h-7 bg-white"
+      onClick={handleCreateRunbook}
+      disabled={createRunbookPending}
+      title="Create runbooks"
+    >
+      <Plus className="mr-1 h-3.5 w-3.5" />
+      {createRunbookPending ? "Creating..." : "Add runbook"}
+    </Button>
+  )
+}
+
 function RecordsActions() {
   const workspaceId = useWorkspaceId()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [selectedEntityId, setSelectedEntityId] = useState<string>("")
-  const [comboboxOpen, setComboboxOpen] = useState(false)
   const { entities } = useEntities(workspaceId)
 
-  const handleEntitySelect = (entityId: string) => {
-    setSelectedEntityId(entityId)
-    setComboboxOpen(false)
+  const handleEntitySelect = (entity: EntityRead) => {
+    setSelectedEntityId(entity.id)
     setDialogOpen(true)
   }
 
   return (
     <>
-      <Popover open={comboboxOpen} onOpenChange={setComboboxOpen}>
-        <PopoverTrigger asChild>
-          <Button variant="outline" size="sm" className="h-7 bg-white">
-            <Plus className="mr-1 h-3.5 w-3.5" />
-            Add record
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent className="w-[300px] p-0" align="end">
-          <Command>
-            <CommandInput placeholder="Search entities..." className="h-9" />
-            <CommandEmpty>No entity found.</CommandEmpty>
-            <CommandList>
-              <CommandGroup>
-                {entities?.map((entity: EntityRead) => {
-                  const IconComponent = entity.icon
-                    ? getIconByName(entity.icon)
-                    : null
-                  return (
-                    <CommandItem
-                      key={entity.id}
-                      value={entity.display_name}
-                      onSelect={() => handleEntitySelect(entity.id)}
-                      className="flex items-center gap-2"
-                    >
-                      {IconComponent && (
-                        <IconComponent className="h-3.5 w-3.5 text-muted-foreground" />
-                      )}
-                      <span>{entity.display_name}</span>
-                      {entity.key && (
-                        <span className="ml-auto text-xs text-muted-foreground">
-                          {entity.key}
-                        </span>
-                      )}
-                    </CommandItem>
-                  )
-                })}
-              </CommandGroup>
-            </CommandList>
-          </Command>
-        </PopoverContent>
-      </Popover>
+      <EntitySelectorPopover
+        entities={entities}
+        onSelect={handleEntitySelect}
+        buttonText="Add record"
+      />
       {selectedEntityId && (
         <CreateRecordDialog
           open={dialogOpen}
@@ -473,7 +465,7 @@ function RunbookBreadcrumb({
   runbookId: string
   workspaceId: string
 }) {
-  const { data: prompt } = useGetPrompt({ workspaceId, promptId: runbookId })
+  const { data: runbook } = useGetRunbook({ workspaceId, runbookId })
 
   return (
     <Breadcrumb>
@@ -488,7 +480,7 @@ function RunbookBreadcrumb({
         </BreadcrumbSeparator>
         <BreadcrumbItem>
           <BreadcrumbPage className="font-semibold">
-            {prompt?.title || runbookId}
+            {runbook?.title || runbookId}
           </BreadcrumbPage>
         </BreadcrumbItem>
       </BreadcrumbList>
@@ -664,6 +656,7 @@ function getPageConfig(
 
     return {
       title: "Runbooks",
+      actions: <RunbooksActions />,
     }
   }
 

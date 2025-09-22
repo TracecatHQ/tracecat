@@ -7,7 +7,16 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from pydantic import UUID4, BaseModel, ConfigDict, computed_field
-from sqlalchemy import TIMESTAMP, Column, ForeignKey, Identity, Index, Integer, func
+from sqlalchemy import (
+    TIMESTAMP,
+    Column,
+    ForeignKey,
+    Identity,
+    Index,
+    Integer,
+    Interval,
+    func,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import UUID, Field, Relationship, SQLModel, UniqueConstraint
 
@@ -375,11 +384,6 @@ class Workflow(Resource, table=True):
         default=None,
         description="ID of the node directly connected to the trigger.",
     )
-    static_inputs: dict[str, Any] = Field(
-        default_factory=dict,
-        sa_column=Column(JSONB),
-        description="Static inputs for the workflow",
-    )
     expects: dict[str, Any] = Field(
         default_factory=dict,
         sa_column=Column(JSONB),
@@ -494,7 +498,11 @@ class Schedule(Resource, table=True):
     status: str = "online"  # "online" or "offline"
     cron: str | None = None
     inputs: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB))
-    every: timedelta = Field(..., description="ISO 8601 duration string")
+    every: timedelta | None = Field(
+        default=None,
+        description="ISO 8601 duration string",
+        sa_column=Column(Interval(), nullable=True),
+    )
     offset: timedelta | None = Field(None, description="ISO 8601 duration string")
     start_at: datetime | None = Field(None, description="ISO 8601 datetime string")
     end_at: datetime | None = Field(None, description="ISO 8601 datetime string")
@@ -1276,10 +1284,14 @@ class Chat(Resource, table=True):
     user: User = Relationship(back_populates="chats")
 
 
-class Prompt(Resource, table=True):
-    """A frozen chat that can be replayed on multiple cases."""
+class Runbook(Resource, table=True):
+    """A runbook that can be executed on cases."""
 
-    __tablename__: str = "prompt"
+    __tablename__: str = "runbook"
+
+    __table_args__ = (
+        UniqueConstraint("alias", "owner_id", name="uq_prompt_alias_owner_id"),
+    )
 
     id: uuid.UUID = Field(
         default_factory=uuid.uuid4,
@@ -1287,38 +1299,31 @@ class Prompt(Resource, table=True):
         unique=True,
         index=True,
     )
-    chat_id: UUID4 = Field(
-        sa_column=Column(
-            UUID, ForeignKey("chat.id", ondelete="CASCADE"), nullable=False
-        )
-    )
     title: str = Field(
         ...,
-        description="Human-readable title for the prompt",
+        description="Human-readable title for the runbook",
         nullable=False,
     )
     content: str = Field(
         ...,
-        description="The instruction prompt/runbook string passed to the agent",
+        description="The instruction runbook string passed to the agent",
         nullable=False,
     )
     tools: list[str] = Field(
         default_factory=list,
         sa_column=Column(JSONB),
-        description="The tools available to the agent for this prompt.",
+        description="The tools available to the agent for this runbook.",
     )
     summary: str | None = Field(
         default=None,
-        description="A summary of the prompt.",
+        description="A summary of the runbook.",
     )
+    alias: str | None = Field(default=None, description="Alias for the prompt")
     meta: dict[str, Any] = Field(
         default_factory=dict,
         sa_column=Column(JSONB),
         description="Metadata including schema version, tool SHA, token count",
     )
-
-    # Relationships
-    chat: Chat = Relationship()
 
 
 class Tag(Resource, table=True):

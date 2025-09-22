@@ -36,6 +36,9 @@ import {
   type CaseFieldRead,
   type CaseRead,
   type CaseReadMinimal,
+  type CaseRecordCreate,
+  type CaseRecordRead,
+  type CaseRecordsListCaseRecordsData,
   type CasesGetCaseData,
   type CasesListCasesData,
   type CasesListCommentsData,
@@ -43,6 +46,11 @@ import {
   type CaseTagCreate,
   type CaseTagRead,
   type CaseUpdate,
+  caseRecordsCreateCaseRecord,
+  caseRecordsDeleteCaseRecord,
+  caseRecordsListCaseRecords,
+  caseRecordsUnlinkCaseRecord,
+  caseRecordsUpdateCaseRecord,
   casesAddTag,
   casesCreateCase,
   casesCreateComment,
@@ -227,7 +235,7 @@ import {
   workspacesUpdateWorkspace,
 } from "@/client"
 import { toast } from "@/components/ui/use-toast"
-import { useGetPrompt } from "@/hooks/use-prompt"
+import { useGetRunbook } from "@/hooks/use-runbook"
 
 import { getBaseUrl } from "@/lib/api"
 import { retryHandler, type TracecatApiError } from "@/lib/errors"
@@ -2717,8 +2725,13 @@ export function useListCases({ workspaceId }: CasesListCasesData) {
     casesError,
   }
 }
-
-export function useGetCase({ caseId, workspaceId }: CasesGetCaseData) {
+interface UseGetCaseOptions {
+  enabled?: boolean
+}
+export function useGetCase(
+  { caseId, workspaceId }: CasesGetCaseData,
+  options?: UseGetCaseOptions
+) {
   const {
     data: caseData,
     isLoading: caseDataIsLoading,
@@ -2726,6 +2739,7 @@ export function useGetCase({ caseId, workspaceId }: CasesGetCaseData) {
   } = useQuery<CaseRead, TracecatApiError>({
     queryKey: ["case", caseId],
     queryFn: async () => await casesGetCase({ caseId, workspaceId }),
+    enabled: options?.enabled,
   })
 
   return {
@@ -2735,7 +2749,231 @@ export function useGetCase({ caseId, workspaceId }: CasesGetCaseData) {
   }
 }
 
-export { useGetPrompt }
+export function useCaseRecords({
+  caseId,
+  workspaceId,
+}: CaseRecordsListCaseRecordsData) {
+  const {
+    data: records,
+    isLoading: recordsIsLoading,
+    error: recordsError,
+  } = useQuery<CaseRecordRead[], TracecatApiError>({
+    queryKey: ["case-records", caseId, workspaceId],
+    queryFn: async () => {
+      const response = await caseRecordsListCaseRecords({ caseId, workspaceId })
+      return response.items || []
+    },
+  })
+
+  return {
+    records,
+    recordsIsLoading,
+    recordsError,
+  }
+}
+
+export function useCreateCaseRecord({
+  caseId,
+  workspaceId,
+}: {
+  caseId: string
+  workspaceId: string
+}) {
+  const queryClient = useQueryClient()
+
+  const {
+    mutateAsync: createCaseRecord,
+    isPending: createCaseRecordIsPending,
+    error: createCaseRecordError,
+  } = useMutation<CaseRecordRead, TracecatApiError, CaseRecordCreate>({
+    mutationFn: async (params: CaseRecordCreate) => {
+      return await caseRecordsCreateCaseRecord({
+        caseId,
+        workspaceId,
+        requestBody: params,
+      })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["case-records", caseId, workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["case-events", caseId, workspaceId],
+      })
+      toast({
+        title: "Record created",
+        description: "The record has been successfully linked to this case.",
+      })
+    },
+    onError: (error) => {
+      toast({
+        title: "Failed to create record",
+        description:
+          error.message || "An error occurred while creating the record.",
+        variant: "destructive",
+      })
+    },
+  })
+
+  return {
+    createCaseRecord,
+    createCaseRecordIsPending,
+    createCaseRecordError,
+  }
+}
+
+export function useUpdateCaseRecord({
+  caseId,
+  workspaceId,
+}: {
+  caseId: string
+  workspaceId: string
+}) {
+  const queryClient = useQueryClient()
+  const {
+    mutateAsync: updateCaseRecord,
+    isPending: updateCaseRecordIsPending,
+    error: updateCaseRecordError,
+  } = useMutation({
+    mutationFn: async ({
+      caseRecordId,
+      data,
+    }: {
+      caseRecordId: string
+      data: Record<string, unknown>
+    }) => {
+      return await caseRecordsUpdateCaseRecord({
+        caseId,
+        caseRecordId,
+        workspaceId,
+        requestBody: { data },
+      })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["case-records", caseId, workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["case-events", caseId, workspaceId],
+      })
+      toast({
+        title: "Record updated",
+        description: "The record has been successfully updated.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      toast({
+        title: "Failed to update record",
+        description:
+          error.message || "An error occurred while updating the record.",
+        variant: "destructive",
+      })
+    },
+  })
+  return {
+    updateCaseRecord,
+    updateCaseRecordIsPending,
+    updateCaseRecordError,
+  }
+}
+
+export function useDeleteCaseRecord({
+  caseId,
+  workspaceId,
+}: {
+  caseId: string
+  workspaceId: string
+}) {
+  const queryClient = useQueryClient()
+  const {
+    mutateAsync: deleteCaseRecord,
+    isPending: deleteCaseRecordIsPending,
+    error: deleteCaseRecordError,
+  } = useMutation({
+    mutationFn: async (caseRecordId: string) => {
+      return await caseRecordsDeleteCaseRecord({
+        caseId,
+        caseRecordId,
+        workspaceId,
+      })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["case-records", caseId, workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["case-events", caseId, workspaceId],
+      })
+      toast({
+        title: "Record removed",
+        description: "The record has been removed from this case.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      toast({
+        title: "Failed to remove record",
+        description:
+          error.message || "An error occurred while removing the record.",
+        variant: "destructive",
+      })
+    },
+  })
+  return {
+    deleteCaseRecord,
+    deleteCaseRecordIsPending,
+    deleteCaseRecordError,
+  }
+}
+
+export function useUnlinkCaseRecord({
+  caseId,
+  workspaceId,
+}: {
+  caseId: string
+  workspaceId: string
+}) {
+  const queryClient = useQueryClient()
+  const {
+    mutateAsync: unlinkCaseRecord,
+    isPending: unlinkCaseRecordIsPending,
+    error: unlinkCaseRecordError,
+  } = useMutation({
+    mutationFn: async (caseRecordId: string) => {
+      return await caseRecordsUnlinkCaseRecord({
+        caseId,
+        caseRecordId,
+        workspaceId,
+      })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["case-records", caseId, workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["case-events", caseId, workspaceId],
+      })
+      toast({
+        title: "Record unlinked",
+        description: "The record has been unlinked from this case.",
+      })
+    },
+    onError: (error: TracecatApiError) => {
+      toast({
+        title: "Failed to unlink record",
+        description:
+          error.message || "An error occurred while unlinking the record.",
+        variant: "destructive",
+      })
+    },
+  })
+  return {
+    unlinkCaseRecord,
+    unlinkCaseRecordIsPending,
+    unlinkCaseRecordError,
+  }
+}
+
+export { useGetRunbook }
 
 export function useCreateCase(workspaceId: string) {
   const queryClient = useQueryClient()

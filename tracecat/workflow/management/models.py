@@ -33,7 +33,6 @@ class WorkflowRead(BaseModel):
     webhook: WebhookRead
     schedules: list[Schedule]
     entrypoint: str | None
-    static_inputs: dict[str, Any]
     expects: dict[str, ExpectedField] | None = None
     returns: Any
     config: DSLConfig | None
@@ -82,7 +81,6 @@ class WorkflowUpdate(BaseModel):
     version: int | None = None
     entrypoint: str | None = None
     icon_url: str | None = None
-    static_inputs: dict[str, Any] | None = None
     expects: dict[str, ExpectedField] | None = None
     returns: Any | None = None
     config: DSLConfig | None = None

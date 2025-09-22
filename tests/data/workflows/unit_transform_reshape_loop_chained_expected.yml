@@ -11,9 +11,4 @@ ACTIONS:
       - 5
       - 6
     result_typename: "list"
-
-INPUTS:
-  first: 1
-  second: 2
-  list: [1, 2, 3]
 TRIGGER:
